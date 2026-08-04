@@ -1,0 +1,6 @@
+[env]
+_.path = ["./.venv/bin", "./examples/basic-app/.venv/bin"]
+
+[tools]
+python = "3.11"
+uv = "latest"

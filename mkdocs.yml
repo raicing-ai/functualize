@@ -1,0 +1,140 @@
+site_name: Functualize
+site_url: https://raicing-ai.github.io/functualize/
+site_description: A reusable Python CLI framework with auto-discovery, structured run context, layered configuration, and TUI integration.
+repo_url: https://github.com/raicing-ai/functualize
+repo_name: raicing-ai/functualize
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+plugins:
+  - search:
+      lang: en
+      separator: '[\s\-\.]+'
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            members_order: source
+            docstring_style: google
+            merge_init_into_class: true
+            show_if_no_docstring: true
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.details
+  - admonition
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - getting-started/index.md
+    - Installation: getting-started/installation.md
+    - Quickstart: getting-started/quickstart.md
+    - Project Structure: getting-started/project-structure.md
+  - Guides:
+    - guides/index.md
+    - Usage Modes: guides/modes.md
+    - Architecture: guides/architecture.md
+    - Configuration System: guides/configuration.md
+    - Jobs and Auto-Discovery: guides/jobs-discovery.md
+    - Group Options: guides/group-options.md
+    - JobConfig with Pydantic: guides/job-config.md
+    - RunContext Lifecycle: guides/run-context.md
+    - Domain SDKs: guides/domain-sdks.md
+    - AI Capability: guides/ai.md
+    - Workflows: guides/workflows.md
+    - MCP Adapter: guides/mcp.md
+    - Plugins: guides/plugins.md
+    - Interactivity: guides/interactivity.md
+    - TUI Integration: guides/tui.md
+    - Hooks: guides/hooks.md
+    - Hooks vs Plugins: guides/hooks-vs-plugins.md
+    - Hierarchical Projects: hierarchy.md
+    - Hierarchy Validation: guides/hierarchy-validation.md
+    - Shell Capability: guides/shell.md
+    - Task Runner: guides/task-runner.md
+  - API Reference:
+    - api/index.md
+    - Config: api/config.md
+    - Context: api/context.md
+    - Core: api/core.md
+    - Discovery: api/discovery.md
+    - Hierarchy: api/hierarchy.md
+    - Hooks: api/hooks.md
+    - Plugins: api/plugins.md
+    - Validation: api/validation.md
+    - Workflow: api/workflow.md
+  - CLI Reference:
+    - cli/index.md
+    - Aliases: cli/aliases.md
+    - Config: cli/config.md
+    - Discovery: cli/discovery.md
+    - Global Config Directory: cli/global-config-directory.md
+    - Inline TUI: cli/inline-tui.md
+    - Modes: cli/modes.md
+    - Scaffold Commands: cli/scaffold.md
+    - Workflow Commands: cli/workflow.md
+    - User App Commands: cli/user-app.md
+  - Testing:
+    - TUI Command Panel Manual Test: testing/tui-command-panel-manual-test.md
+  - Examples:
+    - examples/index.md
+    - Quickstart (Steps 1-8): examples/quickstart.md
+    - Standalone:
+      - Hello World: examples/standalone/hello-world.md
+      - Inline Dependencies: examples/standalone/inline-dependencies.md
+      - AI Inbound: examples/standalone/ai-inbound.md
+      - AI Outbound: examples/standalone/ai-outbound.md
+    - Project:
+      - HTTP Service (functualize-http): examples/project/http-service.md
+      - Lambda Handler (functualize-lambda): examples/project/lambda-handler.md
+    - Plugins:
+      - Custom State Backend: examples/plugins/custom-state-backend.md
+      - Custom Adapter: examples/plugins/custom-adapter.md
+      - File-Based Plugin: examples/plugins/file-based-plugin.md
+  - Contributing: contributing.md

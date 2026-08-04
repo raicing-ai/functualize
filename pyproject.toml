@@ -1,0 +1,253 @@
+[project]
+name = "functualize"
+version = "0.1.0"
+description = "A reusable Python CLI framework with auto-discovery, structured run context, layered configuration, and TUI integration"
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "Mohammad Hakim Adiprasetya", email = "viltohmyst@gmail.com" }
+]
+requires-python = ">=3.11"
+keywords = ["cli", "framework", "click", "tui", "automation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Typing :: Typed",
+]
+dependencies = [
+    "pydantic>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "jinja2>=3.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/raicing-ai/functualize"
+Repository = "https://github.com/raicing-ai/functualize"
+Issues = "https://github.com/raicing-ai/functualize/issues"
+Changelog = "https://github.com/raicing-ai/functualize/blob/master/CHANGELOG.md"
+
+[project.scripts]
+functualize = "functualize._cli.main:main"
+func = "functualize._cli.main:main"
+
+[project.entry-points."functualize.plugins"]
+
+[project.entry-points."functualize.format_providers"]
+toml = "functualize._config.providers.toml:TomlFormatProvider"
+ini = "functualize._config.providers.ini:IniFormatProvider"
+
+[project.entry-points."functualize.remote_providers"]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.4.0",
+    "hypothesis>=6.82.0",
+    "pytest-cov>=4.1.0",
+    "pytest-xdist>=3.5.0",
+    "pytest-asyncio>=0.23.0",
+    "pexpect>=4.9.0",
+    "pytest-textual-snapshot>=1.0.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    "pre-commit>=4.0.0",
+    "import-linter>=2.0",
+    "invoke>=2.2.0",
+    "debugpy>=1.8.21",
+]
+docs = [
+    "mkdocs>=1.6.0",
+    "mkdocs-material>=9.5.0",
+    "mkdocstrings[python]>=0.25.0",
+]
+
+[project.optional-dependencies]
+cli = [
+    "click>=8.0.0",
+    "rich>=13.0.0",
+    "textual>=8.0",
+    "textual[syntax]>=8.0",
+    "textual-autocomplete>=4.0.0",
+]
+all = [
+    "functualize[cli]",
+    "functualize-state",
+    "functualize-state-sqlite",
+    "functualize-http",
+    "functualize-lambda",
+    "functualize-inline",
+    "functualize-flow-viz",
+    "functualize-ai",
+    "functualize-ai-pydantic",
+    "functualize-tasks",
+    "functualize-tasks-local",
+    "functualize-mcp",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.workspace]
+members = ["plugins/*"]
+
+[tool.uv.sources]
+functualize-state-sqlite = { workspace = true }
+functualize-http = { workspace = true }
+functualize-inline = { workspace = true }
+functualize-flow-viz = { workspace = true }
+functualize-lambda = { workspace = true }
+functualize-state = { workspace = true }
+functualize-ai = { workspace = true }
+functualize-ai-pydantic = { workspace = true }
+functualize-tasks = { workspace = true }
+functualize-tasks-local = { workspace = true }
+functualize-mcp = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/functualize"]
+
+[tool.hatch.build.targets.sdist]
+only-include = [
+    "src/functualize",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = [".*", "*.egg", "_darcs", "build", "CVS", "dist", "node_modules", "venv", "{arch}", "tests/experiments"]
+asyncio_mode = "auto"
+markers = [
+    "slow: marks tests as slow (property-based / hypothesis, skipped unless --run-slow is passed)",
+    "integration: marks tests as integration tests (test plugin loading and cross-module interactions)",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+src = ["src", "tests"]
+extend-exclude = ["tests/experiments"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+    "TCH", # flake8-type-checking
+]
+ignore = [
+    "E501", # line too long (handled by formatter)
+    "TC003", # Move stdlib import into TYPE_CHECKING block (false positive with runtime usage)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"src/functualize/_cli/main.py" = ["E402"]  # Intentional: time import before heavy imports for startup timing
+
+[tool.ruff.lint.isort]
+known-first-party = ["functualize"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+packages = ["functualize"]
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = ["textual.*"]
+ignore_missing_imports = true
+
+[tool.importlinter]
+root_package = "functualize"
+exclude_type_checking_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Peer layers are independent"
+type = "independence"
+modules = [
+    "functualize._discovery",
+    "functualize._config",
+    "functualize._engine",
+    "functualize._plugins",
+    "functualize._gate",
+]
+
+[[tool.importlinter.contracts]]
+name = "Primitives import nothing internal"
+type = "forbidden"
+source_modules = ["functualize._primitives"]
+forbidden_modules = [
+    "functualize._events",
+    "functualize._discovery",
+    "functualize._config",
+    "functualize._engine",
+    "functualize._plugins",
+    "functualize._app",
+    "functualize._cli",
+]
+
+[[tool.importlinter.contracts]]
+name = "Types import nothing internal"
+type = "forbidden"
+source_modules = ["functualize._types"]
+forbidden_modules = [
+    "functualize._primitives",
+    "functualize._events",
+    "functualize._discovery",
+    "functualize._config",
+    "functualize._engine",
+    "functualize._plugins",
+    "functualize._app",
+    "functualize._cli",
+]
+
+[[tool.importlinter.contracts]]
+name = "Internal never imports public"
+type = "forbidden"
+source_modules = [
+    "functualize._types",
+    "functualize._primitives",
+    "functualize._events",
+    "functualize._discovery",
+    "functualize._config",
+    "functualize._engine",
+    "functualize._plugins",
+    "functualize._app",
+]
+forbidden_modules = [
+    "functualize.app",
+    "functualize.job",
+    "functualize.plugin",
+    "functualize.types",
+    "functualize.testing",
+    "functualize.workflow",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "_cli uses public API only"
+type = "forbidden"
+source_modules = ["functualize._cli"]
+forbidden_modules = [
+    "functualize._types",
+    "functualize._primitives",
+    "functualize._events",
+    "functualize._discovery",
+    "functualize._config",
+    "functualize._engine",
+    "functualize._plugins",
+    "functualize._app",
+]
+allow_indirect_imports = true

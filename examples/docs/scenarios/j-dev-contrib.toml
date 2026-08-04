@@ -1,0 +1,53 @@
+[scenario]
+name = "j-dev-contrib"
+version = 1
+description = "Verify all dev workflow commands from contributing.md"
+
+[source]
+file = "docs/contributing.md"
+lines = "370-494"
+description = "Test running and code quality commands"
+
+requires = []
+
+[[steps]]
+engine = "shell"
+description = "uv run pytest (fast tests only)"
+command = "uv run pytest -x -q --no-header 2>&1; echo 'PYTEST_DONE'"
+expected = { stdout_contains = "PYTEST_DONE" }
+timeout = 600
+
+[[steps]]
+engine = "shell"
+description = "uv run ruff check"
+command = "uv run ruff check src/ tests/ 2>&1 && echo 'RUFF_CHECK_OK'"
+expected = { stdout_contains = "RUFF_CHECK_OK", exit_code = 0 }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "uv run ruff format --check"
+command = "uv run ruff format --check src/ tests/ 2>&1 && echo 'RUFF_FORMAT_OK'"
+expected = { stdout_contains = "RUFF_FORMAT_OK", exit_code = 0 }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "uv run mypy src/"
+command = "uv run mypy src/ > /tmp/functualize-mypy.log 2>&1; echo 'MYPY_DONE'"
+expected = { stdout_contains = "MYPY_DONE" }
+timeout = 120
+
+[[steps]]
+engine = "shell"
+description = "uv run lint-imports"
+command = "uv run lint-imports 2>&1; echo 'LINT_IMPORTS_DONE'"
+expected = { stdout_contains = "LINT_IMPORTS_DONE" }
+timeout = 30
+
+[[steps]]
+engine = "shell"
+description = "uv run mkdocs build --strict"
+command = "uv run mkdocs build --strict 2>&1 && echo 'MKDOCS_BUILD_OK'"
+expected = { stdout_contains = "MKDOCS_BUILD_OK", exit_code = 0 }
+timeout = 60

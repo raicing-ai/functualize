@@ -1,0 +1,10 @@
+# Development environment overrides for {{ project_name }}
+# These values override config.base.toml when running in development.
+# Activate with: FUNCTUALIZE_ENV=dev
+
+[general]
+log_level = "debug"
+
+[jobs]
+timeout = 60
+retry_count = 0

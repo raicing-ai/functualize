@@ -1,0 +1,42 @@
+[project]
+name = "functualize-mcp"
+version = "0.1.0"
+description = "MCP delivery adapter plugin for functualize — exposes jobs as MCP tools via FastMCP"
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "Mohammad Hakim Adiprasetya", email = "viltohmyst@gmail.com" }
+]
+requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
+]
+dependencies = [
+    "functualize>=0.1.0,<1.0.0",
+    "fastmcp>=0.1.0",
+]
+
+[project.entry-points."functualize.plugins"]
+mcp = "functualize_mcp:MCPAdapterPlugin"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "hypothesis>=6.82.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+functualize = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/functualize_mcp"]

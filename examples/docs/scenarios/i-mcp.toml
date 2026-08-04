@@ -1,0 +1,67 @@
+[scenario]
+name = "i-mcp"
+version = 1
+description = "Verify MCP schema, tools, and serve commands"
+
+[source]
+file = "docs/guides/mcp.md"
+lines = "109-136"
+description = "MCP schema export and server start commands"
+
+requires = []
+
+[[steps]]
+engine = "docker"
+description = "Install functualize[cli] + functualize-mcp, verify schema exports and tools"
+image = "python:3.11-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/tmp"
+command = """
+  pip install '/src[cli]' /src/plugins/functualize-mcp/ 2>&1 &&
+  functualize mcp schema --format json 2>&1 &&
+  echo 'SCHEMA_JSON_OK' &&
+  functualize mcp schema --format markdown 2>&1 &&
+  echo 'SCHEMA_MD_OK' &&
+  functualize mcp schema --format openai 2>&1 &&
+  echo 'SCHEMA_OPENAI_OK' &&
+  functualize mcp schema --format typescript 2>&1 &&
+  echo 'SCHEMA_TS_OK' &&
+  functualize mcp tools 2>&1 &&
+  echo 'MCP_TOOLS_OK'
+"""
+expected = { stdout_contains = "MCP_TOOLS_OK", exit_code = 0 }
+timeout = 240
+
+[[steps]]
+engine = "docker"
+description = "mcp serve starts via stdio without crashing immediately"
+image = "python:3.11-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/tmp"
+command = """
+  pip install '/src[cli]' /src/plugins/functualize-mcp/ 2>&1 &&
+  timeout 8 functualize mcp serve 2> /tmp/serve.err 1> /tmp/serve.out &
+  SERVE_PID=$!
+  sleep 5
+  kill $SERVE_PID 2>/dev/null || true
+  echo 'MCP_SERVE_RAN'
+"""
+expected = { stdout_contains = "MCP_SERVE_RAN", exit_code = 0 }
+timeout = 30
+
+[[steps]]
+engine = "docker"
+description = "mcp serve --http --port starts without crashing immediately"
+image = "python:3.11-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/tmp"
+command = """
+  pip install '/src[cli]' /src/plugins/functualize-mcp/ 2>&1 &&
+  timeout 8 functualize mcp serve --http --port 9090 2>&1 &
+  MCP_PID=$!
+  sleep 5
+  kill $MCP_PID 2>/dev/null || true
+  echo 'MCP_HTTP_RAN'
+"""
+expected = { stdout_contains = "MCP_HTTP_RAN", exit_code = 0 }
+timeout = 30

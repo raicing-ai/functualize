@@ -1,0 +1,124 @@
+# Scenario template — copy to examples/docs/scenarios/<name>.toml
+
+# ---------- METADATA ----------
+[scenario]
+name = "installation"
+version = 1
+description = "Verify pip install from source works in a clean container"
+
+# ---------- SOURCE TRACEABILITY ----------
+# This is the anchor: maps the scenario back to the doc it verifies.
+# If the doc moves or the line numbers shift, update this block.
+[source]
+file = "docs/getting-started/installation.md"
+lines = "22-24"
+description = "pip install and verify --version"
+# Optional: specific code block identifier (for docs with multiple code blocks)
+# block = "uv-recommended"   # the tab/fence label or heading preceding the block
+
+# ---------- DEPENDENCIES ----------
+# Scenarios this one depends on (they must run first, e.g. build-wheel)
+requires = []
+
+# ---------- ENVIRONMENT ----------
+# Global env vars for all steps
+[env]
+# FOO = "bar"
+
+# ---------- STEPS ----------
+
+# --- Step 1: Build the wheel (shell, host) ---
+[[steps]]
+engine = "shell"
+description = "Build wheel from source"
+command = "uv build --wheel --out-dir /tmp/doc-verify-dist"
+timeout = 60
+expected = { exit_code = 0 }
+
+# --- Step 2: Install in clean container ---
+[[steps]]
+engine = "docker"
+description = "Install from wheel and verify --version"
+image = "python:3.11-slim"
+# Mount the built wheel into the container
+volumes = { "/tmp/doc-verify-dist" = "/dist:ro" }
+command = """
+  pip install /dist/*.whl &&
+  functualize --version
+"""
+expected = { stdout_contains = "functualize", exit_code = 0 }
+timeout = 120
+
+# --- Step 3: Verify func alias works too ---
+[[steps]]
+engine = "docker"
+description = "func alias also works"
+image = "python:3.11-slim"
+volumes = { "/tmp/doc-verify-dist" = "/dist:ro" }
+command = """
+  pip install /dist/*.whl &&
+  func --help
+"""
+expected = { stdout_regex = "(?i)usage:", exit_code = 0 }
+timeout = 120
+
+# ---------- MORE EXAMPLES ----------
+
+# --- Shell step (host): simple command ---
+# [[steps]]
+# engine = "shell"
+# description = "Show help text"
+# command = "func --help"
+# expected = { stdout_contains = "Usage:", exit_code = 0 }
+
+# --- Shell step with env vars ---
+# [[steps]]
+# engine = "shell"
+# description = "Prod config resolution"
+# command = "func forecast --city Tokyo"
+# env = { ENVIRONMENT = "prod", FORECAST_API_URL = "https://api.staging.example.com" }
+# expected = { exit_code = 0 }
+
+# --- Multi-step (nested sub-steps in a single step) ---
+# [[steps]]
+# engine = "shell"
+# description = "Scaffold, add job, run it"
+# steps = [
+#   { command = "cd /tmp/test && func scaffold myapp", expected = { exit_code = 0 } },
+#   { command = "cd /tmp/test/myapp && func sample run", expected = { stdout_contains = "hello-world", exit_code = 0 } },
+# ]
+
+# --- Docker step (network disabled) ---
+# [[steps]]
+# engine = "docker"
+# description = "Offline wheel install"
+# image = "python:3.11-slim"
+# network = "none"
+# volumes = { "/tmp/doc-verify-dist" = "/dist:ro" }
+# command = "pip install --no-index --find-links /dist functualize && func --version"
+# expected = { exit_code = 0 }
+
+# --- PTY step (TUI interaction) ---
+# [[steps]]
+# engine = "pty"
+# description = "TUI SmartBar recognizes ping command"
+# cwd = "examples/standalone/showcase"
+# command = "uv run func"
+# cols = 100
+# rows = 30
+# actions = [
+#   { type = "wait", text = "Type a command", timeout = 20 },
+#   { type = "send", keys = "ping" },
+#   { type = "wait", text = "● Ready" },
+#   { type = "snap", label = "ping-recognized" },
+# ]
+
+# --- Docker step with build context ---
+# [[steps]]
+# engine = "docker"
+# description = "Install with CLI extras"
+# image = "python:3.11-slim"
+# # build_wheel = true   # if set, builds wheel first and mounts it automatically
+# volumes = { "." = "/src:ro" }
+# command = "pip install /src[cli] && func"
+# expected = { stdout_contains = "Functualize", exit_code = 0 }

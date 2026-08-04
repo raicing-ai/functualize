@@ -1,0 +1,20 @@
+[project]
+name = "{{ project_name }}"
+version = "0.1.0"
+description = "A functualize plugin providing custom OutputRenderer and InputProvider"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "functualize>=0.1.0",
+]
+
+[project.entry-points."functualize.plugins"]
+{{ package_name }}-renderer = "{{ package_name }}.renderer:{{ class_name }}Renderer"
+{{ package_name }}-provider = "{{ package_name }}.provider:{{ class_name }}Provider"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/{{ package_name }}"]

@@ -1,0 +1,69 @@
+[scenario]
+name = "f1-tui-smartbar"
+version = 1
+description = "Verify SmartBar readiness colors and autocomplete behavior"
+
+[source]
+file = "docs/cli/inline-tui.md"
+lines = "13-26"
+description = "SmartBar border color states and Tab autocomplete"
+
+requires = []
+
+[[steps]]
+engine = "pty"
+description = "SmartBar READY state and pre-flight for ping job"
+cwd = "examples/standalone/showcase"
+command = "uv run func"
+cols = 100
+rows = 30
+actions = [
+  { type = "wait", text = "Type a command", timeout = 30 },
+  { type = "send", keys = "ping" },
+  { type = "wait", text = "Ready", timeout = 10 },
+  { type = "snap", label = "ping-ready" },
+]
+
+[[steps]]
+engine = "pty"
+description = "SmartBar PENDING state for deploy (missing required args)"
+cwd = "examples/standalone/showcase"
+command = "uv run func"
+cols = 100
+rows = 30
+actions = [
+  { type = "wait", text = "Type a command", timeout = 30 },
+  { type = "send", keys = "<backspace><backspace><backspace><backspace>" },
+  { type = "send", keys = "deploy" },
+  { type = "wait", text = "Pending", timeout = 10 },
+  { type = "snap", label = "deploy-pending" },
+]
+
+[[steps]]
+engine = "pty"
+description = "Tab autocomplete shows suggestions"
+cwd = "examples/standalone/showcase"
+command = "uv run func"
+cols = 100
+rows = 30
+actions = [
+  { type = "wait", text = "Type a command", timeout = 30 },
+  { type = "send", keys = "p" },
+  { type = "send", keys = "<tab>" },
+  { type = "wait", text = "ping", timeout = 10 },
+  { type = "snap", label = "tab-autocomplete" },
+]
+
+[[steps]]
+engine = "pty"
+description = "ping --host flag updates pre-flight field"
+cwd = "examples/standalone/showcase"
+command = "uv run func"
+cols = 100
+rows = 30
+actions = [
+  { type = "wait", text = "Type a command", timeout = 30 },
+  { type = "send", keys = "ping --host 10.0.0.1" },
+  { type = "wait", text = "10.0.0.1", timeout = 10 },
+  { type = "snap", label = "host-updated" },
+]

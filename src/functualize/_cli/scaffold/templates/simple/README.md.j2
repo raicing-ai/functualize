@@ -1,0 +1,71 @@
+# {{ project_name }}
+
+A CLI application built with [functualize](https://github.com/raicing-ai/functualize).
+
+## Usage
+
+Install the project in development mode:
+
+```bash
+pip install -e .
+```
+
+Run the default sample job:
+
+```bash
+{{ project_name }} sample run
+```
+
+Run with options:
+
+```bash
+{{ project_name }} sample run --target "universe" --dry-run
+```
+
+## Configuration
+
+This project uses functualize's layered configuration system. Config files are
+loaded in order of precedence (later overrides earlier):
+
+1. `config.base.toml` — shared defaults for all environments
+2. `config.dev.toml` — development overrides (higher log verbosity, local endpoints)
+3. `config.prod.toml` — production overrides (lower verbosity, real endpoints)
+
+Set the active environment via the `FUNCTUALIZE_ENV` environment variable:
+
+```bash
+export FUNCTUALIZE_ENV=dev   # loads config.base.toml + config.dev.toml
+export FUNCTUALIZE_ENV=prod  # loads config.base.toml + config.prod.toml
+```
+
+Individual values can also be overridden by environment variables using the
+`SECTION_KEY` naming convention (e.g. `SAMPLE_TARGET=world`).
+
+## Extension Points
+
+### Adding a new job
+
+```bash
+func scaffold add job my-new-job
+```
+
+This creates `src/{{ package_name }}/jobs/my_new_job.py` with a starter template
+including a Pydantic config model and RunContext usage.
+
+### Adding a plugin
+
+```bash
+func scaffold add plugin my-plugin
+```
+
+This creates `src/{{ package_name }}/plugins/my_plugin.py` implementing the
+functualize plugin protocol (OutputRenderer or InputProvider).
+
+### Adding a TUI screen
+
+```bash
+func scaffold add tui-screen my-screen
+```
+
+This creates a Textual Screen subclass and associated TCSS stylesheet in
+`src/{{ package_name }}/screens/`.

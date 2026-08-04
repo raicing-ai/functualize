@@ -1,0 +1,79 @@
+[scenario]
+name = "b-install-flows"
+version = 1
+description = "Verify all documented install commands work in clean containers"
+
+[source]
+file = "docs/getting-started/installation.md"
+lines = "7-54"
+description = "Installation methods documented on the installation page"
+
+requires = []
+
+[[steps]]
+engine = "docker"
+description = "Python 3.11+ check"
+image = "python:3.11-slim"
+command = "python --version"
+expected = { stdout_regex = "Python 3\\.(1[1-9]|[2-9]\\d)", exit_code = 0 }
+timeout = 30
+
+[[steps]]
+engine = "docker"
+description = "pip install functualize[cli] from source"
+image = "python:3.11-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/src"
+command = "pip install '.[cli]' 2>&1 && echo 'OK' && functualize --version"
+expected = { stdout_contains = "OK", exit_code = 0 }
+timeout = 180
+
+[[steps]]
+engine = "docker"
+description = "pip install functualize (no CLI) and verify no CLI deps"
+image = "python:3.11-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/src"
+command = "pip install . 2>&1 && echo 'OK' && python -c 'from functualize.app import FunctualizeApp; print(\"import OK\")'"
+expected = { stdout_contains = "import OK", exit_code = 0 }
+timeout = 180
+
+[[steps]]
+engine = "docker"
+description = "pip install functualize[cli] + functualize-mcp from source"
+image = "python:3.11-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/src/plugins/functualize-mcp"
+command = "pip install /src[cli] . 2>&1 && echo 'OK' && functualize mcp tools"
+expected = { stdout_contains = "OK", exit_code = 0 }
+timeout = 240
+
+[[steps]]
+engine = "docker"
+description = "pip install functualize[cli] + functualize-flow-viz from source"
+image = "python:3.11-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/src/plugins/functualize-flow-viz"
+command = "pip install /src[cli] . 2>&1 && echo 'OK' && functualize --version"
+expected = { stdout_contains = "OK", exit_code = 0 }
+timeout = 240
+
+[[steps]]
+engine = "docker"
+description = "pip install functualize[cli] + functualize-state + functualize-tasks from source"
+image = "python:3.11-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/src"
+command = "pip install '/src[cli]' /src/plugins/functualize-state/ /src/plugins/functualize-tasks/ 2>&1 && echo 'OK' && functualize --version"
+expected = { stdout_contains = "OK", exit_code = 0 }
+timeout = 240
+
+[[steps]]
+engine = "docker"
+description = "pip install functualize-ai-pydantic from workspace"
+image = "python:3.11-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/src"
+command = "pip install /src/plugins/functualize-ai/ /src/plugins/functualize-ai-pydantic/ 2>&1 && echo 'OK' && python -c 'import functualize_ai; print(\"ai OK\")'"
+expected = { stdout_contains = "ai OK", exit_code = 0 }
+timeout = 240

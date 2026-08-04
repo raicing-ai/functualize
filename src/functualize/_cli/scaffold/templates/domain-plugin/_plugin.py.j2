@@ -1,0 +1,27 @@
+"""Plugin boot and registration for {{ project_name }}."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    pass
+
+
+class {{ class_name }}Plugin:
+    """{{ description }}
+
+    Registers the {{ provider_name }} provider for the {{ domain_name }} domain.
+    """
+
+    name = "{{ provider_name }}"
+    domain = "{{ domain_name }}"
+
+    def __call__(self, app: Any) -> None:
+        """Boot the plugin and register with the DI registry.
+
+        Args:
+            app: The FunctualizeApp instance.
+        """
+        # TODO: Register your provider implementation with app.provide()
+        pass

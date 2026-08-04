@@ -1,0 +1,21 @@
+"""Textual screen: {{ screen_name }}."""
+
+from textual.app import ComposeResult
+from textual.screen import Screen
+from textual.widgets import Header, Footer, Static
+
+
+class {{ class_name }}(Screen):
+    """A custom Textual screen: {{ screen_name }}."""
+
+    CSS_PATH = "{{ module_name }}.tcss"
+
+    BINDINGS = [
+        ("escape", "app.pop_screen", "Back"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        """Create child widgets for the screen."""
+        yield Header()
+        yield Static("{{ class_name }} — customize this screen", id="content")
+        yield Footer()

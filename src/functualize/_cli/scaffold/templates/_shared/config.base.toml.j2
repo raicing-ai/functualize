@@ -1,0 +1,11 @@
+# Base configuration for {{ project_name }}
+# This file defines default settings shared across all environments.
+# Override values per-environment in config.dev.toml and config.prod.toml.
+
+[general]
+app_name = "{{ project_name }}"
+log_level = "info"
+
+[jobs]
+timeout = 30
+retry_count = 0

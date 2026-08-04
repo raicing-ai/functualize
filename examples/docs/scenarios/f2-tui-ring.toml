@@ -1,0 +1,119 @@
+[scenario]
+name = "f2-tui-ring"
+version = 1
+description = "Verify command ring navigation and panel cycling"
+
+[source]
+file = "docs/testing/tui-command-panel-manual-test.md"
+lines = "61-81"
+description = "Command ring panels and footer zone behavior"
+
+requires = []
+
+[[steps]]
+engine = "pty"
+description = "Ctrl+R opens Config Table panel"
+cwd = "examples/standalone/showcase"
+command = "uv run func"
+cols = 100
+rows = 30
+actions = [
+  { type = "wait", text = "Type a command", timeout = 30 },
+  { type = "send", keys = "ping" },
+  { type = "send", keys = "<ctrl+r>" },
+  { type = "wait", text = "Config Table", timeout = 10 },
+  { type = "snap", label = "ring-config-table" },
+]
+
+[[steps]]
+engine = "pty"
+description = "Ctrl+J cycles to Config Files panel"
+cwd = "examples/standalone/showcase"
+command = "uv run func"
+cols = 100
+rows = 30
+actions = [
+  { type = "wait", text = "Type a command", timeout = 30 },
+  { type = "send", keys = "ping" },
+  { type = "send", keys = "<ctrl+r>" },
+  { type = "wait", text = "Config Table", timeout = 10 },
+  { type = "send", keys = "<ctrl+j>" },
+  { type = "wait", text = "Config Files", timeout = 10 },
+  { type = "snap", label = "ring-config-files" },
+]
+
+[[steps]]
+engine = "pty"
+description = "Ctrl+J again goes to Diff View, Ctrl+K goes back"
+cwd = "examples/standalone/showcase"
+command = "uv run func"
+cols = 100
+rows = 30
+actions = [
+  { type = "wait", text = "Type a command", timeout = 30 },
+  { type = "send", keys = "ping" },
+  { type = "send", keys = "<ctrl+r>" },
+  { type = "wait", text = "Config Table", timeout = 10 },
+  { type = "send", keys = "<ctrl+j>" },
+  { type = "wait", text = "Config Files", timeout = 10 },
+  { type = "send", keys = "<ctrl+j>" },
+  { type = "wait", text = "Diff View", timeout = 10 },
+  { type = "send", keys = "<ctrl+k>" },
+  { type = "wait", text = "Config Files", timeout = 10 },
+  { type = "snap", label = "ring-back-cycle" },
+]
+
+[[steps]]
+engine = "pty"
+description = "i on field activates INSERT mode, Esc returns"
+cwd = "examples/standalone/showcase"
+command = "uv run func"
+cols = 100
+rows = 30
+actions = [
+  { type = "wait", text = "Type a command", timeout = 30 },
+  { type = "send", keys = "ping" },
+  { type = "send", keys = "<ctrl+r>" },
+  { type = "wait", text = "Config Table", timeout = 10 },
+  { type = "send", keys = "i" },
+  { type = "wait", text = "INSERT", timeout = 10 },
+  { type = "send", keys = "<escape>" },
+  { type = "wait", text = "Config Table", timeout = 10 },
+  { type = "snap", label = "insert-escape" },
+]
+
+[[steps]]
+engine = "pty"
+description = "Enter on field drills down, Esc returns"
+cwd = "examples/standalone/showcase"
+command = "uv run func"
+cols = 100
+rows = 30
+actions = [
+  { type = "wait", text = "Type a command", timeout = 30 },
+  { type = "send", keys = "ping" },
+  { type = "send", keys = "<ctrl+r>" },
+  { type = "wait", text = "Config Table", timeout = 10 },
+  { type = "send", keys = "<enter>" },
+  { type = "wait", text = "Detail", timeout = 10 },
+  { type = "snap", label = "detail-drilldown" },
+  { type = "send", keys = "<escape>" },
+  { type = "wait", text = "Config Table", timeout = 10 },
+]
+
+[[steps]]
+engine = "pty"
+description = "Escape closes the entire ring"
+cwd = "examples/standalone/showcase"
+command = "uv run func"
+cols = 100
+rows = 30
+actions = [
+  { type = "wait", text = "Type a command", timeout = 30 },
+  { type = "send", keys = "ping" },
+  { type = "send", keys = "<ctrl+r>" },
+  { type = "wait", text = "Config Table", timeout = 10 },
+  { type = "send", keys = "<escape>" },
+  { type = "wait", text = "ping", timeout = 10 },
+  { type = "snap", label = "ring-closed" },
+]

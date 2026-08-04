@@ -1,0 +1,56 @@
+# Standalone Examples
+
+Jobs run with the `func` CLI, no project scaffolding required. Four
+directories cover everything — each is self-contained, and each README is a
+step-by-step verification checklist you can walk top to bottom.
+
+| Directory | What it covers | Why it's separate |
+|-----------|----------------|-------------------|
+| [`showcase/`](showcase/) | **The main example.** All three CLI modes, the inline TUI (SmartBar flows, autocomplete, value completions, pre-flight ring, config inspector, settings, ambient displays), every rendering surface (panel, live zone, scrollback, full-screen TTY, adaptive), unix-style args + stdin, environment overlays, and AI in both directions (key-free via `MockAI`) | The one directory to `cd` into for "does the whole thing work?" |
+| [`discovery_lab/`](discovery_lab/) | All six discovery filters + `extra_directories` + exclude patterns, flipped per-run via `FUNCTUALIZE_DISCOVERY_*` env vars and CLI flags over a single crafted jobs tree | Filters must start from a *no-filter* project config, which would fight the showcase's job set |
+| [`config_lab/`](config_lab/) | The settings precedence chain: CLI > env > `pyproject.toml` > global config > defaults, with a simulated global config activated via `XDG_CONFIG_HOME` | Needs its own `pyproject.toml` filter and global-config pair where *which job gets listed* proves which layer won |
+| [`deploy_tool/`](deploy_tool/) | **An app that is not `func`.** Its own command name, pyproject table, config file and `DEPLOY_TOOL_*` env prefix; a root flag generated from a setting's `cli_flag`; a `phase="early"` flag read pre-boot; and a bare invocation that opens the interactive shell (`inline_tui = false` to opt out) | The other three configure functualize itself — this one is a *different tool built on it*, which is the only way to show the settings identity and generated flags |
+
+## How `func` works for standalone code
+
+```bash
+# Mode A — run a file directly (no discovery)
+func my-script.py job_name        # name optional if the file has one job
+
+# Mode B — run a discovered job by name
+func deploy --target production
+
+# Mode C — bare func lists jobs; in a terminal it opens the inline TUI
+func
+```
+
+A "job" is any public top-level function; parameters are injected by type
+annotation (a Pydantic config model becomes CLI flags, `RunContext` provides
+logging/invoke/state).
+
+## Quick start
+
+```bash
+pip install "functualize[cli]"     # inside this repo: uv sync --all-extras && uv run func
+
+cd examples/standalone/showcase
+func scripts/hello.py greet --name World   # Mode A
+func healthcheck                           # Mode B
+func                                       # Mode C / inline TUI
+```
+
+Then follow each README's checklist:
+
+1. [`showcase/README.md`](showcase/README.md) — CLI, TUI, surfaces, config inspector, AI
+2. [`discovery_lab/README.md`](discovery_lab/README.md) — the filter matrix, one env var at a time
+3. [`config_lab/README.md`](config_lab/README.md) — the precedence chain, one layer at a time
+
+## Tests
+
+Every directory ships a `test_*.py` proving the job bodies work (TUI/discovery
+behavior is covered by the manual checklists here and the Pilot/integration
+tests under `tests/`):
+
+```bash
+uv run pytest examples/standalone/ -v
+```

@@ -1,0 +1,56 @@
+"""Job module: events — demonstrates event-driven patterns.
+
+Shows how to use rc.emit() to publish structured events that
+other plugins and subscribers can react to.
+"""
+
+from pydantic import BaseModel, Field
+
+from functualize.context import RunContext, RunStatus
+
+JOB_GROUP = "events"
+
+
+class EventsConfig(BaseModel):
+    """Configuration schema for the events job."""
+
+    resource: str = Field(default="data.csv", description="Resource to process")
+    notify: bool = Field(default=True, description="Emit notification events")
+
+
+def run(config: EventsConfig, rc: RunContext) -> None:
+    """Execute the events job demonstrating rc.emit().
+
+    This job shows how to publish structured events using rc.emit().
+    Events are delivered to all registered EventBus subscribers and
+    OutputRenderers, enabling decoupled observation of job progress.
+    """
+    rc.log(f"Starting events job for resource: {config.resource}")
+
+    # Emit a lifecycle event — subscribers can react to job start
+    rc.emit("job.started", resource=config.resource)
+
+    rc.track_phase("load", "Loading resource", RunStatus.RUNNING)
+    rc.emit("resource.loading", resource=config.resource, phase="start")
+
+    # Simulate resource processing
+    rc.log(f"Loaded resource: {config.resource}")
+    rc.emit("resource.loading", resource=config.resource, phase="complete")
+    rc.track_phase("load", "Resource loaded", RunStatus.SUCCESS)
+
+    rc.track_phase("transform", "Transforming data", RunStatus.RUNNING)
+    rc.emit("data.transform", resource=config.resource, records=42)
+    rc.log("Transformed 42 records")
+    rc.track_phase("transform", "Transform complete", RunStatus.SUCCESS)
+
+    # Emit completion event with summary payload
+    if config.notify:
+        rc.emit(
+            "job.completed",
+            resource=config.resource,
+            records_processed=42,
+            status="success",
+        )
+
+    rc.track_run_status(RunStatus.SUCCESS)
+    rc.log("Events job completed")

@@ -1,0 +1,8 @@
+# Project config in the standalone `.functualize.toml` format.
+#
+# This file is used when pyproject.toml has no [tool.functualize] section
+# (or doesn't exist) — keys sit at the root, without the [tool.functualize]
+# wrapper. It carries *tool settings* (discovery, cli, aliases); per-job
+# config VALUES live in the config.<env>.toml layer files next to it.
+
+jobs_directories = ["jobs"]

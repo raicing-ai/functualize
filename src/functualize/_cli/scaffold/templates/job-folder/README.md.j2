@@ -1,0 +1,84 @@
+# {{ project_name }}
+
+A standalone job folder for use with the `func` CLI.
+
+This directory contains jobs that are discoverable and executable via
+`func <file>.py <function>` without requiring a full FunctualizeApp project.
+
+## Usage
+
+Run the sample job:
+
+```bash
+func sample_job.py run
+```
+
+Run a specific function:
+
+```bash
+func sample_job.py greet
+```
+
+Any public function (non-underscore-prefixed) in a Python file within this
+directory is discoverable by `func`'s CWD scan.
+
+## Configuration
+
+This project uses functualize's layered configuration system. Config files are
+loaded in order of precedence (later overrides earlier):
+
+1. `config.base.toml` — shared defaults
+2. `config.dev.toml` — development overrides (create as needed)
+3. `config.prod.toml` — production overrides (create as needed)
+
+Set the active environment via the `FUNCTUALIZE_ENV` environment variable:
+
+```bash
+export FUNCTUALIZE_ENV=dev   # loads config.base.toml + config.dev.toml
+export FUNCTUALIZE_ENV=prod  # loads config.base.toml + config.prod.toml
+```
+
+## Extension Points
+
+### Adding a new job
+
+Create a new Python file in this directory with public functions:
+
+```python
+from functualize.context import RunContext
+
+def my_task(rc: RunContext) -> None:
+    rc.log("Running my task")
+```
+
+Then invoke it with:
+
+```bash
+func my_task.py my_task
+```
+
+### Adding a file-based plugin
+
+Place a plugin file in `.functualize/plugins/`. Plugins are callable classes
+with a `name` attribute that implement lifecycle methods:
+
+```python
+class MyPlugin:
+    name = "my-plugin"
+
+    def on_job_start(self, rc):
+        pass  # called before each job
+
+    def on_job_end(self, rc):
+        pass  # called after each job
+```
+
+### Graduating to a full project
+
+When your job folder grows complex enough to need a `FunctualizeApp`, use:
+
+```bash
+func scaffold init my-project --template simple
+```
+
+Then move your jobs into the generated `src/<package>/jobs/` directory.

@@ -1,0 +1,3 @@
+[cli]
+output = "plain"
+show_timing = false

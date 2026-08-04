@@ -1,0 +1,35 @@
+"""Plugin: {{ plugin_name }}.
+
+Register this plugin in your pyproject.toml:
+
+    [project.entry-points."functualize.plugins"]
+    {{ plugin_name }} = "{{ module_name }}:register"
+"""
+
+from functualize.app import FunctualizeApp
+
+
+# Plugin metadata — required by the functualize plugin protocol.
+name = "{{ plugin_name }}"
+version = "0.1.0"
+description = "A functualize plugin: {{ plugin_name }}"
+
+
+def register(app: FunctualizeApp) -> None:
+    """Register this plugin with the functualize application.
+
+    This function is called by the plugin loader during boot.
+    Use it to register DI capabilities, add commands, or add lifecycle hooks.
+
+    Args:
+        app: The FunctualizeApp instance to extend.
+    """
+    # Example: register a DI capability
+    # app.provide(MyService, MyServiceImpl())
+
+    # Example: register a plugin command
+    # app.register_plugin_command("my-cmd", my_handler, "Description")
+
+    # Example: register a lifecycle hook
+    # app.hook_registry.register_global("before_job", my_before_hook)
+    pass

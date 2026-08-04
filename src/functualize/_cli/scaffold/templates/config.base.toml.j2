@@ -1,0 +1,36 @@
+# Base configuration for {{ project_name }}
+# This file is loaded by functualize's Configuration system.
+# Values here can be overridden by environment-specific files (config.{env}.toml)
+# and by environment variables using the convention: SECTION_KEY (uppercased).
+#
+# Remote provider annotations use the "provider://reference" syntax.
+# Examples:
+#   api_key = "vault://secrets/my-app/api-key"
+#   db_password = "aws-sm://prod/db-password"
+#   token = "vault://secrets/token | aws-sm://fallback/token"
+
+[general]
+# General application settings
+app_name = "{{ project_name }}"
+log_level = "INFO"
+
+[jobs]
+# Default settings shared across all jobs
+# Individual jobs can override these in their own sections.
+timeout = 30
+retry_count = 0
+
+[sample]
+# Configuration for the sample job (matches JOB_GROUP = "sample")
+target = "default-target"
+dry_run = false
+# Example: fetch a secret from a remote provider
+# api_key = "vault://secrets/{{ project_name }}/sample-api-key"
+
+# [children]
+# Hierarchical child projects — each key becomes a CLI namespace.
+# Values are paths (absolute, relative to this config dir, or glob patterns).
+# Examples:
+#   my-tool = "/path/to/my-tool-project"
+#   tickets = "~/code/tickets/*"
+#   utils = "../shared-utils"

@@ -1,0 +1,34 @@
+"""Tests for {{ project_name }}."""
+
+from __future__ import annotations
+
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
+from {{ package_name }} import {{ class_name }}Plugin
+
+
+class Test{{ class_name }}Plugin:
+    """Unit tests for {{ class_name }}Plugin."""
+
+    def test_plugin_has_correct_name(self) -> None:
+        """Plugin exposes the correct provider name."""
+        assert {{ class_name }}Plugin.name == "{{ provider_name }}"
+
+    def test_plugin_has_correct_domain(self) -> None:
+        """Plugin targets the correct domain."""
+        assert {{ class_name }}Plugin.domain == "{{ domain_name }}"
+
+
+class Test{{ class_name }}Properties:
+    """Property-based tests for {{ project_name }}.
+
+    **Validates: Requirements {{ domain_name }} domain**
+    """
+
+    @given(st.text(min_size=1, max_size=50))
+    @settings(max_examples=10)
+    def test_plugin_instantiation_is_stable(self, name: str) -> None:
+        """Plugin class can be instantiated without errors."""
+        plugin = {{ class_name }}Plugin()
+        assert plugin.name == "{{ provider_name }}"

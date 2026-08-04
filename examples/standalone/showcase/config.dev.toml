@@ -1,0 +1,10 @@
+# DEV overlay — active by default. The environment comes from
+# FUNCTUALIZE_ENV > ENVIRONMENT > ENV, defaulting to DEV, so this file is
+# merged on top of config.base.toml unless you select another environment.
+#
+# Try: FUNCTUALIZE_ENV=prod func   → this overlay goes inert and the
+# `release` job falls back to the base values (us-east-1, 2 replicas).
+[release]
+environment = "dev"
+region = "us-west-2"
+replicas = 1

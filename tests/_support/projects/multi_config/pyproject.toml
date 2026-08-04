@@ -1,0 +1,13 @@
+[project]
+name = "multi-config-test-project"
+version = "0.1.0"
+
+[tool.functualize.discovery]
+require_file_import = "functualize"
+
+[tool.functualize.cli]
+output = "plain"
+
+[tool.functualize.aliases]
+d = "deploy"
+p = "provision"

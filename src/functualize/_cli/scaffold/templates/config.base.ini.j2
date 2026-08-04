@@ -1,0 +1,28 @@
+# Base configuration for {{ project_name }}
+# This file is loaded by functualize's Configuration system.
+# Values here can be overridden by environment-specific files (config.{env}.ini)
+# and by environment variables using the convention: SECTION_KEY (uppercased).
+
+[general]
+# General application settings
+app_name = {{ project_name }}
+log_level = INFO
+
+[jobs]
+# Default settings shared across all jobs
+# Individual jobs can override these in their own sections.
+timeout = 30
+retry_count = 0
+
+[sample]
+# Configuration for the sample job (matches JOB_GROUP = "sample")
+target = default-target
+dry_run = false
+
+# [children]
+# Hierarchical child projects — each key becomes a CLI namespace.
+# Values are paths (absolute, relative to this config dir, or glob patterns).
+# Examples:
+#   my-tool = /path/to/my-tool-project
+#   tickets = ~/code/tickets/*
+#   utils = ../shared-utils

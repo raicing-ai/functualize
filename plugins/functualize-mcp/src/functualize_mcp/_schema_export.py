@@ -1,0 +1,286 @@
+"""Multi-format schema export for functualize jobs.
+
+Exports job schemas in MCP tool definition (JSON), Markdown parameter
+tables, OpenAI function calling JSON, and TypeScript type definitions.
+
+Used by ``func mcp schema --format {json|markdown|openai|typescript}``
+and ``func mcp tools`` CLI commands.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from functualize_mcp._translator import (
+    JobToolTranslator,
+    MCPToolDef,
+    read_cached_group_options,
+)
+
+__all__ = ["SchemaExporter"]
+
+
+# Mapping from JSON Schema types to TypeScript types.
+_TS_TYPE_MAP: dict[str, str] = {
+    "string": "string",
+    "integer": "number",
+    "number": "number",
+    "boolean": "boolean",
+    "array": "unknown[]",
+    "object": "Record<string, unknown>",
+}
+
+
+class SchemaExporter:
+    """Exports job schemas in multiple formats.
+
+    Takes a list of JobDescriptors (or pre-translated MCPToolDefs) and
+    produces output in the requested format:
+
+    - **json**: MCP tool definition format (JSON Schema per tool)
+    - **markdown**: Parameters table per job
+    - **openai**: OpenAI function calling JSON
+    - **typescript**: TypeScript type definitions (interfaces per job config)
+    """
+
+    def __init__(self, translator: JobToolTranslator | None = None) -> None:
+        self._translator = translator or JobToolTranslator(read_cached_group_options())
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def export_json(self, descriptors: list[Any]) -> str:
+        """Export job schemas as JSON in MCP tool definition format.
+
+        Each tool is represented as an object with name, description,
+        and inputSchema fields conforming to the MCP protocol.
+
+        Args:
+            descriptors: List of JobDescriptors to export.
+
+        Returns:
+            A JSON string containing an array of MCP tool definitions.
+        """
+        tool_defs = self._translate_descriptors(descriptors)
+        tools = []
+        for tool_def in tool_defs:
+            tool_entry: dict[str, Any] = {
+                "name": tool_def.name,
+                "description": tool_def.description,
+                "inputSchema": tool_def.input_schema,
+            }
+            if tool_def.annotations:
+                tool_entry["annotations"] = tool_def.annotations
+            tools.append(tool_entry)
+        return json.dumps(tools, indent=2)
+
+    def export_markdown(self, descriptors: list[Any]) -> list[tuple[str, str]]:
+        """Export job schemas as Markdown parameter tables.
+
+        Returns one (name, markdown_content) tuple per job. Each markdown
+        document contains the tool description, a parameters table with
+        columns for Name, Type, Required, Default, and Description, plus
+        tags and annotations if present.
+
+        Args:
+            descriptors: List of JobDescriptors to export.
+
+        Returns:
+            A list of (job_name, markdown_string) tuples.
+        """
+        tool_defs = self._translate_descriptors(descriptors)
+        results: list[tuple[str, str]] = []
+
+        for tool_def in tool_defs:
+            md = self._tool_def_to_markdown(tool_def)
+            results.append((tool_def.name, md))
+
+        return results
+
+    def export_openai(self, descriptors: list[Any]) -> str:
+        """Export job schemas in OpenAI function calling JSON format.
+
+        Produces a JSON array of function definitions compatible with
+        OpenAI's Chat Completions API ``tools`` parameter.
+
+        Args:
+            descriptors: List of JobDescriptors to export.
+
+        Returns:
+            A JSON string containing an array of OpenAI function tool objects.
+        """
+        tool_defs = self._translate_descriptors(descriptors)
+        functions = []
+        for tool_def in tool_defs:
+            fn_def: dict[str, Any] = {
+                "type": "function",
+                "function": {
+                    "name": tool_def.name,
+                    "description": tool_def.description,
+                    "parameters": tool_def.input_schema,
+                },
+            }
+            functions.append(fn_def)
+        return json.dumps(functions, indent=2)
+
+    def export_typescript(self, descriptors: list[Any]) -> str:
+        """Export job schemas as TypeScript type definitions.
+
+        Generates one interface per job config model, with each field
+        typed according to its JSON Schema type. Includes JSDoc comments
+        for descriptions.
+
+        Args:
+            descriptors: List of JobDescriptors to export.
+
+        Returns:
+            A string containing TypeScript interface definitions.
+        """
+        tool_defs = self._translate_descriptors(descriptors)
+        parts: list[str] = []
+
+        parts.append("// Auto-generated TypeScript definitions for functualize jobs")
+        parts.append("// Generated by functualize MCP schema exporter")
+        parts.append("")
+
+        for tool_def in tool_defs:
+            ts_interface = self._tool_def_to_typescript(tool_def)
+            parts.append(ts_interface)
+
+        return "\n".join(parts)
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _translate_descriptors(self, descriptors: list[Any]) -> list[MCPToolDef]:
+        """Translate JobDescriptors into MCPToolDefs.
+
+        If descriptors are already MCPToolDef instances, returns them as-is.
+        Otherwise translates each through the JobToolTranslator.
+        """
+        if not descriptors:
+            return []
+        # Check if already translated
+        if isinstance(descriptors[0], MCPToolDef):
+            return descriptors  # type: ignore[return-value]
+        return [self._translator.translate(d) for d in descriptors]
+
+    def _tool_def_to_markdown(self, tool_def: MCPToolDef) -> str:
+        """Convert an MCPToolDef to a markdown document with parameters table."""
+        lines: list[str] = []
+
+        # Title
+        lines.append(f"# {tool_def.name}")
+        lines.append("")
+
+        # Description
+        if tool_def.description:
+            lines.append(tool_def.description)
+            lines.append("")
+
+        # Parameters table
+        properties = tool_def.input_schema.get("properties", {})
+        required_fields = tool_def.input_schema.get("required", [])
+
+        if properties:
+            lines.append("## Parameters")
+            lines.append("")
+            lines.append("| Name | Type | Required | Default | Description |")
+            lines.append("|------|------|----------|---------|-------------|")
+
+            for name, schema in properties.items():
+                field_type = schema.get("type", "string")
+                is_required = name in required_fields
+                default = schema.get("default", "-")
+                description = schema.get("description", "")
+
+                # Format enum choices
+                if "enum" in schema:
+                    description += (
+                        f" (choices: {', '.join(str(c) for c in schema['enum'])})"
+                    )
+
+                required_str = "Yes" if is_required else "No"
+                default_str = str(default) if default != "-" else "-"
+
+                lines.append(
+                    f"| {name} | {field_type} | {required_str} | {default_str} | {description} |"
+                )
+
+            lines.append("")
+
+        # Tags/annotations
+        if tool_def.annotations:
+            lines.append("## Annotations")
+            lines.append("")
+            for key, value in tool_def.annotations.items():
+                if isinstance(value, list):
+                    lines.append(f"- **{key}**: {', '.join(str(v) for v in value)}")
+                else:
+                    lines.append(f"- **{key}**: {value}")
+            lines.append("")
+
+        return "\n".join(lines)
+
+    def _tool_def_to_typescript(self, tool_def: MCPToolDef) -> str:
+        """Convert an MCPToolDef to a TypeScript interface definition."""
+        lines: list[str] = []
+
+        # Interface name: PascalCase from snake_case/kebab-case job name
+        interface_name = self._to_pascal_case(tool_def.name) + "Config"
+
+        # JSDoc comment
+        if tool_def.description:
+            lines.append("/**")
+            # Limit description to first line for the JSDoc summary
+            first_line = tool_def.description.split("\n")[0]
+            lines.append(f" * {first_line}")
+            lines.append(" */")
+
+        lines.append(f"export interface {interface_name} {{")
+
+        properties = tool_def.input_schema.get("properties", {})
+        required_fields = tool_def.input_schema.get("required", [])
+
+        for name, schema in properties.items():
+            is_required = name in required_fields
+            ts_type = self._json_schema_to_ts_type(schema)
+            optional = "" if is_required else "?"
+
+            # Add field description as inline comment
+            description = schema.get("description", "")
+            if description:
+                lines.append(f"  /** {description} */")
+
+            lines.append(f"  {name}{optional}: {ts_type};")
+
+        lines.append("}")
+        lines.append("")
+
+        return "\n".join(lines)
+
+    def _json_schema_to_ts_type(self, schema: dict[str, Any]) -> str:
+        """Map a JSON Schema property definition to a TypeScript type."""
+        # Handle enum types
+        if "enum" in schema:
+            enum_values = schema["enum"]
+            return " | ".join(f'"{v}"' for v in enum_values)
+
+        json_type = schema.get("type", "string")
+
+        # Handle array with items
+        if json_type == "array":
+            items = schema.get("items", {})
+            item_type = _TS_TYPE_MAP.get(items.get("type", ""), "unknown")
+            return f"{item_type}[]"
+
+        return _TS_TYPE_MAP.get(json_type, "unknown")
+
+    def _to_pascal_case(self, name: str) -> str:
+        """Convert a snake_case or kebab-case name to PascalCase."""
+        # Split on underscores and hyphens
+        parts = name.replace("-", "_").split("_")
+        return "".join(part.capitalize() for part in parts if part)

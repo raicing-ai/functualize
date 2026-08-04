@@ -1,0 +1,43 @@
+"""Job module: sample."""
+
+from pydantic import BaseModel, Field
+
+from functualize.context import RunContext, RunStatus
+
+# Group all functions in this module under the "sample" sub-command.
+JOB_GROUP = "sample"
+
+
+class SampleConfig(BaseModel):
+    """Configuration schema for the sample job.
+
+    Values are resolved from (highest to lowest precedence):
+    1. CLI arguments (--target, --dry-run)
+    2. Environment variables (SAMPLE_TARGET, SAMPLE_DRY_RUN)
+    3. Config file [sample] section
+    4. Model defaults below
+    """
+
+    target: str = Field(default="world", description="Target resource to greet")
+    dry_run: bool = Field(default=False, description="Run without side effects")
+
+
+def run(config: SampleConfig, rc: RunContext) -> None:
+    """Execute the sample job.
+
+    Demonstrates:
+    - Pydantic config model for typed, validated job configuration
+    - RunContext for logging, workflow tracking, and status reporting
+    """
+    rc.log(f"Starting sample job targeting: {config.target}")
+
+    rc.track_phase("greet", "Preparing greeting", RunStatus.RUNNING)
+
+    if config.dry_run:
+        rc.log("Dry run mode — skipping actual work", level="warning")
+    else:
+        rc.log(f"Hello, {config.target}!")
+
+    rc.track_phase("greet", "Greeting complete", RunStatus.SUCCESS)
+    rc.track_run_status(RunStatus.SUCCESS)
+    rc.log("Sample job completed successfully")

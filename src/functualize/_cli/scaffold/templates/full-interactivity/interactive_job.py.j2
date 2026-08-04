@@ -1,0 +1,62 @@
+"""Job module: interactive — demonstrates interactive prompts.
+
+Shows how to use RunContext's prompt methods for user interaction:
+- rc.prompt_confirm() — yes/no confirmation
+- rc.prompt_choice() — select from a list of options
+- rc.prompt_text() — free-form text input
+"""
+
+from pydantic import BaseModel, Field
+
+from functualize.context import RunContext, RunStatus
+
+JOB_GROUP = "interactive"
+
+
+class InteractiveConfig(BaseModel):
+    """Configuration schema for the interactive job."""
+
+    greeting: str = Field(default="Hello", description="Greeting prefix")
+    skip_prompts: bool = Field(default=False, description="Skip interactive prompts")
+
+
+def run(config: InteractiveConfig, rc: RunContext) -> None:
+    """Execute the interactive job demonstrating prompt methods.
+
+    This job shows how to collect user input using RunContext's
+    built-in prompt convenience methods.
+    """
+    rc.log("Starting interactive job")
+    rc.track_phase("setup", "Initializing", RunStatus.RUNNING)
+
+    if config.skip_prompts:
+        rc.log("Skipping prompts (--skip-prompts enabled)")
+        rc.track_phase("setup", "Setup complete", RunStatus.SUCCESS)
+        rc.track_run_status(RunStatus.SUCCESS)
+        return
+
+    # Demonstrate rc.prompt_text() — free-form text input
+    name = rc.prompt_text("What is your name?", default="World")
+    rc.log(f"{config.greeting}, {name}!")
+
+    # Demonstrate rc.prompt_choice() — select from options
+    color = rc.prompt_choice(
+        "Pick your favorite color:",
+        ["red", "green", "blue", "yellow"],
+    )
+    rc.log(f"You chose: {color}")
+
+    # Demonstrate rc.prompt_confirm() — yes/no confirmation
+    proceed = rc.prompt_confirm("Would you like to continue?")
+
+    rc.track_phase("setup", "Setup complete", RunStatus.SUCCESS)
+
+    if proceed:
+        rc.track_phase("process", "Processing", RunStatus.RUNNING)
+        rc.log(f"Processing with color={color} for {name}")
+        rc.track_phase("process", "Done", RunStatus.SUCCESS)
+    else:
+        rc.log("User chose not to continue")
+
+    rc.track_run_status(RunStatus.SUCCESS)
+    rc.log("Interactive job completed")

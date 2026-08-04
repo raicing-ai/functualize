@@ -1,0 +1,3 @@
+[cli]
+output = "json"
+show_timing = true

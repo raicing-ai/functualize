@@ -1,0 +1,33 @@
+"""Standalone job module for {{ project_name }}.
+
+Run this job with:
+    func sample_job.py run
+    func sample_job.py greet
+"""
+
+from functualize.context import RunContext
+
+
+def run(rc: RunContext) -> None:
+    """Execute the default job action.
+
+    This function is discoverable by the `func` CLI via:
+        func sample_job.py run
+
+    Args:
+        rc: The RunContext providing logging and workflow tracking.
+    """
+    rc.log("Starting {{ project_name }} job")
+    rc.log("Job completed successfully")
+
+
+def greet(rc: RunContext) -> None:
+    """Greet the user — demonstrates multiple discoverable functions.
+
+    Invokable via:
+        func sample_job.py greet
+
+    Args:
+        rc: The RunContext providing logging and workflow tracking.
+    """
+    rc.log("Hello from {{ project_name }}!")

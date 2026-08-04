@@ -1,0 +1,18 @@
+# Simulated global config. In practice this file lives at
+# $XDG_CONFIG_HOME/functualize/config.toml (~/.config/functualize/config.toml).
+# The lab activates it without touching your real one:
+#
+#   XDG_CONFIG_HOME=$PWD/xdg func
+
+[discovery]
+# Global default filter — overridden by this project's pyproject.toml ("job_").
+require_file_prefix = "task_"
+
+[cli]
+# Settings the project does NOT define fall through to this layer.
+output = "plain"
+show_timing = true
+
+[aliases]
+d = "deploy"
+b = "build"

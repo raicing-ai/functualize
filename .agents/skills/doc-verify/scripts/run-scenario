@@ -1,0 +1,807 @@
+#!/usr/bin/env python3
+"""Doc-V Scenario Runner — execute doc verification scenarios.
+
+Usage:
+    python run-scenario [options] <scenario.toml|directory/>
+
+Options:
+    --timeout N      Global timeout override (seconds, default 120)
+    --engine X       Force engine: shell, docker, pty
+    --match GLOB     Only run scenarios matching glob pattern
+    --keep-containers  Don't remove Docker containers after test
+    --json FILE      Write JSON report to FILE
+    --skip-pty       Skip PTY steps (for non-TTY environments)
+    --audit          Audit mode: scan docs for verifiable code blocks
+    --dry-run        Print steps without executing
+    --report MODE    Report mode: interim (YAML), final (markdown), json, none
+"""
+from __future__ import annotations
+
+import argparse
+import fnmatch
+import json
+import os
+import re
+import subprocess
+import sys
+import textwrap
+import time
+import tomllib
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+# ── Project root resolution ──────────────────────────────────────────
+ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+SCENARIOS_DIR = ROOT / "examples" / "docs" / "scenarios"
+SKILL_DIR = ROOT / ".agents" / "skills" / "doc-verify"
+TUI_PROBE = ROOT / ".claude" / "skills" / "observe-tui" / "scripts" / "tui_probe.py"
+
+# ── Data structures ──────────────────────────────────────────────────
+
+@dataclass
+class SourceRef:
+    file: str
+    lines: str
+    description: str
+    block: str | None = None
+
+@dataclass
+class ScenarioResult:
+    name: str
+    source: SourceRef
+    status: str  # pass | fail | skip | error
+    steps: list[StepResult] = field(default_factory=list)
+    duration: float = 0.0
+    error: str | None = None
+
+@dataclass
+class StepResult:
+    index: int
+    description: str
+    engine: str
+    status: str  # pass | fail | skip | error
+    duration: float = 0.0
+    expected: str = ""
+    actual: str = ""
+    diff: str = ""
+    error: str = ""
+
+@dataclass
+class RunReport:
+    run_id: str
+    scenarios: list[ScenarioResult]
+    total: int = 0
+    passed: int = 0
+    failed: int = 0
+    skipped: int = 0
+    errors: int = 0
+    duration: float = 0.0
+
+# ── TOML parser ──────────────────────────────────────────────────────
+
+def load_scenario(path: Path) -> dict[str, Any]:
+    """Load and validate a TOML scenario file. Returns parsed dict or raises."""
+    if not path.exists():
+        raise FileNotFoundError(f"Scenario file not found: {path}")
+    with open(path, "rb") as f:
+        data = tomllib.load(f)
+
+    # Validate required top-level sections
+    if "scenario" not in data:
+        raise ValueError(f"Missing [scenario] section in {path}")
+    if "source" not in data:
+        raise ValueError(f"Missing [source] section in {path}")
+    if "steps" not in data or not data["steps"]:
+        raise ValueError(f"Missing or empty [[steps]] in {path}")
+
+    sc = data["scenario"]
+    for key in ("name", "version", "description"):
+        if key not in sc:
+            raise ValueError(f"Missing scenario.{key} in {path}")
+
+    src = data["source"]
+    for key in ("file", "lines", "description"):
+        if key not in src:
+            raise ValueError(f"Missing source.{key} in {path}")
+
+    return data
+
+def parse_source(data: dict) -> SourceRef:
+    src = data["source"]
+    return SourceRef(
+        file=src["file"],
+        lines=str(src["lines"]),
+        description=src["description"],
+        block=src.get("block"),
+    )
+
+# ── Engine: Shell ────────────────────────────────────────────────────
+
+def run_shell_step(step: dict, g_env: dict, timeout: int, dry_run: bool) -> StepResult:
+    cmd = step.get("command", "")
+    cwd = Path(step["cwd"]) if step.get("cwd") else None
+    env = os.environ.copy()
+    env.update(g_env)
+    env.update(step.get("env", {}))
+
+    if dry_run:
+        return StepResult(
+            index=0, description=step["description"], engine="shell",
+            status="skip", expected=str(step.get("expected", "")), actual="(dry-run)"
+        )
+
+    start = time.monotonic()
+    try:
+        result = subprocess.run(
+            cmd, shell=True, capture_output=True, text=True,
+            timeout=timeout, cwd=cwd, env=env,
+        )
+    except subprocess.TimeoutExpired as e:
+        return StepResult(
+            index=0, description=step["description"], engine="shell",
+            status="fail", duration=timeout,
+            expected=str(step.get("expected")),
+            actual=f"(timeout after {timeout}s)",
+            error=f"Command timed out: {e}",
+        )
+    except Exception as e:
+        return StepResult(
+            index=0, description=step["description"], engine="shell",
+            status="error", duration=time.monotonic() - start,
+            expected=str(step.get("expected")), error=str(e),
+        )
+
+    duration = time.monotonic() - start
+    assertions = assert_output(result, step.get("expected", {}))
+    return _build_step_result(step, "shell", duration, result.stdout, result.stderr, assertions)
+
+# ── Engine: Docker ───────────────────────────────────────────────────
+
+def detect_container_engine() -> str:
+    """Return 'podman', 'docker', or raise."""
+    for name in ("podman", "docker"):
+        if subprocess.run(["which", name], capture_output=True).returncode == 0:
+            return name
+    raise RuntimeError("Neither podman nor docker found on PATH")
+
+def run_docker_step(step: dict, g_env: dict, timeout: int, dry_run: bool) -> StepResult:
+    image = step.get("image", "python:3.11-slim")
+    command = step.get("command", "")
+    volumes = step.get("volumes", {})
+    network = step.get("network", "bridge")
+    workdir = step.get("workdir", "/tmp")
+    engine = detect_container_engine()
+
+    if dry_run:
+        return StepResult(
+            index=0, description=step["description"], engine="docker",
+            status="skip", expected=str(step.get("expected", "")), actual="(dry-run)"
+        )
+
+    # Build docker run args
+    args = [engine, "run", "--rm"]
+    if network == "none":
+        args.append("--network=none")
+    args.extend(["-w", workdir])
+
+    for host_path, container_spec in volumes.items():
+        args.extend(["-v", f"{host_path}:{container_spec}"])
+
+    # Env vars
+    env = {**g_env, **step.get("env", {})}
+    for k, v in env.items():
+        args.extend(["-e", f"{k}={v}"])
+
+    args.append(image)
+    args.extend(["bash", "-c", command])
+
+    start = time.monotonic()
+    try:
+        result = subprocess.run(
+            args, capture_output=True, text=True, timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return StepResult(
+            index=0, description=step["description"], engine="docker",
+            status="fail", duration=timeout,
+            expected=str(step.get("expected")),
+            actual=f"(timeout after {timeout}s)",
+            error="Container execution timed out",
+        )
+    except Exception as e:
+        return StepResult(
+            index=0, description=step["description"], engine="docker",
+            status="error", error=str(e),
+        )
+
+    duration = time.monotonic() - start
+    assertions = assert_output(result, step.get("expected", {}))
+    return _build_step_result(step, "docker", duration, result.stdout, result.stderr, assertions)
+
+# ── Engine: PTY ──────────────────────────────────────────────────────
+
+def run_pty_step(step: dict, g_env: dict, timeout: int, dry_run: bool) -> StepResult:
+    """Delegate to tui_probe.py for PTY-based TUI/CLI interaction."""
+    if not TUI_PROBE.exists():
+        return StepResult(
+            index=0, description=step["description"], engine="pty",
+            status="error",
+            error=f"PTY probe not found at {TUI_PROBE}",
+        )
+
+    command = step.get("command", "")
+    cwd_arg = ROOT / step["cwd"] if step.get("cwd") else ROOT
+    cols = step.get("cols", 100)
+    rows = step.get("rows", 30)
+    actions = step.get("actions", [])
+
+    if dry_run:
+        return StepResult(
+            index=0, description=step["description"], engine="pty",
+            status="skip", expected=f"{len(actions)} PTY actions", actual="(dry-run)"
+        )
+
+    # Build tui_probe.py invocation
+    # Note: Textual 8.x inline TUI output is captured as text by pyte
+    # Visual assertions (colors, bold) are NOT possible — only text content.
+    probe_cmd = [
+        "uv", "run", "--with", "pyte", "python", str(TUI_PROBE),
+        "--cwd", str(cwd_arg),
+        "--cols", str(cols), "--rows", str(rows),
+        "--timeout", str(timeout),
+    ]
+
+    for action in actions:
+        atype = action["type"]
+        if atype == "wait":
+            probe_cmd.extend(["--step", f"wait:{action['text']}"])
+        elif atype == "send":
+            probe_cmd.extend(["--step", f"send:{action['keys']}"])
+        elif atype == "snap":
+            label = action.get("label", "snapshot")
+            probe_cmd.extend(["--step", f"snap:{label}"])
+        elif atype == "sleep":
+            probe_cmd.extend(["--step", f"sleep:{action['duration']}"])
+        else:
+            return StepResult(
+                index=0, description=step["description"], engine="pty",
+                status="error",
+                error=f"Unknown PTY action type: {atype}",
+            )
+
+    probe_cmd.extend(["--", "bash", "-c", command])
+
+    start = time.monotonic()
+    try:
+        result = subprocess.run(
+            probe_cmd, capture_output=True, text=True, timeout=timeout + 30,
+            cwd=ROOT, env={**os.environ, **g_env},
+        )
+    except subprocess.TimeoutExpired:
+        return StepResult(
+            index=0, description=step["description"], engine="pty",
+            status="fail", duration=timeout + 30,
+            actual=f"(timeout after {timeout + 30}s)",
+            error="PTY probe timed out",
+        )
+    except Exception as e:
+        return StepResult(
+            index=0, description=step["description"], engine="pty",
+            status="error", error=str(e),
+        )
+
+    duration = time.monotonic() - start
+
+    # tui_probe.py exit codes: 0 = scenario completed, 2 = wait timed out
+    if result.returncode == 2:
+        return StepResult(
+            index=0, description=step["description"], engine="pty",
+            status="fail", duration=duration,
+            expected=f"All {len(actions)} PTY actions to succeed",
+            actual=result.stdout[-500:] if result.stdout else "(no output)",
+            error="PTY wait timed out — expected text never appeared on screen",
+        )
+    elif result.returncode != 0:
+        return StepResult(
+            index=0, description=step["description"], engine="pty",
+            status="fail", duration=duration,
+            actual=result.stderr or result.stdout,
+            error=f"PTY probe exited {result.returncode}",
+        )
+
+    return StepResult(
+        index=0, description=step["description"], engine="pty",
+        status="pass", duration=duration,
+        expected=f"{len(actions)} PTY actions",
+        actual=f"Completed ({result.returncode})",
+    )
+
+# ── Assertions ───────────────────────────────────────────────────────
+
+def assert_output(result: subprocess.CompletedProcess, expected: dict) -> list[str]:
+    """Run assertions against command output. Returns list of failure messages."""
+    failures = []
+    stdout = result.stdout or ""
+    stderr = result.stderr or ""
+
+    if "exit_code" in expected:
+        if result.returncode != expected["exit_code"]:
+            failures.append(
+                f"exit_code: expected {expected['exit_code']}, got {result.returncode}"
+            )
+    if "stdout_contains" in expected:
+        if expected["stdout_contains"] not in stdout:
+            failures.append(
+                f"stdout_contains: '{expected['stdout_contains']}' not found in stdout"
+            )
+    if "stdout_not_contains" in expected:
+        if expected["stdout_not_contains"] in stdout:
+            failures.append(
+                f"stdout_not_contains: '{expected['stdout_not_contains']}' found in stdout"
+            )
+    if "stderr_contains" in expected:
+        if expected["stderr_contains"] not in stderr:
+            failures.append(
+                f"stderr_contains: '{expected['stderr_contains']}' not found in stderr"
+            )
+    if "stderr_empty" in expected and expected["stderr_empty"]:
+        if stderr.strip():
+            failures.append(f"stderr_empty: expected empty, got: {stderr[:200]}")
+    if "stdout_regex" in expected:
+        if not re.search(expected["stdout_regex"], stdout, re.DOTALL):
+            failures.append(
+                f"stdout_regex: pattern '{expected['stdout_regex']}' did not match"
+            )
+    if "stdout_exact" in expected:
+        if stdout.strip() != expected["stdout_exact"].strip():
+            failures.append("stdout_exact: output does not match exactly")
+
+    return failures
+
+def _build_step_result(step: dict, engine: str, duration: float,
+                       stdout: str, stderr: str,
+                       failures: list[str]) -> StepResult:
+    if failures:
+        combined = stdout
+        if stderr.strip():
+            combined += f"\n--- stderr ---\n{stderr}"
+        return StepResult(
+            index=0, description=step["description"], engine=engine,
+            status="fail", duration=duration,
+            expected=str(step.get("expected")),
+            actual=combined[:2000],
+            diff="\n".join(failures),
+        )
+    return StepResult(
+        index=0, description=step["description"], engine=engine,
+        status="pass", duration=duration,
+        expected=str(step.get("expected")),
+    )
+
+# ── Multi-step execution ────────────────────────────────────────────
+
+def run_substep(parent: dict, substep: dict, g_env: dict,
+                timeout: int, dry_run: bool) -> StepResult:
+    """Run a single sub-step command inside a parent step context."""
+    merged = {**parent, **substep, "engine": parent["engine"]}
+    return run_step(merged, g_env, timeout, dry_run)
+
+def run_step(step: dict, g_env: dict, timeout: int, dry_run: bool) -> StepResult:
+    """Dispatch a step to the correct engine."""
+    engine = step.get("engine", "shell")
+
+    if engine == "shell":
+        return run_shell_step(step, g_env, timeout, dry_run)
+    elif engine == "docker":
+        return run_docker_step(step, g_env, timeout, dry_run)
+    elif engine == "pty":
+        return run_pty_step(step, g_env, timeout, dry_run)
+    else:
+        return StepResult(
+            index=0, description=step.get("description", "unknown"), engine=engine,
+            status="error", error=f"Unknown engine: {engine}",
+        )
+
+# ── Scenario execution ──────────────────────────────────────────────
+
+def run_scenario(data: dict, args: argparse.Namespace) -> ScenarioResult:
+    """Execute all steps in a scenario."""
+    sc = data["scenario"]
+    src = parse_source(data)
+    steps = data["steps"]
+    g_env = data.get("env", {})
+    timeout = args.timeout
+
+    result = ScenarioResult(name=sc["name"], source=src, status="pending")
+    start = time.monotonic()
+
+    for i, step in enumerate(steps):
+        description = step.get("description", f"Step {i + 1}")
+        engine = step.get("engine", "shell")
+
+        if args.engine and engine != args.engine:
+            sr = StepResult(
+                index=i, description=description, engine=engine,
+                status="skip",
+                expected="", actual=f"(engine override: only running {args.engine})",
+            )
+            result.steps.append(sr)
+            continue
+
+        if args.skip_pty and engine == "pty":
+            sr = StepResult(
+                index=i, description=description, engine=engine,
+                status="skip",
+                expected="", actual="(--skip-pty flag)",
+            )
+            result.steps.append(sr)
+            continue
+
+        # Handle sub-steps
+        if "steps" in step:
+            for j, substep in enumerate(step["steps"]):
+                sr = run_substep(step, substep, g_env, timeout, args.dry_run)
+                sr.index = j
+                result.steps.append(sr)
+        else:
+            sr = run_step(step, g_env, timeout, args.dry_run)
+            sr.index = i
+            result.steps.append(sr)
+
+        # Stop on first failure
+        if sr.status in ("fail", "error"):
+            break
+
+    result.duration = time.monotonic() - start
+
+    # Determine overall status
+    statuses = [s.status for s in result.steps]
+    if any(s == "error" for s in statuses):
+        result.status = "error"
+    elif any(s == "fail" for s in statuses):
+        result.status = "fail"
+    elif all(s == "skip" for s in statuses):
+        result.status = "skip"
+    else:
+        result.status = "pass"
+
+    return result
+
+# ── Reports ──────────────────────────────────────────────────────────
+
+def format_interim(results: list[ScenarioResult]) -> str:
+    """YAML-format interim report for agent consumption."""
+    lines = [f"run_id: {int(time.time())}"]
+    completed = [r for r in results if r.status != "skip"]
+    lines.append(f"status: {'complete' if completed else 'partial'}")
+    lines.append(f"total_scenarios: {len(results)}")
+    lines.append(f"completed: {len(completed)}")
+    lines.append(f"passed: {sum(1 for r in results if r.status == 'pass')}")
+    lines.append(f"failed: {sum(1 for r in results if r.status == 'fail')}")
+    lines.append(f"skipped: {sum(1 for r in results if r.status == 'skip')}")
+    lines.append("scenarios:")
+
+    for r in results:
+        lines.append(f"  - name: \"{r.name}\"")
+        lines.append(f"    source: \"{r.source.file}:{r.source.lines}\"")
+        lines.append(f"    status: \"{r.status}\"")
+        lines.append(f"    duration: {r.duration:.1f}")
+        if r.status == "fail" and r.steps:
+            failed = next((s for s in r.steps if s.status == "fail"), None)
+            if failed:
+                lines.append(f"    failure:")
+                lines.append(f"      step: {failed.index}")
+                lines.append(f"      expected: \"{failed.expected[:200]}\"")
+                lines.append(f"      actual: \"{failed.diff[:200]}\"")
+        if r.error:
+            lines.append(f"    error: \"{r.error}\"")
+
+    return "\n".join(lines)
+
+def format_final(results: list[ScenarioResult]) -> str:
+    """Markdown final report for human consumption."""
+    lines = [
+        f"# Doc Verification Report — {time.strftime('%Y-%m-%d %H:%M')}",
+        "",
+        "## Summary",
+        "",
+        "| | Count |",
+        "|---|---|",
+        f"| Total scenarios | {len(results)} |",
+        f"| Passed | {sum(1 for r in results if r.status == 'pass')} |",
+        f"| Failed | {sum(1 for r in results if r.status == 'fail')} |",
+        f"| Errors | {sum(1 for r in results if r.status == 'error')} |",
+        f"| Skipped | {sum(1 for r in results if r.status == 'skip')} |",
+        f"| Duration | {sum(r.duration for r in results):.1f}s |",
+        "",
+        "## By doc page",
+        "",
+        "| Doc | Scenarios | Status |",
+        "|---|---|---|",
+    ]
+
+    # Group by doc file
+    by_doc: dict[str, list[ScenarioResult]] = {}
+    for r in results:
+        doc = r.source.file
+        by_doc.setdefault(doc, []).append(r)
+    for doc, scenarios in sorted(by_doc.items()):
+        names = ", ".join(s.name for s in scenarios)
+        status_set = {s.status for s in scenarios}
+        if "fail" in status_set or "error" in status_set:
+            emoji = "❌"
+        elif "skip" in status_set and status_set == {"skip"}:
+            emoji = "⏭️"
+        else:
+            emoji = "✅"
+        lines.append(f"| `{doc}` | {len(scenarios)} ({names}) | {emoji} |")
+
+    # Failures section
+    failures = [r for r in results if r.status == "fail"]
+    if failures:
+        lines.append("")
+        lines.append("## Failures")
+        lines.append("")
+        for r in failures:
+            lines.append(f"### ❌ `{r.name}` — `{r.source.file}:{r.source.lines}`")
+            lines.append("")
+            for s in r.steps:
+                if s.status == "fail":
+                    lines.append(f"**Step {s.index + 1}**: {s.description}")
+                    lines.append(f"- **Expected**: `{s.expected}`")
+                    if s.diff:
+                        lines.append(f"- **Diff**:")
+                        for dline in s.diff.split("\n")[:10]:
+                            lines.append(f"  {dline}")
+                    lines.append("")
+
+    # Errors section
+    errors = [r for r in results if r.status == "error"]
+    if errors:
+        lines.append("")
+        lines.append("## Errors")
+        lines.append("")
+        for r in errors:
+            lines.append(f"- **{r.name}**: {r.error or 'Unknown error'}")
+
+    # Skipped section
+    skipped = [r for r in results if r.status == "skip"]
+    if skipped:
+        lines.append("")
+        lines.append("## Skipped")
+        lines.append("")
+        lines.append("| Scenario | Reason |")
+        lines.append("|---|---|")
+        for r in skipped:
+            reason = r.steps[0].actual if r.steps else "Unknown"
+            lines.append(f"| `{r.name}` | {reason} |")
+
+    return "\n".join(lines)
+
+def format_json(results: list[ScenarioResult]) -> str:
+    """JSON machine-readable report."""
+    out = []
+    for r in results:
+        out.append({
+            "name": r.name,
+            "source": f"{r.source.file}:{r.source.lines}",
+            "status": r.status,
+            "duration": r.duration,
+            "steps": [
+                {
+                    "index": s.index,
+                    "description": s.description,
+                    "engine": s.engine,
+                    "status": s.status,
+                    "duration": s.duration,
+                    "expected": s.expected[:500],
+                    "actual": s.actual[:500] if s.status != "pass" else None,
+                    "error": s.error,
+                }
+                for s in r.steps
+            ],
+        })
+    return json.dumps(out, indent=2)
+
+# ── Discovery ────────────────────────────────────────────────────────
+
+def discover_scenarios(directory: Path, pattern: str | None = None) -> list[Path]:
+    """Find all .toml scenario files in directory, optionally filtered by glob."""
+    if not directory.exists():
+        print(f"Warning: scenario directory not found: {directory}", file=sys.stderr)
+        return []
+    files = sorted(directory.glob("*.toml"))
+    if pattern:
+        files = [f for f in files if fnmatch.fnmatch(f.stem, pattern)]
+    return files
+
+# ── Audit mode ───────────────────────────────────────────────────────
+
+def audit_docs(docs_dir: Path) -> str:
+    """Scan docs for verifiable code blocks and print candidates."""
+    lines_out = ["# Doc Audit — Verifiable Code Blocks", ""]
+    docs = sorted(docs_dir.rglob("*.md"))
+
+    for doc_path in docs:
+        full = doc_path.resolve() if not doc_path.is_absolute() else doc_path
+        try:
+            rel = full.relative_to(ROOT)
+        except ValueError:
+            rel = doc_path
+        try:
+            content = full.read_text()
+        except Exception:
+            continue
+
+        doc_lines = content.split("\n")
+        in_block = False
+        block_lang = ""
+        block_start = 0
+        block_lines: list[str] = []
+
+        for i, line in enumerate(doc_lines, 1):
+            stripped = line.strip()
+            if stripped.startswith("```"):
+                if in_block:
+                    # End of block
+                    block_text = "\n".join(block_lines)
+                    is_verifiable = _is_verifiable(block_lang, block_text)
+                    if is_verifiable:
+                        lines_out.append(f"## {rel}:L{block_start}-{i}")
+                        lines_out.append(f"```{block_lang}")
+                        lines_out.append(block_text[:500])
+                        lines_out.append("```")
+                        lines_out.append(f"Status: ✅ VERIFIABLE")
+                        lines_out.append("")
+                    elif block_lang in ("bash", "sh", "console", "shell"):
+                        reason = _skip_reason(block_text)
+                        lines_out.append(f"## {rel}:L{block_start}-{i}")
+                        lines_out.append(f"Status: ⏭️ SKIP — {reason}")
+                        lines_out.append("")
+                    in_block = False
+                    block_lang = ""
+                    block_lines = []
+                else:
+                    in_block = True
+                    block_lang = stripped[3:].strip()
+                    block_start = i + 1
+            elif in_block:
+                block_lines.append(line)
+
+    return "\n".join(lines_out)
+
+def _is_verifiable(lang: str, text: str) -> bool:
+    """Check if a code block is executable, deterministic, and isolatable."""
+    if lang not in ("bash", "sh", "console", "shell"):
+        return False
+    if not text.strip():
+        return False
+    # Skip blocks with non-deterministic content
+    skip_patterns = [
+        r"\$\{",           # template variables
+        r"\.\.\.",         # ellipsis (placeholder)
+        r"curl\s",         # network calls
+        r"wget\s",         # network calls
+        r"git\s+clone",    # repo cloning
+        r"\bsudo\b",       # privileged
+        r"\bdocker\s+run", # nested containers
+        r"ssh\s",          # remote connections
+        r"<your-",         # placeholder values
+        r"\bxxx\b",        # placeholder
+    ]
+    for pat in skip_patterns:
+        if re.search(pat, text):
+            return False
+    return True
+
+def _skip_reason(text: str) -> str:
+    if re.search(r"\$\{", text):
+        return "contains template variables"
+    if re.search(r"\.\.\.", text):
+        return "contains ellipsis placeholder"
+    if re.search(r"curl\s", text):
+        return "network call (non-deterministic)"
+    if re.search(r"git\s+clone", text):
+        return "git clone (external dependency)"
+    if re.search(r"\bsudo\b", text):
+        return "requires sudo"
+    if re.search(r"\bdocker\s+run", text):
+        return "nested containers"
+    return "non-deterministic or external dependency"
+
+# ── Main ─────────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Doc-V Scenario Runner — verify documentation by running commands",
+    )
+    parser.add_argument(
+        "target", nargs="?", default=str(SCENARIOS_DIR),
+        help="Scenario file or directory (default: examples/docs/scenarios/)",
+    )
+    parser.add_argument("--timeout", type=int, default=120, help="Global timeout (seconds)")
+    parser.add_argument("--engine", choices=["shell", "docker", "pty"], help="Force engine")
+    parser.add_argument("--match", help="Only run scenarios matching glob pattern")
+    parser.add_argument("--keep-containers", action="store_true", help="Keep Docker containers")
+    parser.add_argument("--json", help="Write JSON report to FILE")
+    parser.add_argument("--skip-pty", action="store_true", help="Skip PTY steps")
+    parser.add_argument("--audit", action="store_true", help="Audit docs for verifiable blocks")
+    parser.add_argument("--dry-run", action="store_true", help="Print steps without executing")
+    parser.add_argument(
+        "--report", choices=["interim", "final", "json", "none"], default="final",
+        help="Report mode",
+    )
+    args = parser.parse_args()
+
+    # Audit mode
+    if args.audit:
+        docs_dir = Path(args.target) if args.target != str(SCENARIOS_DIR) else ROOT / "docs"
+        print(audit_docs(docs_dir))
+        return 0
+
+    # Discover scenarios
+    target = Path(args.target)
+    if target.is_dir():
+        scenario_files = discover_scenarios(target, args.match)
+    elif target.is_file():
+        scenario_files = [target]
+    else:
+        print(f"Error: {args.target} is neither a file nor directory", file=sys.stderr)
+        return 2
+
+    if not scenario_files:
+        print("No scenarios found.", file=sys.stderr)
+        return 0
+
+    # Execute
+    results: list[ScenarioResult] = []
+    for sf in scenario_files:
+        print(f"\n{'='*60}")
+        print(f"Scenario: {sf.stem}")
+        print(f"{'='*60}")
+        try:
+            data = load_scenario(sf)
+        except (ValueError, FileNotFoundError, tomllib.TOMLDecodeError) as e:
+            print(f"  ❌ Error loading: {e}")
+            results.append(ScenarioResult(
+                name=sf.stem, source=SourceRef(file="", lines="", description=""),
+                status="error", error=str(e),
+            ))
+            continue
+
+        r = run_scenario(data, args)
+        results.append(r)
+
+        # Print step results
+        for s in r.steps:
+            icon = {"pass": "✅", "fail": "❌", "skip": "⏭️", "error": "💥"}.get(s.status, "?")
+            print(f"  {icon} [{s.engine}] {s.description} ({s.duration:.1f}s)")
+            if s.status == "fail" and s.diff:
+                for dline in s.diff.split("\n")[:5]:
+                    print(f"      {dline}")
+
+    # Report
+    if args.report == "interim":
+        report = format_interim(results)
+        tmp = Path("/tmp/doc-verify-interim.yaml")
+        tmp.write_text(report)
+        print(f"\nInterim report written to {tmp}")
+    elif args.report == "final":
+        print(format_final(results))
+    elif args.report == "json":
+        print(format_json(results))
+
+    if args.json:
+        Path(args.json).write_text(format_json(results))
+        print(f"JSON report written to {args.json}")
+
+    # Exit code
+    if any(r.status == "error" for r in results):
+        return 2
+    if any(r.status == "fail" for r in results):
+        return 1
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())

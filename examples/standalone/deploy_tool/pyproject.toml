@@ -1,0 +1,25 @@
+[project]
+name = "deploy-tool"
+version = "0.1.0"
+description = "A self-contained functualize app — its own name, settings file, and env prefix."
+requires-python = ">=3.11"
+dependencies = ["functualize[cli]"]
+
+[project.scripts]
+deploy-tool = "deploy_tool.main:main"
+
+[tool.deploy-tool]
+jobs_directories = ["jobs"]
+
+[tool.deploy-tool.cli]
+# Bare `deploy-tool` at a TTY opens the interactive shell (convergence C3.3).
+# Set false to make a bare invocation print help instead, like a conventional
+# CLI. Shown explicitly here because the example exists to demonstrate it.
+inline_tui = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["deploy_tool"]

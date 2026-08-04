@@ -1,0 +1,10 @@
+"""Main plugin module for {{ project_name }}.
+
+This module serves as the central entry point for the plugin package.
+It re-exports the renderer and provider for convenient access.
+"""
+
+from {{ package_name }}.provider import {{ class_name }}Provider
+from {{ package_name }}.renderer import {{ class_name }}Renderer
+
+__all__ = ["{{ class_name }}Renderer", "{{ class_name }}Provider"]

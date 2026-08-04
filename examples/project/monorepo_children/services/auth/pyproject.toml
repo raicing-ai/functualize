@@ -1,0 +1,8 @@
+[project]
+name = "auth-service"
+version = "0.1.0"
+description = "Auth service child project — jobs discovered by parent"
+requires-python = ">=3.11"
+dependencies = [
+    "functualize>=0.2.0",
+]

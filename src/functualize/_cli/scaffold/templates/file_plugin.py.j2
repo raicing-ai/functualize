@@ -1,0 +1,50 @@
+"""File-based plugin: {{ plugin_name }}.
+
+Place this file in `.functualize/plugins/` for automatic discovery.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from functualize.context import RunContext
+
+
+class {{ class_name }}Plugin:
+    """A file-based plugin for {{ plugin_name }}.
+
+    File-based plugins are callable classes with a `name` attribute.
+    They implement lifecycle methods from the plugin protocol to hook
+    into job execution.
+    """
+
+    name = "{{ plugin_name }}"
+
+    def __call__(self, rc: RunContext) -> None:
+        """Execute the plugin's default action.
+
+        Called when the plugin is invoked directly.
+
+        Args:
+            rc: The RunContext for the current job execution.
+        """
+        rc.log(f"Plugin '{self.name}' activated")
+
+    def before_job(self, rc: RunContext) -> None:
+        """Hook called before each job execution.
+
+        Args:
+            rc: The RunContext for the upcoming job execution.
+        """
+        # TODO: Add pre-job logic here.
+        pass
+
+    def after_success(self, rc: RunContext) -> None:
+        """Hook called after a job completes successfully.
+
+        Args:
+            rc: The RunContext for the completed job execution.
+        """
+        # TODO: Add post-success logic here.
+        pass

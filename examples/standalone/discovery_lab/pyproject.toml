@@ -1,0 +1,12 @@
+[tool.functualize]
+jobs_directories = ["jobs"]
+
+[tool.functualize.discovery]
+# No require_* filters here — the lab starts in baseline convention mode and
+# every filter is applied per-run via FUNCTUALIZE_DISCOVERY_* env vars or CLI
+# flags (see README.md).
+#
+# extra_directories adds a second scan root so the lab can demonstrate
+# "global" jobs merged into a project. In real usage this setting lives in
+# ~/.config/functualize/config.toml and points at ~/.config/functualize/jobs.
+extra_directories = ["global"]

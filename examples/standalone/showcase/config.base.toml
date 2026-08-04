@@ -1,0 +1,21 @@
+# Base config — merged in every environment (config.<env>.toml overlays it).
+#
+# The [tui] section holds the inline-TUI settings. default_surface is the
+# TUI-level rendering preference in the surface-resolution ladder:
+#   requires_tty (a tty: TTY param)  →  EXCLUSIVE   (always wins)
+#   job metadata hint                →  panel | stdout
+#   tui.default_surface (this)       →  panel | stdout
+#   framework default                →  panel (in the TUI)
+#
+# Override per-run with the env var:  FUNCTUALIZE_TUI_DEFAULT_SURFACE=stdout func
+[tui]
+default_surface = "panel"
+
+# Baseline values for the `release` job (see jobs/configcheck.py). The DEV
+# overlay in config.dev.toml overrides some of these — drill into a field
+# from the TUI's Config Table to see the full resolution chain.
+[release]
+region = "us-east-1"
+replicas = 2
+timeout = 60
+api_key = "sk-from-base-config-77777"

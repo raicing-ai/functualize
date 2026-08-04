@@ -1,0 +1,40 @@
+[project]
+name = "functualize-http"
+version = "0.1.0"
+description = "HTTP delivery adapter plugin for functualize using asyncio"
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "Mohammad Hakim Adiprasetya", email = "viltohmyst@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "functualize>=0.1.0,<1.0.0",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
+]
+
+[project.entry-points."functualize.plugins"]
+http = "functualize_http:HttpAdapter"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+functualize = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/functualize_http"]

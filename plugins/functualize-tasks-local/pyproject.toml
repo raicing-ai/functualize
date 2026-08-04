@@ -1,0 +1,42 @@
+[project]
+name = "functualize-tasks-local"
+version = "0.1.0"
+description = "Local state-backed task storage plugin for functualize"
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "Mohammad Hakim Adiprasetya", email = "viltohmyst@gmail.com" }
+]
+requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
+]
+dependencies = [
+    "functualize-tasks>=0.1.0,<1.0.0",
+    "functualize-state>=0.1.0,<1.0.0",
+]
+
+[project.entry-points."functualize.tasks_providers"]
+local = "functualize_tasks_local:LocalTasksPlugin"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+functualize-tasks = { workspace = true }
+functualize-state = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/functualize_tasks_local"]

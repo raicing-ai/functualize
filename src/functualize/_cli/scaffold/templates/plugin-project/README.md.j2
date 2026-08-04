@@ -1,0 +1,58 @@
+# {{ project_name }}
+
+A functualize plugin providing custom OutputRenderer and InputProvider implementations.
+
+## Usage
+
+Install the plugin in development mode:
+
+```bash
+pip install -e .
+```
+
+Once installed, functualize will discover this plugin automatically via the
+`functualize.plugins` entry point group defined in `pyproject.toml`.
+
+### Verify plugin discovery
+
+```bash
+func plugins list
+```
+
+You should see `{{ package_name }}-renderer` and `{{ package_name }}-provider` listed.
+
+## Configuration
+
+This plugin uses functualize's layered configuration system. Config files are
+loaded in order of precedence (later overrides earlier):
+
+1. `config.base.toml` — shared defaults for all environments
+2. `config.dev.toml` — development overrides (higher log verbosity, local endpoints)
+3. `config.prod.toml` — production overrides (lower verbosity, real endpoints)
+
+Set the active environment via the `FUNCTUALIZE_ENV` environment variable:
+
+```bash
+export FUNCTUALIZE_ENV=dev   # loads config.base.toml + config.dev.toml
+export FUNCTUALIZE_ENV=prod  # loads config.base.toml + config.prod.toml
+```
+
+## Extension Points
+
+### OutputRenderer protocol
+
+The `{{ class_name }}Renderer` class in `renderer.py` implements the OutputRenderer
+protocol. Override the `render()` method to customize how job output is displayed.
+
+### InputProvider protocol
+
+The `{{ class_name }}Provider` class in `provider.py` implements the InputProvider
+protocol. Override the `provide()` method to customize how input is collected.
+
+### Adding more plugin components
+
+You can add additional plugin classes by:
+
+1. Creating a new module in `src/{{ package_name }}/`
+2. Adding a new entry point in `pyproject.toml` under `[project.entry-points."functualize.plugins"]`
+3. Implementing the appropriate protocol (OutputRenderer, InputProvider, or LifecycleHook)

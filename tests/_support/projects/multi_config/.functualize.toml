@@ -1,0 +1,6 @@
+# This file should be IGNORED when pyproject.toml has [tool.functualize]
+[discovery]
+require_file_import = "should_not_be_used"
+
+[cli]
+output = "json"

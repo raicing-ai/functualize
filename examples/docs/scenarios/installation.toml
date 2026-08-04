@@ -1,0 +1,51 @@
+# Scenario: Verify the installation instructions in docs/getting-started/installation.md
+#
+# This scenario tests:
+#   - Line 7-9:   python --version (Python 3.11+ available in container)
+#   - Line 22-24: pip install functualize (the simple install path)
+#   - Line 40-41: func --version (verify the CLI works after install)
+
+[scenario]
+name = "installation"
+version = 1
+description = "Verify pip install functualize and func --version work in a clean Python 3.11 container"
+
+[source]
+file = "docs/getting-started/installation.md"
+lines = "7-41"
+description = "Full installation flow: Python version check, pip install, and func --version verification"
+
+# ── No dependencies: container provides Python ──
+requires = []
+
+# ── Step 1: Python version (doc lines 7-9) ──
+[[steps]]
+engine = "docker"
+description = "Python 3.11+ is available in the container"
+image = "python:3.11-slim"
+command = "python --version"
+expected = { stdout_regex = "Python 3\\.(1[1-9]|[2-9]\\d)", exit_code = 0 }
+timeout = 30
+
+# ── Step 2: pip install (doc lines 22-24) ──
+[[steps]]
+engine = "docker"
+description = "pip install functualize succeeds in a clean environment"
+image = "python:3.11-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/src"
+command = "pip install . 2>&1 && echo 'PIP_INSTALL_OK'"
+expected = { stdout_contains = "PIP_INSTALL_OK", exit_code = 0 }
+timeout = 180
+
+# ── Step 3: functualize --version (doc lines 43-45) ──
+[[steps]]
+engine = "docker"
+description = "functualize --version works after --cli install"
+image = "python:3.11-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/src"
+# CLI extras are opt-in, so this step installs with the [cli] flag
+command = "pip install '.[cli]' 2>&1 && functualize --version"
+expected = { stdout_contains = "functualize", exit_code = 0 }
+timeout = 180

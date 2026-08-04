@@ -1,0 +1,13 @@
+# Base configuration for {{ project_name }}
+# This file is loaded by functualize's Configuration system.
+# Values here can be overridden by environment-specific files (config.{env}.toml)
+# and by environment variables using the convention: SECTION_KEY (uppercased).
+
+[general]
+# General settings for this job folder
+app_name = "{{ project_name }}"
+log_level = "info"
+
+[plugins]
+# Plugin configuration
+enabled = true

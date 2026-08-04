@@ -1,0 +1,9 @@
+[tool.functualize]
+jobs_directories = ["jobs"]
+
+[tool.functualize.discovery]
+# Project layer of the precedence chain. The simulated global config
+# (xdg/functualize/config.toml) says "task_" — this project setting beats it,
+# so `func` lists `deploy` (from job_deploy.py), not `build`.
+# Env vars and CLI flags in turn beat this — see README.md.
+require_file_prefix = "job_"

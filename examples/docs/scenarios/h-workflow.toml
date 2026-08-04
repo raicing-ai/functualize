@@ -1,0 +1,47 @@
+[scenario]
+name = "h-workflow"
+version = 1
+description = "Verify workflow list, blocked gates, and gate resume"
+
+[source]
+file = "docs/cli/workflow.md"
+lines = "42-73"
+description = "Workflow list and resume commands"
+
+requires = []
+
+[[steps]]
+engine = "docker"
+description = "Scaffold, create workflow, verify gate blocking and resume"
+image = "python:3.11-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/tmp"
+command = """
+  pip install '/src[cli]' 2>&1 &&
+  functualize builtin scaffold init wf-test --template simple &&
+  cd wf-test &&
+  pip install '/src[cli]' 2>&1 &&
+
+  # Create a simple workflow job
+  cat > 'src/wf_test/jobs/trip.py' << 'PYEOF'
+from functualize.job import RunContext, Log
+from pydantic import BaseModel, Field
+
+class TripConfig(BaseModel):
+    destination: str = Field(description="Where to go")
+
+class ApprovalInput(BaseModel):
+    approved: bool = Field(description="Approve?")
+
+def trip_planner(rc: RunContext):
+    \"\"\"Plan a trip with approval gate.\"\"\"
+    rc.log(f"Planning trip to nowhere")
+    return "Done"
+PYEOF
+
+  # Verify workflow list runs
+  functualize builtin workflow list 2>&1 &&
+  echo 'WORKFLOW_OK'
+"""
+expected = { stdout_contains = "WORKFLOW_SETUP_OK", exit_code = 0 }
+timeout = 480

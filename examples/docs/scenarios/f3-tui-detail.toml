@@ -1,0 +1,93 @@
+[scenario]
+name = "f3-tui-detail"
+version = 1
+description = "Verify Detail screen markers, editing, TOML save, and discard"
+
+[source]
+file = "docs/cli/inline-tui.md"
+lines = "73-98"
+description = "Detail screen markers and keybinding behavior"
+
+requires = []
+
+[[steps]]
+engine = "pty"
+description = "Enter on field → Detail view with ★/●/— markers"
+cwd = "examples/standalone/showcase"
+command = "uv run func"
+cols = 100
+rows = 30
+actions = [
+  { type = "wait", text = "Type a command", timeout = 30 },
+  { type = "send", keys = "ping" },
+  { type = "send", keys = "<ctrl+r>" },
+  { type = "wait", text = "Config Table", timeout = 10 },
+  { type = "send", keys = "<enter>" },
+  { type = "wait", text = "Detail", timeout = 10 },
+  { type = "snap", label = "detail-markers" },
+]
+
+[[steps]]
+engine = "pty"
+description = "i on Detail row → INSERT mode, Enter confirms, returns to table"
+cwd = "examples/standalone/showcase"
+command = "uv run func"
+cols = 100
+rows = 30
+actions = [
+  { type = "wait", text = "Type a command", timeout = 30 },
+  { type = "send", keys = "ping" },
+  { type = "send", keys = "<ctrl+r>" },
+  { type = "wait", text = "Config Table", timeout = 10 },
+  { type = "send", keys = "<enter>" },
+  { type = "wait", text = "Detail", timeout = 10 },
+  { type = "send", keys = "i" },
+  { type = "wait", text = "INSERT", timeout = 10 },
+  { type = "send", keys = "test-value<enter>" },
+  { type = "snap", label = "detail-edited" },
+]
+
+[[steps]]
+engine = "pty"
+description = "d toggles row removal (staged, not written), d again untoggles, Esc discards"
+cwd = "examples/standalone/showcase"
+command = "uv run func"
+cols = 100
+rows = 30
+actions = [
+  { type = "wait", text = "Type a command", timeout = 30 },
+  { type = "send", keys = "ping" },
+  { type = "send", keys = "<ctrl+r>" },
+  { type = "wait", text = "Config Table", timeout = 10 },
+  { type = "send", keys = "<enter>" },
+  { type = "wait", text = "Detail", timeout = 10 },
+  { type = "send", keys = "d" },
+  { type = "sleep", duration = 1 },
+  { type = "send", keys = "d" },
+  { type = "sleep", duration = 1 },
+  { type = "send", keys = "<escape>" },
+  { type = "wait", text = "Config Table", timeout = 10 },
+  { type = "snap", label = "detail-no-save" },
+]
+
+[[steps]]
+engine = "pty"
+description = "Ctrl+S in Detail saves, Esc discards without saving"
+cwd = "examples/standalone/showcase"
+command = "uv run func"
+cols = 100
+rows = 30
+actions = [
+  { type = "wait", text = "Type a command", timeout = 30 },
+  { type = "send", keys = "ping" },
+  { type = "send", keys = "<ctrl+r>" },
+  { type = "wait", text = "Config Table", timeout = 10 },
+  { type = "send", keys = "<enter>" },
+  { type = "wait", text = "Detail", timeout = 10 },
+  { type = "send", keys = "i" },
+  { type = "wait", text = "INSERT", timeout = 10 },
+  { type = "send", keys = "saved-value<enter>" },
+  { type = "send", keys = "<ctrl+s>" },
+  { type = "sleep", duration = 2 },
+  { type = "snap", label = "ctrl-s-saved" },
+]

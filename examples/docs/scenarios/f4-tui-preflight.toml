@@ -1,0 +1,53 @@
+[scenario]
+name = "f4-tui-preflight"
+version = 1
+description = "Verify pre-flight summary field ordering and footer zone behavior"
+
+[source]
+file = "docs/testing/tui-command-panel-manual-test.md"
+lines = "21-34,355-389"
+description = "Pre-flight field sorting, truncation, and footer zones"
+
+requires = []
+
+[[steps]]
+engine = "pty"
+description = "Pre-flight shows field sorting and truncation for deploy job"
+cwd = "examples/standalone/showcase"
+command = "uv run func"
+cols = 100
+rows = 30
+actions = [
+  { type = "wait", text = "Type a command", timeout = 30 },
+  { type = "send", keys = "deploy" },
+  { type = "snap", label = "deploy-preflight" },
+]
+
+[[steps]]
+engine = "pty"
+description = "Ctrl+E opens general ring with Jobs and Settings"
+cwd = "examples/standalone/showcase"
+command = "uv run func"
+cols = 100
+rows = 30
+actions = [
+  { type = "wait", text = "Type a command", timeout = 30 },
+  { type = "send", keys = "<ctrl+e>" },
+  { type = "wait", text = "Jobs", timeout = 10 },
+  { type = "snap", label = "general-ring-jobs" },
+]
+
+[[steps]]
+engine = "pty"
+description = "Footer shows NORMAL mode and zone when panel focused"
+cwd = "examples/standalone/showcase"
+command = "uv run func"
+cols = 100
+rows = 30
+actions = [
+  { type = "wait", text = "Type a command", timeout = 30 },
+  { type = "send", keys = "ping" },
+  { type = "send", keys = "<ctrl+r>" },
+  { type = "wait", text = "Config Table", timeout = 10 },
+  { type = "snap", label = "footer-panel-focused" },
+]

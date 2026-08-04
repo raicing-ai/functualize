@@ -1,0 +1,28 @@
+[scenario]
+name = "g-discovery"
+version = 1
+description = "Verify discovery CLI flags work on a project with jobs"
+
+[source]
+file = "docs/cli/discovery.md"
+lines = "275-294"
+description = "CLI flag overrides for discovery filters"
+
+requires = []
+
+[[steps]]
+engine = "docker"
+description = "Scaffold project, add jobs, run discovery filters"
+image = "python:3.11-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/tmp"
+command = """
+  pip install '/src[cli]' 2>&1 &&
+  functualize builtin scaffold init my-project --template simple &&
+  cd my-project &&
+  pip install '/src[cli]' 2>&1 &&
+  functualize --discovery-depth 1 2>&1 &&
+  echo 'DISCOVERY_OK'
+"""
+expected = { stdout_contains = "DISCOVERY_OK", exit_code = 0 }
+timeout = 480

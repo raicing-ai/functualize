@@ -1,0 +1,16 @@
+# Platform-wide configuration defaults
+[general]
+environment = "dev"
+log_level = "info"
+
+[health_check]
+timeout_seconds = 30
+endpoints = "auth,billing"
+
+[auth]
+token_ttl_hours = 24
+provider = "internal"
+
+[billing]
+currency = "USD"
+tax_rate = "0.08"

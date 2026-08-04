@@ -1,0 +1,7 @@
+[cli]
+output = "plain"
+
+[aliases]
+d = "deploy"
+s = "staging"
+p = "provision"

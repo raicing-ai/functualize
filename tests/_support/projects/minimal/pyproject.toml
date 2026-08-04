@@ -1,0 +1,6 @@
+[project]
+name = "minimal-test-project"
+version = "0.1.0"
+
+[tool.functualize.discovery]
+require_file_import = "functualize"

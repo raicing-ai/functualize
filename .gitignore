@@ -1,0 +1,101 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+*.whl
+
+# Agents
+.spec/archive/
+.spec/features/
+.spec/scrutiny-reports/
+.spec/.agentic-coding
+.spec/STATE.md
+.spec/PROJECT.md
+.spec/REQUIREMENTS.md
+.spec/ROADMAP.md
+.opencode/
+
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+.hypothesis/
+snapshot_report.html
+_*_result*.txt
+_debug.txt
+_tui_debug.txt
+_tui_eval_debug.txt
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+*.code-workspace
+
+# Coding-agent tooling state (guards — these dirs are not part of the repo)
+.kiro/
+.moai/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Agent scratch space (test output, temp scripts)
+tmp/
+
+# Local-only files (not for the repo)
+*.local.md
+*.local.*
+
+# Personal notes
+HUMAN_NOTE.md
+
+# Distribution
+dist/
+
+# Documentation site build output
+site/
+
+# uv
+.python-version
+.functualize/cache.json
+.functualize_cache.json
+.todos/
+.sidecar/
+.sidecar-agent
+.sidecar-task
+.sidecar-pr
+.sidecar-start.sh
+.sidecar-base
+.td-root
+.functualize/
+.import_linter_cache/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# OmO / OpenCode agent run-continuation scratch state
+.omo/
+.mcp.json
+.agentsroom/handoff-transcript-*.txt
+.agentsroom/handoff-summary-*.md
+
+# Internal pre-release audit reports (contain session IDs / local infra notes)
+.release/

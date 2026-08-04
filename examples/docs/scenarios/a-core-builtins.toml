@@ -1,0 +1,95 @@
+[scenario]
+name = "a-core-builtins"
+version = 1
+description = "Verify all core func builtin commands are present and work"
+
+[source]
+file = "docs/cli/modes.md"
+lines = "74-83"
+description = "Core builtin commands listed in CLI modes documentation"
+
+requires = []
+
+[[steps]]
+engine = "shell"
+description = "func --version prints version string"
+command = "func --version"
+expected = { exit_code = 0, stdout_regex = "functualize\\s+\\d+\\.\\d+" }
+timeout = 10
+
+[[steps]]
+engine = "shell"
+description = "functualize builtin version also works (alias)"
+command = "functualize builtin version"
+expected = { exit_code = 0 }
+timeout = 10
+
+[[steps]]
+engine = "shell"
+description = "func --help shows usage"
+command = "func --help"
+expected = { exit_code = 0, stdout_contains = "Usage:" }
+timeout = 10
+
+[[steps]]
+engine = "shell"
+description = "func builtin config show lists resolved config"
+command = "func builtin config show"
+expected = { exit_code = 0, stdout_contains = "[discovery]" }
+timeout = 10
+
+[[steps]]
+engine = "shell"
+description = "func builtin config path reports config file locations"
+command = "func builtin config path"
+expected = { exit_code = 0, stdout_contains = "pyproject.toml" }
+timeout = 10
+
+[[steps]]
+engine = "shell"
+description = "func builtin workflow list runs (even if empty)"
+command = "func builtin workflow list"
+expected = { exit_code = 0 }
+timeout = 10
+
+[[steps]]
+engine = "shell"
+description = "func builtin cache show runs"
+command = "func builtin cache show"
+expected = { exit_code = 0 }
+timeout = 10
+
+[[steps]]
+engine = "shell"
+description = "func builtin history runs"
+command = "func builtin history"
+expected = { exit_code = 0 }
+timeout = 10
+
+[[steps]]
+engine = "shell"
+description = "func builtin env --help (doc requires job name; test syntax check)"
+command = "func builtin env --help"
+expected = { exit_code = 0, stdout_contains = "Usage:" }
+timeout = 10
+
+[[steps]]
+engine = "shell"
+description = "func builtin shell-init emits bash completion"
+command = "func builtin shell-init bash"
+expected = { exit_code = 0, stdout_contains = "complete" }
+timeout = 10
+
+[[steps]]
+engine = "shell"
+description = "func builtin parallel --help (doc shows with args; test syntax check)"
+command = "func builtin parallel --help"
+expected = { exit_code = 0, stdout_contains = "Usage:" }
+timeout = 10
+
+[[steps]]
+engine = "shell"
+description = "func builtin why --help (doc shows with args; test syntax check)"
+command = "func builtin why --help"
+expected = { exit_code = 0, stdout_contains = "Usage:" }
+timeout = 10

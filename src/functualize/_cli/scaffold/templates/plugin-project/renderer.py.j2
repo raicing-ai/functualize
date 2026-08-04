@@ -1,0 +1,29 @@
+"""OutputRenderer implementation for {{ project_name }}.
+
+Implements the OutputRenderer protocol via structural typing (no inheritance
+required). Register via the functualize.plugins entry point in pyproject.toml.
+"""
+
+from typing import Any
+
+
+class {{ class_name }}Renderer:
+    """Custom output renderer for functualize.
+
+    Satisfies the OutputRenderer Protocol via structural typing.
+    Register via the functualize.plugins entry point in pyproject.toml.
+    """
+
+    name: str = "{{ package_name }}-renderer"
+
+    def render(self, data: Any, **options: Any) -> str:
+        """Render job output data to a formatted string.
+
+        Args:
+            data: The output data from a job execution.
+            **options: Additional rendering options.
+
+        Returns:
+            A formatted string representation of the data.
+        """
+        return str(data)

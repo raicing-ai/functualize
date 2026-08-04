@@ -1,0 +1,53 @@
+"""Job module: workflow — demonstrates job phase tracking.
+
+Shows how to use rc.track_phase() to track multi-phase
+processes with status transitions visible to output renderers.
+"""
+
+from pydantic import BaseModel, Field
+
+from functualize.context import RunContext, RunStatus
+
+JOB_GROUP = "workflow"
+
+
+class WorkflowConfig(BaseModel):
+    """Configuration schema for the workflow job."""
+
+    iterations: int = Field(default=3, description="Number of processing iterations")
+    fail_on: int = Field(default=-1, description="Fail on this iteration (-1 to disable)")
+
+
+def run(config: WorkflowConfig, rc: RunContext) -> None:
+    """Execute the workflow job demonstrating step tracking.
+
+    This job shows how to structure multi-step processes with
+    rc.track_phase() for observability.
+    """
+    rc.log(f"Starting workflow job with {config.iterations} iterations")
+
+    # Step 1: Validate inputs
+    rc.track_phase("validate", "Validating configuration", RunStatus.RUNNING)
+    if config.iterations < 1:
+        rc.track_phase("validate", "Invalid iteration count", RunStatus.FAILED)
+        rc.track_run_status(RunStatus.FAILED)
+        return
+    rc.track_phase("validate", "Configuration valid", RunStatus.SUCCESS)
+
+    # Step 2: Process iterations
+    rc.track_phase("process", "Starting iterations", RunStatus.RUNNING)
+    for i in range(config.iterations):
+        rc.log(f"Processing iteration {i + 1}/{config.iterations}")
+        if i == config.fail_on:
+            rc.track_phase("process", f"Failed at iteration {i + 1}", RunStatus.FAILED)
+            rc.track_run_status(RunStatus.FAILED)
+            return
+    rc.track_phase("process", "All iterations complete", RunStatus.SUCCESS)
+
+    # Step 3: Finalize
+    rc.track_phase("finalize", "Generating summary", RunStatus.RUNNING)
+    rc.log(f"Successfully processed {config.iterations} iterations")
+    rc.track_phase("finalize", "Summary complete", RunStatus.SUCCESS)
+
+    rc.track_run_status(RunStatus.SUCCESS)
+    rc.log("Workflow job completed successfully")

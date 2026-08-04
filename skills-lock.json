@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "auditing-python-security": {
+      "source": "wdm0006/python-skills",
+      "sourceType": "github",
+      "skillPath": "skills/python/security-audit/SKILL.md",
+      "computedHash": "198b0f684d3c32b0890dfe342a22de888ae31b061d9fa908795a8c4579689b50"
+    }
+  }
+}

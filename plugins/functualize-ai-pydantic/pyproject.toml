@@ -1,0 +1,42 @@
+[project]
+name = "functualize-ai-pydantic"
+version = "0.1.0"
+description = "PydanticAI-backed AI implementation plugin for functualize"
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "Mohammad Hakim Adiprasetya", email = "viltohmyst@gmail.com" }
+]
+requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
+]
+dependencies = [
+    "functualize-ai",
+    "pydantic-ai>=0.1.0",
+    "litellm>=1.0.0",
+]
+
+[project.entry-points."functualize.ai_providers"]
+pydantic = "functualize_ai_pydantic:PydanticAIPlugin"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+functualize-ai = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/functualize_ai_pydantic"]

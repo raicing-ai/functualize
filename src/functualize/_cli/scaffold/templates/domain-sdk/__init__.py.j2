@@ -1,0 +1,12 @@
+"""{{ display_name }} Domain SDK for functualize."""
+
+from functualize_{{ domain_name }}._metadata import domain_metadata
+from functualize_{{ domain_name }}._protocols import {{ class_name }}Provider
+from functualize_{{ domain_name }}._types import *  # noqa: F401, F403
+from functualize_{{ domain_name }}._errors import *  # noqa: F401, F403
+from functualize_{{ domain_name }}._events import *  # noqa: F401, F403
+
+__all__ = [
+    "domain_metadata",
+    "{{ class_name }}Provider",
+]

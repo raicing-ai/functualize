@@ -1,0 +1,21 @@
+"""Entry point for the {{ project_name }} CLI application."""
+
+from functualize.app import FunctualizeApp, JobSources
+from functualize.app.adapters import CliAdapter
+
+app = FunctualizeApp(
+    "{{ project_name }}",
+    job_sources=JobSources(directories=["{{ package_name }}.jobs"]),
+)
+
+adapter = CliAdapter()
+
+
+def run() -> None:
+    """Console script entry point."""
+    adapter(app)
+    adapter.run()
+
+
+if __name__ == "__main__":
+    run()

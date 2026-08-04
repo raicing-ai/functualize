@@ -1,0 +1,30 @@
+"""Entry point for the {{ project_name }} CLI application.
+
+Demonstrates FunctualizeApp with all interactivity plugins enabled.
+"""
+
+from functualize.app import FunctualizeApp, JobSources, PluginSources
+from functualize.app.adapters import CliAdapter
+
+app = FunctualizeApp(
+    "{{ project_name }}",
+    job_sources=JobSources(directories=["{{ package_name }}.jobs"]),
+    # Installed plugins (functualize-inline, functualize-flow-viz,
+    # functualize-state-sqlite, ...) are discovered through this entry-point
+    # group — installing the package is all it takes. `explicit_plugins=` is
+    # for handing in a plugin *object* you constructed yourself, e.g.
+    # `explicit_plugins=[MyPlugin(mode="strict")]`.
+    plugin_sources=PluginSources(entry_point_group="functualize.plugins"),
+)
+
+adapter = CliAdapter()
+
+
+def run() -> None:
+    """Console script entry point."""
+    adapter(app)
+    adapter.run()
+
+
+if __name__ == "__main__":
+    run()

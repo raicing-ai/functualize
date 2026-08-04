@@ -1,0 +1,41 @@
+"""Standalone job: {{ job_name }}.
+
+Run this job with:
+    func {{ job_name }}.py run
+"""
+
+from functualize.job.context import RunContext
+from functualize.job.capabilities import Log
+
+
+def run(rc: RunContext) -> None:
+    """Execute the {{ job_name }} job using RunContext.
+
+    This standalone job is discoverable by the `func` CLI's CWD scan.
+    Any public function (non-underscore-prefixed) in this file can be
+    invoked via `func {{ job_name }}.py <function_name>`.
+
+    Args:
+        rc: The RunContext providing logging, config, and workflow tracking.
+    """
+    rc.log("Starting {{ job_name }} job")
+
+    # TODO: Add your job logic here.
+    rc.log("Job {{ job_name }} completed")
+
+
+def run_di(log: Log) -> None:
+    """Execute the {{ job_name }} job using DI-style parameters.
+
+    Dependencies are declared as typed function parameters.
+    This style makes the job trivially testable:
+
+        from functualize.testing import CapturingLog
+        log = CapturingLog()
+        run_di(log)
+        assert ("info", "Job {{ job_name }} completed") in log.entries
+    """
+    log("Starting {{ job_name }} job")
+
+    # TODO: Add your job logic here.
+    log("Job {{ job_name }} completed")

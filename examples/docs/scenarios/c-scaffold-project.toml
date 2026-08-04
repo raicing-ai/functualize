@@ -1,0 +1,109 @@
+[scenario]
+name = "c-scaffold-project"
+version = 1
+description = "Verify scaffold init and add commands create correct files"
+
+[source]
+file = "docs/cli/scaffold.md"
+lines = "70-220"
+description = "Scaffold init and add commands"
+
+requires = []
+
+[[steps]]
+engine = "docker"
+description = "scaffold init my-project (simple template) and verify structure"
+image = "python:3.11-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/tmp"
+command = """
+  pip install '/src[cli]' 2>&1 &&
+  functualize builtin scaffold init my-project --template simple &&
+  test -d my-project &&
+  test -f my-project/pyproject.toml &&
+  test -d 'my-project/src/my_project/jobs' &&
+  test -f 'my-project/src/my_project/jobs/sample_job.py' &&
+  echo 'SCAFFOLD_OK'
+"""
+expected = { stdout_contains = "SCAFFOLD_OK", exit_code = 0 }
+timeout = 240
+
+[[steps]]
+engine = "docker"
+description = "scaffold init my-plugin (plugin-project template) and verify"
+image = "python:3.11-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/tmp"
+command = """
+  pip install '/src[cli]' 2>&1 &&
+  functualize builtin scaffold init my-plugin --template plugin-project &&
+  test -d my-plugin &&
+  test -f my-plugin/pyproject.toml &&
+  echo 'PLUGIN_SCAFFOLD_OK'
+"""
+expected = { stdout_contains = "PLUGIN_SCAFFOLD_OK", exit_code = 0 }
+timeout = 240
+
+[[steps]]
+engine = "docker"
+description = "scaffold add job in project context"
+image = "python:3.11-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/tmp"
+command = """
+  pip install '/src[cli]' 2>&1 &&
+  functualize builtin scaffold init my-app --template simple &&
+  cd my-app &&
+  functualize builtin scaffold add job data-sync &&
+  test -f 'src/my_app/jobs/data_sync.py' &&
+  echo 'ADD_JOB_OK'
+"""
+expected = { stdout_contains = "ADD_JOB_OK", exit_code = 0 }
+timeout = 240
+
+[[steps]]
+engine = "docker"
+description = "scaffold add job in bare context (no project)"
+image = "python:3.11-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/tmp"
+command = """
+  mkdir -p /tmp/bare-test && pip install '/src[cli]' 2>&1 && cd /tmp/bare-test && functualize builtin scaffold add job backup && test -f backup.py && echo BARE_JOB_OK
+"""
+expected = { stdout_contains = "BARE_JOB_OK", exit_code = 0 }
+timeout = 240
+
+[[steps]]
+engine = "docker"
+description = "scaffold add plugin in project context"
+image = "python:3.11-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/tmp"
+command = """
+  pip install '/src[cli]' 2>&1 &&
+  functualize builtin scaffold init my-app2 --template simple &&
+  cd my-app2 &&
+  functualize builtin scaffold add plugin my-renderer &&
+  test -f 'src/my_app2/plugins/my_renderer.py' &&
+  echo 'ADD_PLUGIN_OK'
+"""
+expected = { stdout_contains = "ADD_PLUGIN_OK", exit_code = 0 }
+timeout = 240
+
+[[steps]]
+engine = "docker"
+description = "scaffold add tui-screen in project context"
+image = "python:3.11-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/tmp"
+command = """
+  pip install '/src[cli]' 2>&1 &&
+  functualize builtin scaffold init my-app3 --template simple &&
+  cd my-app3 &&
+  functualize builtin scaffold add tui-screen dashboard &&
+  test -f 'src/my_app3/screens/dashboard_screen.py' &&
+  test -f 'src/my_app3/screens/dashboard.tcss' &&
+  echo 'ADD_TUI_OK'
+"""
+expected = { stdout_contains = "ADD_TUI_OK", exit_code = 0 }
+timeout = 240

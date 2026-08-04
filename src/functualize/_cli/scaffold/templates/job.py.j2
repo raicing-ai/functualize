@@ -1,0 +1,64 @@
+"""Job module: {{ job_name }}."""
+
+from pydantic import BaseModel, Field
+
+from functualize.job.context import RunContext
+from functualize.job.capabilities import Log, JobContext
+from functualize.context import RunContext, RunStatus
+
+# Group all functions in this module under the "{{ job_name }}" sub-command.
+JOB_GROUP = "{{ job_name }}"
+
+
+class {{ class_name }}Config(BaseModel):
+    """Configuration schema for the {{ job_name }} job."""
+
+    target: str = Field(description="Target resource to process")
+    dry_run: bool = Field(default=False, description="Run without making changes")
+
+
+def run(config: {{ class_name }}Config, rc: RunContext) -> None:
+    """Execute the {{ job_name }} job.
+
+    This job uses RunContext (facade pattern). You can also use
+    DI-style type-annotated parameters — see run_di() below.
+    """
+    rc.log(f"Starting {{ job_name }} job with target: {config.target}")
+
+    rc.track_phase("initialize", "Setting up job resources", RunStatus.RUNNING)
+    # ... initialization logic here ...
+    rc.track_phase("initialize", "Resources ready", RunStatus.SUCCESS)
+
+    rc.track_phase("process", "Processing target", RunStatus.RUNNING)
+    if config.dry_run:
+        rc.log("Dry run mode — skipping actual processing", level="warning")
+    else:
+        # ... actual processing logic here ...
+        pass
+    rc.track_phase("process", "Processing complete", RunStatus.SUCCESS)
+
+    rc.track_run_status(RunStatus.SUCCESS)
+    rc.log("Job completed successfully")
+
+
+def run_di(config: {{ class_name }}Config, log: Log, job_context: JobContext) -> None:
+    """Execute the {{ job_name }} job using DI-style parameters.
+
+    Dependencies are declared as typed function parameters and
+    injected automatically by the execution engine. This makes
+    the job trivially testable without mocks:
+
+        from functualize.testing import CapturingLog
+        log = CapturingLog()
+        run_di(config, log, job_context)
+        assert ("info", "Job completed") in log.entries
+    """
+    log(f"Starting {{ job_name }} job with target: {config.target}")
+
+    if config.dry_run:
+        log("Dry run mode — skipping actual processing", level="warning")
+    else:
+        # ... actual processing logic here ...
+        pass
+
+    log("Job completed successfully")

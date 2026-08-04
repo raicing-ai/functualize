@@ -1,0 +1,32 @@
+[scenario]
+name = "e-config-env"
+version = 1
+description = "Verify FUNCTUALIZE_* env var exports are recognized by func"
+
+[source]
+file = "docs/cli/config.md"
+lines = "150-305"
+description = "Environment variable configuration overrides"
+
+requires = []
+
+[[steps]]
+engine = "shell"
+description = "FUNCTUALIZE_DOTENV=true is read by config"
+command = "FUNCTUALIZE_DOTENV=true func builtin config show"
+expected = { exit_code = 0 }
+timeout = 10
+
+[[steps]]
+engine = "shell"
+description = "FUNCTUALIZE_CLI_SHOW_TIMING=true is read by config"
+command = "FUNCTUALIZE_CLI_SHOW_TIMING=true func builtin config show"
+expected = { exit_code = 0 }
+timeout = 10
+
+[[steps]]
+engine = "shell"
+description = "FUNCTUALIZE_DISCOVERY_EXCLUDE_PATTERNS is read by config"
+command = "FUNCTUALIZE_DISCOVERY_EXCLUDE_PATTERNS='**/test_*.py' func builtin config show"
+expected = { exit_code = 0 }
+timeout = 10

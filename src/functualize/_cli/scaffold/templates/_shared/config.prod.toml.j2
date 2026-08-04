@@ -1,0 +1,10 @@
+# Production environment overrides for {{ project_name }}
+# These values override config.base.toml when running in production.
+# Activate with: FUNCTUALIZE_ENV=prod
+
+[general]
+log_level = "warning"
+
+[jobs]
+timeout = 120
+retry_count = 3

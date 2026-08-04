@@ -1,0 +1,98 @@
+{
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug: func TUI (display_providers)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "functualize",
+      "cwd": "${workspaceFolder}/examples/tui-features/display_providers",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      }
+    },
+    {
+      "name": "Attach: func TUI (remote terminal)",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": {
+        "host": "localhost",
+        "port": 5678
+      },
+      "pathMappings": [
+        {
+          "localRoot": "${workspaceFolder}",
+          "remoteRoot": "${workspaceFolder}"
+        }
+      ],
+      "justMyCode": false
+    },
+    {
+      "name": "Python: Current File",
+      "type": "python",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Python: Functualize CLI",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/functualize/__main__.py",
+      "args": [
+        "--help"
+      ],
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Python: Pytest Current File",
+      "type": "python",
+      "request": "launch",
+      "module": "pytest",
+      "args": [
+        "${file}",
+        "-xvs"
+      ],
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Python: Pytest Specific Test",
+      "type": "python",
+      "request": "launch",
+      "module": "pytest",
+      "args": [
+        "${file}::${input:testName}",
+        "-xvs"
+      ],
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Python: All Tests",
+      "type": "python",
+      "request": "launch",
+      "module": "pytest",
+      "args": [
+        "tests/",
+        "-xvs"
+      ],
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ],
+  "inputs": [
+    {
+      "id": "testName",
+      "type": "promptString",
+      "description": "Test function name (e.g. test_my_function)"
+    }
+  ]
+}

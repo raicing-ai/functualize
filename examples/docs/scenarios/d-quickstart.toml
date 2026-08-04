@@ -1,0 +1,43 @@
+[scenario]
+name = "d-quickstart"
+version = 1
+description = "Verify the full README Quick Start walkthrough works end-to-end"
+
+[source]
+file = "docs/getting-started/quickstart.md"
+lines = "1-323"
+description = "Full quickstart walkthrough — single file, project directory, and app project"
+
+requires = []
+
+[[steps]]
+engine = "docker"
+description = "Full quickstart: scaffold weather-app, uv sync, run sample, verify"
+image = "python:3.11-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/tmp"
+command = """
+  set -e
+  pip install '/src[cli]' 2>&1
+
+  # Scaffold
+  echo "=== Scaffold ==="
+  functualize builtin scaffold init weather-app
+  cd weather-app
+  # Install functualize[cli] so the scaffolded project can import it
+  # (the project's uv sync with workspace refs won't resolve in docker)
+  pip install '/src[cli]' 2>&1
+
+  # Verify entry point exists
+  echo "=== Verify entry point ==="
+  test -f pyproject.toml
+  test -f 'src/weather_app/main.py'
+  test -d 'src/weather_app/jobs'
+
+  # Run sample job via the func CLI (avoids uv-run workspace resolution)
+  echo "=== Run sample ==="
+  functualize sample run --target hello-world 2>&1
+  echo 'QUICKSTART_OK'
+"""
+expected = { stdout_contains = "QUICKSTART_OK", exit_code = 0 }
+timeout = 480
