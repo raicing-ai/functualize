@@ -159,6 +159,7 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "ConditionalEdge",
         "Edge",
         "END",
+        "FromStep",
         "Gate",
         "Step",
         "_EndSentinel",
