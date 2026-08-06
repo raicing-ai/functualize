@@ -240,18 +240,48 @@ it is not a workspace member and produces no distribution.
 
 ## Trusted Publishing
 
-Every name above, plus `functualize`, needs its own PyPI trusted publisher before the
-first release — twelve in total. Because none of the projects exist yet, each must be
-registered as a **pending** publisher at
-<https://pypi.org/manage/account/publishing/>:
+Every name above, plus `functualize`, needs its own PyPI trusted publisher — twelve
+in total, all sharing this configuration:
 
 | Field | Value |
 |-------|-------|
 | Owner | `raicing-ai` |
 | Repository name | `functualize` |
-| Workflow name | `release.yml` |
+| Workflow name | `release.yml` — the *filename*, not the `name:` key inside it |
 | Environment name | `pypi` |
 
 The `pypi` GitHub environment must also exist on the repository, matching the
-`environment: pypi` key in `release.yml`. A missing environment leaves the publish
-job waiting indefinitely; a name mismatch is the most common first-release failure.
+`environment: pypi` key in `release.yml`. A name mismatch is the most common
+first-release failure.
+
+### Bootstrapping the twelve projects
+
+They cannot all be created by this workflow. A **pending** publisher — the kind that
+may create a project that does not exist yet — is unique on the tuple
+`(owner, repo, workflow, environment)`, because PyPI has to know which single project
+to create when it fires. All twelve packages share that tuple, so registering a second
+one fails with:
+
+> A pending trusted publisher matching this configuration has already been registered
+> for a different project name.
+
+This is a known monorepo limitation ([warehouse#16920](https://github.com/pypi/warehouse/issues/16920)).
+Ordinary trusted publishers carry no such constraint — any number of *existing*
+projects may share one repo, workflow, and environment. So the projects are created
+once by hand, and trusted publishing takes over from the next release:
+
+1. Create an API token scoped to **the entire account** — a project-scoped token
+   cannot create new projects.
+2. `uv build --all-packages`, then `twine upload dist/*`. This creates all twelve
+   projects and publishes the first version.
+3. For each of the twelve, add an ordinary trusted publisher at
+   `https://pypi.org/manage/project/<name>/settings/publishing/` using the table above.
+4. Delete the account-scoped token.
+
+From then on, a `v*` tag publishes through OIDC with no stored credential. The
+`skip-existing: true` flag on the publish step exists for this handover: the first
+tag's artifacts are already on the index by the time the workflow runs.
+
+**A pending publisher does not reserve the name.** Until a project is actually
+created, anyone may claim it — which is the other reason to run step 2 for all twelve
+at once rather than publishing the core package alone.

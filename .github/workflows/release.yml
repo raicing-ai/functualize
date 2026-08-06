@@ -46,8 +46,19 @@ jobs:
       # NOTE: every package name in dist/ (functualize + functualize-* plugins)
       # must have a PyPI "trusted publisher" configured for this repository and
       # workflow, plus the `pypi` GitHub environment. See plugins/PUBLISHING.md.
+      #
+      # skip-existing tolerates artifacts already on the index instead of failing
+      # the job. It is needed because the twelve projects cannot be bootstrapped
+      # by this workflow: a *pending* publisher is unique on
+      # (owner, repo, workflow, environment), so one workflow can claim exactly
+      # one not-yet-existing project name. The projects are therefore created by
+      # a one-time token upload and given ordinary trusted publishers afterwards
+      # — which leaves the first tag's artifacts already published when this job
+      # runs. See https://github.com/pypi/warehouse/issues/16920.
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
 
   github-release:
     needs: publish
