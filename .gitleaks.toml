@@ -1,0 +1,15 @@
+extend                              = { useDefault = true }
+title                               = "functualize gitleaks config"
+
+# The security-audit skill documents hardcoded-credential vulnerabilities by
+# showing a vulnerable→fixed pair. Its "vulnerable" half is a fabricated key
+# (`sk-live-…`) next to the joke password `hunter2` — an entropy match by
+# construction, since demonstrating the pattern requires writing the pattern.
+#
+# Scoped to that one file rather than a global rule exclusion: a real key
+# committed anywhere else must still fail the scan.
+[allowlist]
+description = "Illustrative secrets in security documentation"
+paths = [
+  '''\.agents/skills/auditing-python-security/VULNERABILITIES\.md''',
+]

@@ -16,7 +16,21 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Runs the gitleaks binary rather than gitleaks/gitleaks-action@v2.
+      # That action refuses to scan organization-owned repositories without a
+      # paid GITLEAKS_LICENSE secret — it exited before scanning anything, so
+      # this job reported failure while providing no coverage whatsoever. The
+      # scanner itself is MIT-licensed and free; only the Action wrapper is not.
+      #
+      # Pinned by digest: an unpinned :latest in a security job makes the thing
+      # that checks for secrets an unverified moving target.
       - name: Gitleaks scan
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          docker run --rm -v "$PWD:/repo" \
+            zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+            detect \
+              --source /repo \
+              --config /repo/.gitleaks.toml \
+              --redact \
+              --no-banner \
+              --verbose
