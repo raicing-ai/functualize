@@ -30,6 +30,14 @@ Items identified during development that are worth doing but not yet designed:
 3. **Settings with no consumers** — `execution_mode`, `history_retention`, `completion_debounce_ms`, `sensitive_keywords`, `signature_enabled`, `show_session_stamp`, `default_override_target` all resolve truthfully in the Settings panel but nothing reads them yet. Wire each to its consumer one at a time.
 4. **Shell completion model unification** — SmartBar completion and `func builtin shell-init` both consume the same trie and descriptors but compute their partition independently. A shared model (`_cli/completions/shared.py`) would prevent the two from drifting.
 5. **`builtin parallel` items missing from history** — parallel batch items run at invoke depth 1 and the history filter only records depth 0. Explicit recording in `parallel` itself would fix this.
+6. **`RunContext.log()` bypasses the injected `Log`** — it writes straight to its stdlib logger and never consults the DI registry, so `TestRunContext.captured_logs()` cannot observe it and returns an empty list. Shipped as a documented known limitation in 0.1.0. Fix: resolve `Log` from the registry in `RunContext.log()` — it is on the engine hot path, so it needs its own verification pass.
+7. **The slow test tier is red — ~90 failures across ~29 modules** — none of it ships (tests are in no wheel), and the fast tier is fully green, which is exactly why it went unnoticed: every covering test is marked `slow` and `--run-slow` is not in the release checklist's gates. Four distinct causes, all test-side:
+   - *Stale engine internal* — `tests/test_resolution_plan_properties.py` (8 failures) calls `engine._build_per_invocation_capabilities(...)` at lines 597/637/676/706. No such method exists in `src/`, and there is no renamed replacement, so that engine behavior is now **untested**, not merely red. Highest priority of the four.
+   - *Invalid DI registrations* — several modules do `reg.provide(t, object())` against a synthesized type, which cannot satisfy the `isinstance` contract `DIRegistry.provide` documents. The tests predate that type check.
+   - *Canonical-identity drift* — assertions like `assert 'a' == 'a_'` and a `ValueError: Cannot register dynamic job 'a': a job with this name already exists` predate name normalization. Worth confirming whether normalizing `a_` to `a` is intended, since it collapses two distinct Python function names into one canonical name — that one may be a product question rather than a stale test.
+   - *Misc stale expectations* — e.g. `assert '' == '<static>'`.
+
+   Add `--run-slow` to the release verification gates once the tier is green, so this cannot recur.
 
 ## Recently Completed (2026-07)
 
