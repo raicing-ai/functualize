@@ -50,7 +50,7 @@ def run_di(config: {{ class_name }}Config, log: Log, job_context: JobContext) ->
         from functualize.testing import CapturingLog
         log = CapturingLog()
         run_di(config, log, job_context)
-        assert ("info", "Job completed") in log.entries
+        assert ("info", "Job completed") in log.calls
     """
     log(f"Starting {{ job_name }} job with target: {config.target}")
 

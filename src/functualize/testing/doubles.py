@@ -13,10 +13,16 @@ Requirements: 8.3, 8.4, 8.5
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from typing import Any
 
+from functualize._engine.capabilities.invoke import Invoke
+from functualize._engine.capabilities.log import Log
+from functualize._engine.capabilities.perf import Perf
+from functualize._engine.capabilities.prompt import Prompt
 
-class CapturingLog:
+
+class CapturingLog(Log):
     """Test double for the Log capability that records all log calls.
 
     Each call is stored as a (level, message) tuple in insertion order.
@@ -30,6 +36,7 @@ class CapturingLog:
     """
 
     def __init__(self) -> None:
+        super().__init__()
         self.calls: list[tuple[str, object]] = []
 
     def __call__(self, message: object, level: str = "info") -> None:
@@ -53,7 +60,7 @@ class CapturingLog:
         self(msg, level="debug")
 
 
-class MockInvoke:
+class MockInvoke(Invoke):
     """Test double for the Invoke capability with pre-configured results.
 
     Accepts a mapping of job names to result values at construction.
@@ -68,14 +75,22 @@ class MockInvoke:
     def __init__(self, results: dict[str, Any] | None = None) -> None:
         self._results: dict[str, Any] = results or {}
 
-    def __call__(
-        self, job_name: str, *, timeout: float | None = None, **kwargs: Any
-    ) -> Any:
-        """Return the pre-configured result for the given job name.
+    @staticmethod
+    def _name_of(job_or_fn: str | Callable[..., Any]) -> str:
+        """Reduce a job reference to the name used as the mapping key."""
+        return job_or_fn if isinstance(job_or_fn, str) else job_or_fn.__name__
+
+    def __call__(self, job_or_fn: str | Callable[..., Any], **kwargs: Any) -> Any:
+        """Return the pre-configured result for the given job.
+
+        Every keyword the real Invoke accepts is absorbed and ignored, so a job
+        that passes ``config=``, ``timeout=``, or a gate option behaves the same
+        under test as it does in production.
 
         Raises:
-            KeyError: If job_name has no configured result.
+            KeyError: If the job has no configured result.
         """
+        job_name = self._name_of(job_or_fn)
         if job_name not in self._results:
             raise KeyError(
                 f"MockInvoke has no configured result for job '{job_name}'. "
@@ -83,22 +98,27 @@ class MockInvoke:
             )
         return self._results[job_name]
 
-    def parallel(self, jobs: list[tuple[str, dict[str, Any]]]) -> list[Any]:
+    def parallel(
+        self,
+        jobs: Sequence[tuple[str | Callable[..., Any], dict[str, Any]]],
+        **kwargs: Any,
+    ) -> list[Any]:
         """Return pre-configured results for each job in order.
 
         Raises:
-            KeyError: If any job_name has no configured result.
+            KeyError: If any job has no configured result.
         """
-        return [self(job_name, **kwargs) for job_name, kwargs in jobs]
+        return [self(job_or_fn, **job_kwargs) for job_or_fn, job_kwargs in jobs]
 
-    def schema(self, job_name: str) -> Any:
-        """Return the pre-configured result for the given job name as schema.
+    def schema(self, job_or_fn: str | Callable[..., Any]) -> Any:
+        """Return the pre-configured result for the given job as schema.
 
         For testing purposes, this returns whatever is mapped for the job name.
 
         Raises:
-            KeyError: If job_name has no configured result.
+            KeyError: If the job has no configured result.
         """
+        job_name = self._name_of(job_or_fn)
         if job_name not in self._results:
             raise KeyError(
                 f"MockInvoke.schema has no configured result for job '{job_name}'. "
@@ -107,7 +127,7 @@ class MockInvoke:
         return self._results[job_name]
 
 
-class AutoPrompt:
+class AutoPrompt(Prompt):
     """Test double for the Prompt capability with FIFO responses.
 
     Accepts a sequence of responses at construction and returns them
@@ -122,6 +142,7 @@ class AutoPrompt:
     """
 
     def __init__(self, responses: list[Any] | None = None) -> None:
+        super().__init__()
         self._responses: list[Any] = list(responses) if responses else []
         self._index: int = 0
 
@@ -148,9 +169,10 @@ class AutoPrompt:
         """
         return self._next_response()
 
-    def confirm(
-        self, question: str, *, destructive: bool = False, default: bool | None = None
-    ) -> Any:
+    # Parameter names below mirror Prompt exactly. A job calling
+    # prompt.text(message="...") by keyword must bind against the double the
+    # same way it binds against the real capability.
+    def confirm(self, message: str, *, default: bool = False, **kwargs: Any) -> Any:
         """Return the next pre-configured response.
 
         Raises:
@@ -158,7 +180,7 @@ class AutoPrompt:
         """
         return self._next_response()
 
-    def choice(self, question: str, choices: list[Any]) -> Any:
+    def choice(self, message: str, options: list[Any], **kwargs: Any) -> Any:
         """Return the next pre-configured response.
 
         Raises:
@@ -166,9 +188,7 @@ class AutoPrompt:
         """
         return self._next_response()
 
-    def text(
-        self, question: str, *, default: str | None = None, secret: bool = False
-    ) -> Any:
+    def text(self, message: str, *, default: str = "", **kwargs: Any) -> Any:
         """Return the next pre-configured response.
 
         Raises:
@@ -177,7 +197,7 @@ class AutoPrompt:
         return self._next_response()
 
 
-class NoopPerf:
+class NoopPerf(Perf):
     """Test double for the Perf capability that silently accepts all calls.
 
     All mark, mark_start, and mark_end calls are accepted without

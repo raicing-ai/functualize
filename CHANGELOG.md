@@ -176,7 +176,19 @@ function knowing which.
 ### Testing
 
 - First-class test doubles in `functualize.testing`: `TestRunContext`,
-  `CapturingLog`, `MockInvoke`, `AutoPrompt`, `NoopPerf`.
+  `CapturingLog`, `MockInvoke`, `AutoPrompt`, `NoopPerf`. Each double subclasses
+  the capability it stands in for, so it satisfies the DI registry's type check
+  and can be injected anywhere the real capability is accepted.
+
+### Known limitations
+
+- `TestRunContext.captured_logs()` does not observe `rc.log(...)`.
+  `RunContext.log()` writes directly to its stdlib logger and never consults the
+  DI registry, so messages emitted that way are not recorded and the call returns
+  an empty list. Assert on log output by passing the double to the job directly
+  (`log = CapturingLog(); my_job(config, log); assert (...) in log.calls`), which
+  is the style the scaffolded job template demonstrates. Routing `RunContext.log`
+  through the injected `Log` is deferred to a later release.
 
 [Unreleased]: https://github.com/raicing-ai/functualize/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/raicing-ai/functualize/releases/tag/v0.1.0
