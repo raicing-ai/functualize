@@ -2,9 +2,8 @@
 
 from pydantic import BaseModel, Field
 
-from functualize.job.context import RunContext
 from functualize.job.capabilities import Log, JobContext
-from functualize.context import RunContext, RunStatus
+from functualize.job.context import RunContext, RunStatus
 
 # Group all functions in this module under the "{{ job_name }}" sub-command.
 JOB_GROUP = "{{ job_name }}"

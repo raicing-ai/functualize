@@ -45,7 +45,7 @@ export FUNCTUALIZE_ENV=prod  # loads config.base.toml + config.prod.toml
 Create a new Python file in this directory with public functions:
 
 ```python
-from functualize.context import RunContext
+from functualize.job.context import RunContext
 
 def my_task(rc: RunContext) -> None:
     rc.log("Running my task")

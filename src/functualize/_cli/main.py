@@ -23,7 +23,20 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import click
+try:
+    import click
+except ModuleNotFoundError as exc:  # pragma: no cover - no-extra install only
+    # The `func`/`functualize` console scripts are declared unconditionally,
+    # but click lives in the `cli` extra. Without this guard a bare
+    # `pip install functualize` gives first-time users a raw traceback.
+    if exc.name != "click":
+        raise
+    sys.stderr.write(
+        "functualize: the `func` command requires the CLI extra, "
+        "which is not installed.\n\n"
+        "    pip install 'functualize[cli]'\n\n"
+    )
+    raise SystemExit(1) from None
 
 logger = logging.getLogger(__name__)
 

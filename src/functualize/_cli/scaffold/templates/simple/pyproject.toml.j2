@@ -5,7 +5,7 @@ description = "A CLI application built with functualize"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "functualize>=0.1.0",
+    "functualize[cli]>=0.1.0",
 ]
 
 [project.scripts]
@@ -19,6 +19,9 @@ build-backend = "hatchling.build"
 packages = ["src/{{ package_name }}"]
 
 [tool.functualize.discovery]
+# Jobs live at src/{{ package_name }}/jobs/ — three levels below the project
+# root — so the scan has to descend that far to find them.
+scan_depth = 3
 require_file_import = "functualize"
 # Alternative filter options (uncomment to enable):
 # require_file_prefix = "job_"
