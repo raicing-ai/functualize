@@ -42,14 +42,13 @@ functualize/
 │   ├── _primitives/          ← Internal: DI, lazy, locator, resilient
 │   └── _types/               ← Internal: shared type vocabulary
 ├── plugins/                  ← Workspace plugins (uv workspace members)
-│   ├── functualize-interactivity/
 │   ├── functualize-state/
 │   ├── functualize-state-sqlite/
 │   ├── functualize-http/
 │   ├── functualize-lambda/
 │   ├── functualize-inline/
 │   ├── functualize-flow-viz/
-│   ├── functualize-fullscreen-tui/
+│   ├── functualize-fullscreen-tui/   ← source only, no pyproject.toml: not a workspace member
 │   ├── functualize-ai/
 │   ├── functualize-ai-pydantic/
 │   ├── functualize-tasks/
@@ -166,8 +165,8 @@ Editable installs (`uv sync`) add overhead from import hooks and `.pth` file res
 uv build && \
 rm -rf /tmp/func-test && \
 uv venv /tmp/func-test && \
-uv pip install plugins/functualize-interactivity --python /tmp/func-test/bin/python && \
-uv pip install "dist/functualize-0.1.0-py3-none-any.whl[cli]" --python /tmp/func-test/bin/python && \
+uv pip install --no-cache --reinstall \
+  "dist/functualize-0.1.0-py3-none-any.whl[cli]" --python /tmp/func-test/bin/python && \
 uv pip install \
   plugins/functualize-ai \
   plugins/functualize-state \
@@ -182,9 +181,12 @@ time /tmp/func-test/bin/func --perf-report text forecast
 ```
 
 **Why this order matters:**
-1. `functualize-interactivity` first — it's a hard dependency of the core package but not on PyPI
-2. The core wheel with `[cli]` extras — installs click, rich, etc.
-3. Remaining plugins — they depend on functualize (already satisfied)
+1. The core wheel with `[cli]` extras first — installs click, rich, textual, etc.
+2. Remaining plugins second — they depend on `functualize` (already satisfied)
+
+`--no-cache --reinstall` is not optional. The version stays `0.1.0` across rebuilds,
+so uv will otherwise serve a stale cached wheel and you will measure the previous
+build without noticing.
 
 **What to compare:**
 - `time` output = total wall clock (Python startup + uv overhead + framework)

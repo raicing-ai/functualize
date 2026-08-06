@@ -18,8 +18,12 @@ from functualize._types.commands import CommandNode, CommandProvider
 from functualize._types.input_modes import DEFAULT_SIGIL, InputMode, InputModeRegistry
 from functualize._types.interactivity import (
     LiveConstruct,
+    PromptChoice,
     PromptCollector,
+    PromptIntent,
     PromptRequest,
+    PromptResponse,
+    PromptSeverity,
     Surface,
 )
 from functualize._types.protocols import (
@@ -71,7 +75,14 @@ __all__ = [
     "PromptCollector",
     "Surface",
     "LiveConstruct",
+    # The full prompt vocabulary: PromptCollector.collect takes a PromptRequest
+    # and returns a PromptResponse, dispatching on PromptIntent — so a plugin
+    # author needs all of them to implement the protocol at all.
     "PromptRequest",
+    "PromptResponse",
+    "PromptIntent",
+    "PromptSeverity",
+    "PromptChoice",
     "PluginMetadata",
     "PluginWithShutdown",
     "Source",

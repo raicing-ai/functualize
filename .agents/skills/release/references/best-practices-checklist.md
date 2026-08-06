@@ -36,14 +36,25 @@ Items related to `pyproject.toml` content and package metadata.
 | **Pass criteria** | At least one entry matching `Development Status :: *` exists |
 | **Severity** | WARNING |
 
-### PM-03: License classifier
+### PM-03: No legacy License classifier
 
 | Field | Value |
 |-------|-------|
-| **What to check** | A `License` trove classifier is present in `[project.classifiers]` |
+| **What to check** | **No** `License ::` trove classifier appears in `[project.classifiers]` |
 | **Where** | `pyproject.toml` → `[project] classifiers` |
-| **Pass criteria** | At least one entry matching `License :: *` exists |
-| **Severity** | WARNING |
+| **Pass criteria** | Zero entries matching `License :: *` exist |
+| **Severity** | BLOCKING |
+
+Under [PEP 639](https://peps.python.org/pep-0639/) the SPDX `license` field (PM-07)
+and the legacy `License ::` classifiers are mutually exclusive, and PyPI **must
+reject** any distribution carrying both. A package emitting `License-Expression:
+MIT` *and* `Classifier: License :: OSI Approved :: MIT License` fails at upload.
+
+The trap: **`twine check` and `twine check --strict` both pass such a build.** This
+was verified against a real pre-fix wheel — neither command inspects the license
+fields for conflict. Nothing local catches it, so treat this checklist item as the
+gate. See also the TestPyPI dry run, which does catch it because it runs the same
+Warehouse validation as PyPI.
 
 ### PM-04: Python version classifier
 
@@ -78,8 +89,10 @@ Items related to `pyproject.toml` content and package metadata.
 |-------|-------|
 | **What to check** | A `license` field is specified in the project metadata |
 | **Where** | `pyproject.toml` → `[project] license` |
-| **Pass criteria** | Either `license = {text = "..."}` or `license = {file = "..."}` or `license = "..."` is present and non-empty |
+| **Pass criteria** | An SPDX expression string — `license = "MIT"` — is present and non-empty. The table forms `license = {text = "..."}` and `license = {file = "..."}` are deprecated by PEP 639; `{file = ...}` remains valid for non-SPDX licenses |
 | **Severity** | WARNING |
+
+Pairs with PM-03: if this field is set, no `License ::` classifier may accompany it.
 
 ---
 
@@ -239,7 +252,7 @@ Items related to GitHub repository configuration and templates.
 |----|------|----------|
 | PM-01 | `pyproject.toml` exists | BLOCKING |
 | PM-02 | Development Status classifier | WARNING |
-| PM-03 | License classifier | WARNING |
+| PM-03 | No legacy License classifier | BLOCKING |
 | PM-04 | Python version classifier | WARNING |
 | PM-05 | Typing classifier | WARNING |
 | PM-06 | Project URLs | INFO |

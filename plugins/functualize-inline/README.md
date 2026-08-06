@@ -13,7 +13,7 @@ pip install functualize-inline
 ## Quick Start
 
 ```python
-from functualize_interactivity import PromptIntent, PromptRequest
+from functualize.plugin import PromptIntent, PromptRequest
 from functualize_inline import InlinePlugin
 
 plugin = InlinePlugin()

@@ -16,7 +16,8 @@ Independently installable from PyPI. Meets full quality bar for public distribut
 - [ ] All non-functualize dependencies at version ≥1.0 or well-established (≥10M PyPI downloads/year)
 - [ ] `uv build --package <name>` exits with code 0 and produces a `.whl` file
 - [ ] All declared entry points are importable and callable in an isolated environment
-- [ ] PyPI classifiers present: Development Status, License, Python versions (3, 3.11, 3.12, 3.13), Typing :: Typed
+- [ ] PyPI classifiers present: Development Status, Python versions (3, 3.11, 3.12, 3.13), Typing :: Typed
+- [ ] SPDX `license = "MIT"` field present, and **no** `License ::` trove classifier — PEP 639 makes the two mutually exclusive and PyPI rejects any distribution carrying both. Note that `twine check --strict` does *not* catch this
 - [ ] `examples/` folder with a README and at least one runnable scenario (see the "Examples" section in [`contributor/guides/plugin-development.md`](../contributor/guides/plugin-development.md))
 
 ### Tier 2 — Bundled (monorepo-only)
@@ -83,6 +84,10 @@ uv run pytest plugins/<name>/tests/ -v  # must exit 0
 grep "Development Status :: 3" plugins/<name>/pyproject.toml
 grep "Typing :: Typed" plugins/<name>/pyproject.toml
 
+# SPDX license field present, legacy classifier absent (PEP 639)
+grep '^license = ' plugins/<name>/pyproject.toml
+! grep "License ::" plugins/<name>/pyproject.toml
+
 # Build succeeds
 uv build --package <name>  # must exit 0, produces .whl
 ```
@@ -90,28 +95,40 @@ uv build --package <name>  # must exit 0, produces .whl
 
 ## Dependency Topology
 
-Plugins have inter-dependencies that dictate PyPI publishing order. Publish Level 0 first, then Level 1.
+Levels below count **plugin-to-plugin** dependencies only. A dependency on the
+`functualize` core package does not create a level, since core is always published
+in the same run.
 
 ```
-Level 0 — No plugin dependencies (publish first)
-├── functualize-interactivity
-├── functualize-state
-├── functualize-http
-├── functualize-lambda
-├── functualize-flow-viz
-├── functualize-ai
-└── functualize-tasks
+Level 0 — No plugin dependencies
+├── functualize-state           → pydantic          (no core dep)
+├── functualize-tasks           → pydantic          (no core dep)
+├── functualize-http            → core
+├── functualize-lambda          → core
+├── functualize-inline          → core, textual
+├── functualize-flow-viz        → core, textual
+└── functualize-mcp             → core, fastmcp
 
-Level 1 — Depends on Level 0 plugins (publish second)
-├── functualize-inline          → depends on: functualize-interactivity
-├── functualize-fullscreen-tui  → depends on: functualize-interactivity
-├── functualize-state-sqlite    → depends on: functualize-state
-├── functualize-tasks-local     → depends on: functualize-tasks, functualize-state
-├── functualize-ai-pydantic     → depends on: functualize-ai
-└── functualize-mcp             → depends on: (none currently, but integrates with core)
+Level 1 — Depends on Level 0 plugins
+├── functualize-ai              → functualize-state
+├── functualize-state-sqlite    → functualize-state, core
+└── functualize-tasks-local     → functualize-tasks, functualize-state
+
+Level 2 — Depends on Level 1 plugins
+└── functualize-ai-pydantic     → functualize-ai, pydantic-ai, litellm
 ```
 
-**Publishing order:** All Level 0 plugins can be published in parallel. Level 1 plugins must wait until their Level 0 dependencies are available on PyPI.
+**Publishing order in practice:** ordering is informational. `.github/workflows/release.yml`
+builds every workspace package with `uv build --all-packages` and hands the whole
+`dist/` to `pypa/gh-action-pypi-publish` in a single step, so all levels go up in one
+action. The graph matters when publishing a package by hand, or when reasoning about
+which installs break during a partial release.
+
+**Version pinning:** cross-plugin dependencies are pinned `>=0.1.0,<1.0.0`, except
+`functualize-ai`'s dependency on `functualize-state` and `functualize-ai-pydantic`'s
+on `functualize-ai`, which are unpinned. So is every plugin named in the core
+package's `[all]` extra. Unpinned names are also unclaimed names — see the note in
+Current Classification.
 
 ## README Template (Tier 1)
 
@@ -168,36 +185,73 @@ uv run pytest plugins/functualize-<name>/tests/ -v
 
 ## Current Classification
 
+**Nothing is on PyPI yet.** All 12 names — core plus the 11 plugins — are
+unregistered as of the v0.1.0 release preparation. "Tier 1" below means *meets the
+Tier 1 bar*, not *currently downloadable*.
+
 | Plugin | Tier | Level | Notes |
 |--------|------|-------|-------|
-| functualize-interactivity | 1 — Published | 0 | Prompt/input/output protocols |
-| functualize-state | 1 — Published | 0 | State management capability |
-| functualize-http | 1 — Published | 0 | HTTP adapter (FastAPI/Starlette) |
-| functualize-lambda | 1 — Published | 0 | AWS Lambda adapter |
-| functualize-flow-viz | 1 — Published | 0 | Workflow execution visualization |
-| functualize-ai | 1 — Published | 0 | AI/LLM capability |
-| functualize-tasks | 1 — Published | 0 | Task queue domain protocol |
-| functualize-inline | 1 — Published | 1 | Inline interactivity (Textual) |
-| functualize-fullscreen-tui | 1 — Published | 1 | Full-screen TUI (Textual) |
-| functualize-state-sqlite | 1 — Published | 1 | SQLite state backend |
-| functualize-tasks-local | 1 — Published | 1 | Local state-backed task queue |
-| functualize-ai-pydantic | 1 — Published | 1 | PydanticAI provider bridge |
-| functualize-mcp | 1 — Published | 1 | MCP (Model Context Protocol) integration |
+| functualize-state | 1 — Ready | 0 | State management capability |
+| functualize-tasks | 1 — Ready | 0 | Task queue domain protocol |
+| functualize-http | 1 — Ready | 0 | HTTP adapter (FastAPI/Starlette) |
+| functualize-lambda | 1 — Ready | 0 | AWS Lambda adapter |
+| functualize-inline | 1 — Ready | 0 | Inline interactivity (Textual) |
+| functualize-flow-viz | 1 — Ready | 0 | Workflow execution visualization |
+| functualize-mcp | 1 — Ready | 0 | MCP (Model Context Protocol) integration |
+| functualize-ai | 1 — Ready | 1 | AI/LLM capability |
+| functualize-state-sqlite | 1 — Ready | 1 | SQLite state backend |
+| functualize-tasks-local | 1 — Ready | 1 | Local state-backed task queue |
+| functualize-ai-pydantic | 1 — Ready | 2 | PydanticAI provider bridge |
+| functualize-fullscreen-tui | 3 — Experimental | — | **Not a package.** No `pyproject.toml`, so it is not a uv workspace member and is never built or published. Source and tests only |
+
+All eleven Tier 1 entries were verified against the Tier 1 checklist: each has a
+`py.typed` marker, a README of 43–114 lines, and an `examples/` directory.
+
+**Publish all 12 together, including the ones nobody imports directly.** Two things
+break otherwise. The core package's `[all]` extra names all 11 plugins, so
+`pip install functualize[all]` fails against any name that is missing. And an
+unregistered name referenced by an unpinned dependency is a name someone else can
+claim and have resolved into your users' environments. Publishing claims them.
+
+`functualize-interactivity` appeared in earlier revisions of this document. No such
+package has ever existed in this repository.
 
 ## Plugin-to-Package Mapping
 
+These are the eleven distributions built by `uv build --all-packages`, alongside the
+`functualize` core package.
+
 | Plugin Directory | PyPI Package Name | Python Import |
 |-----------------|-------------------|---------------|
-| functualize-interactivity | functualize-interactivity | `functualize_interactivity` |
 | functualize-state | functualize-state | `functualize_state` |
 | functualize-state-sqlite | functualize-state-sqlite | `functualize_state_sqlite` |
 | functualize-http | functualize-http | `functualize_http` |
 | functualize-lambda | functualize-lambda | `functualize_lambda` |
 | functualize-inline | functualize-inline | `functualize_inline` |
 | functualize-flow-viz | functualize-flow-viz | `functualize_flow_viz` |
-| functualize-fullscreen-tui | functualize-fullscreen-tui | `functualize_fullscreen_tui` |
 | functualize-ai | functualize-ai | `functualize_ai` |
 | functualize-ai-pydantic | functualize-ai-pydantic | `functualize_ai_pydantic` |
 | functualize-tasks | functualize-tasks | `functualize_tasks` |
 | functualize-tasks-local | functualize-tasks-local | `functualize_tasks_local` |
 | functualize-mcp | functualize-mcp | `functualize_mcp` |
+
+`functualize-fullscreen-tui` is deliberately absent: it has no `pyproject.toml`, so
+it is not a workspace member and produces no distribution.
+
+## Trusted Publishing
+
+Every name above, plus `functualize`, needs its own PyPI trusted publisher before the
+first release — twelve in total. Because none of the projects exist yet, each must be
+registered as a **pending** publisher at
+<https://pypi.org/manage/account/publishing/>:
+
+| Field | Value |
+|-------|-------|
+| Owner | `raicing-ai` |
+| Repository name | `functualize` |
+| Workflow name | `release.yml` |
+| Environment name | `pypi` |
+
+The `pypi` GitHub environment must also exist on the repository, matching the
+`environment: pypi` key in `release.yml`. A missing environment leaves the publish
+job waiting indefinitely; a name mismatch is the most common first-release failure.

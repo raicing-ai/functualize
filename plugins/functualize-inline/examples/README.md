@@ -19,4 +19,4 @@ Expected behavior:
 2. On confirm, a selection list of regions appears — pick with arrows + Enter.
 3. The job continues, logging the chosen region; the widgets collapse back into the scrollback.
 
-In a headless run (CI, pipe), the same prompts resolve from their defaults instead of blocking — that behavior is covered by [`functualize-interactivity/examples/`](../../functualize-interactivity/examples/) with `AutoPrompt`.
+In a headless run (CI, pipe), the same prompts resolve from their defaults instead of blocking. To drive that path in a test, substitute `AutoPrompt` from `functualize.testing`.
