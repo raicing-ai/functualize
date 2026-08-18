@@ -78,4 +78,3 @@ uv run platform-ops show-info
 - For dependency-isolated extensions, use the **plugin system** instead (`plugins/` examples)
 - For auto-discovering child directories, use `children_glob="services/*/"`
 - For truly independent projects with separate venvs, use entry-point plugins
-

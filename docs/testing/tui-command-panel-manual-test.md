@@ -13,7 +13,7 @@ This launches the TUI with multiple jobs (status, ping, send, migrate, deploy, �
 
 ## Feature 1: PendingExecution & Pre-Flight Summary
 
-**Tasks covered:** 1, 11  
+**Tasks covered:** 1, 11
 **Requirements:** R1-AC1, R1-AC2, R1-AC3, R1-AC6, R6-AC1 through R6-AC6
 
 ### Steps
@@ -52,7 +52,7 @@ This launches the TUI with multiple jobs (status, ping, send, migrate, deploy, �
 
 ## Feature 2: Command Ring with 3 Panels
 
-**Tasks covered:** 3, 4, 5, 6, 9  
+**Tasks covered:** 3, 4, 5, 6, 9
 **Requirements:** R2-AC1, R3-AC1, R5-AC1
 
 ### Steps
@@ -102,7 +102,7 @@ This launches the TUI with multiple jobs (status, ping, send, migrate, deploy, �
 
 ## Feature 3: Pre-Flight Hides/Shows with Panel Host
 
-**Tasks covered:** 12  
+**Tasks covered:** 12
 **Requirements:** R8-AC5, R8-AC6
 
 ### Steps
@@ -122,7 +122,7 @@ This launches the TUI with multiple jobs (status, ping, send, migrate, deploy, �
 
 ## Feature 4: Resolution Chain Drill-Down
 
-**Tasks covered:** 3, 4  
+**Tasks covered:** 3, 4
 **Requirements:** R5-AC2, R5-AC3, R5-AC4, R5-AC5, R5-AC7
 
 ### Steps
@@ -141,14 +141,14 @@ This launches the TUI with multiple jobs (status, ping, send, migrate, deploy, �
 
 ### Feedback
 
-> _Status:_ ☐ Pass ☐ Fail ☐ Partial  
+> _Status:_ ☐ Pass ☐ Fail ☐ Partial
 > _Notes:_
 
 ---
 
 ## Feature 5: Breadcrumb Depth Guard
 
-**Tasks covered:** 2  
+**Tasks covered:** 2
 **Requirements:** R7-AC1, R7-AC2, R7-AC3
 
 ### Steps
@@ -163,14 +163,14 @@ This launches the TUI with multiple jobs (status, ping, send, migrate, deploy, �
 
 ### Feedback
 
-> _Status:_ ☐ Pass ☐ Fail ☐ Partial  
+> _Status:_ ☐ Pass ☐ Fail ☐ Partial
 > _Notes:_
 
 ---
 
 ## Feature 6: Config Files Panel Navigation
 
-**Tasks covered:** 5, 6  
+**Tasks covered:** 5, 6
 **Requirements:** R2-AC1, R2-AC2, R2-AC3, R2-AC4, R2-AC5, R2-AC16
 
 ### Steps
@@ -186,14 +186,14 @@ This launches the TUI with multiple jobs (status, ping, send, migrate, deploy, �
 
 ### Feedback
 
-> _Status:_ ☐ Pass ☐ Fail ☐ Partial  
+> _Status:_ ☐ Pass ☐ Fail ☐ Partial
 > _Notes:_
 
 ---
 
 ## Feature 7: Config Files Drill-Down and Staged Edits
 
-**Tasks covered:** 7  
+**Tasks covered:** 7
 **Requirements:** R2-AC8, R2-AC9, R2-AC10, R2-AC11, R2-AC15
 
 ### Steps
@@ -212,14 +212,14 @@ This launches the TUI with multiple jobs (status, ping, send, migrate, deploy, �
 
 ### Feedback
 
-> _Status:_ ☐ Pass ☐ Fail ☐ Partial  
+> _Status:_ ☐ Pass ☐ Fail ☐ Partial
 > _Notes:_
 
 ---
 
 ## Feature 8: TOML File Save (Ctrl+S)
 
-**Tasks covered:** 8  
+**Tasks covered:** 8
 **Requirements:** R2-AC12, R2-AC13, R2-AC14
 
 ### Pre-requisite
@@ -258,14 +258,14 @@ git checkout -- .functualize.toml
 
 ### Feedback
 
-> _Status:_ ☐ Pass ☐ Fail ☐ Partial  
+> _Status:_ ☐ Pass ☐ Fail ☐ Partial
 > _Notes:_
 
 ---
 
 ## Feature 9: Diff View and Session Load
 
-**Tasks covered:** 9  
+**Tasks covered:** 9
 **Requirements:** R3-AC1, R3-AC2, R3-AC3, R3-AC4
 
 ### Steps
@@ -279,14 +279,14 @@ git checkout -- .functualize.toml
 
 ### Feedback
 
-> _Status:_ ☐ Pass ☐ Fail ☐ Partial  
+> _Status:_ ☐ Pass ☐ Fail ☐ Partial
 > _Notes:_
 
 ---
 
 ## Feature 10: Snapshot Recording
 
-**Tasks covered:** 10  
+**Tasks covered:** 10
 **Requirements:** R4-AC1, R4-AC2, R4-AC3, R4-AC4, R4-AC5
 
 ### Steps
@@ -299,14 +299,14 @@ git checkout -- .functualize.toml
 
 ### Feedback
 
-> _Status:_ ☐ Pass ☐ Fail ☐ Partial  
+> _Status:_ ☐ Pass ☐ Fail ☐ Partial
 > _Notes:_
 
 ---
 
 ## Feature 11: Cross-Panel Sync
 
-**Tasks covered:** 12  
+**Tasks covered:** 12
 **Requirements:** R1-AC4, R1-AC5, R8-AC1, R8-AC2, R8-AC3, R8-AC4
 
 ### Steps
@@ -323,14 +323,14 @@ git checkout -- .functualize.toml
 
 ### Feedback
 
-> _Status:_ ☐ Pass ☐ Fail ☐ Partial  
+> _Status:_ ☐ Pass ☐ Fail ☐ Partial
 > _Notes:_
 
 ---
 
 ## Feature 12: Environment Variable Resolution
 
-**Tasks covered:** 3  
+**Tasks covered:** 3
 **Requirements:** R5-AC1
 
 ### Steps
@@ -347,7 +347,7 @@ git checkout -- .functualize.toml
 
 ### Feedback
 
-> _Status:_ ☐ Pass ☐ Fail ☐ Partial  
+> _Status:_ ☐ Pass ☐ Fail ☐ Partial
 > _Notes:_
 
 ---
@@ -391,8 +391,8 @@ panel, so `KeyDispatcher._resolve_target` routes to it. Outside a Detail view,
 
 ## Overall Summary
 
-> _Date tested:_  
-> _Overall status:_ ☐ All pass ☐ Issues found  
+> _Date tested:_
+> _Overall status:_ ☐ All pass ☐ Issues found
 > _Blockers:_
 >
 > _General impressions:_

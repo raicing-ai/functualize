@@ -23,9 +23,9 @@ The framework supports six distinct entry points and bootstrapping strategies. A
 
 **Purpose:** "What jobs exist? What do they need?"
 
-**Input:** Job directories, module paths, metadata providers  
-**Output:** `list[JobDescriptor]` — pure data, no side effects  
-**Key Classes:** `CachedDirectoryScanProvider`, `StaticProvider`, `ResolutionPipeline`, `ModulePreFilter`  
+**Input:** Job directories, module paths, metadata providers
+**Output:** `list[JobDescriptor]` — pure data, no side effects
+**Key Classes:** `CachedDirectoryScanProvider`, `StaticProvider`, `ResolutionPipeline`, `ModulePreFilter`
 **Location:** `_discovery/`
 
 | Mode | Discovery Strategy | Discovery Cache Used | Scope |
@@ -62,7 +62,7 @@ Mode D skips the registry entirely. It calls `full_import_and_extract(source_fil
 - Path A: Full boot (import all → Click tree, for --help and TUI)
 - Path B: Selective (import one → execute immediately, fast path)
 
-**Key Classes:** `CliAdapter` (builds Click tree from descriptors)  
+**Key Classes:** `CliAdapter` (builds Click tree from descriptors)
 **Location:** `app/adapters/`, `_app/boot.py`
 
 The app's command group is a `click.Group`, exposed as `app.cli_command`
@@ -114,7 +114,7 @@ Mode F:  caller → engine.execute() directly
 - Calls the job function
 - Returns `JobResult`
 
-**Key Classes:** `JobExecutionEngine`, `RunContext`, `DIRegistry`  
+**Key Classes:** `JobExecutionEngine`, `RunContext`, `DIRegistry`
 **Location:** `_engine/`
 
 ## Convergence Architecture

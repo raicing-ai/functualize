@@ -133,6 +133,11 @@ target-version = "py311"
 line-length = 88
 src = ["src", "tests"]
 extend-exclude = ["tests/experiments"]
+# Apply the exclusions above even when paths are passed explicitly on the command
+# line. pre-commit always passes explicit filenames, so without this the excluded
+# trees are linted by the hook but not by `ruff check .` — the hook then reports
+# hundreds of errors CI never sees.
+force-exclude = true
 
 [tool.ruff.lint]
 select = [
@@ -153,6 +158,11 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "src/functualize/_cli/main.py" = ["E402"]  # Intentional: time import before heavy imports for startup timing
+# A parallel table of assertion checks: the outer `if` asks whether an assertion
+# was requested, the inner whether it failed. Two different questions, and the
+# symmetry across the seven blocks is what makes them readable. Collapsing them
+# per SIM102 would merge the concepts and wrap every line.
+".agents/skills/doc-verify/scripts/run-scenario" = ["SIM102"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["functualize"]

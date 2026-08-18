@@ -2,8 +2,14 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
+      # Snapshot files are byte-exact expected output, not source. Trimming
+      # trailing whitespace inside a stored Textual SVG export makes it differ
+      # from what the app regenerates, and the comparison fails — this broke
+      # all four test_snapshot_baseline tests once already.
       - id: trailing-whitespace
+        exclude: __snapshots__/
       - id: end-of-file-fixer
+        exclude: __snapshots__/
       - id: check-yaml
         args: ['--unsafe']
       - id: check-toml
@@ -12,10 +18,14 @@ repos:
       - id: check-merge-conflict
       - id: detect-private-key
 
+  # Must track the ruff version in uv.lock. When these drift, `pre-commit run
+  # --all-files` reports failures the project's own `ruff check` does not — v0.8.6
+  # against a 0.15 codebase produced 36 phantom errors and wanted to reformat 132
+  # files, none of which were real.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.6
+    rev: v0.15.14
     hooks:
-      - id: ruff
+      - id: ruff-check
         args: [--fix]
       - id: ruff-format
 

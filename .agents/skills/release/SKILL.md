@@ -302,5 +302,3 @@ Upon confirmation, execute in order:
 - **Report output location**: `.release/reports/pre-release-<YYYY-MM-DD>.md`
 - **Documentation corpus**: `README.md`, all files under `contributor/architecture/`, `contributor/guides/`, `contributor/reference/`, `contributor/adr/`, and `docs/`
 - **Architecture docs**: `contributor/architecture/dependency-graph.md` (import relationships), `contributor/reference/layer-rules.md` (allowed imports matrix enforced by `import-linter`)
-
-

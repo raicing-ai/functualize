@@ -371,4 +371,3 @@ Need a different Python/OS?       → Tier 3 (always)
 Need to keep state across turns?  → Tier 2 (tmux) or Tier 3 (named container)
 Quick one-shot screen check?      → Tier 1 (pyte probe, fastest)
 ```
-

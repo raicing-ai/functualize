@@ -45,9 +45,13 @@ def _run(cmd: list[str], tool: str, install_hint: str, ok_returncodes=(0, 1)):
             cmd, capture_output=True, text=True, timeout=SCAN_TIMEOUT
         )
     except FileNotFoundError:
-        return None, ScanResult(tool, False, error=f"{tool} not installed. Run: {install_hint}")
+        return None, ScanResult(
+            tool, False, error=f"{tool} not installed. Run: {install_hint}"
+        )
     except subprocess.TimeoutExpired:
-        return None, ScanResult(tool, False, error=f"{tool} timed out after {SCAN_TIMEOUT}s")
+        return None, ScanResult(
+            tool, False, error=f"{tool} timed out after {SCAN_TIMEOUT}s"
+        )
     except Exception as e:  # noqa: BLE001 - report any launch failure, don't crash the run
         return None, ScanResult(tool, False, error=str(e))
 
@@ -75,7 +79,9 @@ def run_bandit(project_path: Path) -> ScanResult:
     data = json.loads(stdout) if stdout else {"results": []}
     findings = data.get("results", [])
     blocking = sum(
-        1 for f in findings if f.get("issue_severity", "").upper() in ("HIGH", "CRITICAL")
+        1
+        for f in findings
+        if f.get("issue_severity", "").upper() in ("HIGH", "CRITICAL")
     )
     return ScanResult("bandit", True, findings, blocking)
 
@@ -127,7 +133,11 @@ def check_secrets(project_path: Path) -> ScanResult:
 
     data = json.loads(stdout) if stdout else {"results": {}}
     findings = [
-        {"file": file_path, "type": secret.get("type"), "line": secret.get("line_number")}
+        {
+            "file": file_path,
+            "type": secret.get("type"),
+            "line": secret.get("line_number"),
+        }
         for file_path, secrets in data.get("results", {}).items()
         for secret in secrets
     ]
@@ -171,11 +181,15 @@ def format_report(results: list[ScanResult]) -> str:
         elif not result.findings:
             lines.append("No issues found.")
         else:
-            lines.append(f"Found {len(result.findings)} issue(s), {result.blocking} blocking:")
+            lines.append(
+                f"Found {len(result.findings)} issue(s), {result.blocking} blocking:"
+            )
             for i, finding in enumerate(result.findings[:MAX_FINDINGS_SHOWN], 1):
                 lines.append(f"  {i}. {_describe(finding)}")
             if len(result.findings) > MAX_FINDINGS_SHOWN:
-                lines.append(f"  ... and {len(result.findings) - MAX_FINDINGS_SHOWN} more")
+                lines.append(
+                    f"  ... and {len(result.findings) - MAX_FINDINGS_SHOWN} more"
+                )
             total_findings += len(result.findings)
             total_blocking += result.blocking
 
@@ -189,7 +203,9 @@ def format_report(results: list[ScanResult]) -> str:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run security scans on a Python project")
+    parser = argparse.ArgumentParser(
+        description="Run security scans on a Python project"
+    )
     parser.add_argument(
         "project_path",
         type=Path,
@@ -198,7 +214,8 @@ def main():
         help="Path to project (default: current directory)",
     )
     parser.add_argument(
-        "--output", "-o",
+        "--output",
+        "-o",
         type=Path,
         help="Output JSON report to file",
     )

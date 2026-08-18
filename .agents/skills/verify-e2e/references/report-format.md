@@ -100,7 +100,7 @@ or
 ✗ E2E SMOKE FAIL — TUI failed to boot in examples/standalone/showcase.
   Timeout waiting for "Type a command". Screen dump shows:
   <3-5 relevant lines from the dump>
-  
+
   This indicates the kernel change broke the boot sequence. Fix before proceeding.
 ```
 
