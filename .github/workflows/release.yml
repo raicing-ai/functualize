@@ -5,6 +5,13 @@ on:
     tags:
       - "v*"
 
+  # Lets the publish path be exercised without creating a tag. A trusted
+  # publisher is keyed on (owner, repo, workflow, environment) — the trigger
+  # is not part of that tuple, so a manual run mints exactly the token a tag
+  # push would, and proves every project's publisher is configured. The upload
+  # itself is a no-op whenever the version is already on the index.
+  workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -63,6 +70,9 @@ jobs:
   github-release:
     needs: publish
     runs-on: ubuntu-latest
+    # Only a tag push is a release. A manual verification run has no tag for
+    # the release notes to point at, so creating one there would be wrong.
+    if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
     steps:
