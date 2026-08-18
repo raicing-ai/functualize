@@ -44,6 +44,27 @@ All checks must pass before any change is complete: `ruff check`, `ruff format -
 - Maximum 2 pytest invocations per verification: run targeted tests; if a failure appears, fix and re-run only the failing test. If still failing, stop and explain rather than cycling flag variations.
 - **Always redirect command output to a temp file** when the output may be long (pytest, linters, type checkers). Never pipe through `tail`/`head`/`sed` — truncation forces a re-run to see the full output. Use `/tmp/functualize-<command>.log` and read from it. Example: `uv run pytest tests/engine/ > /tmp/functualize-test.log 2>&1`.
 
+### Git discipline
+
+- The default branch is **`master`**, not `main`. All workflows trigger on it.
+- Never commit directly to `master` for feature work. Branch as
+  `<type>/<kebab-slug>` (`feat/group-options-panels`), `<type>` being a commit
+  type below. `sdd/<slug>` is reserved for spec-driven working branches.
+- Commit subjects are [Conventional Commits](https://www.conventionalcommits.org/):
+  `<type>(<scope>)!: <subject>` with types `feat fix docs refactor test perf ci
+  build chore revert`. Imperative, lowercase, no trailing period, ≤72 chars.
+  Scope is a **single** token — `fix(engine):`, never `fix(cli,scaffold):`.
+- The commit **body says why**, and what a reader would otherwise re-derive. The
+  diff already says what changed.
+- PRs are squash-merged and the squash subject is taken verbatim from the **PR
+  title**, so a PR title must itself be a valid conventional commit. Issue
+  references go in the body (`Fixes #123`), never the title.
+- `CHANGELOG.md` is **hand-written prose, never generated** from commit
+  messages. Do not add a changelog generator without an ADR.
+
+Full rules and rationale: `CONTRIBUTING.md` §§ Branching Strategy, Commit
+Message Convention, Pull Request Guidelines.
+
 ### Mandatory reading by task
 
 | When you are... | Read first |
@@ -58,6 +79,7 @@ All checks must pass before any change is complete: `ruff check`, `ruff format -
 | Verifying a change by breaking it on purpose (sabotage) | `contributor/guides/wiring-discipline.md` §3 — **commit first**, then sabotage, then `git checkout --`. That restore reverts everything uncommitted in the file, and has silently discarded finished work. Sabotage also catches vacuous *tests*, which running them cannot |
 | Writing tests | `contributor/reference/testing-strategy.md` (domain-mirrored dirs + `tests/_support/` fixtures; no `tests/unit/` or `tests/properties/` dirs) |
 | Proposing a new layer, public API surface, or dependency-rule change | ADR is mandatory: record the decision in `contributor/adr/` (template: `contributor/adr/000-template.md`) |
+| Opening a PR, writing a release commit, or unsure how to name a branch | `CONTRIBUTING.md` §§ Branching Strategy / Commit Message Convention / Pull Request Guidelines — the summary in **Git discipline** above covers the common case; read these for breaking changes, the release commit, and why the changelog is hand-written |
 | Understanding overall architecture | `contributor/architecture/overview.md` + `contributor/architecture/codemaps/` (module catalog, measured fan-in, entry points, data flow) |
 | About to add a setting, filter, cache, registry, or TUI panel — or to debug one that "resolves but does nothing" | `contributor/reference/pitfalls.md` — 15 defects that already shipped here, each with the shape of the trap named. Several passed review *and* a test; four were only visible on the warm-cache or lazy-boot path |
 

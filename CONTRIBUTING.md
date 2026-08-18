@@ -235,23 +235,31 @@ uv run pre-commit run --all-files
 
 | Workflow | Trigger | What it does |
 |----------|---------|--------------|
-| CI | Push to main, PRs | Ruff lint, ruff format, mypy, pytest, lint-imports |
-| Security | Push to main, PRs, weekly cron | Gitleaks secret scan |
+| CI | Push to `master`, PRs | Ruff lint, ruff format, mypy, pytest, lint-imports |
+| Security | Push to `master`, PRs, weekly cron | Gitleaks secret scan |
 | Release | Tag push `v*` | Build → publish to PyPI → create GitHub Release |
-| Docs | Push to main | Build docs (strict) → deploy to GitHub Pages |
+| Docs | Push to `master` | Build docs (strict) → deploy to GitHub Pages |
 
 ## Branching Strategy
 
 Trunk-based development with release tags:
 
-- `main` is the single source of truth
-- Short-lived feature branches (`feat/xxx`, `fix/xxx`) for PRs
+- `master` is the single source of truth — the repo default branch, and what
+  every workflow triggers on
+- Short-lived branches for PRs, named `<type>/<kebab-slug>` where `<type>` is
+  one of the commit types below: `feat/group-options-panels`,
+  `fix/warm-cache-display-discovery`, `docs/plugin-authoring`
+- `sdd/<slug>` is also reserved, for spec-driven-development working branches
 - Release tags (`v0.1.0`, `v0.2.0`) trigger PyPI publishing
 - No `develop` or `release/*` branches
 
+The slug describes the change, not the ticket — `fix/warm-cache-display-discovery`
+tells you what broke, `fix/issue-42` makes you go look it up. Reference the issue
+in the commit footer instead.
+
 ## Making Changes
 
-1. Fork the repo and create a branch from `main`:
+1. Fork the repo and create a branch from `master`:
    ```bash
    git checkout -b feat/my-feature
    ```
@@ -264,15 +272,20 @@ Trunk-based development with release tags:
    uv run ruff format --check src/ tests/
    uv run mypy src/
    uv run lint-imports
-   uv run pytest --run-slow
+   uv run pytest
    ```
 
-4. Commit with a clear message:
+   These are the gates CI enforces. `uv run pytest --run-slow` additionally runs
+   the property-based tier, which is **currently red** — see follow-up #7 in
+   `.spec/STATUS.md`. Run it if you are touching the engine, but do not treat a
+   pre-existing failure there as yours.
+
+4. Commit with a clear message (see [Commit Message Convention](#commit-message-convention)):
    ```bash
    git commit -m "feat: add support for X"
    ```
 
-5. Push and open a Pull Request against `main`.
+5. Push and open a Pull Request against `master`.
 
 ## Release Process
 
@@ -288,11 +301,12 @@ Trunk-based development with release tags:
 
 # 3. Commit and tag
 git add -A
-git commit -m "release: vX.Y.Z"
+git commit -m "chore(release): vX.Y.Z"
 git tag vX.Y.Z
 
 # 4. Push (tag triggers release workflow → PyPI publish)
-git push origin master --tags
+git push origin master
+git push origin vX.Y.Z
 ```
 
 The release workflow builds and publishes the core package **and every workspace
@@ -306,19 +320,67 @@ When bumping plugin versions, update each plugin's `pyproject.toml` as well.
 
 We use [Conventional Commits](https://www.conventionalcommits.org/):
 
-- `feat:` — new feature
-- `fix:` — bug fix
-- `docs:` — documentation only
-- `refactor:` — code change that neither fixes a bug nor adds a feature
-- `test:` — adding or updating tests
-- `chore:` — maintenance (CI, deps, tooling)
+```
+<type>(<scope>)!: <subject>
+
+<body — why, not what>
+
+<footer — Fixes #N, BREAKING CHANGE:, Co-Authored-By:>
+```
+
+| Type | Use for |
+|------|---------|
+| `feat` | New user-visible capability |
+| `fix` | Bug fix |
+| `docs` | Documentation only |
+| `refactor` | Code change that neither fixes a bug nor adds a feature |
+| `test` | Adding or updating tests |
+| `perf` | Performance work with no behavior change |
+| `ci` | Workflows, CI config, release automation |
+| `build` | Build backend, packaging, dependency pins |
+| `chore` | Maintenance that fits nothing above (incl. version bumps) |
+| `revert` | Reverting a previous commit |
+
+Rules:
+
+- **Subject**: imperative mood, lowercase, no trailing period, ≤72 characters.
+  "add group options panel", not "Added group options panel."
+- **Scope** is optional and is a *single* token — `fix(engine):`, not
+  `fix(cli,scaffold):`. If a change genuinely spans scopes, omit the scope; that
+  is usually a sign it should be two commits.
+- **`!`** before the colon marks a breaking change, and the footer must carry a
+  `BREAKING CHANGE:` paragraph explaining the migration.
+- **Body** explains *why* the change is right, and what a reader would otherwise
+  have to re-derive. The diff already says what changed.
+
+There is no `release:` type. A version bump is `chore(release): v0.2.0`.
+
+### The changelog is written by hand
+
+`CHANGELOG.md` is **not** generated from commit messages, and should not be.
+Its entries explain consequences ("a job module's import-time side effects run
+at first invocation rather than at boot") — the kind of thing a generator cannot
+produce from a subject line. Conventional Commits are used here for navigation
+and for grouping release notes, not as changelog source. Do not add a changelog
+generator without an ADR.
 
 ## Pull Request Guidelines
+
+**The PR title is the commit message.** This repo squash-merges, and the squash
+commit takes the PR title verbatim — so the title must itself be a valid
+conventional commit (`feat(tui): render group flags mid-path`). The PR body
+becomes the commit body.
 
 - Keep PRs focused on a single change
 - Include tests for new functionality
 - Update documentation if behavior changes
 - Ensure CI passes before requesting review
+- Reference issues in the body (`Fixes #123`), not in the title
+
+Merge policy — squash only. Merge commits and rebase merges are disabled, and
+branches are deleted on merge. One PR becomes exactly one commit on `master`,
+which keeps history linear and makes `git log --oneline` a readable record of
+what shipped.
 
 ## Key Files
 
@@ -344,7 +406,7 @@ uv run mkdocs serve
 uv run mkdocs build --strict
 ```
 
-Automatic deployment: every push to `main` triggers `.github/workflows/docs.yml` which deploys to GitHub Pages.
+Automatic deployment: every push to `master` triggers `.github/workflows/docs.yml` which deploys to GitHub Pages.
 
 ## Reporting Issues
 

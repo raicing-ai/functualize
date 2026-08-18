@@ -858,7 +858,7 @@ Contributions are welcome! Please read our [Contributing Guide](https://github.c
 2. Create a feature branch (`git checkout -b feat/my-feature`)
 3. Make your changes with tests
 4. Ensure CI checks pass (lint, type check, tests, import-linter)
-5. Open a Pull Request against `main`
+5. Open a Pull Request against `master` (the PR title becomes the squash commit — use a [Conventional Commit](https://www.conventionalcommits.org/) subject)
 
 ## Changelog
 
