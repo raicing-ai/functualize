@@ -23,3 +23,34 @@ repos:
     rev: v8.21.2
     hooks:
       - id: gitleaks
+
+  # Validates the commit subject against CONTRIBUTING.md § Commit Message
+  # Convention. Runs at commit-msg time, so it needs its own hook type:
+  #     uv run pre-commit install --hook-type commit-msg
+  # `pre-commit install` alone installs only the pre-commit hook and this will
+  # silently never run.
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.4.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        # Explicit list rather than the default: the default permits `style`
+        # and `chore` variants this project does not use, and omits `ci`, which
+        # it does.
+        #
+        # This checks the type and shape only. It does NOT reject a multi-token
+        # scope such as `fix(cli,scaffold):` — constraining that here would mean
+        # enumerating every allowed scope, which goes stale. The single-token
+        # rule is enforced on the PR title instead, in
+        # .github/workflows/pr-title.yml, which is what lands on master.
+        args:
+          - feat
+          - fix
+          - docs
+          - refactor
+          - test
+          - perf
+          - ci
+          - build
+          - chore
+          - revert

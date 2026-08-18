@@ -16,8 +16,10 @@ mise install
 # Install dependencies (creates .venv, installs all workspace packages)
 uv sync
 
-# Install pre-commit hooks
+# Install pre-commit hooks (BOTH types — the second validates commit messages,
+# and `pre-commit install` alone silently skips it)
 uv run pre-commit install
+uv run pre-commit install --hook-type commit-msg
 ```
 
 ## Project Structure
@@ -238,6 +240,7 @@ uv run pre-commit run --all-files
 | CI | Push to `master`, PRs | Ruff lint, ruff format, mypy, pytest, lint-imports |
 | Security | Push to `master`, PRs, weekly cron | Gitleaks secret scan |
 | Release | Tag push `v*` | Build → publish to PyPI → create GitHub Release |
+| PR Title | PRs (opened, edited) | Lint the PR title as a conventional commit |
 | Docs | Push to `master` | Build docs (strict) → deploy to GitHub Pages |
 
 ## Branching Strategy
@@ -354,6 +357,19 @@ Rules:
   have to re-derive. The diff already says what changed.
 
 There is no `release:` type. A version bump is `chore(release): v0.2.0`.
+
+### How this is enforced
+
+| Gate | Checks | Where |
+|------|--------|-------|
+| `conventional-pre-commit` | Commit subject type and shape, at commit time | `.pre-commit-config.yaml` (needs `pre-commit install --hook-type commit-msg`) |
+| PR Title workflow | PR title type, single-token scope, lowercase subject, no trailing period | `.github/workflows/pr-title.yml` |
+
+The two overlap deliberately. The hook cannot see a PR title, and the PR title
+is what becomes the commit on `master` — so the title is the one that must be
+right. The local hook only catches mistakes earlier. Multi-token scopes pass the
+hook and fail the workflow, because restricting scope shape locally would mean
+enumerating every allowed scope.
 
 ### The changelog is written by hand
 

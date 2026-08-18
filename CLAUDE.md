@@ -8,7 +8,7 @@ Consult the "Mandatory reading by task" table in [AGENTS.md](AGENTS.md) before l
 
 For any work in `src/functualize/_cli/tui/`, additionally read `contributor/guides/steering_textual_tui.md` (Textual architecture + testing steering with a compliance audit; HARD rules on key bindings, workers, and modality) and `contributor/guides/tui-panels.md` (panel enforcement rules). Claims in the steering docs are proven by `tests/tui_audit/` — re-run `uv run pytest tests/tui_audit/ -v` before changing key handling, workers, or overlay behavior.
 
-To *see* what the live TUI/CLI renders while debugging or verifying a change (e.g. trying the examples one by one), use the `observe-tui` skill (`.claude/skills/observe-tui/SKILL.md`). It is for manual/agent verification only — never use it in automated tests.
+To *see* what the live TUI/CLI renders while debugging or verifying a change (e.g. trying the examples one by one), use the `observe-tui` skill (`.agents/skills/observe-tui/SKILL.md`). It is for manual/agent verification only — never use it in automated tests.
 
 ## Spec-driven workflow
 
