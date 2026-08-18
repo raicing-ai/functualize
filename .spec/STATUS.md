@@ -39,6 +39,32 @@ Items identified during development that are worth doing but not yet designed:
 
    Add `--run-slow` to the release verification gates once the tier is green, so this cannot recur.
 
+8. **`skip-existing` masks trusted-publisher misconfiguration** — `release.yml` passes
+   `skip-existing: true` to `pypa/gh-action-pypi-publish`, which makes twine call
+   `Repository.package_is_uploaded()` *before* attempting the upload
+   (`twine/commands/upload.py:193`, then `continue`). That check is client-side — it
+   reads PyPI's JSON API — so when a version is already on the index **no POST is made
+   and no authorization happens**. A green publish job therefore proves only that the
+   OIDC mint succeeded, i.e. that *at least one* of the twelve projects trusts
+   `(raicing-ai, functualize, release.yml, pypi)`. It proves nothing about the other
+   eleven individually.
+
+   This was confirmed empirically during the 0.1.0 release: a `workflow_dispatch` run
+   skipped all 24 artifacts, and the log timings show why — the 12 wheels are spaced
+   ~40 ms apart (one JSON fetch per project) while all 12 sdists are skipped within
+   6 ms of each other, served from twine's `_releases_json_data` cache.
+
+   Consequence: 0.1.0 published its twelve projects by one-time token upload, so its
+   own tag run verified nothing. **0.1.1 is the first release that genuinely exercises
+   trusted publishing on all twelve**, because it posts files that do not yet exist —
+   a project with a missing or wrong publisher will fail there with a 403, not a 400.
+   Expect that as a plausible 0.1.1 release failure and check the publishing settings
+   first if it happens.
+
+   To verify ahead of a release without spending a version, run twine once per package
+   *without* `--skip-existing` and read the status: `400 already exists` means the
+   publisher works, `403` means it is missing.
+
 ## Recently Completed (2026-07)
 
 | Feature | Description |
