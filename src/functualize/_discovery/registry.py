@@ -403,13 +403,19 @@ class JobRegistry:
             # before the registry key is computed, plus the cached contract.
             declaration = getattr(attr, "__functualize_job__", None)
             workflow_shape = workflow_shape_of(attr)
-            effective_group = normalize_name(
+            raw_group = (
                 declaration.group
                 if declaration is not None and declaration.group is not None
                 else job_group
             )
-            # Each function gets its own distinct qualified name as registry key
-            registry_key = qualified_name(effective_group, attr_name)
+            effective_group = normalize_name(raw_group)
+            # Each function gets its own distinct qualified name as registry key.
+            # `qualified_name` normalizes internally and validates the group it
+            # is handed as a Python identifier, so it must see the *raw*
+            # spelling — handing it `effective_group` made it reject the very
+            # form this line had just produced, and any multi-word JOB_GROUP
+            # ("data_ops", "dataOps") failed registration.
+            registry_key = qualified_name(raw_group, attr_name)
 
             # Detect JobConfig parameter (Pydantic BaseModel subclass in signature)
             job_config_class = self._detect_job_config_class(attr)

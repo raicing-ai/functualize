@@ -16,6 +16,7 @@ from hypothesis import strategies as st
 
 from functualize._app.state import AppState
 from functualize._discovery.registry import JobRegistry
+from functualize._types.naming import normalize_segment
 from functualize.app.adapters.click_params import (
     create_job_command as _create_job_command,
 )
@@ -40,6 +41,10 @@ public_func_names = st.from_regex(r"[a-z][a-z0-9_]{0,20}", fullmatch=True).filte
         and s not in ("None", "True", "False")
     )
 )
+
+# Names must be unique in *canonical* space wherever they are registered
+# together: `foo` and `foo_` both normalize to `foo`, and registering both is
+# a collision the registry rejects by design, not two jobs.
 
 # Private function names (underscore-prefixed)
 private_func_names = st.from_regex(r"_[a-z][a-z0-9_]{0,20}", fullmatch=True).filter(
@@ -118,7 +123,9 @@ def _create_jobs_dir(tmp_path: str, modules: dict[str, str]) -> str:
 
 
 @given(
-    public_funcs=st.lists(public_func_names, min_size=1, max_size=5, unique=True),
+    public_funcs=st.lists(
+        public_func_names, min_size=1, max_size=5, unique_by=normalize_segment
+    ),
     private_funcs=st.lists(private_func_names, min_size=0, max_size=3, unique=True),
     mod_name=module_names,
 )
@@ -180,7 +187,9 @@ def test_property_6_registers_only_public_defined_callable_functions(
 
 
 @given(
-    public_funcs=st.lists(public_func_names, min_size=1, max_size=4, unique=True),
+    public_funcs=st.lists(
+        public_func_names, min_size=1, max_size=4, unique_by=normalize_segment
+    ),
     job_name=job_name_values,
     mod_name=module_names,
 )
@@ -238,7 +247,9 @@ def test_property_7_job_group_groups_functions_under_subcommand(
 
 
 @given(
-    public_funcs=st.lists(public_func_names, min_size=1, max_size=4, unique=True),
+    public_funcs=st.lists(
+        public_func_names, min_size=1, max_size=4, unique_by=normalize_segment
+    ),
     mod_name=module_names,
 )
 def test_property_7_no_job_group_registers_at_top_level(public_funcs, mod_name):
