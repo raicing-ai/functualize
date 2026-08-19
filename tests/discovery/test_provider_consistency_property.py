@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._types.descriptors import JobDescriptor
@@ -96,7 +96,6 @@ absent_names = st.from_regex(r"absent_[a-z0-9]{1,10}", fullmatch=True)
 # --- Property 2: Provider consistency (list_jobs ↔ get_job) ---
 
 
-@settings(max_examples=100)
 @given(descriptors=unique_descriptor_lists())
 def test_property_2_every_listed_job_is_retrievable(
     descriptors: list[JobDescriptor],
@@ -122,7 +121,6 @@ def test_property_2_every_listed_job_is_retrievable(
         )
 
 
-@settings(max_examples=100)
 @given(
     descriptors=unique_descriptor_lists(),
     absent_name=absent_names,
@@ -150,7 +148,6 @@ def test_property_2_get_job_returns_none_for_absent_names(
         )
 
 
-@settings(max_examples=100)
 @given(descriptors=unique_descriptor_lists())
 def test_property_2_list_jobs_names_match_get_job_domain(
     descriptors: list[JobDescriptor],

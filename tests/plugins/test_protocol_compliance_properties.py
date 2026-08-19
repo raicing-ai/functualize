@@ -10,7 +10,7 @@ import logging
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._plugins.loader import PluginLoader
@@ -91,7 +91,6 @@ class TestProtocolCompliance:
     **Validates: Requirements 5.1, 5.2**
     """
 
-    @settings(max_examples=100)
     @given(name_value=name_values, has_name=include_name)
     def test_handle_event_satisfies_surface(self, name_value: str, has_name: bool):
         cls = _make_surface_class(
@@ -99,7 +98,6 @@ class TestProtocolCompliance:
         )
         assert isinstance(cls(), Surface)
 
-    @settings(max_examples=100)
     @given(name_value=name_values, has_name=include_name)
     def test_missing_handle_event_fails_surface(self, name_value: str, has_name: bool):
         cls = _make_surface_class(
@@ -107,7 +105,6 @@ class TestProtocolCompliance:
         )
         assert not isinstance(cls(), Surface)
 
-    @settings(max_examples=100)
     @given(name_value=name_values, has_name=include_name)
     def test_collect_satisfies_prompt_collector(self, name_value: str, has_name: bool):
         cls = _make_collector_class(
@@ -115,7 +112,6 @@ class TestProtocolCompliance:
         )
         assert isinstance(cls(), PromptCollector)
 
-    @settings(max_examples=100)
     @given(name_value=name_values, has_name=include_name)
     def test_missing_collect_fails_prompt_collector(
         self, name_value: str, has_name: bool
@@ -137,7 +133,6 @@ class TestEntryPointLoadFailureResilience:
     **Validates: Requirements 27.8**
     """
 
-    @settings(max_examples=50)
     @given(
         ep_name=entry_point_names,
         exc_type=load_failure_exceptions,
@@ -190,7 +185,6 @@ class TestEntryPointLoadFailureResilience:
             plugin_logger.removeHandler(handler)
             plugin_logger.setLevel(original_level)
 
-    @settings(max_examples=50)
     @given(
         failing_ep_name=entry_point_names,
         exc_type=load_failure_exceptions,
@@ -254,7 +248,6 @@ class TestEntryPointLoadFailureResilience:
                 f"after '{failing_ep_name}' failed"
             )
 
-    @settings(max_examples=50)
     @given(
         ep_name=entry_point_names,
         err_msg=error_messages,
@@ -297,7 +290,6 @@ class TestEntryPointLoadFailureResilience:
             plugin_logger.removeHandler(handler)
             plugin_logger.setLevel(original_level)
 
-    @settings(max_examples=30)
     @given(
         n_failing=st.integers(min_value=1, max_value=4),
         n_working=num_working_plugins,

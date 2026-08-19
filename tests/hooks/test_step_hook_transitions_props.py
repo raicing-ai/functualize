@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._config.job_config import JobConfigView
@@ -78,7 +78,6 @@ class TestStepHookTransitions:
     """
 
     @given(steps=step_sequences)
-    @settings(max_examples=100)
     def test_on_phase_start_fires_only_on_new_step_creation(
         self, steps: list[tuple[str, RunStatus, str]]
     ) -> None:
@@ -110,7 +109,6 @@ class TestStepHookTransitions:
         assert start_fired == unique_names_in_order
 
     @given(steps=step_sequences)
-    @settings(max_examples=100)
     def test_on_phase_failure_fires_for_each_failure_status(
         self, steps: list[tuple[str, RunStatus, str]]
     ) -> None:
@@ -142,7 +140,6 @@ class TestStepHookTransitions:
         assert failure_fired == expected_failures
 
     @given(steps=step_sequences)
-    @settings(max_examples=100)
     def test_on_phase_complete_fires_for_each_success_status(
         self, steps: list[tuple[str, RunStatus, str]]
     ) -> None:
@@ -176,7 +173,6 @@ class TestStepHookTransitions:
         step_name=step_names,
         message=step_messages,
     )
-    @settings(max_examples=100)
     def test_step_created_with_failure_fires_both_start_and_failure(
         self, step_name: str, message: str
     ) -> None:
@@ -213,7 +209,6 @@ class TestStepHookTransitions:
         step_name=step_names,
         message=step_messages,
     )
-    @settings(max_examples=100)
     def test_step_created_with_success_fires_both_start_and_complete(
         self, step_name: str, message: str
     ) -> None:
@@ -251,7 +246,6 @@ class TestStepHookTransitions:
         msg1=step_messages,
         msg2=step_messages,
     )
-    @settings(max_examples=100)
     def test_update_does_not_fire_start_but_fires_status_hooks(
         self, step_name: str, msg1: str, msg2: str
     ) -> None:
@@ -291,7 +285,6 @@ class TestStepHookTransitions:
             max_size=15,
         )
     )
-    @settings(max_examples=100)
     def test_hook_counts_match_expected_totals(
         self, steps: list[tuple[str, RunStatus, str]]
     ) -> None:

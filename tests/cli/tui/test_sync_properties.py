@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.panels.config_table import EditOrigin, FieldDef
@@ -123,7 +123,6 @@ class TestSmartBarSyncProperties:
         job_name=_job_name,
         fields=_unique_field_list(min_size=0, max_size=10),
     )
-    @settings(max_examples=200)
     def test_output_starts_with_job_name(
         self, job_name: str, fields: list[FieldDef]
     ) -> None:
@@ -141,7 +140,6 @@ class TestSmartBarSyncProperties:
         job_name=_job_name,
         fields=_unique_field_list(min_size=1, max_size=10),
     )
-    @settings(max_examples=200)
     def test_overridden_fields_appear_in_output(
         self, job_name: str, fields: list[FieldDef]
     ) -> None:
@@ -164,7 +162,6 @@ class TestSmartBarSyncProperties:
         job_name=_job_name,
         fields=_unique_field_list(min_size=1, max_size=10),
     )
-    @settings(max_examples=200)
     def test_none_fields_do_not_appear_in_output(
         self, job_name: str, fields: list[FieldDef]
     ) -> None:
@@ -187,7 +184,6 @@ class TestSmartBarSyncProperties:
         job_name=_job_name,
         fields=_unique_field_list_all_overridden(),
     )
-    @settings(max_examples=200)
     def test_fields_appear_in_list_order(
         self, job_name: str, fields: list[FieldDef]
     ) -> None:
@@ -217,7 +213,6 @@ class TestSmartBarSyncProperties:
         job_name=_job_name,
         fields=_unique_field_list(min_size=0, max_size=10),
     )
-    @settings(max_examples=200)
     def test_whitespace_values_are_quoted(
         self, job_name: str, fields: list[FieldDef]
     ) -> None:
@@ -249,7 +244,6 @@ class TestSmartBarSyncProperties:
         job_name=_job_name,
         fields=_unique_field_list_all_none(),
     )
-    @settings(max_examples=200)
     def test_all_none_returns_only_job_name(
         self, job_name: str, fields: list[FieldDef]
     ) -> None:
@@ -264,7 +258,6 @@ class TestSmartBarSyncProperties:
         job_name=_job_name,
         fields=_unique_field_list(min_size=0, max_size=10),
     )
-    @settings(max_examples=200)
     def test_flag_count_matches_override_count(
         self, job_name: str, fields: list[FieldDef]
     ) -> None:

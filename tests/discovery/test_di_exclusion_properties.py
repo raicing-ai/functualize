@@ -115,11 +115,7 @@ def _make_function_with_annotations(
 # --- Property 9: DI Parameter Exclusion ---
 
 
-@settings(
-    max_examples=100,
-    suppress_health_check=[HealthCheck.too_slow],
-    deadline=10000,
-)
+@settings(suppress_health_check=[HealthCheck.too_slow], deadline=10000)
 @given(data=di_and_cli_params())
 def test_property_9_di_params_excluded_from_descriptor(
     data: tuple[list[tuple[str, type]], list[tuple[str, Any]]],
@@ -166,11 +162,7 @@ def test_property_9_di_params_excluded_from_descriptor(
     )
 
 
-@settings(
-    max_examples=100,
-    suppress_health_check=[HealthCheck.too_slow],
-    deadline=10000,
-)
+@settings(suppress_health_check=[HealthCheck.too_slow], deadline=10000)
 @given(di_type_name=di_type_names)
 def test_property_9_string_annotations_excluded(
     di_type_name: str,
@@ -203,11 +195,7 @@ def test_property_9_string_annotations_excluded(
     )
 
 
-@settings(
-    max_examples=50,
-    suppress_health_check=[HealthCheck.too_slow],
-    deadline=10000,
-)
+@settings(suppress_health_check=[HealthCheck.too_slow], deadline=10000)
 @given(
     di_type_names_chosen=st.lists(di_type_names, min_size=1, max_size=8, unique=True)
 )

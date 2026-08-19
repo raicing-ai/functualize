@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._config.job_config import JobConfigView
@@ -84,7 +84,6 @@ class TestRunContextInitialState:
     """Property 9: RunContext Initial State."""
 
     @given(name=job_names, run_type=run_types)
-    @settings(max_examples=100)
     def test_initial_run_status_is_running(self, name: str, run_type: RunType):
         """For any job invocation, run_status is RUNNING."""
         # Feature: functualize, Property 9: RunContext Initial State
@@ -93,7 +92,6 @@ class TestRunContextInitialState:
         assert rc.metadata["run_status"] == RunStatus.RUNNING
 
     @given(name=job_names, run_type=run_types)
-    @settings(max_examples=100)
     def test_initial_start_time_within_tolerance(self, name: str, run_type: RunType):
         """For any job invocation, start_time is current UTC time within 1 second."""
         # Feature: functualize, Property 9: RunContext Initial State
@@ -111,7 +109,6 @@ class TestRunContextInitialState:
         assert abs((after - start_time).total_seconds()) < 1.0
 
     @given(name=job_names, run_type=run_types)
-    @settings(max_examples=100)
     def test_initial_run_type_matches_invocation(self, name: str, run_type: RunType):
         """For any job invocation, run_type matches the provided invocation context."""
         # Feature: functualize, Property 9: RunContext Initial State
@@ -120,7 +117,6 @@ class TestRunContextInitialState:
         assert rc.metadata["run_type"] == run_type
 
     @given(name=job_names, run_type=run_types)
-    @settings(max_examples=100)
     def test_initial_end_time_is_none(self, name: str, run_type: RunType):
         """For any job invocation, end_time is None."""
         # Feature: functualize, Property 9: RunContext Initial State
@@ -129,7 +125,6 @@ class TestRunContextInitialState:
         assert rc.metadata["end_time"] is None
 
     @given(name=job_names, run_type=run_types)
-    @settings(max_examples=100)
     def test_initial_duration_is_none(self, name: str, run_type: RunType):
         """For any job invocation, duration is None."""
         # Feature: functualize, Property 9: RunContext Initial State
@@ -155,7 +150,6 @@ class TestJobPhaseTracking:
             unique_by=lambda x: x[0],  # distinct step names
         ),
     )
-    @settings(max_examples=100)
     def test_steps_returned_in_first_tracked_order(
         self, steps: list[tuple[str, str, RunStatus]]
     ):
@@ -178,7 +172,6 @@ class TestJobPhaseTracking:
             unique_by=lambda x: x[0],
         ),
     )
-    @settings(max_examples=100)
     def test_steps_contain_correct_name_and_status(
         self, steps: list[tuple[str, str, RunStatus]]
     ):
@@ -199,7 +192,6 @@ class TestJobPhaseTracking:
         message=st.text(min_size=1001, max_size=2000),
         status=step_statuses,
     )
-    @settings(max_examples=100)
     def test_message_truncated_to_1000_chars(
         self, step_name: str, message: str, status: RunStatus
     ):
@@ -218,7 +210,6 @@ class TestJobPhaseTracking:
         message=st.text(min_size=0, max_size=1000),
         status=step_statuses,
     )
-    @settings(max_examples=100)
     def test_message_within_limit_preserved(
         self, step_name: str, message: str, status: RunStatus
     ):
@@ -239,7 +230,6 @@ class TestJobPhaseTracking:
             unique_by=lambda x: x[0],
         ),
     )
-    @settings(max_examples=100)
     def test_steps_have_timing_information(
         self, steps: list[tuple[str, str, RunStatus]]
     ):
@@ -260,7 +250,6 @@ class TestJobPhaseTracking:
         updated_message=step_messages,
         updated_status=step_statuses,
     )
-    @settings(max_examples=100)
     def test_update_existing_step_preserves_order(
         self,
         step_name: str,
@@ -292,7 +281,6 @@ class TestTerminalStatusTransition:
     """Property 12: Terminal Status Transition."""
 
     @given(name=job_names, terminal_status=terminal_statuses)
-    @settings(max_examples=100)
     def test_terminal_transition_sets_end_time(
         self, name: str, terminal_status: RunStatus
     ):
@@ -311,7 +299,6 @@ class TestTerminalStatusTransition:
         assert (after - end_time).total_seconds() >= -0.01
 
     @given(name=job_names, terminal_status=terminal_statuses)
-    @settings(max_examples=100)
     def test_terminal_transition_computes_duration(
         self, name: str, terminal_status: RunStatus
     ):
@@ -337,7 +324,6 @@ class TestTerminalStatusTransition:
         first_terminal=terminal_statuses,
         second_terminal=terminal_statuses,
     )
-    @settings(max_examples=100)
     def test_second_terminal_transition_raises(
         self, name: str, first_terminal: RunStatus, second_terminal: RunStatus
     ):
@@ -351,7 +337,6 @@ class TestTerminalStatusTransition:
             rc.track_run_status(second_terminal)
 
     @given(name=job_names, terminal_status=terminal_statuses)
-    @settings(max_examples=100)
     def test_terminal_transition_updates_run_status(
         self, name: str, terminal_status: RunStatus
     ):
@@ -368,7 +353,6 @@ class TestTerminalStatusTransition:
         first_terminal=terminal_statuses,
         non_terminal=st.sampled_from([RunStatus.RUNNING, RunStatus.UNKNOWN]),
     )
-    @settings(max_examples=100)
     def test_any_transition_from_terminal_raises(
         self, name: str, first_terminal: RunStatus, non_terminal: RunStatus
     ):

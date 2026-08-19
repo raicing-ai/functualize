@@ -24,7 +24,7 @@ from functualize_ai._events import (
     AI_TOOL_CALLED,
 )
 from functualize_ai._types import AILimits, ToolCallRecord
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 # ===========================================================================
@@ -203,7 +203,6 @@ class TestAILifecycleSuccessfulCallProperty:
     """
 
     @given(prompt=prompts_st, model_name=model_names_st)
-    @settings(max_examples=100)
     def test_complete_emits_started_then_completed(
         self, prompt: str, model_name: str
     ) -> None:
@@ -239,7 +238,6 @@ class TestAILifecycleSuccessfulCallProperty:
         completion_tokens=token_count_st,
         cost=cost_st,
     )
-    @settings(max_examples=100)
     def test_run_emits_started_then_completed_with_usage(
         self,
         prompt: str,
@@ -285,7 +283,6 @@ class TestAILifecycleSuccessfulCallProperty:
         assert completed["tool_calls_count"] == 0
 
     @given(prompt=prompts_st)
-    @settings(max_examples=100)
     def test_stream_emits_started_then_completed(self, prompt: str) -> None:
         """For any successful stream() call, started is emitted first, then completed.
 
@@ -322,7 +319,6 @@ class TestAILifecycleFailedCallProperty:
         exc_type=exception_types_st,
         error_msg=error_messages_st,
     )
-    @settings(max_examples=100)
     def test_complete_failure_emits_started_then_failed(
         self, prompt: str, model_name: str, exc_type: type[Exception], error_msg: str
     ) -> None:
@@ -356,7 +352,6 @@ class TestAILifecycleFailedCallProperty:
         exc_type=exception_types_st,
         error_msg=error_messages_st,
     )
-    @settings(max_examples=100)
     def test_run_failure_emits_started_then_failed(
         self, prompt: str, exc_type: type[Exception], error_msg: str
     ) -> None:
@@ -384,7 +379,6 @@ class TestAILifecycleFailedCallProperty:
         exc_type=exception_types_st,
         error_msg=error_messages_st,
     )
-    @settings(max_examples=100)
     def test_stream_failure_emits_started_then_failed(
         self, prompt: str, exc_type: type[Exception], error_msg: str
     ) -> None:
@@ -416,7 +410,6 @@ class TestAILifecycleToolCallProperty:
     """
 
     @given(prompt=prompts_st, tool_calls=tool_call_records_st)
-    @settings(max_examples=100)
     def test_run_with_tools_emits_tool_called_between_started_and_completed(
         self, prompt: str, tool_calls: list[ToolCallRecord]
     ) -> None:
@@ -469,7 +462,6 @@ class TestAILifecycleToolCallProperty:
         tool_name=tool_names_st,
         tool_duration=duration_ms_st,
     )
-    @settings(max_examples=100)
     def test_tool_called_count_matches_tool_calls_in_result(
         self, prompt: str, num_tools: int, tool_name: str, tool_duration: float
     ) -> None:
@@ -508,7 +500,6 @@ class TestAILifecycleToolCallProperty:
         assert completed["tool_calls_count"] == num_tools
 
     @given(prompt=prompts_st)
-    @settings(max_examples=100)
     def test_run_no_tools_emits_zero_tool_called_events(self, prompt: str) -> None:
         """When run() has no tool calls, no ai.tool.called events are emitted.
 
@@ -547,7 +538,6 @@ class TestAICallStartedPayloadTypeInvariants:
     """
 
     @given(prompt=prompts_st, model_name=model_names_st)
-    @settings(max_examples=100)
     def test_started_payload_prompt_length_is_int(
         self, prompt: str, model_name: str
     ) -> None:
@@ -566,7 +556,6 @@ class TestAICallStartedPayloadTypeInvariants:
         assert started["prompt_length"] == len(prompt)
 
     @given(prompt=prompts_st, model_name=model_names_st)
-    @settings(max_examples=100)
     def test_started_payload_model_is_str(self, prompt: str, model_name: str) -> None:
         """For any AI call, ai.call.started.model is always a str.
 
@@ -583,7 +572,6 @@ class TestAICallStartedPayloadTypeInvariants:
         assert started["model"] == model_name
 
     @given(prompt=prompts_st, model_name=model_names_st)
-    @settings(max_examples=100)
     def test_started_payload_tools_count_is_int(
         self, prompt: str, model_name: str
     ) -> None:
@@ -620,7 +608,6 @@ class TestAICallCompletedPayloadTypeInvariants:
         completion_tokens=token_count_st,
         cost=cost_st,
     )
-    @settings(max_examples=100)
     def test_completed_payload_tokens_present(
         self,
         prompt: str,
@@ -654,7 +641,6 @@ class TestAICallCompletedPayloadTypeInvariants:
         assert completed["tokens"] == usage
 
     @given(prompt=prompts_st)
-    @settings(max_examples=100)
     def test_completed_payload_duration_ms_non_negative(self, prompt: str) -> None:
         """For any successful AI call, ai.call.completed.duration_ms is always >= 0.
 
@@ -672,7 +658,6 @@ class TestAICallCompletedPayloadTypeInvariants:
         assert completed["duration_ms"] >= 0
 
     @given(prompt=prompts_st, tool_calls=tool_call_records_st)
-    @settings(max_examples=100)
     def test_completed_payload_tool_calls_count_non_negative(
         self, prompt: str, tool_calls: list[ToolCallRecord]
     ) -> None:
@@ -718,7 +703,6 @@ class TestAICallFailedPayloadTypeInvariants:
         exc_type=exception_types_st,
         error_msg=error_messages_st,
     )
-    @settings(max_examples=100)
     def test_failed_payload_error_is_str(
         self, prompt: str, exc_type: type[Exception], error_msg: str
     ) -> None:
@@ -743,7 +727,6 @@ class TestAICallFailedPayloadTypeInvariants:
         exc_type=exception_types_st,
         error_msg=error_messages_st,
     )
-    @settings(max_examples=100)
     def test_failed_payload_duration_ms_non_negative(
         self, prompt: str, exc_type: type[Exception], error_msg: str
     ) -> None:
@@ -790,7 +773,6 @@ class TestAIToolCalledPayloadInvariants:
             max_size=5,
         ),
     )
-    @settings(max_examples=100)
     def test_tool_called_payload_contains_required_fields(
         self, prompt: str, tool_calls: list[ToolCallRecord]
     ) -> None:

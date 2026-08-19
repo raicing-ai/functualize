@@ -14,7 +14,7 @@ Generate fields with validators + valid/invalid values; verify:
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.bar import BarReadiness
@@ -267,7 +267,6 @@ class TestValidationGatesEditApplication:
     """
 
     @given(data=_field_with_invalid_input())
-    @settings(max_examples=100)
     def test_invalid_value_rejected(self, data: tuple[FieldDef, str]) -> None:
         """Invalid values → INVALID readiness, field unchanged, mode stays INSERT."""
         field, invalid_value = data
@@ -309,7 +308,6 @@ class TestValidationGatesEditApplication:
         assert ctrl.is_active is True
 
     @given(data=_field_with_valid_input())
-    @settings(max_examples=100)
     def test_valid_value_applied(self, data: tuple[FieldDef, str]) -> None:
         """Valid values → applied, FocusMode back to NORMAL."""
         field, valid_value = data
@@ -366,7 +364,6 @@ class TestValidationGatesEditApplication:
         assert ctrl.is_active is False
 
     @given(data=_field_with_valid_input())
-    @settings(max_examples=100)
     def test_valid_value_restores_bar(self, data: tuple[FieldDef, str]) -> None:
         """Valid values → bar state is restored after edit application."""
         field, valid_value = data
@@ -397,7 +394,6 @@ class TestValidationGatesEditApplication:
         assert "editing" not in bar._classes
 
     @given(data=_field_with_invalid_input())
-    @settings(max_examples=100)
     def test_invalid_value_keeps_bar_editable(self, data: tuple[FieldDef, str]) -> None:
         """Invalid values → bar stays in INSERT with INVALID readiness, user can retry."""
         field, invalid_value = data

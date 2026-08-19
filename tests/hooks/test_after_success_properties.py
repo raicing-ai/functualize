@@ -57,7 +57,6 @@ class TestProperty1AfterSuccessReceivesResult:
     **Validates: Requirements 1.1, 1.2, 1.3**
     """
 
-    @settings(max_examples=100)
     @given(
         result_value=return_values,
         num_hooks=hook_counts,
@@ -89,7 +88,6 @@ class TestProperty1AfterSuccessReceivesResult:
         for received in received_values:
             assert received is result_value or received == result_value
 
-    @settings(max_examples=100)
     @given(
         result_value=return_values,
         job_name=job_names,
@@ -124,7 +122,6 @@ class TestProperty1AfterSuccessReceivesResult:
         assert len(new_received) == 1
         assert new_received[0] is result_value or new_received[0] == result_value
 
-    @settings(max_examples=100)
     @given(
         result_value=return_values,
         job_name=job_names,
@@ -159,10 +156,7 @@ class TestProperty2ExceptionIsolation:
     **Validates: Requirements 1.4**
     """
 
-    @settings(
-        max_examples=100,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         result_value=return_values,
         job_name=job_names,
@@ -223,10 +217,7 @@ class TestProperty2ExceptionIsolation:
         finally:
             hook_logger.setLevel(original_level)
 
-    @settings(
-        max_examples=100,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         result_value=return_values,
         job_name=job_names,
@@ -286,7 +277,6 @@ class TestProperty2ExceptionIsolation:
         finally:
             hook_logger.removeHandler(handler)
 
-    @settings(max_examples=50)
     @given(
         result_value=return_values,
         job_name=job_names,
@@ -339,7 +329,6 @@ class TestProperty3InvocationOrder:
     **Validates: Requirements 1.5**
     """
 
-    @settings(max_examples=100)
     @given(
         result_value=return_values,
         job_name=job_names,
@@ -390,7 +379,6 @@ class TestProperty3InvocationOrder:
         ]
         assert invocation_order == expected
 
-    @settings(max_examples=100)
     @given(
         result_value=return_values,
         job_name=job_names,
@@ -439,7 +427,6 @@ class TestProperty3InvocationOrder:
         for received in received_results:
             assert received is result_value or received == result_value
 
-    @settings(max_examples=100)
     @given(
         result_value=return_values,
         job_name=job_names,

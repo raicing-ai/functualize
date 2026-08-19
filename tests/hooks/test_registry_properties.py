@@ -56,7 +56,6 @@ class TestHookInvocationOrder:
     Validates: Requirements 9.2, 9.8
     """
 
-    @settings(max_examples=100)
     @given(
         event=hook_events,
         job_name=job_names,
@@ -108,7 +107,6 @@ class TestHookInvocationOrder:
 
         assert invocation_order == expected
 
-    @settings(max_examples=100)
     @given(
         event=hook_events,
         job_name=job_names,
@@ -172,9 +170,7 @@ class TestHookResilienceAndTeardownGuarantee:
     Validates: Requirements 9.5, 9.7
     """
 
-    @settings(
-        max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture]
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         event=hook_events,
         job_name=job_names,
@@ -255,7 +251,6 @@ class TestHookResilienceAndTeardownGuarantee:
         finally:
             hook_logger.removeHandler(handler)
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
         job_succeeded=st.booleans(),
@@ -304,9 +299,7 @@ class TestHookResilienceAndTeardownGuarantee:
         expected = list(range(num_teardown_hooks))
         assert sorted(teardown_invoked) == expected
 
-    @settings(
-        max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture]
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         job_name=job_names,
         job_succeeded=st.booleans(),

@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import replace
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._discovery.pipeline import ResolutionPipeline
@@ -142,7 +142,6 @@ def overlapping_providers_scenario(
 # --- Property 8: Resolution pipeline get_job first-wins ---
 
 
-@settings(max_examples=100)
 @given(data=overlapping_providers_scenario())
 def test_property_8_resolve_one_returns_first_provider_result(
     data: tuple[list[list[JobDescriptor]], str],
@@ -184,7 +183,6 @@ def test_property_8_resolve_one_returns_first_provider_result(
     )
 
 
-@settings(max_examples=100)
 @given(data=overlapping_providers_scenario())
 def test_property_8_first_wins_ignores_later_providers(
     data: tuple[list[list[JobDescriptor]], str],
@@ -227,7 +225,6 @@ def test_property_8_first_wins_ignores_later_providers(
     )
 
 
-@settings(max_examples=100)
 @given(
     provider_descs=st.lists(
         unique_descriptor_lists(min_size=1, max_size=4),
@@ -261,7 +258,6 @@ def test_property_8_resolve_one_none_when_no_provider_has_name(
         )
 
 
-@settings(max_examples=100)
 @given(data=overlapping_providers_scenario())
 def test_property_8_first_non_none_wins_skipping_none_providers(
     data: tuple[list[list[JobDescriptor]], str],

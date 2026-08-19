@@ -19,7 +19,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from functualize_mcp._schema_export import SchemaExporter
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 # ===========================================================================
@@ -188,7 +188,6 @@ class TestSchemaExportJsonProperty:
     """
 
     @given(descriptors=descriptor_list_st())
-    @settings(max_examples=100)
     def test_export_json_produces_valid_json(
         self, descriptors: list[FakeDescriptor]
     ) -> None:
@@ -204,7 +203,6 @@ class TestSchemaExportJsonProperty:
         assert isinstance(parsed, list)
 
     @given(descriptors=descriptor_list_st())
-    @settings(max_examples=100)
     def test_export_json_array_length_matches_descriptors(
         self, descriptors: list[FakeDescriptor]
     ) -> None:
@@ -220,7 +218,6 @@ class TestSchemaExportJsonProperty:
         assert len(parsed) == len(descriptors)
 
     @given(descriptors=descriptor_list_st())
-    @settings(max_examples=100)
     def test_export_json_entries_have_required_mcp_fields(
         self, descriptors: list[FakeDescriptor]
     ) -> None:
@@ -239,7 +236,6 @@ class TestSchemaExportJsonProperty:
             assert "inputSchema" in entry, "MCP tool definition must have 'inputSchema'"
 
     @given(descriptors=descriptor_list_st())
-    @settings(max_examples=100)
     def test_export_json_input_schema_is_valid_json_schema_object(
         self, descriptors: list[FakeDescriptor]
     ) -> None:
@@ -259,7 +255,6 @@ class TestSchemaExportJsonProperty:
             assert "properties" in schema or schema.get("type") == "object"
 
     @given(descriptors=descriptor_list_st())
-    @settings(max_examples=100)
     def test_export_json_names_match_descriptor_names(
         self, descriptors: list[FakeDescriptor]
     ) -> None:
@@ -284,7 +279,6 @@ class TestSchemaExportMarkdownProperty:
     """
 
     @given(descriptors=descriptor_list_st())
-    @settings(max_examples=100)
     def test_export_markdown_returns_tuple_per_descriptor(
         self, descriptors: list[FakeDescriptor]
     ) -> None:
@@ -303,7 +297,6 @@ class TestSchemaExportMarkdownProperty:
             assert len(item) == 2
 
     @given(descriptors=descriptor_list_st())
-    @settings(max_examples=100)
     def test_export_markdown_names_match_descriptors(
         self, descriptors: list[FakeDescriptor]
     ) -> None:
@@ -319,7 +312,6 @@ class TestSchemaExportMarkdownProperty:
             assert name == desc.name
 
     @given(descriptors=descriptor_list_st())
-    @settings(max_examples=100)
     def test_export_markdown_contains_parameters_table(
         self, descriptors: list[FakeDescriptor]
     ) -> None:
@@ -339,7 +331,6 @@ class TestSchemaExportMarkdownProperty:
                 assert "|------|------|----------|---------|-------------|" in md
 
     @given(descriptors=descriptor_list_st())
-    @settings(max_examples=100)
     def test_export_markdown_contains_heading_per_job(
         self, descriptors: list[FakeDescriptor]
     ) -> None:
@@ -356,7 +347,6 @@ class TestSchemaExportMarkdownProperty:
             assert f"# {desc.name}" in md
 
     @given(descriptors=descriptor_list_st())
-    @settings(max_examples=100)
     def test_export_markdown_lists_all_field_names(
         self, descriptors: list[FakeDescriptor]
     ) -> None:
@@ -381,7 +371,6 @@ class TestSchemaExportOpenAIProperty:
     """
 
     @given(descriptors=descriptor_list_st())
-    @settings(max_examples=100)
     def test_export_openai_produces_valid_json(
         self, descriptors: list[FakeDescriptor]
     ) -> None:
@@ -396,7 +385,6 @@ class TestSchemaExportOpenAIProperty:
         assert isinstance(parsed, list)
 
     @given(descriptors=descriptor_list_st())
-    @settings(max_examples=100)
     def test_export_openai_array_length_matches_descriptors(
         self, descriptors: list[FakeDescriptor]
     ) -> None:
@@ -412,7 +400,6 @@ class TestSchemaExportOpenAIProperty:
         assert len(parsed) == len(descriptors)
 
     @given(descriptors=descriptor_list_st())
-    @settings(max_examples=100)
     def test_export_openai_entries_have_function_type(
         self, descriptors: list[FakeDescriptor]
     ) -> None:
@@ -429,7 +416,6 @@ class TestSchemaExportOpenAIProperty:
             assert entry.get("type") == "function"
 
     @given(descriptors=descriptor_list_st())
-    @settings(max_examples=100)
     def test_export_openai_entries_have_function_object(
         self, descriptors: list[FakeDescriptor]
     ) -> None:
@@ -450,7 +436,6 @@ class TestSchemaExportOpenAIProperty:
             assert "parameters" in fn, "OpenAI function must have 'parameters'"
 
     @given(descriptors=descriptor_list_st())
-    @settings(max_examples=100)
     def test_export_openai_parameters_has_type_object(
         self, descriptors: list[FakeDescriptor]
     ) -> None:
@@ -469,7 +454,6 @@ class TestSchemaExportOpenAIProperty:
             assert params.get("type") == "object"
 
     @given(descriptors=descriptor_list_st())
-    @settings(max_examples=100)
     def test_export_openai_names_match_descriptor_names(
         self, descriptors: list[FakeDescriptor]
     ) -> None:

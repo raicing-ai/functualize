@@ -15,7 +15,7 @@ from __future__ import annotations
 import string
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.settings_validator import SETTING_SCHEMAS, validate_setting
@@ -158,7 +158,6 @@ class TestSettingsValueValidation:
     # --- Enum tests ---
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_valid_enum_choices_are_accepted(self, data: st.DataObject) -> None:
         """Valid enum choices are accepted for all enum settings.
 
@@ -170,7 +169,6 @@ class TestSettingsValueValidation:
         assert result.valid is True
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_invalid_enum_choices_are_rejected(self, data: st.DataObject) -> None:
         """Random strings not in the enum choices are rejected.
 
@@ -185,7 +183,6 @@ class TestSettingsValueValidation:
     # --- Int tests ---
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_in_range_integers_are_accepted(self, data: st.DataObject) -> None:
         """Integer values within the defined range are accepted.
 
@@ -197,7 +194,6 @@ class TestSettingsValueValidation:
         assert result.valid is True
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_out_of_range_integers_are_rejected(self, data: st.DataObject) -> None:
         """Integer values outside the defined range are rejected.
 
@@ -210,7 +206,6 @@ class TestSettingsValueValidation:
         assert result.error is not None
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_non_integer_strings_are_rejected_for_int_settings(
         self, data: st.DataObject
     ) -> None:
@@ -227,7 +222,6 @@ class TestSettingsValueValidation:
     # --- Bool tests ---
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_valid_bool_values_are_accepted(self, data: st.DataObject) -> None:
         """'true' and 'false' (case-insensitive) are accepted for bool settings.
 
@@ -239,7 +233,6 @@ class TestSettingsValueValidation:
         assert result.valid is True
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_invalid_bool_values_are_rejected(self, data: st.DataObject) -> None:
         """Strings other than 'true'/'false' are rejected for bool settings.
 
@@ -254,7 +247,6 @@ class TestSettingsValueValidation:
     # --- List tests ---
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_lists_within_max_items_are_accepted(self, data: st.DataObject) -> None:
         """Comma-separated lists with ≤ max_items items are accepted.
 
@@ -266,7 +258,6 @@ class TestSettingsValueValidation:
         assert result.valid is True
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_lists_exceeding_max_items_are_rejected(self, data: st.DataObject) -> None:
         """Comma-separated lists with > max_items items are rejected.
 
@@ -281,7 +272,6 @@ class TestSettingsValueValidation:
     # --- Str tests ---
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_non_empty_strings_are_accepted_for_str_settings(
         self, data: st.DataObject
     ) -> None:

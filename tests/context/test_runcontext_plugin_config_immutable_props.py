@@ -10,7 +10,7 @@ from types import MappingProxyType
 from unittest.mock import MagicMock
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 from pydantic import BaseModel
 
@@ -131,7 +131,6 @@ class TestPluginConfigsReturnsMappingProxy:
     """
 
     @given(configs=plugin_config_entries())
-    @settings(max_examples=100)
     def test_plugin_configs_is_mapping_proxy_type(
         self, configs: dict[str, BaseModel]
     ) -> None:
@@ -142,7 +141,6 @@ class TestPluginConfigsReturnsMappingProxy:
         assert isinstance(result, MappingProxyType)
 
     @given(name=job_names)
-    @settings(max_examples=100)
     def test_plugin_configs_is_mapping_proxy_when_empty(self, name: str) -> None:
         """When no plugins registered, plugin_configs still returns MappingProxyType."""
         # **Validates: Requirements 3.1, 3.5**
@@ -159,7 +157,6 @@ class TestGetPluginConfigReturnsCorrectModel:
     """
 
     @given(configs=plugin_config_entries())
-    @settings(max_examples=100)
     def test_get_plugin_config_returns_registered_instance(
         self, configs: dict[str, BaseModel]
     ) -> None:
@@ -171,7 +168,6 @@ class TestGetPluginConfigReturnsCorrectModel:
             assert result is expected_model
 
     @given(configs=plugin_config_entries())
-    @settings(max_examples=100)
     def test_get_plugin_config_correct_type(
         self, configs: dict[str, BaseModel]
     ) -> None:
@@ -193,7 +189,6 @@ class TestGetPluginConfigRaisesKeyError:
         configs=plugin_config_entries(),
         unknown_section=st.from_regex(r"unknown\.[a-z][a-z0-9_]*", fullmatch=True),
     )
-    @settings(max_examples=100)
     def test_raises_key_error_for_unknown_section(
         self, configs: dict[str, BaseModel], unknown_section: str
     ) -> None:
@@ -210,7 +205,6 @@ class TestGetPluginConfigRaisesKeyError:
         configs=plugin_config_entries(),
         unknown_section=st.from_regex(r"unknown\.[a-z][a-z0-9_]*", fullmatch=True),
     )
-    @settings(max_examples=100)
     def test_error_message_lists_available_sections(
         self, configs: dict[str, BaseModel], unknown_section: str
     ) -> None:
@@ -223,7 +217,6 @@ class TestGetPluginConfigRaisesKeyError:
             rc.get_plugin_config(unknown_section)
 
     @given(name=job_names, unknown_section=section_names)
-    @settings(max_examples=100)
     def test_raises_key_error_when_no_plugins_registered(
         self, name: str, unknown_section: str
     ) -> None:
@@ -241,7 +234,6 @@ class TestPluginConfigsImmutability:
     """
 
     @given(configs=plugin_config_entries())
-    @settings(max_examples=100)
     def test_cannot_assign_to_mapping(self, configs: dict[str, BaseModel]) -> None:
         """Assignment to plugin_configs mapping raises TypeError."""
         # **Validates: Requirements 3.5**
@@ -251,7 +243,6 @@ class TestPluginConfigsImmutability:
             mapping["new.section"] = DynamicConfigA()  # type: ignore[index]
 
     @given(configs=plugin_config_entries())
-    @settings(max_examples=100)
     def test_cannot_delete_from_mapping(self, configs: dict[str, BaseModel]) -> None:
         """Deletion from plugin_configs mapping raises TypeError."""
         # **Validates: Requirements 3.5**
@@ -262,7 +253,6 @@ class TestPluginConfigsImmutability:
             del mapping[section]  # type: ignore[attr-defined]
 
     @given(configs=plugin_config_entries())
-    @settings(max_examples=100)
     def test_mapping_has_no_mutating_methods(
         self, configs: dict[str, BaseModel]
     ) -> None:
@@ -283,7 +273,6 @@ class TestEmptyMappingWhenNoPlugins:
     """
 
     @given(name=job_names)
-    @settings(max_examples=100)
     def test_empty_mapping_no_error(self, name: str) -> None:
         """Accessing plugin_configs with no plugins does not raise."""
         # **Validates: Requirements 3.5**
@@ -293,7 +282,6 @@ class TestEmptyMappingWhenNoPlugins:
         assert isinstance(result, MappingProxyType)
 
     @given(name=job_names)
-    @settings(max_examples=100)
     def test_empty_mapping_is_iterable(self, name: str) -> None:
         """Empty plugin_configs mapping can be iterated without error."""
         # **Validates: Requirements 3.5**

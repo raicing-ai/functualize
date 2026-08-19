@@ -14,7 +14,7 @@ from __future__ import annotations
 import warnings
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._primitives.di import (
@@ -154,7 +154,6 @@ class TestDITypeValidation:
     """
 
     @given(pair=_mismatched_type_instance())
-    @settings(max_examples=100)
     def test_isinstance_failure_raises_type_error(
         self, pair: tuple[type, object]
     ) -> None:
@@ -174,7 +173,6 @@ class TestDITypeValidation:
         assert type(instance).__name__ in error_msg
 
     @given(pair=_mismatched_type_instance(), qualifier=_qualifier())
-    @settings(max_examples=100)
     def test_isinstance_failure_raises_type_error_with_qualifier(
         self, pair: tuple[type, object], qualifier: str
     ) -> None:
@@ -192,7 +190,6 @@ class TestDITypeValidation:
         assert "isinstance check failed" in error_msg
 
     @given(pair=_matching_type_instance())
-    @settings(max_examples=100)
     def test_isinstance_success_does_not_raise(self, pair: tuple[type, object]) -> None:
         """When isinstance passes, provide() succeeds without error.
 
@@ -225,7 +222,6 @@ class TestDIDuplicateWarning:
     """
 
     @given(type_name=_type_name())
-    @settings(max_examples=100)
     def test_second_provide_without_qualifier_emits_warning(
         self, type_name: str
     ) -> None:
@@ -255,7 +251,6 @@ class TestDIDuplicateWarning:
             assert type_name in str(w[0].message)
 
     @given(type_name=_type_name())
-    @settings(max_examples=100)
     def test_duplicate_replaces_previous_instance(self, type_name: str) -> None:
         """Duplicate registration replaces the previous instance (last-write-wins).
 
@@ -281,7 +276,6 @@ class TestDIDuplicateWarning:
         type_name=_type_name(),
         qualifier=_qualifier(),
     )
-    @settings(max_examples=100)
     def test_duplicate_with_qualifier_does_not_warn(
         self, type_name: str, qualifier: str
     ) -> None:
@@ -328,7 +322,6 @@ class TestDIQualifiedResolution:
         type_name=_type_name(),
         qualifiers=st.lists(_qualifier(), min_size=2, max_size=6, unique=True),
     )
-    @settings(max_examples=100)
     def test_resolving_with_qualifier_returns_correct_instance(
         self, type_name: str, qualifiers: list[str]
     ) -> None:
@@ -358,7 +351,6 @@ class TestDIQualifiedResolution:
         qualifiers=st.lists(_qualifier(), min_size=2, max_size=5, unique=True),
         data=st.data(),
     )
-    @settings(max_examples=100)
     def test_qualified_resolution_independent_of_registration_order(
         self, type_name: str, qualifiers: list[str], data: st.DataObject
     ) -> None:
@@ -384,7 +376,6 @@ class TestDIQualifiedResolution:
         type_name=_type_name(),
         qualifier=_qualifier(),
     )
-    @settings(max_examples=100)
     def test_single_qualified_registration_resolves_correctly(
         self, type_name: str, qualifier: str
     ) -> None:
@@ -420,7 +411,6 @@ class TestDIAmbiguousResolutionError:
         type_name=_type_name(),
         qualifiers=st.lists(_qualifier(), min_size=2, max_size=6, unique=True),
     )
-    @settings(max_examples=100)
     def test_unqualified_lookup_with_multiple_qualifiers_raises_error(
         self, type_name: str, qualifiers: list[str]
     ) -> None:
@@ -448,7 +438,6 @@ class TestDIAmbiguousResolutionError:
         type_name=_type_name(),
         qualifiers=st.lists(_qualifier(), min_size=2, max_size=5, unique=True),
     )
-    @settings(max_examples=100)
     def test_ambiguous_error_message_suggests_disambiguation(
         self, type_name: str, qualifiers: list[str]
     ) -> None:
@@ -472,7 +461,6 @@ class TestDIAmbiguousResolutionError:
         type_name=_type_name(),
         qualifiers=st.lists(_qualifier(), min_size=2, max_size=5, unique=True),
     )
-    @settings(max_examples=100)
     def test_no_ambiguity_when_unqualified_registration_exists(
         self, type_name: str, qualifiers: list[str]
     ) -> None:

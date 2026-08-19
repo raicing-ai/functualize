@@ -16,7 +16,7 @@ Property 11: Edit markers are consistent with EditOrigin
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.panels.config_table import (
@@ -147,7 +147,6 @@ class TestLinkedEditsConsistency:
     """
 
     @given(field_def=_field_def_with_chain(), new_value=_field_text)
-    @settings(max_examples=200)
     def test_value_edit_sets_cli_source(
         self, field_def: FieldDef, new_value: str
     ) -> None:
@@ -164,7 +163,6 @@ class TestLinkedEditsConsistency:
         assert field_def.edit_origin == EditOrigin.VALUE
 
     @given(data=st.data())
-    @settings(max_examples=200)
     def test_source_edit_pulls_value_from_chain(self, data: st.DataObject) -> None:
         """Source edit → field.source=new_source, field.value=chain_value, edit_origin=SOURCE.
 
@@ -189,7 +187,6 @@ class TestLinkedEditsConsistency:
         assert field_def.edit_origin == EditOrigin.SOURCE
 
     @given(field_def=_field_def_with_chain(), new_value=_field_text)
-    @settings(max_examples=200)
     def test_reset_after_value_edit_restores_originals(
         self, field_def: FieldDef, new_value: str
     ) -> None:
@@ -214,7 +211,6 @@ class TestLinkedEditsConsistency:
         assert field_def.edit_origin == EditOrigin.NONE
 
     @given(data=st.data())
-    @settings(max_examples=200)
     def test_reset_after_source_edit_restores_originals(
         self, data: st.DataObject
     ) -> None:
@@ -242,7 +238,6 @@ class TestLinkedEditsConsistency:
         assert field_def.edit_origin == EditOrigin.NONE
 
     @given(field_def=_field_def_with_chain())
-    @settings(max_examples=200)
     def test_reset_on_none_is_noop(self, field_def: FieldDef) -> None:
         """Reset on edit_origin NONE → no-op (field unchanged).
 
@@ -277,7 +272,6 @@ class TestEditMarkersConsistency:
     """
 
     @given(field_def=_field_def_with_origin())
-    @settings(max_examples=200)
     def test_value_origin_markers(self, field_def: FieldDef) -> None:
         """VALUE origin — value and source are plain (markers handled at render layer).
 
@@ -292,7 +286,6 @@ class TestEditMarkersConsistency:
         assert source_display == field_def.source
 
     @given(field_def=_field_def_with_origin())
-    @settings(max_examples=200)
     def test_source_origin_markers(self, field_def: FieldDef) -> None:
         """SOURCE origin — value and source are plain (markers handled at render layer).
 
@@ -307,7 +300,6 @@ class TestEditMarkersConsistency:
         assert source_display == field_def.source
 
     @given(field_def=_field_def_with_origin())
-    @settings(max_examples=200)
     def test_none_origin_no_markers(self, field_def: FieldDef) -> None:
         """NONE origin → no markers (plain values).
 
@@ -322,7 +314,6 @@ class TestEditMarkersConsistency:
         assert source_display == field_def.source
 
     @given(field_def=_field_def_with_origin())
-    @settings(max_examples=200)
     def test_markers_match_origin_exhaustively(self, field_def: FieldDef) -> None:
         """For any edit_origin, value and source are returned plainly.
 

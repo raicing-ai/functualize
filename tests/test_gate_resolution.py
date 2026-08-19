@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 from pydantic import BaseModel
 
@@ -117,7 +117,6 @@ class TestForceGateAlwaysDispatches:
         count=st.integers(min_value=0, max_value=10000),
         active=st.booleans(),
     )
-    @settings(max_examples=100)
     def test_force_gate_dispatches_even_when_fully_resolved(
         self, name: str, count: int, active: bool
     ) -> None:
@@ -148,7 +147,6 @@ class TestForceGateAlwaysDispatches:
         ),
         count=st.integers(min_value=0, max_value=10000),
     )
-    @settings(max_examples=100)
     def test_force_gate_dispatches_with_defaults_fully_resolved(
         self, name: str, count: int
     ) -> None:
@@ -175,7 +173,6 @@ class TestForceGateAlwaysDispatches:
     @given(
         strategy_name=st.from_regex(r"[a-z]{1,10}", fullmatch=True),
     )
-    @settings(max_examples=50)
     def test_force_gate_context_reflects_forced_flag(self, strategy_name: str) -> None:
         """When force_gate=True, the GateContext passed to resolver has force_gate=True.
 
@@ -219,7 +216,6 @@ class TestGateSkipWhenFullyResolved:
         count=st.integers(min_value=0, max_value=10000),
         active=st.booleans(),
     )
-    @settings(max_examples=100)
     def test_fully_resolved_with_force_false_skips_dispatch(
         self, name: str, count: int, active: bool
     ) -> None:
@@ -253,7 +249,6 @@ class TestGateSkipWhenFullyResolved:
         ),
         count=st.integers(min_value=0, max_value=10000),
     )
-    @settings(max_examples=100)
     def test_model_with_defaults_fully_resolved_skips_dispatch(
         self, name: str, count: int
     ) -> None:
@@ -288,7 +283,6 @@ class TestGateSkipWhenFullyResolved:
         count=st.integers(min_value=0, max_value=10000),
         active=st.booleans(),
     )
-    @settings(max_examples=100)
     def test_returned_model_matches_resolved_fields_exactly(
         self, name: str, count: int, active: bool
     ) -> None:
@@ -327,7 +321,6 @@ class TestOrderedStrategyFallback:
         total_strategies=st.integers(min_value=2, max_value=5),
         data=st.data(),
     )
-    @settings(max_examples=100)
     def test_first_success_wins_after_failures(
         self, total_strategies: int, data: st.DataObject
     ) -> None:
@@ -385,7 +378,6 @@ class TestOrderedStrategyFallback:
     @given(
         num_failing=st.integers(min_value=1, max_value=4),
     )
-    @settings(max_examples=50)
     def test_strategies_called_in_order(self, num_failing: int) -> None:
         """Strategies are tried in the exact order they appear in the list.
 
@@ -443,7 +435,6 @@ class TestAllStrategiesFailingRaisesError:
             min_size=1, max_size=20, alphabet=st.characters(categories=("L", "N"))
         ),
     )
-    @settings(max_examples=100)
     def test_all_fail_raises_gate_resolution_error(
         self, num_strategies: int, gate_name: str
     ) -> None:
@@ -478,7 +469,6 @@ class TestAllStrategiesFailingRaisesError:
             min_size=1, max_size=50, alphabet=st.characters(categories=("L", "N", "Z"))
         ),
     )
-    @settings(max_examples=100)
     def test_error_contains_last_exception_message(
         self, num_strategies: int, last_error_msg: str
     ) -> None:
@@ -515,7 +505,6 @@ class TestAllStrategiesFailingRaisesError:
     @given(
         num_strategies=st.integers(min_value=1, max_value=5),
     )
-    @settings(max_examples=50)
     def test_all_strategies_are_called_before_error(self, num_strategies: int) -> None:
         """Every strategy in the list is attempted before raising.
 

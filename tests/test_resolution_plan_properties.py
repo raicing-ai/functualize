@@ -16,7 +16,7 @@ import inspect
 from typing import Annotated, Optional
 from unittest.mock import MagicMock, patch
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._engine.resolution import (
@@ -59,7 +59,6 @@ class TestResolutionPlanCachingByFunctionIdentity:
     """
 
     @given(num_lookups=st.integers(min_value=2, max_value=20))
-    @settings(max_examples=200)
     def test_cached_plan_returns_same_object_by_identity(self, num_lookups: int):
         """Subsequent lookups return the exact same plan object (by identity).
 
@@ -88,7 +87,6 @@ class TestResolutionPlanCachingByFunctionIdentity:
             )
 
     @given(num_lookups=st.integers(min_value=2, max_value=20))
-    @settings(max_examples=200)
     def test_no_reinvocation_of_inspect_signature(self, num_lookups: int):
         """Caching avoids re-invoking inspect.signature() on subsequent lookups.
 
@@ -139,7 +137,6 @@ class TestResolutionPlanCachingByFunctionIdentity:
         )
 
     @given(num_functions=st.integers(min_value=2, max_value=8))
-    @settings(max_examples=100)
     def test_different_functions_get_distinct_plans(self, num_functions: int):
         """Each function gets its own distinct ResolutionPlan in the cache.
 
@@ -176,7 +173,6 @@ class TestResolutionPlanCachingByFunctionIdentity:
         )
 
     @given(num_lookups=st.integers(min_value=2, max_value=10))
-    @settings(max_examples=200)
     def test_plan_function_id_matches_id_of_function(self, num_lookups: int):
         """The ResolutionPlan's function_id matches the id() of the function it was built for.
 
@@ -216,7 +212,6 @@ class TestEngineDIResolutionCorrectness:
     """
 
     @given(num_params=st.integers(min_value=1, max_value=6))
-    @settings(max_examples=100)
     def test_all_registered_type_params_resolved_from_registry(self, num_params: int):
         """All N type-annotated params matching registered types are resolved.
 
@@ -299,7 +294,6 @@ class TestEngineDIResolutionCorrectness:
         num_registered=st.integers(min_value=1, max_value=3),
         num_unregistered=st.integers(min_value=1, max_value=3),
     )
-    @settings(max_examples=100)
     def test_unregistered_types_without_default_trigger_missing_provider(
         self, num_registered: int, num_unregistered: int
     ):
@@ -407,7 +401,6 @@ class TestEngineDIResolutionCorrectness:
     @given(
         num_params=st.integers(min_value=1, max_value=4),
     )
-    @settings(max_examples=100)
     def test_optional_params_with_registered_provider_resolve_normally(
         self, num_params: int
     ):
@@ -495,7 +488,6 @@ class TestEngineDIResolutionCorrectness:
         assert resolved is redis_instance
 
     @given(num_skip_params=st.integers(min_value=1, max_value=4))
-    @settings(max_examples=100)
     def test_params_without_annotations_are_skipped(self, num_skip_params: int):
         """Parameters without type annotations are skipped during DI resolution.
 

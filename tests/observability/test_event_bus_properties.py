@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 if TYPE_CHECKING:
@@ -89,7 +89,6 @@ class TestProperty1EventBusDispatchOrdering:
     @given(
         num_subscribers=st.integers(min_value=2, max_value=10),
     )
-    @settings(max_examples=200)
     def test_dispatch_ordering_all_pattern_types(
         self,
         num_subscribers: int,
@@ -139,7 +138,6 @@ class TestProperty1EventBusDispatchOrdering:
             max_size=8,
         ),
     )
-    @settings(max_examples=200)
     def test_dispatch_ordering_with_generated_patterns(
         self,
         pattern_choices: list[str],
@@ -186,7 +184,6 @@ class TestProperty2EventBusSubscriberFaultTolerance:
             max_size=10,
         ),
     )
-    @settings(max_examples=200)
     def test_subscriber_fault_tolerance(
         self,
         error_positions: list[bool],
@@ -228,7 +225,6 @@ class TestProperty3EventBusZeroCostBypass:
     @given(
         event_name=_valid_event_name_st,
     )
-    @settings(max_examples=200)
     def test_zero_cost_no_subscribers(
         self,
         event_name: str,
@@ -247,7 +243,6 @@ class TestProperty3EventBusZeroCostBypass:
     @given(
         event_name=_valid_event_name_st,
     )
-    @settings(max_examples=200)
     def test_zero_cost_no_matching_subscribers(
         self,
         event_name: str,
@@ -282,7 +277,6 @@ class TestProperty4EventNameGrammarValidation:
     """
 
     @given(event_name=_valid_event_name_st)
-    @settings(max_examples=200)
     def test_valid_event_names_accepted(
         self,
         event_name: str,
@@ -299,7 +293,6 @@ class TestProperty4EventNameGrammarValidation:
         assert received[0].event_name == event_name
 
     @given(event_name=_invalid_event_name_st)
-    @settings(max_examples=200)
     def test_invalid_event_names_rejected(
         self,
         event_name: str,
@@ -320,7 +313,6 @@ class TestProperty4EventNameGrammarValidation:
         assert len(received) == 0
 
     @given(text=st.text(min_size=0, max_size=50))
-    @settings(max_examples=200)
     def test_regex_consistency(
         self,
         text: str,
@@ -348,7 +340,6 @@ class TestProperty5PropagationContextAutoAttachment:
         event_name=_valid_event_name_st,
         session_id=st.one_of(st.text(min_size=1), st.none()),
     )
-    @settings(max_examples=200)
     def test_context_auto_attached(
         self,
         event_name: str,
@@ -372,7 +363,6 @@ class TestProperty5PropagationContextAutoAttachment:
             detach(token)
 
     @given(event_name=_valid_event_name_st)
-    @settings(max_examples=100)
     def test_no_context_when_no_trace(
         self,
         event_name: str,
@@ -406,7 +396,6 @@ class TestProperty6TrieRouterPatternMatchingCorrectness:
     """
 
     @given(event_name=_valid_event_name_st)
-    @settings(max_examples=200)
     def test_global_wildcard_matches_everything(
         self,
         event_name: str,
@@ -424,7 +413,6 @@ class TestProperty6TrieRouterPatternMatchingCorrectness:
         assert cb in callbacks
 
     @given(event_name=_valid_event_name_st)
-    @settings(max_examples=200)
     def test_exact_match_only_matches_exact_name(
         self,
         event_name: str,
@@ -454,7 +442,6 @@ class TestProperty6TrieRouterPatternMatchingCorrectness:
     @given(
         event_name=_valid_event_name_st,
     )
-    @settings(max_examples=200)
     def test_prefix_wildcard_matches_events_starting_with_prefix(
         self,
         event_name: str,
@@ -480,7 +467,6 @@ class TestProperty6TrieRouterPatternMatchingCorrectness:
         prefix_segment=_segment_st,
         suffix_segments=st.lists(_segment_st, min_size=2, max_size=4),
     )
-    @settings(max_examples=200)
     def test_prefix_wildcard_does_not_match_non_prefixed(
         self,
         prefix_segment: str,
@@ -505,7 +491,6 @@ class TestProperty6TrieRouterPatternMatchingCorrectness:
         assert cb not in callbacks
 
     @given(event_name=_valid_event_name_st)
-    @settings(max_examples=200)
     def test_has_subscribers_for_reflects_matches(
         self,
         event_name: str,
@@ -538,7 +523,6 @@ class TestProperty7UnsubscribeRemovesSubscriber:
         pattern_type=st.sampled_from(["exact", "prefix", "global"]),
         emit_count=st.integers(min_value=1, max_value=5),
     )
-    @settings(max_examples=200)
     def test_unsubscribed_callback_never_invoked(
         self,
         pattern_type: str,
@@ -586,7 +570,6 @@ class TestProperty7UnsubscribeRemovesSubscriber:
         num_subscribers=st.integers(min_value=2, max_value=6),
         unsubscribe_index=st.integers(min_value=0),
     )
-    @settings(max_examples=200)
     def test_unsubscribe_specific_subscriber_only(
         self,
         num_subscribers: int,

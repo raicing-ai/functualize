@@ -8,7 +8,7 @@ Tests Property 5 (Config Section Uniqueness Enforcement) using Hypothesis.
 from __future__ import annotations
 
 import pytest
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 from pydantic import BaseModel
 
@@ -63,7 +63,6 @@ class TestConfigSectionUniquenessEnforcement:
     **Validates: Requirements 1.6**
     """
 
-    @settings(max_examples=100)
     @given(
         section_a=section_names,
         section_b=section_names,
@@ -92,7 +91,6 @@ class TestConfigSectionUniquenessEnforcement:
         assert registry.get(section_a) is config_a
         assert registry.get(section_b) is config_b
 
-    @settings(max_examples=100)
     @given(
         section=section_names,
         plugin_a=plugin_names,
@@ -115,7 +113,6 @@ class TestConfigSectionUniquenessEnforcement:
         with pytest.raises(ValueError):
             registry.register(section, config_b, plugin_b)
 
-    @settings(max_examples=100)
     @given(
         section=section_names,
         plugin_a=plugin_names,
@@ -149,7 +146,6 @@ class TestConfigSectionUniquenessEnforcement:
             f"Expected section name '{section}' in error: {error_msg}"
         )
 
-    @settings(max_examples=100)
     @given(
         section=section_names,
         plugin_a=plugin_names,

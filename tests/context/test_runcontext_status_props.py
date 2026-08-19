@@ -15,7 +15,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._config.job_config import JobConfigView
@@ -55,7 +55,6 @@ class TestSetRunStatusUpdatesProperty:
     """set_run_status updates run_status property to the new value."""
 
     @given(target_status=terminal_statuses)
-    @settings(max_examples=50)
     def test_set_run_status_updates_to_terminal(self, target_status: RunStatus) -> None:
         """set_run_status sets run_status property to the target terminal value.
 
@@ -66,7 +65,6 @@ class TestSetRunStatusUpdatesProperty:
         assert rc.run_status == target_status
 
     @given(target_status=non_terminal_statuses)
-    @settings(max_examples=50)
     def test_set_run_status_updates_to_non_terminal(
         self, target_status: RunStatus
     ) -> None:
@@ -83,7 +81,6 @@ class TestRunningToTerminalSucceeds:
     """From RUNNING state, transitioning to any terminal state succeeds."""
 
     @given(terminal=terminal_statuses)
-    @settings(max_examples=50)
     def test_running_to_terminal_does_not_raise(self, terminal: RunStatus) -> None:
         """From RUNNING, transitioning to any terminal state succeeds without error.
 
@@ -96,7 +93,6 @@ class TestRunningToTerminalSucceeds:
         assert rc.run_status == terminal
 
     @given(terminal=terminal_statuses, message=st.text(max_size=100))
-    @settings(max_examples=50)
     def test_running_to_terminal_with_message(
         self, terminal: RunStatus, message: str
     ) -> None:
@@ -116,7 +112,6 @@ class TestTerminalToAnyRaises:
         first_terminal=terminal_statuses,
         second_status=all_statuses,
     )
-    @settings(max_examples=100)
     def test_terminal_to_any_status_raises(
         self, first_terminal: RunStatus, second_status: RunStatus
     ) -> None:
@@ -133,7 +128,6 @@ class TestTerminalToAnyRaises:
         first_terminal=terminal_statuses,
         second_terminal=terminal_statuses,
     )
-    @settings(max_examples=50)
     def test_terminal_to_terminal_raises(
         self, first_terminal: RunStatus, second_terminal: RunStatus
     ) -> None:
@@ -150,7 +144,6 @@ class TestTerminalToAnyRaises:
         first_terminal=terminal_statuses,
         non_terminal=non_terminal_statuses,
     )
-    @settings(max_examples=50)
     def test_terminal_to_non_terminal_raises(
         self, first_terminal: RunStatus, non_terminal: RunStatus
     ) -> None:
@@ -168,7 +161,6 @@ class TestTrackRunStatusBackwardCompat:
     """track_run_status (backward compat) behaves identically to set_run_status for state machine rules."""
 
     @given(terminal=terminal_statuses)
-    @settings(max_examples=50)
     def test_track_run_status_from_running_succeeds(self, terminal: RunStatus) -> None:
         """track_run_status from RUNNING to terminal succeeds like set_run_status.
 
@@ -182,7 +174,6 @@ class TestTrackRunStatusBackwardCompat:
         first_terminal=terminal_statuses,
         second_status=all_statuses,
     )
-    @settings(max_examples=100)
     def test_track_run_status_from_terminal_raises(
         self, first_terminal: RunStatus, second_status: RunStatus
     ) -> None:
@@ -196,7 +187,6 @@ class TestTrackRunStatusBackwardCompat:
             rc.track_run_status(run_status=second_status)
 
     @given(target_status=all_statuses)
-    @settings(max_examples=50)
     def test_track_run_status_and_set_run_status_agree_on_state_machine(
         self, target_status: RunStatus
     ) -> None:
@@ -231,7 +221,6 @@ class TestTrackRunStatusBackwardCompat:
         first_terminal=terminal_statuses,
         second_status=all_statuses,
     )
-    @settings(max_examples=50)
     def test_both_methods_agree_from_terminal_state(
         self, first_terminal: RunStatus, second_status: RunStatus
     ) -> None:

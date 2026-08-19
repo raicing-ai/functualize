@@ -15,7 +15,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize.job._job_context import JobContext
@@ -100,7 +100,6 @@ class TestJobContextImmutability:
         ctx=_job_context_strategy(),
         field_name=st.sampled_from(_JOB_CONTEXT_FIELDS),
     )
-    @settings(max_examples=200)
     def test_assigning_to_any_field_raises_frozen_error(
         self, ctx: JobContext, field_name: str
     ):
@@ -121,7 +120,6 @@ class TestJobContextImmutability:
             ),
         ),
     )
-    @settings(max_examples=200)
     def test_assigning_to_arbitrary_attr_raises_frozen_error(
         self, ctx: JobContext, attr_name: str
     ):
@@ -133,7 +131,6 @@ class TestJobContextImmutability:
             setattr(ctx, attr_name, "some_value")
 
     @given(ctx=_job_context_strategy())
-    @settings(max_examples=200)
     def test_deleting_any_field_raises_frozen_error(self, ctx: JobContext):
         """Deleting any attribute of a frozen JobContext raises FrozenInstanceError.
 
@@ -159,7 +156,6 @@ class TestInvokeDepthIncrement:
     """
 
     @given(parent_depth=st.integers(min_value=0, max_value=99))
-    @settings(max_examples=200)
     def test_child_invoke_depth_equals_parent_plus_one(self, parent_depth: int):
         """A child JobContext created from a parent has invoke_depth = parent + 1.
 
@@ -177,7 +173,6 @@ class TestInvokeDepthIncrement:
         parent_depth=st.integers(min_value=0, max_value=50),
         chain_length=st.integers(min_value=1, max_value=10),
     )
-    @settings(max_examples=200)
     def test_invoke_depth_increments_across_chain(
         self, parent_depth: int, chain_length: int
     ):
@@ -194,7 +189,6 @@ class TestInvokeDepthIncrement:
         assert final_ctx.invoke_depth == parent_depth + chain_length
 
     @given(parent_depth=st.integers(min_value=0, max_value=99))
-    @settings(max_examples=200)
     def test_child_depth_is_always_positive(self, parent_depth: int):
         """Child invoke_depth is always >= 1 when parent depth >= 0.
 
@@ -206,7 +200,6 @@ class TestInvokeDepthIncrement:
         assert child_ctx.invoke_depth >= 1
 
     @given(negative_depth=st.integers(min_value=-1000, max_value=-1))
-    @settings(max_examples=100)
     def test_negative_invoke_depth_raises_value_error(self, negative_depth: int):
         """Creating a JobContext with negative invoke_depth raises ValueError.
 

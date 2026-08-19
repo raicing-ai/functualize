@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize.job.capabilities import Invoke, JobContext, Log, Perf, Prompt, State
@@ -87,7 +87,6 @@ class TestTestRunContextOverrideComposition:
     """
 
     @given(override_keys=_override_subset_strategy)
-    @settings(max_examples=200)
     def test_provided_overrides_are_used(self, override_keys: frozenset[str]):
         """Provided overrides are the exact instances resolved from the RunContext.
 
@@ -112,7 +111,6 @@ class TestTestRunContextOverrideComposition:
             )
 
     @given(override_keys=_override_subset_strategy)
-    @settings(max_examples=200)
     def test_omitted_capabilities_get_defaults(self, override_keys: frozenset[str]):
         """Omitted capabilities get their default test doubles.
 
@@ -135,7 +133,6 @@ class TestTestRunContextOverrideComposition:
             )
 
     @given(override_keys=_override_subset_strategy)
-    @settings(max_examples=200)
     def test_override_instances_distinct_from_defaults(
         self, override_keys: frozenset[str]
     ):
@@ -193,7 +190,6 @@ class TestCapturingLogRecordingFidelity:
     """
 
     @given(log_calls=_log_sequence_strategy)
-    @settings(max_examples=200)
     def test_captured_logs_returns_identical_sequence(
         self, log_calls: list[tuple[str, str]]
     ):
@@ -213,7 +209,6 @@ class TestCapturingLogRecordingFidelity:
         assert captured == log_calls
 
     @given(log_calls=_log_sequence_strategy)
-    @settings(max_examples=200)
     def test_captured_logs_preserves_insertion_order(
         self, log_calls: list[tuple[str, str]]
     ):
@@ -243,7 +238,6 @@ class TestCapturingLogRecordingFidelity:
             )
 
     @given(log_calls=_log_sequence_strategy)
-    @settings(max_examples=200)
     def test_named_level_methods_record_correctly(
         self, log_calls: list[tuple[str, str]]
     ):
@@ -266,7 +260,6 @@ class TestCapturingLogRecordingFidelity:
         first_batch=_log_sequence_strategy,
         second_batch=_log_sequence_strategy,
     )
-    @settings(max_examples=200)
     def test_multiple_batches_accumulate_in_order(
         self,
         first_batch: list[tuple[str, str]],

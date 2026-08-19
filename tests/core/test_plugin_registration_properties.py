@@ -13,7 +13,7 @@ from collections.abc import Generator
 from typing import Any
 
 import pytest
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 from functualize._app.state import AppState
@@ -106,7 +106,6 @@ class TestInteractivityPluginRegistrationRejectsNonConforming:
     """Property 13: InteractivityPlugin registration rejects non-conforming objects."""
 
     @given(missing=missing_members_subsets)
-    @settings(max_examples=100)
     def test_missing_members_raises_type_error(self, missing: list[str]) -> None:
         """For any combination of missing required protocol members, TypeError is raised.
 
@@ -119,7 +118,6 @@ class TestInteractivityPluginRegistrationRejectsNonConforming:
             app.register_surface(plugin)
 
     @given(missing=missing_members_subsets)
-    @settings(max_examples=100)
     def test_error_message_indicates_required_protocols(
         self, missing: list[str]
     ) -> None:
@@ -136,7 +134,6 @@ class TestInteractivityPluginRegistrationRejectsNonConforming:
             app.register_surface(plugin)
 
     @given(name=plugin_names)
-    @settings(max_examples=50)
     def test_conforming_plugin_does_not_raise(self, name: str) -> None:
         """A fully conforming plugin with any valid name does NOT raise TypeError.
 
@@ -160,7 +157,6 @@ class TestPluginInstanceRegistry:
     """Property 15: Plugin instance registry — get_plugin returns correct instance or raises KeyError."""
 
     @given(names=unique_plugin_names)
-    @settings(max_examples=100)
     def test_get_plugin_returns_correct_instance(self, names: list[str]) -> None:
         """For any set of registered plugins, get_plugin(name) returns the matching instance.
 
@@ -184,7 +180,6 @@ class TestPluginInstanceRegistry:
         registered_names=unique_plugin_names,
         unregistered_name=plugin_names,
     )
-    @settings(max_examples=100)
     def test_get_plugin_raises_key_error_for_unregistered(
         self,
         registered_names: list[str],
@@ -213,7 +208,6 @@ class TestPluginInstanceRegistry:
             assert registered_name in error_message
 
     @given(names=unique_plugin_names)
-    @settings(max_examples=50)
     def test_get_plugin_case_sensitive(self, names: list[str]) -> None:
         """Plugin lookup uses case-sensitive comparison.
 

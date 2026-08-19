@@ -117,7 +117,6 @@ def _create_jobs_dir(tmp_path: str, modules: dict[str, str]) -> str:
 # Feature: functualize, Property 6: Job Discovery Registers Public Functions
 
 
-@settings(max_examples=100)
 @given(
     public_funcs=st.lists(public_func_names, min_size=1, max_size=5, unique=True),
     private_funcs=st.lists(private_func_names, min_size=0, max_size=3, unique=True),
@@ -180,7 +179,6 @@ def test_property_6_registers_only_public_defined_callable_functions(
 # Feature: functualize, Property 7: JOB_GROUP Grouping
 
 
-@settings(max_examples=100)
 @given(
     public_funcs=st.lists(public_func_names, min_size=1, max_size=4, unique=True),
     job_name=job_name_values,
@@ -239,7 +237,6 @@ def test_property_7_job_group_groups_functions_under_subcommand(
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-@settings(max_examples=100)
 @given(
     public_funcs=st.lists(public_func_names, min_size=1, max_size=4, unique=True),
     mod_name=module_names,
@@ -287,7 +284,6 @@ def test_property_7_no_job_group_registers_at_top_level(public_funcs, mod_name):
 # Feature: functualize, Property 8: RunContext Parameter Exclusion
 
 
-@settings(max_examples=100)
 @given(
     func_name=public_func_names,
     param_names=st.lists(
@@ -347,7 +343,7 @@ def test_property_8_runcontext_excluded_from_cli_signature(func_name, param_name
         )
 
 
-@settings(max_examples=100, deadline=5000)
+@settings(deadline=5000)
 @given(
     func_name=public_func_names,
     param_names=st.lists(

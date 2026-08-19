@@ -11,7 +11,7 @@ Tests the DI registry from functualize.primitives.di:
 
 from __future__ import annotations
 
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 from functualize._primitives.di import (
@@ -114,7 +114,6 @@ class TestDIRegistryProvideResolveRoundTrip:
     """
 
     @given(ops=_provide_operations())
-    @settings(max_examples=200)
     def test_resolve_returns_most_recent_instance(
         self, ops: list[tuple[str, str | None]]
     ):
@@ -147,7 +146,6 @@ class TestDIRegistryProvideResolveRoundTrip:
         type_name=_type_name(),
         qualifiers=st.lists(_qualifier(), min_size=2, max_size=5, unique=True),
     )
-    @settings(max_examples=200)
     def test_qualified_instances_are_independent(
         self, type_name: str, qualifiers: list[str]
     ):
@@ -186,7 +184,6 @@ class TestDIRegistryScopeSemantics:
     """
 
     @given(num_resolves=st.integers(min_value=2, max_value=20))
-    @settings(max_examples=200)
     def test_singleton_factory_returns_same_object(self, num_resolves: int):
         """Singleton factory always returns the same object by identity.
 
@@ -217,7 +214,6 @@ class TestDIRegistryScopeSemantics:
         assert call_count == 1
 
     @given(num_resolves=st.integers(min_value=2, max_value=20))
-    @settings(max_examples=200)
     def test_invocation_factory_returns_distinct_objects(self, num_resolves: int):
         """Invocation factory returns a distinct object on each resolve.
 
@@ -243,7 +239,6 @@ class TestDIRegistryScopeSemantics:
         qualifiers=st.lists(_qualifier(), min_size=2, max_size=4, unique=True),
         num_resolves=st.integers(min_value=2, max_value=5),
     )
-    @settings(max_examples=200)
     def test_singleton_factories_are_independent_per_qualifier(
         self, qualifiers: list[str], num_resolves: int
     ):
@@ -295,7 +290,6 @@ class TestDIRegistryResolutionErrorDiagnostics:
         registered_names=st.lists(_type_name(), min_size=1, max_size=5, unique=True),
         missing_name=_type_name(),
     )
-    @settings(max_examples=200)
     def test_missing_provider_error_contains_type_and_available(
         self, registered_names: list[str], missing_name: str
     ):
@@ -330,7 +324,6 @@ class TestDIRegistryResolutionErrorDiagnostics:
     @given(
         qualifiers=st.lists(_qualifier(), min_size=2, max_size=6, unique=True),
     )
-    @settings(max_examples=200)
     def test_ambiguous_provider_error_lists_all_qualifiers(self, qualifiers: list[str]):
         """AmbiguousProviderError lists all available qualifiers.
 
@@ -360,7 +353,6 @@ class TestDIRegistryResolutionErrorDiagnostics:
         registered_names=st.lists(_type_name(), min_size=0, max_size=5, unique=True),
         missing_name=_type_name(),
     )
-    @settings(max_examples=200)
     def test_missing_provider_error_message_contains_type_name(
         self, registered_names: list[str], missing_name: str
     ):
@@ -403,7 +395,6 @@ class TestDIRegistryFreezeImmutability:
     """
 
     @given(ops=_provide_operations())
-    @settings(max_examples=200)
     def test_frozen_registry_rejects_all_mutations(
         self, ops: list[tuple[str, str | None]]
     ):
@@ -443,7 +434,6 @@ class TestDIRegistryFreezeImmutability:
             assert e.method_name == "provide_named"
 
     @given(ops=_provide_operations())
-    @settings(max_examples=200)
     def test_frozen_registry_reads_still_work(self, ops: list[tuple[str, str | None]]):
         """Read methods continue to work normally after freeze.
 
@@ -484,7 +474,6 @@ class TestDIRegistryFreezeImmutability:
             max_size=8,
         )
     )
-    @settings(max_examples=200)
     def test_frozen_registry_named_reads_work(self, named_entries: dict[str, int]):
         """Named value lookups continue normally after freeze.
 
@@ -509,7 +498,6 @@ class TestDIRegistryFreezeImmutability:
             pass
 
     @given(num_resolves=st.integers(min_value=2, max_value=10))
-    @settings(max_examples=200)
     def test_frozen_registry_singleton_factory_still_works(self, num_resolves: int):
         """Singleton factories continue to resolve after freeze.
 

@@ -11,7 +11,7 @@ import os
 from unittest.mock import MagicMock, patch
 
 import click
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 from pydantic import BaseModel, Field, ValidationError
 
@@ -93,7 +93,6 @@ class TestJobConfigTyperOptionGeneration:
     **Validates: Requirements 6.2**
     """
 
-    @settings(max_examples=100)
     @given(
         str_default=st.text(min_size=1, max_size=10),
         int_default=st.integers(min_value=0, max_value=100),
@@ -116,7 +115,6 @@ class TestJobConfigTyperOptionGeneration:
         # One option per field
         assert set(options.keys()) == {"api_url", "timeout", "verbose"}
 
-    @settings(max_examples=100)
     @given(
         field_name=field_names,
     )
@@ -141,7 +139,6 @@ class TestJobConfigTyperOptionGeneration:
         # Typer Option stores param_decls
         assert isinstance(option_info, click.Option)
 
-    @settings(max_examples=100)
     @given(
         enum_choice=st.sampled_from(list(SampleEnum)),
     )
@@ -156,7 +153,6 @@ class TestJobConfigTyperOptionGeneration:
         assert "format_type" in options
         assert isinstance(options["format_type"], click.Option)
 
-    @settings(max_examples=100)
     @given(st.data())
     def test_optional_fields_generate_options(self, data):
         # Feature: functualize, Property 13: JobConfig Typer Option Generation
@@ -171,7 +167,6 @@ class TestJobConfigTyperOptionGeneration:
         assert "name" in options
         assert "count" in options
 
-    @settings(max_examples=100)
     @given(st.data())
     def test_list_fields_generate_options(self, data):
         # Feature: functualize, Property 13: JobConfig Typer Option Generation
@@ -184,7 +179,6 @@ class TestJobConfigTyperOptionGeneration:
         assert "tags" in options
         assert isinstance(options["tags"], click.Option)
 
-    @settings(max_examples=100)
     @given(st.data())
     def test_unsupported_types_raise_at_registration(self, data):
         # Feature: functualize, Property 13: JobConfig Typer Option Generation
@@ -215,7 +209,6 @@ class TestJobConfigResolutionPrecedence:
     **Validates: Requirements 6.3**
     """
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
         cli_val=string_values,
@@ -247,7 +240,6 @@ class TestJobConfigResolutionPrecedence:
             result = resolve_job_config(MyConfig, job_name, config, {"name": cli_val})
             assert result.name == cli_val
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
         env_val=string_values,
@@ -278,7 +270,6 @@ class TestJobConfigResolutionPrecedence:
             result = resolve_job_config(MyConfig, job_name, config, {"name": None})
             assert result.name == env_val
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
         config_val=string_values,
@@ -308,7 +299,6 @@ class TestJobConfigResolutionPrecedence:
             result = resolve_job_config(MyConfig, job_name, config, {"name": None})
             assert result.name == config_val
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
         default_val=string_values,
@@ -335,7 +325,6 @@ class TestJobConfigResolutionPrecedence:
             result = resolve_job_config(MyConfig, job_name, config, {"name": None})
             assert result.name == default_val
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
         cli_int=st.integers(min_value=1, max_value=500),
@@ -378,7 +367,6 @@ class TestJobConfigDualAccess:
     **Validates: Requirements 6.8**
     """
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
         name_val=string_values,
@@ -424,7 +412,6 @@ class TestJobConfigDualAccess:
             assert param_config.name == name_val
             assert param_config.timeout == timeout_val
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
         enum_choice=st.sampled_from(list(OutputFormat)),
@@ -456,7 +443,6 @@ class TestJobConfigDualAccess:
             assert param_ref is rc_ref
             assert param_ref.output == enum_choice
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
         val=string_values,
@@ -499,7 +485,6 @@ class TestPydanticValidationBeforeJobExecution:
     **Validates: Requirements 6.4, 13.1, 13.2**
     """
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
         bad_int=st.text(
@@ -531,7 +516,6 @@ class TestPydanticValidationBeforeJobExecution:
                 resolve_job_config(StrictConfig, job_name, config, {"count": bad_int})
                 # If coercion succeeds (e.g., "1"), that's fine
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
     )
@@ -567,7 +551,6 @@ class TestPydanticValidationBeforeJobExecution:
                 assert "api_key" in error_str
                 assert "endpoint" in error_str
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
         num_bad_fields=st.integers(min_value=1, max_value=3),
@@ -607,7 +590,6 @@ class TestPydanticValidationBeforeJobExecution:
                 assert "field_b" in error_fields
                 assert "field_c" in error_fields
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
         valid_val=string_values,
@@ -640,7 +622,6 @@ class TestPydanticValidationBeforeJobExecution:
             assert result.name == valid_val
             assert result.active is True
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
     )

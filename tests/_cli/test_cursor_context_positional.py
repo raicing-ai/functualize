@@ -12,7 +12,7 @@ Tests parse_cursor_context from functualize._cli.cursor_context:
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.completions.cursor_context import parse_cursor_context
@@ -167,7 +167,6 @@ class TestCursorContextPositionalMode:
     """
 
     @given(scenario=_positional_underflow_scenario())
-    @settings(max_examples=100)
     def test_positional_mode_when_k_less_than_n(
         self,
         scenario: tuple[str, int, list[str], dict[str, int], int, int],
@@ -193,7 +192,6 @@ class TestCursorContextPositionalMode:
         )
 
     @given(scenario=_positional_overflow_scenario())
-    @settings(max_examples=100)
     def test_flag_mode_when_k_ge_n(
         self,
         scenario: tuple[str, int, list[str], dict[str, int], int, int],
@@ -215,7 +213,6 @@ class TestCursorContextPositionalMode:
         )
 
     @given(scenario=_flag_partial_scenario())
-    @settings(max_examples=100)
     def test_flag_mode_when_partial_starts_with_dashes(
         self,
         scenario: tuple[str, int, list[str], dict[str, int]],

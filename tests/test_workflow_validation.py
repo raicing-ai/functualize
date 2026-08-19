@@ -18,7 +18,7 @@ from __future__ import annotations
 import re
 
 import pytest
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 from functualize._types.naming import normalize_segment
@@ -110,7 +110,6 @@ class TestWorkflowGraphRejectsDuplicates:
     """
 
     @given(names=unique_step_names)
-    @settings(max_examples=100)
     def test_duplicate_step_names_raises_value_error(self, names: list[str]) -> None:
         """Duplicate step names in the steps list raises ValueError.
 
@@ -128,7 +127,6 @@ class TestWorkflowGraphRejectsDuplicates:
             _validate_workflow_graph(steps, [])
 
     @given(name=step_names, count=st.integers(min_value=2, max_value=5))
-    @settings(max_examples=100)
     def test_all_same_names_raises_value_error(self, name: str, count: int) -> None:
         """A list where all steps share the same name raises ValueError.
 
@@ -140,7 +138,6 @@ class TestWorkflowGraphRejectsDuplicates:
             _validate_workflow_graph(steps, [])
 
     @given(names=unique_step_names)
-    @settings(max_examples=100)
     def test_unique_step_names_does_not_raise(self, names: list[str]) -> None:
         """All unique step names passes validation without error.
 
@@ -173,7 +170,6 @@ class TestWorkflowGraphRejectsUnknownStepReferences:
         names=unique_step_names,
         unknown_name=step_names,
     )
-    @settings(max_examples=100)
     def test_edge_with_unknown_source_raises_value_error(
         self, names: list[str], unknown_name: str
     ) -> None:
@@ -199,7 +195,6 @@ class TestWorkflowGraphRejectsUnknownStepReferences:
         names=unique_step_names,
         unknown_name=step_names,
     )
-    @settings(max_examples=100)
     def test_edge_with_unknown_target_raises_value_error(
         self, names: list[str], unknown_name: str
     ) -> None:
@@ -225,7 +220,6 @@ class TestWorkflowGraphRejectsUnknownStepReferences:
         names=unique_step_names,
         unknown_name=step_names,
     )
-    @settings(max_examples=100)
     def test_conditional_edge_with_unknown_source_raises_value_error(
         self, names: list[str], unknown_name: str
     ) -> None:
@@ -258,7 +252,6 @@ class TestWorkflowGraphRejectsUnknownStepReferences:
         unknown_name=step_names,
         key=routing_keys,
     )
-    @settings(max_examples=100)
     def test_conditional_edge_with_unknown_target_raises_value_error(
         self, names: list[str], unknown_name: str, key: str
     ) -> None:
@@ -287,7 +280,6 @@ class TestWorkflowGraphRejectsUnknownStepReferences:
             _validate_workflow_graph(steps, edges)
 
     @given(names=unique_step_names)
-    @settings(max_examples=100)
     def test_end_sentinel_as_target_does_not_raise(self, names: list[str]) -> None:
         """END sentinel as edge target is always valid.
 
@@ -300,7 +292,6 @@ class TestWorkflowGraphRejectsUnknownStepReferences:
         _validate_workflow_graph(steps, edges)
 
     @given(names=unique_step_names, key=routing_keys)
-    @settings(max_examples=100)
     def test_end_sentinel_in_conditional_target_does_not_raise(
         self, names: list[str], key: str
     ) -> None:
@@ -349,7 +340,6 @@ class TestConditionalEdgeRouting:
             st.booleans(),
         ),
     )
-    @settings(max_examples=100)
     def test_condition_key_in_targets_routes_correctly(
         self, targets_data: dict[str, str], return_value: object
     ) -> None:
@@ -384,7 +374,6 @@ class TestConditionalEdgeRouting:
             st.booleans(),
         ),
     )
-    @settings(max_examples=100)
     def test_condition_key_not_in_targets_raises_value_error(
         self, targets_data: dict[str, str], bad_key: str, return_value: object
     ) -> None:
@@ -415,7 +404,6 @@ class TestConditionalEdgeRouting:
             st.text(min_size=0, max_size=20),
         ),
     )
-    @settings(max_examples=100)
     def test_routing_selects_correct_target_for_each_key(
         self, targets_data: dict[str, str], return_value: object
     ) -> None:
@@ -441,7 +429,6 @@ class TestConditionalEdgeRouting:
             max_size=5,
         ),
     )
-    @settings(max_examples=100)
     def test_routing_passes_return_value_to_condition(
         self, targets_data: dict[str, str]
     ) -> None:

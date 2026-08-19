@@ -20,7 +20,7 @@ from functualize_ai._gate_strategy import (
     AIInboundGateResolver,
     _build_prompt,
 )
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 from pydantic import BaseModel, Field, create_model
 
@@ -163,7 +163,6 @@ class TestBuildPromptIncludesResolvedFields:
         all_fields=field_names_strategy,
         data=st.data(),
     )
-    @settings(max_examples=100)
     def test_prompt_contains_all_resolved_field_names(
         self, all_fields: list[str], data: st.DataObject
     ) -> None:
@@ -206,7 +205,6 @@ class TestBuildPromptIncludesResolvedFields:
         all_fields=field_names_strategy,
         data=st.data(),
     )
-    @settings(max_examples=100)
     def test_prompt_contains_all_resolved_field_values(
         self, all_fields: list[str], data: st.DataObject
     ) -> None:
@@ -259,7 +257,6 @@ class TestBuildPromptIncludesUnresolvedFields:
         all_fields=field_names_strategy,
         data=st.data(),
     )
-    @settings(max_examples=100)
     def test_prompt_contains_all_unresolved_field_names(
         self, all_fields: list[str], data: st.DataObject
     ) -> None:
@@ -303,7 +300,6 @@ class TestBuildPromptIncludesUnresolvedFields:
     @given(
         all_fields=field_names_strategy,
     )
-    @settings(max_examples=100)
     def test_prompt_all_unresolved_no_resolved(self, all_fields: list[str]) -> None:
         """When all fields are unresolved, all field names appear in prompt.
 
@@ -341,7 +337,6 @@ class TestResolverUsesAICompleteWithResponseModel:
         all_fields=field_names_strategy,
         data=st.data(),
     )
-    @settings(max_examples=100)
     def test_resolver_passes_model_class_as_response_model(
         self, all_fields: list[str], data: st.DataObject
     ) -> None:
@@ -389,7 +384,6 @@ class TestResolverUsesAICompleteWithResponseModel:
         all_fields=field_names_strategy,
         data=st.data(),
     )
-    @settings(max_examples=100)
     def test_resolver_prompt_matches_build_prompt_output(
         self, all_fields: list[str], data: st.DataObject
     ) -> None:

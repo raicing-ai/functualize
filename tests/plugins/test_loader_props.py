@@ -14,7 +14,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 from pydantic import BaseModel, ValidationError
 
@@ -99,7 +99,6 @@ class TestPluginConfigProtocolDetection:
     **Validates: Requirements 1.1, 1.2, 1.3, 1.4**
     """
 
-    @settings(max_examples=100)
     @given(
         section=section_names,
     )
@@ -115,7 +114,6 @@ class TestPluginConfigProtocolDetection:
 
         assert _has_config_declaration(plugin) is True
 
-    @settings(max_examples=100)
     @given(
         section=section_names,
     )
@@ -131,7 +129,6 @@ class TestPluginConfigProtocolDetection:
 
         assert _has_config_declaration(plugin) is True
 
-    @settings(max_examples=100)
     @given(
         data=st.data(),
     )
@@ -149,7 +146,6 @@ class TestPluginConfigProtocolDetection:
 
         assert _has_config_declaration(plugin) is False
 
-    @settings(max_examples=100)
     @given(
         section=section_names,
     )
@@ -164,7 +160,6 @@ class TestPluginConfigProtocolDetection:
 
         assert _has_config_declaration(plugin) is False
 
-    @settings(max_examples=100)
     @given(
         data=st.data(),
     )
@@ -179,7 +174,6 @@ class TestPluginConfigProtocolDetection:
 
         assert _has_config_declaration(plugin) is False
 
-    @settings(max_examples=100)
     @given(
         section=section_names,
     )
@@ -195,7 +189,6 @@ class TestPluginConfigProtocolDetection:
 
         assert _has_config_declaration(plugin) is False
 
-    @settings(max_examples=100)
     @given(
         non_str_section=st.integers(),
     )
@@ -211,7 +204,6 @@ class TestPluginConfigProtocolDetection:
 
         assert _has_config_declaration(plugin) is False
 
-    @settings(max_examples=100)
     @given(
         plugin_name=st.text(
             alphabet=st.characters(
@@ -254,7 +246,6 @@ class TestPluginConfigProtocolDetection:
         # Registry should be empty
         assert not app.plugin_config_registry.has(plugin_name)
 
-    @settings(max_examples=100)
     @given(
         section=section_names,
         plugin_name=st.text(
@@ -316,7 +307,6 @@ class TestConfigResolutionPrecedence:
     **Validates: Requirements 2.2**
     """
 
-    @settings(max_examples=100)
     @given(
         section=section_names,
         config=_sample_config_strategy(),
@@ -339,7 +329,6 @@ class TestConfigResolutionPrecedence:
 
         app.resolve_model.assert_called_once_with(section, SampleConfig)
 
-    @settings(max_examples=100)
     @given(
         section=section_names,
         config=_sample_config_strategy(),
@@ -365,7 +354,6 @@ class TestConfigResolutionPrecedence:
             f"got {result!r} instead of {config!r}"
         )
 
-    @settings(max_examples=100)
     @given(
         section=section_names,
         config=_another_config_strategy(),
@@ -396,7 +384,6 @@ class TestConfigResolutionPrecedence:
         assert result.timeout == original_timeout
         assert result.retries == original_retries
 
-    @settings(max_examples=100)
     @given(
         section=section_names,
     )
@@ -426,7 +413,6 @@ class TestConfigResolutionPrecedence:
         assert call_args[0][0] == section
         assert call_args[0][1] is SampleConfig
 
-    @settings(max_examples=100)
     @given(
         section_a=section_names,
         section_b=section_names,
@@ -570,7 +556,6 @@ class TestPluginConfigResolutionRoundTrip:
     **Validates: Requirements 2.1, 2.3, 1.5**
     """
 
-    @settings(max_examples=100)
     @given(
         section=section_names,
         plugin_name=plugin_names,
@@ -611,7 +596,6 @@ class TestPluginConfigResolutionRoundTrip:
         stored = registry.get(section)
         assert stored is resolved_config
 
-    @settings(max_examples=100)
     @given(
         section=section_names,
         plugin_name=plugin_names,
@@ -652,7 +636,6 @@ class TestPluginConfigResolutionRoundTrip:
         assert stored.port == port
         assert stored.enabled == enabled
 
-    @settings(max_examples=100)
     @given(
         section=section_names,
         plugin_name=plugin_names,
@@ -686,7 +669,6 @@ class TestPluginConfigResolutionRoundTrip:
         # on_config_resolved should have been called exactly once
         plugin.on_config_resolved.assert_called_once_with(resolved_config)
 
-    @settings(max_examples=100)
     @given(
         section=section_names,
         plugin_name=plugin_names,
@@ -716,7 +698,6 @@ class TestPluginConfigResolutionRoundTrip:
         # on_config_resolved should not exist / not be called
         assert not hasattr(plugin, "on_config_resolved")
 
-    @settings(max_examples=100)
     @given(
         section=section_names,
         plugin_name=plugin_names,
@@ -752,7 +733,6 @@ class TestPluginConfigResolutionRoundTrip:
         # resolve_model must have been called with the plugin's section and model class
         app.resolve_model.assert_called_once_with(section, ExtendedConfig)
 
-    @settings(max_examples=100)
     @given(
         section=section_names,
         plugin_name=plugin_names,
@@ -805,7 +785,6 @@ class TestMissingRequiredFieldRaisesValidationError:
     **Validates: Requirements 2.4**
     """
 
-    @settings(max_examples=100)
     @given(
         section=section_names,
         plugin_name=plugin_names,
@@ -840,7 +819,6 @@ class TestMissingRequiredFieldRaisesValidationError:
             with pytest.raises(ValidationError):
                 loader.load_all(app)
 
-    @settings(max_examples=100)
     @given(
         section=section_names,
         plugin_name=plugin_names,
@@ -880,7 +858,6 @@ class TestMissingRequiredFieldRaisesValidationError:
         # on_config_resolved must NOT have been called
         plugin.on_config_resolved.assert_not_called()
 
-    @settings(max_examples=100)
     @given(
         section=section_names,
         plugin_name=plugin_names,
@@ -919,7 +896,6 @@ class TestMissingRequiredFieldRaisesValidationError:
         error_str = str(exc_info.value)
         assert "api_key" in error_str
 
-    @settings(max_examples=100)
     @given(
         section=section_names,
         plugin_name=plugin_names,

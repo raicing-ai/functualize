@@ -24,7 +24,7 @@ from unittest.mock import MagicMock, patch
 
 import click
 from click.types import convert_type
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._types.descriptors import FieldDescriptor, JobDescriptor
@@ -160,7 +160,6 @@ class TestLazyWrapperNoImport:
     """
 
     @given(descriptors=st.lists(job_descriptors(), min_size=1, max_size=5))
-    @settings(max_examples=100)
     def test_construction_never_calls_import_module(
         self, descriptors: list[JobDescriptor]
     ) -> None:
@@ -184,7 +183,6 @@ class TestLazyWrapperNoImport:
             mock_import.assert_not_called()
 
     @given(descriptor=job_descriptors())
-    @settings(max_examples=100)
     def test_construction_produces_callable_without_side_effects(
         self, descriptor: JobDescriptor
     ) -> None:
@@ -221,7 +219,6 @@ class TestSignatureReconstruction:
     """
 
     @given(fields=field_descriptor_lists())
-    @settings(max_examples=100)
     def test_parameter_count_matches_descriptor_count(
         self, fields: list[FieldDescriptor]
     ) -> None:
@@ -246,7 +243,6 @@ class TestSignatureReconstruction:
         assert len(params) == len(fields)
 
     @given(fields=field_descriptor_lists())
-    @settings(max_examples=100)
     def test_parameter_names_match_descriptors(
         self, fields: list[FieldDescriptor]
     ) -> None:
@@ -274,7 +270,6 @@ class TestSignatureReconstruction:
         assert param_names == expected_names
 
     @given(fields=field_descriptor_lists())
-    @settings(max_examples=100)
     def test_type_annotations_match_type_mapping(
         self, fields: list[FieldDescriptor]
     ) -> None:
@@ -315,7 +310,6 @@ class TestSignatureReconstruction:
                 )
 
     @given(fields=field_descriptor_lists())
-    @settings(max_examples=100)
     def test_required_fields_have_no_default(
         self, fields: list[FieldDescriptor]
     ) -> None:
@@ -351,7 +345,6 @@ class TestSignatureReconstruction:
                 )
 
     @given(fields=field_descriptor_lists())
-    @settings(max_examples=100)
     def test_optional_fields_use_descriptor_default(
         self, fields: list[FieldDescriptor]
     ) -> None:

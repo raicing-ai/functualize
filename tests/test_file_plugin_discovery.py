@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._plugins.loader import PluginLoader
@@ -165,7 +165,6 @@ class TestFilePluginDiscoveryFiltering:
     """
 
     @given(structure=plugin_directory_structure())
-    @settings(max_examples=100)
     def test_only_top_level_non_underscore_py_files_are_loaded(
         self, structure: dict[str, Any]
     ):
@@ -246,7 +245,6 @@ class TestEntryPointPluginPrecedence:
         plugin_name=_plugin_names,
         ep_version=st.sampled_from(["1.0.0", "2.0.0", "0.1.0", "3.5.2"]),
     )
-    @settings(max_examples=100)
     def test_entry_point_plugin_takes_precedence_over_file_plugin(
         self,
         plugin_name: str,
@@ -367,7 +365,6 @@ class TestAlphabeticalFilePluginPrecedence:
     """
 
     @given(data=duplicate_name_file_pairs())
-    @settings(max_examples=100)
     def test_first_alphabetically_wins_on_same_name(self, data: dict[str, Any]):
         """Only the file sorting first alphabetically (case-insensitive) is loaded.
 

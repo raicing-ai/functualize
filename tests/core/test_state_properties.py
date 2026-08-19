@@ -8,7 +8,7 @@ import threading
 from typing import Any
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._app.state import AppState
@@ -41,7 +41,6 @@ class TestAppStateRoundTrip:
     """Property 22: AppState Round-Trip."""
 
     @given(key=state_keys, value=json_values)
-    @settings(max_examples=100)
     def test_set_then_get_returns_same_value(self, key: str, value: Any):
         """For any key-value pair, set followed by get returns the same value."""
         # Feature: functualize, Property 22: AppState Round-Trip
@@ -56,7 +55,6 @@ class TestAppStateRoundTrip:
         value1=json_values,
         value2=json_values,
     )
-    @settings(max_examples=100)
     def test_last_set_wins(self, key: str, value1: Any, value2: Any):
         """For any key set multiple times, get returns the last value set."""
         # Feature: functualize, Property 22: AppState Round-Trip
@@ -79,7 +77,6 @@ class TestAppStateResetAndUnset:
     @given(
         data=st.dictionaries(state_keys, json_values, min_size=1, max_size=10),
     )
-    @settings(max_examples=100)
     def test_reset_clears_all_values(self, data: dict[str, Any]):
         """After reset(), all previously set keys return None."""
         # Feature: functualize, Property 23: AppState Reset and Unset Behavior
@@ -94,7 +91,6 @@ class TestAppStateResetAndUnset:
             assert AppState.get(key) is None
 
     @given(key=state_keys)
-    @settings(max_examples=100)
     def test_get_unset_key_returns_none(self, key: str):
         """For any key never set, get(key) returns None."""
         # Feature: functualize, Property 23: AppState Reset and Unset Behavior
@@ -121,7 +117,6 @@ class TestAppStateThreadSafety:
             max_size=5,
         ),
     )
-    @settings(max_examples=100)
     def test_concurrent_get_set_no_exceptions_or_corruption(self, data: dict[str, int]):
         """Concurrent get/set operations never raise or corrupt state."""
         # Feature: functualize, Property 24: AppState Thread Safety
@@ -178,7 +173,6 @@ class TestAppStateThreadSafety:
             max_size=5,
         ),
     )
-    @settings(max_examples=100)
     def test_concurrent_reset_with_get_set_no_exceptions(self, keys: list[str]):
         """Concurrent reset with get/set never raises exceptions."""
         # Feature: functualize, Property 24: AppState Thread Safety

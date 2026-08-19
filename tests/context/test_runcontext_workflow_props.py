@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._events.perf import PerfTimeline
@@ -58,7 +58,6 @@ class TestJobPhaseAutoMarking:
     """
 
     @given(job_name=job_name_strategy, step_name=step_name_strategy)
-    @settings(max_examples=100)
     def test_new_step_records_start_mark(self, job_name: str, step_name: str) -> None:
         """A new workflow step records a start mark '{job_name}.phase.{step_name}.start'.
 
@@ -81,7 +80,6 @@ class TestJobPhaseAutoMarking:
         step_name=step_name_strategy,
         terminal_status=terminal_status_strategy,
     )
-    @settings(max_examples=100)
     def test_new_step_with_terminal_status_records_both_marks(
         self, job_name: str, step_name: str, terminal_status: RunStatus
     ) -> None:
@@ -110,7 +108,6 @@ class TestJobPhaseAutoMarking:
         step_name=step_name_strategy,
         terminal_status=terminal_status_strategy,
     )
-    @settings(max_examples=100)
     def test_existing_step_transitioning_to_terminal_records_end_mark(
         self, job_name: str, step_name: str, terminal_status: RunStatus
     ) -> None:
@@ -146,7 +143,6 @@ class TestJobPhaseAutoMarking:
         step_name=step_name_strategy,
         non_terminal_status=non_terminal_status_strategy,
     )
-    @settings(max_examples=100)
     def test_new_step_with_non_terminal_status_records_only_start(
         self, job_name: str, step_name: str, non_terminal_status: RunStatus
     ) -> None:

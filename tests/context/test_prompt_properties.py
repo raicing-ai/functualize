@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from unittest.mock import MagicMock
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._config.job_config import JobConfigView
@@ -188,7 +188,6 @@ class TestProperty8PromptAutoFillsSourceJob:
         question=prompt_questions,
         original_source_job=optional_source_jobs,
     )
-    @settings(max_examples=100)
     def test_source_job_auto_filled_from_rc_name(
         self,
         job_name: str,
@@ -216,7 +215,6 @@ class TestProperty8PromptAutoFillsSourceJob:
         job_name=job_names,
         question=prompt_questions,
     )
-    @settings(max_examples=100)
     def test_source_job_overrides_even_when_set(
         self,
         job_name: str,
@@ -244,7 +242,6 @@ class TestProperty8PromptAutoFillsSourceJob:
         question=prompt_questions,
         value=response_values,
     )
-    @settings(max_examples=100)
     def test_prompt_delegates_and_returns_provider_response(
         self,
         job_name: str,
@@ -284,7 +281,6 @@ class TestProperty9RegexValidation:
             max_size=10,
         ),
     )
-    @settings(max_examples=100)
     def test_regex_fullmatch_used_for_validation(
         self,
         pattern: str,
@@ -306,7 +302,6 @@ class TestProperty9RegexValidation:
         assert called_value == valid_input
 
     @given(pattern=simple_regex_patterns)
-    @settings(max_examples=100)
     def test_three_failures_result_in_cancelled(self, pattern: str):
         """After 3 consecutive validation failures, source='cancelled'."""
         # Feature: functualize, Property 9: Prompt validation with regex
@@ -323,7 +318,6 @@ class TestProperty9RegexValidation:
         assert response.value is None
 
     @given(data=st.data(), pattern=simple_regex_patterns)
-    @settings(max_examples=100)
     def test_valid_input_on_first_try_returns_user(self, data, pattern: str):
         """If input passes re.fullmatch on first try, source='user'."""
         # Feature: functualize, Property 9: Prompt validation with regex
@@ -339,7 +333,6 @@ class TestProperty9RegexValidation:
         assert response.value == valid
 
     @given(data=st.data(), pattern=simple_regex_patterns)
-    @settings(max_examples=50)
     def test_valid_on_second_try_after_one_failure(self, data, pattern: str):
         """If first attempt fails but second passes, source='user' (within retry limit)."""
         # Feature: functualize, Property 9: Prompt validation with regex
@@ -358,7 +351,6 @@ class TestProperty9RegexValidation:
         assert len(provider.fullmatch_calls) == 2
 
     @given(data=st.data(), pattern=simple_regex_patterns)
-    @settings(max_examples=50)
     def test_exactly_three_failures_then_cancelled(self, data, pattern: str):
         """Exactly 3 failures means cancelled, even if 4th would pass."""
         # Feature: functualize, Property 9: Prompt validation with regex
@@ -391,7 +383,6 @@ class TestProperty10TypeAdapterValidation:
     """
 
     @given(valid_input=st.integers(min_value=0, max_value=1000))
-    @settings(max_examples=100)
     def test_validate_python_called_for_type_adapter(self, valid_input: int):
         """validate_python is called when validator has that method."""
         # Feature: functualize, Property 10: Prompt validation with TypeAdapter
@@ -412,7 +403,6 @@ class TestProperty10TypeAdapterValidation:
         # The important thing is validate_python was called
 
     @given(data=st.data())
-    @settings(max_examples=50)
     def test_three_type_adapter_failures_result_in_cancelled(self, data):
         """After 3 consecutive TypeAdapter validation failures, source='cancelled'."""
         # Feature: functualize, Property 10: Prompt validation with TypeAdapter
@@ -434,7 +424,6 @@ class TestProperty10TypeAdapterValidation:
         assert len(provider.validate_python_calls) == 3
 
     @given(valid_int=st.integers(min_value=-100, max_value=100))
-    @settings(max_examples=100)
     def test_valid_type_adapter_input_returns_user(self, valid_int: int):
         """If validate_python succeeds on first try, source='user'."""
         # Feature: functualize, Property 10: Prompt validation with TypeAdapter
@@ -451,7 +440,6 @@ class TestProperty10TypeAdapterValidation:
         assert response.source == "user"
         assert response.value == valid_int
 
-    @settings(max_examples=50)
     @given(valid_int=st.integers(min_value=0, max_value=100))
     def test_valid_on_third_try_after_two_failures(self, valid_int: int):
         """If first two attempts fail but third passes, source='user'."""
@@ -472,7 +460,6 @@ class TestProperty10TypeAdapterValidation:
         assert len(provider.validate_python_calls) == 3
 
     @given(valid_int=st.integers(min_value=0, max_value=100))
-    @settings(max_examples=50)
     def test_exactly_three_failures_then_cancelled_even_with_valid_fourth(
         self, valid_int: int
     ):
@@ -508,7 +495,6 @@ class TestProperty11PromptResponseProperties:
     """
 
     @given(source=prompt_sources, value=response_values)
-    @settings(max_examples=200)
     def test_was_cancelled_true_iff_source_cancelled(
         self,
         source: str,
@@ -521,7 +507,6 @@ class TestProperty11PromptResponseProperties:
         assert response.was_cancelled == (source == "cancelled")
 
     @given(source=prompt_sources, value=response_values)
-    @settings(max_examples=200)
     def test_was_timeout_true_iff_source_timeout(
         self,
         source: str,
@@ -534,7 +519,6 @@ class TestProperty11PromptResponseProperties:
         assert response.was_timeout == (source == "timeout")
 
     @given(source=prompt_sources, value=response_values)
-    @settings(max_examples=200)
     def test_is_user_input_true_iff_source_user(
         self,
         source: str,
@@ -547,7 +531,6 @@ class TestProperty11PromptResponseProperties:
         assert response.is_user_input == (source == "user")
 
     @given(source=prompt_sources, value=response_values)
-    @settings(max_examples=200)
     def test_exactly_one_property_true_for_non_default(
         self,
         source: str,
@@ -577,7 +560,6 @@ class TestProperty11PromptResponseProperties:
             assert true_count == 1
 
     @given(value=response_values)
-    @settings(max_examples=50)
     def test_cancelled_source_properties(self, value: str | int | None | bool):
         """source='cancelled' → was_cancelled=True, was_timeout=False, is_user_input=False."""
         # Feature: functualize, Property 11: PromptResponse convenience properties
@@ -588,7 +570,6 @@ class TestProperty11PromptResponseProperties:
         assert response.is_user_input is False
 
     @given(value=response_values)
-    @settings(max_examples=50)
     def test_timeout_source_properties(self, value: str | int | None | bool):
         """source='timeout' → was_cancelled=False, was_timeout=True, is_user_input=False."""
         # Feature: functualize, Property 11: PromptResponse convenience properties
@@ -599,7 +580,6 @@ class TestProperty11PromptResponseProperties:
         assert response.is_user_input is False
 
     @given(value=response_values)
-    @settings(max_examples=50)
     def test_user_source_properties(self, value: str | int | None | bool):
         """source='user' → was_cancelled=False, was_timeout=False, is_user_input=True."""
         # Feature: functualize, Property 11: PromptResponse convenience properties

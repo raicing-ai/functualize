@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 from functualize._cli.pep723 import (
@@ -111,7 +111,6 @@ class TestParsePep723ReturnsNoneForAbsentOrMalformed:
     """
 
     @given(content=_python_without_script_block)
-    @settings(max_examples=100)
     def test_no_script_block_returns_none(self, content: str) -> None:
         """Files without a # /// script block always return None.
 
@@ -131,7 +130,6 @@ class TestParsePep723ReturnsNoneForAbsentOrMalformed:
             )
 
     @given(content=python_with_malformed_toml_block())
-    @settings(max_examples=100)
     def test_malformed_toml_returns_none(self, content: str) -> None:
         """Files with malformed TOML in the script block return None.
 
@@ -160,7 +158,6 @@ class TestParsePep723ReturnsNoneForAbsentOrMalformed:
             ]
         )
     )
-    @settings(max_examples=100)
     def test_similar_but_non_matching_patterns_return_none(self, content: str) -> None:
         """Content that looks similar but doesn't match the PEP 723 pattern returns None.
 
@@ -229,7 +226,6 @@ class TestDelegationDeterminedByDepAvailability:
     """
 
     @given(deps=st.lists(_dep_specifier, min_size=1, max_size=5, unique=True))
-    @settings(max_examples=100)
     def test_all_deps_available_means_no_delegation(self, deps: list[str]) -> None:
         """When all declared dependencies are importable, no delegation occurs.
 
@@ -259,7 +255,6 @@ class TestDelegationDeterminedByDepAvailability:
             )
 
     @given(deps=st.lists(_dep_specifier, min_size=1, max_size=5, unique=True))
-    @settings(max_examples=100)
     def test_missing_deps_triggers_delegation(self, deps: list[str]) -> None:
         """When any dependency is missing, delegation to uv occurs.
 
@@ -309,7 +304,6 @@ class TestDelegationDeterminedByDepAvailability:
         available_deps=st.lists(_dep_specifier, min_size=1, max_size=3, unique=True),
         missing_deps=st.lists(_dep_specifier, min_size=1, max_size=3, unique=True),
     )
-    @settings(max_examples=100)
     def test_mixed_deps_some_missing_triggers_delegation(
         self, available_deps: list[str], missing_deps: list[str]
     ) -> None:
@@ -378,7 +372,6 @@ class TestDelegationDeterminedByDepAvailability:
             assert mock_call.called, "Delegation should occur when any dep is missing"
 
     @given(deps=st.lists(_dep_specifier, min_size=1, max_size=5, unique=True))
-    @settings(max_examples=100)
     def test_check_deps_available_returns_empty_when_all_found(
         self, deps: list[str]
     ) -> None:
@@ -396,7 +389,6 @@ class TestDelegationDeterminedByDepAvailability:
         )
 
     @given(deps=st.lists(_dep_specifier, min_size=1, max_size=5, unique=True))
-    @settings(max_examples=100)
     def test_check_deps_available_returns_all_when_none_found(
         self, deps: list[str]
     ) -> None:
@@ -442,7 +434,6 @@ class TestRecursionGuardPreventsReDelegation:
     """
 
     @given(depth_value=_nonzero_depth_values)
-    @settings(max_examples=100)
     def test_nonzero_depth_prevents_delegation(self, depth_value: str) -> None:
         """When _FUNCTUALIZE_PEP723_DEPTH is non-zero, delegation is prevented.
 
@@ -487,7 +478,6 @@ class TestRecursionGuardPreventsReDelegation:
         depth_value=st.sampled_from(["0", ""]),
         deps=st.lists(_dep_specifier, min_size=1, max_size=3, unique=True),
     )
-    @settings(max_examples=100)
     def test_zero_or_empty_depth_allows_delegation(
         self, depth_value: str, deps: list[str]
     ) -> None:
@@ -532,7 +522,6 @@ class TestRecursionGuardPreventsReDelegation:
             )
 
     @given(depth_value=_nonzero_depth_values)
-    @settings(max_examples=100)
     def test_recursion_guard_prints_error_with_missing_packages(
         self, depth_value: str
     ) -> None:

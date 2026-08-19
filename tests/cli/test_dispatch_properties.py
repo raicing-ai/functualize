@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.dispatch import Mode, detect_mode
@@ -77,7 +77,6 @@ class TestModeExhaustivenessAndDeterminism:
         job_names=_job_names_set,
         extra_args=st.lists(st.text(_safe_chars, min_size=1, max_size=10), max_size=5),
     )
-    @settings(max_examples=200)
     def test_detect_mode_always_returns_valid_mode_with_job_names(
         self, job_names: set[str], extra_args: list[str]
     ) -> None:
@@ -99,7 +98,6 @@ class TestModeExhaustivenessAndDeterminism:
         job_names=_job_names_set,
         positional=st.text(_safe_chars, min_size=1, max_size=15),
     )
-    @settings(max_examples=200)
     def test_detect_mode_deterministic_same_inputs_same_output(
         self, job_names: set[str], positional: str
     ) -> None:
@@ -118,7 +116,6 @@ class TestModeExhaustivenessAndDeterminism:
         )
 
     @given(job_names=_job_names_set)
-    @settings(max_examples=200)
     def test_bare_invocation_returns_valid_mode(self, job_names: set[str]) -> None:
         """Bare invocation (no positional) returns BARE when job_names provided.
 
@@ -134,7 +131,6 @@ class TestModeExhaustivenessAndDeterminism:
         positional=st.text(_safe_chars, min_size=0, max_size=20),
         extra_args=st.lists(st.text(_safe_chars, min_size=1, max_size=10), max_size=5),
     )
-    @settings(max_examples=200)
     def test_detect_mode_never_raises_without_job_names(
         self, positional: str, extra_args: list[str]
     ) -> None:
@@ -167,7 +163,6 @@ class TestModePriorityOrdering:
     """
 
     @given(job_name=_job_name_strategy)
-    @settings(max_examples=200)
     def test_single_file_wins_over_job_name(self, job_name: str) -> None:
         """When a .py file exists AND its stem is in job_names, SINGLE_FILE wins.
 
@@ -193,7 +188,6 @@ class TestModePriorityOrdering:
         job_names=_job_names_set,
         extra_args=st.lists(st.text(_safe_chars, min_size=1, max_size=10), max_size=3),
     )
-    @settings(max_examples=200)
     def test_builtin_wins_over_job_name(
         self, job_names: set[str], extra_args: list[str]
     ) -> None:
@@ -211,7 +205,6 @@ class TestModePriorityOrdering:
         )
 
     @given(job_name=_job_name_strategy)
-    @settings(max_examples=200)
     def test_job_wins_over_unknown(self, job_name: str) -> None:
         """When name is in job_names, JOB wins over UNKNOWN.
 
@@ -227,7 +220,6 @@ class TestModePriorityOrdering:
         )
 
     @given(job_name=_job_name_strategy, job_names=_job_names_set)
-    @settings(max_examples=200)
     def test_unknown_when_not_matched(self, job_name: str, job_names: set[str]) -> None:
         """When name is NOT in job_names or builtins or a file, UNKNOWN is returned.
 
@@ -269,7 +261,6 @@ class TestModeClassificationCorrectness:
     """
 
     @given(job_name=_job_name_strategy, job_names=_job_names_set)
-    @settings(max_examples=200)
     def test_job_name_in_set_returns_job_mode(
         self, job_name: str, job_names: set[str]
     ) -> None:
@@ -293,7 +284,6 @@ class TestModeClassificationCorrectness:
         target_job=_job_name_strategy,
         job_names=_job_names_set,
     )
-    @settings(max_examples=200)
     def test_alias_in_aliases_returns_job_mode(
         self, alias_name: str, target_job: str, job_names: set[str]
     ) -> None:
@@ -320,7 +310,6 @@ class TestModeClassificationCorrectness:
         target_job=_job_name_strategy,
         job_names=_job_names_set,
     )
-    @settings(max_examples=200)
     def test_alias_shadowed_by_direct_job_name(
         self, shared_name: str, target_job: str, job_names: set[str]
     ) -> None:
@@ -348,7 +337,6 @@ class TestModeClassificationCorrectness:
         unknown_cmd=_job_name_strategy,
         job_names=_job_names_set,
     )
-    @settings(max_examples=200)
     def test_unknown_command_returns_unknown_mode(
         self, unknown_cmd: str, job_names: set[str]
     ) -> None:
@@ -375,7 +363,6 @@ class TestModeClassificationCorrectness:
         alias_name=_alias_name_strategy,
         target_job=_job_name_strategy,
     )
-    @settings(max_examples=200)
     def test_alias_not_in_job_names_without_alias_dict_is_unknown(
         self, alias_name: str, target_job: str
     ) -> None:

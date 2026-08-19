@@ -13,7 +13,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.focus import FocusMode, FocusState, FocusZone
@@ -115,7 +115,6 @@ class TestPanelToggleIsInvolutory:
     """
 
     @given(ring=_ring_type, initial_active=_initial_active)
-    @settings(max_examples=100)
     def test_toggle_twice_restores_state(self, ring: str, initial_active: bool) -> None:
         """Toggling the same ring twice restores visibility and FocusMode.
 
@@ -157,7 +156,6 @@ class TestPanelToggleIsInvolutory:
         )
 
     @given(ring=_ring_type)
-    @settings(max_examples=100)
     def test_toggle_on_then_off_returns_to_command(self, ring: str) -> None:
         """Starting inactive: toggle ON → NORMAL+PANEL, toggle OFF → COMMAND.
 
@@ -185,7 +183,6 @@ class TestPanelToggleIsInvolutory:
         assert state.focus_state.mode == FocusMode.COMMAND
 
     @given(ring=_ring_type)
-    @settings(max_examples=100)
     def test_toggle_off_then_on_returns_to_normal(self, ring: str) -> None:
         """Starting active: toggle OFF → COMMAND, toggle ON → NORMAL+PANEL.
 
@@ -234,7 +231,6 @@ class TestBreadcrumbFormatMatchesRingState:
         prefix=_prefix,
         title=_title,
     )
-    @settings(max_examples=100)
     def test_breadcrumb_render_matches_expected_format(
         self, count: int, prefix: str, title: str
     ) -> None:
@@ -264,7 +260,6 @@ class TestBreadcrumbFormatMatchesRingState:
         title=_title,
         data=st.data(),
     )
-    @settings(max_examples=100)
     def test_breadcrumb_render_arbitrary_index(
         self, count: int, prefix: str, title: str, data: st.DataObject
     ) -> None:
@@ -297,7 +292,6 @@ class TestBreadcrumbFormatMatchesRingState:
         title=_title,
         data=st.data(),
     )
-    @settings(max_examples=100)
     def test_breadcrumb_render_with_sub_levels(
         self, count: int, prefix: str, title: str, data: st.DataObject
     ) -> None:

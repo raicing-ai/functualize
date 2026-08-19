@@ -17,7 +17,7 @@ from __future__ import annotations
 import enum
 from typing import TYPE_CHECKING, Any
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 from pydantic import BaseModel, Field
 
@@ -413,7 +413,6 @@ class TestSchemaExtractionCorrectness:
     """
 
     @given(specs=model_field_specs())
-    @settings(max_examples=100)
     def test_schema_extraction_produces_correct_field_descriptors(
         self, specs: list[FieldSpec]
     ):
@@ -514,7 +513,6 @@ class TestSchemaExtractionCorrectness:
                 )
 
     @given(specs=model_field_specs())
-    @settings(max_examples=100)
     def test_extracted_types_are_in_supported_set(self, specs: list[FieldSpec]):
         """All extracted type strings are in the set of supported types.
 
@@ -531,7 +529,6 @@ class TestSchemaExtractionCorrectness:
             )
 
     @given(specs=model_field_specs())
-    @settings(max_examples=100)
     def test_enum_choices_invariant_holds(self, specs: list[FieldSpec]):
         """Enum/choices invariant: enum → non-empty choices, non-enum → None choices.
 
@@ -550,7 +547,6 @@ class TestSchemaExtractionCorrectness:
                 assert descriptor.choices is None
 
     @given(specs=model_field_specs())
-    @settings(max_examples=100)
     def test_optional_unwrapping_preserves_inner_type(self, specs: list[FieldSpec]):
         """Optional[T] and T | None annotations unwrap to inner type T.
 

@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.data.config_snapshot_store import ConfigSnapshot
@@ -167,7 +167,6 @@ class TestCompleteness:
     """
 
     @given(data=_pending_and_snapshot_with_overlap())
-    @settings(max_examples=200)
     def test_entry_count_equals_union_size(
         self,
         data: tuple[PendingExecution, ConfigSnapshot],
@@ -190,7 +189,6 @@ class TestCompleteness:
         )
 
     @given(data=_pending_and_snapshot_with_overlap())
-    @settings(max_examples=200)
     def test_every_field_in_union_has_exactly_one_entry(
         self,
         data: tuple[PendingExecution, ConfigSnapshot],
@@ -219,7 +217,6 @@ class TestCompleteness:
         )
 
     @given(pe=_pending_execution())
-    @settings(max_examples=200)
     def test_completeness_when_previous_is_none(
         self,
         pe: PendingExecution,
@@ -240,7 +237,6 @@ class TestCompleteness:
         assert len(result) == len(expected_fields)
 
     @given(data=_pending_and_snapshot_with_overlap())
-    @settings(max_examples=200)
     def test_result_is_sorted_alphabetically(
         self,
         data: tuple[PendingExecution, ConfigSnapshot],
@@ -274,7 +270,6 @@ class TestStatusCorrectness:
     """
 
     @given(data=_pending_and_snapshot_with_overlap())
-    @settings(max_examples=200)
     def test_changed_implies_values_differ(
         self,
         data: tuple[PendingExecution, ConfigSnapshot],
@@ -295,7 +290,6 @@ class TestStatusCorrectness:
                 )
 
     @given(data=_pending_and_snapshot_with_overlap())
-    @settings(max_examples=200)
     def test_unchanged_implies_values_equal(
         self,
         data: tuple[PendingExecution, ConfigSnapshot],
@@ -316,7 +310,6 @@ class TestStatusCorrectness:
                 )
 
     @given(data=_pending_and_snapshot_with_overlap())
-    @settings(max_examples=200)
     def test_new_implies_previous_is_none(
         self,
         data: tuple[PendingExecution, ConfigSnapshot],
@@ -336,7 +329,6 @@ class TestStatusCorrectness:
                 )
 
     @given(data=_pending_and_snapshot_with_overlap())
-    @settings(max_examples=200)
     def test_removed_implies_current_is_none(
         self,
         data: tuple[PendingExecution, ConfigSnapshot],
@@ -356,7 +348,6 @@ class TestStatusCorrectness:
                 )
 
     @given(pe=_pending_execution())
-    @settings(max_examples=200)
     def test_all_new_when_previous_is_none(
         self,
         pe: PendingExecution,
@@ -375,7 +366,6 @@ class TestStatusCorrectness:
             assert entry.previous_value is None
 
     @given(data=_pending_and_snapshot_with_overlap())
-    @settings(max_examples=200)
     def test_status_is_always_valid(
         self,
         data: tuple[PendingExecution, ConfigSnapshot],

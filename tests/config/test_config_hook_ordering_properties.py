@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._events.hooks import ConfigHookEvent, HookRegistry
@@ -271,7 +271,6 @@ class TestProperty27ConfigHookInvocationOrdering:
         data=st.data(),
         num_hooks=st.integers(min_value=1, max_value=8),
     )
-    @settings(max_examples=50)
     def test_registration_order_preserved_within_same_event(
         self,
         data: st.DataObject,

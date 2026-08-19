@@ -11,7 +11,7 @@ Tests filter_used_flags() from functualize._cli.flag_filtering:
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.completions.flag_filtering import (
@@ -121,7 +121,6 @@ class TestUsedFlagFiltering:
     """
 
     @given(scenario=_flag_filtering_scenario())
-    @settings(max_examples=100)
     def test_list_typed_flags_always_in_result(
         self, scenario: tuple[list[FlagDescriptor], list[str]]
     ) -> None:
@@ -135,7 +134,6 @@ class TestUsedFlagFiltering:
             )
 
     @given(scenario=_flag_filtering_scenario())
-    @settings(max_examples=100)
     def test_used_single_value_flags_excluded(
         self, scenario: tuple[list[FlagDescriptor], list[str]]
     ) -> None:
@@ -161,7 +159,6 @@ class TestUsedFlagFiltering:
                 )
 
     @given(scenario=_flag_filtering_scenario())
-    @settings(max_examples=100)
     def test_unused_single_value_flags_in_result(
         self, scenario: tuple[list[FlagDescriptor], list[str]]
     ) -> None:
@@ -187,7 +184,6 @@ class TestUsedFlagFiltering:
                 )
 
     @given(scenario=_flag_filtering_scenario())
-    @settings(max_examples=100)
     def test_result_is_subset_of_input(
         self, scenario: tuple[list[FlagDescriptor], list[str]]
     ) -> None:
@@ -200,7 +196,6 @@ class TestUsedFlagFiltering:
             )
 
     @given(flags=_unique_flag_list_strategy())
-    @settings(max_examples=100)
     def test_no_used_tokens_returns_all_flags(
         self, flags: list[FlagDescriptor]
     ) -> None:

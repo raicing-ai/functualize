@@ -14,7 +14,7 @@ from __future__ import annotations
 from functualize_state.testing import InMemoryState
 from functualize_tasks import TaskLink, TaskStatus
 from functualize_tasks_local import LocalTaskProvider
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 # --- Strategies ---
@@ -60,7 +60,6 @@ class TestTasksLocalPrefixStorage:
     """
 
     @given(title=task_titles, linked_to=task_links)
-    @settings(max_examples=200)
     def test_add_stores_with_tasks_prefix(
         self, title: str, linked_to: TaskLink | None
     ) -> None:
@@ -81,7 +80,6 @@ class TestTasksLocalPrefixStorage:
         )
 
     @given(titles=st.lists(task_titles, min_size=1, max_size=20))
-    @settings(max_examples=200)
     def test_all_stored_keys_have_tasks_prefix(self, titles: list[str]) -> None:
         """All keys stored by multiple add operations start with `tasks:`.
 
@@ -101,7 +99,6 @@ class TestTasksLocalPrefixStorage:
             )
 
     @given(title=task_titles, new_status=task_statuses, notes=task_notes)
-    @settings(max_examples=200)
     def test_update_preserves_tasks_prefix(
         self, title: str, new_status: TaskStatus, notes: str | None
     ) -> None:
@@ -123,7 +120,6 @@ class TestTasksLocalPrefixStorage:
             )
 
     @given(title=task_titles)
-    @settings(max_examples=200)
     def test_delete_removes_prefixed_key(self, title: str) -> None:
         """Deleting a task removes the `tasks:`-prefixed key from the backend.
 
@@ -146,7 +142,6 @@ class TestTasksLocalPrefixStorage:
         assert len(keys_after) == 0
 
     @given(title=task_titles, linked_to=task_links)
-    @settings(max_examples=200)
     def test_no_keys_without_prefix_created(
         self, title: str, linked_to: TaskLink | None
     ) -> None:
@@ -179,7 +174,6 @@ class TestTasksLocalPrefixStorage:
             ),
         ),
     )
-    @settings(max_examples=200)
     def test_link_operation_preserves_prefix(self, title: str, link: TaskLink) -> None:
         """The link operation does not create keys outside the `tasks:` prefix.
 

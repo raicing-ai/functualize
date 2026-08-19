@@ -27,7 +27,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from functualize_ai import ToolDef, ToolScope
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 # ===========================================================================
@@ -137,7 +137,6 @@ class TestToolScopeOnlyProperty:
     """
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_only_returns_exactly_existing_names(self, data: st.DataObject) -> None:
         """ToolScope.only(S) returns ToolDefs whose names are exactly S ∩ registry_names.
 
@@ -168,7 +167,6 @@ class TestToolScopeOnlyProperty:
         assert result_names == expected_names
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_only_with_exact_subset_returns_all(self, data: st.DataObject) -> None:
         """When all names in the subset exist in registry, all are returned.
 
@@ -209,7 +207,6 @@ class TestToolScopeTaggedProperty:
     """
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_tagged_returns_only_jobs_with_all_tags(self, data: st.DataObject) -> None:
         """ToolScope.tagged(*T) returns ToolDefs only for jobs with ALL tags in T.
 
@@ -241,7 +238,6 @@ class TestToolScopeTaggedProperty:
         assert result_names == expected_names
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_tagged_every_result_has_all_required_tags(
         self, data: st.DataObject
     ) -> None:
@@ -284,7 +280,6 @@ class TestToolScopeGroupProperty:
     """
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_group_returns_exactly_matching_jobs(self, data: st.DataObject) -> None:
         """ToolScope.group(G) returns exactly the jobs in that group.
 
@@ -308,7 +303,6 @@ class TestToolScopeGroupProperty:
         assert result_names == expected_names
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_group_every_result_belongs_to_group(self, data: st.DataObject) -> None:
         """Every returned job belongs to the specified group.
 
@@ -343,7 +337,6 @@ class TestToolScopeUnionProperty:
     """
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_union_is_superset_of_both(self, data: st.DataObject) -> None:
         """(A + B).to_tool_defs() contains all names from A and all from B.
 
@@ -387,7 +380,6 @@ class TestToolScopeUnionProperty:
         assert names_b.issubset(names_combined)
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_union_mixed_scopes_is_superset(self, data: st.DataObject) -> None:
         """Union of different scope types (only + tagged) is superset of both.
 
@@ -432,7 +424,6 @@ class TestToolScopeUnionProperty:
         assert names_b.issubset(names_combined)
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_union_has_no_duplicate_names(self, data: st.DataObject) -> None:
         """Union deduplicates by name — no duplicate tool names in result.
 
@@ -486,7 +477,6 @@ class TestToolScopeToolDefsProperty:
     """
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_all_results_are_tooldef_instances(self, data: st.DataObject) -> None:
         """Every item returned by to_tool_defs() is a ToolDef instance.
 
@@ -511,7 +501,6 @@ class TestToolScopeToolDefsProperty:
             assert isinstance(tool_def, ToolDef)
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_all_results_have_non_empty_name(self, data: st.DataObject) -> None:
         """Every ToolDef has a non-empty name field.
 
@@ -537,7 +526,6 @@ class TestToolScopeToolDefsProperty:
             assert len(tool_def.name) > 0
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_all_results_have_description(self, data: st.DataObject) -> None:
         """Every ToolDef has a description field that is a string.
 
@@ -564,7 +552,6 @@ class TestToolScopeToolDefsProperty:
             assert len(tool_def.description) > 0
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_all_results_have_parameters_schema_dict(self, data: st.DataObject) -> None:
         """Every ToolDef has a parameters_schema that is a dict.
 
@@ -589,7 +576,6 @@ class TestToolScopeToolDefsProperty:
             assert isinstance(tool_def.parameters_schema, dict)
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_no_provider_specific_types_in_results(self, data: st.DataObject) -> None:
         """ToolDef fields contain no provider-specific types (pydantic-ai, litellm, etc.).
 
@@ -619,7 +605,6 @@ class TestToolScopeToolDefsProperty:
             assert tool_def.function is None
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_functions_scope_returns_tooldef_with_non_empty_name(
         self, data: st.DataObject
     ) -> None:

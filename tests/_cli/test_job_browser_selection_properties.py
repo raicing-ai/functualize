@@ -16,7 +16,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.panels.job_browser import JobBrowserPanel
@@ -93,7 +93,6 @@ class TestSelectionCorrectness:
         jobs=_nonempty_job_list,
         cursor_pos=st.data(),
     )
-    @settings(max_examples=200)
     def test_select_job_posts_correct_name(
         self, jobs: list[JobDescriptor], cursor_pos: st.DataObject
     ) -> None:
@@ -127,7 +126,6 @@ class TestSelectionCorrectness:
         )
 
     @given(jobs=_nonempty_job_list)
-    @settings(max_examples=200)
     def test_select_job_uses_cursor_row_not_fixed_index(
         self, jobs: list[JobDescriptor]
     ) -> None:
@@ -160,7 +158,6 @@ class TestSelectionCorrectness:
         )
 
     @given(moves=st.lists(st.sampled_from(["down", "up"]), min_size=0, max_size=50))
-    @settings(max_examples=100)
     def test_select_job_noop_when_empty(self, moves: list[str]) -> None:
         """action_select_job() is a no-op when _jobs is empty.
 

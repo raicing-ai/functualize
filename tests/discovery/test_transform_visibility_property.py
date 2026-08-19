@@ -9,7 +9,7 @@ and passes all jobs through when neither set is provided.
 
 from __future__ import annotations
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._discovery.transforms import VisibilityTransform
@@ -105,7 +105,6 @@ def _is_hidden(
 # --- Property 5: VisibilityTransform correctness ---
 
 
-@settings(max_examples=100)
 @given(
     jobs=job_descriptor_lists,
     hidden_names=hidden_name_sets,
@@ -145,7 +144,6 @@ def test_property_5_visibility_excludes_hidden_names_and_tags(
         )
 
 
-@settings(max_examples=100)
 @given(
     jobs=job_descriptor_lists,
     hidden_names=hidden_name_sets,
@@ -179,7 +177,6 @@ def test_property_5_visibility_no_metadata_not_excluded_by_tags(
             )
 
 
-@settings(max_examples=100)
 @given(jobs=job_descriptor_lists)
 def test_property_5_visibility_empty_sets_passthrough(
     jobs: list[JobDescriptor],
@@ -203,7 +200,6 @@ def test_property_5_visibility_empty_sets_passthrough(
         )
 
 
-@settings(max_examples=100)
 @given(jobs=job_descriptor_lists)
 def test_property_5_visibility_none_sets_passthrough(
     jobs: list[JobDescriptor],
@@ -225,7 +221,6 @@ def test_property_5_visibility_none_sets_passthrough(
         )
 
 
-@settings(max_examples=100)
 @given(
     job=job_descriptors,
     hidden_names=hidden_name_sets,
@@ -262,7 +257,6 @@ def test_property_5_visibility_transform_get_consistency(
         )
 
 
-@settings(max_examples=100)
 @given(
     hidden_names=hidden_name_sets,
     hidden_tags=hidden_tag_sets,

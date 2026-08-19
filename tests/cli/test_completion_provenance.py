@@ -13,7 +13,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.completions.provenance import (
@@ -167,7 +167,6 @@ class TestTotalClassification:
     """
 
     @given(job=_job_descriptor_st)
-    @settings(max_examples=200)
     def test_classification_produces_valid_source_type(self, job: JobDescriptor):
         """Every job is classified into exactly one valid source_type.
 
@@ -187,7 +186,6 @@ class TestTotalClassification:
         )
 
     @given(job=_job_descriptor_st)
-    @settings(max_examples=200)
     def test_classification_is_deterministic(self, job: JobDescriptor):
         """Classifying the same job twice produces the same result.
 
@@ -205,7 +203,6 @@ class TestTotalClassification:
         )
 
     @given(job=_job_descriptor_st)
-    @settings(max_examples=200)
     def test_classification_has_display_label_and_badge_style(self, job: JobDescriptor):
         """Every ProvenanceInfo has non-empty display_label and badge_style.
 
@@ -248,7 +245,6 @@ class TestRecentFlagMatchesHistoryPresence:
         field_name=_field_name_str,
         values=st.lists(_value_str, min_size=1, max_size=10),
     )
-    @settings(max_examples=200)
     def test_is_recent_true_when_history_exists(
         self, job_name: str, field_name: str, values: list[str]
     ):
@@ -276,7 +272,6 @@ class TestRecentFlagMatchesHistoryPresence:
         field_name=_field_name_str,
         values=st.lists(_value_str, min_size=1, max_size=10),
     )
-    @settings(max_examples=200)
     def test_is_recent_false_when_no_history(
         self,
         job_name: str,
@@ -308,7 +303,6 @@ class TestRecentFlagMatchesHistoryPresence:
         )
 
     @given(job_name=_job_name_str)
-    @settings(max_examples=200)
     def test_is_recent_false_with_empty_history(self, job_name: str):
         """is_recent returns False when history is empty.
 
@@ -324,7 +318,6 @@ class TestRecentFlagMatchesHistoryPresence:
         )
 
     @given(job_name=_job_name_str)
-    @settings(max_examples=200)
     def test_is_recent_false_without_history_instance(self, job_name: str):
         """is_recent returns False when no ArgumentHistory is provided.
 
@@ -342,7 +335,6 @@ class TestRecentFlagMatchesHistoryPresence:
         field_name=_field_name_str,
         values=st.lists(_value_str, min_size=1, max_size=10),
     )
-    @settings(max_examples=200)
     def test_is_recent_matches_has_history(
         self, job_name: str, field_name: str, values: list[str]
     ):

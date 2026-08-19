@@ -8,7 +8,7 @@ Tests:
 
 from __future__ import annotations
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._discovery.transforms import NamespaceTransform
@@ -64,7 +64,6 @@ class TestNamespaceTransformPrefixStripRoundTrip:
     """
 
     @given(ns=_namespace_strategy, name=_job_name_strategy)
-    @settings(max_examples=200)
     def test_transform_list_produces_prefixed_name(self, ns: str, name: str):
         """transform_list produces descriptors with name "{ns}.{name}".
 
@@ -79,7 +78,6 @@ class TestNamespaceTransformPrefixStripRoundTrip:
         assert result[0].name == f"{normalize_name(ns)}.{name}"
 
     @given(ns=_namespace_strategy, name=_job_name_strategy)
-    @settings(max_examples=200)
     def test_transform_get_with_prefixed_name_returns_prefixed_descriptor(
         self, ns: str, name: str
     ):
@@ -97,7 +95,6 @@ class TestNamespaceTransformPrefixStripRoundTrip:
         assert result.name == prefixed_name
 
     @given(ns=_namespace_strategy, name=_job_name_strategy)
-    @settings(max_examples=200)
     def test_transform_get_with_non_prefixed_name_returns_none(
         self, ns: str, name: str
     ):
@@ -115,7 +112,6 @@ class TestNamespaceTransformPrefixStripRoundTrip:
             assert result is None
 
     @given(ns=_namespace_strategy, name=_job_name_strategy)
-    @settings(max_examples=200)
     def test_transform_list_and_get_roundtrip_consistency(self, ns: str, name: str):
         """transform_list and transform_get produce consistent prefixed names.
 
@@ -136,7 +132,6 @@ class TestNamespaceTransformPrefixStripRoundTrip:
         assert got.name == prefixed_name
 
     @given(ns=_namespace_strategy)
-    @settings(max_examples=100)
     def test_transform_get_with_none_descriptor_returns_none(self, ns: str):
         """transform_get returns None when descriptor is None.
 
@@ -152,7 +147,6 @@ class TestNamespaceTransformPrefixStripRoundTrip:
         ns=_namespace_strategy,
         names=st.lists(_job_name_strategy, min_size=1, max_size=10),
     )
-    @settings(max_examples=200)
     def test_transform_list_preserves_count(self, ns: str, names: list[str]):
         """transform_list preserves the number of descriptors in the list.
 

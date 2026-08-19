@@ -14,7 +14,7 @@ from typing import Annotated, Any
 
 import click
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize.app.adapters.click_params import build_click_params
@@ -210,7 +210,6 @@ class TestPositionalArgRegistration:
     """
 
     @given(specs=_param_spec_list())
-    @settings(max_examples=200)
     def test_arg_marked_params_become_positional(self, specs: list[dict[str, Any]]):
         """Arg()-marked parameters are registered as positional click Arguments.
 
@@ -228,7 +227,6 @@ class TestPositionalArgRegistration:
             )
 
     @given(specs=_param_spec_list())
-    @settings(max_examples=200)
     def test_non_arg_params_become_named_options(self, specs: list[dict[str, Any]]):
         """Non-Arg CLI-compatible parameters are NOT positional arguments.
 
@@ -246,7 +244,6 @@ class TestPositionalArgRegistration:
             )
 
     @given(specs=_param_spec_list())
-    @settings(max_examples=200)
     def test_positional_order_matches_signature_order(
         self, specs: list[dict[str, Any]]
     ):

@@ -94,9 +94,7 @@ class TestInvokeHookMatchedPairs:
         AppState.set("environment", "DEV")
 
     @settings(
-        max_examples=30,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-        deadline=30000,
+        suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=30000
     )
     @given(depth=nesting_depths)
     def test_nested_invokes_produce_matched_pairs(self, depth: int, tmp_path):
@@ -176,9 +174,7 @@ class TestInvokeHookMatchedPairs:
         assert events == expected_events
 
     @settings(
-        max_examples=20,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-        deadline=30000,
+        suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=30000
     )
     @given(
         num_siblings=st.integers(min_value=2, max_value=4),
@@ -261,9 +257,7 @@ class TestInvokeTimeoutValidation:
         AppState.set("environment", "DEV")
 
     @settings(
-        max_examples=100,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-        deadline=30000,
+        suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=30000
     )
     @given(timeout_val=invalid_timeouts)
     def test_timeout_below_minimum_raises_value_error(
@@ -297,9 +291,7 @@ class TestInvokeTimeoutValidation:
         assert result.exit_code != 0 or result.exception is not None
 
     @settings(
-        max_examples=50,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-        deadline=30000,
+        suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=30000
     )
     @given(timeout_val=valid_timeouts)
     def test_timeout_at_or_above_minimum_accepted(self, timeout_val: float, tmp_path):
@@ -334,9 +326,7 @@ class TestInvokeTimeoutValidation:
         )
 
     @settings(
-        max_examples=50,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-        deadline=30000,
+        suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=30000
     )
     @given(
         timeout_val=st.floats(

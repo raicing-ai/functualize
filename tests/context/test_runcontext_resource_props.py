@@ -8,7 +8,7 @@ from types import MappingProxyType
 from unittest.mock import MagicMock
 
 import pytest
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 from functualize._config.job_config import JobConfigView
@@ -102,7 +102,6 @@ class TestResourceInjectionAndTypedAccess:
     """Property 16: Resource Injection and Typed Access."""
 
     @given(name=resource_names, resource=resource_instances)
-    @settings(max_examples=200)
     def test_inject_resource_makes_accessible_via_get_resource(
         self, name: str, resource: object
     ) -> None:
@@ -116,7 +115,6 @@ class TestResourceInjectionAndTypedAccess:
         assert result is resource
 
     @given(name=resource_names, resource=resource_instances)
-    @settings(max_examples=200)
     def test_get_resource_correct_type_returns_resource(
         self, name: str, resource: object
     ) -> None:
@@ -133,7 +131,6 @@ class TestResourceInjectionAndTypedAccess:
         resource=resource_instances,
         wrong_type=st.sampled_from(resource_types),
     )
-    @settings(max_examples=200)
     def test_get_resource_wrong_type_raises_typeerror(
         self, name: str, resource: object, wrong_type: type[object]
     ) -> None:
@@ -161,7 +158,6 @@ class TestResourceInjectionAndTypedAccess:
         name=resource_names,
         existing_names=st.lists(resource_names, min_size=0, max_size=5, unique=True),
     )
-    @settings(max_examples=200)
     def test_get_resource_unknown_name_raises_keyerror(
         self, name: str, existing_names: list[str]
     ) -> None:
@@ -192,7 +188,6 @@ class TestResourceInjectionAndTypedAccess:
             max_size=10,
         )
     )
-    @settings(max_examples=200)
     def test_resources_property_returns_readonly_mapping(
         self, items: dict[str, object]
     ) -> None:
@@ -218,7 +213,6 @@ class TestResourceInjectionAndTypedAccess:
             max_size=10,
         )
     )
-    @settings(max_examples=200)
     def test_multiple_resources_injected_and_accessed_independently(
         self, items: dict[str, object]
     ) -> None:
@@ -239,7 +233,6 @@ class TestResourceInjectionAndTypedAccess:
         name=resource_names,
         resource=resource_instances,
     )
-    @settings(max_examples=200)
     def test_resources_mapping_reflects_injected_resources(
         self, name: str, resource: object
     ) -> None:
@@ -261,7 +254,6 @@ class TestResourceInjectionAndTypedAccess:
             HttpSession, base_url=st.text(min_size=1, max_size=20)
         ),
     )
-    @settings(max_examples=200)
     def test_inject_resource_overwrites_existing_name(
         self, name: str, first_resource: object, second_resource: object
     ) -> None:
@@ -290,7 +282,6 @@ class TestResourceInjectionAndTypedAccess:
         name=resource_names,
         resource=resource_instances,
     )
-    @settings(max_examples=200)
     def test_get_resource_with_object_type_always_succeeds(
         self, name: str, resource: object
     ) -> None:

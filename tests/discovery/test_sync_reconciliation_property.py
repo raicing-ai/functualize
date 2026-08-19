@@ -22,7 +22,7 @@ import platform
 import tempfile
 from pathlib import Path
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._discovery.cached_provider import CachedDirectoryScanProvider
@@ -135,7 +135,6 @@ class TestSyncReconciliation:
         disk_names=on_disk_module_names(),
         cache_only_names=cached_module_names(),
     )
-    @settings(max_examples=100)
     def test_new_files_added_and_deleted_files_removed(
         self, disk_names: list[str], cache_only_names: list[str]
     ) -> None:
@@ -206,7 +205,6 @@ class TestSyncReconciliation:
         disk_names=on_disk_module_names(),
         shared_names=st.lists(_module_names, min_size=1, max_size=5, unique=True),
     )
-    @settings(max_examples=100)
     def test_new_files_added_alongside_existing_valid_entries(
         self, disk_names: list[str], shared_names: list[str]
     ) -> None:

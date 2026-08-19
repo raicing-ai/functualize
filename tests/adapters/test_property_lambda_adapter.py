@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from functualize_lambda import LambdaAdapter
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 # =============================================================================
@@ -138,7 +138,6 @@ class TestLambdaAdapterEventRouting:
         registered_jobs=_registered_jobs_strategy,
         kwargs=_kwargs_strategy,
     )
-    @settings(max_examples=200)
     def test_valid_event_returns_200_with_statuscode_and_body(
         self,
         registered_jobs: frozenset[str],
@@ -170,7 +169,6 @@ class TestLambdaAdapterEventRouting:
         registered_jobs=_registered_jobs_strategy,
         kwargs=_kwargs_strategy,
     )
-    @settings(max_examples=200)
     def test_adapter_routes_to_correct_job(
         self,
         registered_jobs: frozenset[str],
@@ -200,7 +198,6 @@ class TestLambdaAdapterEventRouting:
         registered_jobs=_registered_jobs_strategy,
         data=st.data(),
     )
-    @settings(max_examples=200)
     def test_any_registered_job_is_routable(
         self,
         registered_jobs: frozenset[str],
@@ -232,7 +229,6 @@ class TestLambdaAdapterEventRouting:
             max_size=5,
         )
     )
-    @settings(max_examples=200)
     def test_missing_job_field_returns_400(
         self,
         event: dict[str, Any],
@@ -259,7 +255,6 @@ class TestLambdaAdapterEventRouting:
         registered_jobs=_registered_jobs_strategy,
         unknown_suffix=st.text(min_size=1, max_size=10),
     )
-    @settings(max_examples=200)
     def test_unknown_job_name_returns_500(
         self,
         registered_jobs: frozenset[str],
@@ -288,7 +283,6 @@ class TestLambdaAdapterEventRouting:
         registered_jobs=_registered_jobs_strategy,
         kwargs=_kwargs_strategy,
     )
-    @settings(max_examples=200)
     def test_result_body_contains_return_value(
         self,
         registered_jobs: frozenset[str],

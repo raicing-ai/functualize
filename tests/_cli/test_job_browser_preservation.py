@@ -17,7 +17,7 @@ to guarantee no regressions.
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 # =============================================================================
@@ -164,7 +164,6 @@ class TestPanelRingCyclingPreservation:
         panel_count=_panel_count,
         directions=_nav_directions,
     )
-    @settings(max_examples=200)
     def test_ring_navigation_stays_in_bounds(
         self, panel_count: int, directions: list[bool]
     ) -> None:
@@ -189,7 +188,6 @@ class TestPanelRingCyclingPreservation:
         panel_count=st.integers(min_value=2, max_value=8),
         steps=_nav_steps,
     )
-    @settings(max_examples=200)
     def test_navigate_next_wraps_to_zero(self, panel_count: int, steps: int) -> None:
         """Navigating next N times from index 0 returns to index 0 (ring property).
 
@@ -211,7 +209,6 @@ class TestPanelRingCyclingPreservation:
         panel_count=st.integers(min_value=2, max_value=8),
         steps=_nav_steps,
     )
-    @settings(max_examples=200)
     def test_navigate_prev_wraps_to_last(self, panel_count: int, steps: int) -> None:
         """Navigating prev from index 0 wraps to last index (panel_count - 1).
 
@@ -228,7 +225,6 @@ class TestPanelRingCyclingPreservation:
         )
 
     @given(panel_count=st.just(1))
-    @settings(max_examples=50)
     def test_single_panel_navigation_is_noop(self, panel_count: int) -> None:
         """With only 1 panel, navigate_next/navigate_prev are no-ops.
 
@@ -264,7 +260,6 @@ class TestEscCollapsePreservation:
         panel_count=_panel_count,
         start_index=st.data(),
     )
-    @settings(max_examples=200)
     def test_esc_collapses_from_any_panel(
         self, panel_count: int, start_index: st.DataObject
     ) -> None:
@@ -289,7 +284,6 @@ class TestEscCollapsePreservation:
         panel_count=_panel_count,
         esc_count=_esc_count,
     )
-    @settings(max_examples=200)
     def test_esc_collapse_is_idempotent(self, panel_count: int, esc_count: int) -> None:
         """Multiple Esc presses after collapse don't cause errors (idempotent).
 
@@ -313,7 +307,6 @@ class TestEscCollapsePreservation:
         panel_count=_panel_count,
         data=st.data(),
     )
-    @settings(max_examples=200)
     def test_esc_pops_breadcrumb_before_collapsing(
         self, panel_count: int, data: st.DataObject
     ) -> None:
@@ -363,7 +356,6 @@ class TestConfigTableNavigationPreservation:
         field_count=_field_count,
         moves=_cursor_moves,
     )
-    @settings(max_examples=200)
     def test_cursor_stays_in_bounds(self, field_count: int, moves: list[str]) -> None:
         """After any sequence of cursor_down/cursor_up, row stays in [0, N-1].
 
@@ -382,7 +374,6 @@ class TestConfigTableNavigationPreservation:
             )
 
     @given(field_count=_field_count)
-    @settings(max_examples=200)
     def test_cursor_down_wraps_from_last_to_first(self, field_count: int) -> None:
         """Moving down from last row wraps to row 0.
 
@@ -401,7 +392,6 @@ class TestConfigTableNavigationPreservation:
         assert model.cursor_row == 0
 
     @given(field_count=_field_count)
-    @settings(max_examples=200)
     def test_cursor_up_wraps_from_first_to_last(self, field_count: int) -> None:
         """Moving up from row 0 wraps to last row.
 
@@ -431,7 +421,6 @@ class TestSettingsPanelPreservation:
     """
 
     @given(data=st.data())
-    @settings(max_examples=50)
     def test_settings_panel_has_9_settings(self, data: st.DataObject) -> None:
         """SettingsPanel always initializes with exactly 9 settings in fixed order.
 
@@ -448,7 +437,6 @@ class TestSettingsPanelPreservation:
         assert set(_SETTINGS_ORDER) == set(_DEFAULT_VALUES.keys())
 
     @given(data=st.data())
-    @settings(max_examples=50)
     def test_settings_default_values_are_stable(self, data: st.DataObject) -> None:
         """Default values for all 9 settings are deterministic and unchanged.
 
@@ -477,7 +465,6 @@ class TestSettingsPanelPreservation:
             )
 
     @given(data=st.data())
-    @settings(max_examples=50)
     def test_settings_panel_actions_include_navigation(
         self, data: st.DataObject
     ) -> None:
@@ -538,7 +525,6 @@ class TestEmptyStatePreservation:
         panel_count=st.integers(min_value=1, max_value=5),
         directions=_nav_directions,
     )
-    @settings(max_examples=200)
     def test_empty_ring_navigation_stable(
         self, panel_count: int, directions: list[bool]
     ) -> None:

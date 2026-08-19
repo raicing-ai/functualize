@@ -172,9 +172,7 @@ class TestSignatureAdaptiveDispatch:
     **Validates: Requirements 28.1, 1.3**
     """
 
-    @settings(
-        max_examples=200, suppress_health_check=[HealthCheck.function_scoped_fixture]
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         job_name=job_names,
         signatures=after_success_sig_lists,
@@ -208,9 +206,7 @@ class TestSignatureAdaptiveDispatch:
         # All hooks must have been called (no skips due to TypeError)
         assert len(tracker) == len(signatures)
 
-    @settings(
-        max_examples=200, suppress_health_check=[HealthCheck.function_scoped_fixture]
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         job_name=job_names,
         signatures=before_job_sig_lists,
@@ -244,9 +240,7 @@ class TestSignatureAdaptiveDispatch:
         # All hooks must have been called (no skips due to TypeError)
         assert len(tracker) == len(signatures)
 
-    @settings(
-        max_examples=200, suppress_health_check=[HealthCheck.function_scoped_fixture]
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         job_name=job_names,
         signatures=after_success_sig_lists,
@@ -298,9 +292,7 @@ class TestSignatureAdaptiveDispatch:
                     received["result"] is result_value
                 )
 
-    @settings(
-        max_examples=200, suppress_health_check=[HealthCheck.function_scoped_fixture]
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         job_name=job_names,
         signatures=before_job_sig_lists,
@@ -348,9 +340,7 @@ class TestSignatureAdaptiveDispatch:
                 )
                 assert received["kwargs"] == kwargs_value
 
-    @settings(
-        max_examples=200, suppress_health_check=[HealthCheck.function_scoped_fixture]
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         job_name=job_names,
         signatures=after_success_sig_lists,
@@ -386,9 +376,7 @@ class TestSignatureAdaptiveDispatch:
                     f"got {actual!r}"
                 )
 
-    @settings(
-        max_examples=200, suppress_health_check=[HealthCheck.function_scoped_fixture]
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         job_name=job_names,
         signatures=before_job_sig_lists,
@@ -424,9 +412,7 @@ class TestSignatureAdaptiveDispatch:
                     f"got {actual!r}"
                 )
 
-    @settings(
-        max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture]
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         job_name=job_names,
         global_sigs=after_success_sig_lists,
@@ -464,9 +450,7 @@ class TestSignatureAdaptiveDispatch:
         registry.invoke(HookEvent.AFTER_SUCCESS, job_name, mock_rc, result=result_value)
         assert len(tracker) == len(global_sigs) + len(job_sigs)
 
-    @settings(
-        max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture]
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         job_name=job_names,
         global_sigs=before_job_sig_lists,

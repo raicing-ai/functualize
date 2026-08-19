@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 from pydantic import BaseModel, Field, create_model
 
@@ -117,7 +117,6 @@ class TestPromptGateResolverUnresolvedFieldsProperty:
         all_fields=field_names_strategy,
         data=st.data(),
     )
-    @settings(max_examples=200)
     def test_prompts_exactly_unresolved_fields(
         self, all_fields: list[str], data: st.DataObject
     ) -> None:
@@ -174,7 +173,6 @@ class TestPromptGateResolverUnresolvedFieldsProperty:
         all_fields=field_names_strategy,
         data=st.data(),
     )
-    @settings(max_examples=200)
     def test_prompted_field_set_matches_unresolved_set(
         self, all_fields: list[str], data: st.DataObject
     ) -> None:
@@ -240,7 +238,6 @@ class TestPromptGateResolverForceGateProperty:
         all_fields=field_names_strategy,
         data=st.data(),
     )
-    @settings(max_examples=200)
     def test_force_gate_prompts_all_fields(
         self, all_fields: list[str], data: st.DataObject
     ) -> None:
@@ -294,7 +291,6 @@ class TestPromptGateResolverForceGateProperty:
         all_fields=field_names_strategy,
         data=st.data(),
     )
-    @settings(max_examples=200)
     def test_force_gate_prompted_field_set_matches_all_fields(
         self, all_fields: list[str], data: st.DataObject
     ) -> None:
@@ -347,7 +343,6 @@ class TestPromptGateResolverForceGateProperty:
         all_fields=field_names_strategy,
         data=st.data(),
     )
-    @settings(max_examples=200)
     def test_force_gate_resolved_values_used_as_defaults(
         self, all_fields: list[str], data: st.DataObject
     ) -> None:

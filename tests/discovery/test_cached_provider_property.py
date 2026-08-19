@@ -117,11 +117,7 @@ class TestProperty19CacheValidity:
     **Validates: Requirements 13.2, 13.3, 13.4**
     """
 
-    @settings(
-        max_examples=50,
-        suppress_health_check=[HealthCheck.too_slow],
-        deadline=10000,
-    )
+    @settings(suppress_health_check=[HealthCheck.too_slow], deadline=10000)
     @given(spec=job_module_specs())
     def test_unchanged_mtime_returns_cached_without_reimport(
         self, spec: list[tuple[str, list[str]]]
@@ -174,11 +170,7 @@ class TestProperty19CacheValidity:
                     ),
                 )
 
-    @settings(
-        max_examples=50,
-        suppress_health_check=[HealthCheck.too_slow],
-        deadline=10000,
-    )
+    @settings(suppress_health_check=[HealthCheck.too_slow], deadline=10000)
     @given(spec=job_module_specs())
     def test_changed_mtime_triggers_reimport_and_cache_update(
         self, spec: list[tuple[str, list[str]]]
@@ -231,11 +223,7 @@ class TestProperty19CacheValidity:
                 f"Original: {original_hash}, Updated: {updated_descriptor.content_hash}"
             )
 
-    @settings(
-        max_examples=50,
-        suppress_health_check=[HealthCheck.too_slow],
-        deadline=10000,
-    )
+    @settings(suppress_health_check=[HealthCheck.too_slow], deadline=10000)
     @given(spec=job_module_specs())
     def test_only_stale_module_is_reimported_not_others(
         self, spec: list[tuple[str, list[str]]]
@@ -310,11 +298,7 @@ class TestProperty20PreFilterDecisionCaching:
     **Validates: Requirements 19.1, 19.3, 19.4**
     """
 
-    @settings(
-        max_examples=50,
-        suppress_health_check=[HealthCheck.too_slow],
-        deadline=10000,
-    )
+    @settings(suppress_health_check=[HealthCheck.too_slow], deadline=10000)
     @given(
         excluded_names=st.lists(_valid_names, min_size=1, max_size=5, unique=True),
         included_names=st.lists(_valid_names, min_size=1, max_size=3, unique=True),
@@ -395,11 +379,7 @@ class TestProperty20PreFilterDecisionCaching:
                 f"Excluded: {excluded_names}, Included: {included_names}"
             )
 
-    @settings(
-        max_examples=50,
-        suppress_health_check=[HealthCheck.too_slow],
-        deadline=10000,
-    )
+    @settings(suppress_health_check=[HealthCheck.too_slow], deadline=10000)
     @given(
         excluded_names=st.lists(_valid_names, min_size=1, max_size=4, unique=True),
     )

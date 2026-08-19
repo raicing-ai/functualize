@@ -54,7 +54,6 @@ class TestFirstNonNoneResolutionChain:
     """
 
     @given(values=_values_strategy)
-    @settings(max_examples=200)
     def test_returns_first_non_none_value(self, values: list[Any]):
         """first_non_none returns the first non-None element in the sequence.
 
@@ -72,7 +71,6 @@ class TestFirstNonNoneResolutionChain:
         assert result == expected
 
     @given(values=st.lists(st.none(), min_size=0, max_size=10))
-    @settings(max_examples=100)
     def test_all_none_returns_none(self, values: list[None]):
         """When all values are None, first_non_none returns None.
 
@@ -88,7 +86,6 @@ class TestFirstNonNoneResolutionChain:
         ),
         suffix=_values_strategy,
     )
-    @settings(max_examples=200)
     def test_ignores_values_after_first_non_none(
         self,
         prefix_nones: int,
@@ -164,7 +161,6 @@ class TestResilientGeneratorCompleteness:
     """
 
     @given(data=_iterable_with_errors())
-    @settings(max_examples=200)
     def test_yields_successful_items_in_order(self, data: tuple[list[Any], set[int]]):
         """resilient yields exactly the values at non-error indices in order.
 
@@ -186,7 +182,6 @@ class TestResilientGeneratorCompleteness:
         assert result == expected_values
 
     @given(data=_iterable_with_errors())
-    @settings(max_examples=200)
     def test_calls_on_error_for_each_exception(self, data: tuple[list[Any], set[int]]):
         """resilient calls on_error exactly |I_error| times.
 
@@ -206,7 +201,6 @@ class TestResilientGeneratorCompleteness:
         assert len(errors_received) == len(error_indices)
 
     @given(data=_iterable_with_errors())
-    @settings(max_examples=200)
     def test_on_error_receives_correct_exceptions(
         self, data: tuple[list[Any], set[int]]
     ):
@@ -230,7 +224,6 @@ class TestResilientGeneratorCompleteness:
             assert str(errors_received[i]) == f"error_at_{idx}"
 
     @given(data=_iterable_with_errors())
-    @settings(max_examples=200)
     def test_exhausts_iterable_completely(self, data: tuple[list[Any], set[int]]):
         """resilient exhausts the entire iterable (processes all indices).
 
@@ -315,10 +308,7 @@ class TestIterModuleFilesFiltering:
     """
 
     @given(data=_directory_with_files())
-    @settings(
-        max_examples=200,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_yields_only_qualifying_py_files(
         self, data: tuple[list[str], list[str]], tmp_path: Path
     ):
@@ -357,10 +347,7 @@ class TestIterModuleFilesFiltering:
             unique=True,
         )
     )
-    @settings(
-        max_examples=100,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_excludes_init_py(self, py_files: list[str], tmp_path: Path):
         """__init__.py is always excluded from results.
 
@@ -393,10 +380,7 @@ class TestIterModuleFilesFiltering:
             unique=True,
         )
     )
-    @settings(
-        max_examples=100,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_excludes_non_py_files(self, non_py_files: list[str], tmp_path: Path):
         """Non-.py files are always excluded from results.
 
@@ -420,10 +404,7 @@ class TestIterModuleFilesFiltering:
             unique=True,
         )
     )
-    @settings(
-        max_examples=100,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_results_are_sorted(self, py_files: list[str], tmp_path: Path):
         """iter_module_files yields results in sorted order.
 
@@ -459,7 +440,6 @@ class TestLazyCachedSingleComputation:
     """
 
     @given(num_accesses=st.integers(min_value=1, max_value=20))
-    @settings(max_examples=200)
     def test_computation_invoked_exactly_once(self, num_accesses: int):
         """The underlying function is called exactly once regardless of access count.
 
@@ -482,7 +462,6 @@ class TestLazyCachedSingleComputation:
         assert call_count == 1
 
     @given(num_accesses=st.integers(min_value=2, max_value=20))
-    @settings(max_examples=200)
     def test_all_accesses_return_same_object_by_identity(self, num_accesses: int):
         """All accesses return the exact same object (by identity).
 
@@ -501,7 +480,6 @@ class TestLazyCachedSingleComputation:
             assert obj.data is first_result
 
     @given(num_instances=st.integers(min_value=2, max_value=10))
-    @settings(max_examples=100)
     def test_separate_instances_have_independent_caches(self, num_instances: int):
         """Each instance computes independently — no cross-instance contamination.
 
@@ -531,7 +509,6 @@ class TestLazyCachedSingleComputation:
             assert call_counts[id(inst)] == 1
 
     @given(num_accesses=st.integers(min_value=1, max_value=10))
-    @settings(max_examples=100)
     def test_descriptor_access_on_class_returns_descriptor(self, num_accesses: int):
         """Accessing lazy_cached on the class (not instance) returns the descriptor.
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.data.argument_history import ArgumentHistory
@@ -142,7 +142,6 @@ class TestCompletionsIncludeAllFieldChoices:
         field_name=_identifier,
         choices=_choices_list,
     )
-    @settings(max_examples=200)
     @pytest.mark.asyncio
     async def test_all_choices_appear_in_completions(
         self, job_name: str, field_name: str, choices: list[str]
@@ -171,7 +170,6 @@ class TestCompletionsIncludeAllFieldChoices:
         field_name=_identifier,
         choices=_choices_list,
     )
-    @settings(max_examples=200)
     @pytest.mark.asyncio
     async def test_choices_completions_have_correct_source(
         self, job_name: str, field_name: str, choices: list[str]
@@ -219,7 +217,6 @@ class TestHistoryCompletionsRecencyOrder:
         field_name=_identifier,
         values=_history_values,
     )
-    @settings(max_examples=200)
     @pytest.mark.asyncio
     async def test_history_values_included_in_completions(
         self, job_name: str, field_name: str, values: list[str]
@@ -255,7 +252,6 @@ class TestHistoryCompletionsRecencyOrder:
         field_name=_identifier,
         values=_history_values,
     )
-    @settings(max_examples=200)
     @pytest.mark.asyncio
     async def test_history_completions_in_reverse_chronological_order(
         self, job_name: str, field_name: str, values: list[str]
@@ -310,7 +306,6 @@ class TestFuzzyFilterInvariant:
         choices=_choices_list,
         partial=_partial_str,
     )
-    @settings(max_examples=200)
     @pytest.mark.asyncio
     async def test_all_returned_completions_match_partial(
         self, job_name: str, field_name: str, choices: list[str], partial: str
@@ -341,7 +336,6 @@ class TestFuzzyFilterInvariant:
         history_vals=_history_values,
         partial=_partial_str,
     )
-    @settings(max_examples=200)
     @pytest.mark.asyncio
     async def test_fuzzy_filter_with_mixed_sources(
         self,

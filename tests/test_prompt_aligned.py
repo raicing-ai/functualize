@@ -15,7 +15,7 @@ InputNotAvailable when none is available.
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._engine.capabilities.prompt import Prompt
@@ -78,7 +78,6 @@ class TestProperty12PromptChoiceReturnsString:
         question=questions,
         choices=st.lists(prompt_choice_objects, min_size=1, max_size=50),
     )
-    @settings(max_examples=100)
     def test_choice_return_type_is_str(
         self, question: str, choices: list[PromptChoice]
     ):
@@ -94,7 +93,6 @@ class TestProperty12PromptChoiceReturnsString:
         question=questions,
         choices=st.lists(prompt_choice_objects, min_size=1, max_size=50),
     )
-    @settings(max_examples=100)
     def test_choice_accepts_prompt_choice_objects(
         self, question: str, choices: list[PromptChoice]
     ):
@@ -123,7 +121,6 @@ class TestProperty13PromptChoiceNoProvider:
         question=questions,
         choices=st.lists(prompt_choice_objects, min_size=1, max_size=50),
     )
-    @settings(max_examples=50)
     def test_no_provider_raises_input_not_available(
         self, question: str, choices: list[PromptChoice]
     ):
@@ -136,7 +133,6 @@ class TestProperty13PromptChoiceNoProvider:
             prompt.choice(question, choices)
 
     @given(question=questions)
-    @settings(max_examples=50)
     def test_empty_choices_no_provider_raises_input_not_available(self, question: str):
         """No provider raises InputNotAvailable even with empty choices.
 
@@ -160,7 +156,6 @@ class TestProperty14PromptTextNoProvider:
     """
 
     @given(question=questions, default=st.text(min_size=0, max_size=50))
-    @settings(max_examples=100)
     def test_no_provider_raises_input_not_available(self, question: str, default: str):
         """No provider raises InputNotAvailable regardless of default type.
 
@@ -171,7 +166,6 @@ class TestProperty14PromptTextNoProvider:
             prompt.text(question, default=default)
 
     @given(question=questions)
-    @settings(max_examples=50)
     def test_with_provider_returns_string(self, question: str):
         """With a provider, text() returns a string.
 
@@ -195,7 +189,6 @@ class TestProperty15PromptConfirmNoProvider:
     """
 
     @given(question=questions, default=st.booleans())
-    @settings(max_examples=100)
     def test_no_provider_raises_input_not_available(self, question: str, default: bool):
         """No provider raises InputNotAvailable regardless of default.
 
@@ -206,7 +199,6 @@ class TestProperty15PromptConfirmNoProvider:
             prompt.confirm(question, default=default)
 
     @given(question=questions)
-    @settings(max_examples=50)
     def test_with_provider_returns_bool(self, question: str):
         """With a provider, confirm() returns a bool.
 

@@ -20,7 +20,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.data.override_applicator import apply_overrides_to_targets
@@ -261,7 +261,6 @@ class TestOverrideTargetDispatch:
     """
 
     @given(data=_overrides_set())
-    @settings(max_examples=100)
     @pytest.mark.asyncio
     async def test_all_overrides_dispatched_correctly(
         self,

@@ -9,7 +9,7 @@ transform_get returns the same descriptor it receives.
 
 from __future__ import annotations
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._discovery.transforms import IdentityTransform
@@ -83,7 +83,6 @@ job_descriptor_lists = st.lists(job_descriptors, min_size=0, max_size=10)
 # --- Property 1: Transform identity pass-through ---
 
 
-@settings(max_examples=100)
 @given(jobs=job_descriptor_lists)
 def test_property_1_transform_list_identity(jobs: list[JobDescriptor]) -> None:
     """For any list of JobDescriptors, applying the default JobTransform's
@@ -110,7 +109,6 @@ def test_property_1_transform_list_identity(jobs: list[JobDescriptor]) -> None:
         )
 
 
-@settings(max_examples=100)
 @given(name=job_names, job=st.one_of(st.none(), job_descriptors))
 def test_property_1_transform_get_identity(
     name: str, job: JobDescriptor | None

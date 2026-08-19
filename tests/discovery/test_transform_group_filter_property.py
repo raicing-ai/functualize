@@ -12,7 +12,7 @@ include/exclude group sets, following the semantics:
 
 from __future__ import annotations
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._discovery.transforms import GroupFilterTransform
@@ -96,7 +96,6 @@ group_sets = st.one_of(
 # --- Property 4: GroupFilterTransform correctness ---
 
 
-@settings(max_examples=100)
 @given(jobs=job_descriptor_lists, include_groups=group_sets)
 def test_property_4_include_groups_only(
     jobs: list[JobDescriptor], include_groups: set[str] | None
@@ -128,7 +127,6 @@ def test_property_4_include_groups_only(
         )
 
 
-@settings(max_examples=100)
 @given(jobs=job_descriptor_lists, exclude_groups=group_sets)
 def test_property_4_exclude_groups_only(
     jobs: list[JobDescriptor], exclude_groups: set[str] | None
@@ -160,7 +158,6 @@ def test_property_4_exclude_groups_only(
         )
 
 
-@settings(max_examples=100)
 @given(
     jobs=job_descriptor_lists,
     include_groups=st.frozensets(group_names, min_size=1, max_size=5).map(set),
@@ -191,7 +188,6 @@ def test_property_4_include_then_exclude(
     )
 
 
-@settings(max_examples=100)
 @given(
     jobs=job_descriptor_lists,
     include_groups=group_sets,
@@ -229,7 +225,6 @@ def test_property_4_transform_get_consistent_with_list(
             )
 
 
-@settings(max_examples=100)
 @given(
     include_groups=group_sets,
     exclude_groups=group_sets,

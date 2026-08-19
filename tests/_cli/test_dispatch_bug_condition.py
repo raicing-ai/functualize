@@ -14,7 +14,7 @@ for detect_mode(), which then incorrectly returns Mode.BARE instead of Mode.JOB.
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.dispatch import (
@@ -97,7 +97,6 @@ class TestBugConditionOptionalValueConsumption:
     """
 
     @given(job_name=_non_perf_format_job_name)
-    @settings(max_examples=50)
     def test_perf_report_does_not_consume_non_format_token(self, job_name: str) -> None:
         """--perf-report followed by a non-format token preserves the token.
 
@@ -117,7 +116,6 @@ class TestBugConditionOptionalValueConsumption:
         )
 
     @given(job_name=_non_perf_format_job_name)
-    @settings(max_examples=50)
     def test_perf_report_non_format_token_detected_as_job(self, job_name: str) -> None:
         """detect_mode routes to Mode.JOB when --perf-report precedes a job name.
 
@@ -140,7 +138,6 @@ class TestBugConditionOptionalValueConsumption:
         )
 
     @given(job_name=_non_output_format_job_name)
-    @settings(max_examples=50)
     def test_output_does_not_consume_non_format_token(self, job_name: str) -> None:
         """--output followed by a non-format token preserves the token.
 
@@ -181,7 +178,6 @@ class TestBugConditionOptionalValueConsumption:
         )
 
     @given(job_name=_non_output_format_job_name)
-    @settings(max_examples=50)
     def test_output_non_format_token_detected_as_job(self, job_name: str) -> None:
         """detect_mode routes to Mode.JOB when --output precedes a job name.
 

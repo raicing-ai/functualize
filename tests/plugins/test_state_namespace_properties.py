@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 from functualize_state import InMemoryState, StateNamespace
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 # --- Strategies ---
@@ -64,7 +64,6 @@ class TestStateNamespaceSetStoresAtPrefixedKey:
     """
 
     @given(prefix=prefix_strings, key=state_keys, value=json_values)
-    @settings(max_examples=200)
     def test_set_stores_value_at_prefixed_key_in_backend(
         self, prefix: str, key: str, value: Any
     ) -> None:
@@ -81,7 +80,6 @@ class TestStateNamespaceSetStoresAtPrefixedKey:
         assert backend.get(prefix + key) == value
 
     @given(prefix=prefix_strings, key=state_keys, value=json_values)
-    @settings(max_examples=200)
     def test_set_does_not_store_at_unprefixed_key(
         self, prefix: str, key: str, value: Any
     ) -> None:
@@ -108,7 +106,6 @@ class TestStateNamespaceGetReturnsPrefixedValue:
     """
 
     @given(prefix=prefix_strings, key=state_keys, value=json_values)
-    @settings(max_examples=200)
     def test_get_returns_value_stored_at_prefixed_key(
         self, prefix: str, key: str, value: Any
     ) -> None:
@@ -126,7 +123,6 @@ class TestStateNamespaceGetReturnsPrefixedValue:
         assert ns.get(key) == value
 
     @given(prefix=prefix_strings, key=state_keys, value=json_values)
-    @settings(max_examples=200)
     def test_roundtrip_set_then_get(self, prefix: str, key: str, value: Any) -> None:
         """set(k, v) followed by get(k) returns v.
 
@@ -141,7 +137,6 @@ class TestStateNamespaceGetReturnsPrefixedValue:
         assert result == value
 
     @given(prefix=prefix_strings, key=state_keys)
-    @settings(max_examples=200)
     def test_get_returns_default_when_key_not_set(self, prefix: str, key: str) -> None:
         """get(k) returns the default when prefix + k is not in the backend.
 
@@ -164,7 +159,6 @@ class TestStateNamespaceKeysReturnsFilteredStrippedKeys:
     """
 
     @given(prefix=prefix_strings, entries=state_entries)
-    @settings(max_examples=200)
     def test_keys_returns_only_prefixed_keys_stripped(
         self, prefix: str, entries: dict[str, Any]
     ) -> None:
@@ -189,7 +183,6 @@ class TestStateNamespaceKeysReturnsFilteredStrippedKeys:
         ns_entries=state_entries,
         other_entries=state_entries,
     )
-    @settings(max_examples=200)
     def test_keys_excludes_non_prefixed_backend_keys(
         self,
         prefix: str,
@@ -223,7 +216,6 @@ class TestStateNamespaceKeysReturnsFilteredStrippedKeys:
         entries_a=state_entries,
         entries_b=state_entries,
     )
-    @settings(max_examples=200)
     def test_two_namespaces_keys_are_isolated(
         self,
         prefix_a: str,

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.display_affinity import (
@@ -112,7 +112,6 @@ class TestDisplayAffinityMatching:
     """
 
     @given(job_name=_qualified_job_name)
-    @settings(max_examples=100)
     def test_exact_job_in_linked_jobs_is_related(self, job_name: str) -> None:
         """A provider with the exact job_name in linked_jobs is related."""
         provider = MockDisplayProvider(linked_jobs=[job_name], linked_groups=None)
@@ -122,7 +121,6 @@ class TestDisplayAffinityMatching:
         job_name=_qualified_job_name,
         extra_jobs=st.lists(_qualified_job_name, min_size=0, max_size=5),
     )
-    @settings(max_examples=100)
     def test_exact_job_among_others_is_related(
         self, job_name: str, extra_jobs: list[str]
     ) -> None:
@@ -135,7 +133,6 @@ class TestDisplayAffinityMatching:
         job_name=_qualified_job_name,
         linked_jobs=st.lists(_qualified_job_name, min_size=1, max_size=5),
     )
-    @settings(max_examples=100)
     def test_job_not_in_linked_jobs_not_related(
         self, job_name: str, linked_jobs: list[str]
     ) -> None:
@@ -149,7 +146,6 @@ class TestDisplayAffinityMatching:
         assert is_display_related(provider, job_name) is False
 
     @given(job_name=_qualified_job_name)
-    @settings(max_examples=100)
     def test_group_in_linked_groups_is_related(self, job_name: str) -> None:
         """A provider with the job's group in linked_groups is related.
 
@@ -165,7 +161,6 @@ class TestDisplayAffinityMatching:
         assert is_display_related(provider, job_name) is True
 
     @given(job_name=_qualified_job_name)
-    @settings(max_examples=100)
     def test_ancestor_group_in_linked_groups_is_related(self, job_name: str) -> None:
         """A provider with any ancestor group in linked_groups is related.
 
@@ -188,7 +183,6 @@ class TestDisplayAffinityMatching:
         assert is_display_related(provider, job_name) is True
 
     @given(job_name=_qualified_job_name)
-    @settings(max_examples=100)
     def test_none_job_name_never_related(self, job_name: str) -> None:
         """When job_name is None, no display is ever related."""
         provider = MockDisplayProvider(
@@ -200,7 +194,6 @@ class TestDisplayAffinityMatching:
         job_name=_qualified_job_name,
         unrelated_groups=st.lists(_name_segment, min_size=1, max_size=5),
     )
-    @settings(max_examples=100)
     def test_unrelated_groups_not_matching(
         self, job_name: str, unrelated_groups: list[str]
     ) -> None:
@@ -226,7 +219,6 @@ class TestDisplayAffinityMatching:
         job_name=_qualified_job_name,
         num_providers=st.integers(min_value=1, max_value=10),
     )
-    @settings(max_examples=100)
     def test_find_related_excludes_should_show_false(
         self, job_name: str, num_providers: int
     ) -> None:
@@ -263,7 +255,6 @@ class TestDisplayAffinityMatching:
         num_visible=st.integers(min_value=1, max_value=5),
         num_hidden=st.integers(min_value=0, max_value=5),
     )
-    @settings(max_examples=100)
     def test_find_related_includes_only_visible_job_linked(
         self, job_name: str, num_visible: int, num_hidden: int
     ) -> None:

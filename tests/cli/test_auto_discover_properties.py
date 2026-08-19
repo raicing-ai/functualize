@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize.app.utils import _SKIP_DIRECTORIES, auto_discover
@@ -259,7 +259,6 @@ class TestPreFilterQualification:
         file_stem=_non_underscore_stem,
         content=qualifying_python_content(),
     )
-    @settings(max_examples=100)
     def test_property_2_directory_with_qualifying_file_is_discovered(
         self,
         dir_name: str,
@@ -301,7 +300,6 @@ class TestPreFilterQualification:
         file_stem=_underscore_stem,
         content=qualifying_python_content(),
     )
-    @settings(max_examples=100)
     def test_property_2_underscore_prefixed_file_does_not_qualify(
         self,
         dir_name: str,
@@ -341,7 +339,6 @@ class TestPreFilterQualification:
         file_stem=_non_underscore_stem,
         content=non_qualifying_content_no_public_func(),
     )
-    @settings(max_examples=100)
     def test_property_2_no_public_function_does_not_qualify(
         self,
         dir_name: str,
@@ -384,7 +381,6 @@ class TestPreFilterQualification:
         qualifying_content=qualifying_python_content(),
         non_qualifying_content=non_qualifying_content_no_public_func(),
     )
-    @settings(max_examples=100)
     def test_property_2_one_qualifying_file_suffices(
         self,
         dir_name: str,
@@ -433,7 +429,6 @@ class TestPreFilterQualification:
         file_stem=_non_underscore_stem,
         content=qualifying_python_content(),
     )
-    @settings(max_examples=100)
     def test_property_2_both_filters_required_via_allof(
         self,
         dir_name: str,
@@ -547,7 +542,6 @@ class TestMergeProducesDedupUnion:
             unique=True,
         ),
     )
-    @settings(max_examples=100)
     def test_output_is_union_of_config_and_scan(
         self, config_dirs: list[str], scan_dirs: list[str]
     ) -> None:
@@ -600,7 +594,6 @@ class TestMergeProducesDedupUnion:
             unique=True,
         ),
     )
-    @settings(max_examples=100)
     def test_no_duplicates_when_sources_overlap(self, shared_dirs: list[str]) -> None:
         """When config and scan discover the same directory, no duplicates appear.
 
@@ -680,7 +673,6 @@ class TestBlacklistedDirsNeverScanned:
     """
 
     @given(blacklisted=_blacklisted_dir_strategy)
-    @settings(max_examples=100)
     def test_named_blacklisted_dirs_excluded_from_scan(self, blacklisted: str) -> None:
         """Named blacklisted directories are never in scan results even with qualifying files.
 
@@ -714,7 +706,6 @@ class TestBlacklistedDirsNeverScanned:
             )
 
     @given(dot_name=_dot_prefixed_strategy)
-    @settings(max_examples=100)
     def test_dot_prefixed_dirs_excluded_from_scan(self, dot_name: str) -> None:
         """Dot-prefixed directories are never in scan results even with qualifying files.
 
@@ -744,7 +735,6 @@ class TestBlacklistedDirsNeverScanned:
         blacklisted=_blacklisted_dir_strategy,
         depth=st.integers(min_value=1, max_value=5),
     )
-    @settings(max_examples=100)
     def test_blacklisted_dirs_excluded_at_any_depth(
         self, blacklisted: str, depth: int
     ) -> None:
@@ -797,7 +787,6 @@ class TestScanDepthClamping:
     """
 
     @given(scan_depth=st.integers(min_value=-100, max_value=100))
-    @settings(max_examples=100)
     def test_depth_clamping_behavior(self, scan_depth: int) -> None:
         """Effective scan depth equals max(0, min(scan_depth, 5)).
 
@@ -895,7 +884,6 @@ class TestJobGroupNotDiscoveryGate:
         ),
         has_job_group=st.lists(st.booleans(), min_size=1, max_size=4),
     )
-    @settings(max_examples=100)
     def test_job_group_does_not_affect_discovery(
         self, dir_names: list[str], has_job_group: list[bool]
     ) -> None:
@@ -940,7 +928,6 @@ class TestJobGroupNotDiscoveryGate:
     @given(
         dir_name=_subdir_name_strategy,
     )
-    @settings(max_examples=100)
     def test_same_directory_discovered_with_and_without_job_group(
         self, dir_name: str
     ) -> None:
@@ -1011,7 +998,6 @@ class TestCliFilterFlagsDoNotAffectAutoDiscover:
         scan_depth=st.integers(min_value=0, max_value=3),
         num_calls=st.integers(min_value=2, max_value=5),
     )
-    @settings(max_examples=100)
     def test_auto_discover_is_deterministic_for_same_filesystem(
         self, dir_names: list[str], scan_depth: int, num_calls: int
     ) -> None:
@@ -1049,7 +1035,6 @@ class TestCliFilterFlagsDoNotAffectAutoDiscover:
             unique=True,
         ),
     )
-    @settings(max_examples=100)
     def test_auto_discover_signature_has_no_filter_params(
         self, dir_names: list[str]
     ) -> None:

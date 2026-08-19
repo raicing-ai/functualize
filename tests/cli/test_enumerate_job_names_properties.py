@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize.app.utils import enumerate_job_names
@@ -65,7 +65,6 @@ class TestEnumerationSupersetGuarantee:
     """
 
     @given(valid_stems=_valid_stems_list)
-    @settings(max_examples=200)
     def test_all_non_underscore_py_stems_appear_in_result(
         self, valid_stems: list[str]
     ) -> None:
@@ -91,7 +90,6 @@ class TestEnumerationSupersetGuarantee:
                 )
 
     @given(underscore_stems=_underscore_stems_list)
-    @settings(max_examples=200)
     def test_underscore_prefixed_files_excluded(
         self, underscore_stems: list[str]
     ) -> None:
@@ -120,7 +118,6 @@ class TestEnumerationSupersetGuarantee:
         valid_stems=_valid_stems_list,
         underscore_stems=_underscore_stems_list,
     )
-    @settings(max_examples=200)
     def test_mixed_files_only_valid_stems_included(
         self,
         valid_stems: list[str],
@@ -156,7 +153,6 @@ class TestEnumerationSupersetGuarantee:
                 )
 
     @given(valid_stems=_valid_stems_list)
-    @settings(max_examples=200)
     def test_result_contains_only_stems_without_extension(
         self, valid_stems: list[str]
     ) -> None:

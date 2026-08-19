@@ -105,10 +105,7 @@ class TestResourceLocatorResolveSemantics:
     """
 
     @given(data=_sources_with_overlapping_files())
-    @settings(
-        max_examples=200,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_resolve_returns_union_of_all_matches(
         self,
         data: tuple[int, list[list[str]]],
@@ -149,10 +146,7 @@ class TestResourceLocatorResolveSemantics:
         assert result_paths == expected_abs_paths
 
     @given(data=_sources_with_overlapping_files())
-    @settings(
-        max_examples=200,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_resolve_deduplicates_by_absolute_path(
         self,
         data: tuple[int, list[list[str]]],
@@ -189,10 +183,7 @@ class TestResourceLocatorResolveSemantics:
         assert len(set(results)) == len(results)
 
     @given(data=_sources_with_overlapping_files())
-    @settings(
-        max_examples=200,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_resolve_ordered_by_source_priority(
         self,
         data: tuple[int, list[list[str]]],
@@ -243,10 +234,7 @@ class TestResourceLocatorResolveSemantics:
         assert priorities_in_order == sorted(priorities_in_order)
 
     @given(data=_sources_with_shared_relative_path())
-    @settings(
-        max_examples=200,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_resolve_one_returns_highest_priority_match(
         self,
         data: tuple[str, int, list[bool]],
@@ -285,10 +273,7 @@ class TestResourceLocatorResolveSemantics:
         relative_path=_safe_filenames,
         n_sources=st.integers(min_value=1, max_value=5),
     )
-    @settings(
-        max_examples=100,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_resolve_one_returns_none_when_not_found(
         self,
         relative_path: str,
@@ -312,10 +297,7 @@ class TestResourceLocatorResolveSemantics:
         assert result is None
 
     @given(data=_sources_with_shared_relative_path())
-    @settings(
-        max_examples=200,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_resolve_one_stops_at_first_match(
         self,
         data: tuple[str, int, list[bool]],
@@ -373,10 +355,7 @@ class TestResourceLocatorReadWriteAsymmetry:
         relative_path=_safe_filenames,
         project_path_suffix=st.from_regex(r"[a-z][a-z0-9_]{0,8}", fullmatch=True),
     )
-    @settings(
-        max_examples=200,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_writable_returns_path_within_xdg_cache(
         self,
         relative_path: str,
@@ -418,10 +397,7 @@ class TestResourceLocatorReadWriteAsymmetry:
         relative_path=_safe_filenames,
         project_path_suffix=st.from_regex(r"[a-z][a-z0-9_]{0,8}", fullmatch=True),
     )
-    @settings(
-        max_examples=200,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_writable_never_returns_path_within_project_directory(
         self,
         relative_path: str,
@@ -459,10 +435,7 @@ class TestResourceLocatorReadWriteAsymmetry:
         relative_path=_safe_filenames,
         project_path_suffix=st.from_regex(r"[a-z][a-z0-9_]{0,8}", fullmatch=True),
     )
-    @settings(
-        max_examples=200,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_writable_creates_parent_directories(
         self,
         relative_path: str,
@@ -498,10 +471,7 @@ class TestResourceLocatorReadWriteAsymmetry:
     @given(
         relative_path=_safe_filenames,
     )
-    @settings(
-        max_examples=100,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_project_id_is_deterministic(
         self,
         relative_path: str,
@@ -541,10 +511,7 @@ class TestResourceLocatorReadWriteAsymmetry:
             r"[a-z][a-z0-9_]{0,5}/[a-z][a-z0-9_]{0,5}", fullmatch=True
         ),
     )
-    @settings(
-        max_examples=100,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_writable_with_nested_relative_path(
         self,
         relative_path: str,

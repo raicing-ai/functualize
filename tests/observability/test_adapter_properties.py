@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 if TYPE_CHECKING:
@@ -77,7 +77,6 @@ class TestProperty21EventSinkAdapterTranslation:
         resource_keys=_PAYLOAD_WITH_RESOURCE_KEYS,
         extra_payload=_EXTRA_PAYLOAD,
     )
-    @settings(max_examples=200)
     def test_explicit_resource_takes_priority_over_heuristic(
         self,
         event_name: str,
@@ -117,7 +116,6 @@ class TestProperty21EventSinkAdapterTranslation:
         resource_keys=_PAYLOAD_WITH_RESOURCE_KEYS,
         extra_payload=_EXTRA_PAYLOAD,
     )
-    @settings(max_examples=200)
     def test_heuristic_fallback_when_no_explicit_resource(
         self,
         event_name: str,
@@ -161,7 +159,6 @@ class TestProperty21EventSinkAdapterTranslation:
         resource_keys=_PAYLOAD_WITH_RESOURCE_KEYS,
         extra_payload=_EXTRA_PAYLOAD,
     )
-    @settings(max_examples=200)
     def test_all_non_resource_payload_fields_preserved_in_event(
         self,
         event_name: str,
@@ -193,7 +190,6 @@ class TestProperty21EventSinkAdapterTranslation:
             assert event.payload[key] == value
 
     @given(event_name=_EVENT_NAME)
-    @settings(max_examples=100)
     def test_empty_payload_produces_empty_resource(
         self,
         event_name: str,
@@ -217,7 +213,6 @@ class TestProperty21EventSinkAdapterTranslation:
         provider_val=st.text(min_size=1, max_size=30),
         section_val=st.text(min_size=1, max_size=30),
     )
-    @settings(max_examples=200)
     def test_path_takes_priority_over_provider_and_section(
         self,
         event_name: str,
@@ -244,7 +239,6 @@ class TestProperty21EventSinkAdapterTranslation:
         resource_keys=_PAYLOAD_WITH_RESOURCE_KEYS,
         extra_payload=_EXTRA_PAYLOAD,
     )
-    @settings(max_examples=200)
     def test_empty_explicit_resource_triggers_heuristic_fallback(
         self,
         event_name: str,
@@ -297,7 +291,6 @@ class TestProperty22AdapterInstallationIdempotency:
     @given(
         num_installs=st.integers(min_value=1, max_value=10),
     )
-    @settings(max_examples=100)
     def test_multiple_install_calls_produce_single_routing(
         self,
         num_installs: int,
@@ -358,7 +351,6 @@ class TestProperty22AdapterInstallationIdempotency:
     @given(
         num_installs=st.integers(min_value=2, max_value=5),
     )
-    @settings(max_examples=50)
     def test_idempotency_flag_set_after_first_call(
         self,
         num_installs: int,
@@ -400,7 +392,6 @@ class TestProperty22AdapterInstallationIdempotency:
         event_name=_EVENT_NAME,
         payload_keys=_PAYLOAD_WITH_RESOURCE_KEYS,
     )
-    @settings(max_examples=100)
     def test_events_not_doubled_regardless_of_install_count(
         self,
         num_installs: int,

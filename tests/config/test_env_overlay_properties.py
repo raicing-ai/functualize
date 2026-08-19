@@ -25,7 +25,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._config.providers.toml import TomlFormatProvider
@@ -99,7 +99,6 @@ class TestProperty15EnvironmentOverlayDiscovery:
     """
 
     @given(env_id=env_identifiers, base_config=flat_config_dicts)
-    @settings(max_examples=50)
     def test_overlay_is_loaded_alongside_base(
         self, env_id: str, base_config: dict[str, Any]
     ) -> None:
@@ -118,7 +117,6 @@ class TestProperty15EnvironmentOverlayDiscovery:
                     assert source.get(key) == value
 
     @given(env_id=env_identifiers, base_config=flat_config_dicts)
-    @settings(max_examples=50)
     def test_overlay_overrides_base_on_conflict(
         self, env_id: str, base_config: dict[str, Any]
     ) -> None:
@@ -140,7 +138,6 @@ class TestProperty15EnvironmentOverlayDiscovery:
                 assert source.get(key) == "OVERLAY"
 
     @given(env_id=env_identifiers, base_config=flat_config_dicts)
-    @settings(max_examples=50)
     def test_missing_overlay_is_not_an_error(
         self, env_id: str, base_config: dict[str, Any]
     ) -> None:
@@ -155,7 +152,6 @@ class TestProperty15EnvironmentOverlayDiscovery:
                 assert source.get(key) == value
 
     @given(active=env_identifiers, other=env_identifiers)
-    @settings(max_examples=50)
     def test_other_environments_never_merge(self, active: str, other: str) -> None:
         """A file naming a different environment is reported but never merged."""
         if active == other:
@@ -176,7 +172,6 @@ class TestProperty15EnvironmentOverlayDiscovery:
             assert inert[0].precedence is None
 
     @given(env_id=env_identifiers)
-    @settings(max_examples=25)
     def test_environment_matching_is_case_insensitive(self, env_id: str) -> None:
         """ENVIRONMENT=PROD selects config.prod.toml."""
         with tempfile.TemporaryDirectory() as tmp:
@@ -189,7 +184,6 @@ class TestProperty15EnvironmentOverlayDiscovery:
             assert source.get("who") == "overlay"
 
     @given(base_config=flat_config_dicts)
-    @settings(max_examples=25)
     def test_no_environment_disables_banding(self, base_config: dict[str, Any]) -> None:
         """environment=None merges every file in discovery order.
 

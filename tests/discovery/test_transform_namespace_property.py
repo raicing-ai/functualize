@@ -9,7 +9,7 @@ returns None for non-prefixed names.
 
 from __future__ import annotations
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._discovery.transforms import NamespaceTransform
@@ -90,7 +90,6 @@ separators = st.sampled_from([":", ".", "/", "-", "_", "::", "->"])
 # --- Property 3: NamespaceTransform round-trip ---
 
 
-@settings(max_examples=100)
 @given(prefix=prefixes, separator=separators, jobs=job_descriptor_lists)
 def test_property_3_transform_list_prefixes_all_names(
     prefix: str, separator: str, jobs: list[JobDescriptor]
@@ -137,7 +136,6 @@ def test_property_3_transform_list_prefixes_all_names(
         assert transformed.declaration == original.declaration
 
 
-@settings(max_examples=100)
 @given(prefix=prefixes, separator=separators, name=job_names)
 def test_property_3_transform_get_returns_none_for_non_prefixed_names(
     prefix: str, separator: str, name: str
@@ -190,7 +188,6 @@ def test_property_3_transform_get_returns_none_for_non_prefixed_names(
     )
 
 
-@settings(max_examples=100)
 @given(prefix=prefixes, separator=separators, job=job_descriptors)
 def test_property_3_transform_get_returns_prefixed_for_valid_names(
     prefix: str, separator: str, job: JobDescriptor

@@ -126,7 +126,7 @@ def rename_scenario(draw: st.DrawFn) -> tuple[dict[str, str], list[JobDescriptor
 # --- Property 6: RenameTransform bijection ---
 
 
-@settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
+@settings(suppress_health_check=[HealthCheck.too_slow])
 @given(data=rename_scenario())
 def test_property_6_transform_list_renames_matching_names(
     data: tuple[dict[str, str], list[JobDescriptor]],
@@ -168,7 +168,7 @@ def test_property_6_transform_list_renames_matching_names(
             )
 
 
-@settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
+@settings(suppress_health_check=[HealthCheck.too_slow])
 @given(data=rename_scenario())
 def test_property_6_transform_get_old_name_returns_none(
     data: tuple[dict[str, str], list[JobDescriptor]],
@@ -195,7 +195,7 @@ def test_property_6_transform_get_old_name_returns_none(
         )
 
 
-@settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
+@settings(suppress_health_check=[HealthCheck.too_slow])
 @given(data=rename_scenario())
 def test_property_6_transform_get_new_name_returns_descriptor_with_new_name(
     data: tuple[dict[str, str], list[JobDescriptor]],
@@ -233,7 +233,7 @@ def test_property_6_transform_get_new_name_returns_descriptor_with_new_name(
         assert result.content_hash == original_desc.content_hash
 
 
-@settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
+@settings(suppress_health_check=[HealthCheck.too_slow])
 @given(data=rename_scenario())
 def test_property_6_transform_get_new_name_with_none_returns_none(
     data: tuple[dict[str, str], list[JobDescriptor]],
@@ -254,7 +254,7 @@ def test_property_6_transform_get_new_name_with_none_returns_none(
         )
 
 
-@settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
+@settings(suppress_health_check=[HealthCheck.too_slow])
 @given(data=rename_scenario())
 def test_property_6_transform_get_unrelated_name_passes_through(
     data: tuple[dict[str, str], list[JobDescriptor]],

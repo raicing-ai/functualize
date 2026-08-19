@@ -12,7 +12,7 @@ cursor_type="row" (R4-AC1, R4-AC2, R4-AC3).
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.panels.config_table import ConfigTablePanel
@@ -70,7 +70,6 @@ class TestRowNavigationProperty:
     """Property 12: Row navigation wraps modulo R."""
 
     @given(data=st.data())
-    @settings(max_examples=200)
     def test_cursor_down_wraps_modulo_r(self, data: st.DataObject) -> None:
         """action_cursor_down() at row r yields row (r+1) % R.
 
@@ -84,7 +83,6 @@ class TestRowNavigationProperty:
         assert panel._cursor_row == (start_row + 1) % r
 
     @given(data=st.data())
-    @settings(max_examples=200)
     def test_cursor_up_wraps_modulo_r(self, data: st.DataObject) -> None:
         """action_cursor_up() at row r yields row (r-1) % R.
 
@@ -98,7 +96,6 @@ class TestRowNavigationProperty:
         assert panel._cursor_row == (start_row - 1) % r
 
     @given(data=st.data())
-    @settings(max_examples=200)
     def test_cursor_down_r_times_returns_to_start(self, data: st.DataObject) -> None:
         """R consecutive action_cursor_down() calls return to starting row.
 
@@ -113,7 +110,6 @@ class TestRowNavigationProperty:
         assert panel._cursor_row == start_row
 
     @given(data=st.data())
-    @settings(max_examples=200)
     def test_row_always_in_bounds_after_sequence(self, data: st.DataObject) -> None:
         """After any sequence of up/down, row is always in [0, R-1].
 

@@ -122,9 +122,7 @@ class TestInvokeParallelInputOrder:
         AppState.set("environment", "DEV")
 
     @settings(
-        max_examples=30,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-        deadline=60000,
+        suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=60000
     )
     @given(job_names=job_name_lists)
     def test_results_maintain_input_positional_order(
@@ -176,9 +174,7 @@ class TestInvokeParallelInputOrder:
         # — use the mock engine approach to verify order at the unit level
 
     @settings(
-        max_examples=30,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-        deadline=60000,
+        suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=60000
     )
     @given(n=st.integers(min_value=2, max_value=10))
     def test_results_order_with_mock_engine(self, n: int):
@@ -234,9 +230,7 @@ class TestInvokeParallelInputOrder:
             assert result.return_value == i
 
     @settings(
-        max_examples=20,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-        deadline=60000,
+        suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=60000
     )
     @given(n=st.integers(min_value=2, max_value=8))
     def test_results_order_with_varied_delays_integration(self, n: int, tmp_path):
@@ -306,9 +300,7 @@ class TestInvokeParallelIndependentContexts:
         AppState.set("environment", "DEV")
 
     @settings(
-        max_examples=20,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-        deadline=60000,
+        suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=60000
     )
     @given(n=st.integers(min_value=2, max_value=6))
     def test_parallel_jobs_have_independent_state_stores(self, n: int, tmp_path):
@@ -365,9 +357,7 @@ class TestInvokeParallelIndependentContexts:
         assert result.exit_code == 0, f"State isolation violated: {result.output}"
 
     @settings(
-        max_examples=20,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-        deadline=60000,
+        suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=60000
     )
     @given(
         n=st.integers(min_value=2, max_value=5),
@@ -451,7 +441,7 @@ class TestLogCallbackPipeline:
     **Validates: Requirements 22.1, 22.2, 22.4**
     """
 
-    @settings(max_examples=100, deadline=10000)
+    @settings(deadline=10000)
     @given(
         chain=callback_chains,
         original_message=log_messages,
@@ -531,7 +521,7 @@ class TestLogCallbackPipeline:
             # All callbacks should be invoked in order
             assert invoked == list(range(len(chain)))
 
-    @settings(max_examples=50, deadline=10000)
+    @settings(deadline=10000)
     @given(
         n=st.integers(min_value=2, max_value=6),
         suppress_at=st.integers(min_value=0, max_value=5),
@@ -583,7 +573,7 @@ class TestLogCallbackPipeline:
         # Only callbacks 0..suppress_at should be invoked
         assert invoked_indices == list(range(suppress_at + 1))
 
-    @settings(max_examples=50, deadline=10000)
+    @settings(deadline=10000)
     @given(
         n=st.integers(min_value=1, max_value=6),
         original_message=log_messages,
@@ -617,7 +607,7 @@ class TestLogCallbackPipeline:
 
         mock_logger.info.assert_called_once_with(expected)
 
-    @settings(max_examples=50, deadline=10000)
+    @settings(deadline=10000)
     @given(
         n=st.integers(min_value=2, max_value=6),
         original_message=log_messages,

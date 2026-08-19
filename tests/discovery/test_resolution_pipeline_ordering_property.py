@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._discovery.pipeline import ResolutionPipeline
@@ -222,7 +222,6 @@ def manual_resolve_all(
 # --- Property 7: Resolution pipeline ordering ---
 
 
-@settings(max_examples=100)
 @given(config=pipeline_config())
 def test_property_7_resolve_all_equals_manual_stepwise(
     config: tuple[
@@ -269,7 +268,6 @@ def test_property_7_resolve_all_equals_manual_stepwise(
         )
 
 
-@settings(max_examples=100)
 @given(config=pipeline_config())
 def test_property_7_provider_order_preserved(
     config: tuple[
@@ -326,7 +324,6 @@ def test_property_7_provider_order_preserved(
     )
 
 
-@settings(max_examples=100)
 @given(config=pipeline_config())
 def test_property_7_app_transforms_applied_after_provider_transforms(
     config: tuple[

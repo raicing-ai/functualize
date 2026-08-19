@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._events.perf import PerfTimeline
@@ -83,7 +83,6 @@ class TestDisabledTimelineNoOp:
     """
 
     @given(job_name=valid_job_names, operations=mark_op_sequences)
-    @settings(max_examples=100)
     def test_no_marks_added_with_disabled_timeline(
         self,
         job_name: str,
@@ -107,7 +106,6 @@ class TestDisabledTimelineNoOp:
         )
 
     @given(job_name=valid_job_names, mark_name=valid_mark_names)
-    @settings(max_examples=100)
     def test_perf_mark_noop_when_disabled(
         self,
         job_name: str,
@@ -125,7 +123,6 @@ class TestDisabledTimelineNoOp:
         assert report.marks == []
 
     @given(job_name=valid_job_names, mark_name=valid_mark_names)
-    @settings(max_examples=100)
     def test_perf_mark_start_noop_when_disabled(
         self,
         job_name: str,
@@ -143,7 +140,6 @@ class TestDisabledTimelineNoOp:
         assert report.marks == []
 
     @given(job_name=valid_job_names, mark_name=valid_mark_names)
-    @settings(max_examples=100)
     def test_perf_mark_end_noop_when_disabled(
         self,
         job_name: str,
@@ -161,7 +157,6 @@ class TestDisabledTimelineNoOp:
         assert report.marks == []
 
     @given(job_name=valid_job_names, operations=mark_op_sequences)
-    @settings(max_examples=100)
     def test_no_phases_with_disabled_timeline(
         self,
         job_name: str,

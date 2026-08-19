@@ -11,7 +11,7 @@ import random
 from typing import Any
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._plugins.loader import (
@@ -169,7 +169,6 @@ class TestDependencyTopologicalSort:
     **Validates: Requirements 13.1, 13.3, 13.4**
     """
 
-    @settings(max_examples=200)
     @given(plugins=valid_dag_plugins())
     def test_output_respects_all_dependency_edges(
         self, plugins: list[FakePlugin]
@@ -196,7 +195,6 @@ class TestDependencyTopologicalSort:
                     f"{name_to_index[plugin.name]}"
                 )
 
-    @settings(max_examples=200)
     @given(plugins=valid_dag_plugins())
     def test_output_contains_exactly_same_plugins(
         self, plugins: list[FakePlugin]
@@ -221,7 +219,6 @@ class TestDependencyTopologicalSort:
             f"Duplicate plugins in output: {result_names}"
         )
 
-    @settings(max_examples=200)
     @given(plugins=valid_dag_plugins())
     def test_stable_alphabetical_ordering_for_unrelated_plugins(
         self, plugins: list[FakePlugin]
@@ -259,7 +256,6 @@ class TestDependencyTopologicalSort:
             f"{list(zip(no_dep_names, no_dep_indices, strict=True))}"
         )
 
-    @settings(max_examples=100)
     @given(plugins=circular_dependency_plugins())
     def test_circular_dependencies_raise_error(self, plugins: list[FakePlugin]) -> None:
         """**Validates: Requirements 13.4**
@@ -274,7 +270,6 @@ class TestDependencyTopologicalSort:
         # The cycle should form a valid loop (first == last)
         assert exc_info.value.cycle[0] == exc_info.value.cycle[-1]
 
-    @settings(max_examples=100)
     @given(data=missing_dependency_plugins())
     def test_missing_dependencies_raise_error(
         self, data: tuple[list[FakePlugin], str]

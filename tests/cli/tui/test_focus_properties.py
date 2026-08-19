@@ -12,7 +12,7 @@ Tests FocusState from functualize._cli.tui.focus:
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.focus import FocusMode, FocusState, FocusZone
@@ -74,7 +74,6 @@ class TestModeTransitionsAlwaysValid:
     """
 
     @given(from_mode=_focus_mode_strategy, to_mode=_focus_mode_strategy)
-    @settings(max_examples=100)
     def test_valid_transitions_succeed(
         self, from_mode: FocusMode, to_mode: FocusMode
     ) -> None:
@@ -102,7 +101,6 @@ class TestModeTransitionsAlwaysValid:
         assert notifications[0][0] is to_mode
 
     @given(from_mode=_focus_mode_strategy, to_mode=_focus_mode_strategy)
-    @settings(max_examples=100)
     def test_invalid_transitions_fail(
         self, from_mode: FocusMode, to_mode: FocusMode
     ) -> None:
@@ -137,7 +135,6 @@ class TestModeTransitionsAlwaysValid:
         to_mode=_focus_mode_strategy,
         zone=_focus_zone_strategy,
     )
-    @settings(max_examples=100)
     def test_zone_behavior_on_success(
         self, from_mode: FocusMode, to_mode: FocusMode, zone: FocusZone
     ) -> None:
@@ -156,7 +153,6 @@ class TestModeTransitionsAlwaysValid:
         )
 
     @given(from_mode=_focus_mode_strategy, to_mode=_focus_mode_strategy)
-    @settings(max_examples=100)
     def test_zone_defaults_to_smartbar_for_command(
         self, from_mode: FocusMode, to_mode: FocusMode
     ) -> None:
@@ -178,7 +174,6 @@ class TestModeTransitionsAlwaysValid:
         )
 
     @given(from_mode=_focus_mode_strategy, to_mode=_focus_mode_strategy)
-    @settings(max_examples=100)
     def test_zone_retained_for_non_command(
         self, from_mode: FocusMode, to_mode: FocusMode
     ) -> None:
@@ -221,7 +216,6 @@ class TestZoneCyclingVisitsAllVisibleZones:
         visible_zones=_visible_zones_with_smartbar(),
         start_zone_idx=st.integers(min_value=0, max_value=2),
     )
-    @settings(max_examples=100)
     def test_full_cycle_returns_to_start(
         self, visible_zones: set[FocusZone], start_zone_idx: int
     ) -> None:
@@ -253,7 +247,6 @@ class TestZoneCyclingVisitsAllVisibleZones:
         visible_zones=_visible_zones_with_smartbar(),
         start_zone_idx=st.integers(min_value=0, max_value=2),
     )
-    @settings(max_examples=100)
     def test_each_zone_visited_exactly_once(
         self, visible_zones: set[FocusZone], start_zone_idx: int
     ) -> None:
@@ -284,7 +277,6 @@ class TestZoneCyclingVisitsAllVisibleZones:
         )
 
     @given(visible_zones=_visible_zones_with_smartbar())
-    @settings(max_examples=100)
     def test_single_zone_returns_smartbar_unchanged(
         self, visible_zones: set[FocusZone]
     ) -> None:

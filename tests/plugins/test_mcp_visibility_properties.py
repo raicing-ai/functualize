@@ -26,7 +26,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 # Stub out functualize_ai to avoid ImportError when functualize_mcp.__init__
@@ -272,7 +272,6 @@ class TestMCPDiscoverJobsVisibilityProperty:
     """
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_discover_jobs_returns_exactly_visible_set(
         self, data: st.DataObject
     ) -> None:
@@ -296,7 +295,6 @@ class TestMCPDiscoverJobsVisibilityProperty:
         assert actual_names == expected_names
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_internal_jobs_never_appear(self, data: st.DataObject) -> None:
         """For any MCPConfig, jobs with visibility="internal" are never
         returned by discover_jobs.
@@ -323,7 +321,6 @@ class TestMCPDiscoverJobsVisibilityProperty:
                 )
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_excluded_jobs_never_appear(self, data: st.DataObject) -> None:
         """For any MCPConfig with exclude_jobs, those jobs are never
         returned by discover_jobs.
@@ -348,7 +345,6 @@ class TestMCPDiscoverJobsVisibilityProperty:
             )
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_include_tags_filters_correctly(self, data: st.DataObject) -> None:
         """When include_tags is non-empty, only jobs with at least one matching
         tag appear in discover_jobs results.
@@ -389,7 +385,6 @@ class TestMCPDiscoverJobsVisibilityProperty:
                 )
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_discover_jobs_result_structure(self, data: st.DataObject) -> None:
         """Each job in discover_jobs result has name, description, and tags fields.
 
@@ -510,7 +505,6 @@ class TestMCPPartialConfigResolutionProperty:
     """
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_run_job_with_only_required_fields_succeeds(
         self, data: st.DataObject
     ) -> None:
@@ -552,7 +546,6 @@ class TestMCPPartialConfigResolutionProperty:
         assert result["status"] == "success"
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_run_job_with_full_config_succeeds(self, data: st.DataObject) -> None:
         """For any job with required and optional config fields, run_job
         with all fields provided succeeds without error.
@@ -588,7 +581,6 @@ class TestMCPPartialConfigResolutionProperty:
         assert result["status"] == "success"
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_run_job_with_empty_config_succeeds(self, data: st.DataObject) -> None:
         """For any visible job, run_job with empty config (None) succeeds
         when the app resolves missing fields from the config chain.
@@ -622,7 +614,6 @@ class TestMCPPartialConfigResolutionProperty:
         assert result["status"] == "success"
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_partial_config_kwargs_passed_to_execute(self, data: st.DataObject) -> None:
         """For any job, the partial config dict is passed as kwargs to
         app.execute(), allowing the config chain to resolve missing fields.

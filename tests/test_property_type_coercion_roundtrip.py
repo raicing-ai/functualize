@@ -11,7 +11,7 @@ import json
 import string
 from pathlib import Path
 
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 from functualize._types.descriptors import FieldDescriptor
@@ -268,7 +268,6 @@ class TestTypeCoercionRoundTripProperty:
     """
 
     @given(data=_typed_field_and_value())
-    @settings(max_examples=200)
     def test_valid_value_round_trip(
         self, data: tuple[FieldDescriptor, object, str]
     ) -> None:
@@ -316,7 +315,6 @@ class TestTypeCoercionRoundTripProperty:
             )
 
     @given(data=_invalid_string_for_type())
-    @settings(max_examples=200)
     def test_invalid_value_raises_valueerror(
         self, data: tuple[FieldDescriptor, str]
     ) -> None:
@@ -348,7 +346,6 @@ class TestTypeCoercionRoundTripProperty:
             )
 
     @given(data=_typed_field_and_value())
-    @settings(max_examples=200)
     def test_str_type_always_passes_through(
         self, data: tuple[FieldDescriptor, object, str]
     ) -> None:
@@ -365,7 +362,6 @@ class TestTypeCoercionRoundTripProperty:
         assert isinstance(result[field.name], str)
 
     @given(name=_param_name_strategy, value=_valid_int_value())
-    @settings(max_examples=100)
     def test_int_round_trip_specific(self, name: str, value: int) -> None:
         """Integer round-trip: str(int_value) → coerce → int_value.
 
@@ -377,7 +373,6 @@ class TestTypeCoercionRoundTripProperty:
         assert isinstance(result[name], int)
 
     @given(name=_param_name_strategy, value=_valid_float_value())
-    @settings(max_examples=100)
     def test_float_round_trip_specific(self, name: str, value: float) -> None:
         """Float round-trip: str(float_value) → coerce → float_value (within tolerance).
 
@@ -389,7 +384,6 @@ class TestTypeCoercionRoundTripProperty:
         assert abs(result[name] - value) < 1e-9
 
     @given(name=_param_name_strategy, value=st.booleans())
-    @settings(max_examples=100)
     def test_bool_round_trip_canonical(self, name: str, value: bool) -> None:
         """Bool round-trip with canonical str() forms ("True"/"False").
 
@@ -416,7 +410,6 @@ class TestTypeCoercionRoundTripProperty:
             max_size=5,
         ),
     )
-    @settings(max_examples=100)
     def test_list_str_round_trip_json_encoded(
         self, name: str, items: list[str]
     ) -> None:
@@ -433,7 +426,6 @@ class TestTypeCoercionRoundTripProperty:
         assert isinstance(result[name], list)
 
     @given(name=_param_name_strategy, path_value=_valid_path_value())
-    @settings(max_examples=100)
     def test_path_round_trip(self, name: str, path_value: Path) -> None:
         """Path round-trip: str(Path("/foo")) == "/foo" → coerce → Path("/foo").
 

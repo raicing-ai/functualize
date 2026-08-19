@@ -15,7 +15,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 from functualize._discovery.cached_provider import CachedDirectoryScanProvider
@@ -98,7 +98,6 @@ class TestTieredCacheValidationCorrectness:
     """
 
     @given(content=file_contents())
-    @settings(max_examples=100)
     def test_tier1_mtime_match_is_valid(self, content: bytes):
         """When file mtime matches cached source_mtime, entry is VALID (Tier 1 pass).
 
@@ -125,7 +124,6 @@ class TestTieredCacheValidationCorrectness:
     @given(
         content=file_contents(), mtime_offset=st.floats(min_value=1.0, max_value=1000.0)
     )
-    @settings(max_examples=100)
     def test_tier2_hash_match_is_valid_and_mtime_updated(
         self, content: bytes, mtime_offset: float
     ):
@@ -164,7 +162,6 @@ class TestTieredCacheValidationCorrectness:
         new_content=file_contents(),
         mtime_offset=st.floats(min_value=1.0, max_value=1000.0),
     )
-    @settings(max_examples=100)
     def test_both_mtime_and_hash_differ_is_invalid(
         self, original_content: bytes, new_content: bytes, mtime_offset: float
     ):
@@ -214,7 +211,6 @@ class TestDependencyLevelCacheInvalidation:
         dep_new_content=file_contents(),
         dep_old_content=file_contents(),
     )
-    @settings(max_examples=100)
     def test_tier1_pass_with_changed_dependency_is_invalid(
         self,
         source_content: bytes,
@@ -262,7 +258,6 @@ class TestDependencyLevelCacheInvalidation:
         dep_old_content=file_contents(),
         mtime_offset=st.floats(min_value=1.0, max_value=1000.0),
     )
-    @settings(max_examples=100)
     def test_tier2_pass_with_changed_dependency_is_invalid(
         self,
         source_content: bytes,
@@ -308,7 +303,6 @@ class TestDependencyLevelCacheInvalidation:
         source_content=file_contents(),
         dep_contents=st.lists(file_contents(), min_size=1, max_size=3),
     )
-    @settings(max_examples=100)
     def test_tier1_pass_with_valid_dependencies_is_valid(
         self,
         source_content: bytes,
@@ -354,7 +348,6 @@ class TestDependencyLevelCacheInvalidation:
         bad_dep_new_content=file_contents(),
         bad_dep_old_content=file_contents(),
     )
-    @settings(max_examples=100)
     def test_any_single_dependency_mismatch_invalidates(
         self,
         source_content: bytes,
@@ -408,7 +401,6 @@ class TestDependencyLevelCacheInvalidation:
         source_content=file_contents(),
         fake_hash=st.from_regex(r"[0-9a-f]{64}", fullmatch=True),
     )
-    @settings(max_examples=100)
     def test_missing_dependency_file_invalidates(
         self,
         source_content: bytes,

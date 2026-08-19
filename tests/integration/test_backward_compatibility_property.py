@@ -110,7 +110,7 @@ def multiple_directories_with_jobs(
 # --- Property 13: Backward compatibility equivalence ---
 
 
-@settings(max_examples=100, deadline=30000)
+@settings(deadline=30000)
 @given(data=multiple_directories_with_jobs())
 def test_property_13_constructor_vs_explicit_provider_same_job_names(
     data: tuple[list[str], list[str]],
@@ -151,7 +151,7 @@ def test_property_13_constructor_vs_explicit_provider_same_job_names(
     )
 
 
-@settings(max_examples=100, deadline=30000)
+@settings(deadline=30000)
 @given(data=multiple_directories_with_jobs())
 def test_property_13_list_jobs_get_job_consistency_in_pipeline(
     data: tuple[list[str], list[str]],
@@ -186,7 +186,7 @@ def test_property_13_list_jobs_get_job_consistency_in_pipeline(
         )
 
 
-@settings(max_examples=100, deadline=30000)
+@settings(deadline=30000)
 @given(data=directory_with_jobs())
 def test_property_13_direct_provider_list_get_consistency(
     data: tuple[str, list[str]],

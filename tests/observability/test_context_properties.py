@@ -4,7 +4,7 @@ Tests the context propagation API: trace/span creation, parent-chain linking,
 detach round-trip semantics, and empty context singleton behavior.
 """
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._events.tracing import (
@@ -32,7 +32,6 @@ class TestProperty16TraceStartProducesValidIdentifiers:
         session_id=st.one_of(st.text(), st.none()),
         baggage=st.dictionaries(st.text(), st.text()),
     )
-    @settings(max_examples=200)
     def test_trace_start_produces_valid_identifiers(
         self,
         session_id: str | None,
@@ -73,7 +72,6 @@ class TestProperty17ChildSpanParentChainInvariant:
     @given(
         span_names=st.lists(st.text(min_size=1), min_size=1, max_size=5),
     )
-    @settings(max_examples=200)
     def test_child_span_parent_chain_invariant(
         self,
         span_names: list[str],
@@ -131,7 +129,6 @@ class TestProperty18ContextDetachRoundTrip:
         session_id=st.one_of(st.text(min_size=1), st.none()),
         baggage=st.dictionaries(st.text(min_size=1), st.text(min_size=1)),
     )
-    @settings(max_examples=200)
     def test_context_detach_round_trip(
         self,
         session_id: str | None,
@@ -187,7 +184,6 @@ class TestProperty19EmptyContextSingletonWhenNoTraceActive:
     @given(
         call_count=st.integers(min_value=2, max_value=20),
     )
-    @settings(max_examples=100)
     def test_empty_context_singleton_identity(
         self,
         call_count: int,

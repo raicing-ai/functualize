@@ -12,7 +12,7 @@ Tests SmartBar from functualize._cli.tui.bar:
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 from textual.app import App, ComposeResult
 
@@ -158,7 +158,6 @@ class TestBarReadinessReflectsTokenState:
     """
 
     @given(data=_empty_tokens())
-    @settings(max_examples=50)
     def test_empty_tokens_produce_grey(
         self, data: tuple[list[str], list[str], dict[str, list[str]]]
     ) -> None:
@@ -172,7 +171,6 @@ class TestBarReadinessReflectsTokenState:
         assert bar.readiness is BarReadiness.GREY
 
     @given(data=_unknown_command_tokens())
-    @settings(max_examples=50)
     def test_unknown_command_produces_grey(
         self, data: tuple[list[str], list[str], dict[str, list[str]]]
     ) -> None:
@@ -186,7 +184,6 @@ class TestBarReadinessReflectsTokenState:
         assert bar.readiness is BarReadiness.GREY
 
     @given(data=_known_job_missing_fields())
-    @settings(max_examples=50)
     def test_missing_required_fields_produce_pending(
         self, data: tuple[list[str], list[str], dict[str, list[str]]]
     ) -> None:
@@ -200,7 +197,6 @@ class TestBarReadinessReflectsTokenState:
         assert bar.readiness is BarReadiness.PENDING
 
     @given(data=_known_job_all_satisfied())
-    @settings(max_examples=50)
     def test_all_satisfied_produces_ready(
         self, data: tuple[list[str], list[str], dict[str, list[str]]]
     ) -> None:
@@ -221,7 +217,6 @@ class TestBarReadinessReflectsTokenState:
             _known_job_all_satisfied(),
         )
     )
-    @settings(max_examples=100)
     def test_evaluate_is_deterministic(
         self, data: tuple[list[str], list[str], dict[str, list[str]]]
     ) -> None:
@@ -266,7 +261,6 @@ class TestSmartBarStateRoundTrip:
         value=_bar_value,
         placeholder=_placeholder_text,
     )
-    @settings(max_examples=50)
     async def test_save_restore_round_trip(
         self,
         value: str,
@@ -307,7 +301,6 @@ class TestSmartBarStateRoundTrip:
         cursor_offset=st.integers(min_value=0, max_value=50),
         placeholder=_placeholder_text,
     )
-    @settings(max_examples=50)
     async def test_cursor_position_preserved_on_round_trip(
         self,
         value: str,

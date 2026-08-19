@@ -12,7 +12,7 @@ Verifies that:
   across multiple access points.
 """
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize.job._state_store import StateStore
@@ -67,7 +67,6 @@ class TestStateStoreScopeDeterminesVisibility:
             max_size=15,
         ),
     )
-    @settings(max_examples=200)
     def test_shared_scope_state_visible_across_access_points(
         self, scope_id: str, items: dict[str, object]
     ) -> None:
@@ -108,7 +107,6 @@ class TestStateStoreScopeDeterminesVisibility:
             max_size=10,
         ),
     )
-    @settings(max_examples=200)
     def test_standalone_stores_do_not_leak_state(
         self, items_a: dict[str, object], items_b: dict[str, object]
     ) -> None:
@@ -156,7 +154,6 @@ class TestStateStoreScopeDeterminesVisibility:
             unique_by=lambda x: x[0],
         ),
     )
-    @settings(max_examples=200)
     def test_store_retrieve_cycle_across_multiple_access_points(
         self, scope_id: str, items: list[tuple[str, object]]
     ) -> None:
@@ -200,7 +197,6 @@ class TestStateStoreScopeDeterminesVisibility:
             max_size=10,
         ),
     )
-    @settings(max_examples=200)
     def test_different_scopes_have_independent_state_stores(
         self,
         scope_id_a: str,
@@ -239,7 +235,6 @@ class TestStateStoreScopeDeterminesVisibility:
         value_1=json_values,
         value_2=json_values,
     )
-    @settings(max_examples=200)
     def test_overwrite_visible_through_shared_scope(
         self, scope_id: str, key: str, value_1: object, value_2: object
     ) -> None:

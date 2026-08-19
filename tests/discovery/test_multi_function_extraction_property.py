@@ -74,11 +74,7 @@ def _build_module_source(public_names: list[str], private_names: list[str]) -> s
 # --- Property 18: Multi-function module extraction completeness ---
 
 
-@settings(
-    max_examples=50,
-    suppress_health_check=[HealthCheck.too_slow],
-    deadline=10000,
-)
+@settings(suppress_health_check=[HealthCheck.too_slow], deadline=10000)
 @given(spec=module_spec())
 def test_property_18_extraction_produces_n_descriptors_for_n_public_functions(
     spec: tuple[list[str], list[str]],
@@ -125,11 +121,7 @@ def test_property_18_extraction_produces_n_descriptors_for_n_public_functions(
         )
 
 
-@settings(
-    max_examples=50,
-    suppress_health_check=[HealthCheck.too_slow],
-    deadline=10000,
-)
+@settings(suppress_health_check=[HealthCheck.too_slow], deadline=10000)
 @given(private_names=st.lists(private_func_names, min_size=1, max_size=5, unique=True))
 def test_property_18_only_private_functions_yields_empty(
     private_names: list[str],
