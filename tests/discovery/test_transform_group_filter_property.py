@@ -22,12 +22,13 @@ from functualize._types.job_declaration import JobDeclaration
 # --- Strategies (reused from test_transform_identity_property.py) ---
 
 # Generate valid job names (non-empty identifiers)
-job_names = st.from_regex(r"[a-z][a-z0-9_]{0,20}", fullmatch=True).filter(
-    lambda s: s.isidentifier()
-)
+job_names = st.tuples(
+    st.sampled_from("abcdefghijklmnopqrstuvwxyz"),
+    st.text(alphabet="abcdefghijklmnopqrstuvwxyz0123456789_", min_size=0, max_size=8),
+).map("".join)
 
 # Generate group name strings (non-None groups for explicit group values)
-group_names = st.from_regex(r"[a-z][a-z0-9_]{0,10}", fullmatch=True)
+group_names = job_names
 
 # Generate optional group strings (either None or a group name)
 groups = st.one_of(st.none(), group_names)
@@ -65,22 +66,24 @@ declaration_strategy = st.one_of(
 )
 
 # Generate full JobDescriptor instances
+# Only `name` and `group` are read by the assertions — the group filter copies
+# every other field through untouched. Generating them (several `from_regex`
+# draws per descriptor, a 64-character hash, nested collections) bought no
+# coverage and made input generation slow enough that Hypothesis aborted the
+# test with FailedHealthCheck.
+
 job_descriptors = st.builds(
     JobDescriptor,
     name=job_names,
     group=groups,
-    module_path=st.from_regex(r"[a-z][a-z0-9_.]{0,30}", fullmatch=True),
-    source_file=st.from_regex(r"/[a-z][a-z0-9_/]{0,30}\.py", fullmatch=True),
-    source_mtime=st.floats(min_value=0.0, max_value=1e12, allow_nan=False),
-    content_hash=st.from_regex(r"[0-9a-f]{64}", fullmatch=True),
-    docstring=st.one_of(st.none(), st.text(min_size=1, max_size=50)),
-    config_fields=st.lists(field_descriptors, max_size=3),
-    dependencies=st.dictionaries(
-        st.from_regex(r"/[a-z][a-z0-9_/]{0,20}\.py", fullmatch=True),
-        st.from_regex(r"[0-9a-f]{64}", fullmatch=True),
-        max_size=3,
-    ),
-    declaration=declaration_strategy,
+    module_path=st.just("test.module"),
+    source_file=st.just("/test/module.py"),
+    source_mtime=st.just(0.0),
+    content_hash=st.just("0" * 64),
+    docstring=st.none(),
+    config_fields=st.just([]),
+    dependencies=st.just({}),
+    declaration=st.none(),
 )
 
 # Generate lists of JobDescriptors (the main input)

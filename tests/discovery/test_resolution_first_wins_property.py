@@ -40,37 +40,39 @@ class DictProvider:
 
 # --- Strategies ---
 
+# This property is about *which provider answers first*, so only two fields
+# carry information: `name` (what is looked up) and `module_path` (the
+# discriminator the assertions use to tell whose descriptor came back). The
+# remaining fields are copied through untouched by the pipeline, so generating
+# them buys no coverage and costs a great deal — the original strategy drew six
+# `from_regex` values per descriptor, including a 64-character hash, which was
+# slow enough that Hypothesis aborted the test with FailedHealthCheck before it
+# could generate a usable input.
+
+_identifier_chars = st.text(
+    alphabet="abcdefghijklmnopqrstuvwxyz0123456789_", min_size=0, max_size=8
+)
+
 # Valid job names: simple identifiers
-job_names = st.from_regex(r"[a-z][a-z0-9_]{0,20}", fullmatch=True).filter(
-    lambda s: s.isidentifier()
-)
+job_names = st.tuples(
+    st.sampled_from("abcdefghijklmnopqrstuvwxyz"), _identifier_chars
+).map("".join)
 
-# Optional group values
-group_values = st.one_of(st.none(), job_names)
-
-# Module paths
-module_paths = st.from_regex(
-    r"[a-z][a-z0-9_]{0,10}(\.[a-z][a-z0-9_]{0,10}){0,3}", fullmatch=True
-)
-
-# Source file paths
-source_files = st.from_regex(r"/[a-z][a-z0-9_/]{0,30}\.py", fullmatch=True)
-
-# Content hashes (hex strings)
-content_hashes = st.from_regex(r"[0-9a-f]{64}", fullmatch=True)
+# Module paths — the discriminator, so it stays generated
+module_paths = st.lists(job_names, min_size=1, max_size=3).map(".".join)
 
 
 @st.composite
 def job_descriptors(draw: st.DrawFn) -> JobDescriptor:
-    """Strategy to generate a random JobDescriptor."""
+    """Strategy to generate a JobDescriptor varying only name and module_path."""
     return JobDescriptor(
         name=draw(job_names),
-        group=draw(group_values),
+        group=None,
         module_path=draw(module_paths),
-        source_file=draw(source_files),
-        source_mtime=draw(st.floats(min_value=0.0, max_value=1e12, allow_nan=False)),
-        content_hash=draw(content_hashes),
-        docstring=draw(st.one_of(st.none(), st.text(min_size=0, max_size=100))),
+        source_file="/test/module.py",
+        source_mtime=0.0,
+        content_hash="0" * 64,
+        docstring=None,
         config_fields=[],
         dependencies={},
         metadata=None,
