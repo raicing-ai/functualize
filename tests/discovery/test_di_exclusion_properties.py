@@ -12,6 +12,7 @@ Only CLI-compatible parameters SHALL remain in the extracted parameters.
 
 from __future__ import annotations
 
+import keyword
 import types
 from typing import Any
 
@@ -34,8 +35,16 @@ for _name in _EXCLUDED_PARAM_TYPE_NAMES:
 # --- Strategies ---
 
 # Valid Python parameter names for CLI params
+# Names are compiled into a real `def _generated_job(...)`, so they must be
+# usable as parameters: `str.isidentifier()` is true for keywords like `as` and
+# `if`, which are still a SyntaxError in a signature.
 cli_param_names = st.from_regex(r"[a-z][a-z0-9_]{0,12}", fullmatch=True).filter(
-    lambda s: s.isidentifier() and s not in ("self", "cls")
+    lambda s: (
+        s.isidentifier()
+        and not keyword.iskeyword(s)
+        and not keyword.issoftkeyword(s)
+        and s not in ("self", "cls")
+    )
 )
 
 # CLI-compatible type annotations

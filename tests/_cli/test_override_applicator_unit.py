@@ -243,7 +243,14 @@ def _overrides_set(draw: st.DrawFn) -> tuple[str, dict[str, Any], str]:
             max_size=10,
         ).filter(lambda s: s.isalnum())
     )
-    field_names = draw(st.lists(_field_name_st, min_size=1, max_size=8, unique=True))
+    # Case-insensitive uniqueness: both targets fold case, so `F0000` and
+    # `f0000` are one setting, not two. Env keys are upper-cased into
+    # `SECTION_FIELD` and configparser lower-cases option names, so generating
+    # both spellings makes the second write clobber the first and the earlier
+    # field's assertion read the later field's value.
+    field_names = draw(
+        st.lists(_field_name_st, min_size=1, max_size=8, unique_by=str.lower)
+    )
     overrides: dict[str, Any] = {field: draw(_value_st) for field in field_names}
     target = draw(_target_st)
     return job_name, overrides, target
