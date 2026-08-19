@@ -22,8 +22,9 @@ uv run pytest
 # Full suite including property-based
 uv run pytest --run-slow
 
-# CI-equivalent (parallel + coverage)
-uv run pytest --run-slow --cov=functualize -n auto
+# CI-equivalent (parallel + coverage). The profile is part of the equivalence:
+# `ci` draws 200 examples, the default draws 100.
+HYPOTHESIS_PROFILE=ci uv run pytest --run-slow --cov=functualize -n auto
 
 # Quick smoke-check (10 hypothesis examples)
 HYPOTHESIS_PROFILE=dev uv run pytest --run-slow
@@ -141,7 +142,7 @@ Run them directly with `pytest plugins/<name>/tests/`; they are not collected by
 | Type check | `mypy src/` | Any type error |
 | Import rules | `lint-imports` | Any layer contract violation |
 | Fast tests | `pytest` (unit only) | Any test failure |
-| Full tests | `pytest --run-slow --cov -n auto` | Any failure, across Python 3.11/3.12/3.13 |
+| Full tests | `HYPOTHESIS_PROFILE=ci pytest --run-slow --cov -n auto` | Any failure, across Python 3.11/3.12/3.13 |
 
 ## Writing New Tests
 

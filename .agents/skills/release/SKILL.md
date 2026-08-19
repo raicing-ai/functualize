@@ -86,13 +86,26 @@ Run all verification commands to confirm the codebase is in a healthy state.
 | 3 | `uv run mypy src/` | Type check |
 | 4 | `uv run lint-imports` | Architecture enforcement |
 | 5 | `uv run pytest -x -q --no-header` | Fast tests |
-| 6 | `uv run pytest --run-slow -x -q --no-header` | Full tests |
+| 6 | `HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto -q --no-header` | Full tests |
 
 **Rules:**
 
-- Timeout: 300 seconds per command. If a command has not exited within 300s, terminate it and record a **BLOCKING** finding indicating the timeout.
+- Timeout: 300 seconds per command, **except command 6, which gets 1800 seconds**. If a command has not exited within its timeout, terminate it and record a **BLOCKING** finding indicating the timeout.
 - If a command exits with non-zero status, record a **BLOCKING** finding including the command name, exit code, and the last 200 lines of combined stdout/stderr.
 - **Continue through all commands even on failures** — do not short-circuit. Every command runs regardless of prior results.
+
+**Why command 6 is shaped the way it is:**
+
+- `HYPOTHESIS_PROFILE=ci` is not optional. CI sets it (`.github/workflows/ci.yml`), and
+  the `ci` profile draws 200 examples where the default profile draws 100. Running the
+  tier without it verifies a *different, weaker* gate than the one that will run on the
+  tag — it has already produced a green local run followed by a red CI run.
+- `-n auto` and the 1800s budget go together. The tier is ~8,400 tests; even at `-n 10`
+  it takes ~5 min on the default profile and ~10 min on `ci`. Under the blanket 300s
+  timeout this command could never pass, so it reported BLOCKING on every release and was
+  waived by habit — which is how the tier stayed red through 0.1.0.
+- No `-x`. On a tier this size, stopping at the first failure costs another full run per
+  failure. Collect the whole list.
 
 **Outputs:** Exit codes and output for each command; BLOCKING findings for any non-zero exit or timeout.
 
@@ -295,7 +308,7 @@ Upon confirmation, execute in order:
   3. `uv run mypy src/`
   4. `uv run lint-imports`
   5. `uv run pytest -x -q --no-header`
-  6. `uv run pytest --run-slow -x -q --no-header`
+  6. `HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto -q --no-header` (1800s budget; the `ci` profile is what CI runs)
 - **Plugin workspace**: enumerate all directories under `plugins/` containing a `pyproject.toml`; each plugin is an independent package with its own version and metadata
 - **Version source of truth**: static `version` field in root `pyproject.toml`
 - **Release trigger**: `git tag vX.Y.Z` → `.github/workflows/release.yml` (GitHub Actions Trusted Publishing to PyPI)

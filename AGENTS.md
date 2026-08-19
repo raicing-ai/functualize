@@ -21,8 +21,8 @@ uv run lint-imports
 # Fast tests (unit only)
 uv run pytest -x -q --no-header
 
-# Full tests (including property-based / hypothesis)
-uv run pytest --run-slow -x -q --no-header
+# Full tests (including property-based / hypothesis) — ~10 min, `ci` profile is what CI runs
+HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto -q --no-header
 
 # Run a single test file
 uv run pytest tests/engine/test_execution_engine.py
