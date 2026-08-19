@@ -49,11 +49,31 @@ SUPPORT_JOBS = SUPPORT / "jobs"
 # here, so pinning that inline gives a test up its tunability. Prefer leaving
 # the budget to the profile unless a specific property genuinely needs more.
 
+# `deadline=None` everywhere, not just in CI. Hypothesis's default is a 200ms
+# wall-clock budget per example, which measures how loaded the machine is
+# rather than anything about the code: this tier is normally run under `-n 10`,
+# where a worker routinely loses a few hundred milliseconds to its peers. The
+# `too_slow` health check is suppressed for the same reason — it also times
+# input generation against the clock. Genuinely slow properties are found by
+# `--durations`, which reports without failing.
 settings.register_profile(
-    "dev", max_examples=10, suppress_health_check=[HealthCheck.too_slow]
+    "dev",
+    max_examples=10,
+    deadline=None,
+    suppress_health_check=[HealthCheck.too_slow],
 )
-settings.register_profile("default", max_examples=100)
-settings.register_profile("ci", max_examples=200, deadline=None)
+settings.register_profile(
+    "default",
+    max_examples=100,
+    deadline=None,
+    suppress_health_check=[HealthCheck.too_slow],
+)
+settings.register_profile(
+    "ci",
+    max_examples=200,
+    deadline=None,
+    suppress_health_check=[HealthCheck.too_slow],
+)
 settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "default"))
 
 

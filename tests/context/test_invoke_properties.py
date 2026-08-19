@@ -13,6 +13,7 @@ For any timeout value < 0.1, rc.invoke() raises ValueError.
 
 from __future__ import annotations
 
+import itertools
 import sys
 import textwrap
 
@@ -29,13 +30,25 @@ from functualize.app.core import FunctualizeApp
 # --- Helpers ---
 
 
+_jobs_dir_counter = itertools.count()
+
+
 def _write_jobs(tmp_path, source: str) -> str:
-    """Helper to write job files and return the directory path."""
-    jobs_dir = tmp_path / "jobs"
+    """Helper to write job files and return the directory path.
+
+    Each call gets its own directory and module name. `tmp_path` is
+    function-scoped, so every Hypothesis example for a test reuses it; writing
+    to one fixed path meant successive examples rewrote the same file, and
+    discovery caches descriptors against (path, mtime). Two examples landing in
+    the same mtime tick would serve the first example's descriptors to the
+    second, so the job that ran was not the job the example had just written.
+    """
+    n = next(_jobs_dir_counter)
+    jobs_dir = tmp_path / f"jobs_{n}"
     jobs_dir.mkdir(exist_ok=True)
-    (jobs_dir / "test_jobs.py").write_text(textwrap.dedent(source))
-    # Clear any cached module to avoid stale imports across hypothesis examples
-    sys.modules.pop("test_jobs", None)
+    module_name = f"test_jobs_{n}"
+    (jobs_dir / f"{module_name}.py").write_text(textwrap.dedent(source))
+    sys.modules.pop(module_name, None)
     return str(jobs_dir)
 
 

@@ -200,8 +200,13 @@ class TestStateNamespaceKeysReturnsFilteredStrippedKeys:
         for k, v in ns_entries.items():
             ns.set(k, v)
 
-        # Store other entries directly in the backend with a different prefix
-        other_prefix = "OTHER_" + prefix + "_OTHER_"
+        # Store other entries directly in the backend under a prefix that
+        # provably does not start with `prefix`. Wrapping the prefix in text
+        # ("OTHER_" + prefix + "_OTHER_") does not achieve that: for
+        # prefix="O", "OTHER_O_OTHER_..." starts with "O", so the key really
+        # is inside the namespace and keys() is right to return it.
+        lead = "Y" if prefix.startswith("X") else "X"
+        other_prefix = lead + "_OTHER_"
         for k, v in other_entries.items():
             backend.set(other_prefix + k, v)
 
