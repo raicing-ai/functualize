@@ -299,7 +299,7 @@ class TestCapturingLogRecordingFidelity:
 
 
 class TestRunContextLogRouting:
-    """RunContext.log() emits through the DI-registered Log capability.
+    """RunContext.log() emits through the injected Log capability.
 
     Regression coverage for the 0.1.0 known limitation in which rc.log(...)
     bypassed the injected Log and was invisible to captured_logs().

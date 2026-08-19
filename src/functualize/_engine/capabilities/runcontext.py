@@ -16,6 +16,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar, TypedDict, TypeVar, cast, overload
 
+from functualize._engine.capabilities.log import Log, validate_log_level
 from functualize._types.enums import RunStatus, RunType
 
 _module_logger = logging.getLogger(__name__)
@@ -27,7 +28,6 @@ if TYPE_CHECKING:
 
     from functualize._config.job_config import JobConfigView
     from functualize._engine.capabilities.invoke import Invoke
-    from functualize._engine.capabilities.log import Log
     from functualize._engine.capabilities.state_store import StateStore
     from functualize._engine.capabilities.workflow import WorkflowTracker
     from functualize._engine.capabilities.workflow_scope import WorkflowScope
@@ -146,6 +146,7 @@ class RunContext:
         cwd: Path | None = None,
         job_directory: Path | None = None,
         _di_registry: DIRegistry | None = None,
+        _caps: dict[type, Any] | None = None,
     ):
         self._name = name
         self._config = config
@@ -169,12 +170,14 @@ class RunContext:
         self._job_directory: Path | None = job_directory
         self._result_metadata: dict[str, Any] = {}
         self._di_registry: DIRegistry | None = _di_registry
+        # The live per-invocation capability map (the same dict the engine
+        # fills as it resolves bindings) — log() reads the job's own Log out
+        # of it, so rc.log() and a `log: Log` parameter share one sink.
+        self._caps: dict[type, Any] | None = _caps
         self._config.set_prefix(name)
         # Capability instances (lazily created)
         self._invoke_capability: Invoke | None = None
         self._workflow_tracker: WorkflowTracker | None = None
-        self._log_capability: Log | None = None
-        self._log_capability_resolved: bool = False
         # Callback registrations (for backward compat)
         self._status_callbacks: list[Any] = []
         self._phase_callbacks: list[Any] = []
@@ -484,30 +487,30 @@ class RunContext:
 
     # --- Logging ---
 
-    def _resolve_log_capability(self) -> Log | None:
-        """Return the DI-registered Log, or None when the registry has none.
+    def _log_sink(self) -> Log | None:
+        """Return the job's own Log capability, or None when it has none.
 
-        TestRunContext registers a Log double so tests observe rc.log(...);
-        the engine builds Log per-invocation without registering it, so
-        production resolution raises MissingProviderError and log() falls
-        back to the same functualize.job.<name> stdlib logger a per-job Log
-        would write to. Resolved once per RunContext — log() is a hot path.
+        The engine creates Log per invocation and deposits it in the caps map
+        (the same instance a ``log: Log`` parameter receives), so rc.log() and
+        that parameter cannot drift to different sinks. A job that never asks
+        for Log has no entry, and log() falls back to ``self._logger`` — the
+        very ``functualize.job.<name>`` logger a per-job Log would write to.
+
+        The unqualified DI registry is deliberately *not* consulted: the engine
+        treats Log as per-invocation and skips the registry for it too
+        (``executor._resolve_di_parameters``), so reading it here would make
+        rc.log() disagree with the job's own parameter.
         """
-        if not self._log_capability_resolved:
-            resolved: Log | None = None
-            if self._di_registry is not None:
-                from functualize._engine.capabilities.log import Log
-                from functualize._primitives.di import MissingProviderError
-
-                try:
-                    resolved = self._di_registry.resolve(Log)
-                except MissingProviderError:
-                    resolved = None
-            self._log_capability = resolved
-            self._log_capability_resolved = True
-        return self._log_capability
+        if self._caps is None:
+            return None
+        sink = self._caps.get(Log)
+        return sink if isinstance(sink, Log) else None
 
     def log(self, message: object, level: str = "info") -> None:
+        # Validate before the callbacks so an invalid level fails the same way
+        # whichever sink is behind it — the Log capability, or the fallback
+        # logger whose getattr would otherwise raise AttributeError instead.
+        validate_log_level(level)
         msg = str(message)
         # Invoke log callbacks BEFORE emitting to logger
         for cb in self._log_callbacks:
@@ -523,9 +526,9 @@ class RunContext:
                 self._logger.warning(
                     "Log callback %r raised an exception", cb, exc_info=True
                 )
-        log_capability = self._resolve_log_capability()
-        if log_capability is not None:
-            log_capability(msg, level=level)
+        sink = self._log_sink()
+        if sink is not None:
+            sink(msg, level=level)
         else:
             getattr(self._logger, level)(msg)
 
@@ -645,6 +648,7 @@ class RunContext:
             resources=self._resources,
             perf_timeline=self._perf_timeline,
             _di_registry=self._di_registry,
+            _caps=self._caps,
         )
 
     # --- State Store ---

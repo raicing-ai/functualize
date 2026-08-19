@@ -179,8 +179,14 @@ class TestRunContextLog:
         mock_logger.critical.assert_called_once_with("critical msg")
 
     def test_log_invalid_level_raises(self, run_context):
-        with pytest.raises(AttributeError):
+        with pytest.raises(ValueError, match="Invalid log level"):
             run_context.log("msg", level="nonexistent")
+
+    def test_log_invalid_level_raises_before_emitting(self, run_context, mock_logger):
+        """The level is rejected before anything reaches the sink."""
+        with pytest.raises(ValueError, match="Invalid log level"):
+            run_context.log("msg", level="exception")
+        mock_logger.exception.assert_not_called()
 
 
 class TestTrackRunStatus:

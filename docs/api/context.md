@@ -38,15 +38,26 @@ from functualize.job import RunContext, Log, Invoke, Prompt, Perf, State, JobCon
 
 #### `rc.log(message, level="info")`
 
-Emit a log message. Delegates to the `Log` capability class.
+Emit a log message through the job's own [`Log`](../guides/run-context.md#logging)
+capability when the job declares one, so both routes share a sink; otherwise it
+writes to the job's `functualize.job.<name>` logger, which is where `Log` would
+have written too.
+
+`level` must be one of `debug`, `info`, `warning`, `error`, `critical` — anything
+else raises `ValueError`.
 
 ```python
-from functualize.job import RunContext
+from functualize.job import Log, RunContext
 
 def my_job(rc: RunContext) -> None:
     rc.log("Starting processing")                # info (default)
     rc.log("Connecting to DB", level="debug")
     rc.log("Retrying request", level="warning")
+
+
+def either_way(rc: RunContext, log: Log) -> None:
+    log("same sink")                             # the injected capability
+    rc.log("same sink")                          # routed to that same instance
 ```
 
 ---

@@ -9,12 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- `RunContext.log()` now routes through the injected `Log` capability: it
-  resolves `Log` from the DI registry once per context and falls back to the
-  job's stdlib logger when the registry has no `Log` binding — which remains
-  the production path, where the engine builds `Log` per invocation rather
-  than registering it. `TestRunContext.captured_logs()` therefore observes
-  `rc.log(...)`; the 0.1.0 known limitation is lifted.
+- `rc.log(...)` now emits through the job's own `Log` capability — the same
+  instance an injected `log: Log` parameter receives — instead of writing
+  straight to its stdlib logger. A job that logs both ways can no longer end
+  up with two different sinks, and anything wrapping `Log` sees both routes.
+  A job that never asks for `Log` has no instance to route to, so `rc.log()`
+  falls back to the `functualize.job.<name>` logger exactly as before.
+  `TestRunContext.captured_logs()` therefore observes `rc.log(...)`; the 0.1.0
+  known limitation is lifted.
+
+### Changed
+
+- An invalid `level` passed to `rc.log(...)` now raises `ValueError` (the error
+  the `Log` capability already raised) rather than `AttributeError`, and raises
+  it before any log callback runs. Levels that stdlib logging accepts but the
+  `Log` capability never did — `exception`, `warn`, `fatal` — are rejected
+  consistently now instead of depending on which sink was behind the call.
+  `CapturingLog` validates levels the same way, so a level production would
+  refuse can no longer pass silently in a test.
 
 ## [0.1.0] - 2026-08-04
 
@@ -188,6 +200,17 @@ function knowing which.
   `CapturingLog`, `MockInvoke`, `AutoPrompt`, `NoopPerf`. Each double subclasses
   the capability it stands in for, so it satisfies the DI registry's type check
   and can be injected anywhere the real capability is accepted.
+
+### Known limitations
+
+- `TestRunContext.captured_logs()` does not observe `rc.log(...)`.
+  `RunContext.log()` writes directly to its stdlib logger and never consults the
+  DI registry, so messages emitted that way are not recorded and the call returns
+  an empty list. Assert on log output by passing the double to the job directly
+  (`log = CapturingLog(); my_job(config, log); assert (...) in log.calls`), which
+  is the style the scaffolded job template demonstrates. Routing `RunContext.log`
+  through the injected `Log` is deferred to a later release.
+  *(Fixed after 0.1.0 — see Unreleased.)*
 
 [Unreleased]: https://github.com/raicing-ai/functualize/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/raicing-ai/functualize/releases/tag/v0.1.0

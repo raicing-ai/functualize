@@ -32,9 +32,9 @@ class TestRunContext:
         # Or with overrides:
         rc = TestRunContext.create(log=my_custom_log, state=my_state)
 
-    ``RunContext.log()`` routes through the injected ``Log``, so messages emitted
-    via ``rc.log(...)`` are recorded by the default ``CapturingLog`` and can be
-    asserted through ``captured_logs()``.
+    ``rc.log(...)`` emits through the same ``Log`` the job would receive as an
+    injected parameter, so messages logged either way are recorded by the
+    default ``CapturingLog`` and can be asserted through ``captured_logs()``.
     """
 
     @staticmethod
@@ -107,6 +107,18 @@ class TestRunContext:
             config=mock_config,
             logger=test_logger,
             _di_registry=registry,
+            # The per-invocation capability map the engine would hand a real
+            # RunContext. rc.log() reads its Log out of here, so the double
+            # sees rc.log(...) exactly as the injected `log: Log` parameter
+            # would in production.
+            _caps={
+                Log: effective_log,
+                Invoke: effective_invoke,
+                Prompt: effective_prompt,
+                Perf: effective_perf,
+                State: effective_state,
+                JobContext: effective_job_context,
+            },
         )
 
         return rc
@@ -117,8 +129,8 @@ class TestRunContext:
 
         Accesses the CapturingLog instance registered in the RunContext's DI registry
         and returns its recorded calls. Messages emitted via ``rc.log(...)`` are
-        included: ``RunContext.log()`` resolves the registered ``Log`` and emits
-        through it.
+        included: the same double sits in the RunContext's per-invocation
+        capability map, which is where ``RunContext.log()`` takes its sink from.
 
         Args:
             rc: A RunContext created by TestRunContext.create().

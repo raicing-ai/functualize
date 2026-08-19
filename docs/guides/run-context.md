@@ -159,7 +159,9 @@ def my_job(rc: RunContext) -> None:
 
 ## Logging
 
-The `RunContext` provides a `log` method that delegates to the configured Python logger. Supported levels are `debug`, `info`, `warning`, `error`, and `critical`:
+The `RunContext` provides a `log` method that emits through the job's own `Log` capability — the same instance an injected `log: Log` parameter receives — so a job that logs both ways writes to one sink. A job that does not declare `Log` has no instance to route to, and `rc.log` writes to that job's `functualize.job.<name>` logger instead, which is where `Log` would have written anyway.
+
+Supported levels are `debug`, `info`, `warning`, `error`, and `critical`; any other value raises `ValueError`:
 
 ```python
 def my_job(rc: RunContext) -> None:

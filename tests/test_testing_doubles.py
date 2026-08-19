@@ -214,10 +214,12 @@ class TestNoopPerf:
 
 
 class TestRunContextLogRouting:
-    """rc.log() emits through the DI-registered Log, so captured_logs() sees it.
+    """rc.log() emits through the injected Log, so captured_logs() sees it.
 
     Regression coverage for the 0.1.0 known limitation in which rc.log(...)
-    bypassed the injected Log and was invisible to captured_logs().
+    bypassed the injected Log and was invisible to captured_logs(). Which sink
+    RunContext picks, and why, is covered in
+    tests/execution/test_runcontext_log_sink.py.
     """
 
     def test_rc_log_observed_by_captured_logs(self):
