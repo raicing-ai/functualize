@@ -15,6 +15,7 @@ from hypothesis import strategies as st
 from functualize._discovery.transforms import NamespaceTransform
 from functualize._types.descriptors import FieldDescriptor, JobDescriptor
 from functualize._types.job_declaration import JobDeclaration
+from functualize._types.naming import normalize_name
 
 # --- Strategies (reused from test_transform_identity_property.py) ---
 
@@ -113,7 +114,8 @@ def test_property_3_transform_list_prefixes_all_names(
         f"NamespaceTransform changed list length: input={len(jobs)}, output={len(result)}"
     )
 
-    full_prefix = f"{prefix}{separator}"
+    # A namespace is a group segment, so the transform publishes it canonical.
+    full_prefix = f"{normalize_name(prefix)}{separator}"
 
     for i, (original, transformed) in enumerate(zip(jobs, result, strict=False)):
         expected_name = f"{full_prefix}{original.name}"
@@ -156,7 +158,7 @@ def test_property_3_transform_get_returns_none_for_non_prefixed_names(
     # Since our name strategy generates identifiers like "abc_def" and prefixes
     # are also identifiers, we construct a non-prefixed name by using the raw name
     # only when it doesn't accidentally match
-    if name.startswith(full_prefix):
+    if name.startswith((full_prefix, f"{normalize_name(prefix)}{separator}")):
         # Skip this case — it would be a valid prefixed name
         return
 
@@ -203,7 +205,9 @@ def test_property_3_transform_get_returns_prefixed_for_valid_names(
     **Validates: Requirements 9.2, 9.3, 9.4**
     """
     transform = NamespaceTransform(prefix=prefix, separator=separator)
-    full_prefix = f"{prefix}{separator}"
+    # The published (canonical) prefix is what a caller sees from transform_list
+    # and therefore what it looks the job back up by.
+    full_prefix = f"{normalize_name(prefix)}{separator}"
     prefixed_name = f"{full_prefix}{job.name}"
 
     result = transform.transform_get(prefixed_name, job)

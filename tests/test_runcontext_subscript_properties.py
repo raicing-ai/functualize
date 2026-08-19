@@ -115,7 +115,7 @@ class TestRunContextSubscriptAccessRoundTrip:
 
         for name in type_names:
             t = _make_type(name)
-            inst = object()
+            inst = t()
             reg.provide(t, inst)
             types_and_instances.append((t, inst))
 
@@ -141,7 +141,7 @@ class TestRunContextSubscriptAccessRoundTrip:
         instances: dict[str, object] = {}
 
         for q in qualifiers:
-            inst = object()
+            inst = t()
             instances[q] = inst
             reg.provide(t, inst, qualifier=q)
 
@@ -198,7 +198,7 @@ class TestRunContextSubscriptAccessRoundTrip:
         for name in registered_names:
             t = _make_type(name)
             type_map[name] = t
-            reg.provide(t, object())
+            reg.provide(t, t())
 
         unregistered_type = _make_type(unregistered_name)
 
@@ -322,7 +322,7 @@ class TestRunContextSubscriptAccessRoundTrip:
         unqualified: list[tuple[type, object]] = []
         for name in type_names:
             t = _make_type(name)
-            inst = object()
+            inst = t()
             reg.provide(t, inst)
             unqualified.append((t, inst))
 
@@ -330,7 +330,7 @@ class TestRunContextSubscriptAccessRoundTrip:
         qualified_type = _make_type(type_names[0] + "Qualified")
         qualified_instances: dict[str, object] = {}
         for q in qualifiers:
-            inst = object()
+            inst = qualified_type()
             reg.provide(qualified_type, inst, qualifier=q)
             qualified_instances[q] = inst
 

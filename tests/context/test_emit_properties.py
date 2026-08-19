@@ -79,44 +79,20 @@ num_renderers = st.integers(min_value=1, max_value=6)
 
 
 class FakeOutputRenderer:
-    """A fake OutputRenderer that records on_event calls."""
+    """A fake Surface that records the events fanned out to it.
+
+    Event fan-out goes through `Surface.handle_event` — `iter_fanout_surfaces`
+    filters registrations with `isinstance(s, Surface)`, so a recorder that
+    does not satisfy that runtime-checkable protocol is silently dropped and
+    every assertion here would read zero events.
+    """
 
     def __init__(self, name: str = "renderer", raise_exc: Exception | None = None):
         self.name = name
         self.events: list[StructuredEvent] = []
         self._raise_exc = raise_exc
 
-    def render_log(self, message: str, level: str) -> None:
-        pass
-
-    def render_phase(self, phase: str, status: str) -> None:
-        pass
-
-    def render_progress(self, current: int, total: int, label: str) -> None:
-        pass
-
-    def on_job_start(self, job_name: str, metadata: dict[str, Any]) -> None:
-        pass
-
-    def on_log(self, level: str, message: str) -> None:
-        pass
-
-    def on_status_change(self, old_status: Any, new_status: Any, message: str) -> None:
-        pass
-
-    def on_phase_change(self, step: Any, action: str) -> None:
-        pass
-
-    def on_invoke_start(self, child_job_name: str, kwargs: dict[str, Any]) -> None:
-        pass
-
-    def on_invoke_end(self, child_job_name: str, result: Any) -> None:
-        pass
-
-    def on_job_end(self, job_name: str, result: Any) -> None:
-        pass
-
-    def on_event(self, event: StructuredEvent) -> None:
+    def handle_event(self, event: StructuredEvent) -> None:
         if self._raise_exc is not None:
             raise self._raise_exc
         self.events.append(event)

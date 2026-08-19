@@ -58,11 +58,13 @@ def _qualifier(draw: st.DrawFn) -> str:
 
 
 @st.composite
-def _provide_operations(draw: st.DrawFn) -> list[tuple[str, str | None, object]]:
-    """Generate a sequence of provide operations: (type_name, qualifier, instance).
+def _provide_operations(draw: st.DrawFn) -> list[tuple[str, str | None]]:
+    """Generate a sequence of provide operations: (type_name, qualifier).
 
     Multiple operations may target the same (type_name, qualifier) pair to
-    test last-write-wins semantics.
+    test last-write-wins semantics. Instances are minted by `_realize_ops`
+    rather than here, because `DIRegistry.provide` type-checks the instance
+    against the type and a bare `object()` cannot satisfy that contract.
     """
     num_types = draw(st.integers(min_value=1, max_value=5))
     type_names = [draw(_type_name()) for _ in range(num_types)]
@@ -71,13 +73,29 @@ def _provide_operations(draw: st.DrawFn) -> list[tuple[str, str | None, object]]
     assume(len(type_names) >= 1)
 
     num_ops = draw(st.integers(min_value=1, max_value=15))
-    ops: list[tuple[str, str | None, object]] = []
+    ops: list[tuple[str, str | None]] = []
     for _ in range(num_ops):
         tn = draw(st.sampled_from(type_names))
         qual = draw(st.one_of(st.none(), _qualifier()))
-        instance = object()  # unique identity
-        ops.append((tn, qual, instance))
+        ops.append((tn, qual))
     return ops
+
+
+def _realize_ops(
+    ops: list[tuple[str, str | None]],
+) -> tuple[dict[str, type], list[tuple[str, str | None, object]]]:
+    """Turn generated (type_name, qualifier) ops into concrete registrations.
+
+    Returns the name→type map plus the ops with a freshly-minted instance of
+    the correct type appended. Each instance has a distinct identity, which is
+    what the last-write-wins and independence properties assert on.
+    """
+    type_map: dict[str, type] = {}
+    for type_name, _ in ops:
+        if type_name not in type_map:
+            type_map[type_name] = _make_type(type_name)
+    realized = [(tn, qual, type_map[tn]()) for tn, qual in ops]
+    return type_map, realized
 
 
 # =============================================================================
@@ -98,7 +116,7 @@ class TestDIRegistryProvideResolveRoundTrip:
     @given(ops=_provide_operations())
     @settings(max_examples=200)
     def test_resolve_returns_most_recent_instance(
-        self, ops: list[tuple[str, str | None, object]]
+        self, ops: list[tuple[str, str | None]]
     ):
         """resolve(type, qualifier) returns the most recently provided instance.
 
@@ -106,19 +124,15 @@ class TestDIRegistryProvideResolveRoundTrip:
         """
         reg = DIRegistry()
 
-        # Create actual types from names and track them
-        type_map: dict[str, type] = {}
-        for type_name, _, _ in ops:
-            if type_name not in type_map:
-                type_map[type_name] = _make_type(type_name)
+        type_map, realized = _realize_ops(ops)
 
         # Execute all provide operations
-        for type_name, qualifier, instance in ops:
+        for type_name, qualifier, instance in realized:
             reg.provide(type_map[type_name], instance, qualifier=qualifier)
 
         # For each unique (type_name, qualifier) pair, the last-written instance wins
         last_written: dict[tuple[str, str | None], object] = {}
-        for type_name, qualifier, instance in ops:
+        for type_name, qualifier, instance in realized:
             last_written[(type_name, qualifier)] = instance
 
         # Verify round-trip
@@ -146,7 +160,7 @@ class TestDIRegistryProvideResolveRoundTrip:
 
         instances = {}
         for q in qualifiers:
-            inst = object()
+            inst = t()
             instances[q] = inst
             reg.provide(t, inst, qualifier=q)
 
@@ -297,7 +311,7 @@ class TestDIRegistryResolutionErrorDiagnostics:
         for name in registered_names:
             t = _make_type(name)
             type_map[name] = t
-            reg.provide(t, object())
+            reg.provide(t, t())
 
         missing_type = _make_type(missing_name)
 
@@ -329,7 +343,7 @@ class TestDIRegistryResolutionErrorDiagnostics:
         t = _make_type("AmbiguousService")
 
         for q in qualifiers:
-            reg.provide(t, object(), qualifier=q)
+            reg.provide(t, t(), qualifier=q)
 
         try:
             reg.resolve(t)
@@ -358,7 +372,8 @@ class TestDIRegistryResolutionErrorDiagnostics:
 
         reg = DIRegistry()
         for name in registered_names:
-            reg.provide(_make_type(name), object())
+            _t = _make_type(name)
+            reg.provide(_t, _t())
 
         missing_type = _make_type(missing_name)
 
@@ -390,19 +405,17 @@ class TestDIRegistryFreezeImmutability:
     @given(ops=_provide_operations())
     @settings(max_examples=200)
     def test_frozen_registry_rejects_all_mutations(
-        self, ops: list[tuple[str, str | None, object]]
+        self, ops: list[tuple[str, str | None]]
     ):
         """All mutation methods raise RegistryFrozenError after freeze.
 
         **Validates: Requirements 4.1, 4.2, 4.3**
         """
         reg = DIRegistry()
-        type_map: dict[str, type] = {}
+        type_map, realized = _realize_ops(ops)
 
         # Set up some registrations
-        for type_name, qualifier, instance in ops:
-            if type_name not in type_map:
-                type_map[type_name] = _make_type(type_name)
+        for type_name, qualifier, instance in realized:
             reg.provide(type_map[type_name], instance, qualifier=qualifier)
 
         # Freeze
@@ -412,7 +425,7 @@ class TestDIRegistryFreezeImmutability:
         new_type = _make_type("NewType")
 
         try:
-            reg.provide(new_type, object())
+            reg.provide(new_type, new_type())
             raise AssertionError("provide() should raise RegistryFrozenError")
         except RegistryFrozenError as e:
             assert e.method_name == "provide"
@@ -431,21 +444,17 @@ class TestDIRegistryFreezeImmutability:
 
     @given(ops=_provide_operations())
     @settings(max_examples=200)
-    def test_frozen_registry_reads_still_work(
-        self, ops: list[tuple[str, str | None, object]]
-    ):
+    def test_frozen_registry_reads_still_work(self, ops: list[tuple[str, str | None]]):
         """Read methods continue to work normally after freeze.
 
         **Validates: Requirements 4.1, 4.2, 4.3**
         """
         reg = DIRegistry()
-        type_map: dict[str, type] = {}
+        type_map, realized = _realize_ops(ops)
 
         # Set up registrations and track last-written per key
         last_written: dict[tuple[str, str | None], object] = {}
-        for type_name, qualifier, instance in ops:
-            if type_name not in type_map:
-                type_map[type_name] = _make_type(type_name)
+        for type_name, qualifier, instance in realized:
             reg.provide(type_map[type_name], instance, qualifier=qualifier)
             last_written[(type_name, qualifier)] = instance
 

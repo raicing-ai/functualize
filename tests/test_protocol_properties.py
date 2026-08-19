@@ -18,6 +18,7 @@ from hypothesis import strategies as st
 
 from functualize._discovery.providers import Job, StaticProvider
 from functualize._primitives.pre_filter import ModulePreFilter
+from functualize._types.naming import normalize_name, normalize_segment
 from functualize._types.protocols import JobProvider, JobTransform
 
 if TYPE_CHECKING:
@@ -46,12 +47,18 @@ def _make_class_with_methods(
 # Strategy: generate valid Python identifiers for function names
 _identifier_strategy = st.from_regex(r"[a-z][a-z0-9_]{0,15}", fullmatch=True)
 
-# Strategy: generate a list of unique function names (for StaticProvider)
+# Strategy: generate a list of function names unique *in canonical space*.
+#
+# Job identity is the canonical name, not the Python name: `normalize_segment`
+# maps `_` to `-` and strips the result, so `a_`, `a__` and `a` all denote the
+# same job and registering two of them is a collision, not two jobs. Uniqueness
+# therefore has to be stated over `normalize_segment`, and names that normalize
+# to empty are not addressable at all.
 _unique_names_strategy = st.lists(
-    _identifier_strategy,
+    _identifier_strategy.filter(lambda n: normalize_segment(n) != ""),
     min_size=1,
     max_size=20,
-    unique=True,
+    unique_by=normalize_segment,
 )
 
 # Strategy: boolean for whether to use Job dataclass vs plain callable
@@ -327,7 +334,7 @@ class TestStaticProviderRoundTrip:
         for name in names:
             descriptor = provider.get_job(name)
             assert descriptor is not None
-            assert descriptor.name == name
+            assert descriptor.name == normalize_segment(name)
 
     @given(names=_unique_names_strategy)
     @settings(max_examples=200)
@@ -351,10 +358,15 @@ class TestStaticProviderRoundTrip:
     @given(
         names=_unique_names_strategy,
         overrides=st.lists(
-            st.tuples(_identifier_strategy, _optional_group),
+            st.tuples(
+                _identifier_strategy.filter(lambda n: normalize_segment(n) != ""),
+                _optional_group,
+            ),
             min_size=1,
             max_size=10,
-            unique_by=lambda x: x[0],
+            # Canonical name is identity, so two overrides differing only by
+            # underscores are the same job, not two.
+            unique_by=lambda x: normalize_segment(x[0]),
         ),
     )
     @settings(max_examples=200)
@@ -384,8 +396,8 @@ class TestStaticProviderRoundTrip:
         for override_name, group in overrides:
             descriptor = provider.get_job(override_name)
             assert descriptor is not None
-            assert descriptor.name == override_name
-            assert descriptor.group == group
+            assert descriptor.name == normalize_segment(override_name)
+            assert descriptor.group == normalize_name(group)
 
     @given(names=_unique_names_strategy)
     @settings(max_examples=200)
@@ -406,7 +418,7 @@ class TestStaticProviderRoundTrip:
         for name in names:
             descriptor = provider.get_job(name)
             assert descriptor is not None
-            assert descriptor.name == name
+            assert descriptor.name == normalize_segment(name)
 
     @given(names=_unique_names_strategy)
     @settings(max_examples=100)
@@ -461,7 +473,7 @@ class TestStaticProviderRoundTrip:
         for name in expected_names:
             descriptor = provider.get_job(name)
             assert descriptor is not None
-            assert descriptor.name == name
+            assert descriptor.name == normalize_segment(name)
 
     @given(names=_unique_names_strategy)
     @settings(max_examples=100)
@@ -486,12 +498,16 @@ class TestStaticProviderRoundTrip:
             assert provider.get_job(name) is not None
 
         # No phantom jobs: get_job only returns for listed names
-        assert listed_names == set(names)
+        assert listed_names == {normalize_segment(n) for n in names}
 
     @given(names=_unique_names_strategy)
     @settings(max_examples=100)
     def test_static_provider_zero_io(self, names: list[str]):
-        """StaticProvider produces descriptors with source_file='<static>' (zero I/O).
+        """StaticProvider produces descriptors with source='<static>' (zero I/O).
+
+        `source` carries the sentinel; `source_file` stays empty because it is
+        the filesystem path used for cache invalidation and an in-memory
+        function has no file to stat.
 
         **Validates: Requirements 23.1**
         """
@@ -504,5 +520,6 @@ class TestStaticProviderRoundTrip:
 
         provider = StaticProvider(functions=functions)
         for desc in provider.list_jobs():
-            assert desc.source_file == "<static>"
+            assert desc.source == "<static>"
+            assert desc.source_file == ""
             assert desc.source_mtime == 0.0

@@ -159,7 +159,9 @@ class TestPromptGateResolverUnresolvedFieldsProperty:
 
         # Run the resolver
         provider = TrackingInputProvider()
-        resolver = PromptGateResolver(provider=provider)
+        # The collector is resolved lazily through a factory so the strategy can
+        # be registered at boot, before any surface exists.
+        resolver = PromptGateResolver(collector_factory=lambda _app: provider)
         resolver.resolve(ctx)
 
         # Assert: number of prompts equals number of unresolved fields
@@ -213,7 +215,9 @@ class TestPromptGateResolverUnresolvedFieldsProperty:
         )
 
         provider = TrackingInputProvider()
-        resolver = PromptGateResolver(provider=provider)
+        # The collector is resolved lazily through a factory so the strategy can
+        # be registered at boot, before any surface exists.
+        resolver = PromptGateResolver(collector_factory=lambda _app: provider)
         resolver.resolve(ctx)
 
         # The prompted fields should match unresolved fields exactly
@@ -275,7 +279,9 @@ class TestPromptGateResolverForceGateProperty:
         )
 
         provider = TrackingInputProvider()
-        resolver = PromptGateResolver(provider=provider)
+        # The collector is resolved lazily through a factory so the strategy can
+        # be registered at boot, before any surface exists.
+        resolver = PromptGateResolver(collector_factory=lambda _app: provider)
         resolver.resolve(ctx)
 
         # Assert: number of prompts equals total number of fields
@@ -326,7 +332,9 @@ class TestPromptGateResolverForceGateProperty:
         )
 
         provider = TrackingInputProvider()
-        resolver = PromptGateResolver(provider=provider)
+        # The collector is resolved lazily through a factory so the strategy can
+        # be registered at boot, before any surface exists.
+        resolver = PromptGateResolver(collector_factory=lambda _app: provider)
         resolver.resolve(ctx)
 
         # The prompted fields should match all_fields exactly
@@ -380,7 +388,9 @@ class TestPromptGateResolverForceGateProperty:
         )
 
         provider = TrackingInputProvider()
-        resolver = PromptGateResolver(provider=provider)
+        # The collector is resolved lazily through a factory so the strategy can
+        # be registered at boot, before any surface exists.
+        resolver = PromptGateResolver(collector_factory=lambda _app: provider)
         resolver.resolve(ctx)
 
         # For each resolved field, its prompt should have the resolved value as default

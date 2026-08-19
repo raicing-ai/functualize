@@ -13,6 +13,7 @@ from hypothesis import strategies as st
 
 from functualize._discovery.transforms import NamespaceTransform
 from functualize._types.descriptors import JobDescriptor
+from functualize._types.naming import normalize_name
 
 # =============================================================================
 # Strategies
@@ -51,8 +52,13 @@ class TestNamespaceTransformPrefixStripRoundTrip:
 
     For any namespace string ns and any JobDescriptor with name n,
     NamespaceTransform(ns).transform_list([desc]) SHALL produce a descriptor
-    with name "{ns}.{n}". Conversely, transform_get("{ns}.{n}", desc) SHALL
-    strip the prefix before delegation and re-add it to the result.
+    named `normalize_name(f"{ns}.{n}")`. Conversely, transform_get on that
+    name SHALL strip the prefix before delegation and re-add it to the result.
+
+    The *prefix* is canonicalized (a namespace is a group segment as far as
+    the CLI is concerned), so a prefix of `a_` namespaces under `a`. The job
+    name is passed through untouched — descriptors arrive already canonical
+    from discovery.
 
     **Validates: Requirements 24.1, 24.2, 24.3, 24.4**
     """
@@ -70,7 +76,7 @@ class TestNamespaceTransformPrefixStripRoundTrip:
         result = transform.transform_list([desc])
 
         assert len(result) == 1
-        assert result[0].name == f"{ns}.{name}"
+        assert result[0].name == f"{normalize_name(ns)}.{name}"
 
     @given(ns=_namespace_strategy, name=_job_name_strategy)
     @settings(max_examples=200)
@@ -83,7 +89,7 @@ class TestNamespaceTransformPrefixStripRoundTrip:
         """
         transform = NamespaceTransform(prefix=ns)
         desc = _make_descriptor(name)
-        prefixed_name = f"{ns}.{name}"
+        prefixed_name = f"{normalize_name(ns)}.{name}"
 
         result = transform.transform_get(prefixed_name, desc)
 
@@ -159,4 +165,4 @@ class TestNamespaceTransformPrefixStripRoundTrip:
 
         assert len(result) == len(names)
         for original, transformed in zip(names, result, strict=False):
-            assert transformed.name == f"{ns}.{original}"
+            assert transformed.name == f"{normalize_name(ns)}.{original}"
