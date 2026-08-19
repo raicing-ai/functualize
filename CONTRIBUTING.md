@@ -312,6 +312,14 @@ git push origin master
 git push origin vX.Y.Z
 ```
 
+A `v*` tag is immutable: the `release tags` ruleset blocks deletion and
+force-update, and no one can bypass it. Creating tags is unrestricted, so the
+push above works normally — but a tag pointing at the wrong commit cannot simply
+be moved. This matches the index it feeds: a version published to PyPI can never
+be re-uploaded, so a bad tag is best followed by a new patch version. If a tag
+genuinely must be removed, set the ruleset's `enforcement` to `disabled`, fix
+it, and set it back to `active` — deliberately, and as two visible steps.
+
 The release workflow builds and publishes the core package **and every workspace
 plugin** (`uv build --all-packages`). One-time setup: each PyPI project
 (`functualize` plus all `functualize-*` plugins) must have a
@@ -365,6 +373,7 @@ There is no `release:` type. A version bump is `chore(release): v0.2.0`.
 | `conventional-pre-commit` | Commit subject type and shape, at commit time | `.pre-commit-config.yaml` (needs `pre-commit install --hook-type commit-msg`) |
 | PR Title workflow | PR title type, single-token scope, lowercase subject, no trailing period | `.github/workflows/pr-title.yml` |
 | `master` ruleset | Changes arrive by PR; squash is the only merge method; `lint`, `lint-imports`, `typecheck`, `test-fast`, `gitleaks` and `lint-title` must pass; no force-push; no branch deletion | GitHub repository ruleset named `master` |
+| `release tags` ruleset | A `v*` tag cannot be deleted or moved once pushed | GitHub repository ruleset named `release tags` |
 
 The first two overlap deliberately. The hook cannot see a PR title, and the PR
 title is what becomes the commit on `master` — so the title is the one that must
