@@ -4,11 +4,18 @@ Consolidated performance budgets, targets, and measurement strategies for the fr
 
 ## Cold Boot Target (NFR-1)
 
-**Target:** `FunctualizeApp` with zero jobs must boot in ≤30ms.
+**Aspiration:** `FunctualizeApp` with zero jobs boots in ≤30ms.
+**Enforced today:** 500ms (`BUDGET_TOTAL_BOOT_MS`).
+**Measured today:** ~119ms median, ~152ms worst, over 10 cold boots in an empty CWD.
 
-This target applies to the initialization time from app construction through `scan_and_register()` completion. The measurement is enforced in CI via `tests/perf/test_startup_budget.py`.
+These three numbers are 16× apart at the extremes, and this document previously stated
+only the first while implying it was enforced. It is not: no test asserts 30ms, and the
+test this document used to name — `test_cold_boot_under_30ms` — does not exist.
 
-**Why this matters:** The framework supports cold-start scenarios (Mode B/C via `func` CLI), where boot time directly impacts user experience. Every 100ms of boot overhead makes the tool feel sluggish on repeat invocations.
+Treat 30ms as the design goal it is. The gap is not mysterious; see **Where boot time
+actually goes** below.
+
+**Why this matters:** The framework supports cold-start scenarios (Mode B/C via `func` CLI), where boot time directly impacts user experience. Every 100ms of boot overhead makes the tool feel sluggish on repeat invocations — and boot is paid per CLI invocation, not once per session.
 
 ## Boot Phase Budgets
 
@@ -16,18 +23,59 @@ FunctualizeApp initialization executes in twelve ordered steps. Each phase has a
 
 Measured in `tests/perf/test_startup_budget.py`:
 
-| Phase | Budget | Notes |
-|-------|--------|-------|
-| `core_infra` | 50ms | HookRegistry, DIRegistry, JobExecutionEngine instantiated |
-| `provider_registry` | 10ms | Built-in TOML + INI format providers registered |
-| `observability` | 50ms | EventBus, MiddlewareStack created (before plugins can subscribe) |
-| `plugins` | 200ms | Entry-point + file-based plugin loading via topological sort |
-| `config_entry_points` | 50ms | Format/remote provider entry point discovery |
-| `config_resolution` | 100ms | ResourceLocator + ResolutionChain built once |
-| `job_registration` | 50ms | Providers from JobSources wired (directories → CachedDirectoryScanProvider, functions → Static) |
-| `children` | 50ms | Child FunctualizeApp projects mounted |
-| `tui` | 20ms | Textual/TUI infrastructure (if enabled) |
-| **Total boot** | **500ms** | Cumulative budget for all phases |
+| Phase | Budget | Median measured | Notes |
+|-------|--------|-----------------|-------|
+| `core_infra` | 50ms | 0.18ms | HookRegistry, DIRegistry, JobExecutionEngine instantiated |
+| `provider_registry` | 10ms | 0.06ms | Built-in TOML + INI format providers registered |
+| `observability` | 50ms | 0.00ms | EventBus, MiddlewareStack created (before plugins can subscribe) |
+| `plugins` | 200ms | 13.43ms | Entry-point + file-based plugin loading via topological sort |
+| `config_entry_points` | 50ms | 19.45ms | Format/remote provider entry point discovery |
+| `config_resolution` | 300ms | 37.19ms | ResourceLocator + ResolutionChain built once |
+| `job_registration` | 50ms | 0.00ms | Providers from JobSources wired (directories → CachedDirectoryScanProvider, functions → Static) |
+| `children` | 50ms | 2.01ms | Child FunctualizeApp projects mounted |
+| `domains` | **none** | **44.87ms** | Domain discovery + per-domain provider scan — **the second-largest phase, and unbudgeted** |
+| **Total boot** | **500ms** | **118.62ms** | Cumulative budget for all phases |
+
+Measured over 10 cold boots in an empty CWD, `boot.*` phases only.
+
+Two corrections to what this table used to say:
+
+- **`tui` (20ms) has been removed.** That phase no longer exists — `test_tui_budget`
+  asserts `boot.tui` is *not* emitted, since TUI registration moved to `CliAdapter.run()`
+  during the Phase 5 adapter extraction. Listing it as an enforced budget was wrong.
+- **`config_resolution` is 300ms, not 100ms.** Raised in `cde4cb8` after the 100ms figure
+  was found to be a standing breach rather than a flake: it measured min 93.4 / median
+  127.5 / max 158.4ms, i.e. over budget more often than under, passing only on lucky runs.
+  The phase has since been fixed (see below) and now runs ~37ms, so **this budget is now
+  far too loose and should be brought down**.
+
+Several other budgets are two to three orders of magnitude above their measured cost
+(`observability` at 50ms against 0.00ms). They cannot catch a regression until it is
+catastrophic. Tightening them is worthwhile but should be done from fresh measurements on
+CI hardware, not from these workstation figures.
+
+## Where boot time actually goes
+
+As of 2026-08-20, two findings account for most of the gap between the 30ms goal and the
+~119ms reality.
+
+**Fixed — `discover_config_path` stat'd every file before reading its name** (`a8c02f9`).
+The upward config-file search ran `entry.is_file() and regex.match(entry.name)` per
+directory entry. `is_file()` is a syscall and the regex is pure string work, so every file
+in every ancestor directory was stat'd before anything looked at it — 17,249 syscalls per
+boot from a CWD under a busy `/tmp`. Reordering the pure predicates first took
+`config_resolution` from 158.67ms to 41.02ms and total boot from 250.87ms to 125.00ms.
+Recorded as pitfall #16.
+
+**Open — one boot calls `importlib.metadata.entry_points()` seven times.** Each call scans
+*all* installed distributions and reads every `entry_points.txt` from disk before applying
+the group filter; the group argument narrows the result, not the scan. With 215
+distributions installed that is 91.59ms across the seven calls where a memoised version
+costs 13.08ms once — **~79ms recoverable**, most of what boot now spends. The behaviour is
+identical in Python 3.11, 3.12 and 3.13, so no interpreter upgrade fixes it. The call
+count is also not a constant: `scan_domain_providers` runs once per registered domain, so
+installations with more domain plugins pay more, which is why `domains` is the
+second-largest phase.
 
 **Exceeding Budget:** If any phase exceeds its budget in CI, the test fails. This is a regression gate — performance improvements are welcome, but degradation blocks merges.
 
@@ -177,13 +225,43 @@ Consider deferring heavy imports to __call__() or first use.
 
 ### Cold Boot Verification (NFR-1)
 
-The cold boot test verifies that `FunctualizeApp(zero_jobs)` boots in ≤30ms:
+There is **no** `test_cold_boot_under_30ms`; this document used to name it. The total-boot
+assertion is `TestStartupBudget::test_total_boot_time`, and it checks the 500ms budget, not
+the 30ms goal:
 
 ```bash
-uv run pytest tests/perf/test_startup_budget.py::test_cold_boot_under_30ms -v
+uv run pytest tests/perf/test_startup_budget.py::TestStartupBudget::test_total_boot_time -v
 ```
 
-This test runs in CI and blocks merges if violated.
+This runs in CI and blocks merges if violated.
+
+To measure the actual distribution rather than a single pass/fail — which is how the stale
+`config_resolution` budget was found — boot repeatedly and read the phase report directly:
+
+```python
+import os, tempfile, statistics
+from functualize._app.state import AppState
+from functualize._events.perf import perf_timeline
+from functualize.app.core import FunctualizeApp
+
+rows: dict[str, list[float]] = {}
+for _ in range(10):
+    AppState.reset(); perf_timeline.reset()
+    with tempfile.TemporaryDirectory() as d:
+        cwd = os.getcwd(); os.chdir(d)
+        try:
+            FunctualizeApp(name="b")
+            for p in perf_timeline.report().phases:
+                rows.setdefault(p.name, []).append(p.duration_ms)
+        finally:
+            os.chdir(cwd)
+
+for name, vals in sorted(rows.items(), key=lambda kv: -statistics.median(kv[1])):
+    print(f"{name:28s} median={statistics.median(vals):7.2f}  max={max(vals):7.2f}")
+```
+
+A single-sample budget test cannot distinguish "slow under load" from "over budget
+always". Check the median before concluding a perf test is flaky.
 
 ## Static vs Lazy Wiring Trade-offs
 
