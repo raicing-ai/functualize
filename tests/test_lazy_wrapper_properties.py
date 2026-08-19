@@ -304,9 +304,15 @@ class TestSignatureReconstruction:
                 assert list(param.type.choices) == (field.choices or [])
             else:
                 expected_type = _EXPECTED_CLICK_TYPE[field.type_annotation]
-                assert param.type == expected_type, (
+                # click's ParamType defines no __eq__, so `==` is identity.
+                # `click.BOOL` is a singleton but the builder constructs a fresh
+                # BoolParamType, which is the same type and behaves identically
+                # while comparing unequal. Compare on what actually matters.
+                assert type(param.type) is type(expected_type), (
                     f"Field '{field.name}' with type='{field.type_annotation}' should "
-                    f"have click type {expected_type}, got {param.type}"
+                    f"have click type {expected_type!r} "
+                    f"({type(expected_type).__name__}), got {param.type!r} "
+                    f"({type(param.type).__name__})"
                 )
 
     @given(fields=field_descriptor_lists())

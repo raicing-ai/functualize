@@ -41,9 +41,7 @@ def module_spec(draw: st.DrawFn) -> tuple[list[str], list[str]]:
     and non-overlapping with public names.
     """
     public_names = draw(
-        st.lists(
-            public_func_names, min_size=1, max_size=8, unique_by=normalize_segment
-        )
+        st.lists(public_func_names, min_size=1, max_size=8, unique_by=normalize_segment)
     )
     private_names = draw(
         st.lists(private_func_names, min_size=0, max_size=4, unique=True)

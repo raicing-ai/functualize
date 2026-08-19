@@ -223,8 +223,11 @@ class TestStateStoreReplacement:
         # get via scope reads from new store
         assert scope.state_store.get(new_key) == new_value
 
-        # keys via scope reflects new store
-        assert new_key in scope.state_store
+        # keys via scope reflects new store. StateStoreProtocol exposes
+        # membership through `keys()` — which returns a list — and defines no
+        # `__contains__`, so a conforming store is not required to answer `in`.
+        store_keys = scope.state_store.keys()
+        assert new_key in store_keys
 
         # delete via scope operates on new store
         scope.state_store.delete(new_key)

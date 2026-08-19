@@ -68,11 +68,15 @@ _nonempty_job_list = st.lists(_job_descriptor, min_size=1, max_size=50)
 
 
 def _build_panel(jobs: list[JobDescriptor]) -> JobBrowserPanel:
-    """Build a JobBrowserPanel with jobs set directly (no mounted DataTable)."""
+    """Build a JobBrowserPanel with jobs set (no mounted DataTable).
+
+    Goes through the real `set_jobs`, which is safe without a table —
+    `_populate_table` no-ops while `_table is None`. Assigning `_jobs`
+    directly leaves `_filtered_jobs` empty, and selection reads the filtered
+    list, so every selection silently became a no-op.
+    """
     panel = JobBrowserPanel(id="selection-test-panel")
-    panel._jobs = list(jobs)
-    panel._row_count = len(jobs)
-    panel._cursor_row = 0
+    panel.set_jobs(list(jobs))
     return panel
 
 

@@ -21,6 +21,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.dispatch import (
+    _OPTIONAL_VALUE_VALID_SET,
     Mode,
     _extract_global_options,
     detect_mode,
@@ -328,7 +329,9 @@ class TestPreservationEqualsStyleSyntax:
     """
 
     @given(
-        format_value=st.sampled_from(["text", "json"]),
+        format_value=st.sampled_from(
+            sorted(_OPTIONAL_VALUE_VALID_SET["--perf-report"][0])
+        ),
         job_name=_job_name,
     )
     def test_perf_report_equals_syntax_routes_job(
@@ -347,7 +350,9 @@ class TestPreservationEqualsStyleSyntax:
         assert job_name in effective_args
 
     @given(
-        format_value=st.sampled_from(["text", "json"]),
+        format_value=st.sampled_from(
+            sorted(_OPTIONAL_VALUE_VALID_SET["--perf-report"][0])
+        ),
         job_name=_job_name,
     )
     def test_perf_report_equals_syntax_parses_value(
@@ -365,7 +370,7 @@ class TestPreservationEqualsStyleSyntax:
         assert opts.first_positional_index == 1
 
     @given(
-        format_value=st.sampled_from(["json", "text", "none"]),
+        format_value=st.sampled_from(sorted(_OPTIONAL_VALUE_VALID_SET["--output"][0])),
         job_name=_job_name,
     )
     def test_output_equals_syntax_routes_job(
@@ -384,7 +389,7 @@ class TestPreservationEqualsStyleSyntax:
         assert job_name in effective_args
 
     @given(
-        format_value=st.sampled_from(["json", "text", "none"]),
+        format_value=st.sampled_from(sorted(_OPTIONAL_VALUE_VALID_SET["--output"][0])),
         job_name=_job_name,
     )
     def test_output_equals_syntax_parses_value(
@@ -501,7 +506,9 @@ class TestPreservationMultipleFlags:
 
     @given(
         log_level=st.sampled_from(_VALID_LOG_LEVELS),
-        perf_format=st.sampled_from(["text", "json"]),
+        perf_format=st.sampled_from(
+            sorted(_OPTIONAL_VALUE_VALID_SET["--perf-report"][0])
+        ),
         job_name=_job_name,
     )
     def test_log_level_perf_report_equals_no_dotenv_combined(
@@ -615,12 +622,16 @@ class TestPreservationMultipleFlags:
 
         # Optionally add --perf-report=FORMAT (equals style only)
         if data.draw(st.booleans()):
-            fmt = data.draw(st.sampled_from(["text", "json"]))
+            fmt = data.draw(
+                st.sampled_from(sorted(_OPTIONAL_VALUE_VALID_SET["--perf-report"][0]))
+            )
             flag_tokens.append(f"--perf-report={fmt}")
 
         # Optionally add --output=FORMAT (equals style only)
         if data.draw(st.booleans()):
-            fmt = data.draw(st.sampled_from(["json", "text", "none"]))
+            fmt = data.draw(
+                st.sampled_from(sorted(_OPTIONAL_VALUE_VALID_SET["--output"][0]))
+            )
             flag_tokens.append(f"--output={fmt}")
 
         # Optionally add --exclude

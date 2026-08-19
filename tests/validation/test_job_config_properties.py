@@ -228,10 +228,14 @@ class TestJobConfigResolutionPrecedence:
         """CLI argument takes highest precedence over env var, config, and default."""
         assume(cli_val != default_val)  # Ensure CLI value differs from default
 
+        # Job-scoped env keys are JOB_NAME__FIELD: a double underscore
+        # separating job from field, with the job's hyphens folded to
+        # underscores. A single underscore matches nothing, so the env layer
+        # was simply never exercised and the config layer won every time.
         class MyConfig(BaseModel):
             name: str = Field(default=default_val)
 
-        env_key = f"{job_name.upper()}_NAME"
+        env_key = f"{job_name.upper().replace('-', '_')}__NAME"
 
         with patch.dict(os.environ, {env_key: env_val}, clear=False):
             config = MagicMock(spec=JobConfigView)
@@ -260,7 +264,7 @@ class TestJobConfigResolutionPrecedence:
         class MyConfig(BaseModel):
             name: str = Field(default=default_val)
 
-        env_key = f"{job_name.upper()}_NAME"
+        env_key = f"{job_name.upper().replace('-', '_')}__NAME"
 
         with patch.dict(os.environ, {env_key: env_val}, clear=False):
             config = MagicMock(spec=JobConfigView)
@@ -288,7 +292,7 @@ class TestJobConfigResolutionPrecedence:
         class MyConfig(BaseModel):
             name: str = Field(default=default_val)
 
-        env_key = f"{job_name.upper()}_NAME"
+        env_key = f"{job_name.upper().replace('-', '_')}__NAME"
 
         # Ensure env var is NOT set
         env_patch = {k: v for k, v in os.environ.items() if k != env_key}
@@ -314,7 +318,7 @@ class TestJobConfigResolutionPrecedence:
         class MyConfig(BaseModel):
             name: str = Field(default=default_val)
 
-        env_key = f"{job_name.upper()}_NAME"
+        env_key = f"{job_name.upper().replace('-', '_')}__NAME"
 
         # Ensure env var is NOT set
         env_patch = {k: v for k, v in os.environ.items() if k != env_key}
@@ -342,7 +346,7 @@ class TestJobConfigResolutionPrecedence:
         class IntConfig(BaseModel):
             timeout: int = Field(default=30)
 
-        env_key = f"{job_name.upper()}_TIMEOUT"
+        env_key = f"{job_name.upper().replace('-', '_')}__TIMEOUT"
 
         with patch.dict(os.environ, {env_key: str(env_int)}, clear=False):
             config = MagicMock(spec=JobConfigView)
@@ -386,8 +390,8 @@ class TestJobConfigDualAccess:
             name: str = Field(default="default")
             timeout: int = Field(default=30)
 
-        env_key_name = f"{job_name.upper()}_NAME"
-        env_key_timeout = f"{job_name.upper()}_TIMEOUT"
+        env_key_name = f"{job_name.upper().replace('-', '_')}__NAME"
+        env_key_timeout = f"{job_name.upper().replace('-', '_')}__TIMEOUT"
 
         # Clear relevant env vars
         env_patch = {
@@ -427,7 +431,7 @@ class TestJobConfigDualAccess:
         class EnumJobCfg(BaseModel):
             output: OutputFormat = Field(default=OutputFormat.JSON)
 
-        env_key = f"{job_name.upper()}_OUTPUT"
+        env_key = f"{job_name.upper().replace('-', '_')}__OUTPUT"
         env_patch = {k: v for k, v in os.environ.items() if k != env_key}
         with patch.dict(os.environ, env_patch, clear=True):
             config = MagicMock(spec=JobConfigView)
@@ -458,7 +462,7 @@ class TestJobConfigDualAccess:
         class ValidatedCfg(BaseModel):
             endpoint: str = Field(default="http://localhost")
 
-        env_key = f"{job_name.upper()}_ENDPOINT"
+        env_key = f"{job_name.upper().replace('-', '_')}__ENDPOINT"
         env_patch = {k: v for k, v in os.environ.items() if k != env_key}
         with patch.dict(os.environ, env_patch, clear=True):
             config = MagicMock(spec=JobConfigView)
@@ -505,7 +509,7 @@ class TestPydanticValidationBeforeJobExecution:
         class StrictConfig(BaseModel):
             count: int
 
-        env_key = f"{job_name.upper()}_COUNT"
+        env_key = f"{job_name.upper().replace('-', '_')}__COUNT"
         env_patch = {k: v for k, v in os.environ.items() if k != env_key}
         with patch.dict(os.environ, env_patch, clear=True):
             config = MagicMock(spec=JobConfigView)
@@ -531,8 +535,8 @@ class TestPydanticValidationBeforeJobExecution:
             api_key: str  # No default — required
             endpoint: str  # No default — required
 
-        env_key_api = f"{job_name.upper()}_API_KEY"
-        env_key_endpoint = f"{job_name.upper()}_ENDPOINT"
+        env_key_api = f"{job_name.upper().replace('-', '_')}__API_KEY"
+        env_key_endpoint = f"{job_name.upper().replace('-', '_')}__ENDPOINT"
         env_patch = {
             k: v
             for k, v in os.environ.items()
@@ -569,9 +573,9 @@ class TestPydanticValidationBeforeJobExecution:
             field_c: int  # Required
 
         env_keys = [
-            f"{job_name.upper()}_FIELD_A",
-            f"{job_name.upper()}_FIELD_B",
-            f"{job_name.upper()}_FIELD_C",
+            f"{job_name.upper().replace('-', '_')}__FIELD_A",
+            f"{job_name.upper().replace('-', '_')}__FIELD_B",
+            f"{job_name.upper().replace('-', '_')}__FIELD_C",
         ]
         env_patch = {k: v for k, v in os.environ.items() if k not in env_keys}
         with patch.dict(os.environ, env_patch, clear=True):
@@ -607,8 +611,8 @@ class TestPydanticValidationBeforeJobExecution:
             name: str
             active: bool = Field(default=True)
 
-        env_key = f"{job_name.upper()}_NAME"
-        env_key_active = f"{job_name.upper()}_ACTIVE"
+        env_key = f"{job_name.upper().replace('-', '_')}__NAME"
+        env_key_active = f"{job_name.upper().replace('-', '_')}__ACTIVE"
         env_patch = {
             k: v for k, v in os.environ.items() if k not in (env_key, env_key_active)
         }
@@ -637,7 +641,7 @@ class TestPydanticValidationBeforeJobExecution:
         class StrictModel(BaseModel):
             port: int  # Required, must be int
 
-        env_key = f"{job_name.upper()}_PORT"
+        env_key = f"{job_name.upper().replace('-', '_')}__PORT"
         env_patch = {k: v for k, v in os.environ.items() if k != env_key}
         with patch.dict(os.environ, env_patch, clear=True):
             config = MagicMock(spec=JobConfigView)

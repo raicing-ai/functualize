@@ -29,6 +29,7 @@ from hypothesis import strategies as st
 
 from functualize._discovery.cached_provider import CachedDirectoryScanProvider
 from functualize._primitives.locator import ResourceLocator
+from functualize._types.naming import normalize_segment
 
 # --- Strategies ---
 
@@ -64,7 +65,7 @@ def job_module_specs(draw: st.DrawFn) -> list[tuple[str, list[str]]]:
                 ),
                 min_size=num_funcs,
                 max_size=num_funcs,
-                unique=True,
+                unique_by=normalize_segment,
             )
         )
         all_func_names.extend(func_names)
@@ -156,8 +157,12 @@ class TestProperty19CacheValidity:
                         f"get_job('{func_name}') returned None despite being "
                         f"previously cached. Module specs: {spec}"
                     )
-                    assert result.name == func_name, (
-                        f"Expected descriptor name '{func_name}', got '{result.name}'"
+                    # `get_job` accepts the Python spelling but the descriptor
+                    # carries the canonical name: `run_etl` is stored as
+                    # `run-etl`.
+                    expected = normalize_segment(func_name)
+                    assert result.name == expected, (
+                        f"Expected descriptor name '{expected}', got '{result.name}'"
                     )
 
                 # No re-imports should have occurred (mtimes unchanged)
@@ -313,8 +318,15 @@ class TestProperty20PreFilterDecisionCaching:
 
         **Validates: Requirements 19.1, 19.3**
         """
-        # Ensure no overlap
-        included_names = [n for n in included_names if n not in excluded_names]
+        # Ensure no overlap *in canonical space*. Exclusion keys on the file
+        # stem (the raw module name) but jobs are listed under their canonical
+        # name, so an included `a00_` and an excluded `a00` are different
+        # modules that both surface as the job `a00` — and the exclusion
+        # assertion then fails on a name the filter never let through.
+        excluded_canonical = {normalize_segment(n) for n in excluded_names}
+        included_names = [
+            n for n in included_names if normalize_segment(n) not in excluded_canonical
+        ]
         if not included_names:
             return
 
@@ -353,13 +365,13 @@ class TestProperty20PreFilterDecisionCaching:
             # Verify excluded modules are not in results
             job_names = {j.name for j in jobs1}
             for excl in excluded_names:
-                assert excl not in job_names, (
+                assert normalize_segment(excl) not in job_names, (
                     f"Excluded module '{excl}' should not appear in list_jobs() results"
                 )
 
             # Verify included modules are in results
             for incl in included_names:
-                assert incl in job_names, (
+                assert normalize_segment(incl) in job_names, (
                     f"Included module '{incl}' should appear in list_jobs() results"
                 )
 
