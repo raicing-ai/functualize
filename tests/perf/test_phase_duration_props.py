@@ -11,13 +11,12 @@ For arbitrary start_ns/end_ns pairs (with end_ns >= start_ns), verify:
 
 from __future__ import annotations
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._events.perf import Phase
 
 
-@settings(max_examples=100)
 @given(
     name=st.text(min_size=1, max_size=50),
     start_ns=st.integers(min_value=0, max_value=10**18),

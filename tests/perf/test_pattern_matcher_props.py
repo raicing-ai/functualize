@@ -12,7 +12,7 @@ preserving original order.
 
 from __future__ import annotations
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._events._pattern_matcher import (
@@ -62,7 +62,6 @@ class TestFilterSemanticsProperty:
     """Property 3: Phase filter semantics — include then exclude."""
 
     @given(names=_phase_names, include=_pattern_string, exclude=_pattern_string)
-    @settings(max_examples=100)
     def test_filter_equals_include_and_not_exclude(
         self,
         names: list[str],
@@ -86,7 +85,6 @@ class TestFilterSemanticsProperty:
         assert result == expected
 
     @given(names=_phase_names, include=_pattern_string)
-    @settings(max_examples=100)
     def test_include_only_matches_at_least_one_pattern(
         self,
         names: list[str],
@@ -103,7 +101,6 @@ class TestFilterSemanticsProperty:
         assert result == expected
 
     @given(names=_phase_names, exclude=_pattern_string)
-    @settings(max_examples=100)
     def test_exclude_only_removes_matching(
         self,
         names: list[str],
@@ -120,7 +117,6 @@ class TestFilterSemanticsProperty:
         assert result == expected
 
     @given(names=_phase_names, include=_optional_pattern, exclude=_optional_pattern)
-    @settings(max_examples=100)
     def test_order_preservation(
         self,
         names: list[str],
@@ -145,7 +141,6 @@ class TestFilterSemanticsProperty:
         assert len(result_indices) == len(result)
 
     @given(names=_phase_names)
-    @settings(max_examples=100)
     def test_no_filters_returns_all(
         self,
         names: list[str],
