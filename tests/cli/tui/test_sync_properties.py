@@ -15,6 +15,7 @@ Property 9: SmartBar sync reflects all and only session overrides
 from __future__ import annotations
 
 import re
+import shlex
 
 import pytest
 from hypothesis import given
@@ -267,10 +268,16 @@ class TestSmartBarSyncProperties:
         """
         result = sync_overrides_to_bar(job_name, fields)
 
-        expected_count = sum(1 for f in fields if f.edit_origin != EditOrigin.NONE)
-        # Count all occurrences of "--" that start a flag (i.e., preceded by space or at start)
-        actual_count = len(re.findall(r"(?:^| )--", result))
+        overridden = [f for f in fields if f.edit_origin != EditOrigin.NONE]
 
-        assert actual_count == expected_count, (
-            f"Expected {expected_count} flags, found {actual_count} in: {result}"
+        # Count flags by position, not by matching "--" in the text. These
+        # fields are all named (the strategy emits no positionals), so the
+        # tokens after the job name alternate flag, value — and a *value* may
+        # itself be "--" or "--x", which a textual scan counts as a flag.
+        # shlex handles the quoting the emitter applies to values with spaces.
+        tokens = shlex.split(result)
+        flags = tokens[1::2]
+
+        assert flags == [f"--{f.name}" for f in overridden], (
+            f"Expected one flag per overridden field, got {flags} in: {result}"
         )

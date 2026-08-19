@@ -64,6 +64,10 @@ class FakeDescriptor:
     config_fields: list[FakeField] = field(default_factory=list)
     parameters: list[FakeField] = field(default_factory=list)
     declaration: Any = field(default_factory=dict)
+    # Plugin extension data. Real JobDescriptors always carry this (empty for
+    # most jobs) and the MCP translation path reads it, so a fake without it
+    # fails during generation rather than in an assertion.
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class FakeJobResult:
@@ -181,8 +185,7 @@ def mcp_config_for_descriptors_st(
     all_tags: set[str] = set()
     all_names: set[str] = set()
     for d in descriptors:
-        metadata = d.metadata
-        tags = getattr(metadata, "tags", None) or []
+        tags = getattr(d.declaration, "tags", None) or []
         all_tags.update(tags)
         all_names.add(d.name)
 
@@ -230,9 +233,13 @@ def compute_expected_visible(
     visible: set[str] = set()
 
     for d in descriptors:
-        metadata = d.metadata
-        visibility = getattr(metadata, "visibility", None)
-        tags = getattr(metadata, "tags", None) or []
+        # Visibility and tags come from the `@job` declaration. `metadata` is
+        # plugin extension data (a plain dict) and never carried these — read
+        # it here and every job silently looks external, because `getattr` on a
+        # dict returns the default rather than raising.
+        declaration = d.declaration
+        visibility = getattr(declaration, "visibility", None)
+        tags = getattr(declaration, "tags", None) or []
 
         # Rule 1: exclude internal
         if visibility == "internal":
@@ -314,7 +321,7 @@ class TestMCPDiscoverJobsVisibilityProperty:
 
         # Verify no internal jobs appear
         for d in descriptors:
-            visibility = getattr(d.metadata, "visibility", None)
+            visibility = getattr(d.declaration, "visibility", None)
             if visibility == "internal":
                 assert d.name not in actual_names, (
                     f"Internal job '{d.name}' should not appear in discover_jobs"
@@ -357,7 +364,7 @@ class TestMCPDiscoverJobsVisibilityProperty:
         # Force include_tags to be non-empty for this test
         all_tags: set[str] = set()
         for d in descriptors:
-            tags = getattr(d.metadata, "tags", None) or []
+            tags = getattr(d.declaration, "tags", None) or []
             all_tags.update(tags)
 
         assume(len(all_tags) > 0)
@@ -378,7 +385,7 @@ class TestMCPDiscoverJobsVisibilityProperty:
         # Every returned job must have at least one tag in include_tags
         for d in descriptors:
             if d.name in actual_names:
-                tags = getattr(d.metadata, "tags", None) or []
+                tags = getattr(d.declaration, "tags", None) or []
                 assert any(t in include_tags for t in tags), (
                     f"Job '{d.name}' appeared but has no matching include_tag. "
                     f"Job tags: {tags}, include_tags: {include_tags}"

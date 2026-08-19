@@ -212,7 +212,7 @@ def _field_with_invalid_input(draw: st.DrawFn) -> tuple[FieldDef, str]:
         validator = None
         value = draw(_whitespace_only)
 
-    field = FieldDef(name=name, value=original, validator=validator)
+    field = FieldDef(name=name, value=original, source="default", validator=validator)
     return (field, value)
 
 
@@ -246,7 +246,7 @@ def _field_with_valid_input(draw: st.DrawFn) -> tuple[FieldDef, str]:
         validator = None
         value = draw(_nonempty_text)
 
-    field = FieldDef(name=name, value=original, validator=validator)
+    field = FieldDef(name=name, value=original, source="default", validator=validator)
     return (field, value)
 
 
