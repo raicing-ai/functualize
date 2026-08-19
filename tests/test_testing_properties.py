@@ -291,3 +291,33 @@ class TestCapturingLogRecordingFidelity:
         captured = TestRunContext.captured_logs(rc)
         expected = first_batch + second_batch
         assert captured == expected
+
+
+# =============================================================================
+# RunContext.log() routes through the injected Log capability
+# =============================================================================
+
+
+class TestRunContextLogRouting:
+    """RunContext.log() emits through the DI-registered Log capability.
+
+    Regression coverage for the 0.1.0 known limitation in which rc.log(...)
+    bypassed the injected Log and was invisible to captured_logs().
+
+    **Validates: Requirements 8.3, 8.6**
+    """
+
+    @given(log_calls=_log_sequence_strategy)
+    @settings(max_examples=200)
+    def test_rc_log_sequence_matches_captured(self, log_calls: list[tuple[str, str]]):
+        """For any sequence of rc.log calls, captured_logs returns it verbatim.
+
+        **Validates: Requirements 8.3, 8.6**
+        """
+        rc = TestRunContext.create()
+
+        for level, message in log_calls:
+            rc.log(message, level=level)
+
+        captured = TestRunContext.captured_logs(rc)
+        assert captured == [(level, str(message)) for level, message in log_calls]

@@ -32,17 +32,9 @@ class TestRunContext:
         # Or with overrides:
         rc = TestRunContext.create(log=my_custom_log, state=my_state)
 
-    .. warning::
-
-       ``captured_logs()`` does **not** observe ``rc.log(...)``. See its
-       docstring — for asserting on log output, prefer the direct-injection
-       style, where the double is passed to the job as a parameter::
-
-           from functualize.testing import CapturingLog
-
-           log = CapturingLog()
-           my_job(config, log)
-           assert ("info", "hello") in log.calls
+    ``RunContext.log()`` routes through the injected ``Log``, so messages emitted
+    via ``rc.log(...)`` are recorded by the default ``CapturingLog`` and can be
+    asserted through ``captured_logs()``.
     """
 
     @staticmethod
@@ -124,22 +116,9 @@ class TestRunContext:
         """Retrieve the ordered list of (level, message) tuples from the RunContext's log.
 
         Accesses the CapturingLog instance registered in the RunContext's DI registry
-        and returns its recorded calls.
-
-        .. warning::
-
-           **Known limitation (0.1.0): this does not observe ``rc.log(...)``.**
-
-           ``RunContext.log()`` writes straight to its stdlib logger and never
-           consults the DI registry, so messages emitted that way are invisible
-           here and this returns an empty list. Only a job that receives ``Log``
-           as an injected parameter — and calls *that* — is recorded.
-
-           To assert on log output today, pass the double to the job directly::
-
-               log = CapturingLog()
-               my_job(config, log)
-               assert ("info", "hello") in log.calls
+        and returns its recorded calls. Messages emitted via ``rc.log(...)`` are
+        included: ``RunContext.log()`` resolves the registered ``Log`` and emits
+        through it.
 
         Args:
             rc: A RunContext created by TestRunContext.create().

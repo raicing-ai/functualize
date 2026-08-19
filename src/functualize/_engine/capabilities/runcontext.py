@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 
     from functualize._config.job_config import JobConfigView
     from functualize._engine.capabilities.invoke import Invoke
+    from functualize._engine.capabilities.log import Log
     from functualize._engine.capabilities.state_store import StateStore
     from functualize._engine.capabilities.workflow import WorkflowTracker
     from functualize._engine.capabilities.workflow_scope import WorkflowScope
@@ -172,6 +173,8 @@ class RunContext:
         # Capability instances (lazily created)
         self._invoke_capability: Invoke | None = None
         self._workflow_tracker: WorkflowTracker | None = None
+        self._log_capability: Log | None = None
+        self._log_capability_resolved: bool = False
         # Callback registrations (for backward compat)
         self._status_callbacks: list[Any] = []
         self._phase_callbacks: list[Any] = []
@@ -481,6 +484,29 @@ class RunContext:
 
     # --- Logging ---
 
+    def _resolve_log_capability(self) -> Log | None:
+        """Return the DI-registered Log, or None when the registry has none.
+
+        TestRunContext registers a Log double so tests observe rc.log(...);
+        the engine builds Log per-invocation without registering it, so
+        production resolution raises MissingProviderError and log() falls
+        back to the same functualize.job.<name> stdlib logger a per-job Log
+        would write to. Resolved once per RunContext — log() is a hot path.
+        """
+        if not self._log_capability_resolved:
+            resolved: Log | None = None
+            if self._di_registry is not None:
+                from functualize._engine.capabilities.log import Log
+                from functualize._primitives.di import MissingProviderError
+
+                try:
+                    resolved = self._di_registry.resolve(Log)
+                except MissingProviderError:
+                    resolved = None
+            self._log_capability = resolved
+            self._log_capability_resolved = True
+        return self._log_capability
+
     def log(self, message: object, level: str = "info") -> None:
         msg = str(message)
         # Invoke log callbacks BEFORE emitting to logger
@@ -497,7 +523,11 @@ class RunContext:
                 self._logger.warning(
                     "Log callback %r raised an exception", cb, exc_info=True
                 )
-        getattr(self._logger, level)(msg)
+        log_capability = self._resolve_log_capability()
+        if log_capability is not None:
+            log_capability(msg, level=level)
+        else:
+            getattr(self._logger, level)(msg)
 
     # --- Run Status ---
 
