@@ -293,9 +293,15 @@ in the commit footer instead.
 ## Release Process
 
 ```bash
-# 1. Bump version in TWO places:
-#    - pyproject.toml: version = "X.Y.Z"
-#    - src/functualize/__init__.py: __version__ = "X.Y.Z"
+# 1. Bump the version in all THIRTEEN places it is declared:
+#    - pyproject.toml               version = "X.Y.Z"
+#    - src/functualize/__init__.py  __version__ = "X.Y.Z"
+#    - plugins/*/pyproject.toml     version = "X.Y.Z"   (11 packages)
+#
+#    Then verify none was missed. This must print exactly one line, "13":
+grep -h -e '^version = ' -e '^__version__ = ' \
+  pyproject.toml src/functualize/__init__.py plugins/*/pyproject.toml \
+  | grep -o '"[^"]*"' | sort | uniq -c
 
 # 2. Update CHANGELOG.md
 #    - Move items from [Unreleased] to new [X.Y.Z] section
@@ -312,12 +318,33 @@ git push origin master
 git push origin vX.Y.Z
 ```
 
+A `v*` tag is immutable: the `release tags` ruleset blocks deletion and
+force-update, and no one can bypass it. Creating tags is unrestricted, so the
+push above works normally — but a tag pointing at the wrong commit cannot simply
+be moved. This matches the index it feeds: a version published to PyPI can never
+be re-uploaded, so a bad tag is best followed by a new patch version. If a tag
+genuinely must be removed, set the ruleset's `enforcement` to `disabled`, fix
+it, and set it back to `active` — deliberately, and as two visible steps.
+
 The release workflow builds and publishes the core package **and every workspace
 plugin** (`uv build --all-packages`). One-time setup: each PyPI project
 (`functualize` plus all `functualize-*` plugins) must have a
 [trusted publisher](https://docs.pypi.org/trusted-publishers/) configured for
 `release.yml` in this repository, and the repo needs a `pypi` GitHub environment.
-When bumping plugin versions, update each plugin's `pyproject.toml` as well.
+
+Every package is released together at one version — the build publishes all
+twelve, so a plugin left behind at the previous number is published again under
+a version that already exists on the index. `--skip-existing` swallows that
+silently rather than failing, which is why the count above is worth running.
+
+The `functualize>=X.Y.Z,<1.0.0` dependency pins inside plugin `pyproject.toml`s
+are *floors*, not exact versions, and deliberately do not track the release.
+Raise one only when that plugin starts requiring core API that older versions do
+not have — otherwise it forces an upgrade nobody needs.
+
+`plugins/functualize-fullscreen-tui/` has no `pyproject.toml`. It is not a
+package, is not in `[tool.uv.sources]`, and is not published; it does not count
+toward the thirteen.
 
 ## Commit Message Convention
 
@@ -364,12 +391,27 @@ There is no `release:` type. A version bump is `chore(release): v0.2.0`.
 |------|--------|-------|
 | `conventional-pre-commit` | Commit subject type and shape, at commit time | `.pre-commit-config.yaml` (needs `pre-commit install --hook-type commit-msg`) |
 | PR Title workflow | PR title type, single-token scope, lowercase subject, no trailing period | `.github/workflows/pr-title.yml` |
+| `master` ruleset | Changes arrive by PR; squash is the only merge method; `lint`, `lint-imports`, `typecheck`, `test-fast`, `gitleaks` and `lint-title` must pass; no force-push; no branch deletion | GitHub repository ruleset named `master` |
+| `release tags` ruleset | A `v*` tag cannot be deleted or moved once pushed | GitHub repository ruleset named `release tags` |
 
-The two overlap deliberately. The hook cannot see a PR title, and the PR title
-is what becomes the commit on `master` — so the title is the one that must be
-right. The local hook only catches mistakes earlier. Multi-token scopes pass the
-hook and fail the workflow, because restricting scope shape locally would mean
-enumerating every allowed scope.
+The first two overlap deliberately. The hook cannot see a PR title, and the PR
+title is what becomes the commit on `master` — so the title is the one that must
+be right. The local hook only catches mistakes earlier. Multi-token scopes pass
+the hook and fail the workflow, because restricting scope shape locally would
+mean enumerating every allowed scope.
+
+The ruleset requires **zero approving reviews**. Its job is to guarantee that
+every change reaches `master` through a PR with green CI, not to simulate a
+review process that a single maintainer cannot perform on their own work.
+
+`test-full` is deliberately *not* required. It is red for reasons unrelated to
+any individual change (see `.spec/STATUS.md`), and a permanently-failing
+required check trains people to merge past a red tick. Add it to the ruleset in
+the same PR that turns it green.
+
+Repository and organization admins can bypass the ruleset, so the release commit
+described below can still be pushed straight to `master`. That bypass is a
+convenience, not a licence: use a PR unless you are cutting a release.
 
 ### The changelog is written by hand
 
