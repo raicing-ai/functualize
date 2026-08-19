@@ -293,9 +293,15 @@ in the commit footer instead.
 ## Release Process
 
 ```bash
-# 1. Bump version in TWO places:
-#    - pyproject.toml: version = "X.Y.Z"
-#    - src/functualize/__init__.py: __version__ = "X.Y.Z"
+# 1. Bump the version in all THIRTEEN places it is declared:
+#    - pyproject.toml               version = "X.Y.Z"
+#    - src/functualize/__init__.py  __version__ = "X.Y.Z"
+#    - plugins/*/pyproject.toml     version = "X.Y.Z"   (11 packages)
+#
+#    Then verify none was missed. This must print exactly one line, "13":
+grep -h -e '^version = ' -e '^__version__ = ' \
+  pyproject.toml src/functualize/__init__.py plugins/*/pyproject.toml \
+  | grep -o '"[^"]*"' | sort | uniq -c
 
 # 2. Update CHANGELOG.md
 #    - Move items from [Unreleased] to new [X.Y.Z] section
@@ -325,7 +331,20 @@ plugin** (`uv build --all-packages`). One-time setup: each PyPI project
 (`functualize` plus all `functualize-*` plugins) must have a
 [trusted publisher](https://docs.pypi.org/trusted-publishers/) configured for
 `release.yml` in this repository, and the repo needs a `pypi` GitHub environment.
-When bumping plugin versions, update each plugin's `pyproject.toml` as well.
+
+Every package is released together at one version — the build publishes all
+twelve, so a plugin left behind at the previous number is published again under
+a version that already exists on the index. `--skip-existing` swallows that
+silently rather than failing, which is why the count above is worth running.
+
+The `functualize>=X.Y.Z,<1.0.0` dependency pins inside plugin `pyproject.toml`s
+are *floors*, not exact versions, and deliberately do not track the release.
+Raise one only when that plugin starts requiring core API that older versions do
+not have — otherwise it forces an upgrade nobody needs.
+
+`plugins/functualize-fullscreen-tui/` has no `pyproject.toml`. It is not a
+package, is not in `[tool.uv.sources]`, and is not published; it does not count
+toward the thirteen.
 
 ## Commit Message Convention
 
