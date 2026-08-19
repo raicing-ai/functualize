@@ -38,13 +38,23 @@ SUPPORT_JOBS = SUPPORT / "jobs"
 # dev: quick smoke-check during active development (HYPOTHESIS_PROFILE=dev)
 # default: balanced coverage for local full runs
 # ci: thorough coverage in CI (HYPOTHESIS_PROFILE=ci in workflow)
+#
+# The profile is the ONE knob for how hard the property tier works, so it has
+# to be reachable from outside. This previously called `load_profile("default")`
+# unconditionally while `ci.yml` set `HYPOTHESIS_PROFILE: ci` — so the `ci`
+# profile had never once run, and there was no way to ask for a faster local
+# pass either.
+#
+# A per-test `@settings(max_examples=...)` still overrides whatever is loaded
+# here, so pinning that inline gives a test up its tunability. Prefer leaving
+# the budget to the profile unless a specific property genuinely needs more.
 
 settings.register_profile(
     "dev", max_examples=10, suppress_health_check=[HealthCheck.too_slow]
 )
 settings.register_profile("default", max_examples=100)
 settings.register_profile("ci", max_examples=200, deadline=None)
-settings.load_profile("default")
+settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "default"))
 
 
 # ===========================================================================
