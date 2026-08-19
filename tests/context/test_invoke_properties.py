@@ -22,6 +22,7 @@ from hypothesis import strategies as st
 
 from functualize._app.state import AppState
 from functualize._events.hooks import HookEvent
+from functualize._types.naming import normalize_segment
 from functualize.app.config import ExecutionConfig, JobSources
 from functualize.app.core import FunctualizeApp
 
@@ -151,13 +152,18 @@ class TestInvokeHookMatchedPairs:
         assert len(starts) == depth
         assert len(ends) == depth
 
+        # Hooks report the *canonical* job name: `leaf_job` registers, and is
+        # therefore announced, as `leaf-job`. The Python spelling here only
+        # names the generated function.
+        canonical_names = [normalize_segment(n) for n in job_names]
+
         # Each START should have a matching END with the same (child_name, depth)
         assert set(starts) == set(ends)
 
         # Stack order: STARTs come in order of increasing depth,
         # ENDs come in order of decreasing depth
         for i in range(depth):
-            expected_child = job_names[i + 1]
+            expected_child = canonical_names[i + 1]
             expected_depth = i + 1
             assert starts[i] == (expected_child, expected_depth)
             # ENDs are in reverse order
@@ -167,9 +173,9 @@ class TestInvokeHookMatchedPairs:
         # START(D), END(D), ..., END(2), END(1)
         expected_events = []
         for i in range(depth):
-            expected_events.append(("START", job_names[i + 1], i + 1))
+            expected_events.append(("START", canonical_names[i + 1], i + 1))
         for i in range(depth - 1, -1, -1):
-            expected_events.append(("END", job_names[i + 1], i + 1))
+            expected_events.append(("END", canonical_names[i + 1], i + 1))
 
         assert events == expected_events
 
@@ -234,8 +240,9 @@ class TestInvokeHookMatchedPairs:
         for i in range(num_siblings):
             start_event = events[i * 2]
             end_event = events[i * 2 + 1]
-            assert start_event == ("START", child_names[i], 1)
-            assert end_event == ("END", child_names[i], 1)
+            canonical_child = normalize_segment(child_names[i])
+            assert start_event == ("START", canonical_child, 1)
+            assert end_event == ("END", canonical_child, 1)
 
 
 # --- Property 22 Tests ---

@@ -411,96 +411,82 @@ class TestConfigTableNavigationPreservation:
 
 @pytest.mark.slow
 class TestSettingsPanelPreservation:
-    """Settings panel initial state is preserved.
+    """SettingsPanel exposes a coherent, navigable settings registry.
 
-    The SettingsPanel has a deterministic initial configuration:
-    9 settings in a fixed order with known default values and "default"
-    as the source. This state must remain unchanged after the fix.
+    These were three `@given(data=st.data())` tests whose generated `data` was
+    never drawn from — 50 identical iterations each — asserting a snapshot of
+    the registry: exactly 9 settings, under bare names, with a fixed default
+    apiece. The registry has since moved to dotted names and grown to 27, so
+    the snapshot broke without any behaviour changing. What is actually worth
+    protecting is the registry's internal coherence, which does not churn as
+    settings are added.
 
     **Validates: Requirements 3.4**
     """
 
-    @given(data=st.data())
-    def test_settings_panel_has_9_settings(self, data: st.DataObject) -> None:
-        """SettingsPanel always initializes with exactly 9 settings in fixed order.
+    def test_every_default_belongs_to_a_listed_setting(self) -> None:
+        """`_DEFAULT_VALUES` never carries a key the panel does not display.
 
-        **Validates: Requirements 3.4**
+        The reverse does not hold: settings that are unset by nature — the
+        discovery filters, `import_libs`, `shell.program` — appear in the panel
+        with no static default.
         """
         from functualize._cli.tui.settings_panel import (
             _DEFAULT_VALUES,
             _SETTINGS_ORDER,
         )
 
-        # The panel always has 9 settings
-        assert len(_SETTINGS_ORDER) == 9
-        # All settings have default values
-        assert set(_SETTINGS_ORDER) == set(_DEFAULT_VALUES.keys())
+        assert set(_DEFAULT_VALUES).issubset(_SETTINGS_ORDER), (
+            "Defaults exist for settings the panel never lists: "
+            f"{sorted(set(_DEFAULT_VALUES) - set(_SETTINGS_ORDER))}"
+        )
 
-    @given(data=st.data())
-    def test_settings_default_values_are_stable(self, data: st.DataObject) -> None:
-        """Default values for all 9 settings are deterministic and unchanged.
+    def test_settings_order_has_no_duplicates(self) -> None:
+        """A setting listed twice would render twice and edit ambiguously."""
+        from functualize._cli.tui.settings_panel import _SETTINGS_ORDER
 
-        **Validates: Requirements 3.4**
+        assert len(_SETTINGS_ORDER) == len(set(_SETTINGS_ORDER))
+
+    def test_settings_are_namespaced_or_top_level_known(self) -> None:
+        """Settings are addressed by dotted name within a known namespace.
+
+        The bare-name spelling (`theme`, `execution_mode`) is gone; a setting
+        now says which section owns it, which is what makes it writable back
+        to a config file.
         """
-        from functualize._cli.tui.settings_panel import _DEFAULT_VALUES, _SETTINGS_ORDER
+        from functualize._cli.tui.settings_panel import _SETTINGS_ORDER
 
-        # These are the expected defaults that must remain stable
-        expected_defaults = {
-            "execution_mode": "tui",
-            "show_session_stamp": "true",
-            "history_retention": "100",
-            "signature_enabled": "true",
-            "sensitive_keywords": "secret,password,token,key",
-            "display_auto_switch": "indicator",
-            "default_override_target": "file",
-            "theme": "transparent",
-        }
+        known_namespaces = {"tui", "cli", "discovery", "plugins", "shell"}
+        top_level = {"dotenv", "dotenv_path", "import_libs"}
 
         for setting in _SETTINGS_ORDER:
-            assert setting in _DEFAULT_VALUES, f"Setting {setting} missing default"
-            assert _DEFAULT_VALUES[setting] == expected_defaults[setting], (
-                f"Default for {setting} changed: "
-                f"expected {expected_defaults[setting]!r}, "
-                f"got {_DEFAULT_VALUES[setting]!r}"
+            if setting in top_level:
+                continue
+            assert "." in setting, (
+                f"Setting {setting!r} is neither namespaced nor a known top-level key"
+            )
+            assert setting.split(".", 1)[0] in known_namespaces, (
+                f"Setting {setting!r} sits in an unknown namespace"
             )
 
-    @given(data=st.data())
-    def test_settings_panel_actions_include_navigation(
-        self, data: st.DataObject
-    ) -> None:
+    def test_settings_panel_actions_include_navigation(self) -> None:
         """SettingsPanel get_available_actions always includes j/k navigate hint.
 
         **Validates: Requirements 3.4**
         """
-        from functualize._cli.tui.settings_panel import SettingsPanel
+        from functualize._cli.tui.settings_panel import (
+            _DEFAULT_VALUES,
+            _SETTINGS_ORDER,
+            SettingsPanel,
+        )
 
         # SettingsPanel provides fallback actions even without mounting
         # (the except branch in get_available_actions)
         panel = SettingsPanel.__new__(SettingsPanel)
-        # Manually init enough state to test the fallback
-        panel._settings = [
-            "execution_mode",
-            "show_session_stamp",
-            "history_retention",
-            "signature_enabled",
-            "sensitive_keywords",
-            "display_auto_switch",
-            "default_override_target",
-            "theme",
-        ]
-        panel._values = {
-            "execution_mode": "tui",
-            "show_session_stamp": "true",
-            "history_retention": "100",
-            "signature_enabled": "true",
-            "sensitive_keywords": "secret,password,token,key",
-            "display_auto_switch": "indicator",
-            "default_override_target": "file",
-            "theme": "transparent",
-        }
+        panel._settings = list(_SETTINGS_ORDER)
+        panel._values = dict(_DEFAULT_VALUES)
         panel._sources = {s: "default" for s in panel._settings}
 
-        # Without mounted EditableTable, it falls back to static list
         actions = panel.get_available_actions(focused=True)
         action_keys = [k for k, _v in actions]
         assert "j/k" in action_keys, "Settings panel must advertise j/k navigation"
