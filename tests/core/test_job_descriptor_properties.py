@@ -17,6 +17,7 @@ from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from functualize._app.state import AppState
+from functualize._types.naming import normalize_segment
 from functualize.app.core import FunctualizeApp
 
 
@@ -32,12 +33,23 @@ def _reset_state() -> Generator[None]:
 
 # Valid job names: non-empty strings suitable for dynamic job registration.
 # Using a pattern that matches typical job names (lowercase, hyphens, alphanumeric).
-job_names = st.from_regex(r"[a-z][a-z0-9\-]{0,30}", fullmatch=True)
+# Names are mapped through `normalize_segment` so every generated name is
+# already canonical. A job is addressed by its canonical name, so a raw `t-`
+# registers as `t` and any assertion comparing against the raw spelling fails
+# on the trailing hyphen. Mapping (rather than filtering) keeps the full
+# generation range while making each value a fixed point.
+job_names = (
+    st.from_regex(r"[a-z][a-z0-9\-]{0,30}", fullmatch=True)
+    .map(normalize_segment)
+    .filter(bool)
+)
 
 # Strategy for optional group names
 group_names = st.one_of(
     st.none(),
-    st.from_regex(r"[a-z][a-z0-9\-]{0,15}", fullmatch=True),
+    st.from_regex(r"[a-z][a-z0-9\-]{0,15}", fullmatch=True)
+    .map(normalize_segment)
+    .filter(bool),
 )
 
 # Strategy for optional docstrings

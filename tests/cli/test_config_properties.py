@@ -642,19 +642,19 @@ class TestXDGConfigPathResolution:
         )
     )
     def test_nonempty_xdg_config_home_uses_xdg_path(self, xdg_value: str):
-        """When XDG_CONFIG_HOME is a non-empty string, _resolve_xdg_config_dir()
+        """When XDG_CONFIG_HOME is a non-empty string, resolve_user_config_dir()
         returns Path(xdg_value) / "functualize".
 
         **Validates: Requirements 1.1, 1.6**
         """
         import os
 
-        from functualize._cli.config import _resolve_xdg_config_dir
+        from functualize.app.utils import resolve_user_config_dir
 
         old = os.environ.get("XDG_CONFIG_HOME")
         try:
             os.environ["XDG_CONFIG_HOME"] = xdg_value
-            result = _resolve_xdg_config_dir()
+            result = resolve_user_config_dir()
             expected = Path(xdg_value) / "functualize"
             assert result == expected, (
                 f"XDG_CONFIG_HOME={xdg_value!r} → expected {expected}, got {result}"
@@ -665,38 +665,31 @@ class TestXDGConfigPathResolution:
             else:
                 os.environ["XDG_CONFIG_HOME"] = old
 
-    @given(
-        # Generate a scenario indicator: True=empty string, False=unset
-        is_empty=st.booleans(),
+    # Two inputs, so enumerate them: Hypothesis would draw the same two
+    # values over and over, and parametrize reports which case failed.
+    @pytest.mark.parametrize(
+        ("is_empty", "xdg_desc"), [(True, '""'), (False, "<unset>")]
     )
-    def test_empty_or_unset_xdg_config_home_uses_default(self, is_empty: bool):
-        """When XDG_CONFIG_HOME is empty or unset, _resolve_xdg_config_dir()
+    def test_empty_or_unset_xdg_config_home_uses_default(
+        self, is_empty: bool, xdg_desc: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """When XDG_CONFIG_HOME is empty or unset, resolve_user_config_dir()
         returns Path.home() / ".config" / "functualize".
 
         **Validates: Requirements 1.1, 1.6**
         """
-        import os
+        from functualize.app.utils import resolve_user_config_dir
 
-        from functualize._cli.config import _resolve_xdg_config_dir
+        if is_empty:
+            monkeypatch.setenv("XDG_CONFIG_HOME", "")
+        else:
+            monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
 
-        old = os.environ.get("XDG_CONFIG_HOME")
-        try:
-            if is_empty:
-                os.environ["XDG_CONFIG_HOME"] = ""
-            else:
-                os.environ.pop("XDG_CONFIG_HOME", None)
-
-            result = _resolve_xdg_config_dir()
-            expected = Path.home() / ".config" / "functualize"
-            xdg_desc = '""' if is_empty else "<unset>"
-            assert result == expected, (
-                f"XDG_CONFIG_HOME={xdg_desc} → expected {expected}, got {result}"
-            )
-        finally:
-            if old is None:
-                os.environ.pop("XDG_CONFIG_HOME", None)
-            else:
-                os.environ["XDG_CONFIG_HOME"] = old
+        result = resolve_user_config_dir()
+        expected = Path.home() / ".config" / "functualize"
+        assert result == expected, (
+            f"XDG_CONFIG_HOME={xdg_desc} → expected {expected}, got {result}"
+        )
 
 
 # =============================================================================

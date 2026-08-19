@@ -18,6 +18,7 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from functualize._discovery.sync import full_import_and_extract
+from functualize._types.naming import normalize_segment
 
 # --- Strategies ---
 
@@ -40,7 +41,9 @@ def module_spec(draw: st.DrawFn) -> tuple[list[str], list[str]]:
     and non-overlapping with public names.
     """
     public_names = draw(
-        st.lists(public_func_names, min_size=1, max_size=8, unique=True)
+        st.lists(
+            public_func_names, min_size=1, max_size=8, unique_by=normalize_segment
+        )
     )
     private_names = draw(
         st.lists(private_func_names, min_size=0, max_size=4, unique=True)
@@ -107,7 +110,10 @@ def test_property_18_extraction_produces_n_descriptors_for_n_public_functions(
 
         # Property: each descriptor name matches a public function's __name__
         extracted_names = {d.name for d in descriptors}
-        expected_names = set(public_names)
+        # Descriptors carry the canonical name: `run_etl` is extracted as
+        # `run-etl`. Uniqueness above is canonical for the same reason —
+        # `a` and `a_` would be one job, not two.
+        expected_names = {normalize_segment(n) for n in public_names}
         assert extracted_names == expected_names, (
             f"Extracted names {extracted_names} do not match expected public names "
             f"{expected_names}. Missing: {expected_names - extracted_names}. "
