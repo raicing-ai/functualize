@@ -108,7 +108,6 @@ def _build_dynamic_model(field_names: list[str]) -> type[BaseModel]:
 # --- Strategies ---
 
 
-# Reserved names that conflict with Pydantic BaseModel attributes
 def _is_usable_pydantic_field_name(s: str) -> bool:
     """Names this generator may safely build a dynamic pydantic model from.
 
