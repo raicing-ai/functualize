@@ -26,6 +26,9 @@ so you can recognize it in new code.
 | 13 | Registering after the reader already ran | `Unknown command` for a command that exists |
 | 14 | Declaring a guarantee the runtime cannot enforce | `timeout` that never fires |
 | 15 | A test asserting "not the one wrong answer" | Passes on a second wrong answer |
+| 16 | A syscall on the left of `and` | `x.is_file() and name_matches(x)` — one stat per candidate |
+| 17 | `ast.parse` standing in for "the names resolve" | Generated code parses, then `AttributeError`s at runtime |
+| 18 | A hand-written blocklist of a library's reserved names | Passes for months, fails once a wider input budget draws the missing one |
 
 ---
 
@@ -217,6 +220,68 @@ kernel.
 **How to apply:** assert the exact expected value. Drive the real component, not a
 hand-assembled stand-in of it. If a test cannot fail when the feature is deleted, it
 is not testing the feature.
+
+## 16. A syscall on the left of `and` runs for every candidate
+
+`discover_config_path` walks from the CWD up to `$HOME` looking for a config file.
+Per directory it ran:
+
+```python
+if not (entry.is_file() and regex.match(entry.name)):
+    continue
+```
+
+`is_file()` is a `stat()` syscall. `regex.match(entry.name)` is pure string work.
+Python evaluates left to right, so every entry in every ancestor directory was
+stat'd *before* anything looked at its name. From a CWD under a busy `/tmp` that
+measured **17,249 stat calls per boot** to find nothing, and it was 63% of total
+boot time.
+
+Both name predicates are pure, so ordering them first cannot change which directory
+is chosen. Reordering took `boot.config_resolution` from 158.67ms to 41.02ms and
+total boot from 250.87ms to 125.00ms.
+
+**How to apply:** in a compound condition, order the tests by cost, cheapest first —
+string and in-memory checks before anything that touches the filesystem, the network,
+or an import. The cost is invisible at the call site: `entry.is_file()` reads like an
+attribute lookup. It scales with the *user's* filesystem, not with your input, so it
+will not show up in a small test fixture.
+
+## 17. `ast.parse` proves syntax, and nothing else
+
+`scaffold/templates/full-interactivity/workflow_job.py.j2` referenced
+`RunStatus.FAILED` on four lines. The enum spells it `FAILURE`; there is no `FAILED`
+member. Every generated project raised `AttributeError` the moment the user's job hit
+a failure path — and only then, because the success path used members that exist.
+
+`tests/scaffold/` already rendered the template and ran `ast.parse` on the output.
+`RunStatus.FAILED` is syntactically perfect, so `test_workflow_job_parses` asserted
+precisely the property that cannot catch this. **Importing** the rendered module would
+not have caught it either: the reference sits in a function body and is never
+evaluated at import time.
+
+Templates are also invisible to `ruff`, `mypy` and `lint-imports`, which do not read
+`.j2` files at all.
+
+**How to apply:** "it parses" and "it imports" are much weaker than they look for
+generated code. To check that names *resolve*, either execute the paths or resolve the
+references statically — `tests/scaffold/test_template_symbols_resolve.py` does the
+latter for every registered template.
+
+## 18. A blocklist of another library's reserved names is incomplete by construction
+
+Two gate-strategy property tests built dynamic pydantic models from generated field
+names, guarding against reserved names with a hand-written `frozenset` that listed
+`"model"` but not `"model_dump"`. The `ci` profile draws 200 examples where `default`
+draws 100; it eventually drew `model_dump`, and `create_model` raised
+`ValueError: Field 'model_dump' conflicts with member ... of protected namespace`.
+
+**How to apply:** ask the library, do not restate it. `not s.startswith("model_") and
+not hasattr(BaseModel, s)` is derived from the actual class and cannot fall behind it.
+
+The same shape bit twice more in generated identifiers: `str.isidentifier()` returns
+`True` for keywords, so `as` and `match` pass an "is this a valid name" check and then
+fail to compile in a `def`. Use `keyword.iskeyword` / `keyword.issoftkeyword` as well.
 
 ---
 
