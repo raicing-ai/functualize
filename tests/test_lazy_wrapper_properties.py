@@ -131,18 +131,18 @@ def job_descriptors(draw: st.DrawFn) -> JobDescriptor:
     """Generate valid JobDescriptor instances with unique field names."""
     config_fields = draw(field_descriptor_lists())
     return JobDescriptor(
+        # Only `name`, `docstring` and `config_fields` are read by the assertions in
+        # this file — the command's name, its `help`, and its params. `group`,
+        # `module_path`, `source_file`, `source_mtime` and `content_hash` are never
+        # inspected (these tests assert an import does *not* happen, so the path that
+        # would be imported is irrelevant), yet each cost a `from_regex` draw per
+        # descriptor, in lists of up to five, including a 64-character hex hash.
         name=draw(st.from_regex(r"[a-z][a-z0-9_]{2,15}", fullmatch=True)),
-        group=draw(st.none() | st.from_regex(r"[a-z][a-z0-9_]{2,10}", fullmatch=True)),
-        module_path=draw(
-            st.from_regex(
-                r"[a-z][a-z0-9_]{1,10}(\.[a-z][a-z0-9_]{1,10}){0,3}", fullmatch=True
-            )
-        ),
-        source_file=draw(
-            st.from_regex(r"/tmp/[a-z][a-z0-9_]{2,10}\.py", fullmatch=True)
-        ),
-        source_mtime=draw(st.floats(min_value=0.0, max_value=2000000000.0)),
-        content_hash=draw(st.from_regex(r"[0-9a-f]{64}", fullmatch=True)),
+        group=None,
+        module_path="pkg.mod",
+        source_file="/tmp/mod.py",
+        source_mtime=0.0,
+        content_hash="0" * 64,
         docstring=draw(st.none() | st.text(max_size=100)),
         config_fields=config_fields,
         dependencies={},

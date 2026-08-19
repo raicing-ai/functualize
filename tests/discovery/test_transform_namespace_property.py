@@ -27,19 +27,30 @@ job_names = st.from_regex(r"[a-z][a-z0-9_]{0,20}", fullmatch=True).filter(
 # Generate optional group strings
 groups = st.one_of(st.none(), st.from_regex(r"[a-z][a-z0-9_]{0,10}", fullmatch=True))
 
-# Generate FieldDescriptor instances
-field_descriptors = st.builds(
-    FieldDescriptor,
-    name=st.from_regex(r"[a-z][a-z0-9_]{0,10}", fullmatch=True),
-    type_annotation=st.sampled_from(
-        ["str", "int", "bool", "float", "enum", "list[str]"]
-    ),
-    choices=st.one_of(
-        st.none(), st.lists(st.text(min_size=1, max_size=10), min_size=1, max_size=5)
-    ),
-    default=st.one_of(st.none(), st.text(max_size=10), st.integers(-100, 100)),
-    required=st.booleans(),
-    description=st.text(max_size=30),
+# These tests assert that NamespaceTransform preserves every field but the name, so
+# the non-name fields must still vary — a constant everywhere would let a transform
+# that blanked a field pass. What they do not need is *expensive* variation: the old
+# strategy drew a `from_regex` per field per descriptor (two 64-char hex hashes among
+# them). Two prepared values per field give the same discriminating power at O(1).
+field_descriptors = st.sampled_from(
+    [
+        FieldDescriptor(
+            name="alpha",
+            type_annotation="str",
+            choices=None,
+            default=None,
+            required=False,
+            description="",
+        ),
+        FieldDescriptor(
+            name="beta",
+            type_annotation="int",
+            choices=["x", "y"],
+            default=3,
+            required=True,
+            description="beta field",
+        ),
+    ]
 )
 
 # Generate optional JobDeclaration
@@ -63,17 +74,13 @@ job_descriptors = st.builds(
     JobDescriptor,
     name=job_names,
     group=groups,
-    module_path=st.from_regex(r"[a-z][a-z0-9_.]{0,30}", fullmatch=True),
-    source_file=st.from_regex(r"/[a-z][a-z0-9_/]{0,30}\.py", fullmatch=True),
-    source_mtime=st.floats(min_value=0.0, max_value=1e12, allow_nan=False),
-    content_hash=st.from_regex(r"[0-9a-f]{64}", fullmatch=True),
-    docstring=st.one_of(st.none(), st.text(min_size=1, max_size=50)),
-    config_fields=st.lists(field_descriptors, max_size=3),
-    dependencies=st.dictionaries(
-        st.from_regex(r"/[a-z][a-z0-9_/]{0,20}\.py", fullmatch=True),
-        st.from_regex(r"[0-9a-f]{64}", fullmatch=True),
-        max_size=3,
-    ),
+    module_path=st.sampled_from(["pkg.mod", "other.pkg.deep"]),
+    source_file=st.sampled_from(["/pkg/mod.py", "/other/deep.py"]),
+    source_mtime=st.sampled_from([0.0, 1234.5]),
+    content_hash=st.sampled_from(["0" * 64, "f" * 64]),
+    docstring=st.sampled_from([None, "a docstring"]),
+    config_fields=st.lists(field_descriptors, max_size=2),
+    dependencies=st.sampled_from([{}, {"/pkg/dep.py": "a" * 64}]),
     declaration=declaration_strategy,
 )
 
