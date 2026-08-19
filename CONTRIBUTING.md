@@ -364,12 +364,26 @@ There is no `release:` type. A version bump is `chore(release): v0.2.0`.
 |------|--------|-------|
 | `conventional-pre-commit` | Commit subject type and shape, at commit time | `.pre-commit-config.yaml` (needs `pre-commit install --hook-type commit-msg`) |
 | PR Title workflow | PR title type, single-token scope, lowercase subject, no trailing period | `.github/workflows/pr-title.yml` |
+| `master` ruleset | Changes arrive by PR; squash is the only merge method; `lint`, `lint-imports`, `typecheck`, `test-fast`, `gitleaks` and `lint-title` must pass; no force-push; no branch deletion | GitHub repository ruleset named `master` |
 
-The two overlap deliberately. The hook cannot see a PR title, and the PR title
-is what becomes the commit on `master` — so the title is the one that must be
-right. The local hook only catches mistakes earlier. Multi-token scopes pass the
-hook and fail the workflow, because restricting scope shape locally would mean
-enumerating every allowed scope.
+The first two overlap deliberately. The hook cannot see a PR title, and the PR
+title is what becomes the commit on `master` — so the title is the one that must
+be right. The local hook only catches mistakes earlier. Multi-token scopes pass
+the hook and fail the workflow, because restricting scope shape locally would
+mean enumerating every allowed scope.
+
+The ruleset requires **zero approving reviews**. Its job is to guarantee that
+every change reaches `master` through a PR with green CI, not to simulate a
+review process that a single maintainer cannot perform on their own work.
+
+`test-full` is deliberately *not* required. It is red for reasons unrelated to
+any individual change (see `.spec/STATUS.md`), and a permanently-failing
+required check trains people to merge past a red tick. Add it to the ruleset in
+the same PR that turns it green.
+
+Repository and organization admins can bypass the ruleset, so the release commit
+described below can still be pushed straight to `master`. That bypass is a
+convenience, not a licence: use a PR unless you are cutting a release.
 
 ### The changelog is written by hand
 
