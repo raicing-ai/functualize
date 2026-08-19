@@ -13,6 +13,7 @@ all fields (resolved + unresolved) to the user.
 
 from __future__ import annotations
 
+import keyword
 from typing import Any
 
 from hypothesis import assume, given
@@ -69,31 +70,33 @@ def _build_dynamic_model(field_names: list[str]) -> type[BaseModel]:
 
 # --- Strategies ---
 
+
 # Reserved names that conflict with Pydantic BaseModel attributes
-_RESERVED_NAMES = frozenset(
-    {
-        "dict",
-        "json",
-        "copy",
-        "schema",
-        "validate",
-        "model",
-        "parse",
-        "update",
-        "fields",
-        "construct",
-        "class",
-    }
-)
+def _is_usable_pydantic_field_name(s: str) -> bool:
+    """Names this generator may safely build a dynamic pydantic model from.
+
+    Derived from `BaseModel` rather than hand-listed. The previous version was a
+    literal blocklist that named "model" but not "model_dump", so the ci profile
+    eventually drew `model_dump` and `create_model` raised
+    ``ValueError: Field 'model_dump' conflicts with member ... of protected
+    namespace``. Any hand-maintained list of another library's reserved names is
+    incomplete by construction; asking the class is not.
+    """
+    if not s.isidentifier() or keyword.iskeyword(s) or keyword.issoftkeyword(s):
+        return False
+    if s.startswith("_"):
+        return False
+    # Pydantic reserves the whole `model_` prefix, and rejects any name that
+    # shadows an existing BaseModel member.
+    return not s.startswith("model_") and not hasattr(BaseModel, s)
+
 
 # Strategy for valid Python identifier field names (at least 2 chars, valid identifiers)
 field_name_strategy = st.text(
     alphabet=st.sampled_from("abcdefghijklmnopqrstuvwxyz_"),
     min_size=2,
     max_size=12,
-).filter(
-    lambda s: s.isidentifier() and not s.startswith("_") and s not in _RESERVED_NAMES
-)
+).filter(_is_usable_pydantic_field_name)
 
 # Strategy for generating a set of unique field names (between 1 and 8 fields)
 field_names_strategy = st.lists(
