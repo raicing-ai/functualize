@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._config.chain import ResolutionChain
@@ -61,7 +61,6 @@ class TestPresetFactoryProperty:
     """
 
     @given(file_pattern=_file_pattern_strategy, dotenv=_dotenv_strategy)
-    @settings(max_examples=200)
     def test_classic_returns_config_sources_with_none_chain(
         self, file_pattern: str, dotenv: bool
     ) -> None:
@@ -77,7 +76,6 @@ class TestPresetFactoryProperty:
         assert result.file_pattern == file_pattern
 
     @given(dotenv=_dotenv_strategy)
-    @settings(max_examples=200)
     def test_twelve_factor_returns_config_sources_with_correct_chain(
         self, dotenv: bool
     ) -> None:
@@ -100,7 +98,6 @@ class TestPresetFactoryProperty:
         assert isinstance(sources[2], DefaultSource)
 
     @given(dotenv=_dotenv_strategy, dotenv_path=_dotenv_path_strategy)
-    @settings(max_examples=200)
     def test_env_only_returns_config_sources_with_correct_chain(
         self, dotenv: bool, dotenv_path: str | None
     ) -> None:
@@ -124,7 +121,6 @@ class TestPresetFactoryProperty:
         assert isinstance(sources[2], DefaultSource)
 
     @given(file_pattern=_file_pattern_strategy, dotenv=_dotenv_strategy)
-    @settings(max_examples=200)
     def test_remote_first_returns_config_sources_with_none_chain(
         self, file_pattern: str, dotenv: bool
     ) -> None:
@@ -140,7 +136,6 @@ class TestPresetFactoryProperty:
         assert result.file_pattern == file_pattern
 
     @given(dotenv=_dotenv_strategy)
-    @settings(max_examples=200)
     def test_custom_preset_callable_accepted_by_functualize_app(
         self, dotenv: bool
     ) -> None:
@@ -175,7 +170,6 @@ class TestPresetFactoryProperty:
             ["classic", "twelve_factor", "env_only", "remote_first"]
         ),
     )
-    @settings(max_examples=200)
     def test_dotenv_field_always_reflects_passed_argument(
         self, dotenv: bool, preset_choice: str
     ) -> None:
@@ -200,7 +194,6 @@ class TestPresetFactoryProperty:
         ),
         dotenv=_dotenv_strategy,
     )
-    @settings(max_examples=200)
     def test_all_presets_return_config_sources_instance(
         self, preset_choice: str, dotenv: bool
     ) -> None:

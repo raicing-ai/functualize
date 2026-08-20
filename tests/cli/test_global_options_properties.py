@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.dispatch import (
@@ -201,7 +201,6 @@ class TestGlobalOptionExtractionPreservesPositionals:
     """
 
     @given(data=argv_with_global_options_and_positional())
-    @settings(max_examples=300)
     def test_extract_global_options_does_not_consume_positionals(
         self, data: tuple[list[str], str]
     ) -> None:
@@ -236,7 +235,6 @@ class TestGlobalOptionExtractionPreservesPositionals:
         )
 
     @given(data=argv_with_global_options_and_positional())
-    @settings(max_examples=300)
     def test_detect_mode_finds_correct_positional_after_extraction(
         self, data: tuple[list[str], str]
     ) -> None:
@@ -275,7 +273,6 @@ class TestGlobalOptionExtractionPreservesPositionals:
         )
 
     @given(data=argv_with_global_options_and_positional())
-    @settings(max_examples=300)
     def test_original_argv_not_mutated(self, data: tuple[list[str], str]) -> None:
         """_extract_global_options does not mutate the original argv list.
 
@@ -293,7 +290,6 @@ class TestGlobalOptionExtractionPreservesPositionals:
         )
 
     @given(data=argv_with_global_options_and_positional())
-    @settings(max_examples=300)
     def test_unrecognized_flags_after_positional_not_consumed(
         self, data: tuple[list[str], str]
     ) -> None:
@@ -321,7 +317,6 @@ class TestGlobalOptionExtractionPreservesPositionals:
         )
 
     @given(argv=argv_with_only_global_options())
-    @settings(max_examples=300)
     def test_no_positional_yields_negative_index(self, argv: list[str]) -> None:
         """When no positional is present, first_positional_index is -1.
 

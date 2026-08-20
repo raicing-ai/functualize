@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.config import _get_value, _validate_aliases
@@ -171,7 +171,6 @@ class TestDiscoveryConfigTomlRoundTrip:
     """
 
     @given(config=discovery_config_strategy)
-    @settings(max_examples=300)
     def test_round_trip_preserves_all_fields(self, config: DiscoveryConfig):
         """Serialize DiscoveryConfig to TOML, parse back, assert equality.
 
@@ -194,7 +193,6 @@ class TestDiscoveryConfigTomlRoundTrip:
         )
 
     @given(config=discovery_config_strategy)
-    @settings(max_examples=300)
     def test_serialized_toml_is_valid(self, config: DiscoveryConfig):
         """Serialized TOML string is always parseable by tomllib.
 
@@ -209,7 +207,6 @@ class TestDiscoveryConfigTomlRoundTrip:
         assert "discovery" in parsed
 
     @given(config=discovery_config_strategy)
-    @settings(max_examples=300)
     def test_none_fields_are_absent_from_toml(self, config: DiscoveryConfig):
         """Fields set to None are not serialized to the TOML output.
 
@@ -273,7 +270,6 @@ class TestEnvVarNameMapping:
     """
 
     @given(section=_section_name, key=_key_name, value=_env_value)
-    @settings(max_examples=300)
     def test_env_var_maps_to_section_key(self, section: str, key: str, value: str):
         """Setting FUNCTUALIZE_<SECTION>_<KEY> maps to {section: {key: value}}.
 
@@ -313,7 +309,6 @@ class TestEnvVarNameMapping:
                 os.environ[k] = v
 
     @given(section=_section_name, key=_key_name)
-    @settings(max_examples=300)
     def test_empty_env_var_is_treated_as_unset(self, section: str, key: str):
         """Empty string FUNCTUALIZE_* env vars are treated as unset (skipped).
 
@@ -347,7 +342,6 @@ class TestEnvVarNameMapping:
                 os.environ[k] = v
 
     @given(section=_section_name, key=_key_name, value=_env_value)
-    @settings(max_examples=300)
     def test_mapping_is_case_insensitive_to_uppercase(
         self, section: str, key: str, value: str
     ):
@@ -430,7 +424,6 @@ class TestBooleanEnvVarParsing:
     """
 
     @given(value=_truthy_env_value)
-    @settings(max_examples=300)
     def test_truthy_values_parse_to_true(self, value: str):
         """Any case variation of 'true' or '1' parses to True.
 
@@ -442,7 +435,6 @@ class TestBooleanEnvVarParsing:
         assert result is True, f"Expected True for input {value!r}, got {result!r}"
 
     @given(value=_falsy_env_value)
-    @settings(max_examples=300)
     def test_falsy_values_parse_to_false(self, value: str):
         """Any case variation of 'false' or '0' parses to False.
 
@@ -454,7 +446,6 @@ class TestBooleanEnvVarParsing:
         assert result is False, f"Expected False for input {value!r}, got {result!r}"
 
     @given(value=st.one_of(_truthy_env_value, _falsy_env_value))
-    @settings(max_examples=300)
     def test_result_is_never_none_for_valid_inputs(self, value: str):
         """Valid boolean inputs never return None.
 
@@ -503,7 +494,6 @@ class TestConfigPrecedenceHighestNonNoneWins:
         proj_val=_optional_config_value,
         glob_val=_optional_config_value,
     )
-    @settings(max_examples=300)
     def test_highest_non_none_wins_flat_key(
         self,
         cli_val: Any,
@@ -542,7 +532,6 @@ class TestConfigPrecedenceHighestNonNoneWins:
         glob_val=_optional_config_value,
         section=st.from_regex(r"[a-z]{3,10}", fullmatch=True),
     )
-    @settings(max_examples=300)
     def test_highest_non_none_wins_with_section(
         self,
         cli_val: Any,
@@ -583,7 +572,6 @@ class TestConfigPrecedenceHighestNonNoneWins:
         proj_val=_config_value,
         glob_val=_config_value,
     )
-    @settings(max_examples=300)
     def test_cli_always_wins_when_set(
         self,
         cli_val: Any,
@@ -609,7 +597,6 @@ class TestConfigPrecedenceHighestNonNoneWins:
         )
 
     @given(data=st.data())
-    @settings(max_examples=300)
     def test_all_none_returns_none(self, data: st.DataObject):
         """When all levels are None, _get_value returns None.
 
@@ -654,21 +641,20 @@ class TestXDGConfigPathResolution:
             st.from_regex(r"[a-zA-Z0-9_/.]{1,60}", fullmatch=True),
         )
     )
-    @settings(max_examples=300)
     def test_nonempty_xdg_config_home_uses_xdg_path(self, xdg_value: str):
-        """When XDG_CONFIG_HOME is a non-empty string, _resolve_xdg_config_dir()
+        """When XDG_CONFIG_HOME is a non-empty string, resolve_user_config_dir()
         returns Path(xdg_value) / "functualize".
 
         **Validates: Requirements 1.1, 1.6**
         """
         import os
 
-        from functualize._cli.config import _resolve_xdg_config_dir
+        from functualize.app.utils import resolve_user_config_dir
 
         old = os.environ.get("XDG_CONFIG_HOME")
         try:
             os.environ["XDG_CONFIG_HOME"] = xdg_value
-            result = _resolve_xdg_config_dir()
+            result = resolve_user_config_dir()
             expected = Path(xdg_value) / "functualize"
             assert result == expected, (
                 f"XDG_CONFIG_HOME={xdg_value!r} → expected {expected}, got {result}"
@@ -679,39 +665,31 @@ class TestXDGConfigPathResolution:
             else:
                 os.environ["XDG_CONFIG_HOME"] = old
 
-    @given(
-        # Generate a scenario indicator: True=empty string, False=unset
-        is_empty=st.booleans(),
+    # Two inputs, so enumerate them: Hypothesis would draw the same two
+    # values over and over, and parametrize reports which case failed.
+    @pytest.mark.parametrize(
+        ("is_empty", "xdg_desc"), [(True, '""'), (False, "<unset>")]
     )
-    @settings(max_examples=100)
-    def test_empty_or_unset_xdg_config_home_uses_default(self, is_empty: bool):
-        """When XDG_CONFIG_HOME is empty or unset, _resolve_xdg_config_dir()
+    def test_empty_or_unset_xdg_config_home_uses_default(
+        self, is_empty: bool, xdg_desc: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """When XDG_CONFIG_HOME is empty or unset, resolve_user_config_dir()
         returns Path.home() / ".config" / "functualize".
 
         **Validates: Requirements 1.1, 1.6**
         """
-        import os
+        from functualize.app.utils import resolve_user_config_dir
 
-        from functualize._cli.config import _resolve_xdg_config_dir
+        if is_empty:
+            monkeypatch.setenv("XDG_CONFIG_HOME", "")
+        else:
+            monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
 
-        old = os.environ.get("XDG_CONFIG_HOME")
-        try:
-            if is_empty:
-                os.environ["XDG_CONFIG_HOME"] = ""
-            else:
-                os.environ.pop("XDG_CONFIG_HOME", None)
-
-            result = _resolve_xdg_config_dir()
-            expected = Path.home() / ".config" / "functualize"
-            xdg_desc = '""' if is_empty else "<unset>"
-            assert result == expected, (
-                f"XDG_CONFIG_HOME={xdg_desc} → expected {expected}, got {result}"
-            )
-        finally:
-            if old is None:
-                os.environ.pop("XDG_CONFIG_HOME", None)
-            else:
-                os.environ["XDG_CONFIG_HOME"] = old
+        result = resolve_user_config_dir()
+        expected = Path.home() / ".config" / "functualize"
+        assert result == expected, (
+            f"XDG_CONFIG_HOME={xdg_desc} → expected {expected}, got {result}"
+        )
 
 
 # =============================================================================
@@ -745,7 +723,6 @@ class TestListMergeDeduplication:
         project_list=_string_list,
         global_list=_string_list,
     )
-    @settings(max_examples=300)
     def test_merged_result_has_no_duplicates(
         self, project_list: list[str], global_list: list[str]
     ):
@@ -763,7 +740,6 @@ class TestListMergeDeduplication:
         project_list=_string_list,
         global_list=_string_list,
     )
-    @settings(max_examples=300)
     def test_merged_result_contains_all_unique_elements(
         self, project_list: list[str], global_list: list[str]
     ):
@@ -784,7 +760,6 @@ class TestListMergeDeduplication:
         project_list=_string_list,
         global_list=_string_list,
     )
-    @settings(max_examples=300)
     def test_project_entries_precede_global_entries(
         self, project_list: list[str], global_list: list[str]
     ):
@@ -823,7 +798,6 @@ class TestListMergeDeduplication:
         project_list=_string_list,
         global_list=_string_list,
     )
-    @settings(max_examples=300)
     def test_project_entry_retained_on_conflict(
         self, project_list: list[str], global_list: list[str]
     ):
@@ -862,7 +836,6 @@ class TestListMergeDeduplication:
     @given(
         project_list=_string_list,
     )
-    @settings(max_examples=300)
     def test_none_global_list_returns_project_deduped(self, project_list: list[str]):
         """When global list is None, result is just the deduplicated project list.
 
@@ -885,7 +858,6 @@ class TestListMergeDeduplication:
     @given(
         global_list=_string_list,
     )
-    @settings(max_examples=300)
     def test_none_project_list_returns_global_deduped(self, global_list: list[str]):
         """When project list is None, result is just the deduplicated global list.
 
@@ -947,7 +919,6 @@ class TestAliasNameValidation:
     """
 
     @given(name=_arbitrary_alias_name)
-    @settings(max_examples=500)
     def test_alias_accepted_iff_matches_pattern_and_length(self, name: str):
         """Any string is accepted as an alias name iff it matches the regex
         pattern ^[a-zA-Z][a-zA-Z0-9_-]*$ AND has length ≤ 32.
@@ -977,7 +948,6 @@ class TestAliasNameValidation:
             )
 
     @given(name=_valid_alias_name)
-    @settings(max_examples=300)
     def test_valid_aliases_always_accepted(self, name: str):
         """Strings matching the pattern with length ≤ 32 are always accepted.
 
@@ -988,7 +958,6 @@ class TestAliasNameValidation:
         assert name in result, f"Valid alias '{name!r}' was rejected"
 
     @given(name=_invalid_start_alias)
-    @settings(max_examples=300)
     def test_invalid_start_char_always_rejected(self, name: str):
         """Strings not starting with a letter are always rejected.
 
@@ -1008,7 +977,6 @@ class TestAliasNameValidation:
             max_size=60,
         ),
     )
-    @settings(max_examples=100)
     def test_over_length_aliases_rejected(self, first: str, rest: str):
         """Strings matching the pattern but exceeding 32 chars are rejected.
 

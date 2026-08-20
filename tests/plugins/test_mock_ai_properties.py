@@ -17,7 +17,7 @@ from fnmatch import fnmatch
 
 import pytest
 from functualize_ai.testing import MockAI
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 # ===========================================================================
@@ -197,7 +197,6 @@ class TestMockAIPatternMatchingProperty:
     """
 
     @given(data=matching_prompt_and_responses())
-    @settings(max_examples=100)
     def test_matching_prompt_returns_first_match(
         self, data: tuple[dict[str, object], str, object]
     ) -> None:
@@ -211,7 +210,6 @@ class TestMockAIPatternMatchingProperty:
         assert result == expected
 
     @given(data=non_matching_prompt_and_responses())
-    @settings(max_examples=100)
     def test_non_matching_prompt_raises_value_error(
         self, data: tuple[dict[str, object], str]
     ) -> None:
@@ -228,7 +226,6 @@ class TestMockAIPatternMatchingProperty:
         num_calls=st.integers(min_value=1, max_value=20),
         prompts=st.lists(prompt_st, min_size=1, max_size=20),
     )
-    @settings(max_examples=100)
     def test_call_count_increments_by_one_per_call(
         self, num_calls: int, prompts: list[str]
     ) -> None:
@@ -247,7 +244,6 @@ class TestMockAIPatternMatchingProperty:
         assert mock.call_count == actual_calls
 
     @given(prompts=st.lists(prompt_st, min_size=1, max_size=20))
-    @settings(max_examples=100)
     def test_calls_list_grows_by_one_per_call(self, prompts: list[str]) -> None:
         """calls list grows by 1 per call with correct prompt/response_model/response.
 
@@ -263,7 +259,6 @@ class TestMockAIPatternMatchingProperty:
             assert mock.calls[i].response == "response_value"
 
     @given(prompts=st.lists(prompt_st, min_size=1, max_size=20))
-    @settings(max_examples=100)
     def test_last_prompt_is_most_recent(self, prompts: list[str]) -> None:
         """last_prompt is always the most recent prompt.
 
@@ -276,7 +271,6 @@ class TestMockAIPatternMatchingProperty:
             assert mock.last_prompt == prompt
 
     @given(data=matching_prompt_and_responses())
-    @settings(max_examples=100)
     def test_calls_record_contains_correct_response(
         self, data: tuple[dict[str, object], str, object]
     ) -> None:
@@ -296,7 +290,6 @@ class TestMockAIPatternMatchingProperty:
     @given(
         prompts=st.lists(prompt_st, min_size=2, max_size=10),
     )
-    @settings(max_examples=100)
     def test_multiple_calls_all_recorded_in_order(self, prompts: list[str]) -> None:
         """After N calls, calls list has exactly N entries in call order.
 
@@ -316,7 +309,6 @@ class TestMockAIPatternMatchingProperty:
             assert mock.calls[i].prompt == prompt
 
     @given(data=matching_prompt_and_responses())
-    @settings(max_examples=100)
     def test_first_pattern_wins_on_multiple_matches(
         self, data: tuple[dict[str, object], str, object]
     ) -> None:

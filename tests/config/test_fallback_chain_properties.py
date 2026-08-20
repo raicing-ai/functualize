@@ -8,7 +8,7 @@ Property 3: Fallback chain parsing respects max-5 constraint.
 from __future__ import annotations
 
 import pytest
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 from functualize._config.manifest import (
@@ -78,7 +78,6 @@ class TestProperty3FallbackChainMaxConstraint:
             max_size=MAX_FALLBACK_CHAIN,
         )
     )
-    @settings(max_examples=200)
     def test_valid_chains_parse_with_correct_count(
         self, annotations: list[tuple[str, str]]
     ) -> None:
@@ -100,7 +99,6 @@ class TestProperty3FallbackChainMaxConstraint:
             max_size=MAX_FALLBACK_CHAIN + 5,
         )
     )
-    @settings(max_examples=200)
     def test_exceeding_max_chain_raises_value_error(
         self, annotations: list[tuple[str, str]]
     ) -> None:
@@ -120,7 +118,6 @@ class TestProperty3FallbackChainMaxConstraint:
             max_size=MAX_FALLBACK_CHAIN,
         )
     )
-    @settings(max_examples=200)
     def test_order_is_preserved(self, annotations: list[tuple[str, str]]) -> None:
         """The order of annotations in the chain is preserved in the parsed result."""
         chain_str = FALLBACK_SEPARATOR.join(
@@ -141,7 +138,6 @@ class TestProperty3FallbackChainMaxConstraint:
             max_size=MAX_FALLBACK_CHAIN,
         )
     )
-    @settings(max_examples=200)
     def test_provider_and_reference_correctly_extracted(
         self, annotations: list[tuple[str, str]]
     ) -> None:
@@ -168,7 +164,6 @@ class TestProperty3FallbackChainMaxConstraint:
         invalid_entry=invalid_entries,
         insert_position=st.integers(min_value=0, max_value=100),
     )
-    @settings(max_examples=200)
     def test_invalid_entry_in_chain_raises_value_error(
         self,
         valid_annotations: list[tuple[str, str]],

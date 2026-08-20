@@ -19,7 +19,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._discovery.cached_provider import CachedDirectoryScanProvider
@@ -107,7 +107,6 @@ class TestCacheSingleReadGuarantee:
     """
 
     @given(call_count=num_calls(), entries=cache_entries())
-    @settings(max_examples=100)
     def test_cache_file_read_at_most_once_regardless_of_call_count(
         self, call_count: int, entries: list[dict]
     ) -> None:
@@ -156,7 +155,6 @@ class TestCacheSingleReadGuarantee:
                 )
 
     @given(call_count=num_calls(), entries=cache_entries())
-    @settings(max_examples=100)
     def test_lookups_return_consistent_results(
         self, call_count: int, entries: list[dict]
     ) -> None:

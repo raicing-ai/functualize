@@ -8,7 +8,7 @@ Property 22: Workflow_Scope Metadata
 """
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize.job._state_store import StateStore
@@ -64,7 +64,6 @@ class TestWorkflowScopeLifecycle:
     """Property 13: Workflow_Scope Lifecycle."""
 
     @given(scope_id=scope_ids)
-    @settings(max_examples=200)
     def test_new_scope_not_closed_with_empty_state_store(self, scope_id: str) -> None:
         """A newly created scope is not closed and has an empty state_store.
 
@@ -86,7 +85,6 @@ class TestWorkflowScopeLifecycle:
             max_size=10,
         ),
     )
-    @settings(max_examples=200)
     def test_close_marks_scope_closed_and_state_store_rejects_mutations(
         self, scope_id: str, items: dict[str, object]
     ) -> None:
@@ -114,7 +112,6 @@ class TestWorkflowScopeLifecycle:
             scope.state_store.clear()
 
     @given(scope_id=scope_ids)
-    @settings(max_examples=200)
     def test_close_on_already_closed_scope_raises_invalid_state_transition(
         self, scope_id: str
     ) -> None:
@@ -132,7 +129,6 @@ class TestWorkflowScopeLifecycle:
         scope_id=scope_ids,
         second_scope_id=scope_ids,
     )
-    @settings(max_examples=200)
     def test_duplicate_scope_id_in_registry_raises_value_error(
         self, scope_id: str, second_scope_id: str
     ) -> None:
@@ -162,7 +158,6 @@ class TestWorkflowScopeLifecycle:
         key=state_keys,
         value=json_values,
     )
-    @settings(max_examples=200)
     def test_get_workflow_scope_retrieves_existing_scope(
         self, scope_id: str, key: str, value: object
     ) -> None:
@@ -208,7 +203,6 @@ class TestWorkflowScopeMetadata:
     """Property 22: Workflow_Scope Metadata."""
 
     @given(scope_id=scope_ids, metadata=metadata_dicts)
-    @settings(max_examples=200)
     def test_metadata_stored_and_accessible(
         self, scope_id: str, metadata: dict[str, object]
     ) -> None:
@@ -221,7 +215,6 @@ class TestWorkflowScopeMetadata:
         assert scope.metadata == metadata
 
     @given(scope_id=scope_ids)
-    @settings(max_examples=200)
     def test_no_metadata_gives_empty_dict(self, scope_id: str) -> None:
         """A scope created without metadata has an empty dict as metadata.
 
@@ -232,7 +225,6 @@ class TestWorkflowScopeMetadata:
         assert isinstance(scope.metadata, dict)
 
     @given(scope_id=scope_ids)
-    @settings(max_examples=200)
     def test_none_metadata_gives_empty_dict(self, scope_id: str) -> None:
         """A scope created with metadata=None has an empty dict as metadata.
 
@@ -243,7 +235,6 @@ class TestWorkflowScopeMetadata:
         assert isinstance(scope.metadata, dict)
 
     @given(scope_id=scope_ids, metadata=metadata_dicts)
-    @settings(max_examples=200)
     def test_metadata_supports_arbitrary_json_dicts(
         self, scope_id: str, metadata: dict[str, object]
     ) -> None:

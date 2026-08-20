@@ -10,7 +10,7 @@ Tests PanelRing from functualize._cli.tui.models.ring_models:
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.models.ring_models import PanelRing, RegisteredPanel
@@ -60,7 +60,6 @@ class TestGeneralRingPriorityOrdering:
     """
 
     @given(panels=_panel_list_strategy())
-    @settings(max_examples=100)
     def test_panels_sorted_ascending_by_priority(
         self, panels: list[RegisteredPanel]
     ) -> None:
@@ -83,7 +82,6 @@ class TestGeneralRingPriorityOrdering:
             )
 
     @given(panels=_panel_list_strategy())
-    @settings(max_examples=100)
     def test_same_priority_panels_in_insertion_order(
         self, panels: list[RegisteredPanel]
     ) -> None:
@@ -118,7 +116,6 @@ class TestGeneralRingPriorityOrdering:
             )
 
     @given(panels=_panel_list_strategy())
-    @settings(max_examples=100)
     def test_ring_contains_all_inserted_panels(
         self, panels: list[RegisteredPanel]
     ) -> None:
@@ -133,7 +130,6 @@ class TestGeneralRingPriorityOrdering:
         )
 
     @given(panels=_panel_list_strategy())
-    @settings(max_examples=100)
     def test_tie_breaking_is_not_alphabetical(
         self, panels: list[RegisteredPanel]
     ) -> None:

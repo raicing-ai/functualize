@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 from functualize._cli.scaffold import PEP508_PATTERN, ScaffoldGenerator
@@ -124,7 +124,6 @@ class TestPEP508NameValidation:
     """Property 1: PEP 508 Name Validation."""
 
     @given(name=valid_pep508_names())
-    @settings(max_examples=100)
     def test_valid_names_are_accepted(self, name: str):
         """Valid PEP 508 names are accepted by ScaffoldGenerator."""
         # Feature: functualize, Property 1: PEP 508 Name Validation
@@ -137,7 +136,6 @@ class TestPEP508NameValidation:
             assert target_dir.exists()
 
     @given(name=invalid_pep508_names())
-    @settings(max_examples=100)
     def test_invalid_names_are_rejected(self, name: str):
         """Invalid PEP 508 names are rejected with ValueError."""
         # Feature: functualize, Property 1: PEP 508 Name Validation
@@ -149,7 +147,6 @@ class TestPEP508NameValidation:
                 generator.create_project(name, target_dir)
 
     @given(name=valid_pep508_names())
-    @settings(max_examples=100)
     def test_valid_names_accepted_by_add_job(self, name: str):
         """Valid PEP 508 names are accepted by add_job."""
         # Feature: functualize, Property 1: PEP 508 Name Validation
@@ -159,7 +156,6 @@ class TestPEP508NameValidation:
             generator.add_job(name, Path(tmp))
 
     @given(name=invalid_pep508_names())
-    @settings(max_examples=100)
     def test_invalid_names_rejected_by_add_job(self, name: str):
         """Invalid PEP 508 names are rejected by add_job."""
         # Feature: functualize, Property 1: PEP 508 Name Validation
@@ -184,7 +180,6 @@ class TestScaffoldEntryPointCorrectness:
     """Property 2: Scaffold Entry Point Correctness."""
 
     @given(name=valid_pep508_names())
-    @settings(max_examples=100)
     def test_pyproject_contains_correct_entry_point(self, name: str):
         """Generated pyproject.toml has correct [project.scripts] entry."""
         # Feature: functualize, Property 2: Scaffold Entry Point Correctness
@@ -210,7 +205,6 @@ class TestScaffoldEntryPointCorrectness:
             )
 
     @given(name=valid_pep508_names())
-    @settings(max_examples=100)
     def test_pyproject_has_scripts_section(self, name: str):
         """Generated pyproject.toml contains [project.scripts] section."""
         # Feature: functualize, Property 2: Scaffold Entry Point Correctness
@@ -241,7 +235,6 @@ class TestSubScaffoldFileGeneration:
     """Property 3: Sub-Scaffold File Generation."""
 
     @given(name=valid_pep508_names())
-    @settings(max_examples=100)
     def test_add_job_creates_file_with_job_name(self, name: str):
         """add_job creates a file containing JOB_GROUP set to the provided name."""
         # Feature: functualize, Property 3: Sub-Scaffold File Generation
@@ -264,7 +257,6 @@ class TestSubScaffoldFileGeneration:
             )
 
     @given(name=valid_pep508_names())
-    @settings(max_examples=100)
     def test_add_plugin_creates_file_with_register_function(self, name: str):
         """add_plugin creates a file with the register entry point function."""
         # Feature: functualize, Property 3: Sub-Scaffold File Generation
@@ -291,7 +283,6 @@ class TestSubScaffoldFileGeneration:
             )
 
     @given(name=valid_pep508_names())
-    @settings(max_examples=100)
     def test_add_tui_screen_creates_file_with_screen_class(self, name: str):
         """add_tui_screen creates a file with a Screen class named after the input."""
         # Feature: functualize, Property 3: Sub-Scaffold File Generation
@@ -317,7 +308,6 @@ class TestSubScaffoldFileGeneration:
             )
 
     @given(name=valid_pep508_names())
-    @settings(max_examples=100)
     def test_add_job_does_not_modify_existing_files(self, name: str):
         """add_job does not modify existing files in the directory."""
         # Feature: functualize, Property 3: Sub-Scaffold File Generation
@@ -337,7 +327,6 @@ class TestSubScaffoldFileGeneration:
             assert existing_file.read_text() == existing_content
 
     @given(name=valid_pep508_names())
-    @settings(max_examples=100)
     def test_add_plugin_does_not_modify_existing_files(self, name: str):
         """add_plugin does not modify existing files in the directory."""
         # Feature: functualize, Property 3: Sub-Scaffold File Generation
@@ -355,7 +344,6 @@ class TestSubScaffoldFileGeneration:
             assert existing_file.read_text() == existing_content
 
     @given(name=valid_pep508_names())
-    @settings(max_examples=100)
     def test_add_tui_screen_does_not_modify_existing_files(self, name: str):
         """add_tui_screen does not modify existing files in the directory."""
         # Feature: functualize, Property 3: Sub-Scaffold File Generation

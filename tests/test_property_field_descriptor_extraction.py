@@ -14,7 +14,7 @@ import inspect
 from pathlib import Path
 from typing import Any, get_args, get_origin
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._discovery.providers import extract_parameters_from_signature
@@ -330,7 +330,6 @@ class TestFieldDescriptorExtractionProperty:
     """
 
     @given(param_specs=_params_list_strategy())
-    @settings(max_examples=200)
     def test_correct_number_of_field_descriptors(
         self, param_specs: list[tuple[str, Any, Any]]
     ) -> None:
@@ -346,7 +345,6 @@ class TestFieldDescriptorExtractionProperty:
             assert isinstance(fd, FieldDescriptor)
 
     @given(param_specs=_params_list_strategy())
-    @settings(max_examples=200)
     def test_correct_parameter_names(
         self, param_specs: list[tuple[str, Any, Any]]
     ) -> None:
@@ -361,7 +359,6 @@ class TestFieldDescriptorExtractionProperty:
             assert result[i].name == name
 
     @given(param_specs=_params_list_strategy())
-    @settings(max_examples=200)
     def test_correct_type_annotations(
         self, param_specs: list[tuple[str, Any, Any]]
     ) -> None:
@@ -380,7 +377,6 @@ class TestFieldDescriptorExtractionProperty:
             )
 
     @given(param_specs=_params_list_strategy())
-    @settings(max_examples=200)
     def test_required_iff_no_default(
         self, param_specs: list[tuple[str, Any, Any]]
     ) -> None:
@@ -400,7 +396,6 @@ class TestFieldDescriptorExtractionProperty:
             )
 
     @given(param_specs=_params_list_strategy())
-    @settings(max_examples=200)
     def test_correct_default_values(
         self, param_specs: list[tuple[str, Any, Any]]
     ) -> None:
@@ -424,7 +419,6 @@ class TestFieldDescriptorExtractionProperty:
                 )
 
     @given(param_specs=_params_list_strategy())
-    @settings(max_examples=200)
     def test_choices_populated_for_enum_types(
         self, param_specs: list[tuple[str, Any, Any]]
     ) -> None:
@@ -449,7 +443,6 @@ class TestFieldDescriptorExtractionProperty:
                 )
 
     @given(param_specs=_params_list_strategy())
-    @settings(max_examples=200)
     def test_all_properties_hold_simultaneously(
         self, param_specs: list[tuple[str, Any, Any]]
     ) -> None:

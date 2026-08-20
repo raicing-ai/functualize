@@ -11,7 +11,7 @@ Tests format_type_hint() from functualize._cli.tui.type_hint_formatter:
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.type_hint_formatter import format_type_hint
@@ -134,7 +134,6 @@ class TestTypeHintFormatting:
     """
 
     @given(inputs=_type_hint_inputs())
-    @settings(max_examples=100)
     def test_result_length_is_at_least_fixed_width(self, inputs: dict) -> None:
         """Result is at least 12 characters (right-padded to fixed width).
 
@@ -155,7 +154,6 @@ class TestTypeHintFormatting:
         )
 
     @given(inputs=_type_hint_inputs())
-    @settings(max_examples=100)
     def test_result_starts_with_correct_display_type(self, inputs: dict) -> None:
         """Result starts with the correct mapped display type (Req 14.1)."""
         result = format_type_hint(
@@ -183,7 +181,6 @@ class TestTypeHintFormatting:
             )
 
     @given(inputs=_type_hint_inputs())
-    @settings(max_examples=100)
     def test_constraint_bracket_notation(self, inputs: dict) -> None:
         """Constraint ranges use correct bracket notation (Req 14.2).
 
@@ -250,7 +247,6 @@ class TestTypeHintFormatting:
                 assert ".." in stripped, f"Expected '..' separator in: {result!r}"
 
     @given(inputs=_type_hint_inputs())
-    @settings(max_examples=100)
     def test_choices_produce_enum_type(self, inputs: dict) -> None:
         """When choices are provided, the type displays as 'enum' (Req 14.1)."""
         result = format_type_hint(

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._types.descriptors import JobDescriptor
@@ -43,32 +43,25 @@ job_names = st.from_regex(r"[a-z][a-z0-9_]{0,20}", fullmatch=True).filter(
     lambda s: s.isidentifier()
 )
 
-# Optional group values
-group_values = st.one_of(st.none(), job_names)
-
-# Module paths
-module_paths = st.from_regex(
-    r"[a-z][a-z0-9_]{0,10}(\.[a-z][a-z0-9_]{0,10}){0,3}", fullmatch=True
-)
-
-# Source file paths
-source_files = st.from_regex(r"/[a-z][a-z0-9_/]{0,30}\.py", fullmatch=True)
-
-# Content hashes (hex strings)
-content_hashes = st.from_regex(r"[0-9a-f]{64}", fullmatch=True)
+# Every field except `name` is a constant. `DictProvider` keys on `name` alone and
+# the assertions below only ever compare a descriptor to itself or read `.name`, so
+# the remaining fields cannot affect any outcome — they were costing a `from_regex`
+# draw each (including a 64-char hex hash) for every descriptor in every list.
+_MODULE_PATH = "pkg.mod"
+_SOURCE_FILE = "/pkg/mod.py"
+_CONTENT_HASH = "0" * 64
 
 
-@st.composite
-def job_descriptors(draw: st.DrawFn) -> JobDescriptor:
-    """Strategy to generate a random JobDescriptor."""
+def _descriptor(name: str, group: str | None = None) -> JobDescriptor:
+    """Build a JobDescriptor whose only meaningful field is its name."""
     return JobDescriptor(
-        name=draw(job_names),
-        group=draw(group_values),
-        module_path=draw(module_paths),
-        source_file=draw(source_files),
-        source_mtime=draw(st.floats(min_value=0.0, max_value=1e12, allow_nan=False)),
-        content_hash=draw(content_hashes),
-        docstring=draw(st.one_of(st.none(), st.text(min_size=0, max_size=100))),
+        name=name,
+        group=group,
+        module_path=_MODULE_PATH,
+        source_file=_SOURCE_FILE,
+        source_mtime=0.0,
+        content_hash=_CONTENT_HASH,
+        docstring=None,
         config_fields=[],
         dependencies={},
         metadata=None,
@@ -79,14 +72,7 @@ def job_descriptors(draw: st.DrawFn) -> JobDescriptor:
 def unique_descriptor_lists(draw: st.DrawFn) -> list[JobDescriptor]:
     """Strategy to generate a list of JobDescriptors with unique names."""
     names = draw(st.lists(job_names, min_size=0, max_size=10, unique=True))
-    descriptors = []
-    for name in names:
-        desc = draw(job_descriptors())
-        # Replace name to ensure uniqueness
-        from dataclasses import replace
-
-        descriptors.append(replace(desc, name=name))
-    return descriptors
+    return [_descriptor(name) for name in names]
 
 
 # Names that are guaranteed not to be in a given set
@@ -96,7 +82,6 @@ absent_names = st.from_regex(r"absent_[a-z0-9]{1,10}", fullmatch=True)
 # --- Property 2: Provider consistency (list_jobs ↔ get_job) ---
 
 
-@settings(max_examples=100)
 @given(descriptors=unique_descriptor_lists())
 def test_property_2_every_listed_job_is_retrievable(
     descriptors: list[JobDescriptor],
@@ -122,7 +107,6 @@ def test_property_2_every_listed_job_is_retrievable(
         )
 
 
-@settings(max_examples=100)
 @given(
     descriptors=unique_descriptor_lists(),
     absent_name=absent_names,
@@ -150,7 +134,6 @@ def test_property_2_get_job_returns_none_for_absent_names(
         )
 
 
-@settings(max_examples=100)
 @given(descriptors=unique_descriptor_lists())
 def test_property_2_list_jobs_names_match_get_job_domain(
     descriptors: list[JobDescriptor],

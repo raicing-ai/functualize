@@ -16,7 +16,7 @@ must continue to PASS (confirming no regressions).
 from __future__ import annotations
 
 import pytest
-from hypothesis import assume, given, note, settings
+from hypothesis import assume, given, note
 from hypothesis import strategies as st
 
 from functualize._cli.data.config_target import ConfigTarget
@@ -123,7 +123,6 @@ class TestBreadcrumbStateRenderPreservation:
     """
 
     @given(state=_breadcrumb_states)
-    @settings(max_examples=200)
     def test_render_format_matches_spec(self, state: BreadcrumbState) -> None:
         """For all valid BreadcrumbState inputs, render() produces the documented format.
 
@@ -164,7 +163,6 @@ class TestBreadcrumbStateRenderPreservation:
             )
 
     @given(state=_breadcrumb_states)
-    @settings(max_examples=100)
     def test_render_is_deterministic(self, state: BreadcrumbState) -> None:
         """Calling render() twice on the same state produces identical output.
 
@@ -186,7 +184,6 @@ class TestPanelRingControllerPreservation:
     """
 
     @given(ring_size=_ring_sizes, nav_seq=_nav_sequences, category=_categories)
-    @settings(max_examples=200)
     def test_wrapping_and_clamping_produce_valid_indices(
         self, ring_size: int, nav_seq: list[str], category: Category
     ) -> None:
@@ -222,7 +219,6 @@ class TestPanelRingControllerPreservation:
             )
 
     @given(ring_size=_ring_sizes)
-    @settings(max_examples=100)
     def test_next_wraps_at_boundary(self, ring_size: int) -> None:
         """Calling next_panel ring_size times returns to index 0 (modular wrapping).
 
@@ -241,7 +237,6 @@ class TestPanelRingControllerPreservation:
         )
 
     @given(ring_size=_ring_sizes)
-    @settings(max_examples=100)
     def test_prev_wraps_at_boundary(self, ring_size: int) -> None:
         """Calling prev_panel from index 0 wraps to ring_size - 1.
 
@@ -262,7 +257,6 @@ class TestPanelRingControllerPreservation:
         ring_size=st.integers(min_value=1, max_value=10),
         labels=st.lists(st.text(min_size=1, max_size=10), min_size=1, max_size=3),
     )
-    @settings(max_examples=100)
     def test_breadcrumb_stack_push_pop_consistency(
         self, ring_size: int, labels: list[str]
     ) -> None:
@@ -295,7 +289,6 @@ class TestPanelRingControllerPreservation:
         start_size=st.integers(min_value=1, max_value=10),
         index=st.integers(min_value=0, max_value=20),
     )
-    @settings(max_examples=100)
     def test_clamping_on_activation(self, start_size: int, index: int) -> None:
         """activate_general/activate_pre_flight clamps index to valid range.
 
@@ -326,7 +319,6 @@ class TestFocusStateTransitionPreservation:
     """
 
     @given(from_mode=_focus_modes, to_mode=_focus_modes)
-    @settings(max_examples=100)
     def test_valid_transitions_accepted_invalid_rejected(
         self, from_mode: FocusMode, to_mode: FocusMode
     ) -> None:
@@ -352,7 +344,6 @@ class TestFocusStateTransitionPreservation:
         )
 
     @given(from_mode=_focus_modes, to_mode=_focus_modes, zone=_focus_zones)
-    @settings(max_examples=100)
     def test_successful_transition_updates_mode(
         self, from_mode: FocusMode, to_mode: FocusMode, zone: FocusZone
     ) -> None:
@@ -372,7 +363,6 @@ class TestFocusStateTransitionPreservation:
         )
 
     @given(from_mode=_focus_modes, to_mode=_focus_modes)
-    @settings(max_examples=100)
     def test_failed_transition_preserves_state(
         self, from_mode: FocusMode, to_mode: FocusMode
     ) -> None:
@@ -431,7 +421,6 @@ class TestConfigTargetDisplayLabelPreservation:
     """
 
     @given(type_=_config_types, label=_labels, detail=_details)
-    @settings(max_examples=100)
     def test_display_label_format(
         self, type_: str, label: str, detail: str | None
     ) -> None:

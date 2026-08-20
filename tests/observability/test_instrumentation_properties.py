@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Generator
 from typing import Any
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._events.bus import EventBus
@@ -61,7 +61,6 @@ class TestProperty20InstrumentationPointFaultTolerance:
         operation_point=operation_point_st,
         subscriber_error_msg=error_messages_st,
     )
-    @settings(max_examples=200)
     def test_operation_result_preserved_when_subscriber_raises(
         self,
         return_value: Any,
@@ -98,7 +97,6 @@ class TestProperty20InstrumentationPointFaultTolerance:
         operation_error_msg=error_messages_st,
         subscriber_error_msg=error_messages_st,
     )
-    @settings(max_examples=200)
     def test_operation_exception_preserved_when_subscriber_raises(
         self,
         operation_point: str,
@@ -143,7 +141,6 @@ class TestProperty20InstrumentationPointFaultTolerance:
         operation_point=operation_point_st,
         middleware_error_msg=error_messages_st,
     )
-    @settings(max_examples=200)
     def test_operation_result_preserved_when_middleware_raises_post_yield(
         self,
         return_value: Any,

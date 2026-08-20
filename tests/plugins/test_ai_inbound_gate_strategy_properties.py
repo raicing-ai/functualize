@@ -12,6 +12,7 @@ values for all unresolved_fields.
 
 from __future__ import annotations
 
+import keyword
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
@@ -20,7 +21,7 @@ from functualize_ai._gate_strategy import (
     AIInboundGateResolver,
     _build_prompt,
 )
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 from pydantic import BaseModel, Field, create_model
 
@@ -106,32 +107,32 @@ def _build_dynamic_model(field_names: list[str]) -> type[BaseModel]:
 
 # --- Strategies ---
 
-# Reserved names that conflict with Pydantic BaseModel attributes
-_RESERVED_NAMES = frozenset(
-    {
-        "dict",
-        "json",
-        "copy",
-        "schema",
-        "validate",
-        "model",
-        "parse",
-        "update",
-        "fields",
-        "construct",
-        "class",
-        "config",
-    }
-)
+
+def _is_usable_pydantic_field_name(s: str) -> bool:
+    """Names this generator may safely build a dynamic pydantic model from.
+
+    Derived from `BaseModel` rather than hand-listed. The previous version was a
+    literal blocklist that named "model" but not "model_dump", so the ci profile
+    eventually drew `model_dump` and `create_model` raised
+    ``ValueError: Field 'model_dump' conflicts with member ... of protected
+    namespace``. Any hand-maintained list of another library's reserved names is
+    incomplete by construction; asking the class is not.
+    """
+    if not s.isidentifier() or keyword.iskeyword(s) or keyword.issoftkeyword(s):
+        return False
+    if s.startswith("_"):
+        return False
+    # Pydantic reserves the whole `model_` prefix, and rejects any name that
+    # shadows an existing BaseModel member.
+    return not s.startswith("model_") and not hasattr(BaseModel, s)
+
 
 # Strategy for valid Python identifier field names
 field_name_strategy = st.text(
     alphabet=st.sampled_from("abcdefghijklmnopqrstuvwxyz_"),
     min_size=2,
     max_size=12,
-).filter(
-    lambda s: s.isidentifier() and not s.startswith("_") and s not in _RESERVED_NAMES
-)
+).filter(_is_usable_pydantic_field_name)
 
 # Strategy for generating a set of unique field names (between 1 and 8 fields)
 field_names_strategy = st.lists(
@@ -163,7 +164,6 @@ class TestBuildPromptIncludesResolvedFields:
         all_fields=field_names_strategy,
         data=st.data(),
     )
-    @settings(max_examples=100)
     def test_prompt_contains_all_resolved_field_names(
         self, all_fields: list[str], data: st.DataObject
     ) -> None:
@@ -206,7 +206,6 @@ class TestBuildPromptIncludesResolvedFields:
         all_fields=field_names_strategy,
         data=st.data(),
     )
-    @settings(max_examples=100)
     def test_prompt_contains_all_resolved_field_values(
         self, all_fields: list[str], data: st.DataObject
     ) -> None:
@@ -259,7 +258,6 @@ class TestBuildPromptIncludesUnresolvedFields:
         all_fields=field_names_strategy,
         data=st.data(),
     )
-    @settings(max_examples=100)
     def test_prompt_contains_all_unresolved_field_names(
         self, all_fields: list[str], data: st.DataObject
     ) -> None:
@@ -303,7 +301,6 @@ class TestBuildPromptIncludesUnresolvedFields:
     @given(
         all_fields=field_names_strategy,
     )
-    @settings(max_examples=100)
     def test_prompt_all_unresolved_no_resolved(self, all_fields: list[str]) -> None:
         """When all fields are unresolved, all field names appear in prompt.
 
@@ -341,7 +338,6 @@ class TestResolverUsesAICompleteWithResponseModel:
         all_fields=field_names_strategy,
         data=st.data(),
     )
-    @settings(max_examples=100)
     def test_resolver_passes_model_class_as_response_model(
         self, all_fields: list[str], data: st.DataObject
     ) -> None:
@@ -389,7 +385,6 @@ class TestResolverUsesAICompleteWithResponseModel:
         all_fields=field_names_strategy,
         data=st.data(),
     )
-    @settings(max_examples=100)
     def test_resolver_prompt_matches_build_prompt_output(
         self, all_fields: list[str], data: st.DataObject
     ) -> None:

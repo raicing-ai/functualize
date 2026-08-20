@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._discovery.filter_factory import build_pre_filter_from_config
@@ -69,7 +69,6 @@ class TestFilenameFiltersOperateOnStem:
         stem=_stem_strategy,
         prefix=_affix_strategy,
     )
-    @settings(max_examples=300)
     def test_prefix_filter_matches_iff_stem_starts_with_prefix(
         self, dir_parts: list[str], stem: str, prefix: str
     ) -> None:
@@ -93,7 +92,6 @@ class TestFilenameFiltersOperateOnStem:
         stem=_stem_strategy,
         postfix=_affix_strategy,
     )
-    @settings(max_examples=300)
     def test_postfix_filter_matches_iff_stem_ends_with_postfix(
         self, dir_parts: list[str], stem: str, postfix: str
     ) -> None:
@@ -117,7 +115,6 @@ class TestFilenameFiltersOperateOnStem:
         stem=_stem_strategy,
         prefix=_affix_strategy,
     )
-    @settings(max_examples=300)
     def test_prefix_filter_ignores_directory_components(
         self, dir_parts: list[str], stem: str, prefix: str
     ) -> None:
@@ -138,7 +135,6 @@ class TestFilenameFiltersOperateOnStem:
         stem=_stem_strategy,
         postfix=_affix_strategy,
     )
-    @settings(max_examples=300)
     def test_postfix_filter_ignores_directory_components(
         self, dir_parts: list[str], stem: str, postfix: str
     ) -> None:
@@ -159,7 +155,6 @@ class TestFilenameFiltersOperateOnStem:
         stem=_stem_strategy,
         prefix=_affix_strategy,
     )
-    @settings(max_examples=300)
     def test_prefix_filter_not_affected_by_py_extension(
         self, dir_parts: list[str], stem: str, prefix: str
     ) -> None:
@@ -178,7 +173,6 @@ class TestFilenameFiltersOperateOnStem:
         stem=_stem_strategy,
         postfix=_affix_strategy,
     )
-    @settings(max_examples=300)
     def test_postfix_filter_not_affected_by_py_extension(
         self, dir_parts: list[str], stem: str, postfix: str
     ) -> None:
@@ -303,7 +297,6 @@ class TestANDCompositionOfFilters:
         satisfy_import=_p8_bool,
         satisfy_marker=_p8_bool,
     )
-    @settings(max_examples=300)
     def test_combined_filter_requires_all_enabled_filters_to_pass(
         self,
         prefix: str | None,
@@ -416,7 +409,6 @@ class TestANDCompositionOfFilters:
         satisfy_prefix=_p8_bool,
         satisfy_postfix=_p8_bool,
     )
-    @settings(max_examples=200)
     def test_single_failing_filter_causes_rejection(
         self,
         prefix: str,
@@ -487,7 +479,6 @@ class TestANDCompositionOfFilters:
         satisfy_import=_p8_bool,
         satisfy_marker=_p8_bool,
     )
-    @settings(max_examples=200)
     def test_ast_filters_combine_with_and_semantics(
         self,
         import_pkg: str,
@@ -536,7 +527,6 @@ class TestANDCompositionOfFilters:
         import_pkg=_p8_package_name,
         exclude_pattern=_p8_glob_pattern,
     )
-    @settings(max_examples=200)
     def test_exclude_pattern_combined_with_other_filters(
         self,
         prefix: str,

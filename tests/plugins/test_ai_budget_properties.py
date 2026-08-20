@@ -18,7 +18,7 @@ import pytest
 from functualize_ai._budget import BUDGET_SPENT_KEY, BudgetEnforcer
 from functualize_ai._errors import BudgetExceededError
 from functualize_ai._types import AILimits, TokenUsage
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 # ===========================================================================
@@ -81,7 +81,6 @@ class TestBudgetAccumulationAndEnforcementProperty:
     """
 
     @given(costs=cost_sequence_st)
-    @settings(max_examples=200)
     def test_cumulative_spend_equals_sum_of_costs(self, costs: list[float]) -> None:
         """After recording N calls, cumulative spend == sum(cost_usd).
 
@@ -108,7 +107,6 @@ class TestBudgetAccumulationAndEnforcementProperty:
         )
 
     @given(costs=cost_sequence_st, limit=budget_limit_st)
-    @settings(max_examples=200)
     def test_budget_exceeded_iff_cumulative_ge_limit(
         self, costs: list[float], limit: float
     ) -> None:
@@ -144,7 +142,6 @@ class TestBudgetAccumulationAndEnforcementProperty:
         costs=cost_sequence_st,
         limit=budget_limit_st,
     )
-    @settings(max_examples=200)
     def test_budget_check_before_any_spend_passes(
         self, costs: list[float], limit: float
     ) -> None:
@@ -164,7 +161,6 @@ class TestBudgetAccumulationAndEnforcementProperty:
         prompt_tokens=token_count_st,
         completion_tokens=token_count_st,
     )
-    @settings(max_examples=200)
     def test_record_spend_with_none_cost_does_not_change_cumulative(
         self, cost: float, prompt_tokens: int, completion_tokens: int
     ) -> None:
@@ -199,7 +195,6 @@ class TestBudgetAccumulationAndEnforcementProperty:
         assert spend_after_none == spend_after_first
 
     @given(costs=cost_sequence_st, limit=budget_limit_st)
-    @settings(max_examples=200)
     def test_budget_state_persisted_via_state_namespace(
         self, costs: list[float], limit: float
     ) -> None:
@@ -242,7 +237,6 @@ class TestMaxToolCallsEnforcementProperty:
         max_tool_calls=max_tool_calls_st,
         tool_calls_made=tool_calls_made_st,
     )
-    @settings(max_examples=500)
     def test_check_tool_calls_true_iff_made_ge_limit(
         self, max_tool_calls: int, tool_calls_made: int
     ) -> None:
@@ -267,7 +261,6 @@ class TestMaxToolCallsEnforcementProperty:
             )
 
     @given(tool_calls_made=tool_calls_made_st)
-    @settings(max_examples=200)
     def test_no_limit_always_returns_false(self, tool_calls_made: int) -> None:
         """When max_tool_calls is None, check_tool_calls always returns False.
 
@@ -280,7 +273,6 @@ class TestMaxToolCallsEnforcementProperty:
         assert result is False
 
     @given(tool_calls_made=tool_calls_made_st)
-    @settings(max_examples=200)
     def test_none_limits_always_returns_false(self, tool_calls_made: int) -> None:
         """When limits is None, check_tool_calls always returns False.
 
@@ -292,7 +284,6 @@ class TestMaxToolCallsEnforcementProperty:
         assert result is False
 
     @given(max_tool_calls=max_tool_calls_st)
-    @settings(max_examples=200)
     def test_exactly_at_limit_returns_true(self, max_tool_calls: int) -> None:
         """When tool_calls_made == max_tool_calls, check_tool_calls returns True.
 
@@ -305,7 +296,6 @@ class TestMaxToolCallsEnforcementProperty:
         assert result is True
 
     @given(max_tool_calls=max_tool_calls_st)
-    @settings(max_examples=200)
     def test_one_below_limit_returns_false(self, max_tool_calls: int) -> None:
         """When tool_calls_made == max_tool_calls - 1, check_tool_calls returns False.
 

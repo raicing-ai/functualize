@@ -17,6 +17,7 @@ from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from functualize._app.state import AppState
+from functualize._types.naming import normalize_segment
 from functualize.app.core import FunctualizeApp
 
 
@@ -32,12 +33,23 @@ def _reset_state() -> Generator[None]:
 
 # Valid job names: non-empty strings suitable for dynamic job registration.
 # Using a pattern that matches typical job names (lowercase, hyphens, alphanumeric).
-job_names = st.from_regex(r"[a-z][a-z0-9\-]{0,30}", fullmatch=True)
+# Names are mapped through `normalize_segment` so every generated name is
+# already canonical. A job is addressed by its canonical name, so a raw `t-`
+# registers as `t` and any assertion comparing against the raw spelling fails
+# on the trailing hyphen. Mapping (rather than filtering) keeps the full
+# generation range while making each value a fixed point.
+job_names = (
+    st.from_regex(r"[a-z][a-z0-9\-]{0,30}", fullmatch=True)
+    .map(normalize_segment)
+    .filter(bool)
+)
 
 # Strategy for optional group names
 group_names = st.one_of(
     st.none(),
-    st.from_regex(r"[a-z][a-z0-9\-]{0,15}", fullmatch=True),
+    st.from_regex(r"[a-z][a-z0-9\-]{0,15}", fullmatch=True)
+    .map(normalize_segment)
+    .filter(bool),
 )
 
 # Strategy for optional docstrings
@@ -76,7 +88,6 @@ class TestJobDescriptorRetentionProperty:
     @given(
         names=st.lists(job_names, min_size=1, max_size=10, unique=True),
     )
-    @settings(max_examples=100)
     def test_get_descriptors_returns_all_registered(self, names: list[str]) -> None:
         """For any set of N registered jobs, get_descriptors() returns N descriptors."""
         # **Validates: Requirements 12.2**
@@ -96,7 +107,6 @@ class TestJobDescriptorRetentionProperty:
         groups=st.lists(group_names, min_size=1, max_size=10),
         docs=st.lists(docstrings, min_size=1, max_size=10),
     )
-    @settings(max_examples=100)
     def test_get_descriptor_returns_correct_for_each_name(
         self, names: list[str], groups: list[str | None], docs: list[str | None]
     ) -> None:
@@ -124,7 +134,6 @@ class TestJobDescriptorRetentionProperty:
         registered_names=st.lists(job_names, min_size=1, max_size=5, unique=True),
         unregistered_name=job_names,
     )
-    @settings(max_examples=100)
     def test_get_descriptor_raises_key_error_for_unregistered(
         self, registered_names: list[str], unregistered_name: str
     ) -> None:
@@ -143,7 +152,7 @@ class TestJobDescriptorRetentionProperty:
     @given(
         names=st.lists(job_names, min_size=0, max_size=8, unique=True),
     )
-    @settings(max_examples=100, deadline=5000)
+    @settings(deadline=5000)
     def test_get_descriptors_empty_when_no_jobs(self, names: list[str]) -> None:
         """get_descriptors() returns empty list when no jobs registered, and
         returns a list of length N after N registrations."""
@@ -175,7 +184,6 @@ class TestDynamicJobNameUniquenessProperty:
     @given(
         name=job_names,
     )
-    @settings(max_examples=100)
     def test_duplicate_name_raises_value_error(self, name: str) -> None:
         """Registering a job with a name that already exists raises ValueError."""
         # **Validates: Requirements 13.4**
@@ -192,7 +200,6 @@ class TestDynamicJobNameUniquenessProperty:
         names=st.lists(job_names, min_size=2, max_size=8, unique=True),
         duplicate_index=st.integers(min_value=0),
     )
-    @settings(max_examples=100)
     def test_duplicate_after_multiple_registrations(
         self, names: list[str], duplicate_index: int
     ) -> None:
@@ -213,7 +220,7 @@ class TestDynamicJobNameUniquenessProperty:
     @given(
         names=st.lists(job_names, min_size=2, max_size=10, unique=True),
     )
-    @settings(max_examples=100, deadline=5000)
+    @settings(deadline=5000)
     def test_unique_names_all_succeed(self, names: list[str]) -> None:
         """Registering jobs with all unique names does not raise."""
         # **Validates: Requirements 13.4** (inverse: unique names succeed)

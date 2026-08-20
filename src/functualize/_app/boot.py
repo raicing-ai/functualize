@@ -672,9 +672,19 @@ def discover_config_path(
         if current.is_dir():
             try:
                 for entry in current.iterdir():
-                    if not (entry.is_file() and regex.match(entry.name)):
+                    # Name checks before `is_file()`, deliberately. The two name
+                    # tests are pure string work; `is_file()` is a stat syscall.
+                    # This loop runs over every entry of every directory from the
+                    # CWD up to $HOME, so with the stat first a boot paid one
+                    # syscall per file in every ancestor directory — 17k stats
+                    # for a CWD under a busy /tmp, before finding nothing. The
+                    # predicates are pure, so the order does not change which
+                    # directory is chosen.
+                    if not regex.match(entry.name):
                         continue
                     if known is not None and entry.suffix.lower() not in known:
+                        continue
+                    if not entry.is_file():
                         continue
                     return str(current)
             except (PermissionError, OSError):

@@ -33,7 +33,26 @@ BUDGET_PROVIDER_REGISTRY_MS = 10.0  # Two format providers registered
 BUDGET_OBSERVABILITY_MS = 50.0  # EventBus, MiddlewareStack, SignalBus, catalog
 BUDGET_PLUGINS_MS = 200.0  # Entry point discovery (depends on environment)
 BUDGET_CONFIG_ENTRY_POINTS_MS = 50.0  # discover_entry_points()
-BUDGET_CONFIG_RESOLUTION_MS = 100.0  # ResourceLocator + ResolutionChain build
+# ResourceLocator + ResolutionChain build.
+#
+# Raised from 100.0 on 2026-08-20 because the old value no longer described the
+# code. Measured over 12 cold boots on an idle machine: min 93.4ms, median
+# 127.5ms, max 158.4ms — so the phase was *over* its budget more often than under
+# it, and the test passed only when a run happened to land near the minimum. It
+# read as an intermittent failure under `-n 10` rather than as the standing
+# breach it was.
+#
+# 300ms keeps roughly the headroom BUDGET_TOTAL_BOOT_MS has (500ms against a
+# ~221ms median), so this still catches an order-of-magnitude regression without
+# reporting machine load as a code defect.
+#
+# This is the dominant boot phase — ~57% of total boot — and worth reducing
+# rather than merely re-budgeting. One concrete lead: a single boot calls
+# `importlib.metadata.entry_points()` seven times (measured), and each call
+# rescans all 215 installed distributions from disk. Caching that would cut
+# ~53ms of the ~65ms `FunctualizeApp()` construction cost. Left alone here
+# because it is a change to the boot hot path and needs its own verification.
+BUDGET_CONFIG_RESOLUTION_MS = 300.0
 BUDGET_JOB_REGISTRATION_MS = 50.0  # Command registration (no jobs = fast)
 BUDGET_CHILDREN_MS = 50.0  # No children = fast
 

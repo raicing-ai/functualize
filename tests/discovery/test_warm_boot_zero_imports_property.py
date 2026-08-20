@@ -22,7 +22,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._discovery.cached_provider import CachedDirectoryScanProvider
@@ -127,7 +127,6 @@ class TestWarmBootZeroImports:
     """
 
     @given(names=module_name_lists())
-    @settings(max_examples=100)
     def test_warm_boot_performs_zero_imports_when_cache_fully_valid(
         self, names: list[str]
     ) -> None:
@@ -192,7 +191,6 @@ class TestWarmBootZeroImports:
             )
 
     @given(names=module_name_lists())
-    @settings(max_examples=100)
     def test_warm_boot_returns_all_cached_descriptors_without_imports(
         self, names: list[str]
     ) -> None:

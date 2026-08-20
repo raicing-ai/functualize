@@ -11,7 +11,7 @@ import os
 from unittest.mock import MagicMock, patch
 
 import click
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 from pydantic import BaseModel, Field, ValidationError
 
@@ -93,7 +93,6 @@ class TestJobConfigTyperOptionGeneration:
     **Validates: Requirements 6.2**
     """
 
-    @settings(max_examples=100)
     @given(
         str_default=st.text(min_size=1, max_size=10),
         int_default=st.integers(min_value=0, max_value=100),
@@ -116,7 +115,6 @@ class TestJobConfigTyperOptionGeneration:
         # One option per field
         assert set(options.keys()) == {"api_url", "timeout", "verbose"}
 
-    @settings(max_examples=100)
     @given(
         field_name=field_names,
     )
@@ -141,7 +139,6 @@ class TestJobConfigTyperOptionGeneration:
         # Typer Option stores param_decls
         assert isinstance(option_info, click.Option)
 
-    @settings(max_examples=100)
     @given(
         enum_choice=st.sampled_from(list(SampleEnum)),
     )
@@ -156,7 +153,6 @@ class TestJobConfigTyperOptionGeneration:
         assert "format_type" in options
         assert isinstance(options["format_type"], click.Option)
 
-    @settings(max_examples=100)
     @given(st.data())
     def test_optional_fields_generate_options(self, data):
         # Feature: functualize, Property 13: JobConfig Typer Option Generation
@@ -171,7 +167,6 @@ class TestJobConfigTyperOptionGeneration:
         assert "name" in options
         assert "count" in options
 
-    @settings(max_examples=100)
     @given(st.data())
     def test_list_fields_generate_options(self, data):
         # Feature: functualize, Property 13: JobConfig Typer Option Generation
@@ -184,7 +179,6 @@ class TestJobConfigTyperOptionGeneration:
         assert "tags" in options
         assert isinstance(options["tags"], click.Option)
 
-    @settings(max_examples=100)
     @given(st.data())
     def test_unsupported_types_raise_at_registration(self, data):
         # Feature: functualize, Property 13: JobConfig Typer Option Generation
@@ -215,7 +209,6 @@ class TestJobConfigResolutionPrecedence:
     **Validates: Requirements 6.3**
     """
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
         cli_val=string_values,
@@ -235,10 +228,14 @@ class TestJobConfigResolutionPrecedence:
         """CLI argument takes highest precedence over env var, config, and default."""
         assume(cli_val != default_val)  # Ensure CLI value differs from default
 
+        # Job-scoped env keys are JOB_NAME__FIELD: a double underscore
+        # separating job from field, with the job's hyphens folded to
+        # underscores. A single underscore matches nothing, so the env layer
+        # was simply never exercised and the config layer won every time.
         class MyConfig(BaseModel):
             name: str = Field(default=default_val)
 
-        env_key = f"{job_name.upper()}_NAME"
+        env_key = f"{job_name.upper().replace('-', '_')}__NAME"
 
         with patch.dict(os.environ, {env_key: env_val}, clear=False):
             config = MagicMock(spec=JobConfigView)
@@ -247,7 +244,6 @@ class TestJobConfigResolutionPrecedence:
             result = resolve_job_config(MyConfig, job_name, config, {"name": cli_val})
             assert result.name == cli_val
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
         env_val=string_values,
@@ -268,7 +264,7 @@ class TestJobConfigResolutionPrecedence:
         class MyConfig(BaseModel):
             name: str = Field(default=default_val)
 
-        env_key = f"{job_name.upper()}_NAME"
+        env_key = f"{job_name.upper().replace('-', '_')}__NAME"
 
         with patch.dict(os.environ, {env_key: env_val}, clear=False):
             config = MagicMock(spec=JobConfigView)
@@ -278,7 +274,6 @@ class TestJobConfigResolutionPrecedence:
             result = resolve_job_config(MyConfig, job_name, config, {"name": None})
             assert result.name == env_val
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
         config_val=string_values,
@@ -297,7 +292,7 @@ class TestJobConfigResolutionPrecedence:
         class MyConfig(BaseModel):
             name: str = Field(default=default_val)
 
-        env_key = f"{job_name.upper()}_NAME"
+        env_key = f"{job_name.upper().replace('-', '_')}__NAME"
 
         # Ensure env var is NOT set
         env_patch = {k: v for k, v in os.environ.items() if k != env_key}
@@ -308,7 +303,6 @@ class TestJobConfigResolutionPrecedence:
             result = resolve_job_config(MyConfig, job_name, config, {"name": None})
             assert result.name == config_val
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
         default_val=string_values,
@@ -324,7 +318,7 @@ class TestJobConfigResolutionPrecedence:
         class MyConfig(BaseModel):
             name: str = Field(default=default_val)
 
-        env_key = f"{job_name.upper()}_NAME"
+        env_key = f"{job_name.upper().replace('-', '_')}__NAME"
 
         # Ensure env var is NOT set
         env_patch = {k: v for k, v in os.environ.items() if k != env_key}
@@ -335,7 +329,6 @@ class TestJobConfigResolutionPrecedence:
             result = resolve_job_config(MyConfig, job_name, config, {"name": None})
             assert result.name == default_val
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
         cli_int=st.integers(min_value=1, max_value=500),
@@ -353,7 +346,7 @@ class TestJobConfigResolutionPrecedence:
         class IntConfig(BaseModel):
             timeout: int = Field(default=30)
 
-        env_key = f"{job_name.upper()}_TIMEOUT"
+        env_key = f"{job_name.upper().replace('-', '_')}__TIMEOUT"
 
         with patch.dict(os.environ, {env_key: str(env_int)}, clear=False):
             config = MagicMock(spec=JobConfigView)
@@ -378,7 +371,6 @@ class TestJobConfigDualAccess:
     **Validates: Requirements 6.8**
     """
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
         name_val=string_values,
@@ -398,8 +390,8 @@ class TestJobConfigDualAccess:
             name: str = Field(default="default")
             timeout: int = Field(default=30)
 
-        env_key_name = f"{job_name.upper()}_NAME"
-        env_key_timeout = f"{job_name.upper()}_TIMEOUT"
+        env_key_name = f"{job_name.upper().replace('-', '_')}__NAME"
+        env_key_timeout = f"{job_name.upper().replace('-', '_')}__TIMEOUT"
 
         # Clear relevant env vars
         env_patch = {
@@ -424,7 +416,6 @@ class TestJobConfigDualAccess:
             assert param_config.name == name_val
             assert param_config.timeout == timeout_val
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
         enum_choice=st.sampled_from(list(OutputFormat)),
@@ -440,7 +431,7 @@ class TestJobConfigDualAccess:
         class EnumJobCfg(BaseModel):
             output: OutputFormat = Field(default=OutputFormat.JSON)
 
-        env_key = f"{job_name.upper()}_OUTPUT"
+        env_key = f"{job_name.upper().replace('-', '_')}__OUTPUT"
         env_patch = {k: v for k, v in os.environ.items() if k != env_key}
         with patch.dict(os.environ, env_patch, clear=True):
             config = MagicMock(spec=JobConfigView)
@@ -456,7 +447,6 @@ class TestJobConfigDualAccess:
             assert param_ref is rc_ref
             assert param_ref.output == enum_choice
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
         val=string_values,
@@ -472,7 +462,7 @@ class TestJobConfigDualAccess:
         class ValidatedCfg(BaseModel):
             endpoint: str = Field(default="http://localhost")
 
-        env_key = f"{job_name.upper()}_ENDPOINT"
+        env_key = f"{job_name.upper().replace('-', '_')}__ENDPOINT"
         env_patch = {k: v for k, v in os.environ.items() if k != env_key}
         with patch.dict(os.environ, env_patch, clear=True):
             config = MagicMock(spec=JobConfigView)
@@ -499,7 +489,6 @@ class TestPydanticValidationBeforeJobExecution:
     **Validates: Requirements 6.4, 13.1, 13.2**
     """
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
         bad_int=st.text(
@@ -520,7 +509,7 @@ class TestPydanticValidationBeforeJobExecution:
         class StrictConfig(BaseModel):
             count: int
 
-        env_key = f"{job_name.upper()}_COUNT"
+        env_key = f"{job_name.upper().replace('-', '_')}__COUNT"
         env_patch = {k: v for k, v in os.environ.items() if k != env_key}
         with patch.dict(os.environ, env_patch, clear=True):
             config = MagicMock(spec=JobConfigView)
@@ -531,7 +520,6 @@ class TestPydanticValidationBeforeJobExecution:
                 resolve_job_config(StrictConfig, job_name, config, {"count": bad_int})
                 # If coercion succeeds (e.g., "1"), that's fine
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
     )
@@ -547,8 +535,8 @@ class TestPydanticValidationBeforeJobExecution:
             api_key: str  # No default — required
             endpoint: str  # No default — required
 
-        env_key_api = f"{job_name.upper()}_API_KEY"
-        env_key_endpoint = f"{job_name.upper()}_ENDPOINT"
+        env_key_api = f"{job_name.upper().replace('-', '_')}__API_KEY"
+        env_key_endpoint = f"{job_name.upper().replace('-', '_')}__ENDPOINT"
         env_patch = {
             k: v
             for k, v in os.environ.items()
@@ -567,7 +555,6 @@ class TestPydanticValidationBeforeJobExecution:
                 assert "api_key" in error_str
                 assert "endpoint" in error_str
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
         num_bad_fields=st.integers(min_value=1, max_value=3),
@@ -586,9 +573,9 @@ class TestPydanticValidationBeforeJobExecution:
             field_c: int  # Required
 
         env_keys = [
-            f"{job_name.upper()}_FIELD_A",
-            f"{job_name.upper()}_FIELD_B",
-            f"{job_name.upper()}_FIELD_C",
+            f"{job_name.upper().replace('-', '_')}__FIELD_A",
+            f"{job_name.upper().replace('-', '_')}__FIELD_B",
+            f"{job_name.upper().replace('-', '_')}__FIELD_C",
         ]
         env_patch = {k: v for k, v in os.environ.items() if k not in env_keys}
         with patch.dict(os.environ, env_patch, clear=True):
@@ -607,7 +594,6 @@ class TestPydanticValidationBeforeJobExecution:
                 assert "field_b" in error_fields
                 assert "field_c" in error_fields
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
         valid_val=string_values,
@@ -625,8 +611,8 @@ class TestPydanticValidationBeforeJobExecution:
             name: str
             active: bool = Field(default=True)
 
-        env_key = f"{job_name.upper()}_NAME"
-        env_key_active = f"{job_name.upper()}_ACTIVE"
+        env_key = f"{job_name.upper().replace('-', '_')}__NAME"
+        env_key_active = f"{job_name.upper().replace('-', '_')}__ACTIVE"
         env_patch = {
             k: v for k, v in os.environ.items() if k not in (env_key, env_key_active)
         }
@@ -640,7 +626,6 @@ class TestPydanticValidationBeforeJobExecution:
             assert result.name == valid_val
             assert result.active is True
 
-    @settings(max_examples=100)
     @given(
         job_name=job_names,
     )
@@ -656,7 +641,7 @@ class TestPydanticValidationBeforeJobExecution:
         class StrictModel(BaseModel):
             port: int  # Required, must be int
 
-        env_key = f"{job_name.upper()}_PORT"
+        env_key = f"{job_name.upper().replace('-', '_')}__PORT"
         env_patch = {k: v for k, v in os.environ.items() if k != env_key}
         with patch.dict(os.environ, env_patch, clear=True):
             config = MagicMock(spec=JobConfigView)

@@ -11,7 +11,7 @@ Validates: Requirements 2.3, 3.1, 3.2, 3.5, 1.1
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.completions.cursor_context import parse_cursor_context
@@ -71,7 +71,6 @@ class TestValueCompletionsIncludeChoices:
             unique=True,
         )
     )
-    @settings(max_examples=200)
     def test_all_choices_in_value_completions(self, choices: list[str]) -> None:
         """For any field with choices, empty partial returns all choices.
 
@@ -118,7 +117,6 @@ class TestValueCompletionFuzzyFilter:
             max_size=10,
         ),
     )
-    @settings(max_examples=200)
     def test_fuzzy_filter_returns_only_matching_values(
         self, partial: str, values: list[str]
     ) -> None:

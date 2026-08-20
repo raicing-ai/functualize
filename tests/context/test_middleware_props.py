@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Generator
 from typing import Any
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize.job._middleware import (
@@ -109,7 +109,6 @@ class TestMiddlewareErrorHandlingAndZeroCostBypass:
     """Property 19: Middleware Error Handling and Zero-Cost Bypass."""
 
     @given(return_value=job_return_values)
-    @settings(max_examples=200)
     def test_no_middleware_calls_job_directly(self, return_value: Any) -> None:
         """When no middleware is registered, job is called directly with zero overhead.
 
@@ -138,7 +137,6 @@ class TestMiddlewareErrorHandlingAndZeroCostBypass:
         n_after=st.integers(min_value=0, max_value=4),
         exc_msg=exception_messages,
     )
-    @settings(max_examples=200)
     def test_pre_yield_exception_always_skips_job(
         self, n_before: int, n_after: int, exc_msg: str
     ) -> None:
@@ -203,7 +201,6 @@ class TestMiddlewareErrorHandlingAndZeroCostBypass:
         job_exc_msg=exception_messages,
         mw_exc_msg=exception_messages,
     )
-    @settings(max_examples=200)
     def test_job_exception_takes_precedence_over_post_yield(
         self, n_middleware: int, job_exc_msg: str, mw_exc_msg: str
     ) -> None:
@@ -264,7 +261,6 @@ class TestMiddlewareErrorHandlingAndZeroCostBypass:
         n_middleware=st.integers(min_value=1, max_value=5),
         mw_exc_msg=exception_messages,
     )
-    @settings(max_examples=200)
     def test_post_yield_exception_propagates_when_job_succeeds(
         self, n_middleware: int, mw_exc_msg: str
     ) -> None:
@@ -314,7 +310,6 @@ class TestMiddlewareErrorHandlingAndZeroCostBypass:
         n_middleware=st.integers(min_value=1, max_value=5),
         return_value=job_return_values,
     )
-    @settings(max_examples=200)
     def test_all_started_generators_receive_cleanup_on_success(
         self, n_middleware: int, return_value: Any
     ) -> None:
@@ -356,7 +351,6 @@ class TestMiddlewareErrorHandlingAndZeroCostBypass:
         n_middleware=st.integers(min_value=1, max_value=5),
         exc_msg=exception_messages,
     )
-    @settings(max_examples=200)
     def test_all_started_generators_receive_cleanup_on_job_failure(
         self, n_middleware: int, exc_msg: str
     ) -> None:
@@ -406,7 +400,6 @@ class TestMiddlewareErrorHandlingAndZeroCostBypass:
         n_before=st.integers(min_value=0, max_value=3),
         exc_msg=exception_messages,
     )
-    @settings(max_examples=200)
     def test_pre_yield_exception_cleans_up_already_started_generators(
         self, n_before: int, exc_msg: str
     ) -> None:
@@ -467,7 +460,6 @@ class TestMiddlewareErrorHandlingAndZeroCostBypass:
             {"flag": st.booleans()},
         ),
     )
-    @settings(max_examples=200)
     def test_no_middleware_passes_args_and_kwargs_directly(
         self, args: tuple[int, str], kwargs: dict[str, bool]
     ) -> None:

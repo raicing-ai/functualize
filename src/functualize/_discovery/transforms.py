@@ -47,7 +47,16 @@ class NamespaceTransform:
             raise ValueError("NamespaceTransform prefix must be non-empty")
         self._prefix = prefix
         self._separator = separator
-        self._full_prefix = f"{prefix}{separator}"
+        # Match on the *canonical* prefix, because that is what `_add_prefix`
+        # writes. Keying the lookup on the raw spelling instead made every
+        # namespaced job unreachable whenever the prefix was not already
+        # canonical: `NamespaceTransform("my_ns")` listed `my-ns.job` but
+        # answered `get` only for `my_ns.`, so the name it published was the
+        # one name it refused. The raw spelling stays accepted so callers may
+        # type either, matching how job names resolve everywhere else.
+        self._canonical_prefix = normalize_name(prefix) or prefix
+        self._full_prefix = f"{self._canonical_prefix}{separator}"
+        self._raw_full_prefix = f"{prefix}{separator}"
 
     def transform_list(self, jobs: Sequence[JobDescriptor]) -> Sequence[JobDescriptor]:
         """Prepend "{prefix}{separator}" to each descriptor's name."""
@@ -62,7 +71,7 @@ class NamespaceTransform:
         If the name matches but the underlying descriptor is None, returns None.
         Otherwise returns the descriptor with the prefixed name.
         """
-        if not name.startswith(self._full_prefix):
+        if not name.startswith((self._full_prefix, self._raw_full_prefix)):
             return None
         if descriptor is None:
             return None
@@ -77,7 +86,7 @@ class NamespaceTransform:
         spelling typeable as a whole.
         """
         return dataclasses.replace(
-            job, name=f"{normalize_name(self._prefix)}{self._separator}{job.name}"
+            job, name=f"{self._canonical_prefix}{self._separator}{job.name}"
         )
 
 

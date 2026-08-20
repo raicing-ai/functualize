@@ -12,7 +12,7 @@ Tests PanelRingController from functualize._cli.tui.models.panel_ring_controller
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.models.panel_ring_controller import (
@@ -58,7 +58,6 @@ class TestRingNavigationWrapsCorrectly:
     """
 
     @given(data=_ring_size_and_start_index(), category=_active_category_strategy)
-    @settings(max_examples=100)
     def test_next_panel_wraps_modularly(
         self, data: tuple[int, int], category: Category
     ) -> None:
@@ -82,7 +81,6 @@ class TestRingNavigationWrapsCorrectly:
         )
 
     @given(data=_ring_size_and_start_index(), category=_active_category_strategy)
-    @settings(max_examples=100)
     def test_prev_panel_wraps_modularly(
         self, data: tuple[int, int], category: Category
     ) -> None:
@@ -106,7 +104,6 @@ class TestRingNavigationWrapsCorrectly:
         )
 
     @given(data=_ring_size_and_start_index(), category=_active_category_strategy)
-    @settings(max_examples=100)
     def test_next_panel_result_in_bounds(
         self, data: tuple[int, int], category: Category
     ) -> None:
@@ -127,7 +124,6 @@ class TestRingNavigationWrapsCorrectly:
         )
 
     @given(data=_ring_size_and_start_index(), category=_active_category_strategy)
-    @settings(max_examples=100)
     def test_prev_panel_result_in_bounds(
         self, data: tuple[int, int], category: Category
     ) -> None:
@@ -148,7 +144,6 @@ class TestRingNavigationWrapsCorrectly:
         )
 
     @given(data=_ring_size_and_start_index(), category=_active_category_strategy)
-    @settings(max_examples=100)
     def test_next_then_prev_returns_to_start(
         self, data: tuple[int, int], category: Category
     ) -> None:
@@ -187,7 +182,6 @@ class TestIndexClampingOnRingResize:
     **Validates: Requirements 2.6**
     """
 
-    @settings(max_examples=100)
     @given(
         initial_ring_size=st.integers(min_value=2, max_value=50),
         data=st.data(),
@@ -224,7 +218,6 @@ class TestIndexClampingOnRingResize:
         assert result == new_ring_size - 1
         assert ctrl.current_index == new_ring_size - 1
 
-    @settings(max_examples=100)
     @given(
         initial_ring_size=st.integers(min_value=2, max_value=50),
         data=st.data(),
@@ -260,7 +253,6 @@ class TestIndexClampingOnRingResize:
         assert result == new_ring_size - 1
         assert ctrl.current_index == new_ring_size - 1
 
-    @settings(max_examples=100)
     @given(
         initial_ring_size=st.integers(min_value=2, max_value=50),
         data=st.data(),
@@ -296,7 +288,6 @@ class TestIndexClampingOnRingResize:
         assert result == starting_index
         assert ctrl.current_index == starting_index
 
-    @settings(max_examples=100)
     @given(
         initial_ring_size=st.integers(min_value=2, max_value=50),
         data=st.data(),

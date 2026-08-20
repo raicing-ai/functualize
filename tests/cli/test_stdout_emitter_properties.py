@@ -11,7 +11,7 @@ from contextlib import redirect_stdout
 from typing import Any
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._primitives.stdout_emitter import StdoutEmitter
@@ -69,7 +69,6 @@ class TestStdoutJsonRoundTrip:
     """
 
     @given(value=_json_value)
-    @settings(max_examples=300)
     def test_json_emit_round_trips(self, value: Any):
         """Emitting a JSON-serializable value and parsing back yields equivalent value.
 
@@ -101,7 +100,6 @@ class TestStdoutJsonRoundTrip:
         )
 
     @given(value=_json_value)
-    @settings(max_examples=300)
     def test_json_output_ends_with_newline(self, value: Any):
         """JSON output always ends with a trailing newline.
 
@@ -119,7 +117,6 @@ class TestStdoutJsonRoundTrip:
         )
 
     @given(value=_json_value)
-    @settings(max_examples=300)
     def test_json_output_is_valid_json(self, value: Any):
         """JSON output is always parseable by json.loads.
 
@@ -153,7 +150,6 @@ class TestStdoutSilence:
     """
 
     @given(value=_any_value)
-    @settings(max_examples=300)
     def test_format_none_produces_no_output(self, value: Any):
         """With format='none', no bytes are written regardless of value.
 
@@ -171,7 +167,6 @@ class TestStdoutSilence:
         )
 
     @given(fmt=_any_format)
-    @settings(max_examples=300)
     def test_none_value_produces_no_output(self, fmt: str):
         """With return_value=None, no bytes are written regardless of format.
 
@@ -190,7 +185,6 @@ class TestStdoutSilence:
         )
 
     @given(value=_any_value, fmt=_any_format)
-    @settings(max_examples=300)
     def test_silence_conditions_combined(self, value: Any, fmt: str):
         """When EITHER format='none' OR value is None, zero bytes written.
 

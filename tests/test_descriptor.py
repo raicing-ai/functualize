@@ -11,7 +11,7 @@ Property 18 — Validates: Requirements 17.6
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._types.descriptors import (
@@ -112,7 +112,6 @@ class TestFieldDescriptorEnumChoicesInvariant:
     """
 
     @given(descriptor=field_descriptors())
-    @settings(max_examples=100)
     def test_enum_choices_invariant_holds_for_all_descriptors(
         self, descriptor: FieldDescriptor
     ):
@@ -132,7 +131,6 @@ class TestFieldDescriptorEnumChoicesInvariant:
             assert descriptor.choices is None
 
     @given(descriptor=enum_field_descriptors())
-    @settings(max_examples=100)
     def test_enum_type_always_has_non_empty_choices(self, descriptor: FieldDescriptor):
         """Enum-typed descriptors always have a non-empty choices list.
 
@@ -146,7 +144,6 @@ class TestFieldDescriptorEnumChoicesInvariant:
         assert all(isinstance(c, str) for c in descriptor.choices)
 
     @given(descriptor=non_enum_field_descriptors())
-    @settings(max_examples=100)
     def test_non_enum_type_always_has_none_choices(self, descriptor: FieldDescriptor):
         """Non-enum descriptors always have choices == None.
 
@@ -361,7 +358,6 @@ class TestJobDescriptorSerializationRoundTrip:
     """
 
     @given(descriptor=job_descriptors())
-    @settings(max_examples=100)
     def test_round_trip_identity(self, descriptor: JobDescriptor):
         """Serialization followed by deserialization produces an equal object.
 
@@ -373,7 +369,6 @@ class TestJobDescriptorSerializationRoundTrip:
         assert deserialized == descriptor
 
     @given(descriptor=job_descriptors())
-    @settings(max_examples=100)
     def test_round_trip_preserves_config_fields_order_and_length(
         self, descriptor: JobDescriptor
     ):
@@ -395,7 +390,6 @@ class TestJobDescriptorSerializationRoundTrip:
             assert restored.help == original.help
 
     @given(descriptor=job_descriptors())
-    @settings(max_examples=100)
     def test_round_trip_preserves_dependencies(self, descriptor: JobDescriptor):
         """Round-trip preserves all dependency keys and values.
 
@@ -407,7 +401,6 @@ class TestJobDescriptorSerializationRoundTrip:
         assert deserialized.dependencies == descriptor.dependencies
 
     @given(descriptor=job_descriptors())
-    @settings(max_examples=100)
     def test_round_trip_preserves_required_vs_default_none(
         self, descriptor: JobDescriptor
     ):
@@ -502,7 +495,6 @@ class TestMalformedDictDeserialization:
     """
 
     @given(malformed=malformed_dicts_missing_keys())
-    @settings(max_examples=100)
     def test_missing_keys_raises_value_error(self, malformed: dict):
         """Dicts missing required keys raise ValueError on deserialization.
 
@@ -513,7 +505,6 @@ class TestMalformedDictDeserialization:
             JobDescriptor.from_dict(malformed)
 
     @given(malformed=malformed_dicts_wrong_types())
-    @settings(max_examples=100)
     def test_wrong_types_raises_value_error(self, malformed: dict):
         """Dicts with wrong value types raise ValueError on deserialization.
 
@@ -524,7 +515,6 @@ class TestMalformedDictDeserialization:
             JobDescriptor.from_dict(malformed)
 
     @given(non_dict=st.one_of(st.text(), st.integers(), st.lists(st.text()), st.none()))
-    @settings(max_examples=100)
     def test_non_dict_input_raises_value_error(self, non_dict):
         """Non-dict inputs raise ValueError on deserialization.
 

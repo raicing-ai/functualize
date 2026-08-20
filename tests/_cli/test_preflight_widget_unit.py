@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.data.pending_execution import PendingExecution
@@ -485,7 +485,6 @@ class TestDisplayCompletenessProperty:
             unique=True,
         ),
     )
-    @settings(max_examples=100)
     def test_every_field_in_output(self, field_names: list[str]) -> None:
         """Every field from resolved_values appears in the rendered text.
 
@@ -546,7 +545,6 @@ class TestSensitiveMaskingProperty:
             max_size=50,
         ),
     )
-    @settings(max_examples=100)
     def test_sensitive_fields_always_masked(
         self, keyword: str, prefix: str, suffix: str, value: str
     ) -> None:

@@ -20,7 +20,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.main import _fuzzy_suggest, _handle_unknown
@@ -378,7 +378,6 @@ class TestJobListOutputFormatProperty:
     """
 
     @given(job_data=_job_list_st)
-    @settings(max_examples=200)
     def test_output_has_one_line_per_job(
         self, job_data: list[tuple[str, str | None]]
     ) -> None:
@@ -417,7 +416,6 @@ class TestJobListOutputFormatProperty:
         )
 
     @given(job_data=_job_list_st)
-    @settings(max_examples=200)
     def test_each_line_contains_job_name(
         self, job_data: list[tuple[str, str | None]]
     ) -> None:

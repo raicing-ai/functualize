@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._config.registry import ProviderRegistry
@@ -87,7 +87,6 @@ class TestProperty26PluginRegisteredProviderAvailability:
     @given(
         ext_list=st.lists(_extensions, min_size=1, max_size=5, unique=True),
     )
-    @settings(max_examples=100)
     def test_format_provider_available_after_plugin_registration(
         self, ext_list: list[str]
     ) -> None:
@@ -108,7 +107,6 @@ class TestProperty26PluginRegisteredProviderAvailability:
     @given(
         ident=_identifiers,
     )
-    @settings(max_examples=100)
     def test_remote_provider_available_after_plugin_registration(
         self, ident: str
     ) -> None:
@@ -130,7 +128,6 @@ class TestProperty26PluginRegisteredProviderAvailability:
         ext_list=st.lists(_extensions, min_size=1, max_size=4, unique=True),
         ident_list=st.lists(_identifiers, min_size=1, max_size=4, unique=True),
     )
-    @settings(max_examples=50)
     def test_multiple_plugin_registrations_all_available(
         self, data: st.DataObject, ext_list: list[str], ident_list: list[str]
     ) -> None:
@@ -184,7 +181,6 @@ class TestProperty26PluginRegisteredProviderAvailability:
         ext=_extensions,
         ident=_identifiers,
     )
-    @settings(max_examples=100)
     def test_plugin_registration_before_resolution_is_available(
         self, ext: str, ident: str
     ) -> None:
@@ -217,7 +213,6 @@ class TestProperty26PluginRegisteredProviderAvailability:
         builtin_ext=st.just(".toml"),
         plugin_ext=_extensions.filter(lambda e: e != ".toml" and e != ".ini"),
     )
-    @settings(max_examples=50)
     def test_plugin_provider_coexists_with_builtin_providers(
         self, builtin_ext: str, plugin_ext: str
     ) -> None:
@@ -246,7 +241,6 @@ class TestProperty26PluginRegisteredProviderAvailability:
         ),
         ident_list=st.lists(_identifiers, min_size=1, max_size=5, unique=True),
     )
-    @settings(max_examples=50)
     def test_discover_entry_points_does_not_remove_programmatic_registrations(
         self, ext_list: list[str], ident_list: list[str]
     ) -> None:

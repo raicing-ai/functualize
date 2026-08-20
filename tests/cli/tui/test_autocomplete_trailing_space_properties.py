@@ -11,7 +11,7 @@ Tests the core text assembly logic from apply_completion():
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.completions.quote_handling import quote_for_insertion
@@ -101,7 +101,6 @@ class TestAutocompleteTrailingSpaceAndCursor:
     """
 
     @given(prefix=_prefix, partial=_partial, value=_value, suffix=_suffix)
-    @settings(max_examples=200)
     def test_result_contains_quoted_value_at_insertion_point(
         self, prefix: str, partial: str, value: str, suffix: str
     ) -> None:
@@ -118,7 +117,6 @@ class TestAutocompleteTrailingSpaceAndCursor:
         )
 
     @given(prefix=_prefix, partial=_partial, value=_value, suffix=_suffix)
-    @settings(max_examples=200)
     def test_trailing_space_after_quoted_value(
         self, prefix: str, partial: str, value: str, suffix: str
     ) -> None:
@@ -134,7 +132,6 @@ class TestAutocompleteTrailingSpaceAndCursor:
         )
 
     @given(prefix=_prefix, partial=_partial, value=_value, suffix=_suffix)
-    @settings(max_examples=200)
     def test_cursor_positioned_after_trailing_space(
         self, prefix: str, partial: str, value: str, suffix: str
     ) -> None:
@@ -150,7 +147,6 @@ class TestAutocompleteTrailingSpaceAndCursor:
         )
 
     @given(prefix=_prefix, partial=_partial, value=_value, suffix=_suffix)
-    @settings(max_examples=200)
     def test_prefix_preserved(
         self, prefix: str, partial: str, value: str, suffix: str
     ) -> None:
@@ -162,7 +158,6 @@ class TestAutocompleteTrailingSpaceAndCursor:
         )
 
     @given(prefix=_prefix, partial=_partial, value=_value, suffix=_suffix)
-    @settings(max_examples=200)
     def test_suffix_preserved(
         self, prefix: str, partial: str, value: str, suffix: str
     ) -> None:

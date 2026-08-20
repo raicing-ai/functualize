@@ -5,7 +5,7 @@ Tests Property 23 from the design document.
 
 from __future__ import annotations
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._events._obs_types import EventMetadata
@@ -50,7 +50,6 @@ class TestProperty23CustomEventCatalogRegistration:
     """
 
     @given(entries=st.lists(_event_metadata, min_size=1, max_size=20))
-    @settings(max_examples=100)
     def test_registered_entries_appear_in_all(
         self, entries: list[EventMetadata]
     ) -> None:
@@ -71,7 +70,6 @@ class TestProperty23CustomEventCatalogRegistration:
             assert all_entries[event_name] == meta
 
     @given(entries=st.lists(_event_metadata, min_size=1, max_size=20))
-    @settings(max_examples=100)
     def test_registered_entries_appear_in_by_domain(
         self, entries: list[EventMetadata]
     ) -> None:
@@ -91,7 +89,6 @@ class TestProperty23CustomEventCatalogRegistration:
             assert domain_entries[event_name] == meta
 
     @given(entries=st.lists(_event_metadata, min_size=1, max_size=20))
-    @settings(max_examples=100)
     def test_entries_do_not_appear_in_other_domains(
         self, entries: list[EventMetadata]
     ) -> None:
@@ -111,7 +108,6 @@ class TestProperty23CustomEventCatalogRegistration:
                 assert meta.domain == domain
 
     @given(entries=st.lists(_event_metadata, min_size=1, max_size=20))
-    @settings(max_examples=100)
     def test_get_returns_registered_metadata(
         self, entries: list[EventMetadata]
     ) -> None:

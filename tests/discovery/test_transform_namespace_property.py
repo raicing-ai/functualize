@@ -9,12 +9,13 @@ returns None for non-prefixed names.
 
 from __future__ import annotations
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._discovery.transforms import NamespaceTransform
 from functualize._types.descriptors import FieldDescriptor, JobDescriptor
 from functualize._types.job_declaration import JobDeclaration
+from functualize._types.naming import normalize_name
 
 # --- Strategies (reused from test_transform_identity_property.py) ---
 
@@ -26,19 +27,30 @@ job_names = st.from_regex(r"[a-z][a-z0-9_]{0,20}", fullmatch=True).filter(
 # Generate optional group strings
 groups = st.one_of(st.none(), st.from_regex(r"[a-z][a-z0-9_]{0,10}", fullmatch=True))
 
-# Generate FieldDescriptor instances
-field_descriptors = st.builds(
-    FieldDescriptor,
-    name=st.from_regex(r"[a-z][a-z0-9_]{0,10}", fullmatch=True),
-    type_annotation=st.sampled_from(
-        ["str", "int", "bool", "float", "enum", "list[str]"]
-    ),
-    choices=st.one_of(
-        st.none(), st.lists(st.text(min_size=1, max_size=10), min_size=1, max_size=5)
-    ),
-    default=st.one_of(st.none(), st.text(max_size=10), st.integers(-100, 100)),
-    required=st.booleans(),
-    description=st.text(max_size=30),
+# These tests assert that NamespaceTransform preserves every field but the name, so
+# the non-name fields must still vary — a constant everywhere would let a transform
+# that blanked a field pass. What they do not need is *expensive* variation: the old
+# strategy drew a `from_regex` per field per descriptor (two 64-char hex hashes among
+# them). Two prepared values per field give the same discriminating power at O(1).
+field_descriptors = st.sampled_from(
+    [
+        FieldDescriptor(
+            name="alpha",
+            type_annotation="str",
+            choices=None,
+            default=None,
+            required=False,
+            description="",
+        ),
+        FieldDescriptor(
+            name="beta",
+            type_annotation="int",
+            choices=["x", "y"],
+            default=3,
+            required=True,
+            description="beta field",
+        ),
+    ]
 )
 
 # Generate optional JobDeclaration
@@ -62,17 +74,13 @@ job_descriptors = st.builds(
     JobDescriptor,
     name=job_names,
     group=groups,
-    module_path=st.from_regex(r"[a-z][a-z0-9_.]{0,30}", fullmatch=True),
-    source_file=st.from_regex(r"/[a-z][a-z0-9_/]{0,30}\.py", fullmatch=True),
-    source_mtime=st.floats(min_value=0.0, max_value=1e12, allow_nan=False),
-    content_hash=st.from_regex(r"[0-9a-f]{64}", fullmatch=True),
-    docstring=st.one_of(st.none(), st.text(min_size=1, max_size=50)),
-    config_fields=st.lists(field_descriptors, max_size=3),
-    dependencies=st.dictionaries(
-        st.from_regex(r"/[a-z][a-z0-9_/]{0,20}\.py", fullmatch=True),
-        st.from_regex(r"[0-9a-f]{64}", fullmatch=True),
-        max_size=3,
-    ),
+    module_path=st.sampled_from(["pkg.mod", "other.pkg.deep"]),
+    source_file=st.sampled_from(["/pkg/mod.py", "/other/deep.py"]),
+    source_mtime=st.sampled_from([0.0, 1234.5]),
+    content_hash=st.sampled_from(["0" * 64, "f" * 64]),
+    docstring=st.sampled_from([None, "a docstring"]),
+    config_fields=st.lists(field_descriptors, max_size=2),
+    dependencies=st.sampled_from([{}, {"/pkg/dep.py": "a" * 64}]),
     declaration=declaration_strategy,
 )
 
@@ -89,7 +97,6 @@ separators = st.sampled_from([":", ".", "/", "-", "_", "::", "->"])
 # --- Property 3: NamespaceTransform round-trip ---
 
 
-@settings(max_examples=100)
 @given(prefix=prefixes, separator=separators, jobs=job_descriptor_lists)
 def test_property_3_transform_list_prefixes_all_names(
     prefix: str, separator: str, jobs: list[JobDescriptor]
@@ -113,7 +120,8 @@ def test_property_3_transform_list_prefixes_all_names(
         f"NamespaceTransform changed list length: input={len(jobs)}, output={len(result)}"
     )
 
-    full_prefix = f"{prefix}{separator}"
+    # A namespace is a group segment, so the transform publishes it canonical.
+    full_prefix = f"{normalize_name(prefix)}{separator}"
 
     for i, (original, transformed) in enumerate(zip(jobs, result, strict=False)):
         expected_name = f"{full_prefix}{original.name}"
@@ -135,7 +143,6 @@ def test_property_3_transform_list_prefixes_all_names(
         assert transformed.declaration == original.declaration
 
 
-@settings(max_examples=100)
 @given(prefix=prefixes, separator=separators, name=job_names)
 def test_property_3_transform_get_returns_none_for_non_prefixed_names(
     prefix: str, separator: str, name: str
@@ -156,7 +163,7 @@ def test_property_3_transform_get_returns_none_for_non_prefixed_names(
     # Since our name strategy generates identifiers like "abc_def" and prefixes
     # are also identifiers, we construct a non-prefixed name by using the raw name
     # only when it doesn't accidentally match
-    if name.startswith(full_prefix):
+    if name.startswith((full_prefix, f"{normalize_name(prefix)}{separator}")):
         # Skip this case — it would be a valid prefixed name
         return
 
@@ -188,7 +195,6 @@ def test_property_3_transform_get_returns_none_for_non_prefixed_names(
     )
 
 
-@settings(max_examples=100)
 @given(prefix=prefixes, separator=separators, job=job_descriptors)
 def test_property_3_transform_get_returns_prefixed_for_valid_names(
     prefix: str, separator: str, job: JobDescriptor
@@ -203,7 +209,9 @@ def test_property_3_transform_get_returns_prefixed_for_valid_names(
     **Validates: Requirements 9.2, 9.3, 9.4**
     """
     transform = NamespaceTransform(prefix=prefix, separator=separator)
-    full_prefix = f"{prefix}{separator}"
+    # The published (canonical) prefix is what a caller sees from transform_list
+    # and therefore what it looks the job back up by.
+    full_prefix = f"{normalize_name(prefix)}{separator}"
     prefixed_name = f"{full_prefix}{job.name}"
 
     result = transform.transform_get(prefixed_name, job)

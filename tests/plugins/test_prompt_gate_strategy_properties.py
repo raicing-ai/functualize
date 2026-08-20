@@ -13,9 +13,10 @@ all fields (resolved + unresolved) to the user.
 
 from __future__ import annotations
 
+import keyword
 from typing import Any
 
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 from pydantic import BaseModel, Field, create_model
 
@@ -69,31 +70,32 @@ def _build_dynamic_model(field_names: list[str]) -> type[BaseModel]:
 
 # --- Strategies ---
 
-# Reserved names that conflict with Pydantic BaseModel attributes
-_RESERVED_NAMES = frozenset(
-    {
-        "dict",
-        "json",
-        "copy",
-        "schema",
-        "validate",
-        "model",
-        "parse",
-        "update",
-        "fields",
-        "construct",
-        "class",
-    }
-)
+
+def _is_usable_pydantic_field_name(s: str) -> bool:
+    """Names this generator may safely build a dynamic pydantic model from.
+
+    Derived from `BaseModel` rather than hand-listed. The previous version was a
+    literal blocklist that named "model" but not "model_dump", so the ci profile
+    eventually drew `model_dump` and `create_model` raised
+    ``ValueError: Field 'model_dump' conflicts with member ... of protected
+    namespace``. Any hand-maintained list of another library's reserved names is
+    incomplete by construction; asking the class is not.
+    """
+    if not s.isidentifier() or keyword.iskeyword(s) or keyword.issoftkeyword(s):
+        return False
+    if s.startswith("_"):
+        return False
+    # Pydantic reserves the whole `model_` prefix, and rejects any name that
+    # shadows an existing BaseModel member.
+    return not s.startswith("model_") and not hasattr(BaseModel, s)
+
 
 # Strategy for valid Python identifier field names (at least 2 chars, valid identifiers)
 field_name_strategy = st.text(
     alphabet=st.sampled_from("abcdefghijklmnopqrstuvwxyz_"),
     min_size=2,
     max_size=12,
-).filter(
-    lambda s: s.isidentifier() and not s.startswith("_") and s not in _RESERVED_NAMES
-)
+).filter(_is_usable_pydantic_field_name)
 
 # Strategy for generating a set of unique field names (between 1 and 8 fields)
 field_names_strategy = st.lists(
@@ -117,7 +119,6 @@ class TestPromptGateResolverUnresolvedFieldsProperty:
         all_fields=field_names_strategy,
         data=st.data(),
     )
-    @settings(max_examples=200)
     def test_prompts_exactly_unresolved_fields(
         self, all_fields: list[str], data: st.DataObject
     ) -> None:
@@ -159,7 +160,9 @@ class TestPromptGateResolverUnresolvedFieldsProperty:
 
         # Run the resolver
         provider = TrackingInputProvider()
-        resolver = PromptGateResolver(provider=provider)
+        # The collector is resolved lazily through a factory so the strategy can
+        # be registered at boot, before any surface exists.
+        resolver = PromptGateResolver(collector_factory=lambda _app: provider)
         resolver.resolve(ctx)
 
         # Assert: number of prompts equals number of unresolved fields
@@ -172,7 +175,6 @@ class TestPromptGateResolverUnresolvedFieldsProperty:
         all_fields=field_names_strategy,
         data=st.data(),
     )
-    @settings(max_examples=200)
     def test_prompted_field_set_matches_unresolved_set(
         self, all_fields: list[str], data: st.DataObject
     ) -> None:
@@ -213,7 +215,9 @@ class TestPromptGateResolverUnresolvedFieldsProperty:
         )
 
         provider = TrackingInputProvider()
-        resolver = PromptGateResolver(provider=provider)
+        # The collector is resolved lazily through a factory so the strategy can
+        # be registered at boot, before any surface exists.
+        resolver = PromptGateResolver(collector_factory=lambda _app: provider)
         resolver.resolve(ctx)
 
         # The prompted fields should match unresolved fields exactly
@@ -236,7 +240,6 @@ class TestPromptGateResolverForceGateProperty:
         all_fields=field_names_strategy,
         data=st.data(),
     )
-    @settings(max_examples=200)
     def test_force_gate_prompts_all_fields(
         self, all_fields: list[str], data: st.DataObject
     ) -> None:
@@ -275,7 +278,9 @@ class TestPromptGateResolverForceGateProperty:
         )
 
         provider = TrackingInputProvider()
-        resolver = PromptGateResolver(provider=provider)
+        # The collector is resolved lazily through a factory so the strategy can
+        # be registered at boot, before any surface exists.
+        resolver = PromptGateResolver(collector_factory=lambda _app: provider)
         resolver.resolve(ctx)
 
         # Assert: number of prompts equals total number of fields
@@ -288,7 +293,6 @@ class TestPromptGateResolverForceGateProperty:
         all_fields=field_names_strategy,
         data=st.data(),
     )
-    @settings(max_examples=200)
     def test_force_gate_prompted_field_set_matches_all_fields(
         self, all_fields: list[str], data: st.DataObject
     ) -> None:
@@ -326,7 +330,9 @@ class TestPromptGateResolverForceGateProperty:
         )
 
         provider = TrackingInputProvider()
-        resolver = PromptGateResolver(provider=provider)
+        # The collector is resolved lazily through a factory so the strategy can
+        # be registered at boot, before any surface exists.
+        resolver = PromptGateResolver(collector_factory=lambda _app: provider)
         resolver.resolve(ctx)
 
         # The prompted fields should match all_fields exactly
@@ -339,7 +345,6 @@ class TestPromptGateResolverForceGateProperty:
         all_fields=field_names_strategy,
         data=st.data(),
     )
-    @settings(max_examples=200)
     def test_force_gate_resolved_values_used_as_defaults(
         self, all_fields: list[str], data: st.DataObject
     ) -> None:
@@ -380,7 +385,9 @@ class TestPromptGateResolverForceGateProperty:
         )
 
         provider = TrackingInputProvider()
-        resolver = PromptGateResolver(provider=provider)
+        # The collector is resolved lazily through a factory so the strategy can
+        # be registered at boot, before any surface exists.
+        resolver = PromptGateResolver(collector_factory=lambda _app: provider)
         resolver.resolve(ctx)
 
         # For each resolved field, its prompt should have the resolved value as default

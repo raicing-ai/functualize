@@ -13,7 +13,7 @@ import keyword
 from pathlib import Path
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.data.shortcut_generator import (
@@ -84,7 +84,6 @@ class TestShortcutGenerationValidSyntax:
     """
 
     @given(spec=_python_shortcut_spec())
-    @settings(max_examples=200)
     def test_python_format_compiles_without_error(self, spec: ShortcutSpec) -> None:
         """Python output compiles without SyntaxError.
 
@@ -111,7 +110,6 @@ class TestShortcutContentPreservesKwargs:
     """
 
     @given(spec=_python_shortcut_spec())
-    @settings(max_examples=200)
     def test_all_kwargs_keys_appear_in_content(self, spec: ShortcutSpec) -> None:
         """Every key from spec.kwargs appears in the generated content.
 
@@ -124,7 +122,6 @@ class TestShortcutContentPreservesKwargs:
             )
 
     @given(spec=_python_shortcut_spec())
-    @settings(max_examples=200)
     def test_all_kwargs_values_appear_in_content(self, spec: ShortcutSpec) -> None:
         """Every value from spec.kwargs appears in the generated content.
 

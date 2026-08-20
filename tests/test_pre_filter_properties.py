@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._primitives.pre_filter import AllOf, AnyOf, ModulePreFilter, NoneOf
@@ -63,7 +63,6 @@ class TestPreFilterCombinatorBooleanAlgebra:
     """
 
     @given(filter_results=_filter_results_strategy, path=_path_strategy)
-    @settings(max_examples=300)
     def test_allof_equals_builtin_all(self, filter_results: list[bool], path: Path):
         """AllOf(*filters).should_import(path) == all(f.should_import(path) for f in filters).
 
@@ -78,7 +77,6 @@ class TestPreFilterCombinatorBooleanAlgebra:
         assert actual == expected
 
     @given(filter_results=_filter_results_strategy, path=_path_strategy)
-    @settings(max_examples=300)
     def test_anyof_equals_builtin_any(self, filter_results: list[bool], path: Path):
         """AnyOf(*filters).should_import(path) == any(f.should_import(path) for f in filters).
 
@@ -93,7 +91,6 @@ class TestPreFilterCombinatorBooleanAlgebra:
         assert actual == expected
 
     @given(filter_results=_filter_results_strategy, path=_path_strategy)
-    @settings(max_examples=300)
     def test_noneof_equals_not_any(self, filter_results: list[bool], path: Path):
         """NoneOf(*filters).should_import(path) == not any(f.should_import(path) for f in filters).
 
@@ -108,7 +105,6 @@ class TestPreFilterCombinatorBooleanAlgebra:
         assert actual == expected
 
     @given(filter_results=_filter_results_strategy, path=_path_strategy)
-    @settings(max_examples=300)
     def test_noneof_is_complement_of_anyof(
         self, filter_results: list[bool], path: Path
     ):
@@ -123,7 +119,6 @@ class TestPreFilterCombinatorBooleanAlgebra:
         assert none_of.should_import(path) == (not any_of.should_import(path))
 
     @given(filter_results=_filter_results_strategy, path=_path_strategy)
-    @settings(max_examples=300)
     def test_combinators_satisfy_protocol(self, filter_results: list[bool], path: Path):
         """All combinators satisfy the ModulePreFilter Protocol via structural typing.
 
@@ -144,7 +139,6 @@ class TestPreFilterCombinatorBooleanAlgebra:
         filter_results_b=_filter_results_strategy,
         path=_path_strategy,
     )
-    @settings(max_examples=200)
     def test_allof_nested_composition(
         self, filter_results_a: list[bool], filter_results_b: list[bool], path: Path
     ):

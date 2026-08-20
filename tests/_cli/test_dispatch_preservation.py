@@ -17,10 +17,11 @@ Non-buggy inputs include:
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.dispatch import (
+    _OPTIONAL_VALUE_VALID_SET,
     Mode,
     _extract_global_options,
     detect_mode,
@@ -132,7 +133,6 @@ class TestPreservationAlwaysConsumesValueFlags:
         value=st.sampled_from(_VALID_LOG_LEVELS),
         job_name=_job_name,
     )
-    @settings(max_examples=50)
     def test_log_level_flag_routes_job_correctly(
         self, flag: str, value: str, job_name: str
     ) -> None:
@@ -155,7 +155,6 @@ class TestPreservationAlwaysConsumesValueFlags:
         value=st.sampled_from(["./conf", "/tmp/cfg", "./mydir", "/opt/config"]),
         job_name=_job_name,
     )
-    @settings(max_examples=50)
     def test_config_directory_flag_routes_job_correctly(
         self, flag: str, value: str, job_name: str
     ) -> None:
@@ -176,7 +175,6 @@ class TestPreservationAlwaysConsumesValueFlags:
         value=st.sampled_from(["pattern", "my_func", "test_*", "deploy"]),
         job_name=_job_name,
     )
-    @settings(max_examples=50)
     def test_perf_filter_flag_routes_job_correctly(
         self, flag: str, value: str, job_name: str
     ) -> None:
@@ -197,7 +195,6 @@ class TestPreservationAlwaysConsumesValueFlags:
         value=_discovery_depth_value,
         job_name=_job_name,
     )
-    @settings(max_examples=50)
     def test_discovery_depth_flag_routes_job_correctly(
         self, flag: str, value: str, job_name: str
     ) -> None:
@@ -218,7 +215,6 @@ class TestPreservationAlwaysConsumesValueFlags:
         value=st.sampled_from(["*.tmp", "__pycache__", ".git", "*.pyc"]),
         job_name=_job_name,
     )
-    @settings(max_examples=50)
     def test_exclude_flag_routes_job_correctly(
         self, flag: str, value: str, job_name: str
     ) -> None:
@@ -239,7 +235,6 @@ class TestPreservationAlwaysConsumesValueFlags:
         value=st.sampled_from(["./lib", "./vendor", "/opt/libs"]),
         job_name=_job_name,
     )
-    @settings(max_examples=50)
     def test_import_libs_flag_routes_job_correctly(
         self, flag: str, value: str, job_name: str
     ) -> None:
@@ -267,7 +262,6 @@ class TestPreservationAlwaysConsumesValueFlags:
         ),
         job_name=_job_name,
     )
-    @settings(max_examples=50)
     def test_other_always_value_flags_route_job_correctly(
         self, flag: str, job_name: str
     ) -> None:
@@ -297,7 +291,6 @@ class TestPreservationBooleanFlags:
     """
 
     @given(job_name=_job_name)
-    @settings(max_examples=50)
     def test_no_dotenv_flag_routes_job_correctly(self, job_name: str) -> None:
         """--no-dotenv job_name → Mode.JOB with job_name in effective_args.
 
@@ -312,7 +305,6 @@ class TestPreservationBooleanFlags:
         assert job_name in effective_args
 
     @given(job_name=_job_name)
-    @settings(max_examples=50)
     def test_no_dotenv_extract_sets_flag(self, job_name: str) -> None:
         """--no-dotenv job_name → no_dotenv=True, first_positional_index=1.
 
@@ -337,10 +329,11 @@ class TestPreservationEqualsStyleSyntax:
     """
 
     @given(
-        format_value=st.sampled_from(["text", "json"]),
+        format_value=st.sampled_from(
+            sorted(_OPTIONAL_VALUE_VALID_SET["--perf-report"][0])
+        ),
         job_name=_job_name,
     )
-    @settings(max_examples=50)
     def test_perf_report_equals_syntax_routes_job(
         self, format_value: str, job_name: str
     ) -> None:
@@ -357,10 +350,11 @@ class TestPreservationEqualsStyleSyntax:
         assert job_name in effective_args
 
     @given(
-        format_value=st.sampled_from(["text", "json"]),
+        format_value=st.sampled_from(
+            sorted(_OPTIONAL_VALUE_VALID_SET["--perf-report"][0])
+        ),
         job_name=_job_name,
     )
-    @settings(max_examples=50)
     def test_perf_report_equals_syntax_parses_value(
         self, format_value: str, job_name: str
     ) -> None:
@@ -376,10 +370,9 @@ class TestPreservationEqualsStyleSyntax:
         assert opts.first_positional_index == 1
 
     @given(
-        format_value=st.sampled_from(["json", "text", "none"]),
+        format_value=st.sampled_from(sorted(_OPTIONAL_VALUE_VALID_SET["--output"][0])),
         job_name=_job_name,
     )
-    @settings(max_examples=50)
     def test_output_equals_syntax_routes_job(
         self, format_value: str, job_name: str
     ) -> None:
@@ -396,10 +389,9 @@ class TestPreservationEqualsStyleSyntax:
         assert job_name in effective_args
 
     @given(
-        format_value=st.sampled_from(["json", "text", "none"]),
+        format_value=st.sampled_from(sorted(_OPTIONAL_VALUE_VALID_SET["--output"][0])),
         job_name=_job_name,
     )
-    @settings(max_examples=50)
     def test_output_equals_syntax_parses_value(
         self, format_value: str, job_name: str
     ) -> None:
@@ -415,7 +407,6 @@ class TestPreservationEqualsStyleSyntax:
         assert opts.first_positional_index == 1
 
     @given(job_name=_job_name)
-    @settings(max_examples=50)
     def test_perf_report_explicit_valid_value_consumes_correctly(
         self, job_name: str
     ) -> None:
@@ -440,7 +431,6 @@ class TestPreservationEqualsStyleSyntax:
             )
 
     @given(job_name=_job_name)
-    @settings(max_examples=50)
     def test_perf_report_explicit_value_routes_to_bare_without_positional(
         self, job_name: str
     ) -> None:
@@ -470,7 +460,6 @@ class TestPreservationMultipleFlags:
     """
 
     @given(job_name=_job_name)
-    @settings(max_examples=50)
     def test_bare_invocation_returns_bare(self, job_name: str) -> None:
         """func (no args) → Mode.BARE.
 
@@ -483,7 +472,6 @@ class TestPreservationMultipleFlags:
         assert effective_args == []
 
     @given(job_name=_job_name)
-    @settings(max_examples=50)
     def test_just_job_name_returns_job(self, job_name: str) -> None:
         """func job_name → Mode.JOB.
 
@@ -501,7 +489,6 @@ class TestPreservationMultipleFlags:
         log_level=st.sampled_from(_VALID_LOG_LEVELS),
         job_name=_job_name,
     )
-    @settings(max_examples=50)
     def test_log_level_and_no_dotenv_combined(
         self, log_level: str, job_name: str
     ) -> None:
@@ -519,10 +506,11 @@ class TestPreservationMultipleFlags:
 
     @given(
         log_level=st.sampled_from(_VALID_LOG_LEVELS),
-        perf_format=st.sampled_from(["text", "json"]),
+        perf_format=st.sampled_from(
+            sorted(_OPTIONAL_VALUE_VALID_SET["--perf-report"][0])
+        ),
         job_name=_job_name,
     )
-    @settings(max_examples=50)
     def test_log_level_perf_report_equals_no_dotenv_combined(
         self, log_level: str, perf_format: str, job_name: str
     ) -> None:
@@ -550,7 +538,6 @@ class TestPreservationMultipleFlags:
         depth=_discovery_depth_value,
         job_name=_job_name,
     )
-    @settings(max_examples=50)
     def test_log_level_and_discovery_depth_combined(
         self, log_level: str, depth: str, job_name: str
     ) -> None:
@@ -571,7 +558,6 @@ class TestPreservationMultipleFlags:
         perf_filter=st.sampled_from(["pattern", "my_func"]),
         job_name=_job_name,
     )
-    @settings(max_examples=50)
     def test_config_dir_and_perf_filter_combined(
         self, config_dir: str, perf_filter: str, job_name: str
     ) -> None:
@@ -598,7 +584,6 @@ class TestPreservationMultipleFlags:
         data=st.data(),
         job_name=_job_name,
     )
-    @settings(max_examples=100)
     def test_random_ordering_multiple_non_buggy_flags(
         self, data: st.DataObject, job_name: str
     ) -> None:
@@ -637,12 +622,16 @@ class TestPreservationMultipleFlags:
 
         # Optionally add --perf-report=FORMAT (equals style only)
         if data.draw(st.booleans()):
-            fmt = data.draw(st.sampled_from(["text", "json"]))
+            fmt = data.draw(
+                st.sampled_from(sorted(_OPTIONAL_VALUE_VALID_SET["--perf-report"][0]))
+            )
             flag_tokens.append(f"--perf-report={fmt}")
 
         # Optionally add --output=FORMAT (equals style only)
         if data.draw(st.booleans()):
-            fmt = data.draw(st.sampled_from(["json", "text", "none"]))
+            fmt = data.draw(
+                st.sampled_from(sorted(_OPTIONAL_VALUE_VALID_SET["--output"][0]))
+            )
             flag_tokens.append(f"--output={fmt}")
 
         # Optionally add --exclude

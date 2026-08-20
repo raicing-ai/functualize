@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.annotation_utils import parse_annotation
@@ -90,7 +90,6 @@ class TestAnnotatedTransparency:
     """
 
     @given(base_type=_cli_type, metadata=_metadata_tuple)
-    @settings(max_examples=200)
     def test_base_type_preserved_through_annotated(
         self, base_type: type, metadata: tuple[Any, ...]
     ):
@@ -112,7 +111,6 @@ class TestAnnotatedTransparency:
         )
 
     @given(base_type=_cli_type)
-    @settings(max_examples=100)
     def test_bare_type_base_type_is_itself(self, base_type: type):
         """For a bare (non-Annotated) CLI type, base_type is the type itself.
 
@@ -141,7 +139,6 @@ class TestDIClassificationStability:
     """
 
     @given(di_type=_di_type, metadata=_metadata_tuple)
-    @settings(max_examples=200)
     def test_di_type_always_classified_as_di_with_metadata(
         self, di_type: type, metadata: tuple[Any, ...]
     ):
@@ -162,7 +159,6 @@ class TestDIClassificationStability:
         )
 
     @given(di_type=_di_type)
-    @settings(max_examples=50)
     def test_bare_di_type_classified_as_di(self, di_type: type):
         """Bare DI types (no Annotated wrapper) are classified as DI params.
 
@@ -176,7 +172,6 @@ class TestDIClassificationStability:
         )
 
     @given(base_type=_cli_type, metadata=_metadata_tuple)
-    @settings(max_examples=200)
     def test_provide_marker_forces_di_classification(
         self, base_type: type, metadata: tuple[Any, ...]
     ):
@@ -219,7 +214,6 @@ class TestDICLIMutualExclusion:
     """
 
     @given(base_type=_cli_type, metadata=_metadata_tuple)
-    @settings(max_examples=200)
     def test_cli_types_never_both_di_and_cli(
         self, base_type: type, metadata: tuple[Any, ...]
     ):
@@ -241,7 +235,6 @@ class TestDICLIMutualExclusion:
         )
 
     @given(di_type=_di_type, metadata=_metadata_tuple)
-    @settings(max_examples=200)
     def test_di_types_never_both_di_and_cli(
         self, di_type: type, metadata: tuple[Any, ...]
     ):
@@ -266,7 +259,6 @@ class TestDICLIMutualExclusion:
         base_type=st.one_of(_cli_type, _di_type),
         metadata=_metadata_tuple,
     )
-    @settings(max_examples=200)
     def test_provide_marker_never_both_di_and_cli(
         self, base_type: type, metadata: tuple[Any, ...]
     ):
@@ -290,7 +282,6 @@ class TestDICLIMutualExclusion:
         )
 
     @given(base_type=st.one_of(_cli_type, _di_type))
-    @settings(max_examples=100)
     def test_bare_types_never_both_di_and_cli(self, base_type: type):
         """Bare types (no Annotated wrapper) are never both DI and CLI.
 

@@ -57,7 +57,7 @@ class TestAutoScopeIdFormat:
     """Property 23: Auto-scope ID format."""
 
     @given(job_name=job_names)
-    @settings(max_examples=100, deadline=None)
+    @settings(deadline=None)
     def test_auto_scope_id_matches_format(self, job_name: str) -> None:
         """Auto-generated scope_id matches ^{job_name}-[0-9a-f]{8}$.
 
@@ -85,7 +85,7 @@ class TestAutoScopeIdFormat:
         )
 
     @given(job_name=job_names)
-    @settings(max_examples=100, deadline=None)
+    @settings(deadline=None)
     def test_auto_scope_suffix_is_exactly_8_hex_chars(self, job_name: str) -> None:
         """The auto-generated suffix after the job name is exactly 8 hex characters.
 
@@ -114,7 +114,7 @@ class TestAutoScopeIdFormat:
         )
 
     @given(job_name=job_names)
-    @settings(max_examples=100, deadline=None)
+    @settings(deadline=None)
     def test_auto_scope_creates_workflow_scope_instance(self, job_name: str) -> None:
         """Auto-scope creates a WorkflowScope instance stored in registry.
 
@@ -146,7 +146,7 @@ class TestExplicitScopeIdReuse:
     """Property 24: Explicit scope_id reuse."""
 
     @given(job_name=job_names, scope_id=scope_ids)
-    @settings(max_examples=100, deadline=None)
+    @settings(deadline=None)
     def test_explicit_scope_id_reuses_existing_scope(
         self, job_name: str, scope_id: str
     ) -> None:
@@ -171,7 +171,7 @@ class TestExplicitScopeIdReuse:
         assert app._scope_registry[scope_id] is original_scope
 
     @given(job_name=job_names, scope_id=scope_ids)
-    @settings(max_examples=100, deadline=None)
+    @settings(deadline=None)
     def test_explicit_scope_id_does_not_create_new_scope(
         self, job_name: str, scope_id: str
     ) -> None:
@@ -195,7 +195,7 @@ class TestExplicitScopeIdReuse:
         assert len(app._scope_registry) == 1
 
     @given(job_name=job_names, scope_id=scope_ids)
-    @settings(max_examples=100, deadline=None)
+    @settings(deadline=None)
     def test_explicit_new_scope_id_creates_scope(
         self, job_name: str, scope_id: str
     ) -> None:

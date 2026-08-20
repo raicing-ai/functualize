@@ -11,7 +11,7 @@ Tests the visibility logic of the Pre-flight Summary widget:
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.bar import BarReadiness
@@ -51,7 +51,6 @@ class TestPreflightSummaryVisibility:
     """
 
     @given(readiness=_readiness_strategy, panel_active=_panel_active_strategy)
-    @settings(max_examples=50)
     def test_visible_only_when_pending_or_ready_and_no_panel(
         self,
         readiness: BarReadiness,
@@ -70,7 +69,6 @@ class TestPreflightSummaryVisibility:
         )
 
     @given(readiness=_readiness_strategy)
-    @settings(max_examples=50)
     def test_panel_active_always_hides_summary(
         self,
         readiness: BarReadiness,
@@ -83,7 +81,6 @@ class TestPreflightSummaryVisibility:
         )
 
     @given(panel_active=_panel_active_strategy)
-    @settings(max_examples=50)
     def test_grey_readiness_always_hides_summary(
         self,
         panel_active: bool,
@@ -96,7 +93,6 @@ class TestPreflightSummaryVisibility:
         )
 
     @given(panel_active=_panel_active_strategy)
-    @settings(max_examples=50)
     def test_editing_readiness_always_hides_summary(
         self,
         panel_active: bool,
@@ -109,7 +105,6 @@ class TestPreflightSummaryVisibility:
         )
 
     @given(panel_active=_panel_active_strategy)
-    @settings(max_examples=50)
     def test_invalid_readiness_always_hides_summary(
         self,
         panel_active: bool,

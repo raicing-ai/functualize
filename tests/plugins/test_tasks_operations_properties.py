@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import pytest
 from functualize_tasks import TaskNotFoundError, Tasks, TaskStatus
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 # --- Strategies ---
@@ -67,7 +67,6 @@ class TestTasksAddReturnsUniqueIDs:
     """
 
     @given(titles=task_title_lists)
-    @settings(max_examples=200)
     def test_all_returned_ids_are_distinct(self, titles: list[str]) -> None:
         """All IDs returned by Tasks.add() are distinct non-empty strings.
 
@@ -87,7 +86,6 @@ class TestTasksAddReturnsUniqueIDs:
         )
 
     @given(title=task_titles)
-    @settings(max_examples=200)
     def test_single_add_returns_non_empty_string(self, title: str) -> None:
         """A single Tasks.add() returns a non-empty string ID.
 
@@ -117,7 +115,6 @@ class TestTasksListStatusFiltering:
         statuses_to_assign=st.lists(task_statuses, min_size=1, max_size=20),
         target_status=task_statuses,
     )
-    @settings(max_examples=200)
     def test_list_returns_only_matching_status(
         self,
         titles: list[str],
@@ -154,7 +151,6 @@ class TestTasksListStatusFiltering:
         statuses_to_assign=st.lists(task_statuses, min_size=1, max_size=20),
         target_status=task_statuses,
     )
-    @settings(max_examples=200)
     def test_list_includes_all_matching_tasks(
         self,
         titles: list[str],
@@ -215,7 +211,6 @@ class TestTasksListTitleSubstringFiltering:
             min_size=1, max_size=20, alphabet=st.characters(categories=("L", "N"))
         ),
     )
-    @settings(max_examples=200)
     def test_list_returns_only_titles_containing_filter(
         self,
         titles: list[str],
@@ -243,7 +238,6 @@ class TestTasksListTitleSubstringFiltering:
             min_size=1, max_size=20, alphabet=st.characters(categories=("L", "N"))
         ),
     )
-    @settings(max_examples=200)
     def test_list_includes_all_titles_containing_filter(
         self,
         titles: list[str],
@@ -282,7 +276,6 @@ class TestTasksUpdatePersistsStatusChange:
     """
 
     @given(title=task_titles, new_status=task_statuses)
-    @settings(max_examples=200)
     def test_update_persists_status(self, title: str, new_status: TaskStatus) -> None:
         """After Tasks.update(id, status=S), the task's status equals S.
 
@@ -300,7 +293,6 @@ class TestTasksUpdatePersistsStatusChange:
         title=task_titles,
         statuses=st.lists(task_statuses, min_size=2, max_size=10),
     )
-    @settings(max_examples=200)
     def test_sequential_updates_persist_last_status(
         self, title: str, statuses: list[TaskStatus]
     ) -> None:
@@ -332,7 +324,6 @@ class TestTasksNonExistentIDRaisesTaskNotFoundError:
     """
 
     @given(fake_id=non_existent_ids, status=task_statuses)
-    @settings(max_examples=200)
     def test_update_nonexistent_raises_task_not_found(
         self, fake_id: str, status: TaskStatus
     ) -> None:
@@ -345,7 +336,6 @@ class TestTasksNonExistentIDRaisesTaskNotFoundError:
             tasks.update(fake_id, status=status)
 
     @given(fake_id=non_existent_ids)
-    @settings(max_examples=200)
     def test_delete_nonexistent_raises_task_not_found(self, fake_id: str) -> None:
         """Tasks.delete() with a non-existent ID raises TaskNotFoundError.
 
@@ -359,7 +349,6 @@ class TestTasksNonExistentIDRaisesTaskNotFoundError:
         titles=st.lists(task_titles, min_size=1, max_size=10),
         fake_id=non_existent_ids,
     )
-    @settings(max_examples=200)
     def test_update_nonexistent_id_among_existing_tasks(
         self, titles: list[str], fake_id: str
     ) -> None:
@@ -380,7 +369,6 @@ class TestTasksNonExistentIDRaisesTaskNotFoundError:
         titles=st.lists(task_titles, min_size=1, max_size=10),
         fake_id=non_existent_ids,
     )
-    @settings(max_examples=200)
     def test_delete_nonexistent_id_among_existing_tasks(
         self, titles: list[str], fake_id: str
     ) -> None:

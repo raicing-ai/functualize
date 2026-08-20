@@ -16,7 +16,7 @@ import inspect
 from typing import Annotated, Optional
 from unittest.mock import MagicMock, patch
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._engine.resolution import (
@@ -59,7 +59,6 @@ class TestResolutionPlanCachingByFunctionIdentity:
     """
 
     @given(num_lookups=st.integers(min_value=2, max_value=20))
-    @settings(max_examples=200)
     def test_cached_plan_returns_same_object_by_identity(self, num_lookups: int):
         """Subsequent lookups return the exact same plan object (by identity).
 
@@ -88,7 +87,6 @@ class TestResolutionPlanCachingByFunctionIdentity:
             )
 
     @given(num_lookups=st.integers(min_value=2, max_value=20))
-    @settings(max_examples=200)
     def test_no_reinvocation_of_inspect_signature(self, num_lookups: int):
         """Caching avoids re-invoking inspect.signature() on subsequent lookups.
 
@@ -139,7 +137,6 @@ class TestResolutionPlanCachingByFunctionIdentity:
         )
 
     @given(num_functions=st.integers(min_value=2, max_value=8))
-    @settings(max_examples=100)
     def test_different_functions_get_distinct_plans(self, num_functions: int):
         """Each function gets its own distinct ResolutionPlan in the cache.
 
@@ -176,7 +173,6 @@ class TestResolutionPlanCachingByFunctionIdentity:
         )
 
     @given(num_lookups=st.integers(min_value=2, max_value=10))
-    @settings(max_examples=200)
     def test_plan_function_id_matches_id_of_function(self, num_lookups: int):
         """The ResolutionPlan's function_id matches the id() of the function it was built for.
 
@@ -216,7 +212,6 @@ class TestEngineDIResolutionCorrectness:
     """
 
     @given(num_params=st.integers(min_value=1, max_value=6))
-    @settings(max_examples=100)
     def test_all_registered_type_params_resolved_from_registry(self, num_params: int):
         """All N type-annotated params matching registered types are resolved.
 
@@ -226,7 +221,7 @@ class TestEngineDIResolutionCorrectness:
         types_and_instances: list[tuple[type, object]] = []
         for i in range(num_params):
             t = _make_type(f"Service{i}")
-            instance = object()
+            instance = t()
             types_and_instances.append((t, instance))
 
         registry = DIRegistry()
@@ -299,7 +294,6 @@ class TestEngineDIResolutionCorrectness:
         num_registered=st.integers(min_value=1, max_value=3),
         num_unregistered=st.integers(min_value=1, max_value=3),
     )
-    @settings(max_examples=100)
     def test_unregistered_types_without_default_trigger_missing_provider(
         self, num_registered: int, num_unregistered: int
     ):
@@ -312,7 +306,7 @@ class TestEngineDIResolutionCorrectness:
         registry = DIRegistry()
         for i in range(num_registered):
             t = _make_type(f"Registered{i}")
-            registry.provide(t, object())
+            registry.provide(t, t())
             registered_types.add(t)
 
         # Create unregistered types
@@ -407,7 +401,6 @@ class TestEngineDIResolutionCorrectness:
     @given(
         num_params=st.integers(min_value=1, max_value=4),
     )
-    @settings(max_examples=100)
     def test_optional_params_with_registered_provider_resolve_normally(
         self, num_params: int
     ):
@@ -422,7 +415,7 @@ class TestEngineDIResolutionCorrectness:
 
         for i in range(num_params):
             t = _make_type(f"OptService{i}")
-            instance = object()
+            instance = t()
             registry.provide(t, instance)
             registered_types.add(t)
             types_and_instances.append((t, instance))
@@ -463,8 +456,8 @@ class TestEngineDIResolutionCorrectness:
         **Validates: Requirements 5.1, 5.2, 5.3, 5.6, 5.7, 5.8, 18.3, 18.6**
         """
         cache_service = _make_type("CacheService")
-        redis_instance = object()
-        memcache_instance = object()
+        redis_instance = cache_service()
+        memcache_instance = cache_service()
 
         registry = DIRegistry()
         registry.provide(cache_service, redis_instance, qualifier="redis")
@@ -495,7 +488,6 @@ class TestEngineDIResolutionCorrectness:
         assert resolved is redis_instance
 
     @given(num_skip_params=st.integers(min_value=1, max_value=4))
-    @settings(max_examples=100)
     def test_params_without_annotations_are_skipped(self, num_skip_params: int):
         """Parameters without type annotations are skipped during DI resolution.
 
@@ -553,160 +545,129 @@ class TestEngineDIResolutionCorrectness:
 # =============================================================================
 
 
+def _isolation_engine():
+    """Build a bare engine suitable for exercising DI resolution."""
+    from functualize._engine.executor import JobExecutionEngine
+
+    return JobExecutionEngine(
+        di_registry=DIRegistry(),
+        event_bus=MagicMock(),
+        hook_registry=MagicMock(),
+        middleware_chain=MagicMock(),
+    )
+
+
+def _resolve_caps(engine, function, job_name: str) -> dict:
+    """Resolve `function`'s DI params once, returning the per-invocation caps."""
+    from functualize._engine.context import ExecutionContext
+
+    context = ExecutionContext(job_name=job_name, function=function, call_kwargs={})
+    _kwargs, caps = engine._resolve_di_parameters(function, context)
+    return caps
+
+
+# The capability set a job must actually *declare* to have it built. Capabilities
+# are created on demand per binding, so a job that asks for nothing gets nothing.
+_ISOLATED_CAPS = (Log, Invoke, Prompt, Perf, State, JobContext)
+
+
+def _job_declaring_all_caps():
+    """A job function whose signature requests every per-invocation capability."""
+
+    def job(
+        log: Log,
+        invoke: Invoke,
+        prompt: Prompt,
+        perf: Perf,
+        state: State,
+        jc: JobContext,
+    ) -> None:
+        pass
+
+    return job
+
+
 class TestPerInvocationCapabilityIsolation:
     """Property 12: Per-invocation capability isolation.
 
-    For any two sequential or concurrent invocations of the same job, the
-    framework capability instances (Log, Invoke, Prompt, Perf, State, JobContext)
-    SHALL be distinct objects (by identity), ensuring no state leakage between
-    invocations.
+    For any two sequential invocations of the same job, the framework capability
+    instances SHALL be distinct objects (by identity), ensuring no state leakage
+    between invocations.
+
+    These are deterministic assertions about object identity, so they are plain
+    tests rather than Hypothesis properties — the behaviour does not vary with
+    generated input, and the engine never inspects the job name or the iteration
+    count. See `test_capabilities_are_created_on_demand` for the on-demand
+    construction contract that replaced the old eager capability builder.
 
     **Validates: Requirements 7.7**
     """
 
-    @given(num_invocations=st.integers(min_value=2, max_value=20))
-    @settings(max_examples=200)
-    def test_sequential_invocations_get_distinct_capabilities(
-        self, num_invocations: int
-    ):
-        """Sequential invocations of the same job get distinct capability instances.
+    def test_sequential_invocations_get_distinct_capabilities(self) -> None:
+        """Sequential resolutions of the same job get distinct capability instances."""
+        engine = _isolation_engine()
+        function = _job_declaring_all_caps()
 
-        **Validates: Requirements 7.7**
-        """
-        # Import the engine's capability builder
-        from functualize._engine.executor import JobExecutionEngine
+        all_caps = [_resolve_caps(engine, function, "test_job") for _ in range(5)]
 
-        # Create a minimal mock app for the engine
-        app = MagicMock()
-        app._di_registry = DIRegistry()
-        hook_registry = MagicMock()
-        middleware_registry = MagicMock()
-
-        engine = JobExecutionEngine(
-            di_registry=app._di_registry,
-            event_bus=MagicMock(),
-            hook_registry=hook_registry,
-            middleware_chain=middleware_registry,
-        )
-
-        rc = MagicMock(spec=RunContext)
-
-        # Build per-invocation capabilities multiple times
-        all_caps: list[dict[type, object]] = []
-        for _ in range(num_invocations):
-            caps = engine._build_per_invocation_capabilities("test_job", rc)
-            all_caps.append(caps)
-
-        # Each invocation should have distinct capability instances
-        capability_types = [Log, Invoke, Prompt, Perf, State, JobContext]
-        for cap_type in capability_types:
-            instances = [caps[cap_type] for caps in all_caps]
-            ids = [id(inst) for inst in instances]
-            assert len(set(ids)) == num_invocations, (
+        for cap_type in _ISOLATED_CAPS:
+            ids = [id(caps[cap_type]) for caps in all_caps]
+            assert len(set(ids)) == len(all_caps), (
                 f"All {cap_type.__name__} instances must be distinct across "
-                f"invocations (got {len(set(ids))} unique out of {num_invocations})"
+                f"invocations (got {len(set(ids))} unique out of {len(all_caps)})"
             )
 
-    @given(num_invocations=st.integers(min_value=2, max_value=10))
-    @settings(max_examples=200)
-    def test_no_shared_identity_between_any_capability_pairs(
-        self, num_invocations: int
-    ):
-        """No capability instance from one invocation is shared with another.
+    def test_no_shared_identity_between_any_capability_pairs(self) -> None:
+        """No capability instance from one invocation is shared with another."""
+        engine = _isolation_engine()
+        function = _job_declaring_all_caps()
 
-        **Validates: Requirements 7.7**
-        """
-        from functualize._engine.executor import JobExecutionEngine
+        all_caps = [_resolve_caps(engine, function, "isolation_job") for _ in range(4)]
 
-        app = MagicMock()
-        app._di_registry = DIRegistry()
-        hook_registry = MagicMock()
-        middleware_registry = MagicMock()
-
-        engine = JobExecutionEngine(
-            di_registry=app._di_registry,
-            event_bus=MagicMock(),
-            hook_registry=hook_registry,
-            middleware_chain=middleware_registry,
-        )
-
-        rc = MagicMock(spec=RunContext)
-
-        all_caps = []
-        for _ in range(num_invocations):
-            caps = engine._build_per_invocation_capabilities("isolation_job", rc)
-            all_caps.append(caps)
-
-        # For each capability type, no two invocations share the same instance
-        capability_types = [Log, Invoke, Prompt, Perf, State, JobContext]
-        for cap_type in capability_types:
-            for i in range(num_invocations):
-                for j in range(i + 1, num_invocations):
+        for cap_type in _ISOLATED_CAPS:
+            for i in range(len(all_caps)):
+                for j in range(i + 1, len(all_caps)):
                     assert all_caps[i][cap_type] is not all_caps[j][cap_type], (
                         f"{cap_type.__name__} instance from invocation {i} "
                         f"must not be the same object as invocation {j}"
                     )
 
-    @given(num_invocations=st.integers(min_value=2, max_value=10))
-    @settings(max_examples=100)
-    def test_all_expected_capability_types_are_present(self, num_invocations: int):
-        """Each invocation contains all expected capability types.
+    def test_declared_capabilities_are_all_present(self) -> None:
+        """Every capability the job declares is present in the resolved caps."""
+        engine = _isolation_engine()
+        caps = _resolve_caps(engine, _job_declaring_all_caps(), "completeness_job")
 
-        **Validates: Requirements 7.7**
-        """
-        from functualize._engine.executor import JobExecutionEngine
-
-        app = MagicMock()
-        app._di_registry = DIRegistry()
-        hook_registry = MagicMock()
-        middleware_registry = MagicMock()
-
-        engine = JobExecutionEngine(
-            di_registry=app._di_registry,
-            event_bus=MagicMock(),
-            hook_registry=hook_registry,
-            middleware_chain=middleware_registry,
+        assert set(_ISOLATED_CAPS).issubset(caps.keys()), (
+            "Every declared capability should be built: missing "
+            f"{sorted(t.__name__ for t in set(_ISOLATED_CAPS) - set(caps))}"
         )
 
-        rc = MagicMock(spec=RunContext)
+    def test_capability_instances_are_correct_types(self) -> None:
+        """Each capability instance is of the correct type."""
+        engine = _isolation_engine()
+        caps = _resolve_caps(engine, _job_declaring_all_caps(), "types_job")
 
-        expected_types = {Log, Invoke, Prompt, Perf, State, JobContext}
+        for cap_type in _ISOLATED_CAPS:
+            assert isinstance(caps[cap_type], cap_type)
 
-        for _ in range(num_invocations):
-            caps = engine._build_per_invocation_capabilities("completeness_job", rc)
-            assert set(caps.keys()) == expected_types, (
-                f"Per-invocation capabilities should contain exactly "
-                f"{[t.__name__ for t in expected_types]}"
-            )
+    def test_capabilities_are_created_on_demand(self) -> None:
+        """Only capabilities the job actually declares are constructed.
 
-    @given(num_invocations=st.integers(min_value=2, max_value=10))
-    @settings(max_examples=100)
-    def test_capability_instances_are_correct_types(self, num_invocations: int):
-        """Each capability instance is of the correct type.
-
-        **Validates: Requirements 7.7**
+        This is the contract that replaced the old eager `_build_per_invocation_
+        capabilities()` builder, which returned a fixed dict regardless of the
+        job's signature. Building an unrequested capability is not free — `State`
+        and `Stdout` reach for backends — so the narrowing is load-bearing.
         """
-        from functualize._engine.executor import JobExecutionEngine
+        engine = _isolation_engine()
 
-        app = MagicMock()
-        app._di_registry = DIRegistry()
-        hook_registry = MagicMock()
-        middleware_registry = MagicMock()
+        def only_log(log: Log) -> None:
+            pass
 
-        engine = JobExecutionEngine(
-            di_registry=app._di_registry,
-            event_bus=MagicMock(),
-            hook_registry=hook_registry,
-            middleware_chain=middleware_registry,
+        caps = _resolve_caps(engine, only_log, "narrow_job")
+
+        assert Log in caps
+        unrequested = {Invoke, Prompt, Perf, State, JobContext} & set(caps)
+        assert not unrequested, (
+            "Capabilities the job never declared should not be built, but got "
+            f"{sorted(t.__name__ for t in unrequested)}"
         )
-
-        rc = MagicMock(spec=RunContext)
-
-        for _ in range(num_invocations):
-            caps = engine._build_per_invocation_capabilities("types_job", rc)
-            assert isinstance(caps[Log], Log)
-            assert isinstance(caps[Invoke], Invoke)
-            assert isinstance(caps[Prompt], Prompt)
-            assert isinstance(caps[Perf], Perf)
-            assert isinstance(caps[State], State)
-            assert isinstance(caps[JobContext], JobContext)

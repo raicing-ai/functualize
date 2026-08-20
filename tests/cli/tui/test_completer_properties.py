@@ -10,7 +10,7 @@ Tests SwappableCompleter from functualize._cli.completions.engine:
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.completions.engine import SwappableCompleter
@@ -63,7 +63,6 @@ class TestSwappableCompleterCandidatesSubset:
     """
 
     @given(choices=_choices_list, text=_input_text)
-    @settings(max_examples=200)
     def test_candidates_main_field_in_original_choices(
         self, choices: list[str], text: str
     ) -> None:
@@ -79,7 +78,6 @@ class TestSwappableCompleterCandidatesSubset:
             )
 
     @given(choices=_choices_list, text=_input_text)
-    @settings(max_examples=200)
     def test_candidates_match_input_prefix_case_insensitive(
         self, choices: list[str], text: str
     ) -> None:
@@ -98,7 +96,6 @@ class TestSwappableCompleterCandidatesSubset:
                 )
 
     @given(choices=_choices_list, text=_input_text)
-    @settings(max_examples=200)
     def test_result_count_never_exceeds_50(self, choices: list[str], text: str) -> None:
         """The result count never exceeds 50."""
         completer = SwappableCompleter()
@@ -109,7 +106,6 @@ class TestSwappableCompleterCandidatesSubset:
         assert len(items) <= 50, f"Got {len(items)} candidates, expected at most 50"
 
     @given(choices=_choices_list, text=_input_text)
-    @settings(max_examples=200)
     def test_no_match_returns_empty(self, choices: list[str], text: str) -> None:
         """If no choice matches the prefix, the result is empty."""
         completer = SwappableCompleter()
@@ -132,7 +128,6 @@ class TestSwappableCompleterCandidatesSubset:
             )
 
     @given(text=_input_text)
-    @settings(max_examples=100)
     def test_none_choices_always_returns_empty(self, text: str) -> None:
         """When choices is None, result is always empty regardless of input text."""
         completer = SwappableCompleter()
@@ -145,7 +140,6 @@ class TestSwappableCompleterCandidatesSubset:
         )
 
     @given(text=_input_text)
-    @settings(max_examples=100)
     def test_empty_choices_always_returns_empty(self, text: str) -> None:
         """When choices is empty list, result is always empty regardless of input text."""
         completer = SwappableCompleter()

@@ -16,7 +16,7 @@ from typing import Any
 
 from functualize_ai._types import ToolDef
 from functualize_ai_pydantic._tool_translator import ToolScopeTranslator
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 # ===========================================================================
@@ -157,7 +157,6 @@ class TestToolScopeTranslationProperty:
     """
 
     @given(tool_defs=st.lists(tool_def_with_function_st(), min_size=1, max_size=8))
-    @settings(max_examples=100)
     def test_translated_tools_preserve_names(self, tool_defs: list[ToolDef]) -> None:
         """Each translated PydanticAI Tool has the same name as the source ToolDef.
 
@@ -171,7 +170,6 @@ class TestToolScopeTranslationProperty:
             assert pydantic_tool.name == tool_def.name
 
     @given(tool_defs=st.lists(tool_def_with_function_st(), min_size=1, max_size=8))
-    @settings(max_examples=100)
     def test_translated_tools_preserve_descriptions(
         self, tool_defs: list[ToolDef]
     ) -> None:
@@ -187,7 +185,6 @@ class TestToolScopeTranslationProperty:
             assert pydantic_tool.description == tool_def.description
 
     @given(tool_defs=st.lists(tool_def_with_function_st(), min_size=1, max_size=8))
-    @settings(max_examples=100)
     def test_translated_tools_preserve_schema(self, tool_defs: list[ToolDef]) -> None:
         """Each translated PydanticAI Tool preserves the parameters schema from the ToolDef.
 
@@ -212,7 +209,6 @@ class TestToolScopeTranslationProperty:
             assert translated_schema.get("type") == "object"
 
     @given(tool_defs=tool_def_list_st())
-    @settings(max_examples=100)
     def test_tool_defs_without_functions_are_skipped(
         self, tool_defs: list[ToolDef]
     ) -> None:
@@ -228,7 +224,6 @@ class TestToolScopeTranslationProperty:
         assert len(tools) == expected_count
 
     @given(tool_defs=st.lists(tool_def_with_function_st(), min_size=1, max_size=8))
-    @settings(max_examples=100)
     def test_translated_tools_produce_one_tool_per_tooldef(
         self, tool_defs: list[ToolDef]
     ) -> None:
@@ -242,7 +237,6 @@ class TestToolScopeTranslationProperty:
         assert len(tools) == len(tool_defs)
 
     @given(tool_defs=st.lists(tool_def_with_function_st(), min_size=1, max_size=5))
-    @settings(max_examples=100)
     def test_translated_tools_are_callable(self, tool_defs: list[ToolDef]) -> None:
         """Each translated PydanticAI Tool has a callable function attribute.
 

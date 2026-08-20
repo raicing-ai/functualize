@@ -25,7 +25,7 @@ from functualize_ai._provider_discovery import (
     _auto_select_provider,
     select_ai_provider,
 )
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 # --- Helpers ---
@@ -77,7 +77,6 @@ class TestSingleProviderAutoSelection:
     """
 
     @given(name=provider_names)
-    @settings(max_examples=200)
     def test_auto_selects_single_installed_provider(self, name: str) -> None:
         """When exactly one provider is installed and no provider is configured,
         the system auto-selects that single implementation.
@@ -96,7 +95,6 @@ class TestSingleProviderAutoSelection:
         assert result is plugin_obj
 
     @given(name=provider_names)
-    @settings(max_examples=200)
     def test_auto_select_provider_returns_loaded_object(self, name: str) -> None:
         """Auto-selection loads the entry point and returns the loaded object,
         regardless of the provider name.
@@ -120,7 +118,6 @@ class TestMultipleProvidersNoConfig:
     """
 
     @given(names=multiple_provider_names)
-    @settings(max_examples=200)
     def test_raises_when_multiple_providers_no_config(self, names: list[str]) -> None:
         """When multiple providers are installed and no provider is configured,
         the system raises AINotAvailableError.
@@ -135,7 +132,6 @@ class TestMultipleProvidersNoConfig:
             select_ai_provider(config, available_providers=providers)
 
     @given(names=multiple_provider_names)
-    @settings(max_examples=200)
     def test_error_message_lists_available_providers(self, names: list[str]) -> None:
         """When multiple providers trigger an error, the error message lists
         all available provider names so the user knows what to configure.
@@ -163,7 +159,6 @@ class TestExplicitProviderSelection:
     """
 
     @given(names=multiple_provider_names, data=st.data())
-    @settings(max_examples=200)
     def test_explicit_config_selects_correct_provider(
         self, names: list[str], data: st.DataObject
     ) -> None:
@@ -188,7 +183,6 @@ class TestExplicitProviderSelection:
         assert result is plugins[chosen]
 
     @given(name=provider_names)
-    @settings(max_examples=200)
     def test_explicit_config_selects_single_provider(self, name: str) -> None:
         """When a provider name is explicitly configured and only one is installed,
         it selects that provider via explicit path (not auto-select).
@@ -209,7 +203,6 @@ class TestExplicitProviderSelection:
         installed_name=provider_names,
         configured_name=provider_names,
     )
-    @settings(max_examples=200)
     def test_mismatched_config_raises_not_available(
         self, installed_name: str, configured_name: str
     ) -> None:

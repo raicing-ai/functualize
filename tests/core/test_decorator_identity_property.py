@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize.job.decorators import (
@@ -92,7 +92,6 @@ class TestHookDecoratorIdentityPreservation:
     **Validates: Requirements 29.1, 29.2, 29.3, 29.4, 14.3, 15.3, 16.3, 17.4**
     """
 
-    @settings(max_examples=100)
     @given(func_name=function_names)
     def test_bare_decorator_identity(self, func_name: str) -> None:
         """Bare form (@decorator applied directly) returns same object with same __name__.
@@ -116,7 +115,6 @@ class TestHookDecoratorIdentityPreservation:
             f"Bare hook decorator changed __name__ from '{func_name}' to '{result.__name__}'"
         )
 
-    @settings(max_examples=100)
     @given(func_name=function_names)
     def test_empty_parens_decorator_identity(self, func_name: str) -> None:
         """Empty-parens form (@decorator()) returns same object with same __name__.
@@ -141,7 +139,6 @@ class TestHookDecoratorIdentityPreservation:
             f"Empty-parens hook decorator changed __name__ from '{func_name}' to '{result.__name__}'"
         )
 
-    @settings(max_examples=100)
     @given(func_name=function_names, job_name=job_names)
     def test_string_parameterized_decorator_identity(
         self, func_name: str, job_name: str
@@ -178,7 +175,6 @@ class TestGlobalOnlyDecoratorIdentityPreservation:
     **Validates: Requirements 22.2, 23.2, 24.2, 25.2, 26.2, 27.3, 33.2**
     """
 
-    @settings(max_examples=100)
     @given(func_name=function_names)
     def test_global_only_decorator_identity(self, func_name: str) -> None:
         """Global-only decorator returns same object with same __name__.
@@ -209,7 +205,6 @@ class TestMiddlewareDecoratorIdentityPreservation:
     **Validates: Requirements 18.3, 28.3, 34.3**
     """
 
-    @settings(max_examples=100)
     @given(func_name=function_names)
     def test_bare_middleware_decorator_identity(self, func_name: str) -> None:
         """Bare middleware decorator returns same generator function with same __name__.
@@ -233,7 +228,6 @@ class TestMiddlewareDecoratorIdentityPreservation:
             f"'{func_name}' to '{result.__name__}'"
         )
 
-    @settings(max_examples=100)
     @given(func_name=function_names, priority=priorities)
     def test_parameterized_middleware_decorator_identity(
         self, func_name: str, priority: int

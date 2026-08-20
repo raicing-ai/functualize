@@ -18,7 +18,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from functualize_mcp._translator import JobToolTranslator
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 # ===========================================================================
@@ -214,7 +214,6 @@ class TestMCPJobToolTranslationProperty:
     """
 
     @given(descriptor=descriptor_with_docstring_st())
-    @settings(max_examples=100)
     def test_description_contains_first_paragraph_only(
         self, descriptor: FakeDescriptor
     ) -> None:
@@ -236,7 +235,6 @@ class TestMCPJobToolTranslationProperty:
         assert result.description == expected_words
 
     @given(descriptor=descriptor_with_docstring_st())
-    @settings(max_examples=100)
     def test_description_length_bounded_by_first_paragraph(
         self, descriptor: FakeDescriptor
     ) -> None:
@@ -267,7 +265,6 @@ class TestMCPJobToolTranslationProperty:
             assert len(result.description) <= len(full_joined)
 
     @given(descriptor=descriptor_with_fields_st())
-    @settings(max_examples=100)
     def test_input_schema_contains_property_for_each_field(
         self, descriptor: FakeDescriptor
     ) -> None:
@@ -290,7 +287,6 @@ class TestMCPJobToolTranslationProperty:
             )
 
     @given(descriptor=descriptor_with_fields_st())
-    @settings(max_examples=100)
     def test_input_schema_required_fields_match(
         self, descriptor: FakeDescriptor
     ) -> None:
@@ -309,7 +305,6 @@ class TestMCPJobToolTranslationProperty:
         assert set(actual_required) == set(expected_required)
 
     @given(descriptor=descriptor_with_fields_st())
-    @settings(max_examples=100)
     def test_input_schema_field_types_are_valid_json_schema(
         self, descriptor: FakeDescriptor
     ) -> None:
@@ -330,7 +325,6 @@ class TestMCPJobToolTranslationProperty:
             )
 
     @given(descriptor=descriptor_with_fields_st())
-    @settings(max_examples=100)
     def test_input_schema_preserves_field_descriptions(
         self, descriptor: FakeDescriptor
     ) -> None:
@@ -349,7 +343,6 @@ class TestMCPJobToolTranslationProperty:
                 assert prop.get("description") == f.description
 
     @given(descriptor=descriptor_with_tags_st())
-    @settings(max_examples=100)
     def test_annotations_contain_all_tags(self, descriptor: FakeDescriptor) -> None:
         """For any JobDescriptor with tags in metadata, the MCPToolDef.annotations
         contain those tags.
@@ -364,7 +357,6 @@ class TestMCPJobToolTranslationProperty:
         assert result.annotations["tags"] == expected_tags
 
     @given(descriptor=full_descriptor_st())
-    @settings(max_examples=100)
     def test_full_translation_preserves_all_descriptor_information(
         self, descriptor: FakeDescriptor
     ) -> None:

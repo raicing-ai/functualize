@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._config.job_config import JobConfigView
@@ -71,7 +71,6 @@ class TestGetPerfPhasesScoping:
         target_phases=st.lists(phase_names, min_size=1, max_size=5, unique=True),
         other_phases=st.lists(phase_names, min_size=1, max_size=5, unique=True),
     )
-    @settings(max_examples=100)
     def test_only_target_job_phases_returned(
         self,
         target_job: str,
@@ -124,7 +123,6 @@ class TestGetPerfPhasesScoping:
         target_phases=st.lists(phase_names, min_size=1, max_size=5, unique=True),
         other_phases=st.lists(phase_names, min_size=1, max_size=5, unique=True),
     )
-    @settings(max_examples=100)
     def test_no_other_job_phases_included(
         self,
         target_job: str,
@@ -165,7 +163,6 @@ class TestGetPerfPhasesScoping:
         target_phases=st.lists(phase_names, min_size=2, max_size=5, unique=True),
         other_phases=st.lists(phase_names, min_size=1, max_size=5, unique=True),
     )
-    @settings(max_examples=100)
     def test_filter_matches_against_unprefixed_names(
         self,
         target_job: str,
@@ -226,7 +223,6 @@ class TestGetPerfPhasesScoping:
         target_phases=st.lists(phase_names, min_size=2, max_size=5, unique=True),
         other_phases=st.lists(phase_names, min_size=1, max_size=5, unique=True),
     )
-    @settings(max_examples=100)
     def test_exclude_filter_on_unprefixed_names(
         self,
         target_job: str,

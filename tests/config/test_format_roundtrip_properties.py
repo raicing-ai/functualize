@@ -15,7 +15,7 @@ import os
 import tempfile
 from typing import Any
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._config.providers.ini import IniFormatProvider
@@ -158,7 +158,6 @@ class TestProperty1FormatProviderRoundTrip:
     """
 
     @given(data=toml_config_dicts(max_depth=2))
-    @settings(max_examples=200)
     def test_toml_serialize_parse_roundtrip(self, data: dict[str, Any]) -> None:
         """For any valid TOML config dict, serialize → parse produces a dict
         deeply equal to the original."""
@@ -178,7 +177,6 @@ class TestProperty1FormatProviderRoundTrip:
             os.unlink(path)
 
     @given(data=toml_config_dicts(max_depth=0))
-    @settings(max_examples=100)
     def test_toml_flat_dict_roundtrip(self, data: dict[str, Any]) -> None:
         """For any flat (non-nested) TOML config dict, round-trip is exact."""
         provider = TomlFormatProvider()
@@ -204,7 +202,6 @@ class TestProperty1FormatProviderRoundTrip:
             max_size=3,
         )
     )
-    @settings(max_examples=100)
     def test_toml_nested_sections_roundtrip(self, data: dict[str, Any]) -> None:
         """For any dict with one level of nesting (table sections), round-trip is exact."""
         provider = TomlFormatProvider()
@@ -218,7 +215,6 @@ class TestProperty1FormatProviderRoundTrip:
             os.unlink(path)
 
     @given(data=ini_config_dicts())
-    @settings(max_examples=100)
     def test_ini_serialize_parse_roundtrip(self, data: dict[str, Any]) -> None:
         """For any valid INI-compatible dict (flat sections with string values),
         serialize → parse produces equivalent data."""
@@ -244,7 +240,6 @@ class TestProperty1FormatProviderRoundTrip:
             os.unlink(path)
 
     @given(data=toml_config_dicts(max_depth=2))
-    @settings(max_examples=50)
     def test_toml_roundtrip_idempotent(self, data: dict[str, Any]) -> None:
         """Applying the round-trip twice yields the same result as once.
         serialize → parse → serialize → parse == serialize → parse."""

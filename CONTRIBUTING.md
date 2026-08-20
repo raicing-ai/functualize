@@ -86,8 +86,8 @@ uv run pytest
 # Include property-based tests (full suite)
 uv run pytest --run-slow
 
-# Run with coverage and parallelism (mirrors CI)
-uv run pytest --run-slow --cov=functualize -n auto
+# Exactly what CI runs — note the profile, it is not optional
+HYPOTHESIS_PROFILE=ci uv run pytest --run-slow --cov=functualize -n auto
 
 # Quick smoke-check of property tests with fewer examples
 HYPOTHESIS_PROFILE=dev uv run pytest --run-slow
@@ -112,9 +112,14 @@ uv run pytest -k "test_discovery"
 | `uv run pytest` | Unit tests only | After every change |
 | `uv run pytest --run-slow` | All tests including property-based | Before pushing |
 | `HYPOTHESIS_PROFILE=dev uv run pytest --run-slow` | All tests, hypothesis uses 10 examples | Quick full check |
-| `uv run pytest --run-slow --cov=functualize -n auto` | Full CI equivalent (parallel + coverage) | Replicate CI locally |
+| `HYPOTHESIS_PROFILE=ci uv run pytest --run-slow --cov=functualize -n auto` | Full CI equivalent (parallel + coverage) | Replicate CI locally |
 
 Property-based tests (files named `*_properties.py`, `*_props.py`, `*_property.py`) are auto-detected and skipped unless `--run-slow` is passed. You can also mark individual tests with `@pytest.mark.slow`.
+
+**`HYPOTHESIS_PROFILE=ci` is part of what makes the last row CI-equivalent**, not a
+detail. The `ci` profile draws 200 examples where the default draws 100, so it reaches
+inputs a local `--run-slow` never generates. A tier that is green without it can still be
+red on CI — that has already happened.
 
 ## Testing Functualize in Other Projects
 
@@ -278,10 +283,10 @@ in the commit footer instead.
    uv run pytest
    ```
 
-   These are the gates CI enforces. `uv run pytest --run-slow` additionally runs
-   the property-based tier, which is **currently red** — see follow-up #7 in
-   `.spec/STATUS.md`. Run it if you are touching the engine, but do not treat a
-   pre-existing failure there as yours.
+   These are the gates CI enforces. CI additionally runs the property-based tier as
+   `HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto`. That tier is green — a
+   failure there is a real failure, so run it before pushing anything that touches the
+   engine, discovery, or config.
 
 4. Commit with a clear message (see [Commit Message Convention](#commit-message-convention)):
    ```bash

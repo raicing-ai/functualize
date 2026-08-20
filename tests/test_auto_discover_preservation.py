@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize.app.utils import (
@@ -75,7 +75,6 @@ class TestScanDepthClamping:
     """
 
     @given(scan_depth=_scan_depth_strategy)
-    @settings(max_examples=200)
     def test_scan_depth_clamped_to_0_5_range(self, scan_depth: int) -> None:
         """For all scan_depth integers, effective depth equals max(0, min(scan_depth, 5)).
 
@@ -123,7 +122,6 @@ class TestScanDepthClamping:
                 )
 
     @given(scan_depth=st.integers(min_value=-100, max_value=-1))
-    @settings(max_examples=50)
     def test_negative_scan_depth_clamps_to_zero(self, scan_depth: int) -> None:
         """Negative scan_depth values clamp to 0 (no subdirectory scanning).
 
@@ -152,7 +150,6 @@ class TestScanDepthClamping:
                     )
 
     @given(scan_depth=st.integers(min_value=6, max_value=100))
-    @settings(max_examples=50)
     def test_large_scan_depth_clamps_to_five(self, scan_depth: int) -> None:
         """scan_depth values > 5 clamp to 5.
 
@@ -199,7 +196,6 @@ class TestSkipDirectories:
     """
 
     @given(skip_name=_skippable_names)
-    @settings(max_examples=100)
     def test_skippable_directories_never_in_scan_results(self, skip_name: str) -> None:
         """For all directory names in _SKIP_DIRECTORIES or dot-prefixed,
         those directories are never included in scan results.
@@ -229,7 +225,6 @@ class TestSkipDirectories:
             )
 
     @given(skip_name=_skip_dir_names)
-    @settings(max_examples=50)
     def test_explicit_skip_list_directories_excluded(self, skip_name: str) -> None:
         """Each directory in _SKIP_DIRECTORIES is properly excluded by _should_skip_directory.
 
@@ -238,7 +233,6 @@ class TestSkipDirectories:
         assert _should_skip_directory(skip_name) is True
 
     @given(dot_name=_dot_prefixed_names)
-    @settings(max_examples=50)
     def test_dot_prefixed_directories_excluded(self, dot_name: str) -> None:
         """All dot-prefixed directories are excluded from scanning.
 
@@ -247,7 +241,6 @@ class TestSkipDirectories:
         assert _should_skip_directory(dot_name) is True
 
     @given(valid_name=_valid_dir_names)
-    @settings(max_examples=50)
     def test_non_skippable_directories_not_excluded(self, valid_name: str) -> None:
         """Valid directory names that are not in skip list and not dot-prefixed
         are NOT excluded by the skip logic.
@@ -269,7 +262,6 @@ class TestCwdScanPreservation:
         num_valid=st.integers(min_value=0, max_value=3),
         num_skip=st.integers(min_value=0, max_value=2),
     )
-    @settings(max_examples=100)
     def test_cwd_scan_includes_valid_excludes_skipped(
         self, num_valid: int, num_skip: int
     ) -> None:
@@ -327,7 +319,6 @@ class TestCwdScanPreservation:
                 )
 
     @given(scan_depth=st.integers(min_value=0, max_value=5))
-    @settings(max_examples=50)
     def test_non_existent_directories_silently_skipped(self, scan_depth: int) -> None:
         """Non-existent directories referenced in config are silently skipped
         without errors.

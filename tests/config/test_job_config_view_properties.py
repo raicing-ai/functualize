@@ -975,26 +975,10 @@ class TestProperty1ResolutionEquivalence:
 
         assert result == value
 
-    @given(
-        key=config_keys,
-        default_val=config_values,
-        section=config_sections,
-    )
-    def test_key_not_in_chain_returns_default(
-        self,
-        key: str,
-        default_val: Any,
-        section: str,
-    ) -> None:
-        # Feature: unified-config-access, Property 1: Resolution Equivalence
-        """When a key is not found in any source, get() returns the provided
-        default — equivalent to what Configurations.get() would return."""
-        chain = ResolutionChain([AlwaysMissingSource()])  # type: ignore[arg-type]
-        view = JobConfigView(resolution_chain=chain, default_section_prefix="general")
-
-        result = view.get(key, default=default_val, section=section)
-
-        assert result == default_val
+    # `test_key_not_in_chain_returns_default` lived here and was byte-for-byte
+    # identical to `TestProperty3DefaultFallback::test_missing_key_with_default_
+    # returns_default` — same strategies, same body, same assertion — because the
+    # same behaviour is filed under two spec properties. One copy is enough.
 
     @given(
         key=config_keys,

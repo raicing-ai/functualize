@@ -14,7 +14,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.config_target_discovery import discover_config_targets
@@ -49,7 +49,6 @@ class TestConfigTargetDeduplicationAndOrdering:
     """
 
     @given(job_name=_job_name_strategy, field_name=_field_name_strategy)
-    @settings(max_examples=100)
     def test_no_session_target_and_file_or_env_first(
         self, job_name: str, field_name: str
     ) -> None:
@@ -72,7 +71,6 @@ class TestConfigTargetDeduplicationAndOrdering:
             assert targets[0].type in ("file", "env")
 
     @given(job_name=_job_name_strategy, field_name=_field_name_strategy)
-    @settings(max_examples=100)
     def test_env_always_last(self, job_name: str, field_name: str) -> None:
         """Last entry is always type='env' (Req 9.8)."""
         with tempfile.TemporaryDirectory() as td:
@@ -87,7 +85,6 @@ class TestConfigTargetDeduplicationAndOrdering:
             assert targets[-1].type == "env"
 
     @given(job_name=_job_name_strategy, field_name=_field_name_strategy)
-    @settings(max_examples=100)
     def test_ordering_invariant(self, job_name: str, field_name: str) -> None:
         """Entries follow fixed ordering: file(s) → env (Req 9.8).
 
@@ -115,7 +112,6 @@ class TestConfigTargetDeduplicationAndOrdering:
                 )
 
     @given(job_name=_job_name_strategy, field_name=_field_name_strategy)
-    @settings(max_examples=100)
     def test_no_duplicate_resolved_paths(self, job_name: str, field_name: str) -> None:
         """No two file targets have the same resolved path (Req 9.6)."""
         with tempfile.TemporaryDirectory() as td:

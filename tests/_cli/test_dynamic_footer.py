@@ -11,7 +11,7 @@ Tests render_footer() from functualize._cli.tui.dynamic_footer:
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.dynamic_footer import render_footer
@@ -55,7 +55,6 @@ class TestDynamicFooterRendering:
     """
 
     @given(actions=_action_list_strategy)
-    @settings(max_examples=100)
     def test_empty_list_produces_empty_string(
         self, actions: list[tuple[str, str]]
     ) -> None:
@@ -65,7 +64,6 @@ class TestDynamicFooterRendering:
             assert result == ""
 
     @given(actions=st.lists(_action_tuple_strategy, min_size=1, max_size=10))
-    @settings(max_examples=100)
     def test_all_keys_and_labels_appear_in_output(
         self, actions: list[tuple[str, str]]
     ) -> None:
@@ -80,7 +78,6 @@ class TestDynamicFooterRendering:
             )
 
     @given(actions=st.lists(_action_tuple_strategy, min_size=1, max_size=10))
-    @settings(max_examples=100)
     def test_pairs_formatted_as_key_space_label(
         self, actions: list[tuple[str, str]]
     ) -> None:
@@ -93,7 +90,6 @@ class TestDynamicFooterRendering:
             )
 
     @given(actions=st.lists(_action_tuple_strategy, min_size=1, max_size=10))
-    @settings(max_examples=100)
     def test_splitting_on_double_space_gives_n_pairs(
         self, actions: list[tuple[str, str]]
     ) -> None:
@@ -105,7 +101,6 @@ class TestDynamicFooterRendering:
         )
 
     @given(actions=st.lists(_action_tuple_strategy, min_size=1, max_size=10))
-    @settings(max_examples=100)
     def test_split_parts_match_key_label_pairs_in_order(
         self, actions: list[tuple[str, str]]
     ) -> None:

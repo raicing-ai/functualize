@@ -816,8 +816,8 @@ uv run pytest
 # Run full test suite including property-based tests
 uv run pytest --run-slow
 
-# Run full suite with coverage and parallelism (mirrors CI)
-uv run pytest --run-slow --cov=functualize -n auto
+# Run full suite exactly as CI does (the ci profile draws 200 examples, not 100)
+HYPOTHESIS_PROFILE=ci uv run pytest --run-slow --cov=functualize -n auto
 
 # Lint and format
 uv run ruff check src/ tests/

@@ -31,9 +31,15 @@ uv run ruff format --check
 uv run mypy src/
 uv run lint-imports
 uv run pytest -x -q --no-header
+HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto -q --no-header
 ```
 
 **Expected output:** Each command produces zero errors/warnings and exits 0.
+
+**On the last command:** `HYPOTHESIS_PROFILE=ci` is what CI runs, and it draws 200
+Hypothesis examples where the default profile draws 100 — a tier that is green without it
+can still be red on the tag. Budget ~10 minutes; do not substitute the default profile to
+save time.
 
 **Failure behavior:**
 
@@ -46,6 +52,9 @@ uv run pytest -x -q --no-header
   - `mypy src/` — resolve type errors shown in output
   - `lint-imports` — fix disallowed imports per layer rules
   - `pytest` — fix failing tests
+  - `pytest --run-slow` — property-based tier; a failure here is a real failure, not
+    background noise. Re-run the single failing test with the `@seed(...)` Hypothesis
+    prints to reproduce it deterministically.
 
 ---
 

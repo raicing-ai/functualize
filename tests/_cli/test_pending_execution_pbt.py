@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.data.pending_execution import PendingExecution
@@ -136,7 +136,6 @@ class TestOverridePrecedence:
     """
 
     @given(data=st.data(), pe=_pending_execution())
-    @settings(max_examples=200)
     def test_override_wins_over_resolved(
         self,
         data: st.DataObject,
@@ -155,7 +154,6 @@ class TestOverridePrecedence:
         assert pe.effective_value(field) == override_value
 
     @given(pe=_pending_execution())
-    @settings(max_examples=200)
     def test_non_overridden_returns_resolved(
         self,
         pe: PendingExecution,
@@ -185,7 +183,6 @@ class TestOverrideConsistency:
     """
 
     @given(pe_and_overrides=_pending_with_overrides())
-    @settings(max_examples=200)
     def test_has_override_iff_in_overrides(
         self,
         pe_and_overrides: tuple[PendingExecution, dict[str, Any]],
@@ -207,7 +204,6 @@ class TestOverrideConsistency:
                 )
 
     @given(pe_and_overrides=_pending_with_overrides())
-    @settings(max_examples=200)
     def test_override_count_equals_len_overrides(
         self,
         pe_and_overrides: tuple[PendingExecution, dict[str, Any]],
@@ -222,7 +218,6 @@ class TestOverrideConsistency:
         assert pe.override_count() == len(applied)
 
     @given(pe_and_overrides=_pending_with_overrides())
-    @settings(max_examples=200)
     def test_overridden_field_source_is_cli(
         self,
         pe_and_overrides: tuple[PendingExecution, dict[str, Any]],
@@ -249,7 +244,6 @@ class TestSetClearSymmetry:
     """
 
     @given(data=st.data(), pe=_pending_execution())
-    @settings(max_examples=200)
     def test_clear_restores_resolved_value(
         self,
         data: st.DataObject,
@@ -277,7 +271,6 @@ class TestSetClearSymmetry:
         assert not pe.has_override(field)
 
     @given(data=st.data(), pe=_pending_execution())
-    @settings(max_examples=200)
     def test_clear_reduces_override_count(
         self,
         data: st.DataObject,

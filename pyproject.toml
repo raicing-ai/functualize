@@ -121,7 +121,7 @@ only-include = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-norecursedirs = [".*", "*.egg", "_darcs", "build", "CVS", "dist", "node_modules", "venv", "{arch}", "tests/experiments"]
+norecursedirs = [".*", "*.egg", "_darcs", "build", "CVS", "dist", "node_modules", "venv", "{arch}"]
 asyncio_mode = "auto"
 markers = [
     "slow: marks tests as slow (property-based / hypothesis, skipped unless --run-slow is passed)",
@@ -132,8 +132,7 @@ markers = [
 target-version = "py311"
 line-length = 88
 src = ["src", "tests"]
-extend-exclude = ["tests/experiments"]
-# Apply the exclusions above even when paths are passed explicitly on the command
+# Apply ruff's exclusions even when paths are passed explicitly on the command
 # line. pre-commit always passes explicit filenames, so without this the excluded
 # trees are linted by the hook but not by `ruff check .` — the hook then reports
 # hundreds of errors CI never sees.

@@ -9,11 +9,11 @@ and passes all jobs through when neither set is provided.
 
 from __future__ import annotations
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._discovery.transforms import VisibilityTransform
-from functualize._types.descriptors import FieldDescriptor, JobDescriptor
+from functualize._types.descriptors import JobDescriptor
 from functualize._types.job_declaration import JobDeclaration
 
 # --- Strategies (reused patterns from test_transform_identity_property.py) ---
@@ -25,21 +25,6 @@ job_names = st.from_regex(r"[a-z][a-z0-9_]{0,20}", fullmatch=True).filter(
 
 # Generate optional group strings
 groups = st.one_of(st.none(), st.from_regex(r"[a-z][a-z0-9_]{0,10}", fullmatch=True))
-
-# Generate FieldDescriptor instances
-field_descriptors = st.builds(
-    FieldDescriptor,
-    name=st.from_regex(r"[a-z][a-z0-9_]{0,10}", fullmatch=True),
-    type_annotation=st.sampled_from(
-        ["str", "int", "bool", "float", "enum", "list[str]"]
-    ),
-    choices=st.one_of(
-        st.none(), st.lists(st.text(min_size=1, max_size=10), min_size=1, max_size=5)
-    ),
-    default=st.one_of(st.none(), st.text(max_size=10), st.integers(-100, 100)),
-    required=st.booleans(),
-    description=st.text(max_size=30),
-)
 
 # Tag values: short alphabetic strings
 tag_values = st.from_regex(r"[a-z][a-z0-9_]{0,10}", fullmatch=True)
@@ -56,22 +41,28 @@ declaration_strategy = st.one_of(
     ),
 )
 
-# Generate full JobDescriptor instances
+# Generate full JobDescriptor instances.
+#
+# `VisibilityTransform` decides using exactly two things: the descriptor's `name`
+# and its `declaration` (tags and visibility). Those two stay generated. Everything
+# else is a constant — the old strategy drew a `from_regex` per field per descriptor
+# in a list of up to ten, including two separate 64-character hex hashes (one for
+# `content_hash`, one per `dependencies` entry) that no assertion in this file reads.
+_MODULE_PATH = "pkg.mod"
+_SOURCE_FILE = "/pkg/mod.py"
+_CONTENT_HASH = "0" * 64
+
 job_descriptors = st.builds(
     JobDescriptor,
     name=job_names,
     group=groups,
-    module_path=st.from_regex(r"[a-z][a-z0-9_.]{0,30}", fullmatch=True),
-    source_file=st.from_regex(r"/[a-z][a-z0-9_/]{0,30}\.py", fullmatch=True),
-    source_mtime=st.floats(min_value=0.0, max_value=1e12, allow_nan=False),
-    content_hash=st.from_regex(r"[0-9a-f]{64}", fullmatch=True),
-    docstring=st.one_of(st.none(), st.text(min_size=1, max_size=50)),
-    config_fields=st.lists(field_descriptors, max_size=3),
-    dependencies=st.dictionaries(
-        st.from_regex(r"/[a-z][a-z0-9_/]{0,20}\.py", fullmatch=True),
-        st.from_regex(r"[0-9a-f]{64}", fullmatch=True),
-        max_size=3,
-    ),
+    module_path=st.just(_MODULE_PATH),
+    source_file=st.just(_SOURCE_FILE),
+    source_mtime=st.just(0.0),
+    content_hash=st.just(_CONTENT_HASH),
+    docstring=st.none(),
+    config_fields=st.just([]),
+    dependencies=st.just({}),
     declaration=declaration_strategy,
 )
 
@@ -105,7 +96,6 @@ def _is_hidden(
 # --- Property 5: VisibilityTransform correctness ---
 
 
-@settings(max_examples=100)
 @given(
     jobs=job_descriptor_lists,
     hidden_names=hidden_name_sets,
@@ -145,7 +135,6 @@ def test_property_5_visibility_excludes_hidden_names_and_tags(
         )
 
 
-@settings(max_examples=100)
 @given(
     jobs=job_descriptor_lists,
     hidden_names=hidden_name_sets,
@@ -179,7 +168,6 @@ def test_property_5_visibility_no_metadata_not_excluded_by_tags(
             )
 
 
-@settings(max_examples=100)
 @given(jobs=job_descriptor_lists)
 def test_property_5_visibility_empty_sets_passthrough(
     jobs: list[JobDescriptor],
@@ -203,7 +191,6 @@ def test_property_5_visibility_empty_sets_passthrough(
         )
 
 
-@settings(max_examples=100)
 @given(jobs=job_descriptor_lists)
 def test_property_5_visibility_none_sets_passthrough(
     jobs: list[JobDescriptor],
@@ -225,7 +212,6 @@ def test_property_5_visibility_none_sets_passthrough(
         )
 
 
-@settings(max_examples=100)
 @given(
     job=job_descriptors,
     hidden_names=hidden_name_sets,
@@ -262,7 +248,6 @@ def test_property_5_visibility_transform_get_consistency(
         )
 
 
-@settings(max_examples=100)
 @given(
     hidden_names=hidden_name_sets,
     hidden_tags=hidden_tag_sets,
