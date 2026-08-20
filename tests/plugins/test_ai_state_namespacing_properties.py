@@ -16,7 +16,7 @@ from typing import Any
 
 from functualize_ai._state_fallback import EphemeralStateBackend
 from functualize_state import InMemoryState, StateNamespace
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 # --- Strategies ---
@@ -69,7 +69,6 @@ class TestAIDomainWritesWithAIPrefix:
     """
 
     @given(key=state_keys, value=json_values)
-    @settings(max_examples=200)
     def test_ai_namespace_set_stores_at_ai_prefixed_key(
         self, key: str, value: Any
     ) -> None:
@@ -87,7 +86,6 @@ class TestAIDomainWritesWithAIPrefix:
         assert backend.get("ai:" + key) == value
 
     @given(key=state_keys, value=json_values)
-    @settings(max_examples=200)
     def test_ai_namespace_get_retrieves_from_ai_prefixed_key(
         self, key: str, value: Any
     ) -> None:
@@ -106,7 +104,6 @@ class TestAIDomainWritesWithAIPrefix:
         assert ai_ns.get(key) == value
 
     @given(key=state_keys, value=json_values)
-    @settings(max_examples=200)
     def test_ai_namespace_roundtrip_with_ephemeral_backend(
         self, key: str, value: Any
     ) -> None:
@@ -137,7 +134,6 @@ class TestAINamespaceIsolationFromOtherPrefixes:
         ai_entries=state_entries,
         tasks_entries=state_entries,
     )
-    @settings(max_examples=200)
     def test_ai_namespace_isolated_from_tasks_namespace(
         self,
         ai_entries: dict[str, Any],
@@ -170,7 +166,6 @@ class TestAINamespaceIsolationFromOtherPrefixes:
         ai_entries=state_entries,
         user_entries=state_entries,
     )
-    @settings(max_examples=200)
     def test_ai_namespace_isolated_from_unprefixed_user_state(
         self,
         ai_entries: dict[str, Any],
@@ -201,7 +196,6 @@ class TestAINamespaceIsolationFromOtherPrefixes:
             assert backend.get(k) == v
 
     @given(key=state_keys, ai_value=json_values, tasks_value=json_values)
-    @settings(max_examples=200)
     def test_same_key_name_different_namespaces_no_collision(
         self, key: str, ai_value: Any, tasks_value: Any
     ) -> None:
@@ -230,7 +224,6 @@ class TestAINamespaceIsolationFromOtherPrefixes:
         ai_entries=state_entries,
         tasks_entries=state_entries,
     )
-    @settings(max_examples=200)
     def test_deleting_from_ai_namespace_does_not_affect_tasks(
         self,
         ai_entries: dict[str, Any],
@@ -263,7 +256,6 @@ class TestAINamespaceIsolationFromOtherPrefixes:
             assert tasks_ns.get(k) == v
 
     @given(key=state_keys, value=json_values)
-    @settings(max_examples=200)
     def test_ai_budget_key_pattern_isolated(self, key: str, value: Any) -> None:
         """The AI budget tracking key (budget_spent) stored via "ai:" namespace
         is isolated from other prefixes — demonstrating the real usage pattern.

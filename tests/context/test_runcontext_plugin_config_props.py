@@ -10,7 +10,7 @@ import logging
 from typing import Any
 from unittest.mock import MagicMock
 
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 from pydantic import BaseModel
 
@@ -109,7 +109,6 @@ class TestWithPluginConfigCopySemantics:
     """Property 7: with_plugin_config Copy Semantics."""
 
     @given(config=flexible_configs, overrides=flexible_overrides)
-    @settings(max_examples=200)
     def test_returns_new_instance(
         self,
         config: FlexibleConfig,
@@ -124,7 +123,6 @@ class TestWithPluginConfigCopySemantics:
         assert new_rc is not rc
 
     @given(config=flexible_configs, overrides=flexible_overrides)
-    @settings(max_examples=200)
     def test_original_plugin_configs_unmodified(
         self,
         config: FlexibleConfig,
@@ -160,7 +158,6 @@ class TestWithPluginConfigCopySemantics:
         overrides=flexible_overrides,
         alt_section=section_names,
     )
-    @settings(max_examples=200)
     def test_other_sections_preserved(
         self,
         main_config: FlexibleConfig,
@@ -191,7 +188,6 @@ class TestWithPluginConfigCopySemantics:
         assert preserved.verbose == alt_config.verbose
 
     @given(config=flexible_configs, overrides=flexible_overrides)
-    @settings(max_examples=200)
     def test_overridden_values_correctly_applied(
         self,
         config: FlexibleConfig,
@@ -212,7 +208,6 @@ class TestWithPluginConfigCopySemantics:
             assert getattr(new_config, field_name) == override_value
 
     @given(config=flexible_configs, overrides=flexible_overrides)
-    @settings(max_examples=200)
     def test_non_overridden_fields_preserved_in_new(
         self,
         config: FlexibleConfig,
@@ -239,7 +234,6 @@ class TestWithPluginConfigCopySemantics:
         alt_config=alt_configs,
         overrides=flexible_overrides,
     )
-    @settings(max_examples=200)
     def test_original_mapping_size_unchanged(
         self,
         config: FlexibleConfig,

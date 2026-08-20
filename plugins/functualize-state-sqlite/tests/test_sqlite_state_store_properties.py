@@ -16,7 +16,7 @@ from typing import Any
 
 from functualize_state_sqlite.sqlite_backend import SQLiteBackend
 from functualize_state_sqlite.state_store import SQLiteStateStore
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 # --- Strategies ---
@@ -80,7 +80,6 @@ class TestSQLiteStateStoreRoundTrip:
     **Validates: Requirements 23.6**
     """
 
-    @settings(max_examples=100)
     @given(key=state_keys, value=json_values)
     def test_set_then_get_returns_equivalent_value(self, key: str, value: Any):
         """**Validates: Requirements 23.6**
@@ -105,7 +104,6 @@ class TestSQLiteStateStoreRoundTrip:
         finally:
             backend.close()
 
-    @settings(max_examples=50)
     @given(key=state_keys, value=json_values)
     def test_overwrite_returns_latest_value(self, key: str, value: Any):
         """**Validates: Requirements 23.6**
@@ -140,7 +138,6 @@ class TestCrossJobStateIsolation:
     **Validates: Requirements 23.7**
     """
 
-    @settings(max_examples=100)
     @given(
         key=state_keys,
         value_a=json_values,
@@ -196,7 +193,6 @@ class TestCrossJobStateIsolation:
         finally:
             backend.close()
 
-    @settings(max_examples=50)
     @given(
         key=state_keys,
         value_a=json_values,
@@ -252,7 +248,6 @@ class TestNonSerializableValuesPlaceholder:
     **Validates: Requirements 23.10**
     """
 
-    @settings(max_examples=50)
     @given(key=state_keys)
     def test_lambda_stored_as_placeholder(self, key: str):
         """**Validates: Requirements 23.10**
@@ -275,7 +270,6 @@ class TestNonSerializableValuesPlaceholder:
         finally:
             backend.close()
 
-    @settings(max_examples=50)
     @given(key=state_keys)
     def test_generator_stored_as_placeholder(self, key: str):
         """**Validates: Requirements 23.10**
@@ -302,7 +296,6 @@ class TestNonSerializableValuesPlaceholder:
         finally:
             backend.close()
 
-    @settings(max_examples=50)
     @given(key=state_keys)
     def test_socket_stored_as_placeholder(self, key: str):
         """**Validates: Requirements 23.10**
@@ -328,7 +321,6 @@ class TestNonSerializableValuesPlaceholder:
         finally:
             backend.close()
 
-    @settings(max_examples=50)
     @given(
         key=state_keys,
         type_choice=st.sampled_from(["lambda", "generator", "module"]),

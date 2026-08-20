@@ -10,7 +10,7 @@ in framework defaults being applied through the constructor.
 
 from __future__ import annotations
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize.app.config import (
@@ -110,7 +110,6 @@ class TestConstructorDefaulting:
     """
 
     @given(job_sources=_job_sources_strategy)
-    @settings(max_examples=200)
     def test_provided_job_sources_used_as_is(self, job_sources: JobSources):
         """When job_sources is provided, it is stored as-is on the app.
 
@@ -138,7 +137,6 @@ class TestConstructorDefaulting:
         assert app._job_sources.lazy == job_sources.lazy
 
     @given(config_sources=_config_sources_strategy)
-    @settings(max_examples=200)
     def test_provided_config_sources_used_as_is(self, config_sources: ConfigSources):
         """When config_sources is provided, it is stored as-is on the app.
 
@@ -163,7 +161,6 @@ class TestConstructorDefaulting:
         assert app._config_sources.dotenv == config_sources.dotenv
 
     @given(plugin_sources=_plugin_sources_strategy)
-    @settings(max_examples=200)
     def test_provided_plugin_sources_used_as_is(self, plugin_sources: PluginSources):
         """When plugin_sources is provided, it is stored as-is on the app.
 
@@ -179,7 +176,6 @@ class TestConstructorDefaulting:
         assert app._plugin_sources is plugin_sources
 
     @given(execution=_execution_config_strategy)
-    @settings(max_examples=200)
     def test_provided_execution_config_used_as_is(self, execution: ExecutionConfig):
         """When execution is provided, it is stored as-is on the app.
 
@@ -252,7 +248,6 @@ class TestConstructorDefaulting:
         assert app._execution_config.max_invoke_depth == 10
 
     @given(config_combo=_config_combination_strategy)
-    @settings(max_examples=200)
     def test_all_combinations_construct_without_error(
         self,
         config_combo: tuple[

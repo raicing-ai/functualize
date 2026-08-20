@@ -24,6 +24,7 @@ from hypothesis import strategies as st
 
 from functualize._discovery.pipeline import ResolutionPipeline
 from functualize._discovery.providers import DirectoryScanProvider
+from functualize._types.naming import normalize_segment
 
 # --- Strategies ---
 
@@ -42,7 +43,11 @@ def directory_with_jobs(draw: st.DrawFn) -> tuple[str, list[str]]:
     by scan_directory_for_descriptors.
     """
     # Generate 1-5 unique job names for this directory
-    names = draw(st.lists(job_function_names, min_size=1, max_size=5, unique=True))
+    names = draw(
+        st.lists(
+            job_function_names, min_size=1, max_size=5, unique_by=normalize_segment
+        )
+    )
 
     # Create a temp directory and write job files
     tmp_dir = tempfile.mkdtemp()
@@ -70,7 +75,7 @@ def multiple_directories_with_jobs(
             job_function_names,
             min_size=num_dirs,
             max_size=num_dirs * 4,
-            unique=True,
+            unique_by=normalize_segment,
         )
     )
 
@@ -110,7 +115,7 @@ def multiple_directories_with_jobs(
 # --- Property 13: Backward compatibility equivalence ---
 
 
-@settings(max_examples=100, deadline=30000)
+@settings(deadline=30000)
 @given(data=multiple_directories_with_jobs())
 def test_property_13_constructor_vs_explicit_provider_same_job_names(
     data: tuple[list[str], list[str]],
@@ -145,13 +150,16 @@ def test_property_13_constructor_vs_explicit_provider_same_job_names(
     )
 
     # Additionally verify all expected names are discovered
-    assert set(expected_names).issubset(direct_names), (
+    # Discovery registers canonical names: `data_sync` is discovered as
+    # `data-sync`. The generated names are Python function names.
+    expected_names = {normalize_segment(n) for n in expected_names}
+    assert expected_names.issubset(direct_names), (
         f"Not all expected names were discovered. "
         f"Expected: {sorted(expected_names)}, Got: {sorted(direct_names)}"
     )
 
 
-@settings(max_examples=100, deadline=30000)
+@settings(deadline=30000)
 @given(data=multiple_directories_with_jobs())
 def test_property_13_list_jobs_get_job_consistency_in_pipeline(
     data: tuple[list[str], list[str]],
@@ -186,7 +194,7 @@ def test_property_13_list_jobs_get_job_consistency_in_pipeline(
         )
 
 
-@settings(max_examples=100, deadline=30000)
+@settings(deadline=30000)
 @given(data=directory_with_jobs())
 def test_property_13_direct_provider_list_get_consistency(
     data: tuple[str, list[str]],
@@ -216,7 +224,8 @@ def test_property_13_direct_provider_list_get_consistency(
         )
 
     # Property: All expected job files are discovered
-    assert set(expected_names).issubset(listed_names), (
+    expected_names = {normalize_segment(n) for n in expected_names}
+    assert expected_names.issubset(listed_names), (
         f"Not all expected names were discovered. "
         f"Expected: {sorted(expected_names)}, Got: {sorted(listed_names)}"
     )

@@ -17,7 +17,7 @@ import logging
 from typing import Any
 from unittest.mock import MagicMock
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._config.job_config import JobConfigView
@@ -159,7 +159,6 @@ class TestRunContextInvokeDelegation:
     """
 
     @given(job_name=_job_name_strategy, kwargs=_kwargs_strategy)
-    @settings(max_examples=100)
     def test_invoke_delegates_to_invoke_capability(
         self, job_name: str, kwargs: dict[str, Any]
     ) -> None:
@@ -189,7 +188,6 @@ class TestRunContextInvokeDelegation:
         propagate_scope=st.booleans(),
         timeout=st.one_of(st.none(), st.floats(min_value=0.1, max_value=60.0)),
     )
-    @settings(max_examples=100)
     def test_invoke_forwards_all_optional_params(
         self,
         job_name: str,
@@ -226,7 +224,6 @@ class TestRunContextInvokeParallelDelegation:
     """
 
     @given(jobs=_parallel_jobs_strategy)
-    @settings(max_examples=100)
     def test_invoke_parallel_delegates_to_invoke_parallel_capability(
         self, jobs: list[tuple[str, dict[str, Any]]]
     ) -> None:
@@ -249,7 +246,6 @@ class TestRunContextInvokeParallelDelegation:
         assert result is expected_results
 
     @given(jobs=_parallel_jobs_strategy)
-    @settings(max_examples=100)
     def test_invoke_parallel_return_value_identity(
         self, jobs: list[tuple[str, dict[str, Any]]]
     ) -> None:
@@ -287,7 +283,6 @@ class TestRunContextEmitDelegation:
         resource=_resource_strategy,
         payload=_payload_strategy,
     )
-    @settings(max_examples=100)
     def test_emit_delegates_to_event_bus(
         self, event_name: str, resource: str, payload: dict[str, Any]
     ) -> None:
@@ -307,7 +302,6 @@ class TestRunContextEmitDelegation:
         event_name=_event_name_strategy,
         resource=_resource_strategy,
     )
-    @settings(max_examples=100)
     def test_emit_with_no_payload_delegates_correctly(
         self, event_name: str, resource: str
     ) -> None:
@@ -326,7 +320,6 @@ class TestRunContextEmitDelegation:
         event_name=_event_name_strategy,
         payload=_payload_strategy,
     )
-    @settings(max_examples=100)
     def test_emit_with_default_resource_delegates_correctly(
         self, event_name: str, payload: dict[str, Any]
     ) -> None:
@@ -357,7 +350,6 @@ class TestRunContextTrackPhaseDelegation:
         step_message=_step_message_strategy,
         step_status=_step_status_strategy,
     )
-    @settings(max_examples=100)
     def test_track_phase_delegates_to_tracker(
         self, step_name: str, step_message: str, step_status: RunStatus
     ) -> None:
@@ -382,7 +374,6 @@ class TestRunContextTrackPhaseDelegation:
         step_message=_step_message_strategy,
         step_status=_step_status_strategy,
     )
-    @settings(max_examples=100)
     def test_track_phase_state_matches_direct_tracker_call(
         self, step_name: str, step_message: str, step_status: RunStatus
     ) -> None:
@@ -440,7 +431,6 @@ class TestRunContextTrackPhaseDelegation:
             unique_by=lambda x: x[0],
         ),
     )
-    @settings(max_examples=100)
     def test_multiple_steps_produce_identical_state_via_facade_and_direct(
         self, steps: list[tuple[str, str, RunStatus]]
     ) -> None:

@@ -54,10 +54,7 @@ class TestPreExecutePipelineProperty:
     **Validates: Requirements 2.2, 2.3, 2.4, 2.5**
     """
 
-    @settings(
-        max_examples=200,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         decisions=decision_sequences,
         initial_kwargs=kwargs_st,
@@ -142,10 +139,7 @@ class TestPreExecutePipelineProperty:
             # All hooks should be invoked
             assert invoked_indices == list(range(len(decisions)))
 
-    @settings(
-        max_examples=200,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         num_modify_hooks=st.integers(min_value=1, max_value=8),
         initial_kwargs=kwargs_st,
@@ -199,10 +193,7 @@ class TestPreExecutePipelineProperty:
             # Hook i should NOT see its own key yet
             assert f"key_{i}" not in received
 
-    @settings(
-        max_examples=200,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         num_proceed_hooks=st.integers(min_value=1, max_value=8),
         initial_kwargs=kwargs_st,
@@ -248,10 +239,7 @@ class TestPreExecutePipelineProperty:
         for received in received_kwargs:
             assert received == initial_kwargs
 
-    @settings(
-        max_examples=200,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         decisions=st.lists(
             st.sampled_from(["proceed", "modify", "none"]),
@@ -325,10 +313,7 @@ class TestPreExecutePipelineProperty:
         # All hooks should have been invoked (no BLOCK in this test)
         assert len(received_kwargs) == len(decisions)
 
-    @settings(
-        max_examples=200,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         pre_block_decisions=st.lists(
             st.sampled_from(["proceed", "modify", "none"]),

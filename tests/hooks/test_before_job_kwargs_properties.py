@@ -64,9 +64,7 @@ class TestBeforeJobKwargsShallowCopyProperty:
     **Validates: Requirements 9.1, 9.3**
     """
 
-    @settings(
-        max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture]
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         original_kwargs=kwargs_dicts,
         num_hooks=num_hooks_st,
@@ -113,9 +111,7 @@ class TestBeforeJobKwargsShallowCopyProperty:
                 f"Expected: {original_kwargs}, Got: {received}"
             )
 
-    @settings(
-        max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture]
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         original_kwargs=kwargs_dicts,
         num_hooks=num_hooks_st,
@@ -156,9 +152,7 @@ class TestBeforeJobKwargsShallowCopyProperty:
             f"Expected: {snapshot}, Got: {original_kwargs}"
         )
 
-    @settings(
-        max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture]
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         original_kwargs=kwargs_dicts,
         num_hooks=num_hooks_st,
@@ -203,9 +197,7 @@ class TestBeforeJobKwargsShallowCopyProperty:
                 f"Hook {i} received the original dict, not a copy"
             )
 
-    @settings(
-        max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture]
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         original_kwargs=kwargs_dicts,
     )
@@ -243,9 +235,7 @@ class TestBeforeJobKwargsShallowCopyProperty:
         assert received_values[0] == original_kwargs
         assert received_values[1] == original_kwargs
 
-    @settings(
-        max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture]
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         original_kwargs=kwargs_dicts,
         num_hooks=num_hooks_st,

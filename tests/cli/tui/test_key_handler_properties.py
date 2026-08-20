@@ -16,7 +16,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.focus import FocusMode, FocusState, FocusZone
@@ -116,7 +116,6 @@ class TestKeyDispatchDeterministicAndComplete:
     """
 
     @given(mode=_focus_mode_strategy, zone=_focus_zone_strategy, key=_key_strategy)
-    @settings(max_examples=200)
     def test_same_input_same_result(
         self, mode: FocusMode, zone: FocusZone, key: str
     ) -> None:
@@ -143,7 +142,6 @@ class TestKeyDispatchDeterministicAndComplete:
         )
 
     @given(mode=_focus_mode_strategy, zone=_focus_zone_strategy, key=_key_strategy)
-    @settings(max_examples=200)
     def test_result_is_boolean(
         self, mode: FocusMode, zone: FocusZone, key: str
     ) -> None:
@@ -162,7 +160,6 @@ class TestKeyDispatchDeterministicAndComplete:
         )
 
     @given(mode=_focus_mode_strategy, zone=_focus_zone_strategy, key=_key_strategy)
-    @settings(max_examples=200)
     def test_handled_implies_event_stopped(
         self, mode: FocusMode, zone: FocusZone, key: str
     ) -> None:
@@ -197,7 +194,6 @@ class TestNormalModeSuppressesUnrecognizedPrintable:
     """
 
     @given(char=_suppressible_char_strategy, zone=_focus_zone_strategy)
-    @settings(max_examples=200)
     def test_unrecognized_printable_suppressed(
         self, char: str, zone: FocusZone
     ) -> None:
@@ -218,7 +214,6 @@ class TestNormalModeSuppressesUnrecognizedPrintable:
         event.stop.assert_called_once()
 
     @given(char=_suppressible_char_strategy, zone=_focus_zone_strategy)
-    @settings(max_examples=200)
     def test_unrecognized_printable_no_action_invoked(
         self, char: str, zone: FocusZone
     ) -> None:
@@ -256,7 +251,6 @@ class TestCommandPaletteBypassAbsolute:
     """
 
     @given(mode=_focus_mode_strategy, zone=_focus_zone_strategy, key=_key_strategy)
-    @settings(max_examples=200)
     def test_palette_active_returns_false(
         self, mode: FocusMode, zone: FocusZone, key: str
     ) -> None:
@@ -278,7 +272,6 @@ class TestCommandPaletteBypassAbsolute:
         )
 
     @given(mode=_focus_mode_strategy, zone=_focus_zone_strategy, key=_key_strategy)
-    @settings(max_examples=200)
     def test_palette_active_no_prevent_default(
         self, mode: FocusMode, zone: FocusZone, key: str
     ) -> None:
@@ -295,7 +288,6 @@ class TestCommandPaletteBypassAbsolute:
         event.prevent_default.assert_not_called()
 
     @given(mode=_focus_mode_strategy, zone=_focus_zone_strategy, key=_key_strategy)
-    @settings(max_examples=200)
     def test_palette_active_no_stop(
         self, mode: FocusMode, zone: FocusZone, key: str
     ) -> None:
@@ -312,7 +304,6 @@ class TestCommandPaletteBypassAbsolute:
         event.stop.assert_not_called()
 
     @given(mode=_focus_mode_strategy, zone=_focus_zone_strategy, key=_key_strategy)
-    @settings(max_examples=200)
     def test_palette_active_no_action_called(
         self, mode: FocusMode, zone: FocusZone, key: str
     ) -> None:

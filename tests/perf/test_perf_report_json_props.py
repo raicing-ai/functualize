@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._events.perf import PerfReport, Phase
@@ -70,7 +70,6 @@ class TestJsonStructuralValidity:
     """Property 7: JSON structural validity."""
 
     @given(report=_perf_report_strategy())
-    @settings(max_examples=100)
     def test_to_json_is_valid_json(self, report: PerfReport) -> None:
         """to_json() output must be parseable by json.loads without raising."""
         output = report.to_json()
@@ -78,7 +77,6 @@ class TestJsonStructuralValidity:
         assert isinstance(data, dict)
 
     @given(report=_perf_report_strategy())
-    @settings(max_examples=100)
     def test_total_ms_is_numeric(self, report: PerfReport) -> None:
         """The JSON output contains a numeric total_ms field."""
         output = report.to_json()
@@ -88,9 +86,14 @@ class TestJsonStructuralValidity:
         assert isinstance(data["total_ms"], int | float)
 
     @given(report=_perf_report_strategy())
-    @settings(max_examples=100)
     def test_phases_array_structure(self, report: PerfReport) -> None:
-        """The JSON phases array has required fields and is ordered by start_ns."""
+        """The JSON phases array carries name + duration, slowest first.
+
+        The projection is a rounded *view*, not a dump of the Phase dataclass:
+        raw `start_ns` / `end_ns` / `duration_ns` stay out of it, and the order
+        is by duration descending because the report exists to show what was
+        slow, not what happened first.
+        """
         output = report.to_json()
         data = json.loads(output)
 
@@ -98,28 +101,17 @@ class TestJsonStructuralValidity:
         assert isinstance(data["phases"], list)
 
         for phase in data["phases"]:
-            # All required fields present
-            assert "name" in phase
-            assert "start_ns" in phase
-            assert "end_ns" in phase
-            assert "duration_ns" in phase
-            assert "duration_ms" in phase
-
-            # Type checks
+            assert set(phase) == {"name", "duration_ms"}
             assert isinstance(phase["name"], str)
-            assert isinstance(phase["start_ns"], int)
-            assert isinstance(phase["end_ns"], int)
-            assert isinstance(phase["duration_ns"], int)
             assert isinstance(phase["duration_ms"], int | float)
 
-        # Phases ordered by start_ns ascending
-        start_values = [p["start_ns"] for p in data["phases"]]
-        assert start_values == sorted(start_values)
+        # Phases ordered by duration descending
+        durations = [p["duration_ms"] for p in data["phases"]]
+        assert durations == sorted(durations, reverse=True)
 
     @given(report=_perf_report_strategy())
-    @settings(max_examples=100)
     def test_marks_array_structure(self, report: PerfReport) -> None:
-        """The JSON marks array has required fields and is ordered by timestamp_ns."""
+        """The JSON marks array has required fields and keeps recording order."""
         output = report.to_json()
         data = json.loads(output)
 
@@ -135,6 +127,10 @@ class TestJsonStructuralValidity:
             assert isinstance(mark["name"], str)
             assert isinstance(mark["timestamp_ns"], int)
 
-        # Marks ordered by timestamp_ns ascending
-        ts_values = [m["timestamp_ns"] for m in data["marks"]]
-        assert ts_values == sorted(ts_values)
+        # Marks are emitted in the order they were recorded. `to_json` makes no
+        # sorting promise, and re-ordering them would lose the sequence a
+        # timeline is read for — timestamps happen to ascend in a real run
+        # because that is how marks get recorded, not because of a sort here.
+        assert [(m["name"], m["timestamp_ns"]) for m in data["marks"]] == list(
+            report.marks
+        )

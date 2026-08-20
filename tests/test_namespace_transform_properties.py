@@ -8,11 +8,12 @@ Tests:
 
 from __future__ import annotations
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._discovery.transforms import NamespaceTransform
 from functualize._types.descriptors import JobDescriptor
+from functualize._types.naming import normalize_name
 
 # =============================================================================
 # Strategies
@@ -51,14 +52,18 @@ class TestNamespaceTransformPrefixStripRoundTrip:
 
     For any namespace string ns and any JobDescriptor with name n,
     NamespaceTransform(ns).transform_list([desc]) SHALL produce a descriptor
-    with name "{ns}.{n}". Conversely, transform_get("{ns}.{n}", desc) SHALL
-    strip the prefix before delegation and re-add it to the result.
+    named `normalize_name(f"{ns}.{n}")`. Conversely, transform_get on that
+    name SHALL strip the prefix before delegation and re-add it to the result.
+
+    The *prefix* is canonicalized (a namespace is a group segment as far as
+    the CLI is concerned), so a prefix of `a_` namespaces under `a`. The job
+    name is passed through untouched — descriptors arrive already canonical
+    from discovery.
 
     **Validates: Requirements 24.1, 24.2, 24.3, 24.4**
     """
 
     @given(ns=_namespace_strategy, name=_job_name_strategy)
-    @settings(max_examples=200)
     def test_transform_list_produces_prefixed_name(self, ns: str, name: str):
         """transform_list produces descriptors with name "{ns}.{name}".
 
@@ -70,10 +75,9 @@ class TestNamespaceTransformPrefixStripRoundTrip:
         result = transform.transform_list([desc])
 
         assert len(result) == 1
-        assert result[0].name == f"{ns}.{name}"
+        assert result[0].name == f"{normalize_name(ns)}.{name}"
 
     @given(ns=_namespace_strategy, name=_job_name_strategy)
-    @settings(max_examples=200)
     def test_transform_get_with_prefixed_name_returns_prefixed_descriptor(
         self, ns: str, name: str
     ):
@@ -83,7 +87,7 @@ class TestNamespaceTransformPrefixStripRoundTrip:
         """
         transform = NamespaceTransform(prefix=ns)
         desc = _make_descriptor(name)
-        prefixed_name = f"{ns}.{name}"
+        prefixed_name = f"{normalize_name(ns)}.{name}"
 
         result = transform.transform_get(prefixed_name, desc)
 
@@ -91,7 +95,6 @@ class TestNamespaceTransformPrefixStripRoundTrip:
         assert result.name == prefixed_name
 
     @given(ns=_namespace_strategy, name=_job_name_strategy)
-    @settings(max_examples=200)
     def test_transform_get_with_non_prefixed_name_returns_none(
         self, ns: str, name: str
     ):
@@ -109,7 +112,6 @@ class TestNamespaceTransformPrefixStripRoundTrip:
             assert result is None
 
     @given(ns=_namespace_strategy, name=_job_name_strategy)
-    @settings(max_examples=200)
     def test_transform_list_and_get_roundtrip_consistency(self, ns: str, name: str):
         """transform_list and transform_get produce consistent prefixed names.
 
@@ -130,7 +132,6 @@ class TestNamespaceTransformPrefixStripRoundTrip:
         assert got.name == prefixed_name
 
     @given(ns=_namespace_strategy)
-    @settings(max_examples=100)
     def test_transform_get_with_none_descriptor_returns_none(self, ns: str):
         """transform_get returns None when descriptor is None.
 
@@ -146,7 +147,6 @@ class TestNamespaceTransformPrefixStripRoundTrip:
         ns=_namespace_strategy,
         names=st.lists(_job_name_strategy, min_size=1, max_size=10),
     )
-    @settings(max_examples=200)
     def test_transform_list_preserves_count(self, ns: str, names: list[str]):
         """transform_list preserves the number of descriptors in the list.
 
@@ -159,4 +159,4 @@ class TestNamespaceTransformPrefixStripRoundTrip:
 
         assert len(result) == len(names)
         for original, transformed in zip(names, result, strict=False):
-            assert transformed.name == f"{ns}.{original}"
+            assert transformed.name == f"{normalize_name(ns)}.{original}"

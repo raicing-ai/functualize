@@ -24,7 +24,7 @@ from unittest.mock import MagicMock, patch
 
 import click
 from click.types import convert_type
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._types.descriptors import FieldDescriptor, JobDescriptor
@@ -131,18 +131,18 @@ def job_descriptors(draw: st.DrawFn) -> JobDescriptor:
     """Generate valid JobDescriptor instances with unique field names."""
     config_fields = draw(field_descriptor_lists())
     return JobDescriptor(
+        # Only `name`, `docstring` and `config_fields` are read by the assertions in
+        # this file — the command's name, its `help`, and its params. `group`,
+        # `module_path`, `source_file`, `source_mtime` and `content_hash` are never
+        # inspected (these tests assert an import does *not* happen, so the path that
+        # would be imported is irrelevant), yet each cost a `from_regex` draw per
+        # descriptor, in lists of up to five, including a 64-character hex hash.
         name=draw(st.from_regex(r"[a-z][a-z0-9_]{2,15}", fullmatch=True)),
-        group=draw(st.none() | st.from_regex(r"[a-z][a-z0-9_]{2,10}", fullmatch=True)),
-        module_path=draw(
-            st.from_regex(
-                r"[a-z][a-z0-9_]{1,10}(\.[a-z][a-z0-9_]{1,10}){0,3}", fullmatch=True
-            )
-        ),
-        source_file=draw(
-            st.from_regex(r"/tmp/[a-z][a-z0-9_]{2,10}\.py", fullmatch=True)
-        ),
-        source_mtime=draw(st.floats(min_value=0.0, max_value=2000000000.0)),
-        content_hash=draw(st.from_regex(r"[0-9a-f]{64}", fullmatch=True)),
+        group=None,
+        module_path="pkg.mod",
+        source_file="/tmp/mod.py",
+        source_mtime=0.0,
+        content_hash="0" * 64,
         docstring=draw(st.none() | st.text(max_size=100)),
         config_fields=config_fields,
         dependencies={},
@@ -160,7 +160,6 @@ class TestLazyWrapperNoImport:
     """
 
     @given(descriptors=st.lists(job_descriptors(), min_size=1, max_size=5))
-    @settings(max_examples=100)
     def test_construction_never_calls_import_module(
         self, descriptors: list[JobDescriptor]
     ) -> None:
@@ -184,7 +183,6 @@ class TestLazyWrapperNoImport:
             mock_import.assert_not_called()
 
     @given(descriptor=job_descriptors())
-    @settings(max_examples=100)
     def test_construction_produces_callable_without_side_effects(
         self, descriptor: JobDescriptor
     ) -> None:
@@ -221,7 +219,6 @@ class TestSignatureReconstruction:
     """
 
     @given(fields=field_descriptor_lists())
-    @settings(max_examples=100)
     def test_parameter_count_matches_descriptor_count(
         self, fields: list[FieldDescriptor]
     ) -> None:
@@ -246,7 +243,6 @@ class TestSignatureReconstruction:
         assert len(params) == len(fields)
 
     @given(fields=field_descriptor_lists())
-    @settings(max_examples=100)
     def test_parameter_names_match_descriptors(
         self, fields: list[FieldDescriptor]
     ) -> None:
@@ -274,7 +270,6 @@ class TestSignatureReconstruction:
         assert param_names == expected_names
 
     @given(fields=field_descriptor_lists())
-    @settings(max_examples=100)
     def test_type_annotations_match_type_mapping(
         self, fields: list[FieldDescriptor]
     ) -> None:
@@ -309,13 +304,18 @@ class TestSignatureReconstruction:
                 assert list(param.type.choices) == (field.choices or [])
             else:
                 expected_type = _EXPECTED_CLICK_TYPE[field.type_annotation]
-                assert param.type == expected_type, (
+                # click's ParamType defines no __eq__, so `==` is identity.
+                # `click.BOOL` is a singleton but the builder constructs a fresh
+                # BoolParamType, which is the same type and behaves identically
+                # while comparing unequal. Compare on what actually matters.
+                assert type(param.type) is type(expected_type), (
                     f"Field '{field.name}' with type='{field.type_annotation}' should "
-                    f"have click type {expected_type}, got {param.type}"
+                    f"have click type {expected_type!r} "
+                    f"({type(expected_type).__name__}), got {param.type!r} "
+                    f"({type(param.type).__name__})"
                 )
 
     @given(fields=field_descriptor_lists())
-    @settings(max_examples=100)
     def test_required_fields_have_no_default(
         self, fields: list[FieldDescriptor]
     ) -> None:
@@ -351,7 +351,6 @@ class TestSignatureReconstruction:
                 )
 
     @given(fields=field_descriptor_lists())
-    @settings(max_examples=100)
     def test_optional_fields_use_descriptor_default(
         self, fields: list[FieldDescriptor]
     ) -> None:

@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._discovery.pipeline import ResolutionPipeline
@@ -72,32 +72,29 @@ job_names = st.from_regex(r"[a-z][a-z0-9_]{0,15}", fullmatch=True).filter(
     lambda s: s.isidentifier()
 )
 
-# Module paths
-module_paths = st.from_regex(
-    r"[a-z][a-z0-9_]{0,10}(\.[a-z][a-z0-9_]{0,10}){0,2}", fullmatch=True
-)
-
-# Source file paths
-source_files = st.from_regex(r"/[a-z][a-z0-9_/]{0,20}\.py", fullmatch=True)
-
-# Content hashes (hex strings)
-content_hashes = st.from_regex(r"[0-9a-f]{64}", fullmatch=True)
-
-# Optional groups
-groups = st.one_of(st.none(), st.from_regex(r"[a-z][a-z0-9_]{0,10}", fullmatch=True))
+# Everything except `name` is a constant. This pipeline only ever rewrites names —
+# `SuffixTransform` and `NamespaceTransform` both `replace(j, name=...)` and touch
+# nothing else — and the assertions compare descriptors that came from the *same*
+# generated objects down two paths, so every other field is identical on both sides
+# by construction and contributes no discriminating power. Generating them cost a
+# `from_regex` draw each (a 64-char hex hash among them) per descriptor, per
+# provider, per example.
+_MODULE_PATH = "pkg.mod"
+_SOURCE_FILE = "/pkg/mod.py"
+_CONTENT_HASH = "0" * 64
 
 
 @st.composite
 def job_descriptor(draw: st.DrawFn) -> JobDescriptor:
-    """Strategy to generate a random JobDescriptor."""
+    """Strategy to generate a JobDescriptor whose only random field is its name."""
     return JobDescriptor(
         name=draw(job_names),
-        group=draw(groups),
-        module_path=draw(module_paths),
-        source_file=draw(source_files),
-        source_mtime=draw(st.floats(min_value=0.0, max_value=1e12, allow_nan=False)),
-        content_hash=draw(content_hashes),
-        docstring=draw(st.one_of(st.none(), st.text(min_size=0, max_size=50))),
+        group=None,
+        module_path=_MODULE_PATH,
+        source_file=_SOURCE_FILE,
+        source_mtime=0.0,
+        content_hash=_CONTENT_HASH,
+        docstring=None,
         config_fields=[],
         dependencies={},
         metadata=None,
@@ -222,7 +219,6 @@ def manual_resolve_all(
 # --- Property 7: Resolution pipeline ordering ---
 
 
-@settings(max_examples=100)
 @given(config=pipeline_config())
 def test_property_7_resolve_all_equals_manual_stepwise(
     config: tuple[
@@ -269,7 +265,6 @@ def test_property_7_resolve_all_equals_manual_stepwise(
         )
 
 
-@settings(max_examples=100)
 @given(config=pipeline_config())
 def test_property_7_provider_order_preserved(
     config: tuple[
@@ -326,7 +321,6 @@ def test_property_7_provider_order_preserved(
     )
 
 
-@settings(max_examples=100)
 @given(config=pipeline_config())
 def test_property_7_app_transforms_applied_after_provider_transforms(
     config: tuple[

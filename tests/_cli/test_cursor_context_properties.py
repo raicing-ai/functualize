@@ -10,7 +10,7 @@ Tests parse_cursor_context from functualize._cli.cursor_context:
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.completions.cursor_context import (
@@ -57,7 +57,6 @@ class TestModeAlwaysValid:
     """
 
     @given(text_and_cursor=_text_and_cursor(), job_names=_job_names_strategy)
-    @settings(max_examples=200)
     def test_mode_always_in_valid_set(
         self,
         text_and_cursor: tuple[str, int],
@@ -94,7 +93,6 @@ class TestStructuralInvariants:
     """
 
     @given(text_and_cursor=_text_and_cursor(), job_names=_job_names_strategy)
-    @settings(max_examples=200)
     def test_value_mode_has_job_and_field(
         self,
         text_and_cursor: tuple[str, int],
@@ -118,7 +116,6 @@ class TestStructuralInvariants:
             )
 
     @given(text_and_cursor=_text_and_cursor(), job_names=_job_names_strategy)
-    @settings(max_examples=200)
     def test_flag_mode_has_job_name(
         self,
         text_and_cursor: tuple[str, int],

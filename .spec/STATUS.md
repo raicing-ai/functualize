@@ -31,13 +31,32 @@ Items identified during development that are worth doing but not yet designed:
 4. **Shell completion model unification** — SmartBar completion and `func builtin shell-init` both consume the same trie and descriptors but compute their partition independently. A shared model (`_cli/completions/shared.py`) would prevent the two from drifting.
 5. **`builtin parallel` items missing from history** — parallel batch items run at invoke depth 1 and the history filter only records depth 0. Explicit recording in `parallel` itself would fix this.
 6. **`RunContext.log()` bypasses the injected `Log`** — **resolved** (`fix/runcontext-log-di`). `RunContext` now holds the live per-invocation capability map (the `TTY` pattern) and `log()` takes its sink from it, so `rc.log(...)` and a `log: Log` parameter are the same instance. The DI registry is deliberately not consulted — the engine skips it for `Log` too, so reading it would make the two disagree. A job with no `Log` falls back to the `functualize.job.<name>` logger, unchanged. Level validation moved into `log()` (and `CapturingLog`) so an invalid level fails identically on both paths.
-7. **The slow test tier is red — ~90 failures across ~29 modules** — none of it ships (tests are in no wheel), and the fast tier is fully green, which is exactly why it went unnoticed: every covering test is marked `slow` and `--run-slow` is not in the release checklist's gates. Four distinct causes, all test-side:
-   - *Stale engine internal* — `tests/test_resolution_plan_properties.py` (8 failures) calls `engine._build_per_invocation_capabilities(...)` at lines 597/637/676/706. No such method exists in `src/`, and there is no renamed replacement, so that engine behavior is now **untested**, not merely red. Highest priority of the four.
-   - *Invalid DI registrations* — several modules do `reg.provide(t, object())` against a synthesized type, which cannot satisfy the `isinstance` contract `DIRegistry.provide` documents. The tests predate that type check.
-   - *Canonical-identity drift* — assertions like `assert 'a' == 'a_'` and a `ValueError: Cannot register dynamic job 'a': a job with this name already exists` predate name normalization. Worth confirming whether normalizing `a_` to `a` is intended, since it collapses two distinct Python function names into one canonical name — that one may be a product question rather than a stale test.
-   - *Misc stale expectations* — e.g. `assert '' == '<static>'`.
+7. **~~The slow test tier is red~~ — DONE (2026-08-19, branch `fix/run-slow-tests`).**
+   82 failures / 14m36s → green on both Hypothesis profiles (`default` 5m11s, `ci` 9m33s;
+   8,407 tests at `-n 10`). All five CI gates verified. The tier found **two real product
+   bugs shipped in 0.1.0**, both now fixed:
+   - `NamespaceTransform` canonicalized the prefix when *writing* names but matched the raw
+     spelling when *reading*, so every namespaced job was unreachable by its only published
+     name (`8922756`).
+   - Multi-word `JOB_GROUP` failed registration — `qualified_name` validates its group as a
+     Python identifier *by design*, so it must see the raw group, but `registry.py` and
+     `sync.py` normalized first. `JOB_GROUP = "data_ops"`, this project's own documented
+     example, raised `ValueError`. Single-word groups worked, which is why the fixtures
+     missed it (`584d04c`).
 
-   Add `--run-slow` to the release verification gates once the tier is green, so this cannot recur.
+   Two claims in the original write-up of this item were **wrong** and are corrected here:
+   - *"`--run-slow` is not in the release checklist's gates."* It was — gate 6 in
+     `.agents/skills/release/SKILL.md` since v0.1.0. The gate existed and still failed,
+     for two reasons now fixed: it ran the `default` profile rather than CI's `ci`, and
+     with no `-n auto` it could never finish inside the skill's own 300s per-command
+     timeout, so it reported BLOCKING on every release and was waived by habit.
+   - *"Canonical-identity … may be a product question."* It is not. `normalize_segment`
+     strips trailing hyphens deliberately; the tests encoded the pre-normalization world
+     and were wrong, the policy was not.
+
+   Lesson worth keeping: **green at `default` is not green at `ci`.** The `ci` profile
+   draws 200 examples to `default`'s 100 and found two further failures after the tier had
+   already been called green. Verify with `HYPOTHESIS_PROFILE=ci`, never bare `--run-slow`.
 
 8. **`skip-existing` masks trusted-publisher misconfiguration** — `release.yml` passes
    `skip-existing: true` to `pypa/gh-action-pypi-publish`, which makes twine call

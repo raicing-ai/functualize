@@ -13,7 +13,7 @@ from __future__ import annotations
 import shlex
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.completions.quote_handling import (
@@ -112,7 +112,6 @@ class TestQuoteHandlingRoundTrip:
     """
 
     @given(value=_value_no_spaces)
-    @settings(max_examples=100)
     def test_no_spaces_returned_as_is(self, value: str) -> None:
         """Values without spaces are returned unchanged (Req 21.3 precondition).
 
@@ -126,7 +125,6 @@ class TestQuoteHandlingRoundTrip:
         assert tokens == [value]
 
     @given(value=_value_with_spaces_no_quotes())
-    @settings(max_examples=100)
     def test_spaces_no_quotes_double_quoted_round_trip(self, value: str) -> None:
         """Values with spaces but no double quotes are double-quoted and round-trip (Req 21.3).
 
@@ -142,7 +140,6 @@ class TestQuoteHandlingRoundTrip:
         assert tokens[0] == value
 
     @given(value=_value_with_spaces_and_double_quotes())
-    @settings(max_examples=100)
     def test_spaces_and_double_quotes_single_quoted_round_trip(
         self, value: str
     ) -> None:
@@ -160,7 +157,6 @@ class TestQuoteHandlingRoundTrip:
         assert tokens[0] == value
 
     @given(text=_arbitrary_text)
-    @settings(max_examples=100)
     def test_tokenize_smart_bar_never_crashes(self, text: str) -> None:
         """tokenize_smart_bar handles any input gracefully (Req 21.2).
 

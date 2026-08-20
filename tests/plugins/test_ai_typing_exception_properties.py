@@ -22,7 +22,7 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 from functualize_ai import AI, AINotAvailableError, AIResult, TokenUsage, ToolDef
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 from pydantic import BaseModel
 
@@ -190,7 +190,6 @@ class TestAICompleteTypedOutputProperty:
     """
 
     @given(prompt=prompts_st, response_text=raw_text_responses_st)
-    @settings(max_examples=100)
     def test_complete_without_response_model_returns_str(
         self, prompt: str, response_text: str
     ) -> None:
@@ -207,7 +206,6 @@ class TestAICompleteTypedOutputProperty:
         assert result == response_text
 
     @given(prompt=prompts_st, name=field_name_st, value=field_int_st)
-    @settings(max_examples=100)
     def test_complete_with_simple_model_returns_typed_instance(
         self, prompt: str, name: str, value: int
     ) -> None:
@@ -226,7 +224,6 @@ class TestAICompleteTypedOutputProperty:
         assert result.value == value
 
     @given(prompt=prompts_st, score=field_float_st, label=field_name_st)
-    @settings(max_examples=100)
     def test_complete_with_float_model_returns_typed_instance(
         self, prompt: str, score: float, label: str
     ) -> None:
@@ -245,7 +242,6 @@ class TestAICompleteTypedOutputProperty:
         assert result.label == label
 
     @given(prompt=prompts_st, flag=field_bool_st, description=field_name_st)
-    @settings(max_examples=100)
     def test_complete_with_bool_model_returns_typed_instance(
         self, prompt: str, flag: bool, description: str
     ) -> None:
@@ -269,7 +265,6 @@ class TestAICompleteTypedOutputProperty:
         count=field_int_st,
         active=field_bool_st,
     )
-    @settings(max_examples=100)
     def test_complete_with_nested_model_returns_typed_instance(
         self, prompt: str, title: str, count: int, active: bool
     ) -> None:
@@ -289,7 +284,6 @@ class TestAICompleteTypedOutputProperty:
         assert result.active == active
 
     @given(prompt=prompts_st, name=field_name_st, value=field_int_st)
-    @settings(max_examples=100)
     def test_complete_with_dict_response_validates_to_model(
         self, prompt: str, name: str, value: int
     ) -> None:
@@ -328,7 +322,6 @@ class TestAIWrapsProviderExceptionsProperty:
         exc_type=exception_types_st,
         error_msg=error_messages_st,
     )
-    @settings(max_examples=100)
     def test_complete_wraps_any_exception_in_ai_not_available(
         self, prompt: str, exc_type: type[Exception], error_msg: str
     ) -> None:
@@ -357,7 +350,6 @@ class TestAIWrapsProviderExceptionsProperty:
         exc_type=exception_types_st,
         error_msg=error_messages_st,
     )
-    @settings(max_examples=100)
     def test_run_wraps_any_exception_in_ai_not_available(
         self, prompt: str, exc_type: type[Exception], error_msg: str
     ) -> None:
@@ -386,7 +378,6 @@ class TestAIWrapsProviderExceptionsProperty:
         exc_type=exception_types_st,
         error_msg=error_messages_st,
     )
-    @settings(max_examples=100)
     def test_original_exception_chained_as_cause(
         self, prompt: str, exc_type: type[Exception], error_msg: str
     ) -> None:
@@ -410,7 +401,6 @@ class TestAIWrapsProviderExceptionsProperty:
         exc_type=exception_types_st,
         error_msg=error_messages_st,
     )
-    @settings(max_examples=100)
     def test_provider_exception_type_not_exposed(
         self, prompt: str, exc_type: type[Exception], error_msg: str
     ) -> None:
@@ -462,7 +452,6 @@ class TestAIWrapsProviderExceptionsProperty:
         assert run_exc is not None
 
     @given(prompt=prompts_st, error_msg=error_messages_st)
-    @settings(max_examples=100)
     def test_ai_not_available_from_provider_passes_through(
         self, prompt: str, error_msg: str
     ) -> None:

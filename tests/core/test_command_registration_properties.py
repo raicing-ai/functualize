@@ -66,7 +66,6 @@ class TestCommandNameValidation:
     **Validates: Requirements 3.5**
     """
 
-    @settings(max_examples=200)
     @given(name=arbitrary_strings)
     def test_invalid_names_raise_value_error(self, name: str) -> None:
         """Any string NOT matching the valid command name pattern raises ValueError."""
@@ -80,7 +79,6 @@ class TestCommandNameValidation:
         with pytest.raises(ValueError, match="Invalid command name"):
             app.register_plugin_command(name, dummy_callback)
 
-    @settings(max_examples=200)
     @given(name=valid_command_names)
     def test_valid_names_accepted(self, name: str) -> None:
         """Any string matching the valid command name pattern is accepted."""
@@ -105,7 +103,6 @@ class TestDuplicateCommandRegistration:
     **Validates: Requirements 3.4**
     """
 
-    @settings(max_examples=100)
     @given(name=valid_command_names, namespace=valid_group_names)
     def test_duplicate_registration_raises_value_error(
         self, name: str, namespace: str | None
@@ -127,7 +124,7 @@ class TestDuplicateCommandRegistration:
         with pytest.raises(ValueError, match="Duplicate command name"):
             app.register_plugin_command(name, callback_b, namespace=namespace)
 
-    @settings(max_examples=100, suppress_health_check=[HealthCheck.filter_too_much])
+    @settings(suppress_health_check=[HealthCheck.filter_too_much])
     @given(
         name=valid_command_names,
         namespace_a=valid_group_names.filter(lambda g: g is not None),

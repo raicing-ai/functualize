@@ -9,7 +9,7 @@ Tests the MissingArgsResult dataclass from functualize._cli.tui.missing_args:
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.missing_args import MissingArgsResult
@@ -123,7 +123,6 @@ class TestMissingArgsResultConsistency:
 
     @pytest.mark.slow
     @given(result=_missing_args_result())
-    @settings(max_examples=200)
     def test_is_executable_iff_missing_fields_empty(self, result: MissingArgsResult):
         """is_executable is True ↔ missing_fields is empty.
 
@@ -142,7 +141,6 @@ class TestMissingArgsResultConsistency:
 
     @pytest.mark.slow
     @given(result=_missing_args_result())
-    @settings(max_examples=200)
     def test_all_missing_fields_are_required(self, result: MissingArgsResult):
         """All items in missing_fields have required=True.
 
@@ -156,7 +154,6 @@ class TestMissingArgsResultConsistency:
 
     @pytest.mark.slow
     @given(result=_missing_args_result())
-    @settings(max_examples=200)
     def test_missing_count_equals_missing_fields_length(
         self, result: MissingArgsResult
     ):

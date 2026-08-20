@@ -13,7 +13,7 @@ import re
 import string
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize.plugin.protocols import validate_extension_id
@@ -78,7 +78,6 @@ class TestExtensionIdValidation:
     """
 
     @given(ext_id=_valid_id_strategy)
-    @settings(max_examples=100)
     def test_valid_ids_are_accepted(self, ext_id: str) -> None:
         """IDs with only valid chars, non-empty, and <= 64 chars are accepted.
 
@@ -87,7 +86,6 @@ class TestExtensionIdValidation:
         assert validate_extension_id(ext_id) is True
 
     @given(ext_id=_too_long_id_strategy)
-    @settings(max_examples=100)
     def test_too_long_ids_are_rejected(self, ext_id: str) -> None:
         """IDs exceeding 64 characters are rejected even if chars are valid.
 
@@ -96,7 +94,6 @@ class TestExtensionIdValidation:
         assert validate_extension_id(ext_id) is False
 
     @given(ext_id=_id_with_invalid_chars())
-    @settings(max_examples=100)
     def test_ids_with_invalid_chars_are_rejected(self, ext_id: str) -> None:
         """IDs containing characters outside [a-z0-9_-] are rejected.
 
@@ -112,7 +109,6 @@ class TestExtensionIdValidation:
         assert validate_extension_id("") is False
 
     @given(ext_id=st.text(min_size=0, max_size=128))
-    @settings(max_examples=100)
     def test_acceptance_matches_spec_rules(self, ext_id: str) -> None:
         """For any arbitrary string, validate_extension_id returns True iff
         the string is non-empty, <= 64 chars, and matches [a-z0-9_-]+.

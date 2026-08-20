@@ -20,7 +20,7 @@ The EXPECTED behavior after the fix:
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.panels.job_browser import JobBrowserPanel
@@ -113,7 +113,6 @@ class TestExpectedBehaviorJobBrowserPanel:
     """
 
     @given(jobs=_job_list)
-    @settings(max_examples=50)
     def test_job_browser_widget_height_within_bounds(
         self, jobs: list[JobDescriptor]
     ) -> None:
@@ -144,7 +143,6 @@ class TestExpectedBehaviorJobBrowserPanel:
         )
 
     @given(jobs=_job_list)
-    @settings(max_examples=50)
     def test_job_browser_responds_to_cursor_navigation(
         self, jobs: list[JobDescriptor]
     ) -> None:
@@ -177,7 +175,6 @@ class TestExpectedBehaviorJobBrowserPanel:
         )
 
     @given(jobs=_job_list)
-    @settings(max_examples=50)
     def test_job_browser_posts_selection_on_enter(
         self, jobs: list[JobDescriptor]
     ) -> None:

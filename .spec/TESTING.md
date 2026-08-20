@@ -8,7 +8,7 @@ This project uses a multi-tier test strategy. Follow these rules when running te
   1. `uv run ruff check --fix src/ tests/ plugins/`
   2. `uv run ruff format src/ tests/ plugins/`
 - **Fast tests (unit only):** `uv run pytest -x -q --no-header`
-- **Full tests (including property-based):** `uv run pytest --run-slow -x -q --no-header`
+- **Full tests (including property-based):** `HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto -q --no-header` — the `ci` profile (200 examples) is what CI runs; without it you are verifying a weaker gate. Budget ~10 minutes.
 
 ## When to run tests
 

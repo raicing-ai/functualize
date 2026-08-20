@@ -13,7 +13,7 @@ of j/k keypresses. Verifies:
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.panels.job_browser import JobBrowserPanel
@@ -87,7 +87,6 @@ class TestCursorNavigationBounds:
     """
 
     @given(jobs=_job_list, moves=_cursor_moves)
-    @settings(max_examples=200)
     def test_cursor_stays_in_bounds_after_random_moves(
         self, jobs: list[JobDescriptor], moves: list[str]
     ) -> None:
@@ -114,7 +113,6 @@ class TestCursorNavigationBounds:
                 )
 
     @given(jobs=st.lists(_job_descriptor, min_size=1, max_size=50))
-    @settings(max_examples=200)
     def test_cursor_wraps_from_last_to_first(self, jobs: list[JobDescriptor]) -> None:
         """From the last row, action_cursor_down wraps to row 0.
 
@@ -132,7 +130,6 @@ class TestCursorNavigationBounds:
         )
 
     @given(jobs=st.lists(_job_descriptor, min_size=1, max_size=50))
-    @settings(max_examples=200)
     def test_cursor_wraps_from_first_to_last(self, jobs: list[JobDescriptor]) -> None:
         """From row 0, action_cursor_up wraps to the last row.
 
@@ -150,7 +147,6 @@ class TestCursorNavigationBounds:
         )
 
     @given(moves=_cursor_moves)
-    @settings(max_examples=100)
     def test_empty_list_cursor_stays_zero(self, moves: list[str]) -> None:
         """With empty job list, all cursor operations are no-ops (_cursor_row stays 0).
 

@@ -1,20 +1,24 @@
-# Feature: perf-timeline-mark, Property 6: JSON round-trip
-"""Property-based tests for PerfReport JSON round-trip.
+# Feature: perf-timeline-mark, Property 6: JSON projection
+"""Property-based tests for the PerfReport JSON projection.
 
 **Validates: Requirements 7.5**
 
-Property 6: JSON round-trip
-For any valid PerfReport instance (with arbitrary phases and marks),
-parsing the output of to_json() with json.loads() and reconstructing
-a PerfReport SHALL produce phases with identical name, start_ns, end_ns,
-and duration_ns values, and a total_ms value equal to the original.
+Property 6: JSON projection
+`to_json()` is a *rounded view* of a report, not a serialization format —
+there is no `from_json`, durations are emitted as `duration_ms` rounded to two
+decimals, and phases come out ordered by duration descending. So the property
+is projection fidelity, not round-trip equality: every phase appears exactly
+once, under its own name, with its duration rounded the documented way, and the
+ordering the caller is promised.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import json
 
-from hypothesis import given, settings
+import pytest
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._events.perf import PerfReport, Phase
@@ -79,103 +83,90 @@ def _perf_report_strategy(draw: st.DrawFn) -> PerfReport:
     return PerfReport(phases=phases, total_ms=total_ms, marks=marks)
 
 
-class TestJSONRoundTripProperty:
-    """Property 6: JSON round-trip."""
+class TestJSONProjectionProperty:
+    """Property 6: JSON projection fidelity."""
 
     @given(report=_perf_report_strategy())
-    @settings(max_examples=100)
-    def test_json_round_trip_phases(self, report: PerfReport) -> None:
-        """Parsing to_json() output and reconstructing phases produces
-        identical name, start_ns, end_ns, and duration_ns values.
-        """
-        json_str = report.to_json()
-        data = json.loads(json_str)
-
-        # Reconstruct phases from JSON
+    def test_json_phases_are_projected_once_each(self, report: PerfReport) -> None:
+        """Every phase appears exactly once, with its rounded duration."""
+        data = json.loads(report.to_json())
         json_phases = data["phases"]
 
-        # The JSON phases are sorted by start_ns, so sort original phases the same way
-        original_sorted = sorted(report.phases, key=lambda p: p.start_ns)
-
-        assert len(json_phases) == len(original_sorted)
-
-        for json_phase, original_phase in zip(
-            json_phases, original_sorted, strict=True
-        ):
-            assert json_phase["name"] == original_phase.name
-            assert json_phase["start_ns"] == original_phase.start_ns
-            assert json_phase["end_ns"] == original_phase.end_ns
-            assert json_phase["duration_ns"] == original_phase.duration_ns
+        assert len(json_phases) == len(report.phases)
+        assert [p["name"] for p in json_phases] == [
+            p.name
+            for p in sorted(report.phases, key=lambda p: p.duration_ns, reverse=True)
+        ]
+        for entry in json_phases:
+            assert set(entry) == {"name", "duration_ms"}
 
     @given(report=_perf_report_strategy())
-    @settings(max_examples=100)
-    def test_json_round_trip_total_ms(self, report: PerfReport) -> None:
-        """Parsing to_json() output produces matching total_ms value."""
-        json_str = report.to_json()
-        data = json.loads(json_str)
+    def test_json_phases_are_ordered_by_duration_descending(
+        self, report: PerfReport
+    ) -> None:
+        """Phases are emitted slowest-first, which is what the report is read for."""
+        data = json.loads(report.to_json())
+        durations = [p["duration_ms"] for p in data["phases"]]
 
-        assert data["total_ms"] == report.total_ms
+        assert durations == sorted(durations, reverse=True)
+
+    @given(report=_perf_report_strategy())
+    def test_json_total_ms_is_rounded_not_exact(self, report: PerfReport) -> None:
+        """total_ms is rounded to 2dp — a sub-microsecond total lands on 0.0."""
+        data = json.loads(report.to_json())
+
+        assert data["total_ms"] == round(report.total_ms, 2)
+
+    @given(report=_perf_report_strategy())
+    def test_json_marks_are_preserved_exactly(self, report: PerfReport) -> None:
+        """Marks carry raw nanosecond timestamps and are not rounded."""
+        data = json.loads(report.to_json())
+
+        assert [(m["name"], m["timestamp_ns"]) for m in data["marks"]] == list(
+            report.marks
+        )
 
 
-# Feature: perf-timeline-mark, Property 4: Filter produces new immutable report
+# Feature: perf-timeline-mark, Property 4: PerfReport is immutable
 # **Validates: Requirements 5.1**
 #
-# Property 4: Filter produces new immutable report
-# For any PerfReport and any filter arguments, calling report.filter(include, exclude)
-# returns a new PerfReport instance (not identical to the original), and the original
-# report's phases list remains unchanged after the call.
-
-# Pattern strategies for filter arguments
-_prefix_pattern = _segment
-_glob_pattern = st.one_of(
-    st.tuples(_segment, st.just(".*")).map("".join),
-    st.tuples(_segment, st.just(".**")).map("".join),
-    st.just("**"),
-)
-_single_pattern = st.one_of(_prefix_pattern, _glob_pattern)
-_pattern_string = st.lists(_single_pattern, min_size=1, max_size=3).map(", ".join)
-_optional_pattern = st.one_of(st.none(), _pattern_string)
+# `PerfReport.filter(include, exclude)` no longer exists; narrowing is done by
+# the read-only selectors (`phases_matching`, `phases_above`) and by
+# `to_json(include=)` / `summary(include=)`, which build a view without
+# touching the report. The invariant the old filter tests guarded — that
+# narrowing cannot mutate the original — is now carried by the type itself,
+# so that is what gets asserted.
 
 
-class TestFilterImmutabilityProperty:
-    """Property 4: Filter produces new immutable report."""
+class TestPerfReportImmutabilityProperty:
+    """Property 4: a report cannot be mutated, and narrowing it does not try."""
 
-    @given(
-        report=_perf_report_strategy(),
-        include=_optional_pattern,
-        exclude=_optional_pattern,
-    )
-    @settings(max_examples=100)
-    def test_filter_returns_new_instance(
-        self,
-        report: PerfReport,
-        include: str | None,
-        exclude: str | None,
+    @given(report=_perf_report_strategy(), prefix=_segment)
+    def test_report_fields_are_frozen(self, report: PerfReport, prefix: str) -> None:
+        """Assigning to any field raises — PerfReport is a frozen dataclass."""
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            report.total_ms = 1.0  # type: ignore[misc]
+
+    @given(report=_perf_report_strategy(), prefix=_segment)
+    def test_narrowing_does_not_mutate_the_report(
+        self, report: PerfReport, prefix: str
     ) -> None:
-        """filter() returns a new PerfReport instance, not identical to the original."""
-        result = report.filter(include=include, exclude=exclude)
-
-        # Result must be a different object (not the same identity)
-        assert result is not report
-
-    @given(
-        report=_perf_report_strategy(),
-        include=_optional_pattern,
-        exclude=_optional_pattern,
-    )
-    @settings(max_examples=100)
-    def test_filter_does_not_mutate_original_phases(
-        self,
-        report: PerfReport,
-        include: str | None,
-        exclude: str | None,
-    ) -> None:
-        """Original report's phases list is unchanged after filter() call."""
-        # Snapshot original phases before filter
+        """The selectors and views leave the original phase list untouched."""
         original_phases = list(report.phases)
 
-        report.filter(include=include, exclude=exclude)
+        report.phases_matching(prefix)
+        report.phases_above(0.0)
+        report.to_json(include=prefix)
+        report.summary(include=prefix)
 
-        # Original phases list must be unchanged
         assert report.phases == original_phases
-        assert len(report.phases) == len(original_phases)
+
+    @given(report=_perf_report_strategy(), prefix=_segment)
+    def test_narrowing_returns_a_subset_of_the_phases(
+        self, report: PerfReport, prefix: str
+    ) -> None:
+        """A narrowed view only ever contains phases the report already had."""
+        matched = report.phases_matching(prefix)
+
+        assert all(p in report.phases for p in matched)
+        assert all(p.name.startswith(prefix) for p in matched)

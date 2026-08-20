@@ -13,7 +13,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.stdin_reader import resolve_stdin_params
@@ -75,7 +75,6 @@ class TestStdinExplicitWins:
         stdin_content=_stdin_content,
         marker=_stdin_marker,
     )
-    @settings(max_examples=200)
     def test_cli_value_wins_over_piped_stdin(
         self,
         param_name: str,
@@ -112,7 +111,6 @@ class TestStdinExplicitWins:
         cli_value=_cli_flag_values,
         marker=_stdin_marker,
     )
-    @settings(max_examples=200)
     def test_cli_value_wins_when_stdin_is_tty(
         self,
         param_name: str,
@@ -144,7 +142,6 @@ class TestStdinExplicitWins:
         extra_name=st.sampled_from(["extra", "other", "secondary"]),
         extra_marker=_stdin_marker,
     )
-    @settings(max_examples=200)
     def test_cli_value_wins_with_multiple_stdin_params(
         self,
         param_name: str,
@@ -202,7 +199,6 @@ class TestStdinResolutionFromPipe:
         stdin_content=_stdin_content,
         marker=_stdin_marker,
     )
-    @settings(max_examples=200)
     def test_single_unresolved_param_gets_piped_content(
         self,
         param_name: str,
@@ -236,7 +232,6 @@ class TestStdinResolutionFromPipe:
         stdin_content=_stdin_content,
         marker=_stdin_marker,
     )
-    @settings(max_examples=200)
     def test_none_cli_value_treated_as_unresolved(
         self,
         param_name: str,
@@ -273,7 +268,6 @@ class TestStdinResolutionFromPipe:
         extra_name=st.sampled_from(["extra", "other", "secondary"]),
         extra_marker=_stdin_marker,
     )
-    @settings(max_examples=200)
     def test_one_resolved_one_unresolved_reads_stdin_for_unresolved(
         self,
         param_name: str,
@@ -316,7 +310,6 @@ class TestStdinResolutionFromPipe:
         stdin_content=_stdin_content,
         marker=_stdin_marker,
     )
-    @settings(max_examples=100)
     def test_piped_content_preserved_exactly(
         self,
         param_name: str,

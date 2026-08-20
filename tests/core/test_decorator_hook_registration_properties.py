@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize.job.decorators import (
@@ -75,7 +75,6 @@ event_names = st.sampled_from(
 class TestDecoratorHookRegistrationBareForm:
     """Property: bare decorator form registers function in global hooks."""
 
-    @settings(max_examples=100)
     @given(func_name=func_names, event_name=event_names)
     def test_bare_form_registers_in_global_hooks(
         self, func_name: str, event_name: str
@@ -109,7 +108,6 @@ class TestDecoratorHookRegistrationBareForm:
         # Verify identity preservation
         assert result is hook_fn
 
-    @settings(max_examples=100)
     @given(func_name=func_names, event_name=event_names)
     def test_empty_parens_form_registers_in_global_hooks(
         self, func_name: str, event_name: str
@@ -148,7 +146,6 @@ class TestDecoratorHookRegistrationBareForm:
 class TestDecoratorHookRegistrationParameterizedForm:
     """Property: parameterized decorator form registers function in job-scoped hooks."""
 
-    @settings(max_examples=100)
     @given(func_name=func_names, job_name=job_names, event_name=event_names)
     def test_parameterized_form_registers_in_job_scoped_hooks(
         self, func_name: str, job_name: str, event_name: str
@@ -183,7 +180,6 @@ class TestDecoratorHookRegistrationParameterizedForm:
         # Verify identity preservation
         assert result is hook_fn
 
-    @settings(max_examples=100)
     @given(
         func_name=func_names,
         job_name_a=job_names,
@@ -240,7 +236,6 @@ class TestGlobalOnlyDecoratorRegistration:
     on_invoke_end, on_ready).
     """
 
-    @settings(max_examples=100)
     @given(func_name=func_names)
     def test_global_only_decorator_registers_globally(self, func_name: str) -> None:
         """When _make_global_only_decorator is applied, the function
@@ -267,7 +262,6 @@ class TestGlobalOnlyDecoratorRegistration:
         # Verify identity preservation
         assert result is hook_fn
 
-    @settings(max_examples=100)
     @given(func_names_list=st.lists(func_names, min_size=2, max_size=10, unique=True))
     def test_multiple_global_registrations_preserve_order(
         self, func_names_list: list[str]
@@ -299,7 +293,6 @@ class TestGlobalOnlyDecoratorRegistration:
 class TestMixedRegistrationScopes:
     """Property: mixing bare and parameterized forms places hooks in correct scope."""
 
-    @settings(max_examples=100)
     @given(func_name=func_names, job_name=job_names, event_name=event_names)
     def test_bare_and_parameterized_register_to_correct_scope(
         self, func_name: str, job_name: str, event_name: str

@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 from functualize._config.job_config import JobConfigView
@@ -79,44 +79,20 @@ num_renderers = st.integers(min_value=1, max_value=6)
 
 
 class FakeOutputRenderer:
-    """A fake OutputRenderer that records on_event calls."""
+    """A fake Surface that records the events fanned out to it.
+
+    Event fan-out goes through `Surface.handle_event` — `iter_fanout_surfaces`
+    filters registrations with `isinstance(s, Surface)`, so a recorder that
+    does not satisfy that runtime-checkable protocol is silently dropped and
+    every assertion here would read zero events.
+    """
 
     def __init__(self, name: str = "renderer", raise_exc: Exception | None = None):
         self.name = name
         self.events: list[StructuredEvent] = []
         self._raise_exc = raise_exc
 
-    def render_log(self, message: str, level: str) -> None:
-        pass
-
-    def render_phase(self, phase: str, status: str) -> None:
-        pass
-
-    def render_progress(self, current: int, total: int, label: str) -> None:
-        pass
-
-    def on_job_start(self, job_name: str, metadata: dict[str, Any]) -> None:
-        pass
-
-    def on_log(self, level: str, message: str) -> None:
-        pass
-
-    def on_status_change(self, old_status: Any, new_status: Any, message: str) -> None:
-        pass
-
-    def on_phase_change(self, step: Any, action: str) -> None:
-        pass
-
-    def on_invoke_start(self, child_job_name: str, kwargs: dict[str, Any]) -> None:
-        pass
-
-    def on_invoke_end(self, child_job_name: str, result: Any) -> None:
-        pass
-
-    def on_job_end(self, job_name: str, result: Any) -> None:
-        pass
-
-    def on_event(self, event: StructuredEvent) -> None:
+    def handle_event(self, event: StructuredEvent) -> None:
         if self._raise_exc is not None:
             raise self._raise_exc
         self.events.append(event)
@@ -172,7 +148,6 @@ class TestProperty29EmitDelegatesAndDispatches:
         resource=resource_strings,
         payload=st.dictionaries(keys=payload_keys, values=payload_values, max_size=5),
     )
-    @settings(max_examples=100)
     def test_event_bus_receives_emit(
         self, event_name: str, resource: str, payload: dict[str, Any]
     ) -> None:
@@ -192,7 +167,6 @@ class TestProperty29EmitDelegatesAndDispatches:
         resource=resource_strings,
         n=num_renderers,
     )
-    @settings(max_examples=100)
     def test_all_output_renderers_receive_event(
         self, event_name: str, resource: str, n: int
     ) -> None:
@@ -216,7 +190,6 @@ class TestProperty29EmitDelegatesAndDispatches:
         resource=resource_strings,
         payload=st.dictionaries(keys=payload_keys, values=payload_values, max_size=5),
     )
-    @settings(max_examples=100)
     def test_renderer_receives_structured_event_with_correct_fields(
         self, event_name: str, resource: str, payload: dict[str, Any]
     ) -> None:
@@ -245,7 +218,6 @@ class TestProperty29EmitDelegatesAndDispatches:
         n=num_renderers,
         payload=st.dictionaries(keys=payload_keys, values=payload_values, max_size=3),
     )
-    @settings(max_examples=100)
     def test_both_event_bus_and_renderers_receive_event(
         self, event_name: str, resource: str, n: int, payload: dict[str, Any]
     ) -> None:
@@ -285,7 +257,6 @@ class TestProperty30FrameworkEventsExcluded:
         resource=resource_strings,
         n=num_renderers,
     )
-    @settings(max_examples=100)
     def test_framework_events_not_dispatched_to_renderers(
         self, event_name: str, resource: str, n: int
     ) -> None:
@@ -312,7 +283,6 @@ class TestProperty30FrameworkEventsExcluded:
         event_name=custom_event_names,
         resource=resource_strings,
     )
-    @settings(max_examples=100)
     def test_custom_events_are_dispatched_to_renderers(
         self, event_name: str, resource: str
     ) -> None:
@@ -336,7 +306,6 @@ class TestProperty30FrameworkEventsExcluded:
         custom_name=custom_event_names,
         resource=resource_strings,
     )
-    @settings(max_examples=100)
     def test_framework_filtered_while_custom_dispatched(
         self, framework_name: str, custom_name: str, resource: str
     ) -> None:
@@ -377,7 +346,6 @@ class TestProperty31ExceptionIsolation:
         n=st.integers(min_value=2, max_value=6),
         data=st.data(),
     )
-    @settings(max_examples=100)
     def test_failing_renderer_does_not_prevent_remaining_dispatch(
         self, event_name: str, resource: str, n: int, data: st.DataObject
     ) -> None:
@@ -426,7 +394,6 @@ class TestProperty31ExceptionIsolation:
         resource=resource_strings,
         n=st.integers(min_value=1, max_value=6),
     )
-    @settings(max_examples=100)
     def test_all_failing_renderers_logged(
         self, event_name: str, resource: str, n: int
     ) -> None:
@@ -458,7 +425,6 @@ class TestProperty31ExceptionIsolation:
         event_name=custom_event_names,
         resource=resource_strings,
     )
-    @settings(max_examples=100)
     def test_exception_does_not_propagate_to_caller(
         self, event_name: str, resource: str
     ) -> None:
@@ -479,7 +445,6 @@ class TestProperty31ExceptionIsolation:
         event_name=custom_event_names,
         resource=resource_strings,
     )
-    @settings(max_examples=50)
     def test_event_bus_still_called_when_renderers_fail(
         self, event_name: str, resource: str
     ) -> None:

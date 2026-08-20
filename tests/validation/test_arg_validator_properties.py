@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 from pydantic import Field
 
@@ -140,7 +140,6 @@ class TestValidationIdempotence:
     """
 
     @given(kwargs=_valid_kwargs_for_field_fn())
-    @settings(max_examples=200)
     def test_double_validate_equals_single_validate(self, kwargs: dict[str, Any]):
         """Validating already-validated kwargs produces the same result.
 
@@ -167,7 +166,6 @@ class TestValidationIdempotence:
         extra_key=st.sampled_from(["extra", "debug", "verbose", "mode"]),
         extra_val=_kwargs_values,
     )
-    @settings(max_examples=200)
     def test_idempotence_with_extra_kwargs(
         self,
         name: str,
@@ -193,7 +191,6 @@ class TestValidationIdempotence:
         )
 
     @given(kwargs=_valid_kwargs_for_field_fn())
-    @settings(max_examples=200)
     def test_idempotence_with_defaults(self, kwargs: dict[str, Any]):
         """Idempotence holds for functions with default values on Field params.
 
@@ -218,7 +215,6 @@ class TestValidationIdempotence:
         plain_val=_string_values,
         number_val=_int_values,
     )
-    @settings(max_examples=200)
     def test_idempotence_with_mixed_function(
         self,
         validated_val: str,
@@ -258,7 +254,6 @@ class TestFieldOnlyOptIn:
     """
 
     @given(kwargs=_kwargs_dict())
-    @settings(max_examples=200)
     def test_no_field_returns_kwargs_unchanged(self, kwargs: dict[str, Any]):
         """Functions with plain type annotations pass kwargs through unmodified.
 
@@ -273,7 +268,6 @@ class TestFieldOnlyOptIn:
         )
 
     @given(kwargs=_kwargs_dict())
-    @settings(max_examples=200)
     def test_bare_function_returns_kwargs_unchanged(self, kwargs: dict[str, Any]):
         """Functions with no annotations at all pass kwargs through unmodified.
 
@@ -288,7 +282,6 @@ class TestFieldOnlyOptIn:
         )
 
     @given(kwargs=_kwargs_dict())
-    @settings(max_examples=200)
     def test_result_is_same_object_when_no_field(self, kwargs: dict[str, Any]):
         """When no Field() metadata exists, the returned dict IS the input dict.
 
@@ -305,7 +298,6 @@ class TestFieldOnlyOptIn:
         )
 
     @given(kwargs=_kwargs_dict())
-    @settings(max_examples=200)
     def test_bare_function_result_is_same_object(self, kwargs: dict[str, Any]):
         """Bare functions (no annotations) return the exact same dict object.
 
@@ -323,7 +315,6 @@ class TestFieldOnlyOptIn:
         plain_val=_string_values,
         number_val=_int_values,
     )
-    @settings(max_examples=200)
     def test_non_field_params_pass_through_in_mixed_function(
         self,
         plain_val: str,

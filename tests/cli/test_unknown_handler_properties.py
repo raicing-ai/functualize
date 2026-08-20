@@ -12,7 +12,7 @@ import sys
 from io import StringIO
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.main import _fuzzy_suggest, _handle_unknown, _levenshtein
@@ -51,7 +51,6 @@ class TestUnknownCommandErrorOutput:
     """
 
     @given(cmd=_cmd_name, job_names=_job_names_set)
-    @settings(max_examples=200)
     def test_output_contains_unrecognized_command(
         self, cmd: str, job_names: set[str]
     ) -> None:
@@ -78,7 +77,6 @@ class TestUnknownCommandErrorOutput:
         )
 
     @given(cmd=_cmd_name, job_names=_job_names_set)
-    @settings(max_examples=200)
     def test_output_contains_func_guidance(self, cmd: str, job_names: set[str]) -> None:
         """stderr output always contains 'func' guidance for full command list.
 
@@ -102,7 +100,6 @@ class TestUnknownCommandErrorOutput:
         )
 
     @given(cmd=_cmd_name, job_names=_job_names_set)
-    @settings(max_examples=200)
     def test_output_contains_both_command_and_guidance(
         self, cmd: str, job_names: set[str]
     ) -> None:
@@ -144,7 +141,6 @@ class TestSuggestionBoundedness:
     """
 
     @given(cmd=_cmd_name, job_names=_nonempty_job_names_set)
-    @settings(max_examples=200)
     def test_suggestions_at_most_five(self, cmd: str, job_names: set[str]) -> None:
         """_fuzzy_suggest returns at most 5 suggestions.
 
@@ -158,7 +154,6 @@ class TestSuggestionBoundedness:
         )
 
     @given(cmd=_cmd_name, job_names=_nonempty_job_names_set)
-    @settings(max_examples=200)
     def test_all_suggestions_are_members_of_job_names(
         self, cmd: str, job_names: set[str]
     ) -> None:
@@ -174,7 +169,6 @@ class TestSuggestionBoundedness:
             )
 
     @given(cmd=_cmd_name, job_names=_nonempty_job_names_set)
-    @settings(max_examples=200)
     def test_suggestions_bounded_with_large_job_set(
         self, cmd: str, job_names: set[str]
     ) -> None:
@@ -193,7 +187,6 @@ class TestSuggestionBoundedness:
             assert suggestion in job_names
 
     @given(cmd=_cmd_name)
-    @settings(max_examples=200)
     def test_empty_job_names_returns_empty_suggestions(self, cmd: str) -> None:
         """With empty job_names set, suggestions are always empty.
 
@@ -223,7 +216,6 @@ class TestFuzzyMatchCompleteness:
     """
 
     @given(job_name=_cmd_name, job_names=_nonempty_job_names_set)
-    @settings(max_examples=200)
     def test_levenshtein_within_2_appears_in_candidates(
         self, job_name: str, job_names: set[str]
     ) -> None:
@@ -270,7 +262,6 @@ class TestFuzzyMatchCompleteness:
         ),
         job_names=_nonempty_job_names_set,
     )
-    @settings(max_examples=200)
     def test_single_deletion_within_distance_2(
         self, base: str, job_names: set[str]
     ) -> None:
@@ -300,7 +291,6 @@ class TestFuzzyMatchCompleteness:
         insert_char=st.sampled_from("abcdefghijklmnopqrstuvwxyz"),
         job_names=_nonempty_job_names_set,
     )
-    @settings(max_examples=200)
     def test_single_insertion_within_distance_2(
         self, base: str, insert_char: str, job_names: set[str]
     ) -> None:
@@ -329,7 +319,6 @@ class TestFuzzyMatchCompleteness:
         ),
         job_names=_nonempty_job_names_set,
     )
-    @settings(max_examples=200)
     def test_two_substitutions_within_distance_2(
         self, base: str, job_names: set[str]
     ) -> None:

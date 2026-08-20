@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.cli_arg_parser import parse_cli_args_to_kwargs
@@ -150,7 +150,6 @@ class TestPreflightSummaryContentCompleteness:
 
     @pytest.mark.slow
     @given(data=field_sets())
-    @settings(max_examples=200)
     def test_rendered_output_contains_all_field_info(
         self,
         data: tuple[list[FakeFieldDescriptor], dict[str, str]],

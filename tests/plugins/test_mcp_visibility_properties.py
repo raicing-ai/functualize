@@ -26,7 +26,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 # Stub out functualize_ai to avoid ImportError when functualize_mcp.__init__
@@ -64,6 +64,10 @@ class FakeDescriptor:
     config_fields: list[FakeField] = field(default_factory=list)
     parameters: list[FakeField] = field(default_factory=list)
     declaration: Any = field(default_factory=dict)
+    # Plugin extension data. Real JobDescriptors always carry this (empty for
+    # most jobs) and the MCP translation path reads it, so a fake without it
+    # fails during generation rather than in an assertion.
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class FakeJobResult:
@@ -181,8 +185,7 @@ def mcp_config_for_descriptors_st(
     all_tags: set[str] = set()
     all_names: set[str] = set()
     for d in descriptors:
-        metadata = d.metadata
-        tags = getattr(metadata, "tags", None) or []
+        tags = getattr(d.declaration, "tags", None) or []
         all_tags.update(tags)
         all_names.add(d.name)
 
@@ -230,9 +233,13 @@ def compute_expected_visible(
     visible: set[str] = set()
 
     for d in descriptors:
-        metadata = d.metadata
-        visibility = getattr(metadata, "visibility", None)
-        tags = getattr(metadata, "tags", None) or []
+        # Visibility and tags come from the `@job` declaration. `metadata` is
+        # plugin extension data (a plain dict) and never carried these — read
+        # it here and every job silently looks external, because `getattr` on a
+        # dict returns the default rather than raising.
+        declaration = d.declaration
+        visibility = getattr(declaration, "visibility", None)
+        tags = getattr(declaration, "tags", None) or []
 
         # Rule 1: exclude internal
         if visibility == "internal":
@@ -272,7 +279,6 @@ class TestMCPDiscoverJobsVisibilityProperty:
     """
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_discover_jobs_returns_exactly_visible_set(
         self, data: st.DataObject
     ) -> None:
@@ -296,7 +302,6 @@ class TestMCPDiscoverJobsVisibilityProperty:
         assert actual_names == expected_names
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_internal_jobs_never_appear(self, data: st.DataObject) -> None:
         """For any MCPConfig, jobs with visibility="internal" are never
         returned by discover_jobs.
@@ -316,14 +321,13 @@ class TestMCPDiscoverJobsVisibilityProperty:
 
         # Verify no internal jobs appear
         for d in descriptors:
-            visibility = getattr(d.metadata, "visibility", None)
+            visibility = getattr(d.declaration, "visibility", None)
             if visibility == "internal":
                 assert d.name not in actual_names, (
                     f"Internal job '{d.name}' should not appear in discover_jobs"
                 )
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_excluded_jobs_never_appear(self, data: st.DataObject) -> None:
         """For any MCPConfig with exclude_jobs, those jobs are never
         returned by discover_jobs.
@@ -348,7 +352,6 @@ class TestMCPDiscoverJobsVisibilityProperty:
             )
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_include_tags_filters_correctly(self, data: st.DataObject) -> None:
         """When include_tags is non-empty, only jobs with at least one matching
         tag appear in discover_jobs results.
@@ -361,7 +364,7 @@ class TestMCPDiscoverJobsVisibilityProperty:
         # Force include_tags to be non-empty for this test
         all_tags: set[str] = set()
         for d in descriptors:
-            tags = getattr(d.metadata, "tags", None) or []
+            tags = getattr(d.declaration, "tags", None) or []
             all_tags.update(tags)
 
         assume(len(all_tags) > 0)
@@ -382,14 +385,13 @@ class TestMCPDiscoverJobsVisibilityProperty:
         # Every returned job must have at least one tag in include_tags
         for d in descriptors:
             if d.name in actual_names:
-                tags = getattr(d.metadata, "tags", None) or []
+                tags = getattr(d.declaration, "tags", None) or []
                 assert any(t in include_tags for t in tags), (
                     f"Job '{d.name}' appeared but has no matching include_tag. "
                     f"Job tags: {tags}, include_tags: {include_tags}"
                 )
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_discover_jobs_result_structure(self, data: st.DataObject) -> None:
         """Each job in discover_jobs result has name, description, and tags fields.
 
@@ -510,7 +512,6 @@ class TestMCPPartialConfigResolutionProperty:
     """
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_run_job_with_only_required_fields_succeeds(
         self, data: st.DataObject
     ) -> None:
@@ -552,7 +553,6 @@ class TestMCPPartialConfigResolutionProperty:
         assert result["status"] == "success"
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_run_job_with_full_config_succeeds(self, data: st.DataObject) -> None:
         """For any job with required and optional config fields, run_job
         with all fields provided succeeds without error.
@@ -588,7 +588,6 @@ class TestMCPPartialConfigResolutionProperty:
         assert result["status"] == "success"
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_run_job_with_empty_config_succeeds(self, data: st.DataObject) -> None:
         """For any visible job, run_job with empty config (None) succeeds
         when the app resolves missing fields from the config chain.
@@ -622,7 +621,6 @@ class TestMCPPartialConfigResolutionProperty:
         assert result["status"] == "success"
 
     @given(data=st.data())
-    @settings(max_examples=100)
     def test_partial_config_kwargs_passed_to_execute(self, data: st.DataObject) -> None:
         """For any job, the partial config dict is passed as kwargs to
         app.execute(), allowing the config chain to resolve missing fields.

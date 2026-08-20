@@ -21,8 +21,8 @@ uv run lint-imports
 # Fast tests (unit only)
 uv run pytest -x -q --no-header
 
-# Full tests (including property-based / hypothesis)
-uv run pytest --run-slow -x -q --no-header
+# Full tests (including property-based / hypothesis) — ~10 min, `ci` profile is what CI runs
+HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto -q --no-header
 
 # Run a single test file
 uv run pytest tests/engine/test_execution_engine.py
@@ -85,7 +85,7 @@ Message Convention, Pull Request Guidelines.
 | Proposing a new layer, public API surface, or dependency-rule change | ADR is mandatory: record the decision in `contributor/adr/` (template: `contributor/adr/000-template.md`) |
 | Opening a PR, writing a release commit, or unsure how to name a branch | `CONTRIBUTING.md` §§ Branching Strategy / Commit Message Convention / Pull Request Guidelines — the summary in **Git discipline** above covers the common case; read these for breaking changes, the release commit, and why the changelog is hand-written |
 | Understanding overall architecture | `contributor/architecture/overview.md` + `contributor/architecture/codemaps/` (module catalog, measured fan-in, entry points, data flow) |
-| About to add a setting, filter, cache, registry, or TUI panel — or to debug one that "resolves but does nothing" | `contributor/reference/pitfalls.md` — 15 defects that already shipped here, each with the shape of the trap named. Several passed review *and* a test; four were only visible on the warm-cache or lazy-boot path |
+| About to add a setting, filter, cache, registry, or TUI panel — or to debug one that "resolves but does nothing" | `contributor/reference/pitfalls.md` — 18 defects that already shipped here, each with the shape of the trap named. Several passed review *and* a test; four were only visible on the warm-cache or lazy-boot path |
 
 ## Architecture
 

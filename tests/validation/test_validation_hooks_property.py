@@ -17,7 +17,7 @@ from typing import Annotated, Any
 from unittest.mock import MagicMock
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 from pydantic import Field, ValidationError
 
@@ -142,7 +142,6 @@ class TestValidationBeforeHooks:
     """
 
     @given(invalid_kwargs=_invalid_kwargs_for_constrained_fn())
-    @settings(max_examples=200)
     def test_pre_execute_never_fires_on_invalid_kwargs(
         self, invalid_kwargs: dict[str, Any]
     ):
@@ -170,7 +169,6 @@ class TestValidationBeforeHooks:
         )
 
     @given(invalid_kwargs=_invalid_kwargs_for_constrained_fn())
-    @settings(max_examples=200)
     def test_after_failure_fires_with_validation_error(
         self, invalid_kwargs: dict[str, Any]
     ):
@@ -200,7 +198,6 @@ class TestValidationBeforeHooks:
         )
 
     @given(invalid_kwargs=_invalid_kwargs_for_constrained_fn())
-    @settings(max_examples=200)
     def test_function_never_executes_on_invalid_kwargs(
         self, invalid_kwargs: dict[str, Any]
     ):
@@ -239,7 +236,6 @@ class TestValidationBeforeHooks:
         )
 
     @given(invalid_kwargs=_invalid_kwargs_for_constrained_fn())
-    @settings(max_examples=200)
     def test_ordering_invariant_only_after_failure_in_event_log(
         self, invalid_kwargs: dict[str, Any]
     ):

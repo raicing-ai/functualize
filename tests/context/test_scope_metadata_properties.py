@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize.job._workflow_scope import WorkflowScope
@@ -113,7 +113,6 @@ class TestStateStoreReplacement:
             max_size=10,
         ),
     )
-    @settings(max_examples=200)
     def test_new_store_does_not_contain_previous_data(
         self, scope_id: str, initial_data: dict[str, object]
     ) -> None:
@@ -154,7 +153,6 @@ class TestStateStoreReplacement:
             max_size=10,
         ),
     )
-    @settings(max_examples=200)
     def test_subsequent_ops_use_new_store(
         self,
         scope_id: str,
@@ -197,7 +195,6 @@ class TestStateStoreReplacement:
         new_key=state_keys,
         new_value=json_values,
     )
-    @settings(max_examples=200)
     def test_new_store_get_set_delete_keys_operations(
         self,
         scope_id: str,
@@ -226,8 +223,11 @@ class TestStateStoreReplacement:
         # get via scope reads from new store
         assert scope.state_store.get(new_key) == new_value
 
-        # keys via scope reflects new store
-        assert new_key in scope.state_store
+        # keys via scope reflects new store. StateStoreProtocol exposes
+        # membership through `keys()` — which returns a list — and defines no
+        # `__contains__`, so a conforming store is not required to answer `in`.
+        store_keys = scope.state_store.keys()
+        assert new_key in store_keys
 
         # delete via scope operates on new store
         scope.state_store.delete(new_key)
@@ -242,7 +242,6 @@ class TestStateStoreReplacement:
             max_size=10,
         ),
     )
-    @settings(max_examples=200)
     def test_original_store_data_preserved_after_replacement(
         self, scope_id: str, initial_data: dict[str, object]
     ) -> None:
@@ -285,7 +284,6 @@ class TestJobResultMetadataMaxKeys:
             unique=True,
         ),
     )
-    @settings(max_examples=200)
     def test_metadata_never_exceeds_64_keys(self, keys: list[str]) -> None:
         """Writing more than 64 unique keys results in at most 64 keys stored.
 
@@ -311,7 +309,6 @@ class TestJobResultMetadataMaxKeys:
             unique=True,
         ),
     )
-    @settings(max_examples=200)
     def test_metadata_within_limit_all_stored(self, keys: list[str]) -> None:
         """Writing up to 64 unique keys stores all of them.
 
@@ -339,7 +336,6 @@ class TestJobResultMetadataMaxKeys:
             unique=True,
         ),
     )
-    @settings(max_examples=200)
     def test_excess_writes_silently_discarded(self, keys: list[str]) -> None:
         """Keys beyond the 64 limit are silently discarded (no exception raised).
 
@@ -373,7 +369,6 @@ class TestJobResultMetadataMaxKeys:
         ),
         update_index=st.integers(min_value=0, max_value=63),
     )
-    @settings(max_examples=200)
     def test_updating_existing_key_at_limit_succeeds(
         self, keys: list[str], update_index: int
     ) -> None:

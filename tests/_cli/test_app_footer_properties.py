@@ -9,7 +9,7 @@ Feature: tui-preflight-and-footer-polish
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.focus import FocusMode, FocusState, FocusZone
@@ -101,7 +101,6 @@ class TestStatusBarFormatOnTransition:
     """
 
     @given(transitions=_transition_sequence())
-    @settings(max_examples=100)
     def test_status_bar_format_after_each_transition(
         self, transitions: list[tuple[FocusMode, FocusZone]]
     ) -> None:
@@ -124,7 +123,6 @@ class TestStatusBarFormatOnTransition:
         mode=st.sampled_from(list(FocusMode)),
         zone=st.sampled_from(list(FocusZone)),
     )
-    @settings(max_examples=100)
     def test_status_bar_deterministic_for_same_state(
         self, mode: FocusMode, zone: FocusZone
     ) -> None:
@@ -142,7 +140,6 @@ class TestStatusBarFormatOnTransition:
         mode=st.sampled_from(list(FocusMode)),
         zone=st.sampled_from(list(FocusZone)),
     )
-    @settings(max_examples=100)
     def test_status_bar_contains_no_panel_hints(
         self, mode: FocusMode, zone: FocusZone
     ) -> None:

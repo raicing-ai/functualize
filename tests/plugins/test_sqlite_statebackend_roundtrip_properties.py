@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from functualize_state_sqlite import SQLiteStateBackend
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 # --- Strategies ---
@@ -67,7 +67,6 @@ class TestSQLiteStateBackendRoundTrip:
     **Validates: Requirements 4.8**
     """
 
-    @settings(max_examples=100)
     @given(key=state_keys, value=json_values)
     def test_set_then_get_returns_equal_value(self, key: str, value: Any):
         """**Validates: Requirements 4.8**
@@ -86,7 +85,6 @@ class TestSQLiteStateBackendRoundTrip:
         finally:
             backend.close()
 
-    @settings(max_examples=50)
     @given(key=state_keys, value=json_values)
     def test_overwrite_returns_latest_value(self, key: str, value: Any):
         """**Validates: Requirements 4.8**
@@ -107,7 +105,6 @@ class TestSQLiteStateBackendRoundTrip:
         finally:
             backend.close()
 
-    @settings(max_examples=50)
     @given(
         key=state_keys,
         value1=json_values,

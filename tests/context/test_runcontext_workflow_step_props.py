@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._config.job_config import JobConfigView
@@ -57,7 +57,6 @@ class TestJobPhaseRetrievalConsistency:
     """Property 15: Workflow Step Retrieval Consistency."""
 
     @given(name=step_names)
-    @settings(max_examples=100)
     def test_get_phase_returns_none_for_untracked(self, name: str) -> None:
         """get_phase(name) returns None for any untracked step name."""
         # **Validates: Requirements 8.4, 8.5**
@@ -65,7 +64,6 @@ class TestJobPhaseRetrievalConsistency:
         assert rc.get_phase(name) is None
 
     @given(name=step_names, message=step_messages, status=step_statuses)
-    @settings(max_examples=100)
     def test_get_phase_returns_tracked_step(
         self, name: str, message: str, status: RunStatus
     ) -> None:
@@ -90,7 +88,6 @@ class TestJobPhaseRetrievalConsistency:
             unique_by=lambda x: x[0],
         )
     )
-    @settings(max_examples=100)
     def test_current_phase_is_most_recently_tracked(
         self, steps: list[tuple[str, str, RunStatus]]
     ) -> None:
@@ -113,7 +110,6 @@ class TestJobPhaseRetrievalConsistency:
         status1=step_statuses,
         status2=step_statuses,
     )
-    @settings(max_examples=100)
     def test_current_phase_after_update(
         self,
         step_name: str,
@@ -145,7 +141,6 @@ class TestJobPhaseRetrievalConsistency:
             unique_by=lambda x: x[0],
         )
     )
-    @settings(max_examples=100)
     def test_get_phase_consistent_with_list(
         self, steps: list[tuple[str, str, RunStatus]]
     ) -> None:

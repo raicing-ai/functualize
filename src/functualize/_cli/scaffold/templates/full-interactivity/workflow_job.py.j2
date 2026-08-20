@@ -29,8 +29,8 @@ def run(config: WorkflowConfig, rc: RunContext) -> None:
     # Step 1: Validate inputs
     rc.track_phase("validate", "Validating configuration", RunStatus.RUNNING)
     if config.iterations < 1:
-        rc.track_phase("validate", "Invalid iteration count", RunStatus.FAILED)
-        rc.track_run_status(RunStatus.FAILED)
+        rc.track_phase("validate", "Invalid iteration count", RunStatus.FAILURE)
+        rc.track_run_status(RunStatus.FAILURE)
         return
     rc.track_phase("validate", "Configuration valid", RunStatus.SUCCESS)
 
@@ -39,8 +39,8 @@ def run(config: WorkflowConfig, rc: RunContext) -> None:
     for i in range(config.iterations):
         rc.log(f"Processing iteration {i + 1}/{config.iterations}")
         if i == config.fail_on:
-            rc.track_phase("process", f"Failed at iteration {i + 1}", RunStatus.FAILED)
-            rc.track_run_status(RunStatus.FAILED)
+            rc.track_phase("process", f"Failed at iteration {i + 1}", RunStatus.FAILURE)
+            rc.track_run_status(RunStatus.FAILURE)
             return
     rc.track_phase("process", "All iterations complete", RunStatus.SUCCESS)
 

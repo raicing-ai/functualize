@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize.app.adapters.cli import _run_fallback_chain
@@ -90,7 +90,6 @@ class TestFallbackChainFirstMatchWins:
         patterns=_fallback_patterns.filter(lambda ps: any(p[0] for p in ps)),
         args=_args_list,
     )
-    @settings(max_examples=300)
     def test_first_matching_fallback_execute_is_called(
         self, patterns: list[tuple[bool, int]], args: list[str]
     ):
@@ -128,7 +127,6 @@ class TestFallbackChainFirstMatchWins:
         patterns=_fallback_patterns.filter(lambda ps: any(p[0] for p in ps)),
         args=_args_list,
     )
-    @settings(max_examples=300)
     def test_fallbacks_after_first_match_not_consulted(
         self, patterns: list[tuple[bool, int]], args: list[str]
     ):
@@ -159,7 +157,6 @@ class TestFallbackChainFirstMatchWins:
         patterns=_fallback_patterns.filter(lambda ps: any(p[0] for p in ps)),
         args=_args_list,
     )
-    @settings(max_examples=300)
     def test_first_match_exit_code_is_returned(
         self, patterns: list[tuple[bool, int]], args: list[str]
     ):
@@ -189,7 +186,6 @@ class TestFallbackChainFirstMatchWins:
         patterns=_fallback_patterns.filter(lambda ps: not any(p[0] for p in ps)),
         args=_args_list,
     )
-    @settings(max_examples=300)
     def test_no_match_returns_exit_code_1(
         self, patterns: list[tuple[bool, int]], args: list[str]
     ):
@@ -219,7 +215,6 @@ class TestFallbackChainFirstMatchWins:
         patterns=_fallback_patterns.filter(lambda ps: any(p[0] for p in ps)),
         args=_args_list,
     )
-    @settings(max_examples=300)
     def test_fallbacks_before_first_match_have_matches_called(
         self, patterns: list[tuple[bool, int]], args: list[str]
     ):

@@ -23,7 +23,7 @@ from functualize_tasks._events import (
     TASKS_DELETED,
     TASKS_UPDATED,
 )
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 # --- Helpers ---
@@ -77,7 +77,6 @@ class TestTaskCreatedEventEmission:
     """
 
     @given(title=task_titles, linked_to=optional_task_links)
-    @settings(max_examples=200)
     def test_add_emits_created_event_with_correct_payload(
         self, title: str, linked_to: TaskLink | None
     ) -> None:
@@ -103,7 +102,6 @@ class TestTaskCreatedEventEmission:
         assert payload["linked_to"] == linked_to
 
     @given(titles=st.lists(task_titles, min_size=2, max_size=10))
-    @settings(max_examples=100)
     def test_each_add_emits_exactly_one_created_event(self, titles: list[str]) -> None:
         """Each Tasks.add() call emits exactly one created event.
 
@@ -132,7 +130,6 @@ class TestTaskUpdatedEventEmission:
     """
 
     @given(title=task_titles, new_status=non_pending_statuses)
-    @settings(max_examples=200)
     def test_update_emits_updated_event_with_status_change(
         self, title: str, new_status: TaskStatus
     ) -> None:
@@ -161,7 +158,6 @@ class TestTaskUpdatedEventEmission:
         first_status=st.sampled_from([TaskStatus.IN_PROGRESS, TaskStatus.BLOCKED]),
         second_status=st.sampled_from([TaskStatus.SKIPPED, TaskStatus.DONE]),
     )
-    @settings(max_examples=200)
     def test_sequential_updates_emit_correct_old_and_new_status(
         self, title: str, first_status: TaskStatus, second_status: TaskStatus
     ) -> None:
@@ -196,7 +192,6 @@ class TestTaskUpdatedEventEmission:
         assert second_payload["new_status"] == second_status.value
 
     @given(title=task_titles)
-    @settings(max_examples=100)
     def test_update_same_status_does_not_emit_event(self, title: str) -> None:
         """Updating a task to its current status does NOT emit an event.
 
@@ -225,7 +220,6 @@ class TestTaskCompletedEventEmission:
     """
 
     @given(title=task_titles)
-    @settings(max_examples=200)
     def test_update_to_done_emits_completed_event(self, title: str) -> None:
         """Tasks.update(status=DONE) emits both updated and completed events.
 
@@ -255,7 +249,6 @@ class TestTaskCompletedEventEmission:
             [TaskStatus.IN_PROGRESS, TaskStatus.BLOCKED, TaskStatus.SKIPPED]
         ),
     )
-    @settings(max_examples=200)
     def test_update_to_non_done_does_not_emit_completed(
         self, title: str, intermediate_status: TaskStatus
     ) -> None:
@@ -275,7 +268,6 @@ class TestTaskCompletedEventEmission:
         assert len(completed_events) == 0
 
     @given(title=task_titles)
-    @settings(max_examples=100)
     def test_completed_event_emitted_after_updated_event(self, title: str) -> None:
         """The completed event is emitted after the updated event (ordering).
 
@@ -311,7 +303,6 @@ class TestTaskDeletedEventEmission:
     """
 
     @given(title=task_titles)
-    @settings(max_examples=200)
     def test_delete_emits_deleted_event(self, title: str) -> None:
         """Tasks.delete() emits tasks.task.deleted with the task_id.
 
@@ -332,7 +323,6 @@ class TestTaskDeletedEventEmission:
         assert payload["task_id"] == task_id
 
     @given(titles=st.lists(task_titles, min_size=2, max_size=5))
-    @settings(max_examples=100)
     def test_deleting_multiple_tasks_emits_one_event_each(
         self, titles: list[str]
     ) -> None:

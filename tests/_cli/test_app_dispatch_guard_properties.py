@@ -14,7 +14,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.focus import FocusMode, FocusState, FocusZone
@@ -93,7 +93,6 @@ class TestCommandPaletteBlocksAllDispatch:
         zone=_focus_zone_strategy,
         key=_random_key_strategy,
     )
-    @settings(max_examples=100)
     def test_palette_active_returns_false(
         self, mode: FocusMode, zone: FocusZone, key: str
     ) -> None:
@@ -120,7 +119,6 @@ class TestCommandPaletteBlocksAllDispatch:
         zone=_focus_zone_strategy,
         key=_random_key_strategy,
     )
-    @settings(max_examples=100)
     def test_palette_active_no_action_called(
         self, mode: FocusMode, zone: FocusZone, key: str
     ) -> None:
@@ -148,7 +146,6 @@ class TestCommandPaletteBlocksAllDispatch:
         zone=_focus_zone_strategy,
         key=_random_key_strategy,
     )
-    @settings(max_examples=100)
     def test_palette_active_no_event_suppression(
         self, mode: FocusMode, zone: FocusZone, key: str
     ) -> None:
@@ -173,7 +170,6 @@ class TestCommandPaletteBlocksAllDispatch:
         zone=_focus_zone_strategy,
         key=_random_key_strategy,
     )
-    @settings(max_examples=100)
     def test_palette_active_no_focus_state_transition(
         self, mode: FocusMode, zone: FocusZone, key: str
     ) -> None:
@@ -219,7 +215,6 @@ class TestNormalModeSuppressesUnrecognizedPrintable:
     """
 
     @given(char=_printable_char_strategy, zone=_focus_zone_strategy)
-    @settings(max_examples=100)
     def test_unrecognized_printable_suppressed(
         self, char: str, zone: FocusZone
     ) -> None:
@@ -241,7 +236,6 @@ class TestNormalModeSuppressesUnrecognizedPrintable:
         )
 
     @given(char=_printable_char_strategy, zone=_focus_zone_strategy)
-    @settings(max_examples=100)
     def test_unrecognized_printable_event_stopped(
         self, char: str, zone: FocusZone
     ) -> None:
@@ -261,7 +255,6 @@ class TestNormalModeSuppressesUnrecognizedPrintable:
         event.stop.assert_called_once()
 
     @given(char=_printable_char_strategy, zone=_focus_zone_strategy)
-    @settings(max_examples=100)
     def test_unrecognized_printable_no_action_invoked(
         self, char: str, zone: FocusZone
     ) -> None:

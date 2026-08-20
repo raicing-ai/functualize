@@ -255,14 +255,19 @@ def extract_module(source_file: str, project_root: Path) -> ModuleExtraction:
         # cached operational contract (deps/cache/guards/exec/matrix).
         declaration = getattr(job_func, "__functualize_job__", None)
         workflow_shape = workflow_shape_of(job_func)
-        effective_group = normalize_name(
+        raw_group = (
             declaration.group
             if declaration is not None and declaration.group is not None
             else job_group
         )
+        effective_group = normalize_name(raw_group)
         descriptors.append(
             JobDescriptor(
-                name=qualified_name(effective_group, job_func.__name__),
+                # `qualified_name` normalizes internally and validates what it
+                # is handed as a Python identifier, so it takes the raw group —
+                # passing `effective_group` made it reject its own canonical
+                # form and broke every multi-word JOB_GROUP.
+                name=qualified_name(raw_group, job_func.__name__),
                 python_name=job_func.__name__,
                 group=effective_group,
                 function=job_func,

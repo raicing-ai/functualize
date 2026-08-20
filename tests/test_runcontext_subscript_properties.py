@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 from functualize._config.job_config import JobConfigView
@@ -104,7 +104,6 @@ class TestRunContextSubscriptAccessRoundTrip:
     @given(
         type_names=st.lists(_type_name(), min_size=1, max_size=5, unique=True),
     )
-    @settings(max_examples=200)
     def test_unqualified_type_roundtrip(self, type_names: list[str]):
         """rc[Type] returns the registered instance for any type T.
 
@@ -115,7 +114,7 @@ class TestRunContextSubscriptAccessRoundTrip:
 
         for name in type_names:
             t = _make_type(name)
-            inst = object()
+            inst = t()
             reg.provide(t, inst)
             types_and_instances.append((t, inst))
 
@@ -130,7 +129,6 @@ class TestRunContextSubscriptAccessRoundTrip:
         type_name=_type_name(),
         qualifiers=st.lists(_qualifier(), min_size=1, max_size=5, unique=True),
     )
-    @settings(max_examples=200)
     def test_qualified_type_roundtrip(self, type_name: str, qualifiers: list[str]):
         """rc[Type, "qualifier"] returns the qualified instance.
 
@@ -141,7 +139,7 @@ class TestRunContextSubscriptAccessRoundTrip:
         instances: dict[str, object] = {}
 
         for q in qualifiers:
-            inst = object()
+            inst = t()
             instances[q] = inst
             reg.provide(t, inst, qualifier=q)
 
@@ -160,7 +158,6 @@ class TestRunContextSubscriptAccessRoundTrip:
             max_size=8,
         ),
     )
-    @settings(max_examples=200)
     def test_named_value_roundtrip(self, named_entries: dict[str, int]):
         """rc["name"] returns the named value.
 
@@ -182,7 +179,6 @@ class TestRunContextSubscriptAccessRoundTrip:
         registered_names=st.lists(_type_name(), min_size=1, max_size=5, unique=True),
         unregistered_name=_type_name(),
     )
-    @settings(max_examples=200)
     def test_type_containment_true_when_registered(
         self, registered_names: list[str], unregistered_name: str
     ):
@@ -198,7 +194,7 @@ class TestRunContextSubscriptAccessRoundTrip:
         for name in registered_names:
             t = _make_type(name)
             type_map[name] = t
-            reg.provide(t, object())
+            reg.provide(t, t())
 
         unregistered_type = _make_type(unregistered_name)
 
@@ -217,7 +213,6 @@ class TestRunContextSubscriptAccessRoundTrip:
         registered_keys=st.lists(_named_key(), min_size=1, max_size=5, unique=True),
         unregistered_key=_named_key(),
     )
-    @settings(max_examples=200)
     def test_named_containment_true_when_registered(
         self, registered_keys: list[str], unregistered_key: str
     ):
@@ -246,7 +241,6 @@ class TestRunContextSubscriptAccessRoundTrip:
     @given(
         type_name=_type_name(),
     )
-    @settings(max_examples=200)
     def test_unqualified_missing_type_raises(self, type_name: str):
         """rc[Type] raises MissingProviderError for unregistered types.
 
@@ -266,7 +260,6 @@ class TestRunContextSubscriptAccessRoundTrip:
         type_name=_type_name(),
         qualifier=_qualifier(),
     )
-    @settings(max_examples=200)
     def test_qualified_missing_type_raises(self, type_name: str, qualifier: str):
         """rc[Type, "qualifier"] raises MissingProviderError for missing qualified type.
 
@@ -285,7 +278,6 @@ class TestRunContextSubscriptAccessRoundTrip:
     @given(
         name=_named_key(),
     )
-    @settings(max_examples=200)
     def test_named_missing_raises(self, name: str):
         """rc["name"] raises MissingProviderError for unregistered names.
 
@@ -305,7 +297,6 @@ class TestRunContextSubscriptAccessRoundTrip:
         named_keys=st.lists(_named_key(), min_size=1, max_size=4, unique=True),
         qualifiers=st.lists(_qualifier(), min_size=1, max_size=3, unique=True),
     )
-    @settings(max_examples=200)
     def test_mixed_registrations_all_accessible(
         self,
         type_names: list[str],
@@ -322,7 +313,7 @@ class TestRunContextSubscriptAccessRoundTrip:
         unqualified: list[tuple[type, object]] = []
         for name in type_names:
             t = _make_type(name)
-            inst = object()
+            inst = t()
             reg.provide(t, inst)
             unqualified.append((t, inst))
 
@@ -330,7 +321,7 @@ class TestRunContextSubscriptAccessRoundTrip:
         qualified_type = _make_type(type_names[0] + "Qualified")
         qualified_instances: dict[str, object] = {}
         for q in qualifiers:
-            inst = object()
+            inst = qualified_type()
             reg.provide(qualified_type, inst, qualifier=q)
             qualified_instances[q] = inst
 

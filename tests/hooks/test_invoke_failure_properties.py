@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._engine.result import JobResult
@@ -92,7 +92,6 @@ class TestInvokeFailureSemantics:
     **Validates: Requirements 21.2, 21.4, 21.6**
     """
 
-    @settings(max_examples=100)
     @given(
         status=all_run_statuses,
         child_job_name=job_names,
@@ -138,7 +137,6 @@ class TestInvokeFailureSemantics:
             # INVOKE_FAILURE must NOT have fired
             assert len(failure_fired) == 0
 
-    @settings(max_examples=100)
     @given(
         status=non_failure_statuses,
         child_job_name=job_names,
@@ -176,7 +174,6 @@ class TestInvokeFailureSemantics:
         # Must never fire for non-FAILURE statuses
         assert failure_count == 0
 
-    @settings(max_examples=100)
     @given(
         child_job_name=job_names,
         depth=invoke_depths,
@@ -232,7 +229,6 @@ class TestInvokeFailureSemantics:
 
         assert invocation_order == expected
 
-    @settings(max_examples=100)
     @given(
         status=non_failure_statuses,
         child_job_name=job_names,
@@ -280,7 +276,6 @@ class TestInvokeFailureSemantics:
         # INVOKE_END must have fired for each registered hook
         assert len(end_fired) == num_end_hooks
 
-    @settings(max_examples=100)
     @given(
         child_job_name=job_names,
         depth=invoke_depths,

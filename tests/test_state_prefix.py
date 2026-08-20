@@ -8,7 +8,7 @@ Tests Properties 10 and 11 from the Phase 1 design document.
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize.job._state import State
@@ -52,7 +52,6 @@ class TestStatePrefixFilterCorrectness:
     """Property 10: State prefix filter correctness."""
 
     @given(entries=state_entries, prefix=prefix_strings)
-    @settings(max_examples=100)
     def test_keys_with_prefix_returns_exactly_matching_keys(
         self, entries: dict[str, object], prefix: str
     ) -> None:
@@ -71,7 +70,6 @@ class TestStatePrefixFilterCorrectness:
         assert sorted(result) == sorted(expected)
 
     @given(entries=state_entries)
-    @settings(max_examples=100)
     def test_empty_prefix_returns_all_keys(self, entries: dict[str, object]) -> None:
         """keys(prefix='') returns all stored keys (equivalent to no args).
 
@@ -88,7 +86,6 @@ class TestStatePrefixFilterCorrectness:
         assert sorted(result_empty) == sorted(entries.keys())
 
     @given(entries=state_entries, prefix=st.text(min_size=1, max_size=30))
-    @settings(max_examples=100)
     def test_prefix_filter_is_case_sensitive(
         self, entries: dict[str, object], prefix: str
     ) -> None:
@@ -119,7 +116,6 @@ class TestStatePrefixFilterCorrectness:
             max_size=10,
         ),
     )
-    @settings(max_examples=100)
     def test_prefix_no_match_returns_empty_list(self, entries: dict[str, int]) -> None:
         """If no keys match the prefix, returns an empty list.
 
@@ -146,7 +142,6 @@ class TestStatePrefixTypeEnforcement:
     """Property 11: State prefix type enforcement."""
 
     @given(bad_prefix=non_string_values)
-    @settings(max_examples=100)
     def test_non_str_prefix_raises_type_error(self, bad_prefix: object) -> None:
         """Calling keys(prefix=non_str_value) raises TypeError.
 
@@ -158,7 +153,6 @@ class TestStatePrefixTypeEnforcement:
             state.keys(prefix=bad_prefix)  # type: ignore[arg-type]
 
     @given(bad_prefix=st.integers())
-    @settings(max_examples=100)
     def test_integer_prefix_raises_type_error(self, bad_prefix: int) -> None:
         """Integer prefix raises TypeError with descriptive message.
 

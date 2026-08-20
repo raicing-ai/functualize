@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize.app.adapters import (
@@ -436,7 +436,6 @@ class TestAdapterPluginStructuralTypingProperty:
         has_run=st.booleans(),
         has_shutdown=st.booleans(),
     )
-    @settings(max_examples=200)
     def test_protocol_satisfaction_requires_all_members(
         self,
         has_name: bool,
@@ -489,7 +488,6 @@ class TestAdapterPluginStructuralTypingProperty:
         description=_description_strategy,
         adapter_type=_adapter_type_strategy,
     )
-    @settings(max_examples=100)
     def test_valid_adapters_always_satisfy_protocol(
         self,
         name: str,
@@ -523,7 +521,6 @@ class TestAdapterPluginStructuralTypingProperty:
         description=_description_strategy,
         adapter_type=_adapter_type_strategy,
     )
-    @settings(max_examples=100)
     def test_validate_adapter_does_not_raise_for_valid_instances(
         self,
         name: str,
@@ -561,7 +558,6 @@ class TestAdapterPluginStructuralTypingProperty:
         has_run=st.booleans(),
         has_shutdown=st.booleans(),
     )
-    @settings(max_examples=200)
     def test_validate_adapter_raises_type_error_for_non_conforming(
         self,
         has_name: bool,
@@ -622,7 +618,6 @@ class TestAdapterPluginStructuralTypingProperty:
             unique=True,
         )
     )
-    @settings(max_examples=50)
     def test_extra_members_do_not_affect_protocol_satisfaction(
         self, extra_methods: list[str]
     ):

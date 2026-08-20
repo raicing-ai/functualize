@@ -13,6 +13,7 @@ For any timeout value < 0.1, rc.invoke() raises ValueError.
 
 from __future__ import annotations
 
+import itertools
 import sys
 import textwrap
 
@@ -22,19 +23,32 @@ from hypothesis import strategies as st
 
 from functualize._app.state import AppState
 from functualize._events.hooks import HookEvent
+from functualize._types.naming import normalize_segment
 from functualize.app.config import ExecutionConfig, JobSources
 from functualize.app.core import FunctualizeApp
 
 # --- Helpers ---
 
 
+_jobs_dir_counter = itertools.count()
+
+
 def _write_jobs(tmp_path, source: str) -> str:
-    """Helper to write job files and return the directory path."""
-    jobs_dir = tmp_path / "jobs"
+    """Helper to write job files and return the directory path.
+
+    Each call gets its own directory and module name. `tmp_path` is
+    function-scoped, so every Hypothesis example for a test reuses it; writing
+    to one fixed path meant successive examples rewrote the same file, and
+    discovery caches descriptors against (path, mtime). Two examples landing in
+    the same mtime tick would serve the first example's descriptors to the
+    second, so the job that ran was not the job the example had just written.
+    """
+    n = next(_jobs_dir_counter)
+    jobs_dir = tmp_path / f"jobs_{n}"
     jobs_dir.mkdir(exist_ok=True)
-    (jobs_dir / "test_jobs.py").write_text(textwrap.dedent(source))
-    # Clear any cached module to avoid stale imports across hypothesis examples
-    sys.modules.pop("test_jobs", None)
+    module_name = f"test_jobs_{n}"
+    (jobs_dir / f"{module_name}.py").write_text(textwrap.dedent(source))
+    sys.modules.pop(module_name, None)
     return str(jobs_dir)
 
 
@@ -94,9 +108,7 @@ class TestInvokeHookMatchedPairs:
         AppState.set("environment", "DEV")
 
     @settings(
-        max_examples=30,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-        deadline=30000,
+        suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=30000
     )
     @given(depth=nesting_depths)
     def test_nested_invokes_produce_matched_pairs(self, depth: int, tmp_path):
@@ -153,13 +165,18 @@ class TestInvokeHookMatchedPairs:
         assert len(starts) == depth
         assert len(ends) == depth
 
+        # Hooks report the *canonical* job name: `leaf_job` registers, and is
+        # therefore announced, as `leaf-job`. The Python spelling here only
+        # names the generated function.
+        canonical_names = [normalize_segment(n) for n in job_names]
+
         # Each START should have a matching END with the same (child_name, depth)
         assert set(starts) == set(ends)
 
         # Stack order: STARTs come in order of increasing depth,
         # ENDs come in order of decreasing depth
         for i in range(depth):
-            expected_child = job_names[i + 1]
+            expected_child = canonical_names[i + 1]
             expected_depth = i + 1
             assert starts[i] == (expected_child, expected_depth)
             # ENDs are in reverse order
@@ -169,16 +186,14 @@ class TestInvokeHookMatchedPairs:
         # START(D), END(D), ..., END(2), END(1)
         expected_events = []
         for i in range(depth):
-            expected_events.append(("START", job_names[i + 1], i + 1))
+            expected_events.append(("START", canonical_names[i + 1], i + 1))
         for i in range(depth - 1, -1, -1):
-            expected_events.append(("END", job_names[i + 1], i + 1))
+            expected_events.append(("END", canonical_names[i + 1], i + 1))
 
         assert events == expected_events
 
     @settings(
-        max_examples=20,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-        deadline=30000,
+        suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=30000
     )
     @given(
         num_siblings=st.integers(min_value=2, max_value=4),
@@ -238,8 +253,9 @@ class TestInvokeHookMatchedPairs:
         for i in range(num_siblings):
             start_event = events[i * 2]
             end_event = events[i * 2 + 1]
-            assert start_event == ("START", child_names[i], 1)
-            assert end_event == ("END", child_names[i], 1)
+            canonical_child = normalize_segment(child_names[i])
+            assert start_event == ("START", canonical_child, 1)
+            assert end_event == ("END", canonical_child, 1)
 
 
 # --- Property 22 Tests ---
@@ -261,9 +277,7 @@ class TestInvokeTimeoutValidation:
         AppState.set("environment", "DEV")
 
     @settings(
-        max_examples=100,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-        deadline=30000,
+        suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=30000
     )
     @given(timeout_val=invalid_timeouts)
     def test_timeout_below_minimum_raises_value_error(
@@ -297,9 +311,7 @@ class TestInvokeTimeoutValidation:
         assert result.exit_code != 0 or result.exception is not None
 
     @settings(
-        max_examples=50,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-        deadline=30000,
+        suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=30000
     )
     @given(timeout_val=valid_timeouts)
     def test_timeout_at_or_above_minimum_accepted(self, timeout_val: float, tmp_path):
@@ -334,9 +346,7 @@ class TestInvokeTimeoutValidation:
         )
 
     @settings(
-        max_examples=50,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-        deadline=30000,
+        suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=30000
     )
     @given(
         timeout_val=st.floats(

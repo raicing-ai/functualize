@@ -12,7 +12,7 @@ Tests SmartBar._set_readiness() from functualize._cli.tui.bar:
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.bar import BarReadiness, SmartBar
@@ -56,7 +56,6 @@ class TestCSSClassExclusivity:
     """
 
     @given(readiness=_readiness_strategy)
-    @settings(max_examples=200)
     def test_single_transition_has_exactly_one_readiness_class(
         self,
         readiness: BarReadiness,
@@ -82,7 +81,6 @@ class TestCSSClassExclusivity:
         )
 
     @given(transitions=_transition_sequence)
-    @settings(max_examples=200)
     def test_sequence_of_transitions_ends_with_exactly_one_class(
         self,
         transitions: list[BarReadiness],
@@ -110,7 +108,6 @@ class TestCSSClassExclusivity:
         )
 
     @given(readiness=_readiness_strategy)
-    @settings(max_examples=200)
     def test_no_stale_readiness_classes_after_transition(
         self,
         readiness: BarReadiness,
@@ -138,7 +135,6 @@ class TestCSSClassExclusivity:
         first=_readiness_strategy,
         second=_readiness_strategy,
     )
-    @settings(max_examples=200)
     def test_transition_between_any_two_states_is_exclusive(
         self,
         first: BarReadiness,

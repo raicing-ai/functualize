@@ -13,11 +13,12 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._discovery.providers import Job, StaticProvider
 from functualize._primitives.pre_filter import ModulePreFilter
+from functualize._types.naming import normalize_name, normalize_segment
 from functualize._types.protocols import JobProvider, JobTransform
 
 if TYPE_CHECKING:
@@ -46,12 +47,18 @@ def _make_class_with_methods(
 # Strategy: generate valid Python identifiers for function names
 _identifier_strategy = st.from_regex(r"[a-z][a-z0-9_]{0,15}", fullmatch=True)
 
-# Strategy: generate a list of unique function names (for StaticProvider)
+# Strategy: generate a list of function names unique *in canonical space*.
+#
+# Job identity is the canonical name, not the Python name: `normalize_segment`
+# maps `_` to `-` and strips the result, so `a_`, `a__` and `a` all denote the
+# same job and registering two of them is a collision, not two jobs. Uniqueness
+# therefore has to be stated over `normalize_segment`, and names that normalize
+# to empty are not addressable at all.
 _unique_names_strategy = st.lists(
-    _identifier_strategy,
+    _identifier_strategy.filter(lambda n: normalize_segment(n) != ""),
     min_size=1,
     max_size=20,
-    unique=True,
+    unique_by=normalize_segment,
 )
 
 # Strategy: boolean for whether to use Job dataclass vs plain callable
@@ -87,7 +94,6 @@ class TestProtocolStructuralTypingCorrectness:
         has_list_jobs=st.booleans(),
         has_get_job=st.booleans(),
     )
-    @settings(max_examples=100)
     def test_job_provider_structural_typing(
         self, has_list_jobs: bool, has_get_job: bool
     ):
@@ -108,7 +114,6 @@ class TestProtocolStructuralTypingCorrectness:
         assert isinstance(instance, JobProvider) == should_pass
 
     @given(data=st.data())
-    @settings(max_examples=50)
     def test_job_provider_concrete_implementations_satisfy_protocol(self, data: Any):
         """Concrete implementations with correct signatures satisfy JobProvider.
 
@@ -137,7 +142,6 @@ class TestProtocolStructuralTypingCorrectness:
         has_transform_list=st.booleans(),
         has_transform_get=st.booleans(),
     )
-    @settings(max_examples=100)
     def test_job_transform_structural_typing(
         self, has_transform_list: bool, has_transform_get: bool
     ):
@@ -158,7 +162,6 @@ class TestProtocolStructuralTypingCorrectness:
         assert isinstance(instance, JobTransform) == should_pass
 
     @given(data=st.data())
-    @settings(max_examples=50)
     def test_job_transform_concrete_implementations_satisfy_protocol(self, data: Any):
         """Concrete implementations with correct signatures satisfy JobTransform.
 
@@ -182,7 +185,6 @@ class TestProtocolStructuralTypingCorrectness:
     # --- ModulePreFilter Protocol ---
 
     @given(has_should_import=st.booleans())
-    @settings(max_examples=100)
     def test_module_pre_filter_structural_typing(self, has_should_import: bool):
         """Classes with should_import satisfy ModulePreFilter; missing method fails.
 
@@ -198,7 +200,6 @@ class TestProtocolStructuralTypingCorrectness:
         assert isinstance(instance, ModulePreFilter) == has_should_import
 
     @given(data=st.data())
-    @settings(max_examples=50)
     def test_module_pre_filter_concrete_implementation(self, data: Any):
         """Concrete ModulePreFilter implementations satisfy the protocol.
 
@@ -219,7 +220,6 @@ class TestProtocolStructuralTypingCorrectness:
         has_get_job=st.booleans(),
         has_should_import=st.booleans(),
     )
-    @settings(max_examples=200)
     def test_class_can_satisfy_multiple_protocols(
         self, has_list_jobs: bool, has_get_job: bool, has_should_import: bool
     ):
@@ -251,7 +251,6 @@ class TestProtocolStructuralTypingCorrectness:
             _identifier_strategy, min_size=0, max_size=5, unique=True
         )
     )
-    @settings(max_examples=100)
     def test_extra_methods_do_not_break_protocol(self, extra_methods: list[str]):
         """Classes with extra methods beyond protocol requirements still satisfy protocols.
 
@@ -289,7 +288,6 @@ class TestStaticProviderRoundTrip:
     """
 
     @given(names=_unique_names_strategy)
-    @settings(max_examples=200)
     def test_plain_callables_produce_exact_count(self, names: list[str]):
         """StaticProvider with N plain callables produces exactly N descriptors.
 
@@ -309,7 +307,6 @@ class TestStaticProviderRoundTrip:
         assert len(descriptors) == len(names)
 
     @given(names=_unique_names_strategy)
-    @settings(max_examples=200)
     def test_plain_callables_get_job_round_trip(self, names: list[str]):
         """get_job(name) returns descriptor for each callable's __name__.
 
@@ -327,10 +324,9 @@ class TestStaticProviderRoundTrip:
         for name in names:
             descriptor = provider.get_job(name)
             assert descriptor is not None
-            assert descriptor.name == name
+            assert descriptor.name == normalize_segment(name)
 
     @given(names=_unique_names_strategy)
-    @settings(max_examples=200)
     def test_get_job_returns_none_for_unknown(self, names: list[str]):
         """get_job() returns None for names not in the provider.
 
@@ -351,13 +347,17 @@ class TestStaticProviderRoundTrip:
     @given(
         names=_unique_names_strategy,
         overrides=st.lists(
-            st.tuples(_identifier_strategy, _optional_group),
+            st.tuples(
+                _identifier_strategy.filter(lambda n: normalize_segment(n) != ""),
+                _optional_group,
+            ),
             min_size=1,
             max_size=10,
-            unique_by=lambda x: x[0],
+            # Canonical name is identity, so two overrides differing only by
+            # underscores are the same job, not two.
+            unique_by=lambda x: normalize_segment(x[0]),
         ),
     )
-    @settings(max_examples=200)
     def test_job_dataclass_name_override(
         self, names: list[str], overrides: list[tuple[str, str | None]]
     ):
@@ -384,11 +384,10 @@ class TestStaticProviderRoundTrip:
         for override_name, group in overrides:
             descriptor = provider.get_job(override_name)
             assert descriptor is not None
-            assert descriptor.name == override_name
-            assert descriptor.group == group
+            assert descriptor.name == normalize_segment(override_name)
+            assert descriptor.group == normalize_name(group)
 
     @given(names=_unique_names_strategy)
-    @settings(max_examples=200)
     def test_job_dataclass_uses_function_name_when_name_is_none(self, names: list[str]):
         """Job dataclass with name=None falls back to function.__name__.
 
@@ -406,10 +405,9 @@ class TestStaticProviderRoundTrip:
         for name in names:
             descriptor = provider.get_job(name)
             assert descriptor is not None
-            assert descriptor.name == name
+            assert descriptor.name == normalize_segment(name)
 
     @given(names=_unique_names_strategy)
-    @settings(max_examples=100)
     def test_static_provider_satisfies_job_provider_protocol(self, names: list[str]):
         """StaticProvider satisfies the JobProvider Protocol via structural typing.
 
@@ -429,7 +427,6 @@ class TestStaticProviderRoundTrip:
         names=_unique_names_strategy,
         use_job=st.lists(st.booleans(), min_size=1, max_size=20),
     )
-    @settings(max_examples=200)
     def test_mixed_callables_and_job_dataclass(
         self, names: list[str], use_job: list[bool]
     ):
@@ -461,10 +458,9 @@ class TestStaticProviderRoundTrip:
         for name in expected_names:
             descriptor = provider.get_job(name)
             assert descriptor is not None
-            assert descriptor.name == name
+            assert descriptor.name == normalize_segment(name)
 
     @given(names=_unique_names_strategy)
-    @settings(max_examples=100)
     def test_list_jobs_and_get_job_consistency(self, names: list[str]):
         """Every descriptor from list_jobs() is retrievable via get_job(name).
 
@@ -486,12 +482,15 @@ class TestStaticProviderRoundTrip:
             assert provider.get_job(name) is not None
 
         # No phantom jobs: get_job only returns for listed names
-        assert listed_names == set(names)
+        assert listed_names == {normalize_segment(n) for n in names}
 
     @given(names=_unique_names_strategy)
-    @settings(max_examples=100)
     def test_static_provider_zero_io(self, names: list[str]):
-        """StaticProvider produces descriptors with source_file='<static>' (zero I/O).
+        """StaticProvider produces descriptors with source='<static>' (zero I/O).
+
+        `source` carries the sentinel; `source_file` stays empty because it is
+        the filesystem path used for cache invalidation and an in-memory
+        function has no file to stat.
 
         **Validates: Requirements 23.1**
         """
@@ -504,5 +503,6 @@ class TestStaticProviderRoundTrip:
 
         provider = StaticProvider(functions=functions)
         for desc in provider.list_jobs():
-            assert desc.source_file == "<static>"
+            assert desc.source == "<static>"
+            assert desc.source_file == ""
             assert desc.source_mtime == 0.0

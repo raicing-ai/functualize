@@ -11,7 +11,7 @@ Validates: Requirements 8.1, 8.3, 10.1, 10.5
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.completions.provenance import ProvenanceInfo
@@ -142,7 +142,6 @@ class TestProvenanceBadgeAssignmentTotal:
             alphabet="abcdefghijklmnopqrstuvwxyz ", min_size=1, max_size=15
         ),
     )
-    @settings(max_examples=200)
     def test_provenance_info_always_valid(
         self, source_type, display_label, badge_style
     ):

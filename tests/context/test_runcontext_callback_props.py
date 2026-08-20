@@ -19,7 +19,7 @@ import logging
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._config.job_config import JobConfigView
@@ -89,7 +89,6 @@ class TestStatusCallbackErrorIsolation:
         data=st.data(),
         target_status=terminal_statuses,
     )
-    @settings(max_examples=100)
     def test_failing_callback_does_not_prevent_subsequent_callbacks(
         self, n: int, data: st.DataObject, target_status: RunStatus
     ) -> None:
@@ -133,7 +132,6 @@ class TestStatusCallbackErrorIsolation:
         assert invoked == list(range(n))
 
     @given(target_status=terminal_statuses)
-    @settings(max_examples=50)
     def test_failing_callback_does_not_prevent_status_transition(
         self, target_status: RunStatus
     ) -> None:
@@ -156,7 +154,6 @@ class TestStatusCallbackErrorIsolation:
         target_status=terminal_statuses,
         err_msg=error_messages,
     )
-    @settings(max_examples=50)
     def test_failing_callback_exception_logged_at_warning(
         self, target_status: RunStatus, err_msg: str
     ) -> None:
@@ -181,7 +178,6 @@ class TestStatusCallbackErrorIsolation:
         n=st.integers(min_value=2, max_value=5),
         target_status=terminal_statuses,
     )
-    @settings(max_examples=50)
     def test_multiple_failing_callbacks_all_isolated(
         self, n: int, target_status: RunStatus
     ) -> None:
@@ -218,7 +214,6 @@ class TestStepCallbackErrorIsolation:
         data=st.data(),
         step_name=step_names,
     )
-    @settings(max_examples=100)
     def test_failing_callback_does_not_prevent_subsequent_callbacks(
         self, n: int, data: st.DataObject, step_name: str
     ) -> None:
@@ -258,7 +253,6 @@ class TestStepCallbackErrorIsolation:
         assert invoked == list(range(n))
 
     @given(step_name=step_names)
-    @settings(max_examples=50)
     def test_failing_callback_does_not_prevent_step_tracking(
         self, step_name: str
     ) -> None:
@@ -284,7 +278,6 @@ class TestStepCallbackErrorIsolation:
         step_name=step_names,
         err_msg=error_messages,
     )
-    @settings(max_examples=50)
     def test_failing_callback_exception_logged_at_warning(
         self, step_name: str, err_msg: str
     ) -> None:
@@ -309,7 +302,6 @@ class TestStepCallbackErrorIsolation:
         n=st.integers(min_value=2, max_value=5),
         step_name=step_names,
     )
-    @settings(max_examples=50)
     def test_multiple_failing_callbacks_all_isolated(
         self, n: int, step_name: str
     ) -> None:
@@ -346,7 +338,6 @@ class TestLogCallbackErrorIsolation:
         data=st.data(),
         message=log_messages,
     )
-    @settings(max_examples=100)
     def test_failing_callback_does_not_prevent_subsequent_callbacks(
         self, n: int, data: st.DataObject, message: str
     ) -> None:
@@ -387,7 +378,6 @@ class TestLogCallbackErrorIsolation:
         assert invoked == list(range(n))
 
     @given(message=log_messages)
-    @settings(max_examples=50)
     def test_failing_callback_does_not_prevent_log_emission(self, message: str) -> None:
         """The underlying log emission completes even when a callback raises.
 
@@ -408,7 +398,6 @@ class TestLogCallbackErrorIsolation:
         message=log_messages,
         err_msg=error_messages,
     )
-    @settings(max_examples=50)
     def test_failing_callback_exception_logged_at_warning(
         self, message: str, err_msg: str
     ) -> None:
@@ -433,7 +422,6 @@ class TestLogCallbackErrorIsolation:
         n=st.integers(min_value=2, max_value=5),
         message=log_messages,
     )
-    @settings(max_examples=50)
     def test_multiple_failing_callbacks_all_isolated(
         self, n: int, message: str
     ) -> None:

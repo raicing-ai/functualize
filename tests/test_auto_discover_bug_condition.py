@@ -87,7 +87,7 @@ class TestAncestorConfigMissing:
             f"Expected {jobs_dir.resolve()} in result, got {result.directories}"
         )
 
-    @settings(max_examples=20, deadline=None)
+    @settings(deadline=None)
     @given(depth=tree_depth_st)
     def test_ancestor_config_at_variable_depth(self, depth: int) -> None:
         """Property: for any depth 1-4, config in ancestor is discovered.
@@ -316,7 +316,7 @@ class TestCLIDivergence:
 class TestBugConditionProperty:
     """Property test combining all bug conditions with Hypothesis."""
 
-    @settings(max_examples=30, deadline=None)
+    @settings(deadline=None)
     @given(
         depth=st.integers(min_value=1, max_value=4),
         has_convention_jobs=st.booleans(),

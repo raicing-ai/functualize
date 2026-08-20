@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._events.perf import PerfTimeline
@@ -47,7 +47,6 @@ class TestMarkPrefixingCorrectness:
     """
 
     @given(job_name=job_name_strategy, mark_name=mark_name_strategy)
-    @settings(max_examples=100)
     def test_perf_mark_prefixes_with_job_name(
         self, job_name: str, mark_name: str
     ) -> None:
@@ -68,7 +67,6 @@ class TestMarkPrefixingCorrectness:
         )
 
     @given(job_name=job_name_strategy, mark_name=mark_name_strategy)
-    @settings(max_examples=100)
     def test_perf_mark_start_prefixes_with_job_name_and_start_suffix(
         self, job_name: str, mark_name: str
     ) -> None:
@@ -89,7 +87,6 @@ class TestMarkPrefixingCorrectness:
         )
 
     @given(job_name=job_name_strategy, mark_name=mark_name_strategy)
-    @settings(max_examples=100)
     def test_perf_mark_end_prefixes_with_job_name_and_end_suffix(
         self, job_name: str, mark_name: str
     ) -> None:

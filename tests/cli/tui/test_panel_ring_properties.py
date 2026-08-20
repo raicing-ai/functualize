@@ -12,7 +12,7 @@ Property 6: Panel ring navigation wraps correctly
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.panels.ring import PanelRing
@@ -50,7 +50,6 @@ class TestPanelRingNavigationWraps:
     """Property 6: Panel ring navigation wraps correctly."""
 
     @given(data=st.data())
-    @settings(max_examples=200)
     def test_next_n_times_returns_to_start(self, data: st.DataObject) -> None:
         """For a ring of size N, calling next() N times returns to start.
 
@@ -65,7 +64,6 @@ class TestPanelRingNavigationWraps:
         assert ring.current_index == start
 
     @given(data=st.data())
-    @settings(max_examples=200)
     def test_prev_n_times_returns_to_start(self, data: st.DataObject) -> None:
         """For a ring of size N, calling prev() N times returns to start.
 
@@ -80,7 +78,6 @@ class TestPanelRingNavigationWraps:
         assert ring.current_index == start
 
     @given(data=st.data())
-    @settings(max_examples=200)
     def test_next_index_always_in_bounds(self, data: st.DataObject) -> None:
         """After any single next() call, index is always in [0, N-1].
 
@@ -94,7 +91,6 @@ class TestPanelRingNavigationWraps:
         assert 0 <= ring.current_index < n
 
     @given(data=st.data())
-    @settings(max_examples=200)
     def test_prev_index_always_in_bounds(self, data: st.DataObject) -> None:
         """After any single prev() call, index is always in [0, N-1].
 
@@ -108,7 +104,6 @@ class TestPanelRingNavigationWraps:
         assert 0 <= ring.current_index < n
 
     @given(prefix=st.sampled_from(["R", "E"]))
-    @settings(max_examples=20)
     def test_empty_ring_next_is_noop(self, prefix: str) -> None:
         """For empty rings, next() is a no-op (index stays 0).
 
@@ -122,7 +117,6 @@ class TestPanelRingNavigationWraps:
         assert result == 0
 
     @given(prefix=st.sampled_from(["R", "E"]))
-    @settings(max_examples=20)
     def test_empty_ring_prev_is_noop(self, prefix: str) -> None:
         """For empty rings, prev() is a no-op (index stays 0).
 

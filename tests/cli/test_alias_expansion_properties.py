@@ -79,7 +79,6 @@ class TestAliasExpansionCorrectness:
     """
 
     @given(aliases=_alias_mapping)
-    @settings(max_examples=200)
     def test_extract_aliases_returns_alias_mapping(
         self, aliases: dict[str, str]
     ) -> None:
@@ -93,10 +92,7 @@ class TestAliasExpansionCorrectness:
         assert result == aliases, f"Expected aliases={aliases}, got {result}"
 
     @given(aliases=_alias_mapping)
-    @settings(
-        max_examples=200,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_handle_job_expands_alias_to_target(
         self, aliases: dict[str, str], tmp_path: Path
     ) -> None:
@@ -181,10 +177,7 @@ class TestAliasExpansionCorrectness:
             )
 
     @given(aliases=_alias_mapping)
-    @settings(
-        max_examples=200,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_alias_expansion_never_executes_alias_named_job(
         self, aliases: dict[str, str], tmp_path: Path
     ) -> None:
@@ -277,7 +270,6 @@ class TestAliasExpansionCorrectness:
             max_size=5,
         )
     )
-    @settings(max_examples=200)
     def test_extract_aliases_returns_empty_for_missing_section(
         self, config_data: dict[str, Any]
     ) -> None:
@@ -301,7 +293,6 @@ class TestAliasExpansionCorrectness:
             st.none(),
         )
     )
-    @settings(max_examples=200)
     def test_extract_aliases_returns_empty_for_non_dict_value(
         self, bad_aliases: Any
     ) -> None:

@@ -16,7 +16,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.panels.job_browser import JobBrowserPanel
@@ -68,11 +68,15 @@ _nonempty_job_list = st.lists(_job_descriptor, min_size=1, max_size=50)
 
 
 def _build_panel(jobs: list[JobDescriptor]) -> JobBrowserPanel:
-    """Build a JobBrowserPanel with jobs set directly (no mounted DataTable)."""
+    """Build a JobBrowserPanel with jobs set (no mounted DataTable).
+
+    Goes through the real `set_jobs`, which is safe without a table —
+    `_populate_table` no-ops while `_table is None`. Assigning `_jobs`
+    directly leaves `_filtered_jobs` empty, and selection reads the filtered
+    list, so every selection silently became a no-op.
+    """
     panel = JobBrowserPanel(id="selection-test-panel")
-    panel._jobs = list(jobs)
-    panel._row_count = len(jobs)
-    panel._cursor_row = 0
+    panel.set_jobs(list(jobs))
     return panel
 
 
@@ -93,7 +97,6 @@ class TestSelectionCorrectness:
         jobs=_nonempty_job_list,
         cursor_pos=st.data(),
     )
-    @settings(max_examples=200)
     def test_select_job_posts_correct_name(
         self, jobs: list[JobDescriptor], cursor_pos: st.DataObject
     ) -> None:
@@ -127,7 +130,6 @@ class TestSelectionCorrectness:
         )
 
     @given(jobs=_nonempty_job_list)
-    @settings(max_examples=200)
     def test_select_job_uses_cursor_row_not_fixed_index(
         self, jobs: list[JobDescriptor]
     ) -> None:
@@ -160,7 +162,6 @@ class TestSelectionCorrectness:
         )
 
     @given(moves=st.lists(st.sampled_from(["down", "up"]), min_size=0, max_size=50))
-    @settings(max_examples=100)
     def test_select_job_noop_when_empty(self, moves: list[str]) -> None:
         """action_select_job() is a no-op when _jobs is empty.
 

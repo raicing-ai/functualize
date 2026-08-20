@@ -75,10 +75,7 @@ class TestShutdownReverseOrderProperty:
     **Validates: Requirements 11.3, 11.4**
     """
 
-    @settings(
-        max_examples=200,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         plugin_specs=st.lists(
             plugin_name_st,
@@ -113,10 +110,7 @@ class TestShutdownReverseOrderProperty:
         expected_order = list(reversed(plugin_specs))
         assert call_order == expected_order
 
-    @settings(
-        max_examples=200,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         plugin_specs=plugin_sequence_st,
     )
@@ -152,10 +146,7 @@ class TestShutdownReverseOrderProperty:
                 f"Plugin '{plugin.name}' did not receive on_shutdown call"
             )
 
-    @settings(
-        max_examples=200,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         plugin_specs=st.lists(
             plugin_name_st,
@@ -200,10 +191,7 @@ class TestShutdownReverseOrderProperty:
         expected_order = list(reversed(plugin_specs))
         assert call_order == expected_order
 
-    @settings(
-        max_examples=200,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         non_shutdown_count=st.integers(min_value=0, max_value=5),
         shutdown_names=st.lists(

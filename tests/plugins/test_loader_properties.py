@@ -6,7 +6,7 @@ Tests Property 28 (Plugin Metadata Protocol Validation) using Hypothesis.
 import logging
 from unittest.mock import MagicMock, patch
 
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 from functualize._plugins.loader import (
@@ -109,7 +109,6 @@ class TestPluginMetadataProtocolValidation:
     **Validates: Requirements 10.5, 10.6**
     """
 
-    @settings(max_examples=100)
     @given(
         name=valid_plugin_names,
         version=valid_pep440_versions,
@@ -129,7 +128,6 @@ class TestPluginMetadataProtocolValidation:
         errors = _validate_metadata(plugin, "test-ep")
         assert errors == [], f"Expected no errors for valid metadata, got: {errors}"
 
-    @settings(max_examples=100)
     @given(
         name=invalid_long_names,
         version=valid_pep440_versions,
@@ -149,7 +147,6 @@ class TestPluginMetadataProtocolValidation:
         assert len(errors) > 0
         assert any("exceeds 64 characters" in e for e in errors)
 
-    @settings(max_examples=100)
     @given(
         name=valid_plugin_names,
         version=invalid_versions,
@@ -171,7 +168,6 @@ class TestPluginMetadataProtocolValidation:
         assert len(errors) > 0
         assert any("PEP 440" in e for e in errors)
 
-    @settings(max_examples=100)
     @given(
         name=valid_plugin_names,
         version=valid_pep440_versions,
@@ -191,7 +187,6 @@ class TestPluginMetadataProtocolValidation:
         assert len(errors) > 0
         assert any("exceeds 256 characters" in e for e in errors)
 
-    @settings(max_examples=100)
     @given(
         missing_attrs=st.lists(
             st.sampled_from(["name", "version", "description"]),
@@ -226,7 +221,6 @@ class TestPluginMetadataProtocolValidation:
                 f"Expected error for missing '{attr}', got: {errors}"
             )
 
-    @settings(max_examples=100)
     @given(
         name=valid_plugin_names,
         version=valid_pep440_versions,
@@ -256,7 +250,6 @@ class TestPluginMetadataProtocolValidation:
         mock_plugin.assert_called_once_with(app)
         assert name in loader.loaded_plugins
 
-    @settings(max_examples=100)
     @given(
         name=invalid_long_names,
         version=valid_pep440_versions,

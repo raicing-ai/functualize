@@ -11,7 +11,7 @@ from collections.abc import Generator
 from typing import Any
 from unittest.mock import MagicMock
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._events.middleware_stack import MiddlewareStack
@@ -59,7 +59,6 @@ class TestProperty8MiddlewareExecutionOrderingAndSharedContext:
             max_size=8,
         ),
     )
-    @settings(max_examples=200)
     def test_middleware_execution_ordering_and_shared_context(
         self,
         priorities: list[int],
@@ -139,7 +138,6 @@ class TestProperty9MiddlewareResultDeliveryViaYield:
         return_value=return_values_st,
         middleware_count=st.integers(min_value=1, max_value=5),
     )
-    @settings(max_examples=200)
     def test_middleware_result_delivery_via_yield(
         self,
         return_value: Any,
@@ -188,7 +186,6 @@ class TestProperty10MiddlewareExceptionPropagation:
         middleware_count=st.integers(min_value=1, max_value=5),
         error_message=st.text(min_size=1, max_size=30),
     )
-    @settings(max_examples=200)
     def test_middleware_exception_propagation(
         self,
         middleware_count: int,
@@ -251,7 +248,6 @@ class TestProperty11MiddlewarePriorityOrdering:
             max_size=10,
         ),
     )
-    @settings(max_examples=200)
     def test_middleware_priority_ordering(
         self,
         priorities: list[int],
@@ -311,7 +307,6 @@ class TestProperty12MiddlewareZeroCostBypass:
             max_size=30,
         ),
     )
-    @settings(max_examples=200)
     def test_middleware_zero_cost_bypass(
         self,
         return_value: Any,

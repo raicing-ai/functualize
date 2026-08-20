@@ -10,7 +10,7 @@ Tests get_recent_invocations from functualize._cli.invocation_preset:
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.data.argument_history import ArgumentHistory
@@ -137,7 +137,6 @@ class TestRecentInvocationsBoundedAndOrdered:
     """
 
     @given(data=_history_with_extra_job_names())
-    @settings(max_examples=200)
     def test_result_length_bounded_by_limit(
         self, data: tuple[ArgumentHistory, list[str], int]
     ) -> None:
@@ -152,7 +151,6 @@ class TestRecentInvocationsBoundedAndOrdered:
         )
 
     @given(data=_history_with_extra_job_names())
-    @settings(max_examples=200)
     def test_all_job_names_in_provided_list(
         self, data: tuple[ArgumentHistory, list[str], int]
     ) -> None:
@@ -169,7 +167,6 @@ class TestRecentInvocationsBoundedAndOrdered:
             )
 
     @given(data=_history_with_extra_job_names())
-    @settings(max_examples=200)
     def test_result_sorted_by_timestamp_descending(
         self, data: tuple[ArgumentHistory, list[str], int]
     ) -> None:
@@ -205,7 +202,6 @@ class TestInvocationPresetDisplayTextFaithfulness:
     """
 
     @given(data=_history_with_extra_job_names())
-    @settings(max_examples=200)
     def test_display_text_contains_job_name(
         self, data: tuple[ArgumentHistory, list[str], int]
     ) -> None:
@@ -222,7 +218,6 @@ class TestInvocationPresetDisplayTextFaithfulness:
             )
 
     @given(data=_history_with_extra_job_names())
-    @settings(max_examples=200)
     def test_display_text_contains_all_kwargs_values(
         self, data: tuple[ArgumentHistory, list[str], int]
     ) -> None:

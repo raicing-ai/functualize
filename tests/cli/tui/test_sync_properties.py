@@ -15,9 +15,10 @@ Property 9: SmartBar sync reflects all and only session overrides
 from __future__ import annotations
 
 import re
+import shlex
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.panels.config_table import EditOrigin, FieldDef
@@ -123,7 +124,6 @@ class TestSmartBarSyncProperties:
         job_name=_job_name,
         fields=_unique_field_list(min_size=0, max_size=10),
     )
-    @settings(max_examples=200)
     def test_output_starts_with_job_name(
         self, job_name: str, fields: list[FieldDef]
     ) -> None:
@@ -141,7 +141,6 @@ class TestSmartBarSyncProperties:
         job_name=_job_name,
         fields=_unique_field_list(min_size=1, max_size=10),
     )
-    @settings(max_examples=200)
     def test_overridden_fields_appear_in_output(
         self, job_name: str, fields: list[FieldDef]
     ) -> None:
@@ -164,7 +163,6 @@ class TestSmartBarSyncProperties:
         job_name=_job_name,
         fields=_unique_field_list(min_size=1, max_size=10),
     )
-    @settings(max_examples=200)
     def test_none_fields_do_not_appear_in_output(
         self, job_name: str, fields: list[FieldDef]
     ) -> None:
@@ -187,7 +185,6 @@ class TestSmartBarSyncProperties:
         job_name=_job_name,
         fields=_unique_field_list_all_overridden(),
     )
-    @settings(max_examples=200)
     def test_fields_appear_in_list_order(
         self, job_name: str, fields: list[FieldDef]
     ) -> None:
@@ -217,7 +214,6 @@ class TestSmartBarSyncProperties:
         job_name=_job_name,
         fields=_unique_field_list(min_size=0, max_size=10),
     )
-    @settings(max_examples=200)
     def test_whitespace_values_are_quoted(
         self, job_name: str, fields: list[FieldDef]
     ) -> None:
@@ -249,7 +245,6 @@ class TestSmartBarSyncProperties:
         job_name=_job_name,
         fields=_unique_field_list_all_none(),
     )
-    @settings(max_examples=200)
     def test_all_none_returns_only_job_name(
         self, job_name: str, fields: list[FieldDef]
     ) -> None:
@@ -264,7 +259,6 @@ class TestSmartBarSyncProperties:
         job_name=_job_name,
         fields=_unique_field_list(min_size=0, max_size=10),
     )
-    @settings(max_examples=200)
     def test_flag_count_matches_override_count(
         self, job_name: str, fields: list[FieldDef]
     ) -> None:
@@ -274,10 +268,16 @@ class TestSmartBarSyncProperties:
         """
         result = sync_overrides_to_bar(job_name, fields)
 
-        expected_count = sum(1 for f in fields if f.edit_origin != EditOrigin.NONE)
-        # Count all occurrences of "--" that start a flag (i.e., preceded by space or at start)
-        actual_count = len(re.findall(r"(?:^| )--", result))
+        overridden = [f for f in fields if f.edit_origin != EditOrigin.NONE]
 
-        assert actual_count == expected_count, (
-            f"Expected {expected_count} flags, found {actual_count} in: {result}"
+        # Count flags by position, not by matching "--" in the text. These
+        # fields are all named (the strategy emits no positionals), so the
+        # tokens after the job name alternate flag, value — and a *value* may
+        # itself be "--" or "--x", which a textual scan counts as a flag.
+        # shlex handles the quoting the emitter applies to values with spaces.
+        tokens = shlex.split(result)
+        flags = tokens[1::2]
+
+        assert flags == [f"--{f.name}" for f in overridden], (
+            f"Expected one flag per overridden field, got {flags} in: {result}"
         )

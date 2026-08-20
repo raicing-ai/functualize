@@ -383,10 +383,15 @@ Includes property-based tests with the default Hypothesis profile (100 examples 
 ### CI-equivalent run
 
 ```bash
-uv run pytest --run-slow --cov=functualize -n auto
+HYPOTHESIS_PROFILE=ci uv run pytest --run-slow --cov=functualize -n auto
 ```
 
 Runs all tests in parallel across CPU cores with coverage measurement.
+
+The `HYPOTHESIS_PROFILE=ci` prefix is what makes this equivalent to CI, not a refinement
+of it. The `ci` profile draws 200 examples per property where the default draws 100, so
+it reaches inputs a plain `--run-slow` never generates — a suite that passes locally
+without it can still fail on CI.
 
 ### Quick smoke-check of property tests
 
@@ -403,7 +408,7 @@ Runs property tests with only 10 examples each — useful for a quick sanity che
 | `uv run pytest` | Unit tests only | After every change |
 | `uv run pytest --run-slow` | All tests including property-based | Before pushing |
 | `HYPOTHESIS_PROFILE=dev uv run pytest --run-slow` | All tests, 10 hypothesis examples | Quick full check |
-| `uv run pytest --run-slow --cov=functualize -n auto` | Full CI equivalent | Replicate CI locally |
+| `HYPOTHESIS_PROFILE=ci uv run pytest --run-slow --cov=functualize -n auto` | Full CI equivalent | Replicate CI locally |
 
 !!! tip "Hypothesis profiles"
     The project defines three Hypothesis profiles:
@@ -488,7 +493,7 @@ uv run lint-imports
     uv run ruff format --check src/ tests/
     uv run mypy src/
     uv run lint-imports
-    uv run pytest --run-slow
+    HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto
     ```
 
 ## Commit Message Convention

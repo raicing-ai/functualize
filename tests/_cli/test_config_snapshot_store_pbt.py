@@ -9,7 +9,7 @@ record ordering, retention limits, and serialization round-trips.
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.data.config_snapshot_store import ConfigSnapshotStore
@@ -80,7 +80,6 @@ class TestRecordOrdering:
             lambda ops: [(v, o) for _, v, o in ops]
         ),
     )
-    @settings(max_examples=200)
     def test_get_snapshots_reverse_chronological(
         self, job_name: str, records: list[tuple[dict, str]]
     ):
@@ -108,7 +107,6 @@ class TestRecordOrdering:
             lambda ops: [(v, o) for _, v, o in ops]
         ),
     )
-    @settings(max_examples=200)
     def test_get_last_snapshot_is_most_recent(
         self, job_name: str, records: list[tuple[dict, str]]
     ):
@@ -137,7 +135,6 @@ class TestRecordOrdering:
             lambda ops: [(v, o) for _, v, o in ops]
         ),
     )
-    @settings(max_examples=200)
     def test_last_snapshot_matches_last_record(
         self, job_name: str, records: list[tuple[dict, str]]
     ):
@@ -181,7 +178,6 @@ class TestRetentionLimit:
         ),
         max_retention=_max_retention,
     )
-    @settings(max_examples=200)
     def test_snapshots_never_exceed_max_retention(
         self,
         job_name: str,
@@ -210,7 +206,6 @@ class TestRetentionLimit:
         ),
         max_retention=_max_retention,
     )
-    @settings(max_examples=200)
     def test_retention_preserves_most_recent(
         self,
         job_name: str,
@@ -247,7 +242,6 @@ class TestRetentionLimit:
         ),
         max_retention=_max_retention,
     )
-    @settings(max_examples=100)
     def test_retention_enforced_per_job_independently(
         self,
         records_per_job: list[tuple[str, list[tuple[dict, str]]]],
@@ -288,7 +282,6 @@ class TestSerializationRoundTrip:
     @given(
         ops=st.lists(_record_op, min_size=1, max_size=30),
     )
-    @settings(max_examples=200)
     def test_to_dict_from_dict_preserves_all_snapshots(
         self, ops: list[tuple[str, dict, str]]
     ):
@@ -328,7 +321,6 @@ class TestSerializationRoundTrip:
         ops=st.lists(_record_op, min_size=1, max_size=20),
         max_retention=_max_retention,
     )
-    @settings(max_examples=200)
     def test_round_trip_preserves_after_retention_eviction(
         self, ops: list[tuple[str, dict, str]], max_retention: int
     ):
@@ -365,7 +357,6 @@ class TestSerializationRoundTrip:
     @given(
         ops=st.lists(_record_op, min_size=1, max_size=20),
     )
-    @settings(max_examples=200)
     def test_round_trip_preserves_get_last_snapshot(
         self, ops: list[tuple[str, dict, str]]
     ):

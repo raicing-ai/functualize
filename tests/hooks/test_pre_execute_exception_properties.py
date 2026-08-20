@@ -79,9 +79,7 @@ class TestPreExecuteExceptionTreatedAsProceed:
     **Validates: Requirements 2.6**
     """
 
-    @settings(
-        max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture]
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         job_name=job_names,
         exc_type=exception_types,
@@ -134,9 +132,7 @@ class TestPreExecuteExceptionTreatedAsProceed:
         finally:
             hook_logger.removeHandler(handler)
 
-    @settings(
-        max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture]
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         job_name=job_names,
         num_raising=st.integers(min_value=1, max_value=5),
@@ -203,9 +199,7 @@ class TestPreExecuteExceptionTreatedAsProceed:
         finally:
             hook_logger.removeHandler(handler)
 
-    @settings(
-        max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture]
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         job_name=job_names,
         exc_type=exception_types,
@@ -265,9 +259,7 @@ class TestPreExecuteExceptionTreatedAsProceed:
         finally:
             hook_logger.removeHandler(handler)
 
-    @settings(
-        max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture]
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         job_name=job_names,
         num_hooks=st.integers(min_value=2, max_value=8),

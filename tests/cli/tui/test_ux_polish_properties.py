@@ -14,7 +14,7 @@ from __future__ import annotations
 import string
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.bar import BarReadiness, SmartBar
@@ -117,7 +117,6 @@ class TestReadinessReEvaluationAfterCompletion:
     """
 
     @given(data=smartbar_content_after_completion())
-    @settings(max_examples=200)
     def test_evaluate_matches_expected_readiness_for_known_job(
         self,
         data: tuple[str, str, list[str], list[str]],
@@ -154,7 +153,6 @@ class TestReadinessReEvaluationAfterCompletion:
         )
 
     @given(data=smartbar_content_after_completion())
-    @settings(max_examples=200)
     def test_evaluate_readiness_matches_bar_state(
         self,
         data: tuple[str, str, list[str], list[str]],
@@ -179,7 +177,6 @@ class TestReadinessReEvaluationAfterCompletion:
         )
 
     @given(content_prefix=_job_name)
-    @settings(max_examples=100)
     def test_evaluate_unknown_job_returns_grey(
         self,
         content_prefix: str,
@@ -204,7 +201,6 @@ class TestReadinessReEvaluationAfterCompletion:
         )
 
     @given(data=smartbar_content_after_completion())
-    @settings(max_examples=200)
     def test_evaluate_is_idempotent_after_completion(
         self,
         data: tuple[str, str, list[str], list[str]],

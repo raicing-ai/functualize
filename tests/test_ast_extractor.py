@@ -14,7 +14,7 @@ import keyword
 import tempfile
 from pathlib import Path
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._discovery.ast_extractor import extract_first_level_dependencies
@@ -146,7 +146,6 @@ class TestASTExtractorIdentifiesInProjectImports:
     """
 
     @given(data=import_patterns())
-    @settings(max_examples=100)
     def test_only_existing_in_project_files_returned(self, data: tuple[str, list[str]]):
         """Only imports that resolve to existing .py files within project_root are returned.
 
@@ -198,7 +197,6 @@ class TestASTExtractorIdentifiesInProjectImports:
                 )
 
     @given(data=import_patterns())
-    @settings(max_examples=100)
     def test_stdlib_imports_excluded(self, data: tuple[str, list[str]]):
         """Standard library imports are never included in the results.
 
@@ -229,7 +227,6 @@ class TestASTExtractorIdentifiesInProjectImports:
                 )
 
     @given(data=relative_import_patterns())
-    @settings(max_examples=100)
     def test_relative_imports_resolve_within_project(
         self, data: tuple[str, list[str], int]
     ):
@@ -278,7 +275,6 @@ class TestASTExtractorIdentifiesInProjectImports:
                 assert all(c in "0123456789abcdef" for c in dep_hash)
 
     @given(data=import_patterns())
-    @settings(max_examples=100)
     def test_results_contain_sha256_hashes(self, data: tuple[str, list[str]]):
         """All returned values are valid sha256 hex digests matching file content.
 
@@ -324,7 +320,6 @@ class TestASTExtractorIsNonTransitive:
         mod_b_name=_module_name,
         mod_c_name=_module_name.filter(lambda n: len(n) > 1),
     )
-    @settings(max_examples=100)
     def test_transitive_deps_not_included(self, mod_b_name: str, mod_c_name: str):
         """Extracting A's dependencies includes B but NOT C (where A→B→C).
 
@@ -376,7 +371,6 @@ class TestASTExtractorIsNonTransitive:
         chain_length=st.integers(min_value=3, max_value=5),
         data=st.data(),
     )
-    @settings(max_examples=100)
     def test_longer_transitive_chains_not_included(
         self, chain_length: int, data: st.DataObject
     ):

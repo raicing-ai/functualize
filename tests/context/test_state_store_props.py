@@ -8,7 +8,7 @@ Property 12: State_Store Typed Get
 """
 
 import pytest
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 from functualize.job._state_store import StateStore
@@ -54,7 +54,6 @@ class TestStateStoreKeysAndClearConsistency:
             max_size=20,
         )
     )
-    @settings(max_examples=200)
     def test_keys_returns_exactly_n_keys_after_n_unique_sets(
         self, items: dict[str, object]
     ) -> None:
@@ -78,7 +77,6 @@ class TestStateStoreKeysAndClearConsistency:
             max_size=20,
         )
     )
-    @settings(max_examples=200)
     def test_clear_makes_keys_empty_and_gets_return_none(
         self, items: dict[str, object]
     ) -> None:
@@ -110,7 +108,6 @@ class TestStateStoreKeysAndClearConsistency:
         ),
         do_clear=st.booleans(),
     )
-    @settings(max_examples=200)
     def test_keys_always_returns_list(
         self, items: dict[str, object], do_clear: bool
     ) -> None:
@@ -136,7 +133,6 @@ class TestStateStoreKeysAndClearConsistency:
             unique_by=lambda x: x[0],
         )
     )
-    @settings(max_examples=200)
     def test_keys_independent_of_insertion_order(
         self, items: list[tuple[str, object]]
     ) -> None:
@@ -193,7 +189,6 @@ class TestStateStoreTypedGet:
     """Property 12: State_Store Typed Get."""
 
     @given(key=state_keys, value=json_strings)
-    @settings(max_examples=200)
     def test_get_correct_type_str(self, key: str, value: str) -> None:
         """get(key, str) returns the stored string value.
 
@@ -204,7 +199,6 @@ class TestStateStoreTypedGet:
         assert store.get(key, str) == value
 
     @given(key=state_keys, value=json_ints)
-    @settings(max_examples=200)
     def test_get_correct_type_int(self, key: str, value: int) -> None:
         """get(key, int) returns the stored int value.
 
@@ -215,7 +209,6 @@ class TestStateStoreTypedGet:
         assert store.get(key, int) == value
 
     @given(key=state_keys, value=json_floats)
-    @settings(max_examples=200)
     def test_get_correct_type_float(self, key: str, value: float) -> None:
         """get(key, float) returns the stored float value.
 
@@ -226,7 +219,6 @@ class TestStateStoreTypedGet:
         assert store.get(key, float) == value
 
     @given(key=state_keys, value=json_bools)
-    @settings(max_examples=200)
     def test_get_correct_type_bool(self, key: str, value: bool) -> None:
         """get(key, bool) returns the stored bool value.
 
@@ -237,7 +229,6 @@ class TestStateStoreTypedGet:
         assert store.get(key, bool) == value
 
     @given(key=state_keys, value=json_lists)
-    @settings(max_examples=200)
     def test_get_correct_type_list(self, key: str, value: list[int]) -> None:
         """get(key, list) returns the stored list value.
 
@@ -248,7 +239,6 @@ class TestStateStoreTypedGet:
         assert store.get(key, list) == value
 
     @given(key=state_keys, value=json_dicts)
-    @settings(max_examples=200)
     def test_get_correct_type_dict(self, key: str, value: dict[str, int]) -> None:
         """get(key, dict) returns the stored dict value.
 
@@ -263,7 +253,6 @@ class TestStateStoreTypedGet:
         value=json_strings,
         wrong_type=st.sampled_from([int, list, dict]),
     )
-    @settings(max_examples=200)
     def test_type_mismatch_raises_with_details_str(
         self, key: str, value: str, wrong_type: type[object]
     ) -> None:
@@ -287,7 +276,6 @@ class TestStateStoreTypedGet:
         value=json_ints,
         wrong_type=st.sampled_from([str, list, dict]),
     )
-    @settings(max_examples=200)
     def test_type_mismatch_raises_with_details_int(
         self, key: str, value: int, wrong_type: type[object]
     ) -> None:
@@ -311,7 +299,6 @@ class TestStateStoreTypedGet:
         value=json_lists,
         wrong_type=st.sampled_from([str, int, float, dict]),
     )
-    @settings(max_examples=200)
     def test_type_mismatch_raises_with_details_list(
         self, key: str, value: list[int], wrong_type: type[object]
     ) -> None:
@@ -334,7 +321,6 @@ class TestStateStoreTypedGet:
         key=state_keys,
         type_param=st.sampled_from(all_checkable_types),
     )
-    @settings(max_examples=200)
     def test_nonexistent_key_returns_none(
         self, key: str, type_param: type[object]
     ) -> None:
@@ -351,7 +337,6 @@ class TestStateStoreTypedGet:
         other_key=state_keys,
         type_param=st.sampled_from(all_checkable_types),
     )
-    @settings(max_examples=200)
     def test_nonexistent_key_returns_none_when_store_has_other_keys(
         self, key: str, other_key: str, type_param: type[object]
     ) -> None:

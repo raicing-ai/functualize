@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.models.ring_models import BreadcrumbState
@@ -87,7 +87,6 @@ class TestBreadcrumbRenderingWellFormed:
     """
 
     @given(state=_breadcrumb_state())
-    @settings(max_examples=100)
     def test_render_starts_with_bracket_prefix(self, state: BreadcrumbState) -> None:
         """Rendered output starts with [TYPE:N/M] format (Req 2.2, 2.3)."""
         rendered = state.render()
@@ -101,7 +100,6 @@ class TestBreadcrumbRenderingWellFormed:
         assert int(match.group(3)) == state.total
 
     @given(state=_breadcrumb_state())
-    @settings(max_examples=100)
     def test_render_contains_title_after_prefix(self, state: BreadcrumbState) -> None:
         """Rendered output contains the title immediately after [TYPE:N/M] (Req 2.3)."""
         rendered = state.render()
@@ -114,7 +112,6 @@ class TestBreadcrumbRenderingWellFormed:
         )
 
     @given(state=_breadcrumb_state())
-    @settings(max_examples=100)
     def test_render_sub_levels_separated_by_chevron(
         self, state: BreadcrumbState
     ) -> None:
@@ -136,7 +133,6 @@ class TestBreadcrumbRenderingWellFormed:
             assert rendered == expected
 
     @given(state=_breadcrumb_state())
-    @settings(max_examples=100)
     def test_render_preserves_order(self, state: BreadcrumbState) -> None:
         """Title and sub-levels appear in correct order in the output (Req 2.4)."""
         rendered = state.render()

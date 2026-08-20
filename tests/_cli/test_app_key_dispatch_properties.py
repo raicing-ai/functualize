@@ -12,7 +12,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.tui.focus import FocusMode, FocusState
@@ -140,7 +140,6 @@ class TestOnKeyDelegatesToKeyDispatcher:
     """
 
     @given(key=_any_key)
-    @settings(max_examples=100)
     def test_on_key_always_calls_dispatch(self, key: str) -> None:
         """For any key event, on_key delegates to KeyDispatcher.dispatch exactly once.
 
@@ -187,7 +186,6 @@ class TestKeymapDispatchRoutesToCorrectAction:
     """
 
     @given(entry=_keymap_entry)
-    @settings(max_examples=100)
     def test_dispatch_calls_correct_action(
         self, entry: tuple[FocusMode, str, str]
     ) -> None:
@@ -249,7 +247,6 @@ class TestTargetResolutionPrefersPanelOverApp:
     """
 
     @given(entry=_normal_keymap_entry)
-    @settings(max_examples=100)
     def test_panel_method_called_when_panel_has_action(
         self, entry: tuple[str, str]
     ) -> None:
@@ -297,7 +294,6 @@ class TestTargetResolutionPrefersPanelOverApp:
         assert result is True
 
     @given(entry=_normal_keymap_entry)
-    @settings(max_examples=100)
     def test_app_method_called_when_panel_lacks_action(
         self, entry: tuple[str, str]
     ) -> None:

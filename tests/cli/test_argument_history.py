@@ -10,7 +10,7 @@ JSON serialization round-trips.
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.data.argument_history import ArgumentHistory
@@ -84,7 +84,6 @@ class TestRecordThenRetrieveConsistency:
     """
 
     @given(ops=_record_ops)
-    @settings(max_examples=200)
     def test_single_field_record_retrieve(self, ops: list[tuple[str, str, str]]):
         """Recording values for a single field returns them in reverse order
         with consecutive duplicates collapsed.
@@ -115,7 +114,6 @@ class TestRecordThenRetrieveConsistency:
         field_name=_name_str,
         values=st.lists(_value_str, min_size=1, max_size=30),
     )
-    @settings(max_examples=200)
     def test_dedicated_field_record_retrieve(
         self, job_name: str, field_name: str, values: list[str]
     ):
@@ -156,7 +154,6 @@ class TestNoConsecutiveDuplicates:
         field_name=_name_str,
         values=st.lists(_value_str, min_size=1, max_size=50),
     )
-    @settings(max_examples=200)
     def test_no_adjacent_duplicates_in_history(
         self, job_name: str, field_name: str, values: list[str]
     ):
@@ -184,7 +181,6 @@ class TestNoConsecutiveDuplicates:
         value=_value_str,
         repeat_count=st.integers(min_value=2, max_value=100),
     )
-    @settings(max_examples=200)
     def test_repeated_same_value_collapses_to_one(
         self, job_name: str, field_name: str, value: str, repeat_count: int
     ):
@@ -227,7 +223,6 @@ class TestMaxLengthInvariant:
         values=st.lists(_value_str, min_size=1, max_size=50),
         max_entries=_max_entries,
     )
-    @settings(max_examples=200)
     def test_history_length_never_exceeds_max(
         self,
         job_name: str,
@@ -255,7 +250,6 @@ class TestMaxLengthInvariant:
         values=st.lists(_value_str, min_size=1, max_size=50),
         max_entries=_max_entries,
     )
-    @settings(max_examples=200)
     def test_retained_entries_are_most_recent(
         self,
         job_name: str,
@@ -299,7 +293,6 @@ class TestJsonSerializationRoundTrip:
         ops=_record_ops,
         max_entries=_max_entries,
     )
-    @settings(max_examples=200)
     def test_to_dict_from_dict_preserves_state(
         self, ops: list[tuple[str, str, str]], max_entries: int
     ):
@@ -335,7 +328,6 @@ class TestJsonSerializationRoundTrip:
         ops=_record_ops,
         max_entries=_max_entries,
     )
-    @settings(max_examples=200)
     def test_round_trip_preserves_has_history(
         self, ops: list[tuple[str, str, str]], max_entries: int
     ):

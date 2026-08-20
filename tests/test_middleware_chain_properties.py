@@ -17,7 +17,7 @@ from __future__ import annotations
 import contextlib
 from collections.abc import Generator
 
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._primitives.middleware import MiddlewareChain
@@ -60,7 +60,6 @@ class TestMiddlewarePriorityOrderingAndExceptionPropagation:
     """
 
     @given(priorities=_distinct_priorities())
-    @settings(max_examples=200)
     def test_pre_phase_executes_in_ascending_priority_order(
         self, priorities: list[int]
     ):
@@ -91,7 +90,6 @@ class TestMiddlewarePriorityOrderingAndExceptionPropagation:
         assert pre_order == sorted(priorities)
 
     @given(priorities=_distinct_priorities())
-    @settings(max_examples=200)
     def test_post_phase_executes_in_reverse_priority_order(self, priorities: list[int]):
         """Post-phase of middleware executes in reverse priority order.
 
@@ -120,7 +118,6 @@ class TestMiddlewarePriorityOrderingAndExceptionPropagation:
         assert post_order == sorted(priorities, reverse=True)
 
     @given(priorities=_distinct_priorities())
-    @settings(max_examples=200)
     def test_exception_propagates_through_generators_in_reverse_order(
         self, priorities: list[int]
     ):
@@ -156,7 +153,6 @@ class TestMiddlewarePriorityOrderingAndExceptionPropagation:
         assert throw_order == sorted(priorities, reverse=True)
 
     @given(priorities=_distinct_priorities())
-    @settings(max_examples=200)
     def test_all_middleware_receive_operation_result_via_send(
         self, priorities: list[int]
     ):
@@ -192,7 +188,6 @@ class TestMiddlewarePriorityOrderingAndExceptionPropagation:
         priorities=_distinct_priorities(),
         fail_index=st.data(),
     )
-    @settings(max_examples=200)
     def test_pre_phase_exception_propagates_to_already_started_generators(
         self, priorities: list[int], fail_index: st.DataObject
     ):
@@ -252,7 +247,6 @@ class TestMiddlewarePriorityOrderingAndExceptionPropagation:
             unique=True,
         )
     )
-    @settings(max_examples=200)
     def test_ordering_independent_of_registration_order(self, priorities: list[int]):
         """Priority ordering holds regardless of the registration order.
 

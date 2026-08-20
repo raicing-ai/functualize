@@ -171,10 +171,7 @@ class TestCallableResolutionRoundTrip:
     **Validates: Requirements 1.1, 1.3**
     """
 
-    @settings(
-        max_examples=100,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(name=job_names)
     def test_registered_callable_resolves_to_same_name(self, name: str) -> None:
         """A registered callable resolves to its registered job name.
@@ -187,10 +184,7 @@ class TestCallableResolutionRoundTrip:
         resolved = invoke._resolve_job_name(fn)
         assert resolved == name
 
-    @settings(
-        max_examples=100,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(name=job_names)
     def test_string_name_resolves_to_itself(self, name: str) -> None:
         """A string job name resolves to itself (identity).
@@ -202,10 +196,7 @@ class TestCallableResolutionRoundTrip:
         resolved = invoke._resolve_job_name(name)
         assert resolved == name
 
-    @settings(
-        max_examples=100,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(name=job_names)
     def test_callable_and_string_resolve_to_same_name(self, name: str) -> None:
         """For a registered callable, both fn and its name resolve identically.
@@ -234,10 +225,7 @@ class TestUnregisteredCallableRejection:
     **Validates: Requirements 1.2**
     """
 
-    @settings(
-        max_examples=100,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(name=job_names)
     def test_unregistered_callable_raises_job_not_found(self, name: str) -> None:
         """An unregistered callable raises JobNotFoundError.
@@ -251,10 +239,7 @@ class TestUnregisteredCallableRejection:
         with pytest.raises(JobNotFoundError):
             invoke._resolve_job_name(fn)
 
-    @settings(
-        max_examples=50,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         registered_name=job_names,
         unregistered_name=job_names,
@@ -293,10 +278,7 @@ class TestConfigKwargsMutualExclusivity:
     **Validates: Requirements 1.5**
     """
 
-    @settings(
-        max_examples=100,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(kwargs=non_empty_kwargs)
     def test_config_and_kwargs_raises_value_error(self, kwargs: dict[str, Any]) -> None:
         """Passing both config and kwargs raises ValueError.
@@ -318,10 +300,7 @@ class TestConfigKwargsMutualExclusivity:
         ):
             invoke("some-job", config=config, **kwargs)
 
-    @settings(
-        max_examples=50,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         x_val=st.integers(min_value=-100, max_value=100),
         y_val=st.text(min_size=1, max_size=10),
@@ -389,10 +368,7 @@ class TestConfigModelFieldExtraction:
     **Validates: Requirements 1.4**
     """
 
-    @settings(
-        max_examples=100,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         x=st.integers(min_value=-1000, max_value=1000),
         y=st.text(min_size=0, max_size=20),
@@ -465,10 +441,7 @@ class TestConfigModelFieldExtraction:
         assert capturing_invoke.captured == expected_kwargs
         assert capturing_invoke.captured == {"x": x, "y": y, "z": z}
 
-    @settings(
-        max_examples=50,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         name=st.text(
             min_size=1,
@@ -522,10 +495,7 @@ class TestInvokeAlwaysReturnsJobResult:
     **Validates: Requirements 1.12**
     """
 
-    @settings(
-        max_examples=100,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(
         job_name=job_names,
         return_val=st.one_of(
@@ -577,10 +547,7 @@ class TestInvokeAlwaysReturnsJobResult:
         assert result.return_value == return_val
         assert result.exception is None
 
-    @settings(
-        max_examples=50,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(job_name=job_names)
     def test_failed_invoke_returns_job_result(self, job_name: str) -> None:
         """A failed invocation also returns JobResult (not raises).
@@ -634,9 +601,7 @@ class TestParallelExecutionPreservesInputOrder:
     """
 
     @settings(
-        max_examples=50,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-        deadline=30000,
+        suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=30000
     )
     @given(num_jobs=parallel_job_counts)
     def test_parallel_results_length_matches_input(self, num_jobs: int) -> None:
@@ -695,9 +660,7 @@ class TestParallelExecutionPreservesInputOrder:
         assert len(results) == num_jobs
 
     @settings(
-        max_examples=50,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-        deadline=30000,
+        suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=30000
     )
     @given(num_jobs=parallel_job_counts)
     def test_parallel_results_match_input_order(self, num_jobs: int) -> None:

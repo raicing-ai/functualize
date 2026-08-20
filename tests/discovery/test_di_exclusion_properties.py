@@ -12,6 +12,7 @@ Only CLI-compatible parameters SHALL remain in the extracted parameters.
 
 from __future__ import annotations
 
+import keyword
 import types
 from typing import Any
 
@@ -34,8 +35,16 @@ for _name in _EXCLUDED_PARAM_TYPE_NAMES:
 # --- Strategies ---
 
 # Valid Python parameter names for CLI params
+# Names are compiled into a real `def _generated_job(...)`, so they must be
+# usable as parameters: `str.isidentifier()` is true for keywords like `as` and
+# `if`, which are still a SyntaxError in a signature.
 cli_param_names = st.from_regex(r"[a-z][a-z0-9_]{0,12}", fullmatch=True).filter(
-    lambda s: s.isidentifier() and s not in ("self", "cls")
+    lambda s: (
+        s.isidentifier()
+        and not keyword.iskeyword(s)
+        and not keyword.issoftkeyword(s)
+        and s not in ("self", "cls")
+    )
 )
 
 # CLI-compatible type annotations
@@ -115,11 +124,7 @@ def _make_function_with_annotations(
 # --- Property 9: DI Parameter Exclusion ---
 
 
-@settings(
-    max_examples=100,
-    suppress_health_check=[HealthCheck.too_slow],
-    deadline=10000,
-)
+@settings(suppress_health_check=[HealthCheck.too_slow], deadline=10000)
 @given(data=di_and_cli_params())
 def test_property_9_di_params_excluded_from_descriptor(
     data: tuple[list[tuple[str, type]], list[tuple[str, Any]]],
@@ -166,11 +171,7 @@ def test_property_9_di_params_excluded_from_descriptor(
     )
 
 
-@settings(
-    max_examples=100,
-    suppress_health_check=[HealthCheck.too_slow],
-    deadline=10000,
-)
+@settings(suppress_health_check=[HealthCheck.too_slow], deadline=10000)
 @given(di_type_name=di_type_names)
 def test_property_9_string_annotations_excluded(
     di_type_name: str,
@@ -203,11 +204,7 @@ def test_property_9_string_annotations_excluded(
     )
 
 
-@settings(
-    max_examples=50,
-    suppress_health_check=[HealthCheck.too_slow],
-    deadline=10000,
-)
+@settings(suppress_health_check=[HealthCheck.too_slow], deadline=10000)
 @given(
     di_type_names_chosen=st.lists(di_type_names, min_size=1, max_size=8, unique=True)
 )
