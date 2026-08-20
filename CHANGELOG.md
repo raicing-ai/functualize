@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `rc.log(...)` now emits through the job's own `Log` capability — the same
+  instance an injected `log: Log` parameter receives — instead of writing
+  straight to its stdlib logger. A job that logs both ways can no longer end
+  up with two different sinks, and anything wrapping `Log` sees both routes.
+  A job that never asks for `Log` has no instance to route to, so `rc.log()`
+  falls back to the `functualize.job.<name>` logger exactly as before.
+  `TestRunContext.captured_logs()` therefore observes `rc.log(...)`; the 0.1.0
+  known limitation is lifted.
+
+### Changed
+
+- An invalid `level` passed to `rc.log(...)` now raises `ValueError` (the error
+  the `Log` capability already raised) rather than `AttributeError`, and raises
+  it before any log callback runs. Levels that stdlib logging accepts but the
+  `Log` capability never did — `exception`, `warn`, `fatal` — are rejected
+  consistently now instead of depending on which sink was behind the call.
+  `CapturingLog` validates levels the same way, so a level production would
+  refuse can no longer pass silently in a test.
+
 ## [0.1.0] - 2026-08-04
 
 First public release. Functualize turns plain Python functions into jobs that run
@@ -189,6 +210,7 @@ function knowing which.
   (`log = CapturingLog(); my_job(config, log); assert (...) in log.calls`), which
   is the style the scaffolded job template demonstrates. Routing `RunContext.log`
   through the injected `Log` is deferred to a later release.
+  *(Fixed after 0.1.0 — see Unreleased.)*
 
 [Unreleased]: https://github.com/raicing-ai/functualize/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/raicing-ai/functualize/releases/tag/v0.1.0

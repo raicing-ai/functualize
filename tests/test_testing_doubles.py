@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from functualize.testing import TestRunContext
 from functualize.testing.doubles import AutoPrompt, CapturingLog, MockInvoke, NoopPerf
 
 
@@ -210,3 +211,46 @@ class TestNoopPerf:
         perf.mark_end("d")
         # All calls accepted silently, phases still empty
         assert perf.phases() == []
+
+
+class TestRunContextLogRouting:
+    """rc.log() emits through the injected Log, so captured_logs() sees it.
+
+    Regression coverage for the 0.1.0 known limitation in which rc.log(...)
+    bypassed the injected Log and was invisible to captured_logs(). Which sink
+    RunContext picks, and why, is covered in
+    tests/execution/test_runcontext_log_sink.py.
+    """
+
+    def test_rc_log_observed_by_captured_logs(self):
+        rc = TestRunContext.create()
+        rc.log("hello")
+        rc.log("watch out", level="warning")
+        assert TestRunContext.captured_logs(rc) == [
+            ("info", "hello"),
+            ("warning", "watch out"),
+        ]
+
+    def test_rc_log_uses_log_override(self):
+        override = CapturingLog()
+        rc = TestRunContext.create(log=override)
+        rc.log("via override")
+        assert override.calls == [("info", "via override")]
+        assert TestRunContext.captured_logs(rc) == [("info", "via override")]
+
+    def test_rc_log_str_converts_message(self):
+        rc = TestRunContext.create()
+        rc.log(42)
+        assert TestRunContext.captured_logs(rc) == [("info", "42")]
+
+    def test_suppressing_callback_still_suppresses(self):
+        rc = TestRunContext.create()
+        rc.on_log(lambda level, msg: None)
+        rc.log("suppressed")
+        assert TestRunContext.captured_logs(rc) == []
+
+    def test_replacing_callback_rewrites_message(self):
+        rc = TestRunContext.create()
+        rc.on_log(lambda level, msg: "rewritten")
+        rc.log("original")
+        assert TestRunContext.captured_logs(rc) == [("info", "rewritten")]

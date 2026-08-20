@@ -743,6 +743,8 @@ class JobExecutionEngine:
         from functualize._engine.capabilities.runcontext import RunContext
 
         if RunContext not in (context.capabilities or {}):
+            if context.capabilities is None:
+                context.capabilities = {}
             job_config = self._make_config_view(job_name)
             rc = RunContext(
                 name=job_name,
@@ -760,9 +762,8 @@ class JobExecutionEngine:
                 _execution_engine=self,
                 _di_registry=self._di_registry,
                 _workflow_scope=parent_scope,
+                _caps=context.capabilities,
             )
-            if context.capabilities is None:
-                context.capabilities = {}
             context.capabilities[RunContext] = rc
 
         # Resolve config, then validate function arguments against Field()
@@ -1240,6 +1241,7 @@ class JobExecutionEngine:
                     _execution_engine=self,
                     _di_registry=self._di_registry,
                     _workflow_scope=context.parent_scope,
+                    _caps=per_invocation_caps,
                 )
                 resolved[binding.name] = rc
                 per_invocation_caps[RunContext] = rc

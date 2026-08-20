@@ -12,6 +12,28 @@ from typing import ClassVar
 
 _DEFAULT_LOGGER = logging.getLogger("functualize.job")
 
+#: The level names accepted by every logging entry point in the framework.
+#: ``RunContext.log()`` and the ``CapturingLog`` double validate against this
+#: same set, so an invalid level fails identically whichever one a job calls.
+VALID_LOG_LEVELS: frozenset[str] = frozenset(
+    {"debug", "info", "warning", "error", "critical"}
+)
+
+
+def validate_log_level(level: str) -> None:
+    """Raise ValueError unless ``level`` is one of :data:`VALID_LOG_LEVELS`.
+
+    Args:
+        level: The level name to check.
+
+    Raises:
+        ValueError: If level is not a valid log level.
+    """
+    if level not in VALID_LOG_LEVELS:
+        raise ValueError(
+            f"Invalid log level '{level}'. Must be one of: {sorted(VALID_LOG_LEVELS)}"
+        )
+
 
 class Log:
     """Structured logging capability for job functions.
@@ -27,9 +49,8 @@ class Log:
     the fallback ``functualize.job`` logger is used (backward-compatible).
     """
 
-    _VALID_LEVELS: ClassVar[frozenset[str]] = frozenset(
-        {"debug", "info", "warning", "error", "critical"}
-    )
+    #: Alias of the module-level set, kept for anything that reached for it.
+    _VALID_LEVELS: ClassVar[frozenset[str]] = VALID_LOG_LEVELS
 
     def __init__(self, job_name: str | None = None) -> None:
         if job_name:
@@ -47,11 +68,7 @@ class Log:
         Raises:
             ValueError: If level is not a valid log level.
         """
-        if level not in self._VALID_LEVELS:
-            raise ValueError(
-                f"Invalid log level '{level}'. "
-                f"Must be one of: {sorted(self._VALID_LEVELS)}"
-            )
+        validate_log_level(level)
         numeric_level = getattr(logging, level.upper())
         self._logger.log(numeric_level, str(message))
 

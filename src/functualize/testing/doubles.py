@@ -17,7 +17,7 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 from functualize._engine.capabilities.invoke import Invoke
-from functualize._engine.capabilities.log import Log
+from functualize._engine.capabilities.log import Log, validate_log_level
 from functualize._engine.capabilities.perf import Perf
 from functualize._engine.capabilities.prompt import Prompt
 
@@ -40,7 +40,15 @@ class CapturingLog(Log):
         self.calls: list[tuple[str, object]] = []
 
     def __call__(self, message: object, level: str = "info") -> None:
-        """Record a log call as (level, message)."""
+        """Record a log call as (level, message).
+
+        Validates the level exactly as the real Log does, so a bad level fails
+        in tests instead of being recorded and only failing in production.
+
+        Raises:
+            ValueError: If level is not a valid log level.
+        """
+        validate_log_level(level)
         self.calls.append((level, message))
 
     def info(self, msg: object) -> None:
