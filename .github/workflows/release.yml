@@ -13,7 +13,73 @@ on:
   workflow_dispatch:
 
 jobs:
+  # A tag push does not run CI: ci.yml triggers on pushes to master and on
+  # pull requests, not on tags. The tagged commit has therefore already been
+  # through CI as part of landing on master — this job finds that run and
+  # refuses to publish unless it went green.
+  #
+  # Without it the workflow will happily publish a tag placed on a red commit,
+  # and PyPI has no unpublish: a bad version is burned, not fixed. The check
+  # is skipped for workflow_dispatch, which has no tag and publishes nothing
+  # new (see the note on skip-existing below).
+  verify-ci:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      actions: read
+    steps:
+      - name: Require a green CI run for the tagged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Generous: the slow tier alone takes 20-24 min on GitHub runners,
+          # so a tag pushed straight after a merge has to wait for the run
+          # that merge started rather than race it.
+          deadline=$(( SECONDS + 45 * 60 ))
+          while :; do
+            runs=$(gh api \
+              "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$SHA&per_page=100" \
+              --jq '[.workflow_runs[] | {status, conclusion}]')
+
+            if [ "$(echo "$runs" | jq 'length')" -eq 0 ]; then
+              echo "No CI run found for $SHA."
+              echo "A v* tag must point at a commit that has been through CI on master."
+              exit 1
+            fi
+
+            # Any completed+successful run for this commit satisfies the gate.
+            if echo "$runs" | jq -e \
+              'any(.[]; .status == "completed" and .conclusion == "success")' > /dev/null; then
+              echo "CI is green for $SHA."
+              exit 0
+            fi
+
+            # A finished-but-not-successful run is terminal; do not wait it out.
+            if echo "$runs" | jq -e \
+              'all(.[]; .status == "completed")' > /dev/null; then
+              echo "CI for $SHA completed without success:"
+              echo "$runs" | jq -c '.[]'
+              echo "Refusing to publish. Fix master, then move the release to a green commit."
+              exit 1
+            fi
+
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "Timed out waiting for CI on $SHA to finish."
+              exit 1
+            fi
+            echo "CI still running for $SHA; checking again in 30s."
+            sleep 30
+          done
+
   build:
+    needs: verify-ci
+    # verify-ci is skipped on workflow_dispatch (no tag). A skipped dependency
+    # would otherwise skip this job too, so accept success-or-skipped and let
+    # a real failure stop the release.
+    if: always() && (needs.verify-ci.result == 'success' || needs.verify-ci.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -323,6 +323,26 @@ git push origin master
 git push origin vX.Y.Z
 ```
 
+The release workflow will not publish until CI is green **on the tagged
+commit**. `ci.yml` runs on pushes to `master` and on pull requests, never on
+tags, so the run the `verify-ci` job looks for is the one that commit got when
+it landed on `master` — push the branch first, as step 4 does, and the tag
+finds it. Pushing the tag straight after the branch is fine: the gate waits for
+the in-flight run (up to 45 minutes, since the slow tier alone takes 20-24 on
+GitHub runners) rather than racing it.
+
+Two consequences worth knowing before tagging:
+
+- **A tag on a commit CI never saw fails the release.** That is the intended
+  behaviour, not a misconfiguration — it is what keeps a red commit off PyPI,
+  which matters because PyPI has no unpublish and a burned version cannot be
+  reused.
+- **Tag the release commit, not whatever `master` has drifted to.** The `v0.1.0`
+  tag was created twelve days after that version was uploaded and sits two
+  commits past the source that was actually published. Nothing shipped wrong —
+  both were CI-only — but `git checkout v0.1.0` does not give you the released
+  tree, and the tag cannot be moved.
+
 A `v*` tag is immutable: the `release tags` ruleset blocks deletion and
 force-update, and no one can bypass it. Creating tags is unrestricted, so the
 push above works normally — but a tag pointing at the wrong commit cannot simply
