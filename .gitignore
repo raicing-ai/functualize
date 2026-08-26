@@ -97,3 +97,4 @@ site/
 
 # Internal pre-release audit reports (contain session IDs / local infra notes)
 .release/
+.worktrees/

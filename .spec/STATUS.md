@@ -58,6 +58,14 @@ Items identified during development that are worth doing but not yet designed:
    draws 200 examples to `default`'s 100 and found two further failures after the tier had
    already been called green. Verify with `HYPOTHESIS_PROFILE=ci`, never bare `--run-slow`.
 
+   **Carried forward, not done by this work:** the `entry_points()` caching it measured
+   (#9), the load-sensitive `test_blocking_worker` assertion it identified (#10), and the
+   question of gating `release.yml` on CI (#11). A further ~47 `@given` tests still draw
+   only from finite strategies (`sampled_from`/`booleans`/`just`/`none`) and could become
+   exhaustive `parametrize` — but that is a search hint, not a work item: the same pass
+   established that static counts misclassify property tests in both directions, so never
+   bulk-convert on one.
+
 8. **`skip-existing` masks trusted-publisher misconfiguration** — `release.yml` passes
    `skip-existing: true` to `pypa/gh-action-pypi-publish`, which makes twine call
    `Repository.package_is_uploaded()` *before* attempting the upload
@@ -83,6 +91,69 @@ Items identified during development that are worth doing but not yet designed:
    To verify ahead of a release without spending a version, run twine once per package
    *without* `--skip-existing` and read the status: `400 already exists` means the
    publisher works, `403` means it is missing.
+
+9. **`FunctualizeApp()` calls `entry_points()` seven times** — **RESOLVED**
+   (`perf/slow-tier-followups`). Once per entry-point
+   group (`plugins`, `domains`, `ai_providers`, `state_providers`, `tasks_providers`,
+   `format_providers`, `remote_providers`), and each call rescans every installed
+   distribution from disk. Measured over 16 interleaved runs against master on a
+   215-distribution environment: median construction **111.9 ms -> 73.3 ms, a 34%
+   reduction** (an earlier single instrumented run suggested 60%, but the
+   instrumentation inflated the per-call timings; the paired figure is the real
+   one). The call sites are
+   `_config/registry.py:169,193`, `_plugins/loader.py:326`,
+   `_plugins/domain_registry.py:155,245`, `_discovery/providers.py:775`, and
+   `_cli/tui/display_provider_discovery.py:79`; none is cached. One scan feeding all
+   seven group lookups is the obvious fix. Left alone so far because this is the boot
+   hot path and every surface pays it, so it needed its own verification pass rather
+   than a drive-by patch. That pass is done: the seven now share one snapshot taken on
+   first use, in `_primitives/entry_points.py`.
+
+   The verification that mattered was ordering, since the snapshot is a real behaviour
+   change — the stdlib does see a distribution added to `sys.path` mid-process, so a
+   later lookup used to pick one up and now would not. Nothing mutates `sys.path`
+   inside the 68 ms window the seven lookups span; `--import-lib` paths are applied at
+   `_cli/main.py:268`, explicitly *before* app construction; the `_discovery`
+   insertions add job-module directories, which do not carry `.dist-info`; and the one
+   plugin hit for `sys.path` is inside a `-c` string for a child process. The TUI
+   display-provider lookup keeps the stdlib call (it is off the boot path, and `_cli`
+   may not import `_primitives`), so it always reads fresh.
+
+10. **`test_blocking_worker` asserts an absolute tick count against wall clock** —
+    **RESOLVED** (`perf/slow-tier-followups`).
+    `tests/tui_audit/test_blocking_worker.py::test_thread_worker_keeps_event_loop_responsive`
+    required `ticks_during_work >= 3` with `BLOCK_SECONDS = 0.4` and
+    `TICK_INTERVAL = 0.05`, so the ceiling is ~8 ticks and the margin is thin. It is the
+    same class as Hypothesis's `deadline` and the stale `test_config_resolution_budget`
+    threshold: **the assertion times the machine, not the code**, and CI runs ~2.5x slower
+    than a workstation. Lowering the threshold trades one arbitrary number for another —
+    the fix is a *relative* assertion (thread worker vs. the async-blocking control in the
+    same file), which is what the test actually means to prove. Untouched since v0.1.0.
+
+    Turned out to be wider than written here: `RESPONSIVE_THRESHOLD = 3` was in **three**
+    modules across five assertion sites, not the one test named. `tests/_responsiveness.py`
+    now measures the same loop idle, immediately before the real measurement, and requires
+    a third of that ceiling. Checked that it still discriminates rather than merely passing:
+    the pre-fix pattern scores 0 ticks against an idle ceiling of 8 and a floor of 2. Only
+    the `>=` assertions changed — an upper bound is already safe under load, because load
+    pushes the count further into passing.
+
+11. **`release.yml` does not require CI green on the tagged commit** —
+    **RESOLVED** (`perf/slow-tier-followups`). The job graph was
+    `build -> publish -> github-release` with no `workflow_run` or check-suite dependency,
+    so a tag pushed at a red commit published to PyPI regardless. Deferred once
+    deliberately; revisited because the `v0.1.0` tag turned out to sit at
+    `cb94db5`, two commits *after* the source that was actually published on 2026-08-06
+    (both CI-only, so nothing shipped wrong — but the tag does not mark the release, and
+    it is immutable under the `release tags` ruleset). Two separable changes: gate the
+    publish on CI, and tag before publishing rather than after. See also #8, which covers
+    the `skip-existing` half of this workflow's problems — still open.
+
+    A `verify-ci` job now finds the run the tagged commit got when it landed on master
+    (`ci.yml` never runs on tags) and refuses to publish unless it concluded successfully.
+    No run at all fails immediately, an all-completed-without-success set fails immediately
+    rather than waiting out the timeout, and an in-flight run is waited on for up to 45
+    minutes. CONTRIBUTING carries the two consequences a releaser needs before tagging.
 
 ## Recently Completed (2026-07)
 

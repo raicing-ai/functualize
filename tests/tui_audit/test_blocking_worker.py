@@ -37,13 +37,19 @@ from typing import TYPE_CHECKING
 from textual.app import App, ComposeResult
 from textual.widgets import RichLog
 
+from tests._responsiveness import count_polls, responsive_floor
+
 if TYPE_CHECKING:
     import pytest
 
 BLOCK_SECONDS = 0.4
 TICK_INTERVAL = 0.05
 # A responsive loop fits many ticks into BLOCK_SECONDS; a frozen loop fits ~0.
-RESPONSIVE_THRESHOLD = 3
+# The "many" end is measured per-run against an idle loop (see
+# tests/_responsiveness.py) because a fixed count asserts machine speed. The
+# "~0" end stays a constant: load can only push the observed count down, which
+# is the direction that passes.
+FROZEN_CEILING = 3
 
 
 class HeartbeatApp(App[None]):
@@ -87,7 +93,7 @@ async def test_sync_call_in_async_worker_freezes_event_loop() -> None:
         worker = app.run_worker(app._blocking_async_job(), exclusive=True)
         await worker.wait()
         await pilot.pause()
-    assert app.ticks_during_work < RESPONSIVE_THRESHOLD, (
+    assert app.ticks_during_work < FROZEN_CEILING, (
         f"expected a frozen loop, got {app.ticks_during_work} ticks — "
         "if this fails, Textual changed how async workers are scheduled"
     )
@@ -98,15 +104,30 @@ async def test_thread_worker_keeps_event_loop_responsive() -> None:
     app = HeartbeatApp()
     async with app.run_test() as pilot:
         await pilot.pause()
+
+        # This machine's ceiling: ticks the same app fires over the same
+        # window with nothing blocking. Measured inside the run so it sees
+        # the identical loop, and immediately before the real measurement so
+        # a passing spike of unrelated load affects both alike.
+        app._working = True
+        baseline = app.ticks_during_work
+        await count_polls(BLOCK_SECONDS, TICK_INTERVAL)
+        idle_ticks = app.ticks_during_work - baseline
+        app._working = False
+        app.ticks_during_work = 0
+
         worker = app.run_worker(app._blocking_thread_job, thread=True)
         # Let the loop run while the thread blocks.
         deadline = time.monotonic() + BLOCK_SECONDS + 1.0
         while worker.is_running and time.monotonic() < deadline:
             await asyncio.sleep(TICK_INTERVAL)
         await pilot.pause()
-    assert app.ticks_during_work >= RESPONSIVE_THRESHOLD, (
-        f"thread worker should leave the loop responsive, "
-        f"got only {app.ticks_during_work} ticks"
+
+    floor = responsive_floor(idle_ticks)
+    assert app.ticks_during_work >= floor, (
+        f"thread worker should leave the loop responsive: got "
+        f"{app.ticks_during_work} ticks against an idle ceiling of "
+        f"{idle_ticks} (floor {floor})"
     )
 
 
@@ -139,6 +160,11 @@ async def test_real_job_execution_stays_responsive(
 
     async with tui_app.run_test(size=(100, 30)) as pilot:
         await pilot.pause()
+
+        # Ceiling for this machine, measured on the same loop with no job
+        # running, immediately before the job starts.
+        idle_polls = await count_polls(BLOCK_SECONDS, TICK_INTERVAL)
+
         tui_app._smart_bar.value = "slowjob"
         await pilot.pause()
         tui_app.action_execute()
@@ -153,8 +179,9 @@ async def test_real_job_execution_stays_responsive(
         await tui_app.workers.wait_for_complete()
         await pilot.pause()
 
-    assert ticks >= RESPONSIVE_THRESHOLD, (
-        f"expected the real job_execution.run_job path to leave the "
-        f"loop responsive, got only {ticks} polls — the R1 fix may have "
-        "regressed"
+    floor = responsive_floor(idle_polls)
+    assert ticks >= floor, (
+        f"expected the real job_execution.run_job path to leave the loop "
+        f"responsive: got {ticks} polls against an idle ceiling of "
+        f"{idle_polls} (floor {floor}) — the R1 fix may have regressed"
     )

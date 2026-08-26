@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from functualize._plugins.domain_metadata import DomainMetadata
+from functualize._primitives.entry_points import entry_points
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +153,7 @@ def discover_domains() -> list[DomainMetadata]:
         List of successfully loaded DomainMetadata instances.
     """
     discovered: list[DomainMetadata] = []
-    eps = importlib.metadata.entry_points(group=DOMAINS_ENTRY_POINT_GROUP)
+    eps = entry_points(group=DOMAINS_ENTRY_POINT_GROUP)
 
     for ep in eps:
         try:
@@ -242,7 +243,7 @@ def scan_domain_providers(
     Returns:
         Dictionary mapping provider names to their entry points.
     """
-    eps = importlib.metadata.entry_points(group=metadata.entry_point_group)
+    eps = entry_points(group=metadata.entry_point_group)
     return {ep.name: ep for ep in eps}
 
 

@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import contextlib
 import enum
-import importlib.metadata
 import importlib.util
 import inspect
 import logging
@@ -28,6 +27,7 @@ from pathlib import Path
 from typing import Annotated, Any, get_args, get_origin
 
 from functualize._primitives import JobFilter, ModulePreFilter, iter_module_files
+from functualize._primitives.entry_points import entry_points
 from functualize._primitives.group_options_detection import (
     is_group_options_subclass,
 )
@@ -772,7 +772,7 @@ class EntryPointProvider:
     def _discover(self) -> list[JobDescriptor]:
         """Load entry points and build descriptors."""
         results: list[JobDescriptor] = []
-        for ep in importlib.metadata.entry_points(group=self._group):
+        for ep in entry_points(group=self._group):
             try:
                 loaded = ep.load()
                 results.append(self._build_descriptor(ep.name, loaded))

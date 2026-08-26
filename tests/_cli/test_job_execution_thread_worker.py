@@ -23,11 +23,10 @@ import pytest
 
 from functualize._cli.tui.app import FunctualizeInlineTUI
 from functualize.app.core import FunctualizeApp
+from tests._responsiveness import count_polls, responsive_floor
 
 BLOCK_SECONDS = 0.4
 TICK_INTERVAL = 0.02
-# A responsive loop fits many polls into BLOCK_SECONDS; a frozen loop fits ~0.
-RESPONSIVE_THRESHOLD = 3
 
 
 @pytest.fixture()
@@ -64,6 +63,10 @@ async def test_ui_stays_responsive_while_job_executes(
     async with tui_app.run_test(size=(100, 30)) as pilot:
         await pilot.pause()
 
+        # This machine's ceiling for the poll pattern below, measured on the
+        # same idle loop right before the job starts.
+        idle_polls = await count_polls(BLOCK_SECONDS, TICK_INTERVAL)
+
         tui_app._smart_bar.value = "slowjob"
         await pilot.pause()
 
@@ -79,9 +82,11 @@ async def test_ui_stays_responsive_while_job_executes(
         await tui_app.workers.wait_for_complete()
         await pilot.pause()
 
-    assert ticks >= RESPONSIVE_THRESHOLD, (
-        f"expected a responsive event loop (thread worker), got only "
-        f"{ticks} polls while the job ran — the sync call is still "
+    floor = responsive_floor(idle_polls)
+    assert ticks >= floor, (
+        f"expected a responsive event loop (thread worker): got {ticks} "
+        f"polls while the job ran against an idle ceiling of {idle_polls} "
+        f"(floor {floor}) — the sync call is still "
         "blocking the event loop"
     )
 
