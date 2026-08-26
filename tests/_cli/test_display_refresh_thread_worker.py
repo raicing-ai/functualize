@@ -21,10 +21,10 @@ import pytest
 
 from functualize._cli.tui.app import FunctualizeInlineTUI
 from functualize.app.core import FunctualizeApp
+from tests._responsiveness import count_polls, responsive_floor
 
 TICK_INTERVAL = 0.02
 BLOCK_SECONDS = 0.4
-RESPONSIVE_THRESHOLD = 3
 
 
 @pytest.fixture()
@@ -137,6 +137,11 @@ async def test_slow_refresh_does_not_freeze_the_loop(
 
     async with tui_app.run_test(size=(100, 30)) as pilot:
         await pilot.pause()
+
+        # Ceiling for this machine, measured on the same loop before any
+        # refresh is dispatched.
+        idle_polls = await count_polls(BLOCK_SECONDS, TICK_INTERVAL)
+
         tui_app._display_slot.register_display(display)
         await pilot.pause()
 
@@ -153,9 +158,11 @@ async def test_slow_refresh_does_not_freeze_the_loop(
         await pilot.pause()
 
     assert display.calls >= 1, "registration should trigger an immediate refresh"
-    assert ticks >= RESPONSIVE_THRESHOLD, (
-        f"expected a responsive event loop, got only {ticks} polls while "
-        "refresh() blocked — refresh is still running on the loop thread"
+    floor = responsive_floor(idle_polls)
+    assert ticks >= floor, (
+        f"expected a responsive event loop: got {ticks} polls while "
+        f"refresh() blocked, against an idle ceiling of {idle_polls} "
+        f"(floor {floor}) — refresh is still running on the loop thread"
     )
     assert all(name != "MainThread" for name in display.thread_names), (
         f"refresh() must run off the main thread, saw {display.thread_names}"
