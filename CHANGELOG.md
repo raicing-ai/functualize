@@ -23,6 +23,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A namespaced job was unreachable by the only name it published.**
+  `NamespaceTransform` canonicalized the prefix when *writing* names but matched
+  the raw spelling when *reading* them, so `NamespaceTransform("my_ns")` listed
+  `my-ns.job` and then answered lookups only for `my_ns.job` — the one name it
+  advertised was the one name it refused. Matching is now on the canonical
+  prefix, with the raw spelling still accepted, so either spelling resolves and
+  the published name works. A single-word prefix was already canonical, which is
+  why the failure only appeared once a prefix needed normalizing.
+- **A multi-word `JOB_GROUP` failed registration outright.**
+  `qualified_name` validates the group it is handed as a Python identifier — by
+  design, since a non-identifier `JOB_GROUP` is an authoring mistake — but
+  `registry.py` and `sync.py` normalized the group *before* passing it, and a
+  hyphenated segment is never an identifier. The result was that
+  `JOB_GROUP = "data_ops"`, this changelog's own documented example, raised
+  `ValueError` at registration. Both call sites now pass the raw group and keep
+  the normalized form only for the descriptor's `group` field.
+  `NamespaceTransform` was already correct here. Single-word groups such as
+  `infra` and `deploy` worked throughout, which is why the fixtures missed it.
+- **Config discovery no longer stats every file between the CWD and `$HOME`.**
+  `discover_config_path` tested `is_file()` — a syscall — before the two pure
+  string predicates that reject almost every entry. Since the walk covers every
+  entry of every ancestor directory, a boot from a directory under a busy `/tmp`
+  paid roughly 17,000 stats before concluding there was no config file. The
+  predicates are pure, so reordering them cannot change which directory is
+  chosen.
 - `rc.log(...)` now emits through the job's own `Log` capability — the same
   instance an injected `log: Log` parameter receives — instead of writing
   straight to its stdlib logger. A job that logs both ways can no longer end
