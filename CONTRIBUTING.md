@@ -416,7 +416,7 @@ There is no `release:` type. A version bump is `chore(release): v0.2.0`.
 |------|--------|-------|
 | `conventional-pre-commit` | Commit subject type and shape, at commit time | `.pre-commit-config.yaml` (needs `pre-commit install --hook-type commit-msg`) |
 | PR Title workflow | PR title type, single-token scope, lowercase subject, no trailing period | `.github/workflows/pr-title.yml` |
-| `master` ruleset | Changes arrive by PR; squash is the only merge method; `lint`, `lint-imports`, `typecheck`, `test-fast`, `gitleaks` and `lint-title` must pass; no force-push; no branch deletion | GitHub repository ruleset named `master` |
+| `master` ruleset | Changes arrive by PR; squash is the only merge method; `lint`, `lint-imports`, `typecheck`, `test-fast`, `test-full` (3.11, 3.12, 3.13), `gitleaks` and `lint-title` must pass; no force-push; no branch deletion | GitHub repository ruleset named `master` |
 | `release tags` ruleset | A `v*` tag cannot be deleted or moved once pushed | GitHub repository ruleset named `release tags` |
 
 The first two overlap deliberately. The hook cannot see a PR title, and the PR
@@ -429,10 +429,17 @@ The ruleset requires **zero approving reviews**. Its job is to guarantee that
 every change reaches `master` through a PR with green CI, not to simulate a
 review process that a single maintainer cannot perform on their own work.
 
-`test-full` is deliberately *not* required. It is red for reasons unrelated to
-any individual change (see `.spec/STATUS.md`), and a permanently-failing
-required check trains people to merge past a red tick. Add it to the ruleset in
-the same PR that turns it green.
+`test-full` **is** required, and is green. It was held out of the ruleset while
+it was red for reasons unrelated to any individual change, because a
+permanently-failing required check trains people to merge past a red tick; it
+was added once that was fixed.
+
+It is a matrix job, so GitHub reports it as three separate checks — `test-full
+(3.11)`, `test-full (3.12)` and `test-full (3.13)` — and all three are required
+by name. A bare `test-full` context is never reported by anything, so requiring
+it would wedge every PR. Adding or removing a Python version from the matrix
+means editing the ruleset to match, or the new version goes unenforced and the
+dropped one blocks every merge.
 
 Repository and organization admins can bypass the ruleset, so the release commit
 described below can still be pushed straight to `master`. That bypass is a
