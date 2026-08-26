@@ -16,9 +16,34 @@ Full specifications and atomized task lists for these features exist in the main
 
 | Feature | Scope | Description |
 |---------|-------|-------------|
-| Watch | 1 capability | `func watch` using `watchfiles` to trigger jobs on file changes. New module in `_cli/`; `watchfiles` must become a direct dependency (currently transitive). Split out of the former "Matrix, Watch, and Dry-run" feature — see *Dropped* below. |
 | TUI Shell Completion Types | 5 phases | Shell mode in the inline TUI gets four upgrades: (A) type-aware tokenizer distinguishing executables (green), directories (blue), flags (dim), and pipes (boundary); (B) a coloured token highlight bar below the input; (C) a preflight mirror row showing the resolved command with description; (D) background `--help` caching for command descriptions. ~8 new files in `_cli/completions/` and `_cli/tui/`. |
 | Interactive Gate Prompt | Draft | Three coordinated CLI flags for workflow gates: `--prompt-gates` (prompt inline on TTY, complete walk in one invocation), `--scope-id` (resume existing blocked scope from the CLI), and `Gate(strategy=...)` (declare preferred resolution strategy per gate, overridable by flags). Touches: `_cli/` dispatch, `_engine/`, `_workflow/`. |
+
+## Deferred
+
+Specified work that is not being picked up yet, and what it is waiting on.
+
+| Item | Waiting on | Notes |
+|------|-----------|-------|
+| **`func watch`** | The daemon feature | Deferred by decision. Two things about this are worth knowing before it is picked up again, because both cut against the deferral as written. |
+
+**`func watch` does not, as specified, need a daemon.** Its own proposal lists
+"the daemon watcher stays external (polling fallback only)" as an explicit
+*non-goal* (`matrix-watch-dryrun/proposal.md:70`), and the spec says the same
+(`spec.md:43`): the scoped feature is `watchfiles` plus a debounce setting, in
+the invoking process. So deferring it on a daemon either means a **different,
+richer watch** than the one specified — one backed by a persistent process — or
+the two were conflated. If the former, the existing spec does not describe the
+feature that is wanted and needs revisiting rather than resuming.
+
+**The daemon has no spec.** `persistent-process.md` and
+`kernel-persistent-process-api.md` no longer exist anywhere in the repo. The
+only surviving trace is `scrutiny-reports/standalone-distribution-2026-07-18.md`
+(C5), which found `func self daemon *` to be "contingent on an undecided
+proposal" and recommended marking those lines contingent — that adjudication
+never happened. Until a daemon spec exists, this deferral has no unblocking
+event: nothing can be observed to land.
+
 
 ## Dropped
 
