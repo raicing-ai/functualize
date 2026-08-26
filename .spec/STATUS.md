@@ -16,10 +16,38 @@ Full specifications and atomized task lists for these features exist in the main
 
 | Feature | Scope | Description |
 |---------|-------|-------------|
-| Fix Engine Group Resolution Leak | 3 tasks | `JobExecutionEngine.execute()` currently resolves `job_group` internally via `_resolve_job_group()`. Pass it as a parameter instead — removes a method, fixes the resolution path. Touches: `execution/engine.py`, `context/runcontext.py`, `core/app.py`, `discovery/lazy_wrapper.py`, `discovery/registry.py`, `standalone/cli.py`. |
-| Matrix, Watch, and Dry-run | 5 tasks | Three capabilities: (1) expand `@job(matrix=...)` into per-instance descriptors at discovery time (pytest-parametrize style: `deploy[env=prod,region=eu]`); (2) `func watch` using `watchfiles` to trigger jobs on file changes; (3) wire the existing engine dry-run seam end-to-end. New modules in `_discovery/` and `_cli/`. |
+| Watch | 1 capability | `func watch` using `watchfiles` to trigger jobs on file changes. New module in `_cli/`; `watchfiles` must become a direct dependency (currently transitive). Split out of the former "Matrix, Watch, and Dry-run" feature — see *Dropped* below. |
 | TUI Shell Completion Types | 5 phases | Shell mode in the inline TUI gets four upgrades: (A) type-aware tokenizer distinguishing executables (green), directories (blue), flags (dim), and pipes (boundary); (B) a coloured token highlight bar below the input; (C) a preflight mirror row showing the resolved command with description; (D) background `--help` caching for command descriptions. ~8 new files in `_cli/completions/` and `_cli/tui/`. |
 | Interactive Gate Prompt | Draft | Three coordinated CLI flags for workflow gates: `--prompt-gates` (prompt inline on TTY, complete walk in one invocation), `--scope-id` (resume existing blocked scope from the CLI), and `Gate(strategy=...)` (declare preferred resolution strategy per gate, overridable by flags). Touches: `_cli/` dispatch, `_engine/`, `_workflow/`. |
+
+## Dropped
+
+Decisions recorded so they are not re-proposed. Removing an item from the plan is not
+the same as removing it from the code — where a declaration surface still exists, that
+is called out.
+
+| Item | Why |
+|------|-----|
+| **Fix Engine Group Resolution Leak** | **The defect no longer exists.** `JobExecutionEngine.execute()` (`_engine/executor.py:140`) has no `job_group` parameter, there is no `_resolve_job_group` method anywhere in `src/`, and `executor.py` never references `job_registry`. `job_group` does not appear in `_engine/` at all — the group-options kernel work replaced it with `group_option_values`. The spec also names `execution/engine.py`, `context/runcontext.py`, `core/app.py` and `standalone/cli.py`, none of which exist; it predates the current layout. |
+| **`@job(matrix=...)` expansion** | Dropped by decision, not obsolescence. It expands one job into N descriptors, which forces fan-in semantics onto the dependency graph: the ratified proposal's §D.4 has plain `Deps(deploy)` fanning in over every instance while `Deps("deploy[env=dev]")` selects one. That is a real widening of the DAG's contract for a feature nothing currently needs. |
+| **Dry-run end-to-end wiring** | Dropped with the matrix work it was bundled with. The engine seam and `--dry-run`/`--explain` plumbing stay as they are (`_engine/scheduler.py`, `_cli/dispatch.py`); nothing is removed. |
+
+### Live code surface left by the matrix decision
+
+`@job(matrix=...)` is still **accepted and validated** and then does nothing — the worst
+of the three states, because a user who writes it gets neither an error nor an
+expansion. Deciding what to do about that is its own change, not covered here:
+
+- `job/decorators.py:60` — the `matrix=` parameter on the public decorator.
+- `_types/job_declaration.py:460,488-494` — the field plus validation that raises
+  `ValueError` on a malformed matrix. Also serialized in `to_dict`/`from_dict`
+  (`:510,527`), so removing the field needs a cache-format bump.
+- `_types/naming.py:200` — `NodeKind.MATRIX`, consumed only by
+  `tests/discovery/test_group_trie.py:98`. Bracket-splitting for `deploy[env=dev]`
+  is documented in `contributor/architecture/group-trie.md:71`.
+- `README.md:31` advertises "matrix parameterization" as a shipped `@job` capability.
+  That line is currently false in effect and should go whichever way the decision lands.
+
 
 ## Potential Follow-ups
 
@@ -172,7 +200,6 @@ Good first issues for new contributors (ordered by complexity):
 
 1. **Follow-up #2 (Preset awareness)** — small, self-contained TUI change in one panel (`panels/config_files.py`)
 2. **Follow-up #3 (Settings consumers)** — wire resolved settings to their actual behavior, one setting per PR
-3. **Fix Engine Group Resolution Leak** — 3 tasks, ~6 files, well-scoped parameter passing refactor
-4. **TUI Group Options Panels** — 30 assertions across 6 panels, good for a contributor familiar with Textual; the committed shape intent doc is a self-contained starting point
+3. **TUI Group Options Panels** — 30 assertions across 6 panels, good for a contributor familiar with Textual; the committed shape intent doc is a self-contained starting point
 
 See `CONSTITUTION.md` for quality gates that apply to all changes.
