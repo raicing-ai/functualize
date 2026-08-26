@@ -19,11 +19,11 @@ import inspect
 import logging
 import re
 import time
-from importlib.metadata import entry_points
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from functualize._plugins.config import PluginConfigRegistry
+from functualize._primitives.entry_points import entry_points
 
 if TYPE_CHECKING:
     from functualize._events import EventBus

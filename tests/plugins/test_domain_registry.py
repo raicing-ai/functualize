@@ -216,7 +216,7 @@ class TestDiscoverDomains:
     Validates: Requirement 22.1
     """
 
-    @patch("functualize._plugins.domain_registry.importlib.metadata.entry_points")
+    @patch("functualize._plugins.domain_registry.entry_points")
     def test_discovers_valid_domains(self, mock_eps) -> None:
         """Discovers domain SDKs from functualize.domains entry points."""
         meta = _make_metadata()
@@ -228,7 +228,7 @@ class TestDiscoverDomains:
         assert result[0].name == "ai"
         mock_eps.assert_called_once_with(group="functualize.domains")
 
-    @patch("functualize._plugins.domain_registry.importlib.metadata.entry_points")
+    @patch("functualize._plugins.domain_registry.entry_points")
     def test_skips_entry_points_that_fail_to_load(self, mock_eps) -> None:
         """Entry points that raise on load are skipped."""
         failing_ep = _FakeEntryPoint("bad", load_result=ImportError("missing"))
@@ -240,7 +240,7 @@ class TestDiscoverDomains:
         assert len(result) == 1
         assert result[0].name == "ai"
 
-    @patch("functualize._plugins.domain_registry.importlib.metadata.entry_points")
+    @patch("functualize._plugins.domain_registry.entry_points")
     def test_skips_entry_points_without_required_fields(self, mock_eps) -> None:
         """Entry points that don't have required fields are skipped."""
         incomplete = MagicMock(spec=[])  # No attributes
@@ -250,7 +250,7 @@ class TestDiscoverDomains:
 
         assert len(result) == 0
 
-    @patch("functualize._plugins.domain_registry.importlib.metadata.entry_points")
+    @patch("functualize._plugins.domain_registry.entry_points")
     def test_converts_duck_typed_metadata(self, mock_eps) -> None:
         """Objects with compatible fields are converted to canonical DomainMetadata."""
 
@@ -289,7 +289,7 @@ class TestScanDomainProviders:
     Validates: Requirement 22.3
     """
 
-    @patch("functualize._plugins.domain_registry.importlib.metadata.entry_points")
+    @patch("functualize._plugins.domain_registry.entry_points")
     def test_scans_domain_entry_point_group(self, mock_eps) -> None:
         """Scans the domain's entry_point_group for implementations."""
         ep1 = _FakeEntryPoint("pydantic")
@@ -304,7 +304,7 @@ class TestScanDomainProviders:
         assert "instructor" in result
         mock_eps.assert_called_once_with(group="functualize.ai_providers")
 
-    @patch("functualize._plugins.domain_registry.importlib.metadata.entry_points")
+    @patch("functualize._plugins.domain_registry.entry_points")
     def test_returns_empty_when_no_providers(self, mock_eps) -> None:
         """Returns empty dict when no providers are installed."""
         mock_eps.return_value = []
@@ -367,7 +367,7 @@ class TestBootDomainRegistry:
     Validates: Requirements 22.1, 22.2, 22.3, 22.4
     """
 
-    @patch("functualize._plugins.domain_registry.importlib.metadata.entry_points")
+    @patch("functualize._plugins.domain_registry.entry_points")
     def test_full_boot_discovery_and_registration(self, mock_eps) -> None:
         """Full boot discovers domains and scans for providers.
 
@@ -398,7 +398,7 @@ class TestBootDomainRegistry:
         assert info is not None
         assert "pydantic" in info.available_providers
 
-    @patch("functualize._plugins.domain_registry.importlib.metadata.entry_points")
+    @patch("functualize._plugins.domain_registry.entry_points")
     def test_auto_selects_single_provider(self, mock_eps) -> None:
         """Auto-selects the single installed provider at boot.
 
@@ -425,7 +425,7 @@ class TestBootDomainRegistry:
         assert info is not None
         assert info.active_provider_name == "pydantic"
 
-    @patch("functualize._plugins.domain_registry.importlib.metadata.entry_points")
+    @patch("functualize._plugins.domain_registry.entry_points")
     def test_no_auto_select_when_multiple_providers(self, mock_eps) -> None:
         """Does not auto-select when multiple providers are installed."""
         meta = _make_metadata()
@@ -451,7 +451,7 @@ class TestBootDomainRegistry:
         assert info is not None
         assert info.active_provider_name is None
 
-    @patch("functualize._plugins.domain_registry.importlib.metadata.entry_points")
+    @patch("functualize._plugins.domain_registry.entry_points")
     def test_respects_configured_provider(self, mock_eps) -> None:
         """Uses the configured provider when resolution chain has one."""
         meta = _make_metadata()
@@ -480,7 +480,7 @@ class TestBootDomainRegistry:
         assert info is not None
         assert info.active_provider_name == "pydantic"
 
-    @patch("functualize._plugins.domain_registry.importlib.metadata.entry_points")
+    @patch("functualize._plugins.domain_registry.entry_points")
     def test_handles_no_providers_gracefully(self, mock_eps) -> None:
         """Handles domains with no providers without crashing."""
         meta = _make_metadata()

@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import logging
 import threading
-from importlib.metadata import entry_points
 
 from functualize._config.errors import (
     UnregisteredProviderError,
     UnsupportedFormatError,
 )
 from functualize._config.protocols import FormatProvider, RemoteProvider
+from functualize._primitives.entry_points import entry_points
 
 logger = logging.getLogger(__name__)
 

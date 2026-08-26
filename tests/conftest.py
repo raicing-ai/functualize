@@ -16,11 +16,14 @@ import logging
 import os
 import sys
 import types
+from collections.abc import Iterator
 from io import StringIO
 from pathlib import Path
 
 import pytest
 from hypothesis import HealthCheck, settings
+
+from functualize._primitives.entry_points import clear_entry_point_cache
 
 # ===========================================================================
 # Paths
@@ -137,6 +140,26 @@ def _isolate_home(monkeypatch: pytest.MonkeyPatch) -> None:
     for key in list(os.environ):
         if key.startswith(("FUNCTUALIZE_", "XDG_")):
             monkeypatch.delenv(key, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _reset_entry_point_cache() -> Iterator[None]:
+    """Give every test a cold entry-point snapshot.
+
+    `_primitives.entry_points` scans the path once per process and reuses the
+    result, which is right for a real run and wrong for a suite: a test that
+    boots a real app would otherwise leave its snapshot in place for a later
+    test that fabricates a distribution on `sys.path` and expects discovery to
+    find it. The dependency would be invisible and order-sensitive, so the
+    cache is cleared on both sides of every test rather than in the handful of
+    tests that look like they need it today.
+
+    Cheap: clearing an empty cache is a lock and an assignment, and the rescan
+    only happens for tests that actually ask for entry points.
+    """
+    clear_entry_point_cache()
+    yield
+    clear_entry_point_cache()
 
 
 @pytest.fixture()

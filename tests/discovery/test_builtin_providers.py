@@ -196,7 +196,7 @@ class TestEntryPointProvider:
         provider = EntryPointProvider(group="my.custom.group")
         assert provider._group == "my.custom.group"
 
-    @patch("importlib.metadata.entry_points")
+    @patch("functualize._discovery.providers.entry_points")
     def test_successful_entry_point_load(self, mock_entry_points: MagicMock) -> None:
         """Successful entry point load builds a JobDescriptor.
 
@@ -221,7 +221,7 @@ class TestEntryPointProvider:
         assert jobs[0].module_path == ""
         assert jobs[0].docstring == "A plugin job."
 
-    @patch("importlib.metadata.entry_points")
+    @patch("functualize._discovery.providers.entry_points")
     def test_broken_entry_point_skipped_with_warning(
         self,
         mock_entry_points: MagicMock,
@@ -246,7 +246,7 @@ class TestEntryPointProvider:
         assert jobs == []
         assert "Failed to load entry point 'broken_plugin'" in caplog.text
 
-    @patch("importlib.metadata.entry_points")
+    @patch("functualize._discovery.providers.entry_points")
     def test_mixed_successful_and_broken_entry_points(
         self,
         mock_entry_points: MagicMock,
@@ -281,7 +281,7 @@ class TestEntryPointProvider:
         assert jobs[0].name == "good-job"
         assert "Failed to load entry point 'bad_job'" in caplog.text
 
-    @patch("importlib.metadata.entry_points")
+    @patch("functualize._discovery.providers.entry_points")
     def test_get_job_returns_matching_descriptor(
         self, mock_entry_points: MagicMock
     ) -> None:
@@ -305,7 +305,7 @@ class TestEntryPointProvider:
         assert result is not None
         assert result.name == "lookup-job"
 
-    @patch("importlib.metadata.entry_points")
+    @patch("functualize._discovery.providers.entry_points")
     def test_get_job_returns_none_for_absent_name(
         self, mock_entry_points: MagicMock
     ) -> None:
@@ -328,7 +328,7 @@ class TestEntryPointProvider:
 
         assert result is None
 
-    @patch("importlib.metadata.entry_points")
+    @patch("functualize._discovery.providers.entry_points")
     def test_results_are_cached(self, mock_entry_points: MagicMock) -> None:
         """Results are cached after the first call to list_jobs.
 

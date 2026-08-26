@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Performance
+
+- **Boot scans installed entry points once instead of seven times.** Constructing
+  a `FunctualizeApp` asks seven questions of the same package metadata — plugins,
+  domains, the ai/state/tasks provider groups, and the format and remote config
+  provider groups — and `importlib.metadata.entry_points()` walks every installed
+  distribution on each call, because the group argument filters the result rather
+  than narrowing the scan. The seven now share one snapshot taken on first use.
+  Measured over 16 interleaved runs on a 215-distribution environment: median
+  construction **111.9 ms to 73.3 ms, a 34% reduction**, paid back on every
+  surface — CLI, TUI, MCP, and direct run alike. A process that needs to observe
+  a newly installed distribution can drop the snapshot with
+  `functualize._primitives.entry_points.clear_entry_point_cache()`.
+
 ### Fixed
 
 - `rc.log(...)` now emits through the job's own `Log` capability — the same
