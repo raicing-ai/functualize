@@ -57,7 +57,6 @@ _RECOGNIZED_KEYS: dict[str, frozenset[str]] = {
             "show_session_stamp",
             "history_retention",
             "signature_enabled",
-            "sensitive_keywords",
             "display_auto_switch",
             "default_override_target",
             "theme",

@@ -961,11 +961,16 @@ class FunctualizeInlineTUI(App[int]):
         ``display_auto_switch`` (DisplaySlot changes behaviour immediately)
         and ``theme`` (ThemeManager tracks + resolves the active CSS). The
         rest — ``default_surface``, ``history_retention``,
-        ``sensitive_keywords``,
         ``signature_enabled``, ``show_session_stamp``,
         ``default_override_target`` — are resolved and displayed truthfully
         but have no consumer reading them yet; wiring each is its own change,
         not something to fake here.
+
+        ``sensitive_keywords`` used to sit in that list and was removed
+        outright: it promised masking, had no consumer, and secret detection is
+        now model-driven (``is_secret_field``), so there is no name-list left
+        for it to mean anything against. A setting a user can set, see echoed
+        back, and derive false confidence from is worse than no setting.
         """
         # No suppression here: a wrong method name or a bad value must fail
         # loudly. A blanket `suppress(Exception)` previously swallowed an

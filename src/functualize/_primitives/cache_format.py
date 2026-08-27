@@ -85,7 +85,12 @@ from functualize._primitives.locator import _xdg_cache_dir, compute_project_id
 # surface-suppressed). What remained — "render as if piped" — is already the
 # surface-hint ladder's job. `from_dict` reads keys by name, so a v13 entry
 # would raise KeyError rather than degrade; the bump forces a one-time rebuild.
-CACHE_VERSION = 14
+# v15 (2026-08-27): FieldDescriptor gained `secret`. The TUI panels mask from the
+# cached descriptor — a warm boot never imports the config model — so a v14 entry
+# would render every credential in cleartext until the next rescan. `_field_from_dict`
+# defaults the key to False, which is exactly the wrong direction to fail in, so the
+# version bump (not the default) is what protects the value.
+CACHE_VERSION = 15
 
 # Cache file name within the resolved cache directory.
 CACHE_FILENAME = "cache.json"

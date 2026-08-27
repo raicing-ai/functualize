@@ -98,6 +98,11 @@ class ResolvedKey:
     choices: list[str] | None = None
     """Valid values, if constrained — drives INSERT-mode autocomplete."""
 
+    secret: bool = False
+    """Model-declared secret. The Detail view shows every source's *status* for
+    a secret key but never any source's value — including the losing ones, which
+    are exactly as sensitive as the winner."""
+
     @property
     def winning(self) -> SourceEntry | None:
         """The highest-precedence source that actually sets a value."""

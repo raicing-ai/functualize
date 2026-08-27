@@ -1517,34 +1517,47 @@ class JobExecutionEngine:
         channel any more than through a command echo (schema §5). Best-effort by
         design: redaction must never be the reason a job fails, so any
         resolution problem yields an empty set rather than raising.
+
+        This reads the **resolved config model**. It previously asked
+        ``_make_config_view`` — which returns a ``JobConfigView``, a read
+        accessor with no ``model_fields`` — so the fallback iterated ``dir()``,
+        found four bound methods, and returned an empty set on every call. The
+        capability was wired, tested, and inert: its test constructed
+        ``WiredStdout(secrets={...})`` directly and so could never notice that
+        production supplied nothing (``contributor/guides/wiring-discipline.md``).
         """
-        from functualize._types.redaction import collect_secret_values
+        from functualize._types.redaction import collect_secret_values, is_secret_field
 
         try:
-            view = self._make_config_view(job_name)
+            model = self.resolve_config_model(job_name)
         except Exception:
+            # A job whose config does not validate still runs its own error
+            # path; redaction must not pre-empt that with a second failure.
             return frozenset()
-        if view is None:
+        if model is None:
+            return frozenset()
+
+        fields = getattr(type(model), "model_fields", None)
+        if not isinstance(fields, dict):
             return frozenset()
 
         values: list[Any] = []
-        model = getattr(view, "model_fields", None) or getattr(
-            type(view), "model_fields", None
-        )
-        try:
-            names = (
-                list(model)
-                if model
-                else [n for n in dir(view) if not n.startswith("_")]
-            )
-            for name in names:
-                try:
-                    values.append(getattr(view, name))
-                except Exception:
-                    continue
-        except Exception:
-            return frozenset()
-        return frozenset(collect_secret_values(values))
+        plain: set[str] = set()
+        for name, info in fields.items():
+            try:
+                value = getattr(model, name)
+            except Exception:
+                continue
+            values.append(value)
+            # `collect_secret_values` only sees real `Secret` instances. A field
+            # marked with `json_schema_extra={"secret": True}` stays a plain
+            # `str`, so without this branch the marker would mask the field in
+            # `info --job` while its value flowed through `out.emit()` intact —
+            # the declaration/value split this work exists to close. One
+            # detector, both markers.
+            if is_secret_field(info) and isinstance(value, str) and value:
+                plain.add(value)
+        return frozenset(collect_secret_values(values) | plain)
 
     def _resolve_shell_setting(self, key: str) -> str | None:
         """Resolve a non-empty string from the ``[shell]`` config section."""

@@ -35,6 +35,7 @@ from functualize._types import FieldDescriptor, JobDescriptor
 from functualize._types.annotations import resolved_hints
 from functualize._types.from_job import from_job_names
 from functualize._types.naming import normalize_name, normalize_segment
+from functualize._types.redaction import is_secret_annotation
 from functualize._types.workflow import workflow_shape_of
 
 logger = logging.getLogger(__name__)
@@ -189,6 +190,12 @@ def extract_parameters_from_signature(
                 short_flag=short_flag,
                 is_stdin=is_stdin,
                 stdin_flag=stdin_flag,
+                # A convention job with no config class falls back to these
+                # parameters for `config_fields`, so a bare `token: Secret[str]`
+                # parameter has to carry the marker too — otherwise the same
+                # declaration masks in a Pydantic model and leaks in a plain
+                # signature.
+                secret=is_secret_annotation(base_annotation),
             )
         )
 

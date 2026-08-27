@@ -42,6 +42,13 @@ class FieldDescriptor:
         is_stdin: True if marked with Stdin() — reads from a pipe when available.
         stdin_flag: Explicit flag name from Stdin(flag=...), or None to derive
             from the field name.
+        secret: True when the field is marked secret by the model — either the
+            ``Secret`` annotation or ``Field(json_schema_extra={"secret": True})``.
+            Carried here, rather than re-derived, because the surfaces that must
+            mask (the TUI panels, completion) read the *cached* descriptor on a
+            warm boot and never import the config model. Deriving it at render
+            time would forfeit that; see ``contributor/guides/wiring-discipline.md``
+            and the D16 finding in the 2026-08-27 config/secrets scrutiny.
     """
 
     name: str
@@ -54,6 +61,7 @@ class FieldDescriptor:
     short_flag: str | None = None
     is_stdin: bool = False
     stdin_flag: str | None = None
+    secret: bool = False
 
     @property
     def type(self) -> str:
@@ -591,6 +599,7 @@ def _field_to_dict(fd: FieldDescriptor) -> dict[str, Any]:
         "short_flag": fd.short_flag,
         "is_stdin": fd.is_stdin,
         "stdin_flag": fd.stdin_flag,
+        "secret": fd.secret,
     }
 
 
@@ -673,4 +682,5 @@ def _field_from_dict(data: Any) -> FieldDescriptor:
         short_flag=data.get("short_flag"),
         is_stdin=data.get("is_stdin", False),
         stdin_flag=data.get("stdin_flag"),
+        secret=bool(data.get("secret", False)),
     )

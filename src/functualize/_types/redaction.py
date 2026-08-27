@@ -160,6 +160,18 @@ def redacted_snapshot(value: Any, *, _depth: int = 0) -> Any:
     return repr(value)
 
 
+def is_secret_annotation(annotation: Any) -> bool:
+    """True when ``annotation`` is :class:`Secret` or ``Secret[T]``.
+
+    Split out of :func:`is_secret_field` so the two callers that hold a bare
+    annotation rather than a Pydantic ``FieldInfo`` — the signature-scanning
+    discovery path, and anything unwrapping ``Annotated`` — ask the same
+    question in the same words. A second hand-rolled ``is X or origin is X``
+    check elsewhere is how the answers start to differ.
+    """
+    return annotation is Secret or getattr(annotation, "__origin__", None) is Secret
+
+
 def is_secret_field(field_info: Any) -> bool:
     """True when a Pydantic field is marked secret by annotation or by flag.
 
@@ -168,8 +180,7 @@ def is_secret_field(field_info: Any) -> bool:
     masked (T45). Two independent answers to "is this a secret" is how a field
     gets redacted in state.json and then echoed to the screen while being typed.
     """
-    annotation = getattr(field_info, "annotation", None)
-    if annotation is Secret or getattr(annotation, "__origin__", None) is Secret:
+    if is_secret_annotation(getattr(field_info, "annotation", None)):
         return True
     extra = getattr(field_info, "json_schema_extra", None)
     return bool(isinstance(extra, dict) and extra.get("secret"))

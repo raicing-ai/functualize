@@ -74,6 +74,8 @@ class SmartBar(Input):
         self._readiness: BarReadiness = BarReadiness.GREY
         self._saved_state: SavedBarState | None = None
         self._validity_reason: str = ""
+        self._suppress_autocomplete: bool = False
+        """Set while editing a secret — see :meth:`enter_edit_mode`."""
 
     # --- Properties ---
 
@@ -229,6 +231,12 @@ class SmartBar(Input):
         self.placeholder = saved.placeholder
         self._saved_state = None
 
+        # Unmask unconditionally. COMMAND mode is never masked, and a bar left
+        # in `password` after an aborted secret edit would silently hide every
+        # subsequent command the user types.
+        self.password = False
+        self._suppress_autocomplete = False
+
         # Remove editing/invalid classes and restore readiness
         self.remove_class("editing")
         self.remove_class("invalid")
@@ -236,16 +244,27 @@ class SmartBar(Input):
 
     # --- INSERT mode operations ---
 
-    def enter_edit_mode(self, field_name: str, value: str, hint: str) -> None:
+    def enter_edit_mode(
+        self, field_name: str, value: str, hint: str, *, secret: bool = False
+    ) -> None:
         """Repurpose the bar for field editing (INSERT mode).
+
+        When ``secret`` is set the bar masks its own display (Textual ``Input``
+        renders bullets for ``password``), so a credential is not echoed onto a
+        screen the user may be sharing. Autocomplete is suppressed with it:
+        a dropdown offering completions for a masked value would re-render that
+        value one row below the mask, which defeats the whole point.
 
         Args:
             field_name: Name of the field being edited.
             value: Current field value to populate the bar with.
             hint: Tooltip/display text for context.
+            secret: Mask the input as it is typed.
         """
         self.value = value
         self.placeholder = f"Edit: {field_name}"
+        self.password = secret
+        self._suppress_autocomplete = secret
         self._validity_reason = hint
         self._set_readiness(BarReadiness.EDITING)
 

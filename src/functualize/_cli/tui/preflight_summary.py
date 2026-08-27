@@ -3,12 +3,21 @@
 Pure text formatting — given a field's metadata and its currently-provided
 value, produces a single compact display line with source/type annotations
 and truncation to fit the available terminal width.
+
+This is the panel a user reads immediately before pressing Ctrl+Enter, so it is
+also the one that must never render a credential. Masking is driven by the
+descriptor's ``secret`` flag — the model's answer, carried through the discovery
+cache — never by the field's *name*. A name-matching regex used to live in a
+second, unmounted preflight widget: it missed ``credential``/``pat``/``bearer``
+and masked ``sort_key``/``keywords``, and it was deleted rather than fixed.
 """
 
 from __future__ import annotations
 
 import re
 from typing import Any
+
+from functualize.app.utils import MASK
 
 # Truncation cap (R3-AC3, R3-AC4, R3-AC5): plain params are never truncated,
 # config params are capped at TRUNCATION_CAP - len(plain_fields).
@@ -107,7 +116,14 @@ def format_preflight_field_line(
         else:
             source = ""
 
-    display_value = value or (str(default) if default is not None else "")
+    # A secret is masked whether it came from the bar or from a non-empty
+    # default: `Field(default="dev-key", json_schema_extra={"secret": True})`
+    # would otherwise render on screen with nothing typed at all.
+    if getattr(fd, "secret", False):
+        raw_value = value or (str(default) if default is not None else "")
+        display_value = MASK if raw_value else ""
+    else:
+        display_value = value or (str(default) if default is not None else "")
 
     # Build the line prefix (everything before description)
     # Format: "  {indicator}{req_mark} {kind_label}{name}{short}: {value} ({source})  {type}  "

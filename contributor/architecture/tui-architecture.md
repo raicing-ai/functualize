@@ -170,9 +170,9 @@ extension point, until something wires them.
 
 ## Settings panel
 
-`SettingsPanel` exposes the 8 settings the shell registers
+`SettingsPanel` exposes the 7 settings the shell registers
 (`default_surface`, `show_session_stamp`, `history_retention`,
-`signature_enabled`, `sensitive_keywords`, `display_auto_switch`,
+`signature_enabled`, `display_auto_switch`,
 `default_override_target`, `theme`), validated by `tui/settings_validator.py`. A quick edit posts
 `SettingChanged`, which `on_settings_panel_setting_changed` applies to the
 running app (`_apply_settings`) — session-scoped, "unsaved". Persisting to a
