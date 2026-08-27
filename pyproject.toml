@@ -126,6 +126,7 @@ asyncio_mode = "auto"
 markers = [
     "slow: marks tests as slow (property-based / hypothesis, skipped unless --run-slow is passed)",
     "integration: marks tests as integration tests (test plugin loading and cross-module interactions)",
+    "perf_budget: marks wall-clock startup budget assertions (skipped under coverage or xdist; see tests/perf/conftest.py)",
 ]
 
 [tool.ruff]
