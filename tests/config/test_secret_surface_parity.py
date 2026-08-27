@@ -87,6 +87,28 @@ def defaulted(config: DefaultedConfig, rc: RunContext) -> str:
     return "ok"
 '''
 
+SECRET_ANNOTATED_JOB = '''
+from pydantic import BaseModel
+
+from functualize.job import Stdout
+from functualize.job.context import RunContext
+from functualize.job.decorators import job
+from functualize.types import Secret
+
+
+class VaultConfig(BaseModel):
+    """The documented public way to declare a credential."""
+
+    token: Secret[str]
+
+
+@job(extra_description="Uses the public Secret type")
+def vault(config: VaultConfig, rc: RunContext, out: Stdout) -> str:
+    rc.log("f-string: " + f"{config.token}")
+    out.write("emitted=" + config.token.get_secret_value())
+    return "ok"
+'''
+
 PYPROJECT = """\
 [project]
 name = "secrets-test-project"
@@ -101,6 +123,14 @@ REAL_SECRET = "hunter2-real-credential-value"
 def secrets_project(project_tree):
     """A project whose jobs declare secret and collision-prone config fields."""
     return project_tree(pyproject=PYPROJECT, jobs={"job_sync.py": SECRET_JOB})
+
+
+@pytest.fixture()
+def vault_project(project_tree):
+    """A project declaring a credential with the public ``Secret[str]`` type."""
+    return project_tree(
+        pyproject=PYPROJECT, jobs={"job_vault.py": SECRET_ANNOTATED_JOB}
+    )
 
 
 def _field_line(stdout: str, field: str) -> str:
@@ -274,3 +304,58 @@ class TestDiscoverability:
         assert "model default" not in token_row[0], (
             f"a required field with no default is reported as a default: {token_row[0]!r}"
         )
+
+
+# ===========================================================================
+# The public `Secret[str]` annotation, end to end
+# ===========================================================================
+
+
+class TestPublicSecretType:
+    """`functualize.types.Secret` is public API; using it must simply work.
+
+    It previously did not: `Secret[str]` on a plain `BaseModel` raised
+    `PydanticSchemaGenerationError` at class-definition time, so the job
+    declaring it vanished from `func` with only a stderr warning — no error, no
+    non-zero exit, just an absent command. A second gate in
+    `validate_job_config_types` rejected it independently, so fixing only the
+    Pydantic schema would still have left it unusable.
+    """
+
+    def test_the_job_is_discovered(self, cli_run, vault_project):
+        result = cli_run([], cwd=vault_project)
+        assert "vault" in result.stdout, (
+            "a job declaring Secret[str] is missing from the listing — "
+            "the schema hook or the type gate has regressed"
+        )
+
+    def test_it_resolves_from_the_environment(self, cli_run, vault_project):
+        result = cli_run(["vault"], cwd=vault_project, env={"VAULT_TOKEN": REAL_SECRET})
+        assert result.exit_code == 0, result.stderr
+
+    def test_it_masks_in_an_f_string(self, cli_run, vault_project):
+        """The wrapper's whole purpose: a secret dropped into a log line."""
+        result = cli_run(["vault"], cwd=vault_project, env={"VAULT_TOKEN": REAL_SECRET})
+        assert REAL_SECRET not in result.stdout + result.stderr
+
+    def test_it_masks_in_info_job(self, cli_run, vault_project):
+        result = cli_run(
+            ["builtin", "info", "--job", "vault"],
+            cwd=vault_project,
+            env={"VAULT_TOKEN": REAL_SECRET},
+        )
+        assert REAL_SECRET not in result.stdout
+
+    def test_deliberately_revealed_value_is_still_redacted_on_the_way_out(
+        self, cli_run, vault_project
+    ):
+        """`get_secret_value()` unwraps, but `Stdout` still masks the result.
+
+        Unwrapping is legitimate at a trusted call site (building an argv, an
+        auth header). Writing it to the user's terminal is not that, so the
+        output channel redacts it anyway — belt and braces, because the two
+        mistakes look identical in a diff.
+        """
+        result = cli_run(["vault"], cwd=vault_project, env={"VAULT_TOKEN": REAL_SECRET})
+        assert "emitted=" in result.stdout
+        assert REAL_SECRET not in result.stdout

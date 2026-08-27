@@ -7,14 +7,20 @@ same module (maintainer direction, 2026-07-19) — so it lives in ``_types``, th
 lowest layer, importable by ``_engine``, ``_config``, and the public re-exports
 alike.
 
-Two mechanisms mark a value as secret:
+Two mechanisms mark a value as secret, and :func:`is_secret_field` is the single
+answer that reconciles them:
 
 - **:class:`Secret`** — an explicit wrapper (``Secret("token")`` or the
   ``Secret[str]`` annotation) whose ``str``/``repr`` render as :data:`MASK`, so
   it cannot leak through an accidental f-string. Call
   :meth:`Secret.get_secret_value` to obtain the real value at the point of use.
-- Config fields declared secret (handled by the config consumer, which wraps
-  their resolved values in :class:`Secret`).
+  As a Pydantic annotation it validates a plain ``str`` into a ``Secret`` and
+  serializes back to :data:`MASK`, so the wrapping happens in the model rather
+  than in a config consumer.
+- **``Field(json_schema_extra={"secret": True})``** — for a field that must stay
+  a plain ``str``. The declaration masks it in every *display* sink; the
+  executor additionally feeds its resolved value to output redaction, so the
+  marker is not merely cosmetic.
 
 The redaction primitives are pure and stdlib-only: :func:`reveal` unwraps a
 value for actual use, :func:`collect_secret_values` gathers the real strings to
@@ -40,8 +46,10 @@ class Secret:
     only reachable through :meth:`get_secret_value`, so a secret dropped into an
     f-string, a log line, or a traceback shows ``•••`` rather than leaking.
 
-    ``Secret[str]`` is accepted as a type annotation (via ``__class_getitem__``)
-    so config authors can write ``token: Secret[str]``.
+    ``Secret[str]`` is a usable Pydantic field type: it accepts a plain ``str``
+    from any source (config file, environment, CLI) and wraps it, so a config
+    author writes ``token: Secret[str]`` and gets a value that is masked
+    everywhere without needing ``arbitrary_types_allowed``.
     """
 
     __slots__ = ("_value",)
@@ -69,6 +77,65 @@ class Secret:
 
     def __class_getitem__(cls, item: Any) -> types.GenericAlias:
         return types.GenericAlias(cls, item)
+
+    # ── Pydantic integration ────────────────────────────────────────────────
+    # Both hooks import pydantic *inside* the method. This module sits in the
+    # lowest layer and is imported by nearly everything; a module-level pydantic
+    # import would put it on every cold-start path for a hook that only ever
+    # runs while Pydantic is building a schema.
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
+        """Accept a plain ``str`` (or an existing ``Secret``) and wrap it.
+
+        Without this, ``token: Secret[str]`` on a plain ``BaseModel`` raises
+        ``PydanticSchemaGenerationError`` at class-definition time, and the job
+        declaring it disappears from ``func`` with only a warning on stderr —
+        so the framework's own public secret type could not be used in the
+        framework's own config models.
+
+        The serializer is as load-bearing as the validator: it makes
+        ``model_dump()`` mask by default, so a resolved config cannot leak
+        through a JSON path that never reaches :func:`redacted_snapshot`.
+        """
+        from pydantic_core import core_schema
+
+        return core_schema.no_info_after_validator_function(
+            cls._validate,
+            core_schema.union_schema(
+                [
+                    core_schema.is_instance_schema(cls),
+                    core_schema.str_schema(),
+                ]
+            ),
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                lambda _: MASK,
+                return_schema=core_schema.str_schema(),
+            ),
+        )
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, schema: Any, handler: Any) -> Any:
+        """Emit ``{"secret": true}`` so the marker survives into the cache.
+
+        The TUI panels mask from the *cached* ``FieldDescriptor``, which is
+        built by reading ``model_json_schema()`` — a warm boot never imports the
+        config model. Without this hook, ``Secret[str]`` would mask in
+        ``info --job`` (which has the live ``FieldInfo``) and leak in the TUI
+        (which does not). This is what keeps the annotation and the
+        ``json_schema_extra`` flag one mechanism rather than two that happen to
+        agree in :func:`is_secret_field`.
+        """
+        from pydantic_core import core_schema
+
+        json_schema = handler(core_schema.str_schema())
+        json_schema["secret"] = True
+        return json_schema
+
+    @classmethod
+    def _validate(cls, value: Any) -> Secret:
+        """Normalize an accepted value to a ``Secret`` instance."""
+        return value if isinstance(value, cls) else cls(value)
 
 
 def reveal(value: Any) -> str:

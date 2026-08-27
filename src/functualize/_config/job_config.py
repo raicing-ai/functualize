@@ -216,6 +216,24 @@ def _unwrap_list(tp: Any) -> tuple[Any, bool]:
     return tp, False
 
 
+def _unwrap_secret(tp: Any) -> tuple[Any, bool]:
+    """Unwrap ``Secret[T]`` to ``(T, True)``, or ``Secret`` to ``(str, True)``.
+
+    ``Secret`` carries a string, so the *supported-type* question is about what
+    it wraps. Without this the type gate rejects the framework's own public
+    secret type — a second, independent refusal sitting behind Pydantic's, so
+    giving ``Secret`` a core schema alone is not enough to make it usable.
+    """
+    from functualize._types.redaction import Secret
+
+    if tp is Secret:
+        return str, True
+    if get_origin(tp) is Secret:
+        args = get_args(tp)
+        return (args[0] if args else str), True
+    return tp, False
+
+
 def _is_supported_type(tp: Any) -> bool:
     """Check if a type is supported for configuration.
 
@@ -230,6 +248,10 @@ def _is_supported_type(tp: Any) -> bool:
 
     if _is_enum_subclass(tp):
         return True
+
+    inner, is_secret = _unwrap_secret(tp)
+    if is_secret:
+        return _is_supported_type(inner)
 
     inner, is_optional = _unwrap_optional(tp)
     if is_optional:
@@ -278,6 +300,17 @@ def coerce_value(value: Any, target_type: Any) -> Any:
     """
     if value is None:
         return None
+
+    # Unwrap Secret[T]: coerce to T, then re-wrap. A caller that asked for a
+    # secret must get a `Secret` back, not a bare string that happens to hold a
+    # credential — the wrapper is what makes it mask in an f-string.
+    inner_type, is_secret = _unwrap_secret(target_type)
+    if is_secret:
+        from functualize._types.redaction import Secret
+
+        if isinstance(value, Secret):
+            return value
+        return Secret(coerce_value(value, inner_type))
 
     # Unwrap Optional
     inner_type, is_optional = _unwrap_optional(target_type)
@@ -373,6 +406,9 @@ def validate_job_config_types(job_config_class: type) -> None:
             return True
         if _is_enum(tp):
             return True
+        inner, is_secret = _unwrap_secret(tp)
+        if is_secret:
+            return _is_supported(inner)
         inner, is_opt = _unwrap_optional(tp)
         if is_opt:
             return _is_supported(inner)
