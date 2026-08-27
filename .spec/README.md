@@ -18,6 +18,7 @@ The files committed here are the canonical design reference. Additional working 
 | Intent | Assertions |
 |--------|-----------|
 | [TUI Panel Adjustments for GroupOptions](shape-intents/tui-group-options-panels.md) | 30 (4 pass, 26 gaps) |
+| [Standalone Distribution & Self-Management](shape-intents/standalone-distribution.md) | 57 (7 pass, 50 gaps) |
 
 When a shape intent graduates to implementation, it is atomized into a task list under `.spec/features/<name>/` (gitignored) and executed via the spec-driven-developer workflow.
 

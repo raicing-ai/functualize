@@ -557,6 +557,7 @@ Committed design documents with per-assertion PASS/GAP verification against the 
 | Shape intent | Scope |
 |---|---|
 | [`remote-config-source.md`](shape-intents/remote-config-source.md) | `RemoteSource` is defined, exported and documented with **zero construction sites in `src/`**, and the `remote_first` preset's docstring promises a chain the boot path does not build. Wire it or remove it — correcting only the docstrings is explicitly not an option. Carries the finding that the original gate passed *because of* its `--include="*.md"` scoping. |
+| [`standalone-distribution.md`](shape-intents/standalone-distribution.md) | Detect how the running `func` was installed (PyApp binary / uv tool / pipx / project venv / consumer app / degraded), expose it through `func builtin self doctor\|update`, and manage plugin packages with the owning installation's own tool via `func builtin plugin`. Four new `_cli/` modules plus a release-time PyApp build pipeline; no kernel changes. **Two decisions are open and block the PyApp section** — the build recipe (network first run vs pre-baked distribution) and `PYAPP_PROJECT_FEATURES` (`cli` vs `all`). Sections 1–4 can start without them. |
 
 ## Open Features
 
@@ -591,6 +592,12 @@ only surviving trace is `scrutiny-reports/standalone-distribution-2026-07-18.md`
 proposal" and recommended marking those lines contingent — that adjudication
 never happened. Until a daemon spec exists, this deferral has no unblocking
 event: nothing can be observed to land.
+
+The 2026-08-27 revision of that document (now
+[shape-intents/standalone-distribution.md](shape-intents/standalone-distribution.md))
+resolved its half by **removing** the `func self daemon *` subcommands rather than
+carrying them as contingent lines. So the standalone-distribution work no longer
+depends on a daemon, and shipping it will not unblock `func watch` either.
 
 
 ## Dropped
