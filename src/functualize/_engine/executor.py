@@ -2060,6 +2060,7 @@ class JobExecutionEngine:
                         job_name=_scope,
                         config_view=_view,
                         cli_values=values,
+                        group_scope=_scope,
                     )
                 return _cls(**values)
 
@@ -2069,7 +2070,11 @@ class JobExecutionEngine:
             # asked for?" depend on which *kind* of field it is — the exact
             # distinction users cannot see and should not have to.
             instance = self._resolve_with_prompt(
-                _build, options_class, env_scope, scoped_values
+                _build,
+                options_class,
+                env_scope,
+                scoped_values,
+                group_scope=env_scope,
             )
             context.call_kwargs[param_name] = instance
 
@@ -2079,6 +2084,8 @@ class JobExecutionEngine:
         config_class: type,
         section: str,
         values: dict[str, Any],
+        *,
+        group_scope: str | None = None,
     ) -> Any:
         """Build a config model, asking for what the chain could not supply (T45).
 
@@ -2091,7 +2098,7 @@ class JobExecutionEngine:
         deliberately re-raised rather than restated as a typed substitute: it
         drives the CLI's field-level panel and the config-source hint, which
         name the files that were really read, the ``config.<slot>.<ext>`` rule
-        and ``JOB__<FIELD>``. Substituting it would trade a good diagnostic for
+        and ``JOB_<FIELD>``. Substituting it would trade a good diagnostic for
         a worse one on the path users hit most (CI).
 
         Args:
@@ -2126,7 +2133,7 @@ class JobExecutionEngine:
             if prompt is None:
                 raise
             collected = self._prompt_for_missing_config(
-                config_class, section, missing, prompt
+                config_class, section, missing, prompt, group_scope=group_scope
             )
             # One retry only. If the answers still do not validate, the second
             # ValidationError propagates and is rendered normally — better a
@@ -2139,6 +2146,8 @@ class JobExecutionEngine:
         job_name: str,
         missing: tuple[str, ...],
         prompt: Any,
+        *,
+        group_scope: str | None = None,
     ) -> dict[str, Any]:
         """Collect ``missing`` from an interactive surface.
 
@@ -2164,7 +2173,11 @@ class JobExecutionEngine:
                 Declining is not the same as never being asked, so it keeps its
                 own message rather than reusing the validation error.
         """
-        from functualize._engine.missing_value import env_var_for, resolve_missing_value
+        from functualize._engine.missing_value import (
+            env_var_for,
+            group_env_var_for,
+            resolve_missing_value,
+        )
         from functualize._types.redaction import is_secret_field
 
         fields = getattr(config_class, "model_fields", {})
@@ -2174,7 +2187,11 @@ class JobExecutionEngine:
             collected[name] = resolve_missing_value(
                 prompt,
                 field=name,
-                env_var=env_var_for(job_name, name),
+                env_var=(
+                    group_env_var_for(group_scope, name)
+                    if group_scope is not None
+                    else env_var_for(job_name, name)
+                ),
                 message=f"{job_name}: {name}",
                 secret=is_secret_field(fields.get(name)),
             )

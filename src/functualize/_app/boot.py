@@ -339,7 +339,6 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     perf_timeline.mark("boot.imports.start")
 
     from functualize._app.impl import build_cached_provider as _build_cached_provider
-    from functualize._config.providers.ini import IniFormatProvider
     from functualize._config.providers.toml import TomlFormatProvider
     from functualize._config.registry import ProviderRegistry
     from functualize._discovery.registry import JobRegistry
@@ -487,11 +486,13 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
 
     perf_timeline.mark("boot.core_infra.end")
 
-    # 2. Initialize ProviderRegistry with built-in providers
+    # 2. Initialize ProviderRegistry with the one built-in format (ADR-007).
+    #    TOML is the only format registered by default. ``IniFormatProvider``
+    #    remains in-tree and importable: an application that still reads INI
+    #    registers it itself, on the app's own registry.
     perf_timeline.mark("boot.provider_registry.start")
     app.config_registry = ProviderRegistry()
     app.config_registry.register_format_provider(TomlFormatProvider())
-    app.config_registry.register_format_provider(IniFormatProvider())
     perf_timeline.mark("boot.provider_registry.end")
 
     # 3. Initialize observability BEFORE plugin loading

@@ -35,7 +35,7 @@ from functualize._types.redaction import is_secret_field
 if TYPE_CHECKING:
     from functualize._config.job_config import JobConfigView
 
-__all__ = ["ResolvedField", "resolve_job_fields"]
+__all__ = ["ResolvedField", "group_env_name_for", "resolve_job_fields"]
 
 #: ``source`` value meaning "no source provided this, and there is no default".
 UNSET = "unset"
@@ -94,6 +94,24 @@ def env_name_for(job_name: str, field_name: str) -> str:
     return token.upper().replace("-", "_").replace(".", "_")
 
 
+def group_env_name_for(group_scope: str, field_name: str) -> str:
+    """The environment variable that sets a **group option** — ``SCOPE__FIELD``.
+
+    Group options keep a double underscore between scope and field
+    (``DEPLOY__ENV``, ``DEPLOY_WEB__ENV``) because a nested group path is
+    flattened with single underscores: ``DEPLOY_WEB_ENV`` cannot be told apart
+    from group ``deploy`` carrying a field named ``web_env``. That ambiguity is
+    real for groups and does not arise for a job, which is why job config fields
+    use the single ``JOB_FIELD`` form and these do not.
+
+    Two conventions is one more than ideal. It is deliberate: both are
+    documented (``docs/guides/group-options.md``), and collapsing group options
+    onto ``JOB_FIELD`` would silently change what a second, unrelated feature's
+    environment variables are called.
+    """
+    return f"{group_scope}__{field_name}".upper().replace("-", "_").replace(".", "_")
+
+
 def resolve_job_fields(
     config_class: type,
     job_name: str,
@@ -115,13 +133,14 @@ def resolve_job_fields(
     for name, info in model_fields.items():
         secret = is_secret_field(info)
         required = bool(getattr(info, "is_required", lambda: False)())
+        env_name = env_name_for(job_name, name)
 
         cli_val = cli_values.get(name)
         if cli_val is not None:
             fields.append(
                 ResolvedField(
                     name=name,
-                    env_name=env_name_for(job_name, name),
+                    env_name=env_name,
                     value=cli_val,
                     source="cli",
                     origin=f"--{name.replace('_', '-')}",
@@ -137,10 +156,10 @@ def resolve_job_fields(
             fields.append(
                 ResolvedField(
                     name=name,
-                    env_name=env_name_for(job_name, name),
+                    env_name=env_name,
                     value=value,
                     source=source_type,
-                    origin=_origin_for(source_type, source_id, job_name, name),
+                    origin=_origin_for(source_type, source_id, env_name),
                     secret=secret,
                     required=required,
                 )
@@ -158,7 +177,7 @@ def resolve_job_fields(
             fields.append(
                 ResolvedField(
                     name=name,
-                    env_name=env_name_for(job_name, name),
+                    env_name=env_name,
                     value=default,
                     source="default",
                     origin="model default",
@@ -171,12 +190,12 @@ def resolve_job_fields(
         fields.append(
             ResolvedField(
                 name=name,
-                env_name=env_name_for(job_name, name),
+                env_name=env_name,
                 value=None,
                 source=UNSET,
                 # Name the variable that *would* set it: the whole point of
                 # reporting a missing field is telling the operator what to do.
-                origin=env_name_for(job_name, name),
+                origin=env_name,
                 secret=secret,
                 required=required,
             )
@@ -232,11 +251,11 @@ def _chain_resolve(
     return (result.source_type, result.source_id, result.value)
 
 
-def _origin_for(source_type: str, source_id: str, job_name: str, field: str) -> str:
+def _origin_for(source_type: str, source_id: str, env_name: str) -> str:
     """A human-facing name for where a value came from."""
     if source_type == "env":
         # `source_id` for EnvSource is "environ", which tells nobody anything.
-        return env_name_for(job_name, field)
+        return env_name
     if source_type == "default":
         return "model default"
     return source_id or source_type

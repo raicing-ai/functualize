@@ -432,6 +432,8 @@ def resolve_job_config(
     job_name: str,
     config_view: JobConfigView,
     cli_values: dict[str, Any],
+    *,
+    group_scope: str | None = None,
 ) -> Any:
     """Resolve a Pydantic job config model from CLI, env, config, and defaults.
 
@@ -442,13 +444,24 @@ def resolve_job_config(
     4. Model field defaults
 
     2-4 are all resolved by the chain behind ``config_view``; this function only
-    layers CLI on top. There is deliberately no second env lookup here.
+    layers CLI on top. There is deliberately no second env lookup here for a
+    job.
+
+    ``group_scope`` is the one exception, and it is a different question. A
+    ``GroupOptions`` model is documented to read ``SCOPE__FIELD``
+    (``DEPLOY__ENV``, ``DEPLOY_WEB__ENV``) — a spelling the chain cannot build,
+    because it derives one name from a section. Groups keep the double
+    underscore on purpose: a nested path is flattened with single underscores,
+    so ``DEPLOY_WEB_ENV`` is ambiguous with group ``deploy`` and a field named
+    ``web_env``.
 
     Args:
         config_class: Pydantic model class to instantiate.
         job_name: The job name (used as config section prefix).
         config_view: JobConfigView providing env/file resolution.
         cli_values: Dict of CLI-provided values (None means not provided).
+        group_scope: The flattened group path when resolving a ``GroupOptions``
+            model, else ``None``.
 
     Returns:
         An instance of config_class populated with resolved values.
@@ -456,7 +469,11 @@ def resolve_job_config(
     Raises:
         ValidationError: If resolved values don't satisfy model constraints.
     """
+    import os
+
     from pydantic import BaseModel
+
+    from functualize._config.resolved_field import group_env_name_for
 
     if not (isinstance(config_class, type) and issubclass(config_class, BaseModel)):
         raise TypeError(f"Expected a Pydantic BaseModel subclass, got {config_class}")
@@ -486,6 +503,15 @@ def resolve_job_config(
         # teaches was the last of three to be consulted. Removed outright rather
         # than deprecated: pre-1.0, and `.spec/CONSTITUTION.md` forbids compat
         # shims. See ADR-008 and the 2026-08-27 config/secrets scrutiny (D5/D6).
+        #
+        # A *group option* is the one case that still reads os.environ here: its
+        # documented name is SCOPE__FIELD, which the chain has no way to build.
+        if group_scope is not None:
+            group_env = os.environ.get(group_env_name_for(group_scope, field_name))
+            if group_env is not None:
+                resolved[field_name] = group_env
+                continue
+
         config_val = config_view.get(field_name)
         if config_val is not None:
             resolved[field_name] = config_val
