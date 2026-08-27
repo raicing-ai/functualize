@@ -546,11 +546,30 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
         app._resolution_chain = app._config_sources.config_resolution_chain
     else:
         # Default path: discover config files and build the classic chain
+        # Files that look like config but no provider can read. Kept on the
+        # app so `builtin info` can name them: they never anchor and never
+        # reach FileSource, so this walk is the only thing that sees them.
+        unreadable: list[str] = []
         app._config_path = discover_config_path(
             app._config_file_regex,
             app.name,
             extensions=app.config_registry.list_format_providers().keys(),
+            unreadable=unreadable,
         )
+        app._unreadable_config_files = unreadable
+        for candidate in unreadable:
+            # Warn at boot, not only in `builtin info`. The operator who needs
+            # this most is the one running a job and getting the model default,
+            # who has no reason to suspect the config file they wrote is being
+            # ignored and no reason to go looking for a diagnostic command.
+            logger.warning(
+                "Ignoring %s: no config format provider is registered for %s. "
+                "Convert it with `func builtin config migrate %s`, or register "
+                "a provider from a plugin.",
+                candidate,
+                Path(candidate).suffix or "(no extension)",
+                candidate,
+            )
         AppState.set("config_directory", app._config_path)
         # A non-default file_pattern must reach FileSource, not just anchor
         # discovery; the dataclass class attribute holds the field default.
@@ -644,6 +663,7 @@ def discover_config_path(
     config_file_regex: str,
     app_name: str,
     extensions: Collection[str] | None = None,
+    unreadable: list[str] | None = None,
 ) -> str:
     """Discover config directory by searching upward from CWD.
 
@@ -661,6 +681,17 @@ def discover_config_path(
             anchor that accepted extensions nobody can parse would anchor a
             directory on a file that then contributes nothing. Passing None
             skips the check, for callers with no registry to consult.
+        unreadable: Optional list, appended with every file that *looked* like
+            a config file but carried an extension no provider handles. Those
+            files are otherwise invisible: rejecting them here means they never
+            anchor, never enter ``FileSource._discovered_paths``, and so never
+            reach ``ConfigFileInfo.parsed`` either. A project whose only config
+            was ``config.base.ini`` therefore ran on model defaults in total
+            silence once ADR-007 made TOML the sole registered format — no
+            error, no warning, and ``builtin info`` reporting "No config files
+            found". Collected here rather than re-walked later, because this
+            loop is already the only place that sees them and it is on the boot
+            path (the docstring below explains why it counts syscalls).
 
     Returns:
         Path to the directory containing config files.
@@ -684,6 +715,8 @@ def discover_config_path(
                     if not regex.match(entry.name):
                         continue
                     if known is not None and entry.suffix.lower() not in known:
+                        if unreadable is not None and entry.is_file():
+                            unreadable.append(str(entry))
                         continue
                     if not entry.is_file():
                         continue

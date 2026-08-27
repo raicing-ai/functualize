@@ -17,7 +17,6 @@ Public API:
 
 from __future__ import annotations
 
-import configparser
 import contextlib
 import inspect
 import logging
@@ -36,7 +35,6 @@ from functualize._app.state import AppState
 from functualize._primitives.group_options_detection import (
     is_group_options_subclass,
 )
-from functualize._primitives.locator import ResourceLocator
 from functualize._types.enums import EnvironmentSource
 from functualize.app.adapters.click_params import (
     create_callback_click_command,
@@ -982,42 +980,7 @@ def _show_info_impl(
         Panel(info_table, title="[bold]General Info[/bold]", border_style="green")
     )
 
-    resolver = ResourceLocator().search_explicit(str(config_dir))
-    config_files = resolver.resolve("config.*")
-
-    if config_files:
-        for config_file in config_files:
-            original_parser = configparser.ConfigParser(
-                interpolation=configparser.ExtendedInterpolation()
-            )
-            original_parser.read(config_file)
-
-            interpolated_parser = configparser.ConfigParser(
-                os.environ, interpolation=configparser.ExtendedInterpolation()
-            )
-            interpolated_parser.read(config_file)
-
-            interpolated_lines: list[str] = []
-            for section in original_parser.sections():
-                interpolated_lines.append(f"[{section}]")
-                for key, value in original_parser.items(section, raw=True):
-                    try:
-                        interpolated_lines.append(
-                            f"{key} = {interpolated_parser[section][key]}"
-                        )
-                    except Exception:
-                        interpolated_lines.append(f"{key} = {value}")
-                interpolated_lines.append("")
-
-            interpolated_content = "\n".join(interpolated_lines)
-            syntax = Syntax(
-                interpolated_content, "ini", theme="monokai", line_numbers=False
-            )
-            console.print(
-                Panel(syntax, title=f"[bold]{config_file}[/bold]", border_style="cyan")
-            )
-    else:
-        console.print("[yellow]No config files found.[/yellow]")
+    _print_config_files(app, console)
 
     registered = app.job_registry._registered_commands
     if registered:
@@ -1166,6 +1129,125 @@ def _show_job_config(app: FunctualizeApp, console: Console, job_name: str) -> No
         config_table.add_row(f.name, display, source)
 
     console.print(config_table)
+
+
+def _secret_keys_for_section(app: Any, section: str) -> set[str]:
+    """Field names the job owning ``section`` declares secret.
+
+    Read from the cached ``FieldDescriptor``s — the same boot-free answer the
+    TUI panels use — so listing config files never imports a job module.
+    """
+    try:
+        descriptor = app.get_job(section)
+    except Exception:
+        return set()
+    if descriptor is None:
+        return set()
+    fields = getattr(descriptor, "config_fields", None) or []
+    return {f.name for f in fields if getattr(f, "secret", False)}
+
+
+def _render_file_values(app: Any, values: dict[str, Any]) -> str:
+    """A file's parsed contents as TOML text, with declared secrets masked.
+
+    This panel used to be built with ``configparser`` and
+    ``ExtendedInterpolation`` over ``os.environ``, rendered as ``ini``. Two
+    things were wrong with that after ADR-007: the format is TOML, and every
+    value was echoed verbatim — so a credential written into a config file
+    appeared here in full, two panels above the ``JobConfig`` table that
+    carefully masks the very same value. The interpolation made it worse by
+    expanding ``${VAR}`` from the environment before printing.
+    """
+    from functualize._types.redaction import display_value
+
+    lines: list[str] = []
+    scalars = {k: v for k, v in values.items() if not isinstance(v, dict)}
+    for key, value in scalars.items():
+        lines.append(f"{key} = {value!r}")
+    if scalars:
+        lines.append("")
+
+    for section, section_values in values.items():
+        if not isinstance(section_values, dict):
+            continue
+        secret_keys = _secret_keys_for_section(app, section)
+        lines.append(f"[{section}]")
+        for key, value in section_values.items():
+            shown = display_value(value, secret=key in secret_keys)
+            lines.append(
+                f"{key} = {shown!r}" if isinstance(value, str) else f"{key} = {shown}"
+            )
+        lines.append("")
+    return "\n".join(lines).rstrip("\n")
+
+
+def _print_unreadable_config_file(path: str, console: Console) -> None:
+    """Say that a config-shaped file is being ignored, and what to do about it.
+
+    Silence is the failure mode this whole area exists to remove. A project
+    whose only config was ``config.base.ini`` ran on model defaults after
+    ADR-007 with no error, no warning, and this command — the one an operator
+    reaches for to ask "what config is in effect?" — reporting "No config files
+    found".
+    """
+    from pathlib import Path
+
+    extension = Path(path).suffix or "(none)"
+    console.print(
+        Panel(
+            f"[bold red]Not read[/bold red] — no config format provider is "
+            f"registered for [bold]{extension}[/bold], so nothing in this file "
+            f"takes effect.\n\n"
+            f"Convert it:  [bold]func builtin config migrate {path}[/bold]\n"
+            f"or register a provider from a plugin (see ADR-007).",
+            title=f"[bold]{path}[/bold]",
+            border_style="red",
+        )
+    )
+
+
+def _print_config_files(app: Any, console: Console) -> None:
+    """One panel per discovered config file, including the ones nothing read.
+
+    A file the kernel found but no ``FormatProvider`` could parse is reported
+    rather than omitted. Omitting it is how a project whose only config is
+    ``config.base.ini`` silently ran on model defaults after ADR-007 made TOML
+    the sole registered format: no error, no warning, and this command — the
+    one an operator reaches for to ask "what config is in effect?" — did not
+    mention the file at all.
+    """
+    try:
+        infos = app.config_files()
+    except Exception:
+        infos = []
+
+    # Files that look like config but that no registered provider can read.
+    # Reported separately because they never even reach FileSource: anchoring
+    # rejects them on extension, so they carry no role and no rank.
+    unreadable = list(getattr(app, "_unreadable_config_files", None) or [])
+
+    if not infos and not unreadable:
+        console.print("[yellow]No config files found.[/yellow]")
+        return
+
+    for path in unreadable:
+        _print_unreadable_config_file(path, console)
+
+    for info in infos:
+        if not info.parsed:
+            _print_unreadable_config_file(info.path, console)
+            continue
+
+        body = _render_file_values(app, info.values)
+        console.print(
+            Panel(
+                Syntax(body, "toml", theme="monokai", line_numbers=False)
+                if body
+                else "[dim](empty)[/dim]",
+                title=f"[bold]{info.path}[/bold]",
+                border_style="cyan",
+            )
+        )
 
 
 def _describe_source(f: Any) -> str:
