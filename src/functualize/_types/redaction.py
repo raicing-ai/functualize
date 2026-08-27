@@ -94,9 +94,21 @@ class Secret:
         so the framework's own public secret type could not be used in the
         framework's own config models.
 
-        The serializer is as load-bearing as the validator: it makes
-        ``model_dump()`` mask by default, so a resolved config cannot leak
-        through a JSON path that never reaches :func:`redacted_snapshot`.
+        The serializer masks **on the way out to JSON only**
+        (``when_used="json"``), which is the path that actually leaks: a
+        resolved config reaching a file, a log sink, or an HTTP body without
+        passing :func:`redacted_snapshot`. ``model_dump()`` in python mode
+        returns the ``Secret`` itself, still masked by its own ``__str__``.
+
+        Masking in python mode as well was tried and reverted. The framework
+        passes config models through ``model_dump()`` internally — ``Invoke``
+        builds a child job's kwargs from one, ``RunContext.with_plugin_config``
+        rebuilds a model from one, the argument validator merges one back — so
+        an unconditional serializer replaced live credentials with ``•••``
+        *between* two of our own jobs, with no error and no warning. The child
+        then authenticates with the mask string. Losing the real value silently
+        is a worse failure than rendering it, and ``when_used="json"`` closes
+        the leak without opening that.
         """
         from pydantic_core import core_schema
 
@@ -111,6 +123,7 @@ class Secret:
             serialization=core_schema.plain_serializer_function_ser_schema(
                 lambda _: MASK,
                 return_schema=core_schema.str_schema(),
+                when_used="json",
             ),
         )
 

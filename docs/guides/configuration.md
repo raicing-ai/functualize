@@ -362,10 +362,19 @@ def sync(config: SyncConfig, rc: RunContext) -> None:
 ```
 
 `Secret[str]` is the declaration. It is a real type: it validates from a plain
-string, refuses to render its value in `str()`, `repr()`, logs or `model_dump()`,
-and yields the real value only through `.get_secret_value()`. A field that must stay a
-plain `str` for some other reason can carry the marker instead, and is treated
-identically everywhere:
+string, refuses to render its value in `str()`, `repr()` or a log line, serializes
+to the mask in JSON (`model_dump_json()`, `model_dump(mode="json")`), and yields
+the real value only through `.get_secret_value()`.
+
+A plain `model_dump()` returns the `Secret` object itself rather than the mask.
+That is deliberate: the framework passes config models between jobs by dumping
+and rebuilding them — `rc.invoke(child, config=…)` is the common case — and
+flattening the wrapper there would hand the child `•••` instead of the
+credential, silently. The object still masks itself wherever it is rendered, so
+nothing leaks by keeping it.
+
+A field that must stay a plain `str` for some other reason can carry the marker
+instead, and is treated identically everywhere:
 
 ```python
 credential: str = Field(default="", json_schema_extra={"secret": True})
