@@ -216,19 +216,30 @@ def _config_source_hint(app: Any, job_name: str) -> str:
     except Exception:  # introspection must never mask the real error
         return ""
 
+    # The env spelling must be the one that actually resolves. It used to name
+    # `JOB__<FIELD>`, which contradicted the guide, `builtin env` and
+    # `info --job` — a suggestion naming a variable that sets nothing is worse
+    # than no suggestion at all.
+    env_hint = f"{job_name.upper().replace('-', '_').replace('.', '_')}_<FIELD>"
+
     if files:
         names = ", ".join(str(getattr(f, "path", f)) for f in files)
-        return f"Config files read: {names}"
-    # The env spelling here must be the one that actually resolves. It used to
-    # name `JOB__<FIELD>`, which contradicted the guide, `builtin env`, and
-    # `info --job` — an error naming a variable that sets nothing is worse than
-    # no suggestion at all.
+        # Naming the variable matters *most* here. When no file was found the
+        # user at least knows the file is the problem; when files were read and
+        # a field is still missing, "which files" alone does not say what to do
+        # about it.
+        return (
+            f"Config files read: {names}\n"
+            f"Set the missing field with {env_hint} in the environment, or add "
+            f"it to the [{job_name}] section. `func builtin env {job_name}` "
+            f"lists every variable and which are set."
+        )
     return (
         "No config files were discovered. Files must be named "
         "config.<slot>.<ext> (e.g. config.base.toml) — a plain config.toml is "
         "not read, and <ext> must be one a registered format provider handles "
-        "(.toml, .ini, .cfg by default). You can also set "
-        f"{job_name.upper().replace('-', '_')}_<FIELD> in the environment."
+        f"(.toml by default; a plugin can register more). You can also set "
+        f"{env_hint} in the environment."
     )
 
 
@@ -1115,7 +1126,7 @@ def _show_job_config(app: FunctualizeApp, console: Console, job_name: str) -> No
     config_table.add_column("Source", style="dim italic")
 
     from functualize._config.resolved_field import resolve_job_fields
-    from functualize._types.redaction import MASK
+    from functualize._types.redaction import display_value
 
     # One resolver. This used to be `_resolve_field_with_source`, a private
     # re-implementation that knew one env convention, skipped coercion, and so
@@ -1150,7 +1161,7 @@ def _show_job_config(app: FunctualizeApp, console: Console, job_name: str) -> No
         else:
             # Mask on presence, not on value: an empty secret still reads as a
             # secret, so a viewer cannot infer "unset" from a blank cell.
-            display = MASK if f.secret else str(f.value)
+            display = display_value(f.value, secret=f.secret)
             source = _describe_source(f)
         config_table.add_row(f.name, display, source)
 

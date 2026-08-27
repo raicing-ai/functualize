@@ -1,6 +1,6 @@
 # ADR-008: One Answer to "Is This a Secret", and Making Secrets Discoverable
 
-**Status**: proposed
+**Status**: accepted
 **Date**: 2026-08-27
 **Deciders**: Hakim
 
@@ -40,9 +40,19 @@ the CLI adapter (`app/adapters/cli.py:1123`). Value-based redaction
 (`collect_secret_values` / `redact`) covers the Shell capability and `Stdout`,
 and `redacted_snapshot` covers `resolved_inputs` metadata.
 
-**The TUI preflight widget does not participate.**
-`_cli/tui/preflight_widget.py` decides secretness with an independent regex over
-the *field name*:
+**The TUI preflight does not participate.**
+
+> **Correction.** This ADR was first written against
+> `_cli/tui/preflight_widget.py`. That module had **zero mount points** — it was
+> a dead duplicate, and fixing it would have changed nothing a user sees. The
+> preflight that actually runs is `_cli/tui/preflight_summary.py`, wired at ten
+> call sites in `app.py`. Two further live surfaces were missed entirely: the
+> Config Table panel and the source-chain detail view, neither of which masked
+> anything at all. The dead module has been deleted; the three live surfaces are
+> fixed. Details in `contributor/reports/2026-08-27-config-and-secrets-scrutiny.md`.
+
+The dead widget decided secretness with an independent regex over the *field
+name*:
 
 ```python
 _SENSITIVE_PATTERN = re.compile(r"(secret|password|token|key)", re.IGNORECASE)
@@ -62,7 +72,22 @@ different mask string from the canonical `MASK = "•••"`. Two live conseque
   noise.
 
 This is precisely the drift the canonical helper's docstring warns about,
-already shipped.
+already shipped — and, on the live surfaces, worse than the regex: they applied
+no test at all.
+
+### Problem 3 — the resolvers disagreed about the values, not just the masks
+
+Underneath both problems sat four independent config resolvers.
+`USER=root-ambient func builtin info --job sync` reported `service-account`
+while the run received `root-ambient`, because `_config/job_config.py` read a
+bare, unprefixed `FIELD` from the environment ahead of everything else. A field
+named `user` resolved to the shell's `$USER` and its declared default was
+unreachable; on a field named `token` or `password` that is credential
+substitution.
+
+Unifying *detection* on top of resolvers that disagree about *values* yields a
+system that masks the right field and reports the wrong one. Fixing this came
+first.
 
 ## Decision
 
@@ -119,114 +144,114 @@ Until that lands, documentation and skills must state the split honestly rather
 than implying either form is complete. This supersedes any guidance that a
 credential can be both config-settable and fully masked today.
 
-### 2. Generate the `.env` skeleton rather than declaring it
 
-Add `--template` to `func builtin env`:
+**Shipped.** `Secret` now carries `__get_pydantic_core_schema__` (accepting
+`str | Secret`, serializing to `MASK`) and `__get_pydantic_json_schema__`
+(emitting `{"secret": true}`). The JSON-schema half is what makes the two
+markers genuinely one mechanism: without it `Secret[str]` is invisible to the
+descriptor extractor and would mask in `info --job` while leaking in the TUI.
+`SUPPORTED_TYPES` / `_is_supported` / `coerce_value` were taught the type too —
+a second gate that would otherwise have refused at registration a type that now
+builds a schema.
 
-```bash
-func builtin env <job> --template > .env
+### 2. Emit the `.env` skeleton — no `--template` flag needed
+
+`func builtin env <job>` emits an unset field **commented out**, with why:
+
+```console
+$ func builtin env sync
+export SYNC_API_URL='https://api.example.com'   # source: config.prod.toml
+export SYNC_CREDENTIAL='•••'                    # source: env
+# SYNC_TOKEN=  # REQUIRED — not set
 ```
 
-It emits every resolved variable with its authoritative name, secret fields
-left blank and commented as required.
+The draft proposed a `--template` flag for this. It is unnecessary: the fix that
+makes set and unset distinguishable *is* the skeleton, and a flag whose output
+differs from the default output would be a second thing to keep in step.
+`--template` is withdrawn.
 
-The same generator should be able to emit a `config.<env>.toml` skeleton. The
-project convention is that only `config.base.toml` is committed while the
-environment overlays are not, so a fresh clone has no way to learn what its
-overlay should contain — the identical discoverability gap this ADR addresses
-for secrets, applied to the whole overlay. This solves discoverability *and* the
-two-convention naming ambiguity in one move, because the tool prints the names
-it actually uses rather than asking a human to derive them.
+An empty secret renders as empty, not as `•••`. Masking nothing manufactures
+the appearance of a configured credential, which is the one question these
+surfaces exist to answer. All five sinks now share a single `display_value`
+predicate rather than each re-deriving one — three of them had drifted.
 
-`func builtin env` currently takes only `--include-secrets`, so this is new but
-small, and additive to a command whose entire purpose is already this.
+### 3. `[secrets]` — withdrawn
 
-### 3. `[secrets]` is declaration-only — it never resolves
+The draft proposed a declaration-only `[secrets]` block listing expected
+variables. It is **not adopted**, on the maintainer's call.
 
-An optional block naming the credentials a project expects:
+Everything it was for is delivered by decisions 2 and 5 without a new config
+surface to document, validate and keep in step with the model. Its remaining
+purpose was *timing* — an early presence check — and `builtin env` plus the
+preflight indicator both answer that from the model directly.
 
-```toml
-[secrets]
-required = ["ACME_SYNC__API_TOKEN"]
-```
+A `${env:VAR}` form in TOML was considered and rejected, and that rejection
+stands verbatim: it inverts the resolution model. Today sources are
+independently ranked and composed by `ResolutionChain`, whereas a config-side
+redirect makes one source's *content* reconfigure another source's *lookup*. It
+reintroduces the interpolation class that `interpolation=None` and
+`migration.py` deliberately excluded, and leaves an unanswerable precedence
+question when a conventionally-named variable and a redirected one are both set.
 
-Rules, all load-bearing:
+There is no `[secrets]` section and none is planned. A credential is a field in
+its job's own section, marked secret — one concept, not two.
 
-- It **names variables; it never holds values, and it never redirects lookup.**
-  Resolution stays exactly as it is today.
-- It is **validated against the model, never authoritative over it.** Naming a
-  field the model does not mark secret, or omitting one it does, is a lint
-  error — surfaced by `func builtin why` and at startup.
-- It changes **when** a missing credential is reported (before the job runs
-  rather than at model construction), and **where** that is surfaced. It does
-  not change *whether* the field is required.
-
-A `${env:VAR}` form in TOML was considered and rejected. It inverts the
-resolution model: today sources are independently ranked and composed by
-`ResolutionChain`, whereas a config-side redirect makes one source's *content*
-reconfigure another source's *lookup*. It also reintroduces the interpolation
-class that `interpolation=None` and `migration.py` deliberately excluded, and
-leaves an unanswerable precedence question when a conventionally-named variable
-and a redirected one are both set.
-
-### 4. Required-ness belongs to Pydantic, not to `[secrets]`
+### 4. Required-ness belongs to Pydantic
 
 A field with no default is required; `str | None = None` is optional. That
 vocabulary already exists, is enforced at validation, and produces a proper
-error. Restating it in TOML creates a fourth place for two answers to disagree —
-the exact failure this ADR exists to close. **`[secrets]` must not carry a
-`required` flag.**
-
-What `[secrets]` legitimately adds is *timing*, not *schema*. Pydantic validates
-at model construction, which is at job execution; an operator wants to know
-before a long job starts, and the TUI wants to show it at preflight. Listing a
-variable in `[secrets]` requests an early presence check for something the model
-will demand anyway.
+error. Restating it in TOML would create a fourth place for two answers to
+disagree — the exact failure this ADR exists to close.
 
 One case Pydantic genuinely cannot express — "has a default, but production must
-override it" — is deployment policy rather than schema. It is out of scope here
-and needs its own decision if it is ever wanted.
+override it" — is deployment policy rather than schema. Out of scope; it needs
+its own decision if it is ever wanted.
 
 ### 5. Preflight shows presence, never value
 
-Once detection is unified, the preflight panel can show a secret's *status*
-without ever showing its value:
+Once detection and resolution were unified, this fell out almost for free — the
+`○*` presence indicator already existed and worked. What did not work was the
+required-and-missing test. Both `info --job` and `preflight_summary` guarded
+`default is not None and default is not ...`, but a Pydantic v2 required field's
+default is `PydanticUndefined` — neither — so `"not set (required)"` was
+**unreachable for every required field**, and a required credential rendered as
+`••• model default`, which reads as "configured".
 
-```
-api_token   ••• (env)          set
-api_url     https://…          config.prod.toml
-db_password ⚠ ACME__DB_PASSWORD not set
-```
+`ResolvedField.is_missing_required` asks `is_required()`, which is the question
+actually being asked, and every surface reads it.
 
-Masking is driven by `is_secret_field`. The presence indicator is driven by
-`[secrets]` when present, and by the model's required fields otherwise. The two
-concerns stay separate: **the model owns the schema, the config block owns
-timing and display.**
+Masking is driven by `is_secret_field`; presence by the model's required fields.
+The model owns the schema; the display owns nothing but display.
 
 ## Consequences
 
 ### Positive
 
 - One answer to "is this a secret", eliminating a live leak and a live
-  false-positive class.
+  false-positive class — on the surfaces that actually render.
+- One answer to "what value will this field have", which is the precondition for
+  the above meaning anything.
 - Operators discover required credentials without reading Python.
-- The `SECTION_KEY` / `JOB__FIELD` ambiguity stops mattering for users, because
-  the tool emits the names.
-- Preflight gains a genuinely useful failure mode: a missing credential is
-  visible before the run rather than as a traceback during it.
+- The naming ambiguity is gone rather than papered over: `JOB__FIELD` and the
+  bare `FIELD` are deleted, so `JOB_FIELD` is the only spelling, and the tool
+  emits it.
+- A missing credential is visible before the run rather than as a traceback
+  during it.
 
 ### Negative
 
-- `[secrets]` is a new config surface to document, validate, and keep in step
-  with the model.
-- `--template` needs to render every field type sensibly, including nested
-  models.
-- Fixing the preflight regex changes rendered output, so TUI snapshots move.
+- **Breaking**, with no deprecation window — pre-1.0, and
+  `.spec/CONSTITUTION.md` forbids compat shims. `JOB__FIELD` and bare `FIELD`
+  stop resolving. The correct value was *unreachable* while the bare fallback
+  stood, so nobody can have been relying on it deliberately.
+- `CACHE_VERSION` 14 → 15, since `FieldDescriptor` now carries `secret`.
+- `Secret` fields serialize to `MASK` under `model_dump()`. Intended — safe by
+  default; real values come from `get_secret_value()`.
+- TUI rendered output changed, so snapshots moved.
 
 ### Neutral
 
-- Decisions 1 and 2 stand alone and deliver most of the value; 3 and 5 can be
-  deferred or dropped without stranding them.
+- Decision 3 is withdrawn, and nothing depended on it.
 
 ## Alternatives Considered
 
@@ -234,15 +259,18 @@ timing and display.**
 |---|---|---|---|
 | `${env:VAR}` references in TOML | Explicit and visible in the file | Inverts the resolution model; revives excluded interpolation; unanswerable precedence when both forms are set | Rejected on architecture |
 | Mark secrets in TOML as authoritative | One obvious place to look | A fifth detection mechanism, disagreeing per-deployment with the model that travels with the code | Rejected — the failure this ADR closes |
-| `required` flag inside `[secrets]` | Reads naturally | Duplicates Pydantic's own vocabulary in a place that can disagree with it | Rejected; see decision 4 |
-| Leave the preflight regex alone | No snapshot churn | A `Secret[str]` field named `credential` is rendered in cleartext | Rejected — an active leak |
-| Documentation only | Zero code | Does not fix detection drift, and prose cannot resolve the naming ambiguity | Rejected |
+| `[secrets]` declaration block | Names expectations in one place | A new surface to validate against the model; its only unique value was timing, which decisions 2 and 5 deliver | Withdrawn |
+| `--template` flag on `builtin env` | Explicit intent | The default output already is the skeleton; a second output shape to keep in step | Withdrawn |
+| Name-based detection (`_SENSITIVE_PATTERN`) | Zero declaration effort | Masks `sort_key`, leaks `credential` | Rejected — it was the bug |
+| Fixing `preflight_widget.py` | Looked like the whole fix | The module has no mount points; the live surfaces are elsewhere | Rejected on evidence; see Context |
+| Documentation only | Zero code | Does not fix detection drift, and prose cannot resolve a naming ambiguity | Rejected |
 
-## Open Questions
+## Resolved Questions
 
-- Whether `[secrets]` belongs in the project config file or in `pyproject.toml`
-  under `[tool.functualize]`.
-- Whether `--template` should refuse to overwrite an existing `.env`, or emit to
-  stdout only. Stdout-only is the safer default.
-- Whether the two env-naming conventions should be unified outright, which would
-  reduce `[secrets]` to a pure convenience. Tracked in ADR-006.
+- **Where `[secrets]` belongs** — nowhere; withdrawn.
+- **Whether `--template` should refuse to overwrite `.env`** — moot; withdrawn.
+- **Whether the two env-naming conventions should be unified** — yes, and they
+  were. `JOB_FIELD` is the only spelling for a job config field. Group options
+  keep `SCOPE__FIELD`, which is a different feature with a real reason: a nested
+  group path is flattened with single underscores, so `DEPLOY_WEB_ENV` would be
+  ambiguous with group `deploy` carrying a field named `web_env`.

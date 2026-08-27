@@ -84,9 +84,9 @@ Any other value is treated as falsy.
 
 List fields accept **comma-separated strings** when provided via environment variables or config files:
 
-```ini
+```toml
 [my-job]
-targets = service-a, service-b, service-c
+targets = "service-a, service-b, service-c"
 ```
 
 From the CLI, list values are passed as comma-separated strings as well.
@@ -116,28 +116,51 @@ Each JobConfig field is resolved from multiple sources in this priority order (h
 
 ```mermaid
 flowchart TD
-    A[CLI Argument] --> B{Value provided?}
+    A[CLI argument] --> B{Value provided?}
     B -->|Yes| C[Use CLI value]
-    B -->|No| D[Check Environment Variable]
+    B -->|No| D[Check environment variable]
     D --> E{JOBNAME_FIELDNAME set?}
     E -->|Yes| F[Use env var value]
-    E -->|No| G[Check Config File]
-    G --> H{INI section has key?}
+    E -->|No| G[Check config file]
+    G --> H{"[job-name] section has key?"}
     H -->|Yes| I[Use config file value]
     H -->|No| J{Model has default?}
     J -->|Yes| K[Use model default]
-    J -->|No| L[ValidationError]
+    J -->|No| L{Interactive surface?}
+    L -->|Yes| M[Prompt for it]
+    L -->|No| N[ValidationError]
 ```
 
 | Priority | Source | Convention |
 |----------|--------|------------|
 | 1 (highest) | CLI argument | `--field-name value` |
 | 2 | Environment variable | `JOBNAME_FIELDNAME` (uppercased) |
-| 3 | Config file INI section | Section name matches `job_name` |
+| 3 | Config file section | Section name matches `job_name` |
 | 4 (lowest) | Model default | Default value in the field definition |
 
+If nothing supplies a **required** field, an interactive surface asks for it;
+off one (CI, a pipe) the `ValidationError` is reported with the file that was
+read and the variable that would set it.
+
 !!! info "Environment variable naming"
-    The environment variable name is formed by joining the **job name** and **field name** with an underscore, both uppercased. For a job named `deploy` with a field `api_url`, the env var is `DEPLOY_API_URL`.
+    The environment variable name is formed by joining the **job name** and
+    **field name** with a single underscore, both uppercased, with hyphens and
+    dots flattened. For a job named `deploy` with a field `api_url`, the env var
+    is `DEPLOY_API_URL`. For a group-qualified job `infra.deploy`, it is
+    `INFRA_DEPLOY_API_URL`.
+
+    This is the only spelling. `DEPLOY__API_URL` and a bare `API_URL` were both
+    read at one time, ahead of the documented name; neither is any more. The
+    bare form in particular meant a field called `user` silently resolved to
+    your shell's `$USER` and its declared default was unreachable.
+
+    [Group options](group-options.md) are the one exception, and a different
+    feature: they keep `SCOPE__FIELD` (`DEPLOY__ENV`) because a nested group
+    path is flattened with single underscores, so `DEPLOY_WEB_ENV` would be
+    ambiguous with a group `deploy` carrying a field named `web_env`.
+
+    Run `func builtin env <job>` to see the resolved names and which of them are
+    actually set.
 
 ## Complete Example
 
@@ -229,13 +252,14 @@ Options:
 
 === "Config file"
 
-    ```ini title="config.base.ini"
+    ```toml title="config.base.toml"
     [deploy]
-    api_url = https://api.example.com
-    environment = prod
+    api_url = "https://api.example.com"
+    environment = "prod"
     timeout = 60
-    targets = service-a, service-b
-    ```
+    targets = "service-a, service-b"
+    
+```
 
     ```bash
     my-app deploy run

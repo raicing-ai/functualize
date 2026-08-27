@@ -49,13 +49,50 @@ expansion. Deciding what to do about that is its own change, not covered here:
   That line is currently false in effect and should go whichever way the decision lands.
 
 
+## Completed
+
+### Secrets and config unification (2026-08-27, `feat/secrets-and-config`)
+
+ADR-007 and ADR-008 are **accepted and implemented**. A scrutiny pass executed
+every claim in both drafts against a running process rather than against the
+source, and found that both described a system less wired than they assumed —
+17 verified defects, recorded with reproduction commands in
+[`contributor/reports/2026-08-27-config-and-secrets-scrutiny.md`](../contributor/reports/2026-08-27-config-and-secrets-scrutiny.md).
+
+What shipped:
+
+- **One resolver.** Four independent implementations of "what value will this
+  field have?" disagreed about values, not just formatting. `ResolvedField` /
+  `resolve_job_fields` in `_config/resolved_field.py` is the single answer, and
+  `info --job`, `func builtin env` and the TUI panels all read it.
+- **One env spelling.** `JOB__FIELD` and a bare, unprefixed `FIELD` are deleted;
+  `JOB_FIELD` is the only form. Group options keep `SCOPE__FIELD`, which is a
+  different feature with a real disambiguation reason.
+- **One secret detector, one mask predicate.** `is_secret_field` decides
+  secretness and `display_value` decides rendering, on all five sinks. A
+  name-based regex is gone.
+- **`Secret[str]` is usable as a config field type** — pydantic core and JSON
+  schema, so the declaration marker and the value wrapper are one mechanism.
+- **TOML alone by default**, with `func builtin config migrate` and a
+  plugin-based escape hatch that is tested end-to-end.
+
+Three pieces of **dead wiring** surfaced, which is the recurring theme:
+`preflight_widget.py` had no mount points (deleted), `_collect_job_secrets`
+always returned an empty set, `migrate_ini_to_toml` had no callers, and
+ADR-007's own documented escape hatch did not work. Guarded now by
+`tests/config/test_secret_surface_parity.py`, which fails if any surface drifts
+from the others.
+
+Not done, and deliberately: `[secrets]` (withdrawn), `--template` (unnecessary —
+the default `builtin env` output *is* the skeleton).
+
 ## Potential Follow-ups
 
 Items identified during development that are worth doing but not yet designed:
 
 1. **Autocomplete placeholder crashes instead of degrading** — a missing `textual-autocomplete` optional dep takes out every Pilot test instead of silently skipping. Fix: make the fallback a real Widget or skip it in `compose()`.
 2. **Preset awareness in Config Files panel** — the panel assumes a classic config chain with file sources. If the app uses `env_only()` or `twelve_factor()`, the panel shows an empty file list. Fix: read the active preset and hide/adapt the panel.
-3. **Settings with no consumers** — `execution_mode`, `history_retention`, `completion_debounce_ms`, `sensitive_keywords`, `signature_enabled`, `show_session_stamp`, `default_override_target` all resolve truthfully in the Settings panel but nothing reads them yet. Wire each to its consumer one at a time.
+3. **Settings with no consumers** — `execution_mode`, `history_retention`, `completion_debounce_ms`, `signature_enabled`, `show_session_stamp`, `default_override_target` all resolve truthfully in the Settings panel but nothing reads them yet. Wire each to its consumer one at a time. (`sensitive_keywords` was on this list and has been **removed** rather than wired — see *Completed* below; masking follows the model, never a name.)
 4. **Shell completion model unification** — SmartBar completion and `func builtin shell-init` both consume the same trie and descriptors but compute their partition independently. A shared model (`_cli/completions/shared.py`) would prevent the two from drifting.
 5. **`builtin parallel` items missing from history** — parallel batch items run at invoke depth 1 and the history filter only records depth 0. Explicit recording in `parallel` itself would fix this.
 6. **`RunContext.log()` bypasses the injected `Log`** — **resolved** (`fix/runcontext-log-di`). `RunContext` now holds the live per-invocation capability map (the `TTY` pattern) and `log()` takes its sink from it, so `rc.log(...)` and a `log: Log` parameter are the same instance. The DI registry is deliberately not consulted — the engine skips it for `Log` too, so reading it would make the two disagree. A job with no `Log` falls back to the `functualize.job.<name>` logger, unchanged. Level validation moved into `log()` (and `CapturingLog`) so an invalid level fails identically on both paths.
@@ -182,6 +219,12 @@ Items identified during development that are worth doing but not yet designed:
     No run at all fails immediately, an all-completed-without-success set fails immediately
     rather than waiting out the timeout, and an in-flight run is waited on for up to 45
     minutes. CONTRIBUTING carries the two consequences a releaser needs before tagging.
+
+12. **A job module with a `SyntaxError` vanishes silently.** No warning, no
+    diagnostic, exit 0 — the job simply is not listed. Cost ~20 minutes on a
+    test fixture during the secrets work, and would cost a user far more, since
+    they have no reason to suspect the file was even considered. Discovery
+    should report a module it failed to parse.
 
 ## Recently Completed (2026-07)
 

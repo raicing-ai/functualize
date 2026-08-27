@@ -1,6 +1,6 @@
 # Standalone Examples
 
-Jobs run with the `func` CLI, no project scaffolding required. Four
+Jobs run with the `func` CLI, no project scaffolding required. Five
 directories cover everything — each is self-contained, and each README is a
 step-by-step verification checklist you can walk top to bottom.
 
@@ -9,6 +9,7 @@ step-by-step verification checklist you can walk top to bottom.
 | [`showcase/`](showcase/) | **The main example.** All three CLI modes, the inline TUI (SmartBar flows, autocomplete, value completions, pre-flight ring, config inspector, settings, ambient displays), every rendering surface (panel, live zone, scrollback, full-screen TTY, adaptive), unix-style args + stdin, environment overlays, and AI in both directions (key-free via `MockAI`) | The one directory to `cd` into for "does the whole thing work?" |
 | [`discovery_lab/`](discovery_lab/) | All six discovery filters + `extra_directories` + exclude patterns, flipped per-run via `FUNCTUALIZE_DISCOVERY_*` env vars and CLI flags over a single crafted jobs tree | Filters must start from a *no-filter* project config, which would fight the showcase's job set |
 | [`config_lab/`](config_lab/) | The settings precedence chain: CLI > env > `pyproject.toml` > global config > defaults, with a simulated global config activated via `XDG_CONFIG_HOME` | Needs its own `pyproject.toml` filter and global-config pair where *which job gets listed* proves which layer won |
+| [`secrets_lab/`](secrets_lab/) | Declaring a credential with `Secret[str]`, discovering what a job needs with `func builtin env`, and the set / unset / empty / required-missing distinction across every surface that renders config | Credentials need a decoy field beside them (`sort_key`, which every name-based heuristic masks and which is not a secret) — that only reads clearly in a project built around the point |
 | [`deploy_tool/`](deploy_tool/) | **An app that is not `func`.** Its own command name, pyproject table, config file and `DEPLOY_TOOL_*` env prefix; a root flag generated from a setting's `cli_flag`; a `phase="early"` flag read pre-boot; and a bare invocation that opens the interactive shell (`inline_tui = false` to opt out) | The other three configure functualize itself — this one is a *different tool built on it*, which is the only way to show the settings identity and generated flags |
 
 ## How `func` works for standalone code
@@ -44,6 +45,7 @@ Then follow each README's checklist:
 1. [`showcase/README.md`](showcase/README.md) — CLI, TUI, surfaces, config inspector, AI
 2. [`discovery_lab/README.md`](discovery_lab/README.md) — the filter matrix, one env var at a time
 3. [`config_lab/README.md`](config_lab/README.md) — the precedence chain, one layer at a time
+4. [`secrets_lab/README.md`](secrets_lab/README.md) — declare, discover, verify a credential
 
 ## Tests
 

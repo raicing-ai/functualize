@@ -16,7 +16,7 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import DataTable
 
-from functualize.app.utils import MASK
+from functualize.app.utils import display_value
 
 if TYPE_CHECKING:
     from textual.app import ComposeResult
@@ -490,7 +490,7 @@ class ConfigTablePanel(Widget):
 
         # Masked on presence, not on value: an empty secret still reads as a
         # secret, so a viewer cannot infer "unset" from a blank cell.
-        value_display = MASK if (field.secret and field.value) else field.value
+        value_display = display_value(field.value, secret=field.secret)
         source_display = field.source
         desc_display = field.description
         return name_display, type_display, value_display, source_display, desc_display

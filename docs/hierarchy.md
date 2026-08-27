@@ -40,7 +40,7 @@ ops-cli show-info
 - You want a flat, simple command structure
 
 **Configuration behavior:**
-- All jobs use the parent's `config.base.ini` and environment overlay
+- All jobs use the parent's `config.base.toml` and environment overlay
 - Environment variables follow the parent's `SECTION_KEY` convention
 - `RunContext.config` points to the parent's config directory
 
@@ -50,16 +50,16 @@ Child projects are mounted as namespaced sub-commands. Each child is a standalon
 
 ### Configuration-driven (recommended for dynamic setups)
 
-In your parent's `config.base.ini`:
+In your parent's `config.base.toml`:
 
-```ini
+```toml
 [children]
 # Each key becomes the CLI namespace, value is the path
-difftastic = /home/user/code/tickets/dnadvo-3759/difftastic_filter
-infra-tools = /home/user/code/tickets/dnadvo-4001/infra-tools
+difftastic = "/home/user/code/tickets/dnadvo-3759/difftastic_filter"
+infra-tools = "/home/user/code/tickets/dnadvo-4001/infra-tools"
 # Glob patterns work too — each matched directory becomes a child
 # using its directory name as the namespace
-tickets = ~/code/tickets/*/
+tickets = "~/code/tickets/*/"
 ```
 
 ### Programmatic (in `main.py`)
@@ -111,7 +111,7 @@ ops-cli show-info                 # shows parent + children info
 
 **Configuration behavior:**
 - Each child's jobs use the **parent's** config for `RunContext` resolution (the parent is the running app)
-- Children can have their own `config.base.ini` for reference (shown in `show-info`)
+- Children can have their own `config.base.toml` for reference (shown in `show-info`)
 - The parent's `[children]` section defines the mapping
 - No config key collisions between children since they're namespaced
 
@@ -121,7 +121,7 @@ A valid child project must have the standard functualize layout:
 
 ```
 my-child-project/
-├── config.base.ini          # optional — child's own config
+├── config.base.toml          # optional — child's own config
 ├── pyproject.toml
 └── src/
     └── my_child_project/
@@ -165,14 +165,14 @@ ops-cli difftastic filter         # hierarchical — from child
 
 For your workflow where `ops-cli` is the parent and each ticket gets a new child project:
 
-**Parent: `ops-cli/config.base.ini`**
-```ini
+**Parent: `ops-cli/config.base.toml`**
+```toml
 [general]
-app_name = ops-cli
+app_name = "ops-cli"
 
 [children]
 # Add new ticket projects here as you create them
-difftastic = ~/code/ticket-workspace/dnadvo-3759/difftastic_filter
+difftastic = "~/code/ticket-workspace/dnadvo-3759/difftastic_filter"
 # Or use a glob to auto-discover all ticket projects:
 # tickets = ~/code/ticket-workspace/*/
 ```
@@ -194,7 +194,7 @@ Paths in the `[children]` config section support:
 - **Absolute paths:** `/home/user/code/my-project`
 - **Home expansion:** `~/code/my-project`
 - **Environment variables:** `$WORKSPACE/my-project`
-- **Relative paths:** Resolved from the config directory (where `config.base.ini` lives)
+- **Relative paths:** Resolved from the config directory (where `config.base.toml` lives)
 - **Glob patterns:** `~/code/tickets/*` — each matched directory becomes a child
 
 ## Introspection

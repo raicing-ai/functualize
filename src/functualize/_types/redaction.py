@@ -150,6 +150,24 @@ def reveal(value: Any) -> str:
     return str(value)
 
 
+def display_value(value: Any, *, secret: bool) -> str:
+    """What a surface should render for a resolved config value.
+
+    One predicate, because five sinks had grown three different ones. A secret
+    holding an actual value renders as ``MASK``; a secret holding **nothing**
+    renders as nothing.
+
+    Masking an empty value is not a harmless extra: it manufactures the
+    appearance of a configured credential. ``export SYNC_TOKEN='\u2022\u2022\u2022'``
+    for a field whose default is ``""`` tells an operator the token is set when
+    it is not, which is the single question these surfaces exist to answer.
+    """
+    text = "" if value is None else reveal(value)
+    if secret and text:
+        return MASK
+    return text
+
+
 def collect_secret_values(values: Iterable[Any]) -> set[str]:
     """Gather the real strings of every :class:`Secret` in ``values``.
 

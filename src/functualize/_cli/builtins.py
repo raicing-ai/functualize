@@ -362,7 +362,7 @@ def _env_print(env_vars: list[Any], include_secrets: bool) -> None:
 
     import click
 
-    from functualize.app.utils import MASK, reveal
+    from functualize.app.utils import display_value, reveal
 
     for f in env_vars:
         if not f.is_set:
@@ -371,8 +371,11 @@ def _env_print(env_vars: list[Any], include_secrets: bool) -> None:
             continue
         # `reveal` unwraps a `Secret`; whether that real value is shown is the
         # caller's opt-in, decided here rather than at resolution time.
-        real = str(reveal(f.value))
-        shown = real if (include_secrets or not f.secret) else MASK
+        shown = (
+            str(reveal(f.value))
+            if include_secrets
+            else display_value(f.value, secret=f.secret)
+        )
         source = f"  # source: {f.source}" if f.source else ""
         click.echo(f"export {f.env_name}={shlex.quote(shown)}{source}")
 

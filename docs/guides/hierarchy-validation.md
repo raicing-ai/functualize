@@ -73,16 +73,16 @@ This prevents false negatives where the same project appears under different pat
 
 ## Configuration
 
-Enable strict validation by setting `strict_hierarchy_validation = true` in the `[general]` section of your `config.base.ini`:
+Enable strict validation by setting `strict_hierarchy_validation = true` in the `[general]` section of your `config.base.toml`:
 
-```ini title="config.base.ini"
+```toml title="config.base.toml"
 [general]
-app_name = ops-cli
-strict_hierarchy_validation = true  # (1)!
+app_name = "ops-cli"
+strict_hierarchy_validation = "true  # (1)!"
 
 [children]
-tools = ~/code/tools-project
-infra = ~/code/infra-project
+tools = "~/code/tools-project"
+infra = "~/code/infra-project"
 ```
 
 1. Default is `false` (non-strict mode). Set to `true` to halt on validation failures.

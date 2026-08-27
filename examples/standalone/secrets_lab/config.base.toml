@@ -1,0 +1,9 @@
+# The non-secret half of a job's configuration belongs here, in the job's own
+# section. There is no [secrets] block, and none is planned: a credential is a
+# field in this same section, marked secret in the model.
+[sync]
+api_url = "https://api.example.com"
+page_size = 100
+
+[report]
+output_dir = "./out"

@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import pytest
 
+from functualize.app.utils import MASK
+
 # --- The fixture job ------------------------------------------------------
 # Four fields, each chosen to trip a specific defect:
 #   api_url     — ordinary control
@@ -138,6 +140,23 @@ def _field_line(stdout: str, field: str) -> str:
     for line in stdout.splitlines():
         if line.startswith(f"{field}="):
             return line.split("=", 1)[1].strip()
+    return ""
+
+
+def _export_line(stdout: str, name: str) -> str:
+    """The ``export NAME=...`` line for ``name``, or '' if absent."""
+    for line in stdout.splitlines():
+        if line.strip().startswith(f"export {name}="):
+            return line
+    return ""
+
+
+def _table_row(stdout: str, field: str) -> str:
+    """The Rich table row whose first cell is ``field``, or '' if absent."""
+    for line in stdout.splitlines():
+        cells = [c.strip() for c in line.split("\u2502")]
+        if len(cells) > 1 and cells[1] == field:
+            return line
     return ""
 
 
@@ -293,6 +312,42 @@ class TestDiscoverability:
         assert unset.stdout != was_set.stdout, (
             "builtin env renders a set secret identically to an unset one — "
             "an operator cannot tell whether the credential is configured"
+        )
+
+    def test_builtin_env_does_not_mask_an_empty_secret(self, cli_run, secrets_project):
+        """Masking nothing invents a credential that is not there.
+
+        `credential` defaults to `""`. Rendering that as `•••` tells an operator
+        the token is configured — the exact misreading every surface here
+        exists to prevent, and the one `# source: default` alone is too quiet
+        to correct.
+        """
+        result = cli_run(["builtin", "env", "sync"], cwd=secrets_project)
+
+        line = _export_line(result.stdout, "SYNC_CREDENTIAL")
+        assert MASK not in line, f"an empty secret rendered as a masked value: {line!r}"
+
+    def test_builtin_env_masks_a_secret_that_is_actually_set(
+        self, cli_run, secrets_project
+    ):
+        """The other half — without it the fix above could just delete masking."""
+        result = cli_run(
+            ["builtin", "env", "sync"],
+            cwd=secrets_project,
+            env={"SYNC_CREDENTIAL": REAL_SECRET},
+        )
+
+        line = _export_line(result.stdout, "SYNC_CREDENTIAL")
+        assert MASK in line
+        assert REAL_SECRET not in result.stdout
+
+    def test_info_job_does_not_mask_an_empty_secret(self, cli_run, secrets_project):
+        """Same rule, same field, the other CLI surface."""
+        result = cli_run(["builtin", "info", "--job", "sync"], cwd=secrets_project)
+
+        row = _table_row(result.stdout, "credential")
+        assert MASK not in row, (
+            f"info --job rendered an empty secret as masked: {row!r}"
         )
 
     def test_info_job_shows_required_unset_as_unset(self, cli_run, secrets_project):

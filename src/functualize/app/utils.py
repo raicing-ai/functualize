@@ -47,7 +47,12 @@ from functualize._types.naming import (
     normalize_segment,
     resolve_name,
 )
-from functualize._types.redaction import MASK, is_secret_field, reveal
+from functualize._types.redaction import (
+    MASK,
+    display_value,
+    is_secret_field,
+    reveal,
+)
 from functualize.app._workflow_resume import deposit_gate_input, pending_gates
 from functualize.app.config import JobSources
 
@@ -101,6 +106,7 @@ __all__ = [
     "coerce_kwargs",
     "deposit_gate_input",
     "DiscoveryOverrides",
+    "display_value",
     "DiscoveryResult",
     "DIValidationError",
     "enumerate_group_names",

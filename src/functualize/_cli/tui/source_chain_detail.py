@@ -40,7 +40,7 @@ except ImportError as _exc:
     ) from _exc
 
 from functualize._cli.tui.panels.config_table import FieldDef
-from functualize.app.utils import MASK
+from functualize.app.utils import display_value
 
 if TYPE_CHECKING:
     from textual.app import ComposeResult
@@ -295,7 +295,7 @@ class SourceChainDetailView(Widget):
             return f"{self._mask_or(row, row.value)} {_MARK_DEL}"
         if stage_key in self._staged_edits:
             staged = self._staged_edits[stage_key]
-            return f"{MASK if row.secret else staged} {_MARK_EDIT}"
+            return f"{display_value(staged, secret=row.secret)} {_MARK_EDIT}"
         return self._mask_or(row, row.value)
 
     @staticmethod
@@ -303,7 +303,7 @@ class SourceChainDetailView(Widget):
         """``MASK`` for a set secret, the raw text otherwise, em-dash if unset."""
         if not raw:
             return "—"
-        return MASK if row.secret else raw
+        return display_value(raw, secret=row.secret)
 
     def _row_cells(self, row: _DetailRow) -> tuple[str, ...]:
         label = row.label if row.writable else f"{row.label} 🔒"

@@ -21,7 +21,93 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a newly installed distribution can drop the snapshot with
   `functualize._primitives.entry_points.clear_entry_point_cache()`.
 
+### Removed — silently wrong values
+
+These three read config in ways that outranked the documented convention, so the
+correct value was *unreachable* while they stood. They are removed outright with
+no deprecation window: this project is pre-1.0, and `.spec/CONSTITUTION.md`
+forbids compat shims.
+
+- **A bare, unprefixed `FIELD` environment variable no longer populates a job
+  config field.** `_config/job_config.py` read `os.environ[FIELD.upper()]` ahead
+  of everything else, so a field named `user` resolved to your shell's `$USER`
+  and its declared default could never be reached. On a field named `token`,
+  `password`, `path`, `home` or `shell` that is credential and path
+  substitution from ambient state. No configuration made it safe.
+- **`JOB__FIELD` (double underscore) no longer resolves a job config field.**
+  It was undocumented, named only by an error message, and outranked the
+  `JOB_FIELD` form that `docs/guides/job-config.md` teaches, that
+  `func builtin env` emits, and that `info --job` reports. `JOB_FIELD` is now
+  the only spelling. *(Group options are a different feature and keep
+  `SCOPE__FIELD` — `DEPLOY__ENV`, `DEPLOY_WEB__ENV` — because a nested group
+  path is flattened with single underscores, so `DEPLOY_WEB_ENV` would be
+  ambiguous with a group `deploy` carrying a field named `web_env`.)*
+- **`.ini` and `.cfg` config files are no longer read by default** (ADR-007).
+  TOML is the only format registered at boot. `IniFormatProvider` remains
+  in-tree; register it from a plugin — boot loads plugins before it builds the
+  resolution chain, which registering on `app.config_registry` afterwards is too
+  late to do. `func builtin config migrate config.base.ini` converts a file.
+
+The `tui.sensitive_keywords` setting is also gone. It was registered, schema'd
+and documented, and had no consumer.
+
+### Security
+
+- **Credentials were rendered in cleartext on three of the surfaces that show
+  configuration.** The inline TUI's preflight summary, the Config Table panel
+  and the source-chain detail view applied no secret test at all, so a field
+  declared `Secret[str]` or marked `json_schema_extra={"secret": True}` appeared
+  in full — on the screen a user studies immediately before running the job —
+  while `func builtin env` and `info --job` masked it. All three now mask, and
+  the source-chain view masks *losing* sources too. Provenance glyphs stay
+  visible; the value never is.
+- **A secret is masked in the SmartBar while it is being typed**, and the
+  autocomplete dropdown is suppressed for that field — a completion list under a
+  masked input would re-render the value one row below the mask.
+- **`_collect_job_secrets` always returned an empty set.** It asked a
+  `JobConfigView` for `model_fields`, found none, and fell through to iterating
+  `dir()`, which yielded four bound methods. Output redaction for job secrets
+  was therefore inert. It now reads the resolved config model and honours both
+  markers.
+- Detection is by declaration, never by name. A name-based regex
+  (`secret|password|token|key`) masked `sort_key`, `keywords` and `monkey_patch`
+  while leaving a field named `credential` in cleartext.
+
 ### Fixed
+
+- **Every surface that reports configuration now resolves it the same way.**
+  Four independent resolvers disagreed about *values*, not just formatting:
+  `USER=root-ambient func builtin info --job sync` reported `service-account`
+  while the run received `root-ambient`. A display that lies in the moment
+  before execution is worse than no display. `info --job`, `func builtin env`
+  and the TUI panels all read one `ResolvedField` seam, and
+  `tests/config/test_secret_surface_parity.py` fails if any of them drifts.
+- **A required field with no default read as `••• model default`.** Both
+  `info --job` and the TUI preflight tested `default is not None and default is
+  not ...`, but a Pydantic v2 required field's default is `PydanticUndefined` —
+  neither — so "not set (required)" was unreachable for *every* required field,
+  and a missing credential rendered as though it were configured. It now reads
+  as missing and names the variable that would set it.
+- **`func builtin env` crashed on the case it exists for.** A job with an
+  unresolved required field raised `ValidationError` out of the command whose
+  whole purpose is answering "what does this job need?". It now reports the
+  field instead.
+- **`func builtin env` could not tell a set secret from an unset one.** Both
+  printed `export SYNC_TOKEN='•••'`. Unset fields are now emitted commented out
+  with why, which makes the output a ready `.env` skeleton, and an *empty*
+  secret renders as empty rather than as a mask — masking nothing manufactures
+  the appearance of a configured credential.
+- **`Secret[str]` could not be used as a config field type.** It raised
+  `PydanticSchemaGenerationError` on a plain `BaseModel`; with
+  `arbitrary_types_allowed` it then refused the plain strings that config and
+  environment resolution supply, and `SUPPORTED_TYPES` rejected it
+  independently. It now validates from `str`, serializes to the mask, and
+  advertises itself in JSON schema so the descriptor cache carries its
+  secretness to every surface.
+- **A validation error now names the environment variable that would fix it**,
+  not only which config files were read.
+- `migrate_ini_to_toml` had zero callers and zero tests; `func builtin config
+  migrate` reaches it.
 
 - **A namespaced job was unreachable by the only name it published.**
   `NamespaceTransform` canonicalized the prefix when *writing* names but matched

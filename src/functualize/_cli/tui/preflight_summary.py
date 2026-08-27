@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from functualize.app.utils import MASK
+from functualize.app.utils import display_value
 
 # Truncation cap (R3-AC3, R3-AC4, R3-AC5): plain params are never truncated,
 # config params are capped at TRUNCATION_CAP - len(plain_fields).
@@ -118,18 +118,16 @@ def format_preflight_field_line(
 
     # A secret is masked whether it came from the bar or from a non-empty
     # default: `Field(default="dev-key", json_schema_extra={"secret": True})`
-    # would otherwise render on screen with nothing typed at all.
-    if getattr(fd, "secret", False):
-        raw_value = value or (str(default) if default is not None else "")
-        display_value = MASK if raw_value else ""
-    else:
-        display_value = value or (str(default) if default is not None else "")
+    # would otherwise render on screen with nothing typed at all. An *empty*
+    # secret stays empty — see `display_value`, which every surface shares.
+    raw_value = value or (str(default) if default is not None else "")
+    shown = display_value(raw_value, secret=bool(getattr(fd, "secret", False)))
 
     # Build the line prefix (everything before description)
     # Format: "  {indicator}{req_mark} {kind_label}{name}{short}: {value} ({source})  {type}  "
     prefix = f"  {indicator}{req_mark} {kind_label}{display_name}{short_label}:"
-    if display_value:
-        prefix += f" {display_value}"
+    if shown:
+        prefix += f" {shown}"
         if source:
             prefix += f" ({source})"
     elif source:

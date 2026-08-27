@@ -130,10 +130,10 @@ Budget is tracked per `WorkflowScope` via the `ai:budget_spent` state key.
 
 Configure via the `[ai]` section in your config file:
 
-```ini
+```toml
 [ai]
-provider = pydantic
-model = gpt-4o
+provider = "pydantic"
+model = "gpt-4o"
 max_tokens = 4096
 budget_usd = 5.00
 timeout_seconds = 120
