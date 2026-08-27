@@ -27,7 +27,7 @@ presentation, and most of ADR-008's remaining decisions become small or unnecess
 | Question | Decision |
 |---|---|
 | TUI secret editing | **Mask as typed.** Cheap: `SmartBar` subclasses Textual's `Input`, which has a native `password` reactive (textual 8.2.7, verified). See §1.4. |
-| `JOB__FIELD` deprecation window | **One minor release.** Small user base; it was never documented. |
+| `JOB__FIELD` deprecation window | ~~One minor release~~ → **removed outright**. Reversed during implementation: `.spec/CONSTITUTION.md` §94 forbids `DeprecationWarning`/compat shims pre-1.0 ("no users to deprecate toward"). A one-release window would have been the only such shim in the tree. See §3.2. |
 | `[secrets]` block (ADR-008 §3) | **Dropped.** Not wanted. §4 stays — required-ness lives in Pydantic and nowhere else. |
 | Sequencing | **Phases 1–3 land together**, in one session, so the cross-surface parity test arrives before any further surfaces are added. |
 
@@ -304,9 +304,17 @@ it is what the docs teach, what `func builtin env` emits, what `info --job` repo
 `EnvSource` and `env_var_for` build, and what round-trips through the resolution chain.
 `JOB__FIELD` is named only by an error message.
 
-Accept `JOB__FIELD` for one minor release with a deprecation warning naming the
-`JOB_FIELD` replacement, then remove it. Fix `missing_value.py`'s error text — currently
-`STRICT__<FIELD>` — to name the surviving form.
+~~Accept `JOB__FIELD` for one minor release with a deprecation warning naming the
+`JOB_FIELD` replacement, then remove it.~~ **Superseded during implementation:
+removed outright.** `.spec/CONSTITUTION.md` §94 forbids `DeprecationWarning` and
+backward-compat shims pre-1.0 — "no users to deprecate toward" — and §165 makes "no
+shims remain in src/" a completion criterion. A one-release window would have been the
+only such shim in the tree, and the form being removed was never documented, so there is
+no reader to warn who was following the docs. The CHANGELOG records it under "silently
+wrong values".
+
+Fix `missing_value.py`'s error text — currently `STRICT__<FIELD>` — to name the
+surviving form.
 
 > ADR-008 deferred this to ADR-006 as a convenience question that `[secrets]` would
 > reduce to cosmetics. D5 makes it a correctness bug. It is promoted to blocking, and
@@ -340,6 +348,48 @@ read `ResolvedField`. `origin` is what lets P3 hold — the tool prints the name
 **P6**: a cross-surface parity test — one job, one environment, assert `info --job`, the
 Config Table, and an actual run agree field-for-field. That test is the enforcement
 mechanism for P1 and it fails the moment a fifth resolver appears.
+
+---
+
+### 3.3 amendment — the TUI keeps its own resolver, and should
+
+*Added 2026-08-28, after implementation and an adversarial review of it.*
+
+**3.3 landed for `info --job` and `func builtin env`. It did not land for the
+TUI, and it must not.** P1 and P5 conflict there, and P5 wins — which this
+proposal should have noticed when it wrote both.
+
+`resolve_job_fields(config_class, …)` needs a live Pydantic class: it reads
+`model_fields`, calls `is_required()`, asks `is_secret_field(info)`, and reads
+the model default. The only way to obtain that class is
+`app.execution_engine.materialize_job(job_name)` → `_ensure_materialized` →
+`LazyJobFunction.materialize()`, whose first line of docstring is "Import the
+module (once)" and which calls `_import_real_function`.
+
+The TUI's panel path is import-free by construction. `build_command_panels`
+reaches `app._find_job_descriptor` → `app.get_job` (the descriptor registry) and
+`get_descriptor_fields` (cached `FieldDescriptor`s), plus `app.config_files()`
+and `app.resolution_chain()`. It touches `materialize_job` nowhere. And it
+rebuilds *while the user types*: `_command_panels_stale` is set on bar and diff
+changes (`app.py:676`, `app.py:1060`) and consumed on the next refresh
+(`app.py:2447`). Routing that through `resolve_job_fields` would import a job
+module on panel refresh — which is exactly what P5 calls not negotiable for a
+display concern.
+
+**So the accurate statement of what "one resolver" means here** is: the two CLI
+surfaces share `resolve_job_fields`; the TUI shares the *detector* (the model's
+`secret`/`required`/`default`, carried through the discovery cache) and reads
+values from the same `ResolutionChain` that seam reads. There is no fourth
+resolver. There are two readers of one chain, one of which may not import.
+
+**The residual risk is not divergence between resolvers — it is cache drift.**
+The TUI trusts a cached copy of the model's answer. If the cache and the model
+disagree, the TUI masks the wrong field with nothing to catch it.
+`tests/config/test_descriptor_cache_fidelity.py` is the guard: it asserts the
+cached `FieldDescriptor`'s `secret` / `required` / `default` equal what
+`resolve_job_fields` derives from the live model, field for field. That is the
+enforcement this section actually needed, and it costs one test rather than a
+refactor that would have broken warm boot.
 
 ---
 

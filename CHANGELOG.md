@@ -67,21 +67,36 @@ and documented, and had no consumer.
 - **`_collect_job_secrets` always returned an empty set.** It asked a
   `JobConfigView` for `model_fields`, found none, and fell through to iterating
   `dir()`, which yielded four bound methods. Output redaction for job secrets
-  was therefore inert. It now reads the resolved config model and honours both
-  markers.
+  was therefore inert. It now reads the config model the job actually receives.
+- **A credential passed on the command line was written to stdout in full.**
+  The first fix for the above re-resolved the config from the job name with
+  `cli_values={}`, so the redaction set came from a different object than the
+  job did. The same credential in an environment variable masked, which is why
+  every test passed. Redaction is now armed from the resolved instance, after
+  config resolution — which also removes a duplicate resolution that re-fetched
+  every remote source.
 - Detection is by declaration, never by name. A name-based regex
   (`secret|password|token|key`) masked `sort_key`, `keywords` and `monkey_patch`
   while leaving a field named `credential` in cleartext.
 
 ### Fixed
 
-- **Every surface that reports configuration now resolves it the same way.**
-  Four independent resolvers disagreed about *values*, not just formatting:
+- **Every surface that reports configuration now agrees with the run.** Four
+  independent resolvers disagreed about *values*, not just formatting:
   `USER=root-ambient func builtin info --job sync` reported `service-account`
   while the run received `root-ambient`. A display that lies in the moment
-  before execution is worse than no display. `info --job`, `func builtin env`
-  and the TUI panels all read one `ResolvedField` seam, and
-  `tests/config/test_secret_surface_parity.py` fails if any of them drifts.
+  before execution is worse than no display.
+
+  `info --job` and `func builtin env` read one `ResolvedField` seam.
+  The **TUI panels deliberately do not**: reaching that seam means importing
+  the job module, and the panels rebuild while you type, so it would forfeit
+  true-lazy boot. They share the *detector* instead — the model's
+  `secret`/`required`/`default`, carried through the discovery cache — and read
+  values from the same `ResolutionChain` the seam reads. See the "3.3
+  amendment" in `contributor/proposals/secrets-and-config-unification.md`.
+  `tests/config/test_secret_surface_parity.py` guards the CLI surfaces and
+  `tests/config/test_descriptor_cache_fidelity.py` guards the cache the TUI
+  trusts.
 - **A required field with no default read as `••• model default`.** Both
   `info --job` and the TUI preflight tested `default is not None and default is
   not ...`, but a Pydantic v2 required field's default is `PydanticUndefined` —
@@ -101,13 +116,49 @@ and documented, and had no consumer.
   `PydanticSchemaGenerationError` on a plain `BaseModel`; with
   `arbitrary_types_allowed` it then refused the plain strings that config and
   environment resolution supply, and `SUPPORTED_TYPES` rejected it
-  independently. It now validates from `str`, serializes to the mask, and
-  advertises itself in JSON schema so the descriptor cache carries its
-  secretness to every surface.
+  independently. It now validates from `str`, serializes to the mask **in JSON**
+  (`model_dump_json()`, `model_dump(mode="json")`), and advertises itself in
+  JSON schema so the descriptor cache carries its secretness to every surface.
+  A plain `model_dump()` returns the `Secret` object: the framework passes
+  config models between jobs by dumping and rebuilding them, and masking there
+  handed a child job `•••` instead of the credential. `Secret[int]` and friends
+  are now refused at registration — `Secret` stores `str(value)`, so any other
+  parameter was a claim it could not keep.
 - **A validation error now names the environment variable that would fix it**,
   not only which config files were read.
 - `migrate_ini_to_toml` had zero callers and zero tests; `func builtin config
   migrate` reaches it.
+- **A project the framework could no longer read ran in silence.** With TOML the
+  only registered format, `config.base.ini` failed the extension check in
+  config-path discovery — so it never anchored a directory, never reached the
+  file reader, and `builtin info` reported "No config files found" with the file
+  in the project root. Boot now warns once per such file, naming
+  `func builtin config migrate`, and `builtin info` lists them.
+- **`builtin info` echoed every config value verbatim**, including a credential
+  written into a config file — two panels above the `JobConfig` table that masks
+  the same value. The panel was built with `configparser` and
+  `ExtendedInterpolation` over `os.environ` (so it also expanded `${VAR}` before
+  printing) and rendered as `ini`: debris from before TOML-only. It now renders
+  the provider-parsed values and masks declared secrets.
+- **A secret's default was written into `cache.json` in cleartext.** A field
+  marked `json_schema_extra={"secret": True}` with a plain-`str` default had that
+  default serialized into the discovery cache, in a predictable XDG location.
+  `Secret[str]` defaults escaped only because `json.dumps` cannot serialize a
+  `Secret`. Secret defaults are now dropped on the declaration.
+- **A `list[T]` config field ignored every source.** `list[T]` becomes a click
+  option with `multiple=True`, and click supplies `()` when the flag is absent —
+  `() is not None`, so an unpassed flag won the whole precedence ladder and the
+  field resolved to `[]` regardless of the environment, the config file, or the
+  model's own default. The documented comma-separated form
+  (`DEPLOY_TARGETS=a,b,c`) now works, for the same reason: `coerce_value`, which
+  implements it, had no production caller at all.
+- **A value set with `config.set()` was invisible to every surface.** The
+  resolution seam reached past `JobConfigView` for its private chain, skipping
+  the override layer that `get()` consults first — so the run used one value and
+  every display reported another.
+- Enum and list values render in the form that *sets* them (`thorough`,
+  `a,b,c`) rather than in Python's repr (`Mode.THOROUGH`, `['a', 'b']`). These
+  surfaces exist to tell an operator what to put in a variable.
 
 - **A namespaced job was unreachable by the only name it published.**
   `NamespaceTransform` canonicalized the prefix when *writing* names but matched

@@ -89,7 +89,21 @@ List fields accept **comma-separated strings** when provided via environment var
 targets = "service-a, service-b, service-c"
 ```
 
-From the CLI, list values are passed as comma-separated strings as well.
+```bash
+MY_JOB_TARGETS="service-a,service-b,service-c" func my-job
+```
+
+From the CLI the flag is repeated instead, which is what click's `multiple`
+options accept:
+
+```bash
+func my-job --targets service-a --targets service-b
+```
+
+!!! info "The flag has to be passed to count"
+    Omitting `--targets` leaves the field to the environment, the config file,
+    and then the model default, in that order. There is no way to pass "an
+    explicitly empty list" from the command line.
 
 ### Enum fields
 

@@ -74,8 +74,13 @@ credential = •••
 ```
 
 The job holds the real value — `config.credential.get_secret_value()` returns
-it — but `str()`, `repr()`, logs and `model_dump()` all refuse. The log line
+it — but `str()`, `repr()`, logs and JSON serialization all refuse. The log line
 above is safe to leave in.
+
+A plain `model_dump()` is the one place the wrapper is kept rather than masked,
+because that is how the framework hands a config from one job to another
+(`rc.invoke("child", config=config)`). Masking there replaced the credential
+with `•••` and the child authenticated with the mask.
 
 ```console
 $ func report

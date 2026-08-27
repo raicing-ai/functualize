@@ -175,6 +175,63 @@ Had this been done at the S3 gate, `func why` — listed in that stage's own
 deliverables — would have been caught immediately, because there is no test that
 runs `func why` and reads output.
 
+### 8. A masking test must start where the declaration starts
+
+*Added 2026-08-28, from the config/secrets review.*
+
+The secrets work shipped `tests/_cli/test_secret_masking_surfaces.py`, whose
+docstring reads "These tests exist to fail if the masking is removed. That is
+not rhetorical." It was rhetorical. The module built its own
+`SimpleNamespace(secret=True)` and handed it to the three formatters, so it
+proved the formatters mask when told to and nothing about whether anything told
+them to. Replacing the single line in `build_command_panels` that copies
+`FieldDescriptor.secret` onto `FieldDef` left **2181 tests passing** while every
+TUI surface rendered credentials in cleartext.
+
+A stand-in is not a neutral simplification here. `getattr(fd, "secret", False)`
+on a namespace with no `secret` attribute returns exactly what a broken wiring
+returns, so the test cannot distinguish the two states it exists to separate.
+
+**Rule.** A test for a declared property — secret, required, positional,
+stdin — starts at a real declaration (a `BaseModel`, a real job module) and
+follows it through every hop the production path takes, the cache round-trip
+included. Unit tests on the formatter are still worth having; they are not
+coverage of the wiring.
+
+`tests/_cli/test_secret_masking_wiring.py` is the worked example: four link
+classes, one per hop, and the sabotage turns eight of them red.
+
+### 9. Test the tier, not one tier
+
+Precedence ladders (CLI > env > file > default) invite a fixture that sets
+values one way and reuses it everywhere. Output redaction was armed from a
+second resolution that dropped CLI values, so `--credential hunter2` leaked
+while `$JOB_CREDENTIAL` masked — and every `cli_run` in the parity suite passed
+values through `env=`, so a four-tier ladder had one tier under test.
+
+The same shape hid a second bug: every config fixture used `str` and `int`
+fields, so `list[T]` — which resolved to `[]` no matter what any source said —
+was never exercised at all.
+
+**Rule.** For anything that reads config, the precedence tier and the field
+*shape* are test axes, not fixture constants. And add the guard test: a tier
+that supplies nothing masks, coerces, and resolves trivially, so assert the
+fixture really supplies the value before asserting what happens to it.
+
+### 10. A new type must be audited against its existing consumers
+
+`Secret` gained a Pydantic serializer that masked in every mode. Nobody ran
+`grep -rn model_dump src/`. Four internal callers were waiting — `Invoke` builds
+a child job's kwargs from `config.model_dump()`, and three more — so
+`rc.invoke("child", config=config)` silently handed the child `•••` and it
+authenticated with the mask string.
+
+**Rule.** Giving an existing type a new protocol hook (`__get_pydantic_*__`,
+`__str__`, `__eq__`, `__iter__`) is a change to every call site that already
+uses that protocol. Enumerate them in the same commit, and leave behind a test
+that names them — `tests/types/test_secret_serialization_seams.py` is the audit
+to re-run the next time that serializer changes.
+
 ## The one-line version
 
 > Code that only tests call is not shipped, however green it is. Before closing
