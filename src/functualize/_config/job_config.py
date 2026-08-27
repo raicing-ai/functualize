@@ -573,7 +573,7 @@ def resolve_job_config(
         # Both outranked the documented JOB_FIELD, so the convention the guide
         # teaches was the last of three to be consulted. Removed outright rather
         # than deprecated: pre-1.0, and `.spec/CONSTITUTION.md` forbids compat
-        # shims. See ADR-008 and the 2026-08-27 config/secrets scrutiny (D5/D6).
+        # shims. See ADR-008.
         #
         # A *group option* is the one case that still reads os.environ here: its
         # documented name is SCOPE__FIELD, which the chain has no way to build.

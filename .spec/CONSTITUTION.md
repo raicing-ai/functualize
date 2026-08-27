@@ -92,6 +92,7 @@ Users import from public folders. Contributors work in internal folders. The `_c
 - Global mutable state / module-level singletons — reason: breaks testability and DI
 - Implicit `Callable` conventions for ports — reason: untyped, no IDE support. Define a Protocol.
 - `DeprecationWarning` / backward-compat shims — reason: pre-release, no users to deprecate toward. Remove old code.
+- Committing a proposal, plan, scrutiny, or review report — reason: an argument at a moment goes stale the day it lands and then contradicts the code. They are session documents under `.spec/proposals/` and `.spec/scrutiny-reports/`, both gitignored. Migrate the *decision* to an ADR and any *working rule* to `contributor/guides/` before deleting; see `.spec/README.md`. No committed file may link to those paths.
 
 ## Quality Gates
 - All changes must pass: `uv run ruff check src/ tests/`, `uv run ruff format --check src/ tests/`, `uv run mypy src/`, `uv run pytest`

@@ -49,7 +49,8 @@ and `redacted_snapshot` covers `resolved_inputs` metadata.
 > call sites in `app.py`. Two further live surfaces were missed entirely: the
 > Config Table panel and the source-chain detail view, neither of which masked
 > anything at all. The dead module has been deleted; the three live surfaces are
-> fixed. Details in `contributor/reports/2026-08-27-config-and-secrets-scrutiny.md`.
+> fixed. The scrutiny that found them is a session document (`.spec/`); what
+> survives it is recorded in this ADR.
 
 The dead widget decided secretness with an independent regex over the *field
 name*:
@@ -274,3 +275,83 @@ The model owns the schema; the display owns nothing but display.
   keep `SCOPE__FIELD`, which is a different feature with a real reason: a nested
   group path is flattened with single underscores, so `DEPLOY_WEB_ENV` would be
   ambiguous with group `deploy` carrying a field named `web_env`.
+
+---
+
+## Addendum — implementation, and the review of it (2026-08-28)
+
+The decisions above shipped. Two of them were amended by what implementation and
+an adversarial review turned up; both amendments are recorded here because this
+ADR is the committed record, and the working proposal and scrutiny reports that
+produced them are session documents under `.spec/` (see `.spec/README.md`).
+
+### A1. The TUI keeps its own resolver — deliberately
+
+The unification aimed at one resolver behind every surface. It landed for
+`func builtin info --job` and `func builtin env`, which read
+`_config/resolved_field.resolve_job_fields`. **It deliberately did not land for
+the inline TUI, and must not.**
+
+`resolve_job_fields` needs a live Pydantic class — it reads `model_fields`,
+calls `is_required()`, and asks `is_secret_field(info)`. Obtaining that class
+means `materialize_job` → `LazyJobFunction.materialize()`, whose contract is
+"Import the module (once)" (`_discovery/lazy_wrapper.py`). The TUI's panel path
+is import-free by construction (`app.get_job` + cached `FieldDescriptor`s +
+`app.resolution_chain()`) and rebuilds *while the user types*. Routing it
+through the seam would import a job module on every panel refresh and forfeit
+true-lazy boot — a display concern buying a boot-time cost.
+
+So "one answer" holds at the level that matters: the TUI shares the **detector**
+(the model's `secret` / `required` / `default`, carried through the discovery
+cache) and reads values from the **same `ResolutionChain`**. There is no second
+opinion about what a field is or where its value came from; there are two
+readers of one chain, one of which may not import.
+
+The risk this leaves is *cache drift*, not resolver drift, and it has its own
+guard: `tests/config/test_descriptor_cache_fidelity.py` asserts the cached
+descriptor's declaration properties equal what the live model says, field for
+field.
+
+### A2. `JOB__FIELD` was removed outright, not deprecated
+
+The plan of record called for one minor release with a `DeprecationWarning`.
+Reversed during implementation: `.spec/CONSTITUTION.md` forbids
+`DeprecationWarning` and backward-compat shims pre-1.0 ("no users to deprecate
+toward") and makes "no shims remain in `src/`" a completion criterion. A
+one-release window would have been the only such shim in the tree, and the form
+being removed was never documented — so there is no reader to warn who was
+following the docs. Recorded in the CHANGELOG under "silently wrong values".
+
+### A3. `Secret` masks into JSON, not between two of our own jobs
+
+§1b gave `Secret` a Pydantic serializer so `model_dump()` could not leak. Masking
+in *every* mode was wrong: the framework passes config models between jobs by
+dumping and rebuilding them — `Invoke` builds a child job's kwargs from
+`config.model_dump()`, `RunContext.with_plugin_config` rebuilds a model from its
+own dump, and the argument validator merges `Field()`-validated params back. An
+unconditional serializer replaced live credentials with the mask *in transit*,
+and the child authenticated with `•••`.
+
+The serializer is now `when_used="json"`. That closes the path §1b was actually
+about — a resolved config reaching a file, a log sink, or an HTTP body without
+passing `redacted_snapshot` — while leaving the python-mode object graph intact.
+The wrapper masks itself in `str()`/`repr()`, so nothing leaks by keeping it.
+
+`Secret[T]` for `T` other than `str` is now refused at registration: `Secret`
+stores `str(value)` and `get_secret_value()` returns `str`, so any other
+parameter was a claim it could not keep.
+
+### A4. What the review found that the tests did not
+
+Four defects survived a green suite (7122 passed), two introduced by this work:
+a credential passed on the command line was written to stdout unredacted while
+the same credential in the environment masked; `invoke(config=…)` corrupted
+secrets (A3); the single line wiring masking into the TUI had no test at all
+(defeating it left 2181 tests passing); and a project whose only config was
+`config.base.ini` ran on model defaults in silence after ADR-007.
+
+The structural causes — tests that start at the formatter rather than the
+production entry point, one precedence tier and one field shape under test, and
+a new protocol hook added without auditing the type's existing consumers — are
+recorded as rules §8–§10 of `contributor/guides/wiring-discipline.md`, which is
+where they will be read again.

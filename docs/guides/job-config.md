@@ -35,9 +35,22 @@ JobConfig supports the following field types:
 | `Enum` subclass | Enumeration values | `env: Environment` |
 | `Optional[T]` | Nullable variant of any supported type | `tag: Optional[str]` |
 | `list[T]` | List of any supported base type or Enum | `targets: list[str]` |
+| `Secret[str]` | A credential — masked on every surface that renders config | `token: Secret[str]` |
+
+`Secret[str]` resolves exactly like a `str` — same section, same environment
+variable, same precedence — but its value is never rendered: not in
+`func builtin info --job`, not in `func builtin env`, not in the inline TUI's
+config table, and not in the bar while you type it. Reach for it whenever a
+field holds a credential. See [Credentials](configuration.md#credentials) for
+the full story, including how to find out which variable sets it.
 
 !!! warning "Unsupported types raise TypeError"
     If you use a type not listed above, Functualize raises a `TypeError` at **job registration time** (when the application starts), not at runtime. This ensures you catch type errors early.
+
+    `Secret[T]` for any `T` other than `str` is refused the same way. `Secret`
+    stores `str(value)` and `get_secret_value()` returns `str`, so
+    `Secret[int]` would be a claim it cannot keep. Declare `Secret[str]` and
+    convert at the point of use.
 
     ```python
     from pydantic import BaseModel

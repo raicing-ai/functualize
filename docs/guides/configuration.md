@@ -1,6 +1,6 @@
 # Configuration System
 
-Functualize uses a layered INI-based configuration system that resolves values from multiple sources with a clear priority order. This guide covers how config files are discovered, how values are resolved, and how to use per-job configuration sections with Pydantic models.
+Functualize uses a layered TOML-based configuration system that resolves values from multiple sources with a clear priority order. This guide covers how config files are discovered, how values are resolved, how to use per-job configuration sections with Pydantic models, and how to declare a credential.
 
 ## Overview
 
@@ -8,10 +8,11 @@ The configuration system provides:
 
 - **Preset factory functions** — named configuration strategies (`classic`, `twelve_factor`, `env_only`, `remote_first`)
 - **Upward directory search** for config files starting from the current working directory
-- **Base + environment overlay** pattern using INI files
+- **Base + environment overlay** pattern using TOML files
 - **Environment variable precedence** over file-based config
 - **Per-job sections** that map directly to `JobConfig` Pydantic models
 - **Tracking** of which settings were accessed and where values came from
+- **[Credentials](#credentials)** declared with `Secret[str]`, masked on every surface that renders configuration
 
 ## Configuration Presets
 

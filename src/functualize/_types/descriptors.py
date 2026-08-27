@@ -48,7 +48,7 @@ class FieldDescriptor:
             mask (the TUI panels, completion) read the *cached* descriptor on a
             warm boot and never import the config model. Deriving it at render
             time would forfeit that; see ``contributor/guides/wiring-discipline.md``
-            and the D16 finding in the 2026-08-27 config/secrets scrutiny.
+            and ADR-008.
     """
 
     name: str

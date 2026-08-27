@@ -92,8 +92,8 @@ and documented, and had no consumer.
   the job module, and the panels rebuild while you type, so it would forfeit
   true-lazy boot. They share the *detector* instead — the model's
   `secret`/`required`/`default`, carried through the discovery cache — and read
-  values from the same `ResolutionChain` the seam reads. See the "3.3
-  amendment" in `contributor/proposals/secrets-and-config-unification.md`.
+  values from the same `ResolutionChain` the seam reads. See ADR-008,
+  Addendum A1.
   `tests/config/test_secret_surface_parity.py` guards the CLI surfaces and
   `tests/config/test_descriptor_cache_fidelity.py` guards the cache the TUI
   trusts.

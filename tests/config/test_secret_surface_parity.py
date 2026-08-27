@@ -5,7 +5,7 @@ config *will be* must agree with what the job actually *receives*, and must neve
 render a secret's value.
 
 This is the enforcement mechanism for two rules that the codebase had no way to
-check before (see ``contributor/reports/2026-08-27-config-and-secrets-scrutiny.md``):
+check before (ADR-008):
 
 - **One resolver.** ``info --job``, ``builtin env`` and the TUI each re-derived
   values, knew different subsets of the environment conventions, and disagreed with

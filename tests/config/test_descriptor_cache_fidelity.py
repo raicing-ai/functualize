@@ -4,8 +4,7 @@ The TUI resolves nothing about a field's *declaration*. It reads `secret`,
 `required` and `default` from the cached `FieldDescriptor`, because
 `build_command_panels` runs while the user types and importing a job module on
 every keystroke would forfeit true-lazy boot (warm boot: zero imports). That is
-deliberate — see the "3.3 amendment" in
-`contributor/proposals/secrets-and-config-unification.md`.
+deliberate — see ADR-008, Addendum A1.
 
 It leaves one risk, and it is not the one the review first named. The risk is
 not a second resolver drifting from the first: both readers bottom out in the

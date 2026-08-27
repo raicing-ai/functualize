@@ -13,6 +13,7 @@ build/
 .spec/archive/
 .spec/features/
 .spec/scrutiny-reports/
+.spec/proposals/
 .spec/.agentic-coding
 .spec/STATE.md
 .spec/PROJECT.md

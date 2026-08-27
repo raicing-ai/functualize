@@ -57,7 +57,8 @@ ADR-007 and ADR-008 are **accepted and implemented**. A scrutiny pass executed
 every claim in both drafts against a running process rather than against the
 source, and found that both described a system less wired than they assumed —
 17 verified defects, recorded with reproduction commands in
-[`contributor/reports/2026-08-27-config-and-secrets-scrutiny.md`](../contributor/reports/2026-08-27-config-and-secrets-scrutiny.md).
+ADR-007 and ADR-008 (see ADR-008's Addendum for what the implementation and
+its review amended).
 
 What shipped:
 
