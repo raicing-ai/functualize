@@ -219,12 +219,16 @@ def _config_source_hint(app: Any, job_name: str) -> str:
     if files:
         names = ", ".join(str(getattr(f, "path", f)) for f in files)
         return f"Config files read: {names}"
+    # The env spelling here must be the one that actually resolves. It used to
+    # name `JOB__<FIELD>`, which contradicted the guide, `builtin env`, and
+    # `info --job` — an error naming a variable that sets nothing is worse than
+    # no suggestion at all.
     return (
         "No config files were discovered. Files must be named "
         "config.<slot>.<ext> (e.g. config.base.toml) — a plain config.toml is "
         "not read, and <ext> must be one a registered format provider handles "
         "(.toml, .ini, .cfg by default). You can also set "
-        f"{job_name.upper().replace('-', '_')}__<FIELD> in the environment."
+        f"{job_name.upper().replace('-', '_')}_<FIELD> in the environment."
     )
 
 
@@ -1110,23 +1114,58 @@ def _show_job_config(app: FunctualizeApp, console: Console, job_name: str) -> No
     config_table.add_column("Value")
     config_table.add_column("Source", style="dim italic")
 
-    from functualize._types.redaction import MASK, is_secret_field
+    from functualize._config.resolved_field import resolve_job_fields
+    from functualize._types.redaction import MASK
 
-    for field_name, field_info in job_config_class.model_fields.items():
-        value, source = _resolve_field_with_source(
-            app, field_name, field_info, job_name
+    # One resolver. This used to be `_resolve_field_with_source`, a private
+    # re-implementation that knew one env convention, skipped coercion, and so
+    # could report a value the run would not use.
+    try:
+        from functualize._config.job_config import JobConfigView
+
+        fields = resolve_job_fields(
+            job_config_class,
+            job_name,
+            JobConfigView(
+                resolution_chain=app._resolution_chain,
+                default_section_prefix=job_name,
+            ),
         )
-        # F3 sweep: a `secret=True` / `Secret[str]` field must never render its
-        # resolved value here — `info --job` is a display sink like every other
-        # (schema §5), and this table used to print the plaintext. Masking on
-        # presence, not on value, so an empty secret still reads as a secret.
-        if is_secret_field(field_info):
-            display = MASK if value is not None else "(none)"
+    except Exception:  # introspection must never mask the real error
+        fields = []
+
+    for f in fields:
+        if f.is_missing_required:
+            # The state an operator most needs to see. It used to render as
+            # `••• model default` for a secret and `PydanticUndefined` for a
+            # plain field, because the guard tested `default is not None`, and
+            # a Pydantic v2 required field's default is `PydanticUndefined` —
+            # neither None nor Ellipsis, so the "not set" branch was
+            # unreachable for every required field.
+            display = "[bold red]not set[/bold red]"
+            source = f"required — set {f.origin}"
+        elif not f.is_set:
+            display = "(none)"
+            source = f"not set — set {f.origin}"
         else:
-            display = str(value) if value is not None else "(none)"
-        config_table.add_row(field_name, display, source)
+            # Mask on presence, not on value: an empty secret still reads as a
+            # secret, so a viewer cannot infer "unset" from a blank cell.
+            display = MASK if f.secret else str(f.value)
+            source = _describe_source(f)
+        config_table.add_row(f.name, display, source)
 
     console.print(config_table)
+
+
+def _describe_source(f: Any) -> str:
+    """How `info --job` names where a value came from."""
+    if f.source == "env":
+        return f"env var ({f.origin})"
+    if f.source == "default":
+        return "model default"
+    if f.source == "cli":
+        return "CLI argument"
+    return f"{f.source} ({f.origin})" if f.origin else f.source
 
 
 def _find_job_config_class(
@@ -1186,49 +1225,6 @@ def _find_job_config_class(
                 return annotation
 
     return None
-
-
-def _resolve_field_with_source(
-    app: FunctualizeApp,
-    field_name: str,
-    field_info: object,
-    job_name: str,
-) -> tuple[object, str]:
-    """Resolve a single JobConfig field value and determine its source."""
-    from functualize._config.errors import MissingKeyError
-
-    env_key = f"{job_name.upper()}_{field_name.upper()}"
-    env_value = os.environ.get(env_key)
-    if env_value is not None:
-        return env_value, f"env var ({env_key})"
-
-    try:
-        resolved = app._resolution_chain.resolve(field_name, job_name)
-        return (
-            resolved.value,
-            f"config file [{job_name}] (via {resolved.source_type})",
-        )
-    except MissingKeyError:
-        pass
-
-    from pydantic.fields import FieldInfo
-
-    if isinstance(field_info, FieldInfo):
-        if field_info.default is not None and field_info.default is not ...:
-            return field_info.default, "model default"
-        factory = field_info.default_factory
-        if factory is not None:
-            # Pydantic v2 allows two factory shapes: the usual zero-arg one,
-            # and one taking the already-validated fields. This is a display
-            # path over a single field with no validated model to hand over,
-            # so the data-taking form has nothing to be called with — report
-            # it rather than crashing `info --job` on a TypeError.
-            try:
-                return factory(), "model default (factory)"  # type: ignore[call-arg]
-            except TypeError:
-                return None, "model default (factory, needs validated data)"
-
-    return None, "not set (required)"
 
 
 __all__ = [

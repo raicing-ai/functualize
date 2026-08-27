@@ -325,55 +325,59 @@ def _emit_config_field(
         lines.append(f"{key} = {toml_val}  # source: {source}")
 
 
-def _resolve_env_vars(app: Any, job_name: str) -> list[tuple[str, str, bool]]:
-    """Resolve a job's config into ``(ENV_NAME, value, is_secret)`` triples (T43).
+def _resolve_env_vars(app: Any, job_name: str) -> list[Any]:
+    """A job's config as :class:`ResolvedField` rows, for export (T43).
 
-    Uses the app's one resolution seam (:meth:`resolved_job_config`) so the
-    values match a real run and ``info --job``. ``ENV_NAME`` is
-    ``{JOB}_{FIELD}`` upper-cased with hyphens flattened — the same name
-    ``info --job`` reports and the resolution chain reads back, so the export
-    round-trips.
+    Reads the one resolution seam, so the names and values match a real run and
+    ``info --job``. Two things this deliberately does *not* do:
+
+    - It does not construct the Pydantic model, so a job with a required field
+      that nothing sets is reported rather than raising ``ValidationError``.
+      The command exists to tell an operator what is missing; a traceback in
+      exactly that case made it useless when it was most needed.
+    - It does not drop unresolved fields. They are the answer, not noise.
     """
-    from functualize.app.utils import is_secret_field, reveal
+    from functualize.app.utils import job_config_fields
 
-    model = app.resolved_job_config(job_name)
-    if model is None:
-        return []
-
-    fields = getattr(type(model), "model_fields", {})
-    rows: list[tuple[str, str, bool]] = []
-    for field_name, field_info in fields.items():
-        value = getattr(model, field_name, None)
-        if value is None:
-            continue
-        env_name = f"{job_name}_{field_name}".upper().replace("-", "_")
-        # `reveal` unwraps a `Secret` to its real string; whether that real
-        # value is ever shown is decided later by the caller's opt-in, not here.
-        rows.append((env_name, str(reveal(value)), is_secret_field(field_info)))
-    return rows
+    return job_config_fields(app, job_name)
 
 
-def _env_print(env_vars: list[tuple[str, str, bool]], include_secrets: bool) -> None:
+def _env_print(env_vars: list[Any], include_secrets: bool) -> None:
     """Print ``export NAME=value`` lines for ``eval`` (T43).
 
     A secret is masked unless the caller opted in, so the default output is safe
     to paste into a bug report or read off a shared screen; ``eval``-ing it with
     a masked secret would set the variable to ``•••``, which is the point — the
     real value takes a deliberate ``--include-secrets``.
+
+    An unresolved field is emitted **commented out**, with why. Masking used to
+    make a set secret and an unset one byte-identical (``SYNC_TOKEN='•••'``
+    either way), so the one command an operator would reach for to answer "is
+    the credential configured?" could not answer it. Commenting the unset ones
+    also makes the output a ready ``.env`` skeleton, which is what the
+    ``--template`` flag was going to be for.
     """
     import shlex
 
     import click
 
-    from functualize.app.utils import MASK
+    from functualize.app.utils import MASK, reveal
 
-    for name, value, is_secret in env_vars:
-        shown = value if (include_secrets or not is_secret) else MASK
-        click.echo(f"export {name}={shlex.quote(shown)}")
+    for f in env_vars:
+        if not f.is_set:
+            note = "REQUIRED — not set" if f.required else "not set"
+            click.echo(f"# {f.env_name}=  # {note}")
+            continue
+        # `reveal` unwraps a `Secret`; whether that real value is shown is the
+        # caller's opt-in, decided here rather than at resolution time.
+        real = str(reveal(f.value))
+        shown = real if (include_secrets or not f.secret) else MASK
+        source = f"  # source: {f.source}" if f.source else ""
+        click.echo(f"export {f.env_name}={shlex.quote(shown)}{source}")
 
 
 def _env_exec(
-    env_vars: list[tuple[str, str, bool]],
+    env_vars: list[Any],
     command: list[str],
     include_secrets: bool,
 ) -> None:
@@ -390,11 +394,15 @@ def _env_exec(
 
     import click
 
+    from functualize.app.utils import reveal
+
     child_env = dict(os.environ)
-    for name, value, is_secret in env_vars:
-        if is_secret and not include_secrets:
+    for f in env_vars:
+        if not f.is_set:
             continue
-        child_env[name] = value
+        if f.secret and not include_secrets:
+            continue
+        child_env[f.env_name] = str(reveal(f.value))
 
     try:
         completed = subprocess.run(command, env=child_env, check=False)

@@ -437,9 +437,12 @@ def resolve_job_config(
 
     Resolution precedence (highest to lowest):
     1. CLI values (non-None values from cli_values dict)
-    2. Environment variables (via config_view which checks env)
+    2. Environment variables — ``JOB_FIELD``, the one supported spelling
     3. Config file values (via config_view)
     4. Model field defaults
+
+    2-4 are all resolved by the chain behind ``config_view``; this function only
+    layers CLI on top. There is deliberately no second env lookup here.
 
     Args:
         config_class: Pydantic model class to instantiate.
@@ -453,8 +456,6 @@ def resolve_job_config(
     Raises:
         ValidationError: If resolved values don't satisfy model constraints.
     """
-    import os
-
     from pydantic import BaseModel
 
     if not (isinstance(config_class, type) and issubclass(config_class, BaseModel)):
@@ -469,21 +470,25 @@ def resolve_job_config(
             resolved[field_name] = cli_val
             continue
 
-        # 2. Environment variable (JOB_NAME__FIELD_NAME or FIELD_NAME)
-        env_key = f"{job_name.upper().replace('-', '_')}__{field_name.upper()}"
-        env_val = os.environ.get(env_key)
-        if env_val is None:
-            env_val = os.environ.get(field_name.upper())
-        if env_val is not None:
-            resolved[field_name] = env_val
-            continue
-
-        # 3. Config view value
+        # 2-4. Environment (JOB_FIELD), config file, then the model default —
+        # all through the resolution chain, which is the only thing that knows
+        # the ranking. Two extra env forms used to be read directly from
+        # os.environ here, ahead of the chain:
+        #
+        #   JOB__FIELD  — undocumented, and named only by an error message
+        #   FIELD       — undocumented, unprefixed, and therefore captured by
+        #                 any ambient shell variable of the same name. A field
+        #                 called `user` resolved to $USER and its declared
+        #                 default was unreachable; on a field called `token` or
+        #                 `password` that is credential substitution.
+        #
+        # Both outranked the documented JOB_FIELD, so the convention the guide
+        # teaches was the last of three to be consulted. Removed outright rather
+        # than deprecated: pre-1.0, and `.spec/CONSTITUTION.md` forbids compat
+        # shims. See ADR-008 and the 2026-08-27 config/secrets scrutiny (D5/D6).
         config_val = config_view.get(field_name)
         if config_val is not None:
             resolved[field_name] = config_val
             continue
-
-        # 4. Let Pydantic use the field default (don't include in resolved)
 
     return config_class(**resolved)

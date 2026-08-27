@@ -119,7 +119,11 @@ class TestConfigSourceHint:
         assert "No config files were discovered" in hint
         # The two ways out, both of which the bare Pydantic error omits.
         assert "config.<slot>.<ext>" in hint
-        assert "REPORT__<FIELD>" in hint
+        # Single underscore: `JOB__FIELD` was removed (2026-08-27). The hint
+        # must name the spelling that actually resolves, which is the same one
+        # the guide teaches and `builtin env` emits.
+        assert "REPORT_<FIELD>" in hint
+        assert "REPORT__<FIELD>" not in hint
 
     def test_it_lists_the_files_that_were_read(self, tmp_path: Path) -> None:
         (Path.cwd() / "config.base.toml").write_text('[report]\ncity = "Kyoto"\n')
