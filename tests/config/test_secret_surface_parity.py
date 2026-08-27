@@ -31,6 +31,8 @@ from functualize.app.utils import MASK
 #   sort_key    — matches the old name-based regex; must NOT be masked
 #   user        — collides with the ambient $USER shell variable
 SECRET_JOB = '''
+from enum import Enum
+
 from pydantic import BaseModel, Field
 
 from functualize.job import Stdout
@@ -38,11 +40,21 @@ from functualize.job.context import RunContext
 from functualize.job.decorators import job
 
 
+class Mode(str, Enum):
+    FAST = "fast"
+    THOROUGH = "thorough"
+
+
 class SyncConfig(BaseModel):
     api_url: str = Field(default="https://api.example.com")
     credential: str = Field(default="", json_schema_extra={"secret": True})
     sort_key: str = Field(default="created_at")
     user: str = Field(default="service-account")
+    # Shapes the fixture used to omit. Every field here was `str` or `int`, so
+    # a precedence ladder was tested only where nothing needed converting.
+    targets: list[str] = Field(default_factory=lambda: ["default-target"])
+    dry_run: bool = Field(default=False)
+    mode: Mode = Field(default=Mode.FAST)
 
 
 @job(extra_description="Sync with the remote API")
@@ -50,6 +62,9 @@ def sync(config: SyncConfig, rc: RunContext) -> str:
     print(f"api_url={config.api_url}")
     print(f"sort_key={config.sort_key}")
     print(f"user={config.user}")
+    print(f"targets={','.join(config.targets)}")
+    print(f"dry_run={config.dry_run}")
+    print(f"mode={config.mode.value}")
     return "ok"
 
 
@@ -324,21 +339,43 @@ class TestEnvConvention:
 
 
 class TestSurfaceParity:
-    def test_info_job_agrees_with_the_run(self, cli_run, secrets_project):
-        """What `info --job` reports is what the job receives."""
-        env = {"USER": "root-ambient", "SYNC_SORT_KEY": "updated_at"}
+    @pytest.mark.parametrize(
+        "field", ["api_url", "sort_key", "user", "targets", "dry_run", "mode"]
+    )
+    def test_info_job_agrees_with_the_run(self, cli_run, secrets_project, field):
+        """What `info --job` reports is what the job receives.
+
+        Asserted against the field's own table row. A substring search over the
+        whole screen passes on any coincidence — `service-account` appears in
+        the config-file panel too — and it cannot tell "this field agrees" from
+        "some other field happens to print the same text".
+
+        Parametrized over field *shapes*, not just names: the fixture was all
+        `str` and `int`, and a `list[str]` field disagreed in exactly the way
+        this test exists to catch (`info` reported the env value; the run
+        received `[]`).
+        """
+        env = {
+            "USER": "root-ambient",
+            "SYNC_SORT_KEY": "updated_at",
+            "SYNC_TARGETS": "alpha,beta",
+            "SYNC_DRY_RUN": "true",
+            "SYNC_MODE": "thorough",
+        }
         run = cli_run(["sync"], cwd=secrets_project, env=env)
         info = cli_run(
             ["builtin", "info", "--job", "sync"], cwd=secrets_project, env=env
         )
 
-        for field in ("api_url", "sort_key", "user"):
-            value = _field_line(run.stdout, field)
-            assert value, f"{field} not printed by the run"
-            assert value in info.stdout, (
-                f"info --job disagrees on {field!r}: run={value!r} "
-                f"is absent from the reported table"
-            )
+        value = _field_line(run.stdout, field)
+        assert value, f"{field} not printed by the run"
+
+        row = _table_row(info.stdout, field)
+        assert row, f"info --job has no row for {field!r}"
+        assert value in row, (
+            f"info --job disagrees on {field!r}: the run received {value!r}, "
+            f"which is absent from its row: {row!r}"
+        )
 
     def test_builtin_env_names_round_trip(self, cli_run, secrets_project):
         """Every name `builtin env` prints must be a name that actually resolves."""

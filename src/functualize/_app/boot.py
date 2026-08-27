@@ -488,8 +488,13 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
 
     # 2. Initialize ProviderRegistry with the one built-in format (ADR-007).
     #    TOML is the only format registered by default. ``IniFormatProvider``
-    #    remains in-tree and importable: an application that still reads INI
-    #    registers it itself, on the app's own registry.
+    #    remains in-tree and importable, but registering it on
+    #    ``app.config_registry`` after construction is too late — the
+    #    resolution chain is built from this registry a few steps below, and
+    #    never re-reads it. A plugin is the escape hatch: boot loads plugins
+    #    before it builds the chain, precisely so they can register formats.
+    #    See ADR-007, "The escape hatch is a plugin, not a post-construction
+    #    call".
     perf_timeline.mark("boot.provider_registry.start")
     app.config_registry = ProviderRegistry()
     app.config_registry.register_format_provider(TomlFormatProvider())

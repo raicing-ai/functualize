@@ -221,6 +221,13 @@ class SmartBar(Input):
         Raises:
             RuntimeError: If no state was saved via save_state().
         """
+        # Unmask first, before anything that can raise. COMMAND mode is never
+        # masked, and a bar left in `password` would silently hide every
+        # subsequent command the user types — so unmasking must not be
+        # conditional on the restore succeeding.
+        self.password = False
+        self._suppress_autocomplete = False
+
         if self._saved_state is None:
             msg = "restore_state() called without prior save_state()"
             raise RuntimeError(msg)
@@ -230,12 +237,6 @@ class SmartBar(Input):
         self.cursor_position = saved.cursor_position
         self.placeholder = saved.placeholder
         self._saved_state = None
-
-        # Unmask unconditionally. COMMAND mode is never masked, and a bar left
-        # in `password` after an aborted secret edit would silently hide every
-        # subsequent command the user types.
-        self.password = False
-        self._suppress_autocomplete = False
 
         # Remove editing/invalid classes and restore readiness
         self.remove_class("editing")
