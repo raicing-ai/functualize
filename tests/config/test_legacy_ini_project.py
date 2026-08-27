@@ -31,7 +31,7 @@ INI_CONFIG = """\
 api_url = https://from-the-ini-file.example.com
 """
 
-JOB = '''
+JOB = """
 from pydantic import BaseModel, Field
 
 from functualize.job import RunContext
@@ -46,7 +46,7 @@ class SyncConfig(BaseModel):
 def sync(config: SyncConfig, rc: RunContext) -> str:
     print(f"api_url={config.api_url}")
     return "ok"
-'''
+"""
 
 
 @pytest.fixture()

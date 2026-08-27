@@ -91,7 +91,7 @@ class TestJsonModeStillMasks:
 # End to end: one job hands a credential to another
 # ===========================================================================
 
-INVOKE_JOBS = '''
+INVOKE_JOBS = """
 from pydantic import BaseModel, Field
 
 from functualize.job import RunContext
@@ -114,7 +114,7 @@ def parent(config: TokenConfig, rc: RunContext) -> str:
     rc.log("parent-has:" + config.token.get_secret_value())
     rc.invoke("child", config=config)
     return "ok"
-'''
+"""
 
 PYPROJECT = """\
 [project]

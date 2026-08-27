@@ -101,6 +101,43 @@ class JobConfigView:
         except MissingKeyError:
             return default
 
+    def resolve_with_source(
+        self,
+        key: str,
+        section: str | None = None,
+    ) -> tuple[str, str, Any] | None:
+        """``(source_type, source_id, value)`` for ``key``, or None if unset.
+
+        The provenance-carrying sibling of :meth:`get`, for surfaces that must
+        report *where* a value came from as well as what it is. It consults the
+        same layers in the same order — overrides first, then the chain — which
+        is the whole reason it exists here rather than in the caller: the
+        display seam previously reached past this view to
+        ``config_view._chain`` and so could not see the override layer at all.
+        A value set through :meth:`set` was what the run used and not what any
+        surface showed.
+
+        Never raises: an unresolved key is an answer, not an error.
+        """
+        effective_section = (
+            section if section is not None else self._default_section_prefix
+        )
+        combined_key = _env_token(effective_section, key)
+
+        if combined_key in self._overrides:
+            return ("override", "set() at runtime", self._overrides[combined_key])
+
+        try:
+            resolved = self._chain.resolve(key, effective_section)
+        except MissingKeyError:
+            return None
+        except Exception:
+            # Introspection must never mask the real failure a run would report.
+            return None
+        if resolved is None or resolved.value is None:
+            return None
+        return (resolved.source_type, resolved.source_id, resolved.value)
+
     def set(
         self,
         key: str,

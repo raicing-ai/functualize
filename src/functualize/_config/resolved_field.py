@@ -50,7 +50,12 @@ class ResolvedField:
     """The resolved value, or ``None`` when nothing provided one."""
 
     source: str
-    """``cli`` | ``env`` | ``file`` | ``remote`` | ``default`` | ``unset``."""
+    """``cli`` | ``override`` | ``env`` | ``file`` | ``remote`` | ``default`` | ``unset``.
+
+    ``override`` is a value deposited by ``config.set()`` at runtime. It ranks
+    where the view ranks it — above every file and environment source — because
+    that is where the *run* will find it.
+    """
 
     origin: str
     """Where the value came from — a variable name, a file path, "model default"."""
@@ -235,7 +240,21 @@ def _model_default(info: Any) -> tuple[Any, bool]:
 def _chain_resolve(
     config_view: JobConfigView, key: str, section: str
 ) -> tuple[str, str, Any] | None:
-    """``(source_type, source_id, value)`` from the chain, or None if unset."""
+    """``(source_type, source_id, value)`` from the view, or None if unset.
+
+    Goes through ``JobConfigView.resolve_with_source`` rather than reaching for
+    the view's private ``_chain``. Reaching past the view skipped its override
+    layer, which ``get()`` consults first — so a value set through
+    ``config.set()`` was what the run used and not what any surface showed.
+    A seam that exists to stop displays disagreeing with the run cannot itself
+    read from a different place than the run does.
+    """
+    resolver = getattr(config_view, "resolve_with_source", None)
+    if callable(resolver):
+        return resolver(key, section)  # type: ignore[no-any-return]
+
+    # A test double predating the method. Falling back keeps introspection
+    # working rather than reporting every field unset.
     chain = getattr(config_view, "_chain", None)
     if chain is None:
         return None
@@ -244,7 +263,6 @@ def _chain_resolve(
     except MissingKeyError:
         return None
     except Exception:
-        # Introspection must never mask the real failure a run would report.
         return None
     if result is None or result.value is None:
         return None
