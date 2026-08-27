@@ -17,6 +17,7 @@ author asked for it.
 from __future__ import annotations
 
 import sys
+from collections.abc import Iterable
 from typing import IO, Any
 
 from functualize._primitives.stdout_emitter import StdoutEmitter
@@ -35,7 +36,10 @@ class WiredStdout:
         secrets: Secret string values to mask (``•••``) in anything written.
             Sourced from the job's ``secret=True`` config fields / ``Secret[str]``
             values, per schema §5 — secrets must not leak through the data
-            channel any more than through a command echo.
+            channel any more than through a command echo. Callers that already
+            hold the resolved values pass them here; the engine instead builds
+            this capability *before* config resolution and fills it in later
+            via :meth:`add_secrets`.
         stream: Destination stream. Defaults to ``sys.stdout``, bound lazily so
             a redirect installed after construction is still honored.
     """
@@ -48,8 +52,23 @@ class WiredStdout:
         stream: IO[Any] | None = None,
     ) -> None:
         self._format = output_format or "auto"
-        self._secrets = frozenset(secrets or ())
+        # Mutable, and read fresh on every write. DI wiring runs before config
+        # resolution, so the engine cannot know a job's secrets at construction
+        # time; it calls `add_secrets` once the model it will actually pass to
+        # the job exists. A frozenset here forced the engine to re-resolve the
+        # config instead — a second resolution that dropped CLI values and so
+        # redacted the wrong string.
+        self._secrets: set[str] = set(secrets or ())
         self._stream = stream
+
+    def add_secrets(self, values: Iterable[str]) -> None:
+        """Add values to mask in anything written from now on.
+
+        Called by the engine after it resolves the config model the job will
+        receive — which is the only object that has seen every precedence tier,
+        the command line included.
+        """
+        self._secrets.update(v for v in values if v)
 
     def _out(self) -> IO[Any]:
         return self._stream if self._stream is not None else sys.stdout

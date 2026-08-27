@@ -1342,9 +1342,11 @@ class JobExecutionEngine:
             # Absent (library/embedded use) it defaults to "auto" — dispatch by
             # value type — so `out.emit()` still works outside the CLI.
             app = getattr(self, "_app", None)
+            # No `secrets=` here: config is resolved *after* DI wiring, so the
+            # values are not known yet. `_arm_output_redaction` fills them in
+            # from the model the job actually receives.
             return WiredStdout(
                 output_format=getattr(app, "_output_format", "auto") or "auto",
-                secrets=self._collect_job_secrets(context.job_name),
             )
         elif type_ is Shell:
             from functualize._engine.capabilities.shell import WiredShell
@@ -1510,30 +1512,27 @@ class JobExecutionEngine:
 
         return Secret(value)
 
-    def _collect_job_secrets(self, job_name: str) -> frozenset[str]:
-        """Gather the job's ``Secret`` config values for output redaction.
+    @staticmethod
+    def _secrets_of(model: Any) -> frozenset[str]:
+        """The secret strings carried by an already-resolved config model.
 
         Feeds ``WiredStdout`` so a secret cannot leak through the explicit data
         channel any more than through a command echo (schema §5). Best-effort by
-        design: redaction must never be the reason a job fails, so any
-        resolution problem yields an empty set rather than raising.
+        design: redaction must never be the reason a job fails, so any problem
+        yields an empty set rather than raising.
 
-        This reads the **resolved config model**. It previously asked
-        ``_make_config_view`` — which returns a ``JobConfigView``, a read
-        accessor with no ``model_fields`` — so the fallback iterated ``dir()``,
-        found four bound methods, and returned an empty set on every call. The
-        capability was wired, tested, and inert: its test constructed
-        ``WiredStdout(secrets={...})`` directly and so could never notice that
-        production supplied nothing (``contributor/guides/wiring-discipline.md``).
+        Takes the model rather than a job name on purpose. This used to resolve
+        the config a *second* time, from the job name, with ``cli_values={}`` —
+        so a credential passed as ``--credential`` was in the model the job
+        received and absent from the set that redacts its output, and
+        ``out.write(config.credential)`` printed it in full. The env tier
+        masked, which is why every test passed. Only the instance the job is
+        actually handed has seen every precedence tier, so only it can answer
+        this. Resolving twice also duplicated any ``RemoteSource`` fetch and
+        could redact a rotated-away value.
         """
         from functualize._types.redaction import collect_secret_values, is_secret_field
 
-        try:
-            model = self.resolve_config_model(job_name)
-        except Exception:
-            # A job whose config does not validate still runs its own error
-            # path; redaction must not pre-empt that with a second failure.
-            return frozenset()
         if model is None:
             return frozenset()
 
@@ -1558,6 +1557,23 @@ class JobExecutionEngine:
             if is_secret_field(info) and isinstance(value, str) and value:
                 plain.add(value)
         return frozenset(collect_secret_values(values) | plain)
+
+    def _arm_output_redaction(self, context: ExecutionContext, model: Any) -> None:
+        """Tell this run's ``Stdout`` which strings to mask.
+
+        Called once the config model the job will receive exists. DI wiring runs
+        first — a capability has to be built before the job's arguments are
+        resolved — so the capability starts with an empty set and is armed here
+        rather than at construction.
+        """
+        from functualize._engine.capabilities.stdout import WiredStdout
+
+        secrets = self._secrets_of(model)
+        if not secrets:
+            return
+        for cap in (context.capabilities or {}).values():
+            if isinstance(cap, WiredStdout):
+                cap.add_secrets(secrets)
 
     def _resolve_shell_setting(self, key: str) -> str | None:
         """Resolve a non-empty string from the ``[shell]`` config section."""
@@ -2256,6 +2272,10 @@ class JobExecutionEngine:
         # Set on RunContext's job_config
         if rc is not None:
             rc.job_config = config_instance
+
+        # This instance has seen every precedence tier, the command line
+        # included; nothing earlier has. Arm output redaction from it.
+        self._arm_output_redaction(context, config_instance)
 
         # Find the config parameter name in the function signature and inject.
         #

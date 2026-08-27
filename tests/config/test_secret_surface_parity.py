@@ -87,6 +87,12 @@ class DefaultedConfig(BaseModel):
 def defaulted(config: DefaultedConfig, rc: RunContext) -> str:
     print(f"api_key={config.api_key}")
     return "ok"
+
+
+@job(extra_description="Emit a secret whose value comes from its own default")
+def emit_defaulted(config: DefaultedConfig, out: Stdout) -> None:
+    """The default tier's emitter — see `emit_secret` for why `out.write`."""
+    out.write("api_key=" + config.api_key)
 '''
 
 SECRET_ANNOTATED_JOB = '''
@@ -121,9 +127,26 @@ version = "0.1.0"
 REAL_SECRET = "hunter2-real-credential-value"
 
 
+#: The `file` tier's copy of the credential, in the job's own section.
+CONFIG_FILE = f"""\
+[emit-secret]
+credential = "{REAL_SECRET}"
+"""
+
+
 @pytest.fixture()
 def secrets_project(project_tree):
     """A project whose jobs declare secret and collision-prone config fields."""
+    return project_tree(
+        pyproject=PYPROJECT,
+        jobs={"job_sync.py": SECRET_JOB},
+        extra_files={"config.base.toml": CONFIG_FILE},
+    )
+
+
+@pytest.fixture()
+def secrets_project_no_file(project_tree):
+    """The same jobs with no config file — for the tiers that must not read one."""
     return project_tree(pyproject=PYPROJECT, jobs={"job_sync.py": SECRET_JOB})
 
 
@@ -190,23 +213,72 @@ class TestSecretDetection:
         result = cli_run(["builtin", "info", "--job", "defaulted"], cwd=secrets_project)
         assert "dev-key-in-the-default" not in result.stdout
 
+    @pytest.mark.parametrize(
+        ("tier", "argv", "env"),
+        [
+            ("cli", ["emit-secret", "--credential", REAL_SECRET], {}),
+            ("env", ["emit-secret"], {"EMIT_SECRET_CREDENTIAL": REAL_SECRET}),
+            ("file", ["emit-secret"], {}),
+        ],
+    )
     def test_secret_not_echoed_through_the_stdout_capability(
-        self, cli_run, secrets_project
+        self, cli_run, secrets_project, tier, argv, env
     ):
-        """Output redaction is armed for job config (executor._collect_job_secrets).
+        """Output redaction is armed for job config, from *every* tier.
 
         `WiredStdout` masks any secret value appearing in what a job emits. Raw
         `print()` is out of scope — no framework channel sees it — so this
         asserts on `out.write`, which is the seam the framework actually owns.
+
+        Parametrized over the precedence tier, not written once against `env=`.
+        Redaction used to re-resolve the config from the job name with
+        `cli_values={}`, so the CLI tier leaked in full while the env tier
+        masked — and a suite that only ever set `env=` reported that as green.
+        The tier is a test axis here for that reason.
+        """
+        result = cli_run(argv, cwd=secrets_project, env=env)
+
+        assert result.exit_code == 0, result.stderr
+        assert "credential=" in result.stdout, f"[{tier}] the job did not emit at all"
+        assert REAL_SECRET not in result.stdout, (
+            f"[{tier}] the credential reached stdout unmasked"
+        )
+
+    def test_secret_from_a_model_default_is_not_echoed(self, cli_run, secrets_project):
+        """The fourth tier. A default is as real a credential as any other."""
+        result = cli_run(["emit-defaulted"], cwd=secrets_project)
+
+        assert result.exit_code == 0, result.stderr
+        assert "api_key=" in result.stdout, "the job did not emit at all"
+        assert "dev-key-in-the-default" not in result.stdout
+
+    @pytest.mark.parametrize(
+        ("tier", "job", "env"),
+        [
+            ("env", "sync", {"SYNC_CREDENTIAL": REAL_SECRET}),
+            ("file", "emit-secret", {}),
+        ],
+    )
+    def test_the_tiers_actually_supply_the_credential(
+        self, cli_run, secrets_project, tier, job, env
+    ):
+        """Guard the guard: a tier that supplies nothing masks trivially.
+
+        Without this, deleting the `[emit-secret]` section from the fixture's
+        config file would leave the masking test above green while proving
+        nothing about the `file` tier. `--include-secrets` is the only surface
+        that will show the real value, which is exactly what makes it the right
+        check here.
         """
         result = cli_run(
-            ["emit-secret"],
+            ["builtin", "env", job, "--include-secrets"],
             cwd=secrets_project,
-            env={"EMIT_SECRET_CREDENTIAL": REAL_SECRET},
+            env=env,
         )
-        assert result.exit_code == 0, result.stderr
-        assert "credential=" in result.stdout, "the job did not emit at all"
-        assert REAL_SECRET not in result.stdout
+        assert REAL_SECRET in result.stdout, (
+            f"[{tier}] the fixture does not actually supply `credential`, so "
+            "the masking test for this tier masks nothing"
+        )
 
 
 # ===========================================================================
