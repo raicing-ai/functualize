@@ -29,6 +29,7 @@ hide, and :func:`redact` masks every occurrence of them in arbitrary text.
 
 from __future__ import annotations
 
+import enum
 import types
 from typing import TYPE_CHECKING, Any
 
@@ -174,11 +175,26 @@ def display_value(value: Any, *, secret: bool) -> str:
     appearance of a configured credential. ``export SYNC_TOKEN='\u2022\u2022\u2022'``
     for a field whose default is ``""`` tells an operator the token is set when
     it is not, which is the single question these surfaces exist to answer.
+
+    Non-scalars render in the form that *sets* them, not in Python's repr. An
+    enum shows ``thorough``, not ``Mode.THOROUGH``; a list shows ``a,b,c``, not
+    ``['a', 'b', 'c']``. These surfaces exist to tell an operator what to put
+    in a variable or a config file, and a repr is not something they can put
+    anywhere.
     """
-    text = "" if value is None else reveal(value)
+    text = "" if value is None else _render(value)
     if secret and text:
         return MASK
     return text
+
+
+def _render(value: Any) -> str:
+    """A config value in the shape a source would spell it."""
+    if isinstance(value, enum.Enum):
+        return str(value.value)
+    if isinstance(value, (list, tuple)):
+        return ",".join(_render(v) for v in value)
+    return reveal(value)
 
 
 def collect_secret_values(values: Iterable[Any]) -> set[str]:

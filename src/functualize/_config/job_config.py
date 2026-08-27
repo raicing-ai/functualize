@@ -254,21 +254,48 @@ def _unwrap_list(tp: Any) -> tuple[Any, bool]:
 
 
 def _unwrap_secret(tp: Any) -> tuple[Any, bool]:
-    """Unwrap ``Secret[T]`` to ``(T, True)``, or ``Secret`` to ``(str, True)``.
+    """Unwrap ``Secret`` / ``Secret[str]`` to ``(str, True)``, else ``(tp, False)``.
 
-    ``Secret`` carries a string, so the *supported-type* question is about what
-    it wraps. Without this the type gate rejects the framework's own public
-    secret type — a second, independent refusal sitting behind Pydantic's, so
-    giving ``Secret`` a core schema alone is not enough to make it usable.
+    Without this the type gate rejects the framework's own public secret type —
+    a second, independent refusal sitting behind Pydantic's, so giving
+    ``Secret`` a core schema alone is not enough to make it usable.
+
+    The unwrapped type is always ``str``, never the parameter. ``Secret``
+    stores ``str(value)`` and ``get_secret_value()`` returns ``str``, so it is
+    string-only by construction, and its core schema validates from
+    ``str_schema()`` whatever the parameter says. Reading ``T`` here would let
+    ``Secret[int]`` through the gate and then hand the job a ``Secret`` holding
+    ``"123"`` — a type the model claims not to have. ``_reject_non_str_secret``
+    turns that into an error at registration instead.
     """
     from functualize._types.redaction import Secret
 
-    if tp is Secret:
+    if tp is Secret or get_origin(tp) is Secret:
         return str, True
-    if get_origin(tp) is Secret:
-        args = get_args(tp)
-        return (args[0] if args else str), True
     return tp, False
+
+
+def _reject_non_str_secret(tp: Any, field_name: str) -> None:
+    """Raise when a field is annotated ``Secret[T]`` for a non-``str`` ``T``.
+
+    ``Secret`` wraps a string and nothing else. Accepting ``Secret[int]``
+    silently would be worse than rejecting it: the field would validate, the
+    model would report ``int``, and the job would receive a ``Secret`` holding
+    a string.
+    """
+    from functualize._types.redaction import Secret
+
+    if get_origin(tp) is not Secret:
+        return
+    args = get_args(tp)
+    if args and args[0] is not str:
+        inner = getattr(args[0], "__name__", args[0])
+        raise TypeError(
+            f"Field '{field_name}': Secret[{inner}] is not supported. "
+            f"Secret wraps a string — it stores str(value) and "
+            f"get_secret_value() returns str. Use Secret[str], and convert at "
+            f"the point of use."
+        )
 
 
 def _is_supported_type(tp: Any) -> bool:
@@ -456,11 +483,16 @@ def validate_job_config_types(job_config_class: type) -> None:
 
     for field_name, field_info in job_config_class.model_fields.items():
         field_type = field_info.annotation
+        # Before the general check: `Secret[int]` *would* pass it (the wrapper
+        # unwraps to str), so a bare "unsupported type" refusal would never
+        # fire and the mismatch would reach the job instead.
+        _reject_non_str_secret(field_type, field_name)
         if not _is_supported(field_type):
             raise TypeError(
                 f"Unsupported type for field '{field_name}': {field_type}. "
                 f"Supported types are: str, int, float, bool, Enum subclasses, "
-                f"Optional[T] for supported T, and list[T] for supported T."
+                f"Secret[str], Optional[T] for supported T, and list[T] for "
+                f"supported T."
             )
 
 
@@ -517,11 +549,13 @@ def resolve_job_config(
 
     resolved: dict[str, Any] = {}
 
-    for field_name, _field_info in config_class.model_fields.items():
+    for field_name, field_info in config_class.model_fields.items():
+        target_type = getattr(field_info, "annotation", None)
+
         # 1. CLI value (if provided and not None)
         cli_val = cli_values.get(field_name)
-        if cli_val is not None:
-            resolved[field_name] = cli_val
+        if not _is_absent_cli_value(cli_val):
+            resolved[field_name] = _coerce_for_field(cli_val, target_type)
             continue
 
         # 2-4. Environment (JOB_FIELD), config file, then the model default —
@@ -546,12 +580,57 @@ def resolve_job_config(
         if group_scope is not None:
             group_env = os.environ.get(group_env_name_for(group_scope, field_name))
             if group_env is not None:
-                resolved[field_name] = group_env
+                resolved[field_name] = _coerce_for_field(group_env, target_type)
                 continue
 
         config_val = config_view.get(field_name)
         if config_val is not None:
-            resolved[field_name] = config_val
+            resolved[field_name] = _coerce_for_field(config_val, target_type)
             continue
 
     return config_class(**resolved)
+
+
+def _is_absent_cli_value(value: Any) -> bool:
+    """Whether a CLI value means "the user did not pass this".
+
+    ``None`` is the usual answer. The empty tuple is the other one, and it is
+    not obvious: a ``list[T]`` field becomes a click option with
+    ``multiple=True``, and click hands those ``()`` when the flag is absent —
+    ``default=None`` does not apply to a multiple option. ``() is not None``,
+    so an unpassed list flag counted as a CLI value and won the whole ladder.
+    A ``list[str]`` field therefore resolved to ``[]`` no matter what the
+    environment, the config file, or the model default said, and its
+    documented comma-separated form could never take effect.
+
+    Nothing is lost by treating it as absent: click cannot express "passed,
+    with zero values" for a multiple option, so ``()`` has no other meaning.
+    """
+    if value is None:
+        return True
+    return isinstance(value, tuple) and not value
+
+
+def _coerce_for_field(value: Any, target_type: Any) -> Any:
+    """Coerce a resolved value toward its declared type, best-effort.
+
+    Pydantic does the real validation a line later; this runs first for the
+    conversions Pydantic will not do, which is what config sources actually
+    produce:
+
+    - ``"a,b,c"`` from an environment variable into ``list[str]`` — the form
+      ``docs/guides/job-config.md`` documents, which did not work because
+      ``coerce_value`` had no production caller at all.
+    - a plain string into ``Secret[str]``, so the wrapper is what the job gets.
+
+    Any failure falls back to the raw value. Coercion must not be where a bad
+    config value is reported: ``int("banana")`` raises a bare ``ValueError``
+    naming nothing, while letting Pydantic see the string produces a
+    ``ValidationError`` naming the field, the type and the input.
+    """
+    if target_type is None:
+        return value
+    try:
+        return coerce_value(value, target_type)
+    except Exception:
+        return value

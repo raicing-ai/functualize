@@ -162,7 +162,7 @@ def resolve_job_fields(
                 ResolvedField(
                     name=name,
                     env_name=env_name,
-                    value=value,
+                    value=_coerce(value, getattr(info, "annotation", None)),
                     source=source_type,
                     origin=_origin_for(source_type, source_id, env_name),
                     secret=secret,
@@ -207,6 +207,24 @@ def resolve_job_fields(
         )
 
     return fields
+
+
+def _coerce(value: Any, target_type: Any) -> Any:
+    """Coerce toward the declared type, the way execution does.
+
+    The seam reports the value a run *will* use, so it has to apply the same
+    conversion the run applies. Without this a surface printed the raw source
+    string — ``true`` for a ``bool``, ``a,b,c`` for a ``list[str]`` — while the
+    job received ``True`` and ``["a", "b", "c"]``. Reporting a value in a shape
+    the job never sees is a smaller lie than reporting the wrong value, but it
+    is the same kind, and it is the kind this module exists to end.
+
+    Imported inside the function: ``job_config`` imports this module for the
+    group-option env spelling, so a module-level import would close a cycle.
+    """
+    from functualize._config.job_config import _coerce_for_field
+
+    return _coerce_for_field(value, target_type)
 
 
 def _model_default(info: Any) -> tuple[Any, bool]:
