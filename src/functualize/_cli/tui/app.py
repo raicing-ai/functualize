@@ -20,6 +20,7 @@ from functualize._cli.data.func_settings import FuncSettingsStore
 from functualize._cli.tui.bar import BarReadiness, SmartBar  # noqa: F401
 from functualize._cli.tui.bar_items import render_header_items, render_status_items
 from functualize._cli.tui.chain_resolution import (
+    _build_group_field_defs,
     build_command_panels,
     build_pending_execution,
     compute_chain_detail_rows,
@@ -78,6 +79,7 @@ from functualize._cli.tui.source_chain_providers import (
     file_source_id,
 )
 from functualize._cli.tui.sync import (
+    build_command_line,
     sync_bar_to_overrides,
     sync_overrides_to_bar,
     sync_pending_overrides_to_bar,
@@ -441,20 +443,25 @@ class FunctualizeInlineTUI(App[int]):
             )
             return
 
-        # COMMAND mode: tokenize and evaluate readiness
+        # COMMAND mode: tokenize, walk to the job, evaluate readiness. The walk
+        # comes first because readiness depends on it: the command-name list
+        # contains group nodes as well as jobs, so a bar evaluated on its first
+        # token reports a group READY and never asks the real job what it is
+        # still missing.
         tokens = text.split() if text.strip() else []
+        _resolution = self.resolve_command(tokens)
         self._smart_bar.evaluate(
             tokens,
             self._get_command_names(),
             self._get_required_fields,
             get_fields=self._get_job_fields,
+            resolution=_resolution,
         )
 
         # Invalidate command panels cache when job changes. The job is resolved
         # by walking the space-separated path (S6b) — `deploy web run` — so a
         # grouped job is recognized as the user types its segments, not only
         # when a dotted name is typed whole.
-        _resolution = self.resolve_command(tokens)
         new_job = _resolution.job_name if tokens else None
         old_job = self._last_recognized_job
         if new_job != old_job:
@@ -475,9 +482,18 @@ class FunctualizeInlineTUI(App[int]):
         # Update PendingExecution overrides from the job's own argument tokens
         # (S6b): the walk already consumed any mid-path group flag, so what
         # remains is the job's, and a group flag can no longer be mistaken for
-        # a job override. (Showing the group option's resolved value in the
-        # preview is a separate enhancement — see the T-S6b follow-up.)
+        # a job override.
         if self._pending is not None and tokens:
+            # The group's own values, kept apart from the job's. They are not
+            # this job's arguments — they belong to an ancestor and are spelled
+            # beside that ancestor's segment — and anything that rebuilds the
+            # bar has to write them back there or the user's `--env prod`
+            # vanishes the first time they touch a field.
+            self._pending.group_option_values = dict(_resolution.group_values)
+            self._pending.group_option_paths = self._group_option_paths(
+                self._pending.job_name
+            )
+
             provided = self.job_kwargs_for(self._pending.job_name, _resolution.args)
             # Sync: add/update overrides for provided tokens, remove stale ones
             current_override_keys = set(self._pending.overrides.keys())
@@ -1465,13 +1481,24 @@ class FunctualizeInlineTUI(App[int]):
             exit_to_command_mode(self, self._focus_state, self._smart_bar)
 
     def action_save_shortcut(self) -> None:
-        """Save current command as a shortcut (Ctrl+S)."""
+        """Save current command as a shortcut (Ctrl+S).
+
+        A shortcut is a generated file calling ``invoke("<name>", **kwargs)``,
+        so the name has to be the *job's*. The bar's first token is the outermost
+        group for anything grouped, and a group is not invocable — the file
+        would be written happily and fail the first time it ran. The walk also
+        keeps the group's own flags out of the job's kwargs, where they would
+        arrive as arguments the job never declared.
+        """
         text = self._smart_bar.value
         tokens = text.split() if text.strip() else []
         if not tokens:
             return
-        job_name = tokens[0]
-        kwargs = parse_cli_args_to_kwargs(tokens[1:] if len(tokens) > 1 else [])
+        resolution = self.resolve_command(tokens)
+        job_name = resolution.job_name
+        if job_name is None:
+            return
+        kwargs = parse_cli_args_to_kwargs(resolution.args)
         modal = ShortcutSaveModal(job_name=job_name, kwargs=kwargs)
         self.push_screen(modal, callback=self._on_shortcut_save_dismissed)
 
@@ -1730,10 +1757,14 @@ class FunctualizeInlineTUI(App[int]):
     def _sync_smartbar_from_fields(self) -> None:
         """Sync SmartBar text to reflect current field values from the config table.
 
-        Rebuilds the SmartBar value as: job_name <positional_vals> --flag1 val1 ...
-        Positional args are bare tokens in declaration order.
+        Rebuilds the SmartBar value as: <command path> <positional_vals>
+        --flag1 val1 ... Positional args are bare tokens in declaration order.
         Named options use --flag value syntax.
         Short flags use -x value syntax when available.
+
+        The path is rebuilt from the resolved job, not from the bar's first token:
+        under a group that first token is the group, so editing any field used
+        to rewrite `deploy web run` as `deploy`.
         """
         if self._active_ring != "command":
             return
@@ -1741,14 +1772,22 @@ class FunctualizeInlineTUI(App[int]):
         if not isinstance(panel, ConfigTablePanel):
             return
 
-        # Get current SmartBar tokens to preserve the job name
+        # Resolve the path the bar currently spells, so the whole of it
+        # survives the rebuild.
         text = self._smart_bar.value
         tokens = text.split() if text.strip() else []
         if not tokens:
             return
-        job_name = tokens[0]
+        resolution = self.resolve_command(tokens)
+        if resolution.job_name is None:
+            return
 
-        self._smart_bar.value = sync_overrides_to_bar(job_name, panel.fields)
+        self._smart_bar.value = sync_overrides_to_bar(
+            resolution.job_name,
+            panel.fields,
+            resolution.group_values,
+            self._group_trie,
+        )
 
     def _sync_config_table_from_smartbar(self) -> None:
         """Sync ConfigTablePanel field values from SmartBar CLI args.
@@ -1762,7 +1801,13 @@ class FunctualizeInlineTUI(App[int]):
         if not isinstance(panel, ConfigTablePanel):
             return
 
-        if sync_bar_to_overrides(self._smart_bar.value, panel.fields):
+        # Hand the walk over: `resolution.args` are the job's own tokens, with
+        # the path segments and mid-path group flags already consumed. Parsing
+        # the raw tail instead binds `web` — a path segment — to the job's
+        # first positional.
+        text = self._smart_bar.value
+        resolution = self.resolve_command(text.split() if text.strip() else [])
+        if sync_bar_to_overrides(text, panel.fields, resolution=resolution):
             panel.reload_table()
 
     def action_select_choice(self) -> None:
@@ -2149,12 +2194,34 @@ class FunctualizeInlineTUI(App[int]):
 
         return descriptor
 
+    def _group_option_paths(self, job_name: str) -> dict[str, str]:
+        """Which group declared each option the job inherits, by field name.
+
+        Outermost declaration wins a name clash, matching where
+        ``build_command_line`` writes the flag back. The two have to agree:
+        a value attributed to one level and emitted at another would round-trip
+        into a different command than the one recorded.
+        """
+        paths: dict[str, str] = {}
+        for spec in group_option_specs_on_path(self._group_trie, job_name):
+            for field_desc in spec.fields:
+                paths.setdefault(field_desc.name, spec.group)
+        return paths
+
     def _format_preflight_job_header(self, descriptor: Any, job_name: str) -> str:
-        """Format the bold job-header line: ``{job_name} — {first_doc_line}``."""
+        """Format the bold job-header line: ``{command} — {first_doc_line}``.
+
+        The command is rendered as the shell spells it — `deploy web run`, not
+        `deploy.web.run`. The bar directly above shows the spaced form, and the
+        dotted one is a spelling the shell's own resolver refuses; printing it
+        here taught a form that cannot be typed back. Ungrouped jobs have no
+        dots and are unaffected.
+        """
         docstring = getattr(descriptor, "docstring", None) or ""
         doc_lines = docstring.strip().splitlines() if docstring.strip() else []
         first_line = doc_lines[0].strip() if doc_lines else ""
-        return f"[bold]{job_name} — {first_line}[/bold]"
+        command = job_name.replace(".", " ")
+        return f"[bold]{command} — {first_line}[/bold]"
 
     def _render_preflight_summary(self, log: RichLog) -> None:
         """Render compact pre-flight summary with single-line-per-field format.
@@ -2248,6 +2315,19 @@ class FunctualizeInlineTUI(App[int]):
                     source_type = getattr(rv, "source_type", None)
                     if source_type:
                         resolved_sources[name] = source_type
+
+            # The group's own options, after the job's own fields and
+            # outermost group first (D-1). They carry their resolved value,
+            # their source and their `secret` flag with them, so the line
+            # formatter masks a group credential by the same rule it masks a
+            # job's — a credential does not stop being one for being declared
+            # one level up.
+            fields = [
+                *fields,
+                *_build_group_field_defs(
+                    self, job_name, _preflight_resolution.group_values
+                ),
+            ]
 
             summary_lines = build_preflight_lines(
                 fields, provided, avail_width, resolved_sources=resolved_sources
@@ -2489,11 +2569,13 @@ class FunctualizeInlineTUI(App[int]):
 
         field_descriptors = get_descriptor_fields(descriptor)
         if not field_descriptors:
-            self._smart_bar.value = job_name
+            self._smart_bar.value = build_command_line(
+                job_name, [], self._pending.group_option_values, self._group_trie
+            )
             return
 
         self._smart_bar.value = sync_pending_overrides_to_bar(
-            field_descriptors, self._pending
+            field_descriptors, self._pending, self._group_trie
         )
 
     def _update_preflight_summary(self) -> None:

@@ -224,6 +224,50 @@ def _tui_settable(project: Path, monkeypatch) -> tuple[set[str], set[str]]:
     return set(job_kwargs), set(resolution.group_values)
 
 
+def _tui_render_settable(project: Path, monkeypatch) -> tuple[set[str], set[str]]:
+    """What the TUI *renders*, split into (job args, group options).
+
+    The **seventh** surface, and the one the harness's own history argued for:
+    ``_tui_settable`` above drives the resolver, and leaks 4 and 5 got past a
+    resolver probe because a field's kind is decided again on the way to the
+    screen. A row a user reads a field name from is a row that can be filed
+    under the wrong kind — the config table and the pre-flight both build their
+    rows from a `FieldDef`, and ``group_path`` is where the kind is recorded.
+
+    An injection parameter must appear in neither set: it is an outlet, not an
+    input, and a row inviting a value for `opts` was leak 4 verbatim.
+    """
+    from functualize._cli.tui.app import FunctualizeInlineTUI
+    from functualize._cli.tui.chain_resolution import (
+        _build_group_field_defs,
+        build_command_panels,
+    )
+    from functualize.app.config import JobSources
+    from functualize.app.core import FunctualizeApp
+
+    monkeypatch.chdir(project)
+    jobs_dir = project / ".functualize" / "jobs"
+    func_app = FunctualizeApp(
+        name="parity-tui-render", job_sources=JobSources(directories=[str(jobs_dir)])
+    )
+    func_app.get_jobs()
+    tui = FunctualizeInlineTUI(func_app)
+
+    job_name = ".".join(JOB_PATH)
+    group_rows = _build_group_field_defs(tui, job_name, {})
+    job_rows = [
+        f.name
+        for f in tui._get_job_fields(job_name)
+        if f.name not in {"rc", "run_context", "log"}
+    ]
+
+    # The assembled panel is checked for ordering separately (D-1); here only
+    # the partition matters, so the two halves are read from the same builders
+    # the panel uses rather than from a mounted widget.
+    assert build_command_panels is not None
+    return set(job_rows), {f.name for f in group_rows}
+
+
 def _completion_settable(project: Path, monkeypatch) -> tuple[set[str], set[str]]:
     """What the SmartBar *offers*, split into (job flags, group flags).
 
@@ -349,6 +393,33 @@ class TestSurfaceParity:
         options = _group_listing_options(cli_run, project, ["deploy", "web"])
 
         assert options == {"env", "dry_run", "replicas"}
+
+    def test_the_tui_renders_the_same_partition_it_resolves(
+        self, project, monkeypatch
+    ) -> None:
+        """The seventh surface. A resolver probe cannot catch a kind decided
+        again on the way to the screen — which is exactly how leaks 4 and 5
+        got past this file the first time."""
+        job_args, group_options = _tui_render_settable(project, monkeypatch)
+
+        assert job_args == JOB_ARGUMENTS
+        assert group_options == GROUP_OPTIONS
+
+    def test_no_injection_parameter_is_ever_rendered(
+        self, project, monkeypatch
+    ) -> None:
+        """Leak 4, stated against the renderer rather than the resolver."""
+        job_args, group_options = _tui_render_settable(project, monkeypatch)
+
+        assert not ((job_args | group_options) & INJECTION_PARAMS)
+
+    def test_the_rendered_halves_are_disjoint(self, project, monkeypatch) -> None:
+        """A field is one kind or the other, never both. A group option
+        appearing in the job's rows would put it under the job's own flags,
+        where the CLI does not accept it."""
+        job_args, group_options = _tui_render_settable(project, monkeypatch)
+
+        assert job_args.isdisjoint(group_options)
 
     def test_no_group_option_is_ever_a_job_flag(self, cli_run, project) -> None:
         """The invariant behind leak 2, stated directly: the job-argument set

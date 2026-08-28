@@ -95,6 +95,17 @@ class FieldDef:
     name — the name-based test that used to do this job masked ``sort_key`` and
     missed ``credential``.
     """
+    group_path: str | None = None
+    """The group that declared this field, or ``None`` for the job's own.
+
+    A group option is a field of the *path*, not of the job: `deploy` declares
+    `--env` and every job beneath it inherits it. The table shows the
+    difference with a dimmed `[deploy]` prefix, and the emitter needs it to put
+    the flag back where the CLI expects it — beside its group's segment, not
+    after the job.
+
+    Defaulted, which is what keeps an ungrouped project's rendering byte-identical.
+    """
 
     def sources_with_values(self) -> list[ChainEntry]:
         """Return chain entries that have non-empty values."""
@@ -294,10 +305,19 @@ class ConfigTablePanel(Widget):
             # Match either spelling: rows are shown with the hyphenated CLI-flag
             # name (``dry-run``) but the field name is underscored (``dry_run``),
             # so normalize both sides to treat ``-`` and ``_`` as equivalent.
+            # A group row also matches on its group — `deploy` is what the
+            # prefix shows, so it is what someone will type to find those rows.
             q = query.lower().replace("-", "_")
-            self._filtered_fields = [
-                f for f in self._fields if q in f.name.lower().replace("-", "_")
-            ]
+
+            def _matches(f: FieldDef) -> bool:
+                if q in f.name.lower().replace("-", "_"):
+                    return True
+                group_path = getattr(f, "group_path", None)
+                if not group_path:
+                    return False
+                return q in group_path.lower().replace("-", "_")
+
+            self._filtered_fields = [f for f in self._fields if _matches(f)]
         self._row_count = len(self._filtered_fields)
         self._cursor_row = 0
         self._reload_table()
@@ -479,7 +499,13 @@ class ConfigTablePanel(Widget):
             if getattr(field, "positional", False)
             else field.name.replace("_", "-")
         )
-        name_display = f"{indicator} {display_name}{req_mark}{short}"
+        # A group option is prefixed with the group that declared it, dimmed,
+        # so the eye separates "whose field is this" from "what is it called"
+        # without the two running together into one unreadable token. The flag
+        # itself stays undimmed — it is the part the user types.
+        group_path = getattr(field, "group_path", None)
+        prefix = f"[dim]\\[{group_path}][/dim] " if group_path else ""
+        name_display = f"{indicator} {prefix}{display_name}{req_mark}{short}"
 
         # Type column: type annotation + kind indicator
         type_str = getattr(field, "type_annotation", "str") or "str"

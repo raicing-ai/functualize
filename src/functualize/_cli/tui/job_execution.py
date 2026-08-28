@@ -169,6 +169,13 @@ def extract_effective_values(
     Uses PendingExecution.all_effective() if pending exists for this job,
     otherwise falls back to the kwargs dict.
 
+    Group options are recorded alongside the job's own fields, under their
+    **group-prefixed** key (``deploy.env``). The snapshot is a flat dict of
+    what this run used, and what a group contributed is part of that: a run
+    where `--env prod` was set is not the same run as one where it was not,
+    and a diff that cannot see the difference would call them identical. The
+    prefix is what keeps a group's `env` from colliding with a job's own.
+
     Args:
         pending: The current PendingExecution, if any.
         job_name: The job being executed.
@@ -179,7 +186,13 @@ def extract_effective_values(
     """
     if pending is not None and pending.job_name == job_name:
         # all_effective() returns dict[str, tuple[value, source]]
-        return {k: v for k, (v, _src) in pending.all_effective().items()}
+        values: dict[str, Any] = {
+            k: v for k, (v, _src) in pending.all_effective().items()
+        }
+        for name, value in pending.group_option_values.items():
+            group = pending.group_option_paths.get(name)
+            values[f"{group}.{name}" if group else name] = value
+        return values
     return dict(kwargs)
 
 

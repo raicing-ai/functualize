@@ -32,13 +32,25 @@ class MissingArgsResult:
         return len(self.missing_fields)
 
 
-def _parse_provided_fields(tokens: list[str]) -> dict[str, str]:
-    """Parse --key value and --key=value pairs from tokens into a dict.
+def _parse_provided_fields(
+    tokens: list[str],
+    positional_names: list[str] | None = None,
+) -> dict[str, str]:
+    """Parse the job's own arguments into ``{field_name: value}``.
 
-    Converts flag names from CLI format (--my-flag) to Python field names
-    (my_flag) by replacing hyphens with underscores.
+    Handles ``--key value`` and ``--key=value``, converting CLI flag names
+    (``--my-flag``) to Python field names (``my_flag``). Bare tokens bind to
+    ``positional_names`` in order — a required positional is *given* by being
+    typed, not by being named, and without this it was reported missing while
+    sitting in plain sight on the bar.
+
+    Args:
+        tokens: The job's own arguments — the walk's remainder, never the raw
+            tail, which for a grouped job still holds the path segments.
+        positional_names: The job's positional fields, in declaration order.
     """
     provided: dict[str, str] = {}
+    remaining_positionals = list(positional_names or [])
     i = 0
     while i < len(tokens):
         token = tokens[i]
@@ -57,6 +69,8 @@ def _parse_provided_fields(tokens: list[str]) -> dict[str, str]:
                 else:
                     # Flag without value (boolean flag or missing value)
                     provided[field_name] = ""
+        elif not token.startswith("-") and remaining_positionals:
+            provided[remaining_positionals.pop(0)] = token
         i += 1
     return provided
 
@@ -67,17 +81,30 @@ async def get_missing_required_args(
 ) -> MissingArgsResult | None:
     """Analyze tokens to find missing required arguments.
 
-    Returns None if tokens[0] is not a recognized job name.
-    Parses --key value pairs from tokens[1:] and compares against the
-    job's required parameters to identify missing fields.
+    The tokens are walked to a job the way the shell navigates — one path
+    segment per token, group flags consumed where they are declared — so
+    ``deploy --env prod web run`` finds `deploy.web.run`. Matching the bar's
+    first token against the job list instead returned ``None`` for every
+    grouped job, which reads as "not a command" and silently switched the whole
+    analysis off rather than reporting anything missing.
+
+    Returns None when the tokens do not reach a runnable job. The job's own
+    arguments — the walk's remainder, never the raw tail — are parsed for
+    ``--key value`` pairs and compared against its required parameters.
     """
     if not tokens:
         return None
 
-    job_name = tokens[0]
+    from functualize._cli.tui.cli_arg_parser import (
+        build_group_option_trie,
+        resolve_tui_command,
+    )
 
-    # Return None if not a recognized job
-    if job_name not in introspector.job_names:
+    resolution = resolve_tui_command(build_group_option_trie(introspector._app), tokens)
+    job_name = resolution.job_name
+
+    # Return None if the walk did not reach a job
+    if job_name is None or job_name not in introspector.job_names:
         return None
 
     # Find the matching job's effective fields (config_fields preferred)
@@ -88,8 +115,11 @@ async def get_missing_required_args(
             job_params = job.config_fields if job.config_fields else job.parameters
             break
 
-    # Parse provided --key value pairs from remaining tokens
-    raw_provided = _parse_provided_fields(tokens[1:])
+    # Parse the job's own arguments — named flags and bare positionals alike.
+    raw_provided = _parse_provided_fields(
+        resolution.args,
+        [p.name for p in job_params if getattr(p, "positional", False)],
+    )
 
     # Filter provided_fields to only include valid parameter names
     valid_param_names = {p.name for p in job_params}

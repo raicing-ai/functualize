@@ -77,7 +77,7 @@ to which group node — and extract group-level values alongside job-level kwarg
 
 | Assertion | Expected behavior |
 |---|---|
-| `SBP.1` | `parse_cli_args_to_kwargs` returns both `kwargs` (job-level) and `group_option_values` (group-level) in its result |
+| ~~`SBP.1`~~ | **VOID.** `parse_cli_args_to_kwargs` was to return both `kwargs` and `group_option_values`. A trie-walking resolver already existed as its sibling — `resolve_tui_command` (`_cli/tui/cli_arg_parser.py`) — so building a second would have violated this intent's own `X.2`. The parser stays job-level-only and its *callers* feed it `resolution.args`. |
 | `SBP.2` | `deploy --env prod web run --image v1.2` parses to `kwargs={"image": "v1.2"}`, `group_option_values={"env": "prod"}` |
 | `SBP.3` | `deploy --dry-run web run --image v1.2` parses `group_option_values={"dry_run": True}` |
 | `SBP.4` | Group flags at wrong positions produce clear errors (e.g. `deploy web run --env prod` when `--env` is a deploy-level flag) |
@@ -173,7 +173,7 @@ The pre-flight summary renders the command as the user would type it on the CLI.
 
 | Assertion | Expected behavior |
 |---|---|
-| `PF.1` | `build_preflight_lines` renders `deploy --env prod --dry-run web run --image v1.2` |
+| `PF.1` | **REATTRIBUTED.** The command line is not `build_preflight_lines`' to render — that function emits per-field lines only. The header is `_format_preflight_job_header` (`app.py`), which printed the *dotted* name: an existing `X.1` violation affecting ungrouped projects too. It now renders the CLI spelling, and `build_preflight_lines` renders each group flag as a field line with its `[group]` prefix. |
 | `PF.2` | Group flags appear at their mid-path position, between their owning group name and the next sub-group/leaf |
 | `PF.3` | When no group options are declared, the pre-flight is unchanged from today |
 | `PF.4` | The pre-flight walks the same group trie the SmartBar uses — shared logic, not duplicated |

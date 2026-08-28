@@ -147,3 +147,74 @@ Proven by `tests/_cli/test_source_chain_detail_pilot.py`:
     class**: `register_dynamic_job` yields no field descriptors, and a plain
     function's params are `ParamKind.PLAIN` (CLI/default only), so they are
     correctly excluded from file detail (R5-AC5) and the test would be vacuous.
+
+## HARD Rules from the GroupOptions panel work (2026-08)
+
+Proven by `tests/tui_group_options/` and the extended
+`tests/group_options/test_surface_parity.py`. The decisions behind them are
+ADR-009; these are the rules for not reintroducing the defects.
+
+11. **Never read the bar's first token as the job name.** Resolve the path —
+    `app.resolve_command(tokens)` — and use `resolution.job_name` and
+    `resolution.args`. Under a group the first token is the *group*, and
+    `_get_command_names()` includes group nodes, so a group passes a naive
+    recognition check and then reports zero required fields.
+
+    This single mistake produced **nine** defects at once: a truncated command
+    path, a bar rewritten in a spelling its own resolver refuses, dropped group
+    flags, a path segment bound to the job's first positional (silent data
+    corruption), a shortcut saved under a group name, panels never built,
+    readiness computed against the group, missing-args detection disabled, and
+    completion retiring flags the user had not used.
+
+    It is mechanically detectable, so check it rather than trusting review:
+
+    ```bash
+    grep -rn "tokens\[0\]"  src/functualize/_cli/tui/ --include="*.py"   # must be 3
+    grep -rn "tokens\[1:\]" src/functualize/_cli/tui/ --include="*.py"   # must be 1
+    ```
+
+    The sanctioned survivors are `cli_arg_parser.py` (the `trie is None`
+    fallback — the one owner of "no trie → flat"; route degradations through it
+    rather than writing a second copy), `app.py`'s resolver-backed
+    `resolution.job_name or tokens[0]`, and `job_execution.py`'s `builtin`
+    guard, which can only ever match the reserved node.
+
+12. **The bar is rebuilt by one emitter, never by string-joining a name.**
+    `build_command_line` (`_cli/tui/sync.py`) is the only way to produce bar
+    text. Four separate writers previously agreed by luck; the property that
+    matters — `emit(resolve(text)) == text` — is only testable if there is one
+    of them. A new write-back site calls it or it will drift.
+
+13. **A field that is not the job's own carries `group_path`, and every
+    renderer says so the same way.** `[deploy] --env`, prefix dimmed, flag
+    undimmed. `FieldDef.group_path` and `ConfigDiffEntry.group_path` default to
+    `None`, which is what makes an ungrouped project byte-identical
+    *structurally* rather than by discipline — keep new fields defaulted for
+    the same reason.
+
+14. **Copy `secret=` onto every `FieldDef` you construct.** It rides in on the
+    cached descriptor for free, including for group options
+    (ADR-008 Addendum A5), so a credential leaks only by a wire being dropped
+    on the way to the panel. Import `display_value` / `is_secret_field` from
+    `functualize.app.utils`, never `_types.redaction` — that is the
+    `lint-imports` seam. Prove masking from a **declared** `Secret[str]`, not a
+    stub with `secret=True` (`wiring-discipline.md` §8), and sabotage-check it:
+    delete the kwarg, watch the test go red, restore.
+
+15. **A surface that renders a field's *kind* gets a probe in
+    `tests/group_options/test_surface_parity.py`.** Two of the five recorded
+    leaks got past that harness because it drove the *resolvers*, and a field's
+    kind is decided again on the way to the screen. A resolver probe is not a
+    render probe. Anything a user can read a field name from can file it under
+    the wrong kind.
+
+16. **Check the shell's idea of a valid flag against real `--help` output.**
+    When the bar validates flags, a false rejection — greying out a command the
+    CLI accepts — is far worse than the permissiveness it replaces. Click
+    renders a job's boolean as a **pair** (`--verbose/--no-verbose`), so the
+    negative spelling is real even though no field is named `no_verbose`; a
+    group's boolean has no pair (`_flag_aliases` in `_cli/dispatch.py`). A
+    field-name check alone greys out `build --no-optimize`, which is valid, and
+    that is exactly what it did until the two lists were diffed job by job
+    across every example project.

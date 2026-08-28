@@ -205,17 +205,24 @@ class SmartBarAutoComplete:
         self._group_trie_cache: Any = trie
         return trie
 
-    def _walk_path(self, tokens: list[str]) -> tuple[Any, list[str], str | None]:
+    def _walk_path(self, tokens: list[str]) -> tuple[Any, list[str], str | None, int]:
         """Walk completed tokens down the trie (S6b context resolution).
 
-        Returns ``(node, consumed_path_segments, resolved_job_name)``. Flags and
-        their values are stepped over — they are not path segments — so the walk
-        answers "which node is the cursor inside" for a line that already mixes
-        group flags with path tokens.
+        Returns ``(node, consumed_path_segments, resolved_job_name,
+        consumed_count)``. Flags and their values are stepped over — they are
+        not path segments — so the walk answers "which node is the cursor
+        inside" for a line that already mixes group flags with path tokens.
+
+        ``consumed_count`` is how many *tokens* the walk ate, which is not
+        ``len(segments)``: segments counts path tokens only, while the walk
+        also steps over every flag and flag value it passes. Slicing the
+        arguments at the segment count therefore under-cuts by two per
+        mid-path flag, spilling path tokens and the deeper group's own flags
+        into what the job is told are its arguments.
         """
         trie = self._group_trie
         if trie is None:
-            return None, [], None
+            return None, [], None, 0
         node = trie.root
         segments: list[str] = []
         index = 0
@@ -232,8 +239,8 @@ class SmartBarAutoComplete:
             segments.extend(token.split("."))
             index += 1
             if getattr(node, "has_payload", False) and getattr(node, "is_leaf", False):
-                return node, segments, node.payload
-        return node, segments, None
+                return node, segments, node.payload, index
+        return node, segments, None, index
 
     def _candidates_path(
         self, node: Any, segments: list[str], partial: str
@@ -353,7 +360,7 @@ class SmartBarAutoComplete:
         partial = raw[-1] if (raw and ends_open) else ""
         completed = raw[:-1] if (raw and ends_open) else raw
 
-        node, segments, resolved_job = self._walk_path(completed)
+        node, segments, resolved_job, consumed = self._walk_path(completed)
         if node is not None and resolved_job is None:
             # Still inside the group tree.
             if partial.startswith("-"):
@@ -362,8 +369,9 @@ class SmartBarAutoComplete:
         if resolved_job is not None:
             # Rewrite as `<dotted job> <args…>` so the existing chain resolves
             # the job it already knows how to look up, without learning paths.
-            consumed_tokens = len(segments)
-            args = completed[consumed_tokens:]
+            # The cut is the walk's own token count — everything before it is
+            # path or a group's flag, and neither is this job's argument.
+            args = completed[consumed:]
             text = " ".join([resolved_job, *args]) + (" " if not ends_open else " ")
             text += partial
             cursor_pos = len(text)
@@ -551,10 +559,11 @@ class SmartBarAutoComplete:
                 )
             )
 
-        # Get tokens for used-flag filtering
-        tokens = tokenize_smart_bar(full_text)
-        # Tokens after the job name are the used tokens
-        used_tokens = tokens[1:] if len(tokens) > 1 else []
+        # Get tokens for used-flag filtering. `full_text` reaches here already
+        # rewritten as `<dotted job> <args…>`, so dropping the leading token
+        # leaves the job's own arguments — and only those. A group's flag that
+        # happens to share a name with one of the job's must not retire it.
+        _, *used_tokens = tokenize_smart_bar(full_text) or [""]
 
         # Filter out already-used single-value flags
         available_flags = filter_used_flags(all_flags, used_tokens)

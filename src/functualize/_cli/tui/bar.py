@@ -10,10 +10,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from textual.message import Message
 from textual.widgets import Input
+
+if TYPE_CHECKING:
+    from functualize._cli.tui.cli_arg_parser import TuiCommandResolution
 
 __all__ = ["BarReadiness", "SavedBarState", "SmartBar"]
 
@@ -112,6 +115,7 @@ class SmartBar(Input):
         job_names: list[str],
         get_required_fields: Callable[[str], list[str]],
         get_fields: Callable[[str], list[Any]] | None = None,
+        resolution: TuiCommandResolution | None = None,
     ) -> BarReadiness:
         """Evaluate command tokens and update readiness state.
 
@@ -122,6 +126,13 @@ class SmartBar(Input):
             get_fields: Optional callback returning FieldDescriptor-like objects
                 with .name, .positional, .short_flag attributes. Enables detection
                 of positional args and short flags as "provided".
+            resolution: The walk of ``tokens``, from ``resolve_tui_command``.
+                Required for a correct answer under groups: ``job_names``
+                contains top-level **group** nodes as well as jobs, so matching
+                on the bar's first token makes `deploy` a recognized command
+                whose required-field list is empty — and the bar reports READY
+                no matter what the real job is still missing. When omitted the
+                first token is used, which is right for an ungrouped project.
 
         Returns:
             The new BarReadiness value.
@@ -132,7 +143,32 @@ class SmartBar(Input):
             self._set_readiness(BarReadiness.GREY)
             return BarReadiness.GREY
 
-        command = tokens[0]
+        if resolution is None:
+            # One owner of "no trie -> flat", rather than a second copy of the
+            # rule here: the resolver's own trie-less path takes the first
+            # token as the job and the rest as its arguments.
+            from functualize._cli.tui.cli_arg_parser import resolve_tui_command
+
+            resolution = resolve_tui_command(None, tokens)
+
+        command = resolution.job_name
+        args = resolution.args
+
+        if command is None:
+            # The walk did not reach a runnable job. Distinguish a path still
+            # being typed from a name that means nothing: `deploy` is a real
+            # group and deserves an invitation, `nonsense` deserves a refusal.
+            # The head is for the message only — nothing is resolved from it.
+            head, *_rest = tokens
+            reason = (
+                f"Incomplete: {' '.join(tokens)}…"
+                if head in job_names
+                else f"Unknown: {head}"
+            )
+            self._validity_reason = reason
+            self.placeholder = reason
+            self._set_readiness(BarReadiness.GREY)
+            return BarReadiness.GREY
 
         if command not in job_names:
             self._validity_reason = f"Unknown: {command}"
@@ -154,12 +190,14 @@ class SmartBar(Input):
             if short:
                 short_to_name[short.lstrip("-")] = f.name
 
-        # Extract provided field names from tokens
+        # Extract provided field names from the job's own arguments. Walking
+        # the whole line instead would count path segments as positionals —
+        # `web` filling `image` — and mid-path group flags as job flags.
         provided_names: set[str] = set()
         positional_idx = 0
-        i = 1
-        while i < len(tokens):
-            tok = tokens[i]
+        i = 0
+        while i < len(args):
+            tok = args[i]
             if tok.startswith("--") and len(tok) > 2:
                 provided_names.add(tok[2:].replace("-", "_"))
                 # Skip the value token if present
@@ -171,7 +209,7 @@ class SmartBar(Input):
                 if field_name:
                     provided_names.add(field_name)
                     # Skip the value token
-                    if i + 1 < len(tokens) and not tokens[i + 1].startswith("-"):
+                    if i + 1 < len(args) and not args[i + 1].startswith("-"):
                         i += 2
                     else:
                         i += 1
@@ -183,6 +221,32 @@ class SmartBar(Input):
                     provided_names.add(positional_names[positional_idx])
                     positional_idx += 1
                 i += 1
+
+        # A flag the job does not declare is not a missing field — it is a
+        # command that will not run. This is where a group's flag written
+        # *after* the job surfaces: position is what separates a group flag
+        # from the job's own, so `deploy web run --env prod` is a job flag
+        # called `env`, and there is no such thing. Reporting READY there sent
+        # the user to a click error they had no warning of.
+        known = {f.name for f in fields} | set(required)
+        # A boolean field is rendered by click as a **pair** —
+        # `--optimize/--no-optimize` — so the negative spelling is a real flag
+        # the CLI accepts, and rejecting it here would grey out a valid line.
+        known |= {
+            f"no_{f.name}"
+            for f in fields
+            if (getattr(f, "type_annotation", "") or "") == "bool"
+        }
+        for tok in args:
+            if not tok.startswith("--") or len(tok) <= 2:
+                continue
+            flag_name = tok[2:].split("=", 1)[0].replace("-", "_")
+            if known and flag_name not in known:
+                reason = f"Unknown flag: --{tok[2:].split('=', 1)[0]}"
+                self._validity_reason = reason
+                self.placeholder = reason
+                self._set_readiness(BarReadiness.GREY)
+                return BarReadiness.GREY
 
         missing = [f for f in required if f not in provided_names]
 

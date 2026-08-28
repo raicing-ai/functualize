@@ -1,0 +1,17 @@
+# A group option reads the *group path* as its config section, not a job name.
+# That is the whole substitution: `class DeployOptions(GroupOptions,
+# group="deploy")` reads `[deploy]` and `DEPLOY__ENV` no matter which job under
+# `deploy` happens to declare it.
+[deploy]
+env = "staging"
+
+# The deeper declaration gets its own section, keyed by its own path. Nothing
+# merges these two — `[deploy]` is not a parent of `[deploy.web]` in any sense
+# the resolver knows about; they are simply two sections, read by two classes.
+[deploy.web]
+region = "us-east-1"
+
+# An ungrouped job still reads its own job-name section. This one is the
+# control: it must render byte-identically whether or not the trie exists.
+[status]
+verbose = false

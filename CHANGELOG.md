@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — the interactive shell under `GroupOptions`
+
+- **Nine defects, one cause.** A `GroupOptions` subclass declares flags at a
+  *group* that every job beneath it inherits, typed mid-path:
+  `func deploy --env prod web run v1.2`. The kernel shipped working; the shell
+  did not follow. Its **read** paths walked the group tree while every
+  **write-back** path still read the bar's first token as the job — and under a
+  group, that token is the group.
+
+  Editing any field truncated the command to `deploy`; the bar was rewritten in
+  a dotted spelling its own resolver refuses; the group flags the user typed
+  vanished; a path segment bound to the job's first positional (`image` became
+  `"web"`, silently); Ctrl+S saved a shortcut naming a group, which cannot be
+  invoked; no config panel appeared for any grouped job; readiness was computed
+  against the group, so the bar read READY whatever the job was missing;
+  missing-argument detection reported "not a command"; and completion spilled
+  path segments and a deeper group's flags into the job's own arguments,
+  retiring flags the user had not used.
+
+  None of it was reachable without a project declaring a `GroupOptions`
+  subclass, and none existed until now — see
+  `examples/standalone/group_options_lab/`.
+
+### Added
+
+- **Group options render in the shell's panels.** The Config Table, pre-flight
+  summary and diff show each inherited flag with a dimmed `[deploy]` prefix
+  naming the group that declared it, after the job's own fields and outermost
+  group first. Rows filter by group as well as by field name. A group option
+  declared `Secret[str]` masks exactly as a job's credential does.
+- **The Job Browser shows commands as they are typed** — `deploy web run`,
+  not `deploy.web.run` — and its filter accepts dots, spaces or hyphens.
+- **The pre-flight header renders the CLI spelling.** It printed the dotted
+  name directly beneath a bar showing the spaced one; the dotted form is a
+  spelling the shell does not accept back. This changes the header for
+  ungrouped projects too.
+- **An unknown job flag no longer reads READY.** Position is what separates a
+  group's flag from the job's own, so `deploy web run --env prod` asks for a
+  job flag named `env` and there is none. The shell used to show Ready and a
+  full pre-flight panel listing `--env` one line above under `[deploy]`, then
+  fail at dispatch. It now says `Unknown flag: --env`.
+
+  **This applies to every project, grouped or not**: `greet --nonsense bob`
+  now greys out too. A boolean's negative spelling is still accepted, because
+  click renders a job's boolean as a pair — `--verbose/--no-verbose` — and the
+  negative half is a real flag even though no field is named `no_verbose`. A
+  **group's** boolean has no such pair (`_flag_aliases` in `_cli/dispatch.py`
+  builds only the positive form), so `deploy --no-dry-run web run` is refused
+  by the shell exactly as dispatch refuses it.
+- **`examples/standalone/group_options_lab/`** — two levels of group
+  inheritance, a job under both, an ungrouped control, a required positional
+  and a group credential.
+
 ### Performance
 
 - **Boot scans installed entry points once instead of seven times.** Constructing
