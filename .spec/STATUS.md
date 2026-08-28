@@ -463,6 +463,42 @@ Items identified during development that are worth doing but not yet designed:
     cannot see, this one about a preset that does not do what it says. Both would be
     touched by any work that makes presets legible at runtime.
 
+17. **`rc.invoke` cannot pass group options; `app.execute` can.** Surfaced by the
+    `docs-example-parity` combination matrix. The engine's
+    `execute(..., group_option_values=...)` is the documented channel for "a surface
+    passing on the flags it parsed" (`app/core.py:592-598` names two fillers, the CLI
+    and MCP). `app.execute` exposes it. `RunContext.invoke`
+    (`_engine/capabilities/runcontext.py:365-374`) and both `Invoke.__call__`
+    overloads (`_engine/capabilities/invoke.py:84,282`) do not — their `**kwargs` go
+    to the job function's own parameters — so a job invoking a grouped job cannot set
+    its group options at all.
+
+    There is **no workaround through the override layer**: group options resolve
+    against a view built fresh for the group path (`executor.py:2065`,
+    `self._make_config_view(group_path)`), while `rc.config.set()` writes to the
+    *job's* view. The only two channels are the group's config section and its
+    environment variable.
+
+    **The work is small; the surface is the question.** Threading one keyword through
+    four call sites (`runcontext.py:365` and its pass-through at `:374`, both
+    `Invoke.__call__`s, and the `self._engine.execute(...)` calls at `invoke.py:399`
+    and `:593`) is mechanical. But `Invoke` is a public capability exported from
+    `functualize.job` with a shipped double (`testing/doubles.py:71`, `MockInvoke`),
+    so widening it changes a published protocol — which is what needs the ADR.
+
+    **Why it is not simply a bug to leave closed**: the boundary that *should* exist
+    is against implicit inheritance — a flag typed at `deploy.web` silently steering
+    a job under `deploy.worker`. An explicit `group_option_values=` argument is the
+    caller naming values deliberately, the same thing `app.execute` already permits,
+    so the design reason for the boundary does not argue against it. The concrete
+    gap: a job deploying to staging and then production cannot invoke one grouped job
+    twice with different `env` without mutating `os.environ` mid-run.
+
+    The boundary as it stands is pinned by
+    `tests/group_options/test_combination_matrix.py` and stated in
+    `docs/guides/group-options.md`, so the documentation is correct either way — this
+    is a capability decision, not a drift fix.
+
 ## Recently Completed (2026-07)
 
 | Feature | Description |

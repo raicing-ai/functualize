@@ -1,0 +1,91 @@
+[scenario]
+name = "k-group-options"
+version = 1
+description = "Mid-path group flags: inheritance, two levels at once, and both must-error cases"
+
+[source]
+file = "docs/guides/group-options.md"
+lines = "73-112"
+description = "Typing a group's flag mid-path, positional disambiguation, and the errors"
+
+requires = []
+
+# `group_options_lab` is the fixture this doc block describes: two group levels
+# with a job under both, an ungrouped control, and a required positional.
+# Job output is logged, so it arrives on **stderr** — stdout is empty for a
+# successful run.
+
+[[steps]]
+engine = "shell"
+description = "Baseline: no group flags, both levels resolve from the config file"
+cwd = "examples/standalone/group_options_lab"
+command = "func deploy web run v1.2"
+expected = { exit_code = 0, stderr_contains = "env      = staging" }
+timeout = 30
+
+[[steps]]
+engine = "shell"
+description = "A mid-path flag beats the file (docs :73, `--env` belongs to `deploy`)"
+cwd = "examples/standalone/group_options_lab"
+command = "func deploy --env prod web run v1.2"
+expected = { exit_code = 0, stderr_contains = "env      = prod" }
+timeout = 30
+
+[[steps]]
+description = "Two levels at once — each flag claimed by the group that declared it"
+engine = "shell"
+cwd = "examples/standalone/group_options_lab"
+command = "func deploy --env prod web --region eu-west-1 run v1.2"
+expected = { exit_code = 0, stderr_contains = "region   = eu-west-1" }
+timeout = 30
+
+[[steps]]
+description = "The deeper flag does not disturb the outer one in the same command"
+engine = "shell"
+cwd = "examples/standalone/group_options_lab"
+command = "func deploy --env prod web --region eu-west-1 run v1.2"
+expected = { exit_code = 0, stderr_contains = "env      = prod" }
+timeout = 30
+
+# A bool presence flag takes no value. If the walk let it eat the next token,
+# `web` would be consumed as its argument and the *path* would break rather
+# than the flag — so the assertion is on the positional, not on the flag.
+[[steps]]
+description = "A bool presence flag does not eat the next path segment"
+engine = "shell"
+cwd = "examples/standalone/group_options_lab"
+command = "func deploy --dry-run web run v1"
+expected = { exit_code = 0, stderr_contains = "image    = v1" }
+timeout = 30
+
+# --- the two must-error cases -------------------------------------------
+#
+# Each asserts a non-zero exit **and** the message. A scenario that only
+# asserted "it failed" would pass when the command failed for an unrelated
+# reason — a typo in the fixture, a missing venv, a job that no longer exists.
+
+[[steps]]
+description = "MUST ERROR: a group's flag written after the job is not a job flag (docs :83)"
+engine = "shell"
+cwd = "examples/standalone/group_options_lab"
+command = "func deploy web run v1 --env prod"
+expected = { exit_code = 2, stderr_contains = "No such option '--env'." }
+timeout = 30
+
+[[steps]]
+description = "MUST ERROR: a sibling group does not inherit `deploy.web`'s flags"
+engine = "shell"
+cwd = "examples/standalone/group_options_lab"
+command = "func deploy --region eu-west-1 worker run"
+expected = { exit_code = 2, stderr_contains = "unknown option '--region' before a command." }
+timeout = 30
+
+# The control. An ungrouped job must be untouched by any of the above — its
+# output is the same whether or not a single group exists in the project.
+[[steps]]
+description = "Control: an ungrouped job is byte-identical"
+engine = "shell"
+cwd = "examples/standalone/group_options_lab"
+command = "func status --verbose"
+expected = { exit_code = 0, stderr_contains = "3 services up, 0 degraded" }
+timeout = 30

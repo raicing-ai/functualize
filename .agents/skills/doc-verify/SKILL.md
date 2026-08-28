@@ -27,6 +27,45 @@ environments and reports which ones still match reality.
 4. **Report, don't fix.** When a scenario fails, describe the drift — exact
    expected vs actual. Do not silently update the scenario to match the new
    behavior. That decision belongs to a human.
+5. **Before believing a doc-verify failure, prove the harness works.** Run
+   `a-core-builtins` first — it exercises the plumbing and nothing else. A run
+   that reports many failures at once is far more likely to be one broken
+   precondition than a documentation set that went stale all at the same
+   moment. This audit's first run reported **twelve** doc failures that were a
+   single missing `PATH` entry.
+
+---
+
+## Preconditions — both of these, every time
+
+Neither is optional and neither announces itself: get either wrong and the
+harness reports environment noise in the vocabulary of documentation drift.
+
+**1. `.venv/bin` must be on `PATH`.** Shell steps invoke `func` as a plain
+command. Without the virtualenv on `PATH` every step exits **127** and each one
+is reported as a failed documentation assertion.
+
+```bash
+PATH="$PWD/.venv/bin:$PATH" python .agents/skills/doc-verify/scripts/run-scenario ...
+```
+
+**2. Run from the repository root.** A shell step's `cwd` is resolved
+*process-relative*: `run-scenario:132` does `Path(step["cwd"])` with no `ROOT`
+join, unlike the pty engine at `:283`, which does `ROOT / step["cwd"]`. A
+scenario declaring `cwd = "examples/standalone/secrets_lab"` therefore resolves
+only when `run-scenario` is invoked from the root. Started anywhere else, the
+directory is not found and the steps fail for a reason that has nothing to do
+with the doc they cite.
+
+The proof that both are satisfied:
+
+```bash
+PATH="$PWD/.venv/bin:$PATH" python .agents/skills/doc-verify/scripts/run-scenario \
+    examples/docs/scenarios/a-core-builtins.toml
+```
+
+It must report `Passed 1`. If it does not, stop — nothing else in the run means
+anything yet.
 
 ---
 
@@ -41,7 +80,7 @@ environments and reports which ones still match reality.
 | How do I create a new one? | Copy template, fill in `[source]` block, write steps |
 | How do I know what to verify? | See [references/doc-audit.md](references/doc-audit.md) |
 | What engines are available? | `shell`, `docker`, `pty` (TUI/CLI interaction) |
-| What happens on failure? | Runner exits 2, writes `.err` diff, prints report |
+| What happens on failure? | Runner exits **1** for a failed step, **2** for a scenario it could not load; writes `.err` diff, prints report. Any non-zero means the run is not clean — gating on `== 2` alone passes every real documentation failure |
 
 ---
 
