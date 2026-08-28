@@ -162,6 +162,40 @@ def _reset_entry_point_cache() -> Iterator[None]:
     clear_entry_point_cache()
 
 
+@pytest.fixture(autouse=True)
+def _restore_environ() -> Iterator[None]:
+    """Give every test back the environment it started with.
+
+    A test that loads a `.env` in-process — `--dotenv-file` through the
+    `CliRunner`, or a direct `load_dotenv()` — mutates `os.environ` for the
+    rest of the session. `monkeypatch` cannot undo that: monkeypatch reverses
+    what *monkeypatch* did, and this was done by production code holding a real
+    reference to the process environment.
+
+    This shipped. `tests/core/test_show_info.py`'s `dotenv_file` fixture writes
+    `MY_VAR=hello`, and `tests/cli/test_cli_integration.py::test_no_dotenv_flag`
+    asserts `MY_VAR` is *unset* to prove `--no-dotenv` suppresses loading. Each
+    passes alone; run in one process in that order, the second reads the first's
+    leak and fails — an order-dependent failure in the one test whose subject is
+    environment isolation.
+
+    Same reasoning as `_reset_entry_point_cache` above: the coupling is
+    invisible and order-sensitive, so the environment is restored on both sides
+    of every test rather than in the handful that look like they need it today.
+    """
+    saved = os.environ.copy()
+    yield
+    if os.environ != saved:
+        # Restore by difference rather than clear-then-update: the TUI tests
+        # run worker threads, and a thread that reads the environment during
+        # teardown must never observe the empty window a `clear()` opens.
+        for key in set(os.environ) - set(saved):
+            os.environ.pop(key, None)
+        for key, value in saved.items():
+            if os.environ.get(key) != value:
+                os.environ[key] = value
+
+
 @pytest.fixture()
 def xdg_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> types.SimpleNamespace:
     """Virtual XDG directory layout — lightweight, no external tools needed.
