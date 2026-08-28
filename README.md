@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/raicing-ai/functualize/actions/workflows/ci.yml/badge.svg)](https://github.com/raicing-ai/functualize/actions/workflows/ci.yml)
 [![Docs](https://github.com/raicing-ai/functualize/actions/workflows/docs.yml/badge.svg)](https://github.com/raicing-ai/functualize/actions/workflows/docs.yml)
+[![Documentation](https://img.shields.io/badge/docs-live_site-blue)](https://raicing-ai.github.io/functualize/)
 [![Python Versions](https://img.shields.io/pypi/pyversions/functualize)](https://pypi.org/project/functualize/)
 [![PyPI version](https://badge.fury.io/py/functualize.svg)](https://pypi.org/project/functualize/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/raicing-ai/functualize/blob/master/LICENSE)
@@ -848,7 +849,9 @@ uv run mkdocs serve
 uv run mkdocs build --strict
 ```
 
-Docs deploy automatically to GitHub Pages on push to `main`.
+The full documentation is published at [https://raicing-ai.github.io/functualize/](https://raicing-ai.github.io/functualize/).
+
+Docs deploy automatically to GitHub Pages on push to `master`.
 
 ## Contributing
 
