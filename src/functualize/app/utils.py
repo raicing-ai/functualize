@@ -20,9 +20,7 @@ from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
 
-from functualize._config.errors import MigrationError
 from functualize._config.merge import merge_config_layers
-from functualize._config.migration import migrate_ini_to_toml
 from functualize._primitives.cache_format import resolve_cache_path
 from functualize._primitives.di import DIValidationError
 from functualize._primitives.display_detection import (
@@ -119,8 +117,6 @@ __all__ = [
     "is_display_provider",
     "JobMaterializationError",
     "list_project_config_files",
-    "migrate_ini_to_toml",
-    "MigrationError",
     "NodeKind",
     "pending_gates",
     "read_display_modules_from_cache",

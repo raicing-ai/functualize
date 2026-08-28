@@ -34,17 +34,17 @@ INI carries costs TOML does not:
 - **No types.** Every value is a string until something coerces it, which puts
   the burden on the config consumer rather than the parser.
 - **Interpolation had to be actively disabled.** Both `IniFormatProvider` code
-  paths construct `configparser.ConfigParser(interpolation=None)`, and
-  `_config/migration.py` exists partly to *reject* `%(key)s` references when
-  converting INI to TOML.
+  paths construct `configparser.ConfigParser(interpolation=None)`, and the
+  INI-to-TOML migration helper that then existed had to *reject* `%(key)s`
+  references outright, because TOML has no equivalent to convert them into.
 - **A second syntax to document and test.** The configuration guide was written
   largely in `.ini`, including the `settings\.(\w+)\.ini` pattern example, so
   every config feature was explained twice.
 
-The presence of `_config/migration.py` — an INI-to-TOML migration path — already
-signalled that TOML is the intended destination. Python has had `tomllib` in the
-standard library since 3.11, which is this project's floor, so TOML costs no
-dependency.
+The presence of `_config/migration.py` — an INI-to-TOML migration path, written
+long before this ADR and never called by anything — already signalled that TOML
+is the intended destination. Python has had `tomllib` in the standard library
+since 3.11, which is this project's floor, so TOML costs no dependency.
 
 ## Decision
 
@@ -103,13 +103,40 @@ runs before the chain is built.
 case, and asserts the *effective* extension set rather than the entry points, so
 a test can no longer pass against a build where the decision did not take.
 
-### `func builtin config migrate`
+### There is no migration command — the module is deleted instead
 
-`migrate_ini_to_toml` had zero callers and zero tests, and the original ADR
-pointed users at a `func builtin config migrate` that did not exist — `config`
-had `show`, `path` and `edit`. The command now exists and reaches the helper. It
-refuses to overwrite an existing file, reports `%(key)s` interpolation by line
-rather than writing half a conversion, and leaves the source in place.
+The first draft of this ADR pointed users at a `func builtin config migrate`
+that did not exist (`config` had `show`, `path`, `edit`), while
+`migrate_ini_to_toml` sat in `_config/migration.py` with zero callers and zero
+tests. That is a migration path with no entrance, and the disposition was always
+one of two things: **give it an entrance, or give it an exit.**
+
+Implementation took the entrance — the command was built, tested, and shipped.
+It was then **removed**, and the module with it, on the maintainer's call
+(2026-08-28). The reasoning:
+
+- **A conversion command exists to carry a user population across a break.**
+  Pre-1.0, with the format narrowed by hard removal and no deprecation window,
+  there is no such population. The command served a migration nobody was
+  performing.
+- **Keeping it re-created the shape it was built to fix, one level up.** The
+  entrance justified the module; the module justified the entrance; the only
+  external caller was the test suite. `migrate_ini_to_toml` with a command in
+  front of it is still code whose reason to exist is that it exists.
+- **The conversion it automated is not the hard part.** Its whole non-trivial
+  behaviour was *refusing* `%(key)s` — the one case it could not convert. What
+  remains is quoting strings, which a person does by hand in a minute for a
+  config file small enough to have been an INI file.
+
+What the narrowing owes its users is unchanged and still enforced: a project the
+framework can no longer read must **say so** rather than run on model defaults,
+and the remedy it names must work. Boot warns once per unreadable file, naming
+both ways out — convert to TOML, or register the provider from a plugin — and
+`builtin info` reports the file rather than "No config files found".
+`tests/config/test_legacy_ini_project.py` starts from an INI-only project and
+holds that end to end.
+
+`_config/migration.py` and `MigrationError` are deleted.
 
 ## Consequences
 
@@ -121,7 +148,8 @@ rather than writing half a conversion, and leaves the source in place.
   INI's string-only model.
 - The `FormatProvider` seam keeps a working second implementation, and now has
   an end-to-end test proving a plugin can register one.
-- `_config/migration.py` is reachable.
+- One less unreachable module: `_config/migration.py` is gone rather than
+  propped up by a command written to give it a caller.
 
 ### Negative
 
@@ -138,7 +166,9 @@ rather than writing half a conversion, and leaves the source in place.
 
 ### Neutral
 
-- No code is deleted.
+- `IniFormatProvider` is not deleted — only unregistered. `_config/migration.py`
+  and `MigrationError` **are** deleted; they were never part of the provider
+  seam and had no users.
 
 ## Alternatives Considered
 
@@ -151,8 +181,12 @@ rather than writing half a conversion, and leaves the source in place.
 
 ## Migration
 
-1. `func builtin config migrate config.base.ini` writes `config.base.toml`.
-   Review it, then delete the source.
+1. Convert `config.base.ini` to `config.base.toml` by hand — section headers are
+   identical; values need quoting. There is no conversion command, deliberately
+   (see above).
 2. A project that must keep reading INI registers `IniFormatProvider` from a
-   plugin (see above).
-3. `_config/migration.py` remains indefinitely.
+   plugin (see above), which is the supported path because plugins load before
+   the resolution chain is built.
+3. Either way you are told: an unreadable config file warns at boot and is
+   listed by `builtin info`. Neither is silent, which is the property that
+   matters.

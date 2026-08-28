@@ -1193,14 +1193,18 @@ def _print_unreadable_config_file(path: str, console: Console) -> None:
     from pathlib import Path
 
     extension = Path(path).suffix or "(none)"
+    # The path goes in the *body*, not only the title: Rich ellipsizes a title
+    # that does not fit and wraps a body that does not, so on a long path a
+    # title-only report names no file at all.
     console.print(
         Panel(
             f"[bold red]Not read[/bold red] — no config format provider is "
             f"registered for [bold]{extension}[/bold], so nothing in this file "
             f"takes effect.\n\n"
-            f"Convert it:  [bold]func builtin config migrate {path}[/bold]\n"
-            f"or register a provider from a plugin (see ADR-007).",
-            title=f"[bold]{path}[/bold]",
+            f"[bold]{path}[/bold]\n\n"
+            f"Convert it to TOML, or register a provider from a plugin — "
+            f"plugins load before the resolution chain is built (ADR-007).",
+            title="[bold]Unreadable config file[/bold]",
             border_style="red",
         )
     )

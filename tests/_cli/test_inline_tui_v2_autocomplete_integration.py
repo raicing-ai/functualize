@@ -193,7 +193,7 @@ class TestSmartBarAutoCompleteSubcommandMode:
     """Test subcommand-mode candidates for builtin commands."""
 
     def test_builtin_offers_its_subcommands(self):
-        """``builtin config `` offers show/path/edit/migrate."""
+        """``builtin config `` offers show/path/edit."""
         app = _make_app_mock([_make_job("deploy", docstring="Deploy")])
         provenance = CompletionProvenanceClassifier(app=app)
         completer = SmartBarAutoComplete(app=app, provenance=provenance)
@@ -202,7 +202,7 @@ class TestSmartBarAutoCompleteSubcommandMode:
         candidates = completer.get_candidates(state)
 
         names = [c.value for c in candidates]
-        expected = ["show", "path", "edit", "migrate"]
+        expected = ["show", "path", "edit"]
         assert names == sorted(expected) or set(names) == set(expected)
 
     def test_partial_subcommand_filters(self):

@@ -569,11 +569,12 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
             # ignored and no reason to go looking for a diagnostic command.
             logger.warning(
                 "Ignoring %s: no config format provider is registered for %s. "
-                "Convert it with `func builtin config migrate %s`, or register "
-                "a provider from a plugin.",
+                "Convert it to TOML, or register a provider from a plugin — "
+                "plugins load before the resolution chain is built, which "
+                "registering on `app.config_registry` afterwards is too late "
+                "to do (ADR-007).",
                 candidate,
                 Path(candidate).suffix or "(no extension)",
-                candidate,
             )
         AppState.set("config_directory", app._config_path)
         # A non-default file_pattern must reach FileSource, not just anchor

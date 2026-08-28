@@ -79,7 +79,6 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
             ("show", "Display resolved configuration"),
             ("path", "Show config file locations"),
             ("edit", "Open config in your editor"),
-            ("migrate", "Convert an INI config file to TOML"),
         ),
         # Bare ``config`` prints subcommand help — a legitimate invocation.
         requires_subcommand=False,
@@ -1022,7 +1021,6 @@ def register_builtin_commands(cli_group: Any) -> None:
             )
             click.echo("  path   Show config file paths with status")
             click.echo("  edit   Open global config in your editor")
-            click.echo("  migrate  Convert an INI config file to TOML")
             click.echo("\nRun 'func config <subcommand> --help' for details.")
 
     @config_app.command("show")
@@ -1251,41 +1249,6 @@ def register_builtin_commands(cli_group: Any) -> None:
         except subprocess.CalledProcessError as exc:
             click.echo(f"Error: Editor exited with code {exc.returncode}.", err=True)
             raise SystemExit(exc.returncode) from None
-
-    @config_app.command("migrate")
-    @click.argument("source", type=click.Path(exists=False, dir_okay=False))
-    @click.argument("destination", type=click.Path(dir_okay=False), required=False)
-    def config_migrate(source: str, destination: str | None) -> None:
-        """Convert an INI config file to TOML.
-
-        TOML is the only format Functualize registers by default (ADR-007).
-        This converts a file that predates that decision. The source is left
-        in place — nothing is deleted for you.
-        """
-        from functualize.app.utils import MigrationError, migrate_ini_to_toml
-
-        target = destination or str(Path(source).with_suffix(".toml"))
-
-        if Path(target).exists():
-            click.echo(f"Error: '{target}' already exists.", err=True)
-            raise SystemExit(1)
-
-        try:
-            migrate_ini_to_toml(source, target)
-        except MigrationError as exc:
-            click.echo(f"Error: {exc}", err=True)
-            click.echo(
-                "INI interpolation has no TOML equivalent — "
-                "resolve the reference by hand, then re-run.",
-                err=True,
-            )
-            raise SystemExit(1) from None
-        except OSError as exc:
-            click.echo(f"Error: {exc}", err=True)
-            raise SystemExit(1) from None
-
-        click.echo(f"Wrote {target}")
-        click.echo(f"Review it, then remove {source}.")
 
     _mount(builtin_app, config_app, "config")
 

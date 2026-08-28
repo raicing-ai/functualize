@@ -12,9 +12,11 @@ Two things are asserted here, and they are different things:
   Narrowing the default is not the same as deleting the capability, and the
   test that proves the narrowing must also prove the escape hatch.
 
-``func builtin config migrate`` is covered here too, because it is the answer
-the narrowing owes its users — and because its helper, ``migrate_ini_to_toml``,
-sat in the tree with zero callers and zero tests until this command reached it.
+There is no INI-to-TOML migration command. It was built, then removed: a
+conversion tool exists to carry a user population across a break, and pre-1.0
+there is none to carry. What the narrowing owes its users is a project it
+cannot read saying so — see ``test_legacy_ini_project.py`` — and a working way
+back, which is the plugin below.
 """
 
 from __future__ import annotations
@@ -115,84 +117,6 @@ class TestIniFileIsNotDiscovered:
         assert result.exit_code == 0
         assert "app_name=from-model-default" in result.stdout
         assert "from-ini" not in result.stdout
-
-
-class TestConfigMigrate:
-    """`func builtin config migrate` — the reachability the helper lacked.
-
-    Sabotage check: replace the ``migrate_ini_to_toml(source, target)`` call in
-    ``_cli/builtins.py`` with ``pass`` and every test in this class goes red.
-    """
-
-    def test_converts_sections_and_keys(self, tmp_path: Path, cli_run) -> None:
-        src = tmp_path / "config.base.ini"
-        src.write_text("[general]\napp_name = demo\nretries = 3\n")
-
-        result = cli_run(
-            ["builtin", "config", "migrate", str(src), str(tmp_path / "out.toml")]
-        )
-
-        assert result.exit_code == 0, result.stderr
-        written = (tmp_path / "out.toml").read_text()
-        assert "[general]" in written
-        assert 'app_name = "demo"' in written
-        assert 'retries = "3"' in written
-
-    def test_destination_defaults_to_toml_sibling(
-        self, tmp_path: Path, cli_run
-    ) -> None:
-        src = tmp_path / "config.prod.ini"
-        src.write_text("[general]\napp_name = demo\n")
-
-        result = cli_run(["builtin", "config", "migrate", str(src)])
-
-        assert result.exit_code == 0, result.stderr
-        assert (tmp_path / "config.prod.toml").exists()
-
-    def test_source_is_left_in_place(self, tmp_path: Path, cli_run) -> None:
-        """Nothing is deleted for the user."""
-        src = tmp_path / "config.base.ini"
-        src.write_text("[general]\napp_name = demo\n")
-
-        cli_run(["builtin", "config", "migrate", str(src)])
-
-        assert src.exists()
-
-    def test_refuses_to_overwrite(self, tmp_path: Path, cli_run) -> None:
-        src = tmp_path / "config.base.ini"
-        src.write_text("[general]\napp_name = demo\n")
-        dest = tmp_path / "config.base.toml"
-        dest.write_text("# hand-written, do not clobber\n")
-
-        result = cli_run(["builtin", "config", "migrate", str(src), str(dest)])
-
-        assert result.exit_code == 1
-        assert "already exists" in result.stderr
-        assert "hand-written" in dest.read_text()
-
-    def test_reports_interpolation_by_line(self, tmp_path: Path, cli_run) -> None:
-        """`%(key)s` has no TOML equivalent — say so, don't write half a file."""
-        src = tmp_path / "config.base.ini"
-        src.write_text("[general]\nroot = /srv\npath = %(root)s/data\n")
-
-        result = cli_run(["builtin", "config", "migrate", str(src)])
-
-        assert result.exit_code == 1
-        assert "line 3" in result.stderr
-        assert "interpolation" in result.stderr
-        assert not (tmp_path / "config.base.toml").exists()
-
-    def test_missing_source_is_an_error(self, tmp_path: Path, cli_run) -> None:
-        result = cli_run(["builtin", "config", "migrate", str(tmp_path / "nope.ini")])
-
-        assert result.exit_code == 1
-        assert "not found" in result.stderr
-
-    def test_listed_as_a_config_subcommand(self, cli_run) -> None:
-        """Discoverable, not just callable."""
-        result = cli_run(["builtin", "config"])
-
-        assert "migrate" in result.stdout
 
 
 _INI_PLUGIN = """

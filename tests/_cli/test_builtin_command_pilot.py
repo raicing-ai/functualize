@@ -283,7 +283,7 @@ class TestBuiltinPreflight:
             assert "unknown subcommand" in text
             # Sorted, not registry order — a listing a user scans should be
             # predictable rather than mirror declaration order.
-            assert "edit, migrate, path, show" in text
+            assert "edit, path, show" in text
 
     @pytest.mark.asyncio
     async def test_job_preflight_is_unaffected(self, project: Path) -> None:

@@ -211,7 +211,7 @@ class TestShowInfoConfigFiles:
         assert "config.base.ini" in packed, (
             f"the unreadable config file was not reported:\n{result.output}"
         )
-        assert "configmigrate" in packed, "the report does not name the way out"
+        assert "ConvertittoTOML" in packed, "the report does not name the way out"
         assert "No config files found" not in result.output
 
 

@@ -20,6 +20,19 @@ from __future__ import annotations
 
 import pytest
 
+
+def _packed(output: str) -> str:
+    """Rich output with wrapping removed, for asserting on long strings.
+
+    The unreadable-file report is a panel titled with the file's absolute
+    path, and a temp path is always long enough for Rich to wrap it — so a
+    plain substring check fails on layout rather than on behaviour. Asserting
+    on the packed form keeps the test measuring the diagnostic, not the
+    terminal width it happened to be rendered at.
+    """
+    return "".join(ch for ch in output if not ch.isspace() and ch not in "│─╭╮╰╯┃━┏┓┗┛")
+
+
 PYPROJECT = """\
 [project]
 name = "legacy-ini-project"
@@ -71,17 +84,25 @@ class TestTheFileIsNotIgnoredInSilence:
         result = cli_run(["sync"], cwd=legacy_project)
 
         combined = result.stdout + result.stderr
-        assert "config.base.ini" in combined, (
+        assert "config.base.ini" in _packed(combined), (
             "a config file the framework cannot read was ignored without a "
             f"word:\n{combined}"
         )
 
     def test_the_warning_names_the_way_out(self, cli_run, legacy_project):
-        """Naming a problem without naming its fix is half a diagnostic."""
+        """Naming a problem without naming its fix is half a diagnostic.
+
+        Both remedies must be named, because they answer different questions:
+        convert, for a project that is willing to move; register a provider
+        from a plugin, for one that is not. The second is the one with a trap
+        in it — registering on ``app.config_registry`` after boot is too late —
+        so the warning says when plugins load.
+        """
         result = cli_run(["sync"], cwd=legacy_project)
 
-        combined = result.stdout + result.stderr
-        assert "config migrate" in combined
+        packed = _packed(result.stdout + result.stderr)
+        assert "ConvertittoTOML" in packed
+        assert "plugin" in packed
 
     def test_builtin_info_reports_the_file(self, cli_run, legacy_project):
         """`info` is the command for "what config is in effect?".
@@ -91,27 +112,32 @@ class TestTheFileIsNotIgnoredInSilence:
         """
         result = cli_run(["builtin", "info"], cwd=legacy_project)
 
-        assert "config.base.ini" in result.stdout
+        assert "config.base.ini" in _packed(result.stdout), (
+            f"the unreadable config file was not reported:\n{result.stdout}"
+        )
         assert "No config files found" not in result.stdout
 
 
-class TestMigrationClosesTheLoop:
-    def test_migrate_converts_and_the_value_then_resolves(
-        self, cli_run, legacy_project
-    ):
-        """The whole point of the warning: following it must actually work."""
-        source = legacy_project / "config.base.ini"
+class TestTheWayOutClosesTheLoop:
+    """Following the warning must actually work.
 
-        migrated = cli_run(
-            ["builtin", "config", "migrate", str(source)], cwd=legacy_project
+    A conversion *command* used to stand here. It was removed — pre-1.0 there
+    is no user population to carry across the break, and a command that exists
+    only to serve one is the ``migrate_ini_to_toml``-with-no-callers shape it
+    was built to fix, one level up. What must still hold is that the remedy
+    the warning names produces a project that resolves.
+    """
+
+    def test_converting_the_file_makes_the_value_resolve(self, cli_run, legacy_project):
+        """The first remedy: convert, and the value the INI held comes back."""
+        (legacy_project / "config.base.ini").unlink()
+        (legacy_project / "config.base.toml").write_text(
+            '[sync]\napi_url = "https://from-the-ini-file.example.com"\n'
         )
-        assert migrated.exit_code == 0, migrated.stderr
-        assert (legacy_project / "config.base.toml").exists()
 
-        source.unlink()
         run = cli_run(["sync"], cwd=legacy_project)
         assert "api_url=https://from-the-ini-file.example.com" in run.stdout, (
-            "the migrated file does not resolve — the fix the warning names "
+            "the converted file does not resolve — the fix the warning names "
             f"does not work:\n{run.stdout}\n{run.stderr}"
         )
 

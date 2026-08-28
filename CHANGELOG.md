@@ -46,7 +46,9 @@ forbids compat shims.
   TOML is the only format registered at boot. `IniFormatProvider` remains
   in-tree; register it from a plugin — boot loads plugins before it builds the
   resolution chain, which registering on `app.config_registry` afterwards is too
-  late to do. `func builtin config migrate config.base.ini` converts a file.
+  late to do. To convert instead, quote the values by hand: TOML and INI share
+  section headers, and a project the framework cannot read now warns at boot
+  naming both ways out rather than running on model defaults in silence.
 
 The `tui.sensitive_keywords` setting is also gone. It was registered, schema'd
 and documented, and had no consumer.
@@ -126,14 +128,22 @@ and documented, and had no consumer.
   parameter was a claim it could not keep.
 - **A validation error now names the environment variable that would fix it**,
   not only which config files were read.
-- `migrate_ini_to_toml` had zero callers and zero tests; `func builtin config
-  migrate` reaches it.
+- **`_config/migration.py`, `migrate_ini_to_toml` and `MigrationError` are
+  deleted, and there is no `func builtin config migrate`.** The helper had zero
+  callers and zero tests; a command was built to reach it and then removed with
+  it. A conversion command exists to carry a user population across a break, and
+  pre-1.0 — with the format narrowed by hard removal — there is none to carry,
+  so the command's only caller would again have been the test suite. What the
+  narrowing owes its users is the diagnostic below, not an automated rewrite of
+  a file small enough to have been an INI file.
 - **A project the framework could no longer read ran in silence.** With TOML the
   only registered format, `config.base.ini` failed the extension check in
   config-path discovery — so it never anchored a directory, never reached the
   file reader, and `builtin info` reported "No config files found" with the file
-  in the project root. Boot now warns once per such file, naming
-  `func builtin config migrate`, and `builtin info` lists them.
+  in the project root. Boot now warns once per such file, naming both ways
+  out — convert to TOML, or register a provider from a plugin, with the note
+  that plugins load before the resolution chain is built — and `builtin info`
+  lists them.
 - **`builtin info` echoed every config value verbatim**, including a credential
   written into a config file — two panels above the `JobConfig` table that masks
   the same value. The panel was built with `configparser` and
