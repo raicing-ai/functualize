@@ -232,7 +232,7 @@ Python-dotenv does **not** override existing shell environment variables by defa
 | CLI flags | Highest | `--batch-size 2000` |
 | Shell environment variables | High | `export DATA_SYNC_BATCH_SIZE=500` |
 | `.env` file values (via `--dotenv-file`) | Medium | `DATA_SYNC_BATCH_SIZE=100` in `.env` |
-| Config files (INI/TOML) | Low | `batch_size = 50` in `config.base.toml` |
+| Config files (TOML) | Low | `batch_size = 50` in `config.base.toml` |
 | Pydantic model defaults | Lowest | `Field(default=25)` |
 
 If `DATA_SYNC_BATCH_SIZE=500` is already set in your shell, a `.env` file containing `DATA_SYNC_BATCH_SIZE=100` will **not** override it. The shell value wins.

@@ -130,7 +130,7 @@ sequenceDiagram
 | Step | Phase | What happens |
 |---|---|---|
 | 1 | `core_infra` | `EventBus`, `DIRegistry`, `JobExecutionEngine` instantiated |
-| 2 | `provider_registry` | Built-in TOML and INI format providers registered |
+| 2 | `provider_registry` | `TomlFormatProvider` registered — the only built-in default since ADR-007 |
 | 3 | `observability` | `MiddlewareStack` created (before plugins so plugins can subscribe) |
 | 4 | `plugins` | Entry-point and file-based plugins loaded via `PluginLoader.load_all()` |
 | 5 | `config_entry_points` | Format and remote providers from entry points discovered |
@@ -355,7 +355,7 @@ CLI args  >  Environment variables  >  Config files  >  Defaults
 |---|---|---|
 | CLI args | Click option parsing | Passed as `kwargs` to the job function |
 | Environment variables | `EnvSource` | Variables named `<APP>_<SECTION>_<KEY>` |
-| Config files | `FileSource` + format providers | TOML and INI supported built-in; pluggable |
+| Config files | `FileSource` + format providers | TOML by default; pluggable |
 | Defaults | `DefaultSource` | Pydantic field `default` / `default_factory` |
 
 **Key components:**
@@ -363,7 +363,7 @@ CLI args  >  Environment variables  >  Config files  >  Defaults
 - `ResolutionChain` — consults `Source` implementations in order; records provenance for each resolved value
 - `ResourceLocator` — walks upward from CWD to find config files; never uses hard-coded paths
 - `JobConfigView` — wraps `ResolutionChain` plus in-memory overrides; injected into `RunContext`
-- Format providers — pluggable parsers for TOML, INI, and custom formats registered via entry points
+- Format providers — pluggable parsers registered via entry points or a plugin. TOML is the only one registered by default; `IniFormatProvider` ships in-tree and must be registered explicitly (ADR-007), which a plugin can do because plugins load before the resolution chain is built
 
 ---
 

@@ -105,9 +105,16 @@ So the loop is:
 ```
 
 If committing first is genuinely wrong — the change is not yet coherent — copy
-the file to the scratchpad and restore with `cp -f` instead. Plain `cp` prompts
-interactively and will hang a non-interactive shell, which is its own failure
-mode: a hung restore leaves sabotaged source in the tree.
+the file to the scratchpad and restore from there instead. **Do not restore with
+`cp -f`.** This shell aliases `cp` to `cp -i`, and the alias's `-i` is expanded
+*after* your `-f`, so the prompt wins: the restore either hangs or is silently
+skipped, and a skipped restore leaves sabotaged source in the tree looking
+exactly like a finished one. Observed 2026-08-28 — the sabotage was correctly
+detected, the restore reported nothing, and the suite stayed red.
+
+Use something that cannot prompt: `command cp -f`, `/bin/cp -f`, `install -m644`,
+or `python -c 'import shutil; shutil.copyfile(...)'`. Then `grep` the file for
+your sabotage marker before believing the restore happened.
 
 Sabotage is also how you find out a *test* is vacuous, not just a wire. Two
 tests written on 2026-07-21 passed under the exact regression they claimed to
@@ -231,6 +238,37 @@ authenticated with the mask string.
 uses that protocol. Enumerate them in the same commit, and leave behind a test
 that names them — `tests/types/test_secret_serialization_seams.py` is the audit
 to re-run the next time that serializer changes.
+
+### 11. A breaking change must be tested from the state it breaks
+
+*Added 2026-08-28, from the config/secrets review.*
+
+ADR-007 narrowed the registered config formats to TOML. It shipped with a
+purpose-built test module, a control case, an end-to-end plugin escape hatch —
+and **every one of those tests started from a TOML project**. The single user
+population the change existed to break was the population nothing exercised.
+
+What that missed: a project whose only config was `config.base.ini` failed the
+extension check in config-path discovery, so it never anchored a directory,
+never reached the file reader, and never appeared in `ConfigFileInfo` either.
+The job ran on its model defaults, exit code 0, and `builtin info` reported "No
+config files found" with the file sitting in the project root. Not an error — a
+wrong value, in silence, which is the same failure the branch removed the bare
+`FIELD` environment fallback for.
+
+The instinct that produces this gap is reasonable, which is why it needs a rule:
+you write tests for the world *after* the change, because that is the world you
+are building. But a breaking change's whole risk lives in the world before it.
+
+**Rule.** When a change removes, narrows, or renames something, one fixture
+starts from the *old* state and asserts what a user standing in it actually
+sees. "It stops working" is not the assertion — `exit 1` with a message naming
+a remedy is a pass, and `exit 0` with a model default is the bug. Then assert
+the remedy the message names produces a working project, so the diagnostic
+cannot rot into naming a fix that no longer exists.
+`tests/config/test_legacy_ini_project.py` is the worked example, and it earned
+its keep twice: it caught the silence, and it is what failed when the
+conversion command the warning used to name was later removed.
 
 ## The one-line version
 

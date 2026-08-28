@@ -81,7 +81,7 @@ Only frozen dataclasses, Enums, Protocol definitions. `descriptors.py` (`JobDesc
 
 ### `_config/` — Configuration Resolution
 
-`chain.py` (`ResolutionChain`), `sources.py` (`CliSource`, `EnvSource`, `FileSource`, `RemoteSource`, `DefaultSource`), `job_config.py` (`JobConfigView` + validation — 13 importers), `errors.py` (10 importers), `providers/` (`TomlFormatProvider`, `IniFormatProvider`).
+`chain.py` (`ResolutionChain`), `sources.py` (`CliSource`, `EnvSource`, `FileSource`, `RemoteSource`, `DefaultSource`), `job_config.py` (`JobConfigView` + validation — 13 importers), `resolved_field.py` (`ResolvedField` / `resolve_job_fields` — the seam `builtin info --job` and `builtin env` both read, so a display cannot disagree with the run; needs a live model, which is why the TUI does *not* read it — ADR-008 A1), `errors.py` (10 importers), `providers/` (`TomlFormatProvider` — the only provider registered by default; `IniFormatProvider` is in-tree and plugin-registered only, ADR-007).
 
 ### `_engine/` — Execution Lifecycle
 
@@ -117,7 +117,7 @@ Composition: `app.py` (composition root, wires state machines and delegates to p
 | Display chrome | `display_affinity.py`, `display_chrome.py`, `display_provider_discovery.py`, `display_slot.py` (mounted; hosts drill-down view stack + `current_interactive_widget`), `theme_manager.py`, `bar_items.py` (plugin header/status bar items — pure logic, no Textual dep) |
 | Live surfaces | `panel_live_zone.py` (PANEL binding for `live: Live`; pushes per-run), `live_panel_widget.py` (`live.panel` construct as an interactive general-ring panel), `thread_marshal.py` |
 | Modals | `shortcut_save_modal.py` (Ctrl+S, `ModalScreen[str \| None]`), `modals/` (empty package, reserved) |
-| Misc widgets | `breadcrumb_header_widget.py`, `dynamic_footer.py`/`dynamic_footer_widget.py`, `preflight_summary.py`/`preflight_widget.py`, `settings_panel.py`/`settings_validator.py`, `descriptor_fields.py`, `field_priority.py`, `type_hint_formatter.py`, `sync.py` (state↔SmartBar sync, no Textual dep) |
+| Misc widgets | `breadcrumb_header_widget.py`, `dynamic_footer.py`/`dynamic_footer_widget.py`, `preflight_summary.py`, `settings_panel.py`/`settings_validator.py`, `descriptor_fields.py`, `field_priority.py`, `type_hint_formatter.py`, `sync.py` (state↔SmartBar sync, no Textual dep) |
 | Ring state | `models/panel_ring_controller.py`, `models/ring_models.py` — declared but unused; the live ring is a plain `_active_ring: str \| None` on `FunctualizeInlineTUI` (see `tui-architecture.md`) |
 
 See `contributor/guides/tui-panels.md` for the hard rule every panel widget must follow (`min-height` in `DEFAULT_CSS`) and the deferred-population pattern.

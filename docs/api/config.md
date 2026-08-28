@@ -20,7 +20,7 @@ The implementation details (ResolutionChain, config sources, providers) are in `
 - `_config/chain.py` — ResolutionChain
 - `_config/sources.py` — CliSource, EnvSource, FileSource, RemoteSource, DefaultSource
 - `_config/job_config.py` — JobConfigView implementation + validation
-- `_config/providers/` — TOML, INI format providers
+- `_config/providers/` — format providers. `TomlFormatProvider` is the only one registered by default; `IniFormatProvider` is in-tree but must be registered by a plugin (ADR-007)
 
 !!! warning "Internal API"
     Modules under `functualize._config` are implementation details. Import from `functualize.app` or `functualize.job` instead.

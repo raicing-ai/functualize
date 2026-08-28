@@ -157,7 +157,7 @@ job_execution.py resolves tokens → kwargs, cross-checks missing_args.py
 run_job() launches execution as a thread worker (run_worker(..., thread=True))
    │
    ▼
-preflight_summary.py / preflight_widget.py show resolved config when SmartBar is "green"
+preflight_summary.py shows resolved config when SmartBar is "green"
    │
    ▼
 engine.execute() (same path as CLI/programmatic — see §2)

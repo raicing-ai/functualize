@@ -62,10 +62,17 @@ its review amended).
 
 What shipped:
 
-- **One resolver.** Four independent implementations of "what value will this
-  field have?" disagreed about values, not just formatting. `ResolvedField` /
-  `resolve_job_fields` in `_config/resolved_field.py` is the single answer, and
-  `info --job`, `func builtin env` and the TUI panels all read it.
+- **One resolver, where one resolver is possible.** Four independent
+  implementations of "what value will this field have?" disagreed about values,
+  not just formatting. `ResolvedField` / `resolve_job_fields` in
+  `_config/resolved_field.py` is the single answer for `info --job` and
+  `func builtin env`. The **TUI panels deliberately do not read it**: the seam
+  needs a live Pydantic class, so reaching it would import the job module on
+  every panel refresh and forfeit true-lazy boot. They share the *detector*
+  instead — `secret`/`required`/`default` carried through the discovery cache —
+  and read values from the same `ResolutionChain`. See ADR-008 Addendum A1; the
+  residual risk is cache drift, guarded by
+  `tests/config/test_descriptor_cache_fidelity.py`.
 - **One env spelling.** `JOB__FIELD` and a bare, unprefixed `FIELD` are deleted;
   `JOB_FIELD` is the only form. Group options keep `SCOPE__FIELD`, which is a
   different feature with a real disambiguation reason.
@@ -77,15 +84,21 @@ What shipped:
 - **TOML alone by default**, with `func builtin config migrate` and a
   plugin-based escape hatch that is tested end-to-end.
 
-Three pieces of **dead wiring** surfaced, which is the recurring theme:
+Four pieces of **dead wiring** surfaced, which is the recurring theme:
 `preflight_widget.py` had no mount points (deleted), `_collect_job_secrets`
-always returned an empty set, `migrate_ini_to_toml` had no callers, and
-ADR-007's own documented escape hatch did not work. Guarded now by
-`tests/config/test_secret_surface_parity.py`, which fails if any surface drifts
-from the others.
+always returned an empty set, `migrate_ini_to_toml` had no callers (the module
+is now deleted — see below), and ADR-007's own documented escape hatch did not
+work. Guarded now by `tests/config/test_secret_surface_parity.py`, which fails
+if any surface drifts from the others.
 
 Not done, and deliberately: `[secrets]` (withdrawn), `--template` (unnecessary —
-the default `builtin env` output *is* the skeleton).
+the default `builtin env` output *is* the skeleton), and `func builtin config
+migrate` (built during implementation, then **removed** — a conversion command
+exists to carry a user population across a break, and pre-1.0 there is none to
+carry, so it was `migrate_ini_to_toml`-with-no-callers one level up. The
+warning on an unreadable config file names conversion and the plugin escape
+hatch instead, and `tests/config/test_legacy_ini_project.py` proves following
+it works).
 
 ## Potential Follow-ups
 

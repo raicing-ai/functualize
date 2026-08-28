@@ -1,7 +1,7 @@
 """The environment-variable name rule is spelled five times. It must agree.
 
 `JOB_FIELD` (and `SCOPE__FIELD` for group options) is built independently in
-five places, across three peer layers that may not import each other:
+five places, across two peer layers that may not import each other:
 
     _config/sources.py       EnvSource._build_env_key      — *resolves* the name
     _config/resolved_field.py env_name_for                 — reports it
