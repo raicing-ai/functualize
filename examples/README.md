@@ -23,7 +23,7 @@ Runnable code for every step of the [README Quick Start](../README.md#quick-star
 
 ### [standalone/](standalone/)
 
-Feature reference, no project setup needed — three self-contained directories,
+Feature reference, no project setup needed — six self-contained directories,
 each README a step-by-step verification checklist:
 
 - **showcase/** — the all-in-one project: CLI modes A/B/C, the full inline TUI
@@ -32,12 +32,20 @@ each README a step-by-step verification checklist:
 - **discovery_lab/** — all six discovery filters + global dirs, flipped per-run
   via env vars / CLI flags over one jobs tree
 - **config_lab/** — the config precedence chain (CLI > env > project > global > defaults)
+- **secrets_lab/** — declaring a credential with `Secret[str]`, what `func builtin
+  env` reveals, and the set / unset / required-missing distinction, with a decoy
+  field beside it that no heuristic should mask
+- **group_options_lab/** — flags that belong to a group rather than a job, typed
+  mid-path (`deploy --env prod web --region eu-west-1 run v1.2`), two levels deep
+- **deploy_tool/** — an app that is *not* `func`: its own command name, config
+  table, `DEPLOY_TOOL_*` env prefix and generated root flags
 
 ### [project/](project/)
 
 Full applications using `FunctualizeApp`:
 
 - **weather_app** — The flagship: Quick Start jobs as a scaffolded project with an entry point and layered config
+- **monorepo_children** — One parent app mounting child projects as namespaced job groups
 
 ### [plugins/](plugins/)
 

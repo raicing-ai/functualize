@@ -430,6 +430,39 @@ Items identified during development that are worth doing but not yet designed:
     The example project and `collision_tui` already supply the project shapes; what is
     missing is the value axis.
 
+16. **`remote_first()` is a public preset that resolves nothing remotely.** The
+    preset is exported, documented and unit-tested, and the boot wiring behind it
+    does not exist. `remote_first()` returns `config_resolution_chain=None`, which
+    `app/config.py:74-77` documents as boot building the *classic* chain — so it is
+    `classic()` with a different file pattern and `dotenv=False`. A reader choosing
+    it for Vault or AWS Secrets Manager gets local file and environment resolution,
+    silently.
+
+    **Built and unit-tested**: `RemoteSource` (`_config/sources.py:246`),
+    `ProviderRegistry.register_remote_provider` / `get_remote_provider` /
+    `list_remote_providers` (`_config/registry.py:69,117,147`), the
+    `functualize.remote_providers` entry-point group (`:193`), and
+    `manifest.parse_annotation` for `provider://reference` (`_config/manifest.py:37`).
+
+    **Missing**: the boot wiring, and only that. `boot.py` constructs no
+    `RemoteSource` — `grep -c remote src/functualize/_app/boot.py` returns **0** — and
+    `manifest.parse_annotation` has **zero production callers** (the `parse_annotation`
+    hits in `src/` are the unrelated `_cli/annotation_utils` function of the same name).
+
+    **The decision to make**: deprecate and remove the preset, or wire it. Either needs
+    an ADR, because it is public API surface (`app/__init__.py:29,57`, and
+    `tests/test_public_api_surface.py:49` pins it).
+
+    **Why it went unnoticed**: `test_app_presets_properties.py:124` asserts that
+    `remote_first()` returns `config_resolution_chain=None` — it tests the stub, and it
+    tests it faithfully. Shipped, unit-tested, unreachable; the failure class
+    `AGENTS.md:82` names. The docs that promised remote resolution have been corrected
+    to say it is not wired, so no user-facing claim now depends on this decision.
+
+    Related to follow-up **2** above: that one is about presets the Config Files panel
+    cannot see, this one about a preset that does not do what it says. Both would be
+    touched by any work that makes presets legible at runtime.
+
 ## Recently Completed (2026-07)
 
 | Feature | Description |

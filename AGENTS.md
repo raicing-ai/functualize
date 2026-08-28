@@ -165,7 +165,7 @@ def deploy(log: Log, invoke: Invoke, config: DeployConfig):
 
 ### Config system
 
-Layered resolution: **CLI → Env → Files → Remote → Defaults**. Built once at boot via `ResolutionChain` — zero per-invocation file I/O.
+Layered resolution: **Override → CLI → Env → Files → Defaults**. Built once at boot via `ResolutionChain` (`boot.py:781-797`) — zero per-invocation file I/O. There is no remote tier: nothing in the shipped package constructs a `RemoteSource`, `remote_first()` notwithstanding. `Override` is a value `config.set()` deposits during a run, and it outranks CLI.
 
 Presets are factory functions: `classic()`, `twelve_factor()`, `env_only()`, `remote_first()`. Any `(**kwargs) -> ConfigSources` function is a valid preset.
 

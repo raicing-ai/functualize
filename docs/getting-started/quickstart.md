@@ -208,7 +208,16 @@ app = FunctualizeApp(
 | `classic()` | CLI → Env → Config files → Defaults | Local dev, desktop tools |
 | `twelve_factor()` | CLI → Env → Defaults (no files) | Docker, Kubernetes, Heroku |
 | `env_only()` | CLI → Env → Defaults (dotenv on) | Serverless, minimal setups |
-| `remote_first()` | CLI → Remote → Env → Files → Defaults | Vault, AWS Secrets Manager |
+| `remote_first()` | CLI → Env → Files → Defaults — **remote resolution is not wired** | — |
+
+!!! warning "`remote_first()` does not resolve anything remotely"
+    The preset exists and is exported, but the boot wiring is not there:
+    nothing in the shipped package constructs a `RemoteSource`, and
+    `remote_first()` returns `config_resolution_chain=None`, which boot turns
+    into the classic chain `[CliSource, EnvSource, FileSource, DefaultSource]`.
+    It is `classic()` with a different file pattern and `dotenv=False`. Choose it
+    for a vault and your credentials come from a local file or the environment,
+    with nothing to say so.
 
 You can also write your own preset — any function returning `ConfigSources` works:
 

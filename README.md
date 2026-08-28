@@ -591,7 +591,7 @@ export DATA_SYNC_API_URL=https://api.prod.example.com
 # batch_size = 100
 ```
 
-Resolution order: **CLI → Env vars → Config file → Model defaults**. The same job works locally, in Docker, and in production without any code changes — just swap the config source.
+Resolution order: **Runtime override → CLI → Env vars → Config file → Model defaults** (an override is a value `rc.config.set()` deposits mid-run). The same job works locally, in Docker, and in production without any code changes — just swap the config source.
 
 Config files use a **base + environment overlay** pattern. The active environment — `FUNCTUALIZE_ENV`, else `ENVIRONMENT`, else `ENV`, defaulting to `dev` — determines which overlay is merged on top of the base (matched case-insensitively):
 
@@ -620,7 +620,15 @@ ENVIRONMENT=prod func data-sync
 | `classic()` | CLI → Env → Config files → Defaults | Local dev, desktop tools |
 | `twelve_factor()` | CLI → Env → Defaults | Docker, Kubernetes |
 | `env_only(dotenv=True)` | CLI → Env → Defaults | Serverless, minimal setups |
-| `remote_first()` | CLI → Remote → Env → Files → Defaults | Vault, AWS Secrets Manager |
+| `remote_first()` | CLI → Env → Files → Defaults — **remote resolution is not wired**; see below | — |
+
+> **`remote_first()` does not resolve anything remotely.** The preset exists and is
+> exported, but nothing in the shipped package constructs a `RemoteSource`, and
+> `remote_first()` returns `config_resolution_chain=None` — which boot turns into the
+> classic chain `[CliSource, EnvSource, FileSource, DefaultSource]`. It is `classic()`
+> with a different file pattern and `dotenv=False`. Pick it for Vault or AWS Secrets
+> Manager and your credentials come from a local file or the environment instead, with
+> nothing to say so.
 
 Presets are selected in your project's `main.py` when constructing `FunctualizeApp`:
 

@@ -129,10 +129,13 @@ in for the job name:
 
 | Precedence | Source | Example |
 |---|---|---|
-| 1 (highest) | The flag on the command line | `func deploy --env prod …` |
-| 2 | Environment variable | `DEPLOY__ENV=prod` |
-| 3 | Config file section | `[deploy]` → `env = "prod"` |
-| 4 (lowest) | The field's declared default | `env: str = "staging"` |
+| 1 (highest) | Runtime override | `rc.config.set("env", "prod")` |
+| 2 | The flag on the command line | `func deploy --env prod …` |
+| 3 | Environment variable | `DEPLOY__ENV=prod` |
+| 4 | Config file section | `[deploy]` → `env = "prod"` |
+| 5 (lowest) | The field's declared default | `env: str = "staging"` |
+
+`config.set()` deposits an **override**: a value written during the run, which is where that run will then find it — above everything a source supplied, the command line included.
 
 A dotted group path flattens for the environment variable and stays dotted for
 the config section: `group="deploy.web"` reads `DEPLOY_WEB__ENV` and

@@ -1,6 +1,6 @@
 # Standalone Examples
 
-Jobs run with the `func` CLI, no project scaffolding required. Five
+Jobs run with the `func` CLI, no project scaffolding required. Six
 directories cover everything — each is self-contained, and each README is a
 step-by-step verification checklist you can walk top to bottom.
 
