@@ -8,6 +8,7 @@ Resolution Precedence), Property 15 (JobConfig Dual Access), and Property 27
 import contextlib
 import enum
 import os
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import click
@@ -15,11 +16,13 @@ from hypothesis import assume, given
 from hypothesis import strategies as st
 from pydantic import BaseModel, Field, ValidationError
 
+from functualize._config.chain import ResolutionChain
 from functualize._config.job_config import (
     JobConfigView,
     resolve_job_config,
     validate_job_config_types,
 )
+from functualize._config.sources import EnvSource
 from functualize.app.adapters.click_params import _config_option_params
 
 
@@ -30,6 +33,54 @@ def generate_typer_options(model: type[BaseModel]) -> dict[str, click.Option]:
     while asserting over click parameters instead of the removed typer options.
     """
     return {opt.name: opt for opt in _config_option_params(model)}  # type: ignore[misc]
+
+
+class _FileLikeSource:
+    """An in-memory stand-in for the config-file layer of a resolution chain.
+
+    Mirrors the fake in ``tests/config/test_resolution_ordering_properties.py``:
+    the file layer only has to sit below ``EnvSource`` and answer for one
+    section, and a real ``FileSource`` would mean writing a TOML file per
+    Hypothesis example.
+    """
+
+    def __init__(self, section: str, values: dict[str, Any]) -> None:
+        self._section = section
+        self._values = values
+
+    @property
+    def source_type(self) -> str:
+        return "file"
+
+    @property
+    def source_id(self) -> str:
+        return "in-memory.toml"
+
+    def get(self, key: str, section: str | None = None) -> Any | None:
+        if section != self._section:
+            return None
+        return self._values.get(key)
+
+    def has(self, key: str, section: str | None = None) -> bool:
+        return section == self._section and key in self._values
+
+
+def _job_config_view(
+    job_name: str,
+    *,
+    env: dict[str, str],
+    config: dict[str, Any],
+) -> JobConfigView:
+    """A real ``JobConfigView`` over a real chain: env above the file layer.
+
+    Since ADR-008, ``resolve_job_config`` layers only CLI (and ``group_scope``)
+    on top of what the chain resolves — the env → file → default ranking lives
+    entirely in the chain. A ``MagicMock(spec=JobConfigView)`` therefore cannot
+    exercise the env layer at all: it answers every ``get()`` with the config
+    value and the env var is never read by anything.
+    """
+    chain = ResolutionChain([EnvSource(env), _FileLikeSource(job_name, config)])
+    return JobConfigView(chain, default_section_prefix=job_name)
 
 
 # --- Strategies ---
@@ -228,21 +279,20 @@ class TestJobConfigResolutionPrecedence:
         """CLI argument takes highest precedence over env var, config, and default."""
         assume(cli_val != default_val)  # Ensure CLI value differs from default
 
-        # Job-scoped env keys are JOB_NAME__FIELD: a double underscore
+        # The documented job-scoped env name is JOB_FIELD — a single underscore
         # separating job from field, with the job's hyphens folded to
-        # underscores. A single underscore matches nothing, so the env layer
-        # was simply never exercised and the config layer won every time.
+        # underscores. The double-underscore JOB__FIELD form was undocumented
+        # and was removed with the direct os.environ reads (ADR-008).
         class MyConfig(BaseModel):
             name: str = Field(default=default_val)
 
-        env_key = f"{job_name.upper().replace('-', '_')}__NAME"
+        env_key = f"{job_name.upper().replace('-', '_')}_NAME"
+        view = _job_config_view(
+            job_name, env={env_key: env_val}, config={"name": config_val}
+        )
 
-        with patch.dict(os.environ, {env_key: env_val}, clear=False):
-            config = MagicMock(spec=JobConfigView)
-            config.get.return_value = config_val
-
-            result = resolve_job_config(MyConfig, job_name, config, {"name": cli_val})
-            assert result.name == cli_val
+        result = resolve_job_config(MyConfig, job_name, view, {"name": cli_val})
+        assert result.name == cli_val
 
     @given(
         job_name=job_names,
@@ -264,15 +314,14 @@ class TestJobConfigResolutionPrecedence:
         class MyConfig(BaseModel):
             name: str = Field(default=default_val)
 
-        env_key = f"{job_name.upper().replace('-', '_')}__NAME"
+        env_key = f"{job_name.upper().replace('-', '_')}_NAME"
+        view = _job_config_view(
+            job_name, env={env_key: env_val}, config={"name": config_val}
+        )
 
-        with patch.dict(os.environ, {env_key: env_val}, clear=False):
-            config = MagicMock(spec=JobConfigView)
-            config.get.return_value = config_val
-
-            # CLI value is None (not provided)
-            result = resolve_job_config(MyConfig, job_name, config, {"name": None})
-            assert result.name == env_val
+        # CLI value is None (not provided)
+        result = resolve_job_config(MyConfig, job_name, view, {"name": None})
+        assert result.name == env_val
 
     @given(
         job_name=job_names,
