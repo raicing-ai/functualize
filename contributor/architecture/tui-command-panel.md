@@ -134,7 +134,12 @@ full resolution chain for that field. This replaces the table content temporaril
 
 **Key properties:**
 - **Read-only** — no editing in this view. Press Esc to return to the table, then use `i` to edit.
-- Shows ALL sources in precedence order (CLI → Session → Env → File → Remote → Default)
+- Shows ALL sources in precedence order (Override → CLI → Env → File → Default).
+  There is no `Session` tier and no `Remote` tier: an `i`-key edit becomes a CLI
+  token and resolves as `cli`, and nothing in the shipped package constructs a
+  `RemoteSource` — `boot.py:781-797` builds `[CliSource, EnvSource, FileSource,
+  DefaultSource]`. `Override` is a value deposited by `config.set()` during the
+  run, and it outranks CLI (`job_config.py:126-128`, measured).
 - `★` marks the winning source, `●` marks others
 - Sources with values show the value; sources without show "(not set)" or "(not configured)"
 - Shows field metadata: type, required status, choices, description
@@ -208,8 +213,11 @@ The panel discovers files by:
 - Nested group `infra.aws.launch` → section `[infra.aws]`
 - In `pyproject.toml`: `[tool.functualize.<section>]`
 
-**Format support:** TOML only. INI files from the resolution chain are visible in
-the resolution chain detail view but not editable through this panel.
+**Format support:** TOML only. INI is not in the chain by default — post-ADR-007
+`boot.py:499` registers `TomlFormatProvider` alone, and `IniFormatProvider` ships
+in-tree but must be registered by a plugin. Where a plugin has registered it, INI
+values are visible in the resolution chain detail view but are still not editable
+through this panel.
 
 ### Navigation
 
@@ -491,6 +499,29 @@ SmartBar text ←→ PendingExecution ←→ Command Panels (Ctrl+R)
 - Loading from Diff View → sets overrides → all panels + pre-flight refresh
 - Saving from Config Files → re-resolves chain → all views refresh
 
+### The `secret=` contract
+
+Every panel above renders field values, so every panel is a place a credential can
+leak. The rule that keeps them from leaking is governed by
+[`contributor/guides/tui-panels.md`](../guides/tui-panels.md) §14 and applies to all
+three panels plus the pre-flight summary:
+
+- **Copy `secret=` onto every `FieldDef` you construct.** It rides in on the cached
+  descriptor for free, including for group options (ADR-008 Addendum A5), so a
+  credential leaks only by a wire being dropped between the descriptor and the panel.
+- **Import `display_value` / `is_secret_field` from `functualize.app.utils`, never
+  `_types.redaction`.** That is the `lint-imports` seam: `_cli/` may not import an
+  underscore-prefixed package, so the public re-export is the only legal path and a
+  direct import fails the contract check rather than merely being untidy.
+- Detection follows the **declaration**, not the field name. There is no `"token"`
+  keyword heuristic — a field is secret because it is declared `Secret[str]` (or
+  carries `json_schema_extra={"secret": True}`), which is why a field named
+  `sort_key` renders normally and a field named `credential` would too if it were
+  not declared.
+- Prove masking from a declared `Secret[str]`, never from a stub carrying
+  `secret=True` (`wiring-discipline.md` §8), and sabotage-check it: delete the
+  kwarg, watch the test go red, restore.
+
 ### Panel Refresh Triggers
 
 | Event | What refreshes |
@@ -571,4 +602,4 @@ The DynamicFooter shows only currently-available actions:
 
 5. **Pre-flight summary — docstring length:** Full docstring. The RichLog's `max-height` handles overflow via scrolling.
 
-6. **Config Files — format support:** TOML only. The panel reads and writes `.toml` files exclusively. INI files from the resolution chain are visible (shown with their values in the resolution chain detail) but not editable through this panel.
+6. **Config Files — format support:** TOML only. The panel reads and writes `.toml` files exclusively. INI reaches the chain only when a plugin registers `IniFormatProvider` (ADR-007); where one has, its values are visible in the resolution chain detail but are still not editable through this panel.

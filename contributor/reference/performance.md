@@ -26,7 +26,7 @@ Measured in `tests/perf/test_startup_budget.py`:
 | Phase | Budget | Median measured | Notes |
 |-------|--------|-----------------|-------|
 | `core_infra` | 50ms | 0.18ms | HookRegistry, DIRegistry, JobExecutionEngine instantiated |
-| `provider_registry` | 10ms | 0.06ms | Built-in TOML + INI format providers registered |
+| `provider_registry` | 10ms | 0.06ms | Built-in TOML format provider registered. `IniFormatProvider` is in-tree but must be registered by a plugin (ADR-007) |
 | `observability` | 50ms | 0.00ms | EventBus, MiddlewareStack created (before plugins can subscribe) |
 | `plugins` | 200ms | 13.43ms | Entry-point + file-based plugin loading via topological sort |
 | `config_entry_points` | 50ms | 19.45ms | Format/remote provider entry point discovery |

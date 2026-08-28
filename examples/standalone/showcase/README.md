@@ -152,7 +152,7 @@ Launch as: `RELEASE_DB_PASSWORD=env-secret-pw func`
    - [ ] `replicas` → 1 from `config.dev.toml` (base had 2, default 3)
    - [ ] `timeout` → 60 from `config.base.toml` (default 30)
    - [ ] `api_key` → from `config.base.toml`, **masked** in field detail
-   - [ ] `db_password` → source **env** (`env-secret-pw`); `analyze`'s `output_token` masked too ("token" keyword)
+   - [ ] `db_password` → source **env** (`env-secret-pw`); `analyze`'s `output_token` masked too — all three are declared `Secret[str]`
 3. **Ctrl+J** → Config Files panel
    - [ ] `config.base.toml` (env `base`) and `config.dev.toml` (env `dev`) both listed as ★ active
 4. Environment banding: quit, relaunch as `FUNCTUALIZE_ENV=prod func`

@@ -354,7 +354,7 @@ CLI args  >  Environment variables  >  Config files  >  Defaults
 | Source | Implementation | Notes |
 |---|---|---|
 | CLI args | Click option parsing | Passed as `kwargs` to the job function |
-| Environment variables | `EnvSource` | Variables named `<APP>_<SECTION>_<KEY>` |
+| Environment variables | `EnvSource` | Variables named `JOB_FIELD` — the job name and field name joined by a single underscore, uppercased, with no app prefix (`deploy` + `api_url` → `DEPLOY_API_URL`). See [Job config](job-config.md#resolution-precedence) for the full rule and the one exception. |
 | Config files | `FileSource` + format providers | TOML by default; pluggable |
 | Defaults | `DefaultSource` | Pydantic field `default` / `default_factory` |
 
