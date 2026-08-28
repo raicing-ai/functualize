@@ -82,7 +82,10 @@ pattern, CLI command, or plugin hook) and no existing example demonstrates it:
    - `plugins/` — if it demonstrates plugin authoring
 3. **Draft a minimal example** for quickstart-level and standalone features. For
    complex features (full project / plugin), note the gap and suggest structure.
-4. **Update `examples/README.md`** index if a new example directory was added.
+4. **Update all three indexes** if a new example directory was added:
+   `examples/README.md`, `examples/standalone/README.md` (including its count in
+   prose) and `docs/examples/index.md`. Four examples were invisible to readers
+   in three indexes because only one of them was updated.
 5. **Verify existing examples still pass** against the changed code (Phase 4).
 
 ## Phase 4 — Verify
@@ -91,7 +94,20 @@ pattern, CLI command, or plugin hook) and no existing example demonstrates it:
 uv run pytest tests/test_contributor_docs.py -q   # doc-structure invariants
 uv run mkdocs build --strict                       # docs site must build clean
 uv run pytest examples/ -v                         # examples still runnable
+
+# Do the documented commands still behave as documented? A prose claim about
+# runtime behaviour is invisible to every check above while being false.
+PATH="$PWD/.venv/bin:$PATH" python \
+    .agents/skills/doc-verify/scripts/run-scenario examples/docs/scenarios/ --engine shell
 ```
+
+`/sync-docs` is one of the two moments someone reconciles docs with code, so it is
+one of the two places the parity pass belongs. See
+[`contributor/guides/docs-example-parity.md`](../../../contributor/guides/docs-example-parity.md)
+for the drift classes it detects and how each is caught — including the rule that
+before believing a doc-verify failure you run `a-core-builtins` to prove the harness
+works, and the fact that `uv sync --all-packages`, `--all-extras` and `--group docs`
+prune each other.
 
 Report: files updated, drift items fixed, example gaps flagged or filled, drift
 items deliberately skipped (with reason), and any regressions discovered along
