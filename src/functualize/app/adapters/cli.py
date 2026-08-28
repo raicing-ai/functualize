@@ -17,7 +17,6 @@ Public API:
 
 from __future__ import annotations
 
-import configparser
 import contextlib
 import inspect
 import logging
@@ -36,7 +35,6 @@ from functualize._app.state import AppState
 from functualize._primitives.group_options_detection import (
     is_group_options_subclass,
 )
-from functualize._primitives.locator import ResourceLocator
 from functualize._types.enums import EnvironmentSource
 from functualize.app.adapters.click_params import (
     create_callback_click_command,
@@ -216,15 +214,30 @@ def _config_source_hint(app: Any, job_name: str) -> str:
     except Exception:  # introspection must never mask the real error
         return ""
 
+    # The env spelling must be the one that actually resolves. It used to name
+    # `JOB__<FIELD>`, which contradicted the guide, `builtin env` and
+    # `info --job` — a suggestion naming a variable that sets nothing is worse
+    # than no suggestion at all.
+    env_hint = f"{job_name.upper().replace('-', '_').replace('.', '_')}_<FIELD>"
+
     if files:
         names = ", ".join(str(getattr(f, "path", f)) for f in files)
-        return f"Config files read: {names}"
+        # Naming the variable matters *most* here. When no file was found the
+        # user at least knows the file is the problem; when files were read and
+        # a field is still missing, "which files" alone does not say what to do
+        # about it.
+        return (
+            f"Config files read: {names}\n"
+            f"Set the missing field with {env_hint} in the environment, or add "
+            f"it to the [{job_name}] section. `func builtin env {job_name}` "
+            f"lists every variable and which are set."
+        )
     return (
         "No config files were discovered. Files must be named "
         "config.<slot>.<ext> (e.g. config.base.toml) — a plain config.toml is "
         "not read, and <ext> must be one a registered format provider handles "
-        "(.toml, .ini, .cfg by default). You can also set "
-        f"{job_name.upper().replace('-', '_')}__<FIELD> in the environment."
+        f"(.toml by default; a plugin can register more). You can also set "
+        f"{env_hint} in the environment."
     )
 
 
@@ -967,42 +980,7 @@ def _show_info_impl(
         Panel(info_table, title="[bold]General Info[/bold]", border_style="green")
     )
 
-    resolver = ResourceLocator().search_explicit(str(config_dir))
-    config_files = resolver.resolve("config.*")
-
-    if config_files:
-        for config_file in config_files:
-            original_parser = configparser.ConfigParser(
-                interpolation=configparser.ExtendedInterpolation()
-            )
-            original_parser.read(config_file)
-
-            interpolated_parser = configparser.ConfigParser(
-                os.environ, interpolation=configparser.ExtendedInterpolation()
-            )
-            interpolated_parser.read(config_file)
-
-            interpolated_lines: list[str] = []
-            for section in original_parser.sections():
-                interpolated_lines.append(f"[{section}]")
-                for key, value in original_parser.items(section, raw=True):
-                    try:
-                        interpolated_lines.append(
-                            f"{key} = {interpolated_parser[section][key]}"
-                        )
-                    except Exception:
-                        interpolated_lines.append(f"{key} = {value}")
-                interpolated_lines.append("")
-
-            interpolated_content = "\n".join(interpolated_lines)
-            syntax = Syntax(
-                interpolated_content, "ini", theme="monokai", line_numbers=False
-            )
-            console.print(
-                Panel(syntax, title=f"[bold]{config_file}[/bold]", border_style="cyan")
-            )
-    else:
-        console.print("[yellow]No config files found.[/yellow]")
+    _print_config_files(app, console)
 
     registered = app.job_registry._registered_commands
     if registered:
@@ -1110,23 +1088,181 @@ def _show_job_config(app: FunctualizeApp, console: Console, job_name: str) -> No
     config_table.add_column("Value")
     config_table.add_column("Source", style="dim italic")
 
-    from functualize._types.redaction import MASK, is_secret_field
+    from functualize._config.resolved_field import resolve_job_fields
+    from functualize._types.redaction import display_value
 
-    for field_name, field_info in job_config_class.model_fields.items():
-        value, source = _resolve_field_with_source(
-            app, field_name, field_info, job_name
+    # One resolver. This used to be `_resolve_field_with_source`, a private
+    # re-implementation that knew one env convention, skipped coercion, and so
+    # could report a value the run would not use.
+    try:
+        from functualize._config.job_config import JobConfigView
+
+        fields = resolve_job_fields(
+            job_config_class,
+            job_name,
+            JobConfigView(
+                resolution_chain=app._resolution_chain,
+                default_section_prefix=job_name,
+            ),
         )
-        # F3 sweep: a `secret=True` / `Secret[str]` field must never render its
-        # resolved value here — `info --job` is a display sink like every other
-        # (schema §5), and this table used to print the plaintext. Masking on
-        # presence, not on value, so an empty secret still reads as a secret.
-        if is_secret_field(field_info):
-            display = MASK if value is not None else "(none)"
+    except Exception:  # introspection must never mask the real error
+        fields = []
+
+    for f in fields:
+        if f.is_missing_required:
+            # The state an operator most needs to see. It used to render as
+            # `••• model default` for a secret and `PydanticUndefined` for a
+            # plain field, because the guard tested `default is not None`, and
+            # a Pydantic v2 required field's default is `PydanticUndefined` —
+            # neither None nor Ellipsis, so the "not set" branch was
+            # unreachable for every required field.
+            display = "[bold red]not set[/bold red]"
+            source = f"required — set {f.origin}"
+        elif not f.is_set:
+            display = "(none)"
+            source = f"not set — set {f.origin}"
         else:
-            display = str(value) if value is not None else "(none)"
-        config_table.add_row(field_name, display, source)
+            # Mask on presence, not on value: an empty secret still reads as a
+            # secret, so a viewer cannot infer "unset" from a blank cell.
+            display = display_value(f.value, secret=f.secret)
+            source = _describe_source(f)
+        config_table.add_row(f.name, display, source)
 
     console.print(config_table)
+
+
+def _secret_keys_for_section(app: Any, section: str) -> set[str]:
+    """Field names the job owning ``section`` declares secret.
+
+    Read from the cached ``FieldDescriptor``s — the same boot-free answer the
+    TUI panels use — so listing config files never imports a job module.
+    """
+    try:
+        descriptor = app.get_job(section)
+    except Exception:
+        return set()
+    if descriptor is None:
+        return set()
+    fields = getattr(descriptor, "config_fields", None) or []
+    return {f.name for f in fields if getattr(f, "secret", False)}
+
+
+def _render_file_values(app: Any, values: dict[str, Any]) -> str:
+    """A file's parsed contents as TOML text, with declared secrets masked.
+
+    This panel used to be built with ``configparser`` and
+    ``ExtendedInterpolation`` over ``os.environ``, rendered as ``ini``. Two
+    things were wrong with that after ADR-007: the format is TOML, and every
+    value was echoed verbatim — so a credential written into a config file
+    appeared here in full, two panels above the ``JobConfig`` table that
+    carefully masks the very same value. The interpolation made it worse by
+    expanding ``${VAR}`` from the environment before printing.
+    """
+    from functualize._types.redaction import display_value
+
+    lines: list[str] = []
+    scalars = {k: v for k, v in values.items() if not isinstance(v, dict)}
+    for key, value in scalars.items():
+        lines.append(f"{key} = {value!r}")
+    if scalars:
+        lines.append("")
+
+    for section, section_values in values.items():
+        if not isinstance(section_values, dict):
+            continue
+        secret_keys = _secret_keys_for_section(app, section)
+        lines.append(f"[{section}]")
+        for key, value in section_values.items():
+            shown = display_value(value, secret=key in secret_keys)
+            lines.append(
+                f"{key} = {shown!r}" if isinstance(value, str) else f"{key} = {shown}"
+            )
+        lines.append("")
+    return "\n".join(lines).rstrip("\n")
+
+
+def _print_unreadable_config_file(path: str, console: Console) -> None:
+    """Say that a config-shaped file is being ignored, and what to do about it.
+
+    Silence is the failure mode this whole area exists to remove. A project
+    whose only config was ``config.base.ini`` ran on model defaults after
+    ADR-007 with no error, no warning, and this command — the one an operator
+    reaches for to ask "what config is in effect?" — reporting "No config files
+    found".
+    """
+    from pathlib import Path
+
+    extension = Path(path).suffix or "(none)"
+    # The path goes in the *body*, not only the title: Rich ellipsizes a title
+    # that does not fit and wraps a body that does not, so on a long path a
+    # title-only report names no file at all.
+    console.print(
+        Panel(
+            f"[bold red]Not read[/bold red] — no config format provider is "
+            f"registered for [bold]{extension}[/bold], so nothing in this file "
+            f"takes effect.\n\n"
+            f"[bold]{path}[/bold]\n\n"
+            f"Convert it to TOML, or register a provider from a plugin — "
+            f"plugins load before the resolution chain is built (ADR-007).",
+            title="[bold]Unreadable config file[/bold]",
+            border_style="red",
+        )
+    )
+
+
+def _print_config_files(app: Any, console: Console) -> None:
+    """One panel per discovered config file, including the ones nothing read.
+
+    A file the kernel found but no ``FormatProvider`` could parse is reported
+    rather than omitted. Omitting it is how a project whose only config is
+    ``config.base.ini`` silently ran on model defaults after ADR-007 made TOML
+    the sole registered format: no error, no warning, and this command — the
+    one an operator reaches for to ask "what config is in effect?" — did not
+    mention the file at all.
+    """
+    try:
+        infos = app.config_files()
+    except Exception:
+        infos = []
+
+    # Files that look like config but that no registered provider can read.
+    # Reported separately because they never even reach FileSource: anchoring
+    # rejects them on extension, so they carry no role and no rank.
+    unreadable = list(getattr(app, "_unreadable_config_files", None) or [])
+
+    if not infos and not unreadable:
+        console.print("[yellow]No config files found.[/yellow]")
+        return
+
+    for path in unreadable:
+        _print_unreadable_config_file(path, console)
+
+    for info in infos:
+        if not info.parsed:
+            _print_unreadable_config_file(info.path, console)
+            continue
+
+        body = _render_file_values(app, info.values)
+        console.print(
+            Panel(
+                Syntax(body, "toml", theme="monokai", line_numbers=False)
+                if body
+                else "[dim](empty)[/dim]",
+                title=f"[bold]{info.path}[/bold]",
+                border_style="cyan",
+            )
+        )
+
+
+def _describe_source(f: Any) -> str:
+    """How `info --job` names where a value came from."""
+    if f.source == "env":
+        return f"env var ({f.origin})"
+    if f.source == "default":
+        return "model default"
+    if f.source == "cli":
+        return "CLI argument"
+    return f"{f.source} ({f.origin})" if f.origin else f.source
 
 
 def _find_job_config_class(
@@ -1186,49 +1322,6 @@ def _find_job_config_class(
                 return annotation
 
     return None
-
-
-def _resolve_field_with_source(
-    app: FunctualizeApp,
-    field_name: str,
-    field_info: object,
-    job_name: str,
-) -> tuple[object, str]:
-    """Resolve a single JobConfig field value and determine its source."""
-    from functualize._config.errors import MissingKeyError
-
-    env_key = f"{job_name.upper()}_{field_name.upper()}"
-    env_value = os.environ.get(env_key)
-    if env_value is not None:
-        return env_value, f"env var ({env_key})"
-
-    try:
-        resolved = app._resolution_chain.resolve(field_name, job_name)
-        return (
-            resolved.value,
-            f"config file [{job_name}] (via {resolved.source_type})",
-        )
-    except MissingKeyError:
-        pass
-
-    from pydantic.fields import FieldInfo
-
-    if isinstance(field_info, FieldInfo):
-        if field_info.default is not None and field_info.default is not ...:
-            return field_info.default, "model default"
-        factory = field_info.default_factory
-        if factory is not None:
-            # Pydantic v2 allows two factory shapes: the usual zero-arg one,
-            # and one taking the already-validated fields. This is a display
-            # path over a single field with no validated model to hand over,
-            # so the data-taking form has nothing to be called with — report
-            # it rather than crashing `info --job` on a TypeError.
-            try:
-                return factory(), "model default (factory)"  # type: ignore[call-arg]
-            except TypeError:
-                return None, "model default (factory, needs validated data)"
-
-    return None, "not set (required)"
 
 
 __all__ = [

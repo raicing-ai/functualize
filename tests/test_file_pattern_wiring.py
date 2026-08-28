@@ -23,7 +23,7 @@ class TestFilePatternWiring:
     def test_custom_pattern_resolves_settings_files(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        (tmp_path / "settings.base.ini").write_text("[app]\ntitle = custom\n")
+        (tmp_path / "settings.base.toml").write_text('[app]\ntitle = "custom"\n')
         jobs_dir = tmp_path / "jobs"
         jobs_dir.mkdir()
         monkeypatch.chdir(tmp_path)
@@ -32,7 +32,7 @@ class TestFilePatternWiring:
             name="pattern-test",
             job_sources=JobSources(directories=[str(jobs_dir)]),
             config_sources=ConfigSources(
-                dotenv=False, file_pattern=r"^settings\.(\w+)\.ini$"
+                dotenv=False, file_pattern=r"^settings\.(\w+)\.toml$"
             ),
         )
 
@@ -43,7 +43,7 @@ class TestFilePatternWiring:
     def test_default_pattern_still_matches_config_files(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        (tmp_path / "config.base.ini").write_text("[app]\ntitle = classic\n")
+        (tmp_path / "config.base.toml").write_text('[app]\ntitle = "classic"\n')
         jobs_dir = tmp_path / "jobs"
         jobs_dir.mkdir()
         monkeypatch.chdir(tmp_path)

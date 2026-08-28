@@ -26,7 +26,7 @@ myproject/
 │   ├── deploy.py
 │   ├── migrate.py
 │   └── healthcheck.py
-├── config.base.ini       # optional: layered config
+├── config.base.toml       # optional: layered config
 └── pyproject.toml        # optional: for installable CLI
 ```
 
@@ -37,7 +37,7 @@ Run with `func deploy` from inside `myproject/`. Functualize discovers the `jobs
 | Path | Purpose |
 |------|---------|
 | `jobs/` | Auto-discovered job directory. Every `.py` file with qualifying functions becomes a command. |
-| `config.base.ini` | Base configuration. Values are overridden by env-specific files, env vars, and CLI args. |
+| `config.base.toml` | Base configuration. Values are overridden by env-specific files, env vars, and CLI args. |
 | `pyproject.toml` | Optional. Needed only if you want the project installable as a named CLI command. |
 
 ---
@@ -49,7 +49,7 @@ When you run `func builtin scaffold init my-app`, the following structure is gen
 ```
 my-app/
 ├── pyproject.toml
-├── config.base.ini
+├── config.base.toml
 └── src/
     └── my_app/
         ├── __init__.py
@@ -93,21 +93,21 @@ packages = ["src/my_app"]
 
 The `[project.scripts]` section creates the `my-app` command when the package is installed. It points to the `run()` function in `main.py`.
 
-### `config.base.ini`
+### `config.base.toml`
 
 The base configuration file for the layered config system. Functualize discovers this file by walking upward from the current working directory.
 
-```ini
+```toml
 [general]
-app_name = my-app
-log_level = INFO
+app_name = "my-app"
+log_level = "INFO"
 
 [jobs]
 timeout = 30
 retry_count = 0
 
 [sample]
-target = default-target
+target = "default-target"
 dry_run = false
 ```
 

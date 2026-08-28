@@ -16,6 +16,8 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import DataTable
 
+from functualize.app.utils import display_value
+
 if TYPE_CHECKING:
     from textual.app import ComposeResult
 
@@ -86,6 +88,13 @@ class FieldDef:
     original_value: str = ""
     original_source: str = ""
     param_kind: ParamKind = ParamKind.CONFIG
+    secret: bool = False
+    """Model-declared secret. Drives masking here and in the drill-down.
+
+    Copied from the cached ``FieldDescriptor`` rather than re-derived from the
+    name — the name-based test that used to do this job masked ``sort_key`` and
+    missed ``credential``.
+    """
 
     def sources_with_values(self) -> list[ChainEntry]:
         """Return chain entries that have non-empty values."""
@@ -479,7 +488,9 @@ class ConfigTablePanel(Widget):
         else:
             type_display = type_str
 
-        value_display = field.value
+        # Masked on presence, not on value: an empty secret still reads as a
+        # secret, so a viewer cannot infer "unset" from a blank cell.
+        value_display = display_value(field.value, secret=field.secret)
         source_display = field.source
         desc_display = field.description
         return name_display, type_display, value_display, source_display, desc_display

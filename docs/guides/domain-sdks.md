@@ -124,12 +124,12 @@ When only one implementation plugin is installed for a domain, functualize auto-
 
 When multiple implementations are installed, specify your choice in the config file:
 
-```ini
+```toml
 [state]
-provider = sqlite
+provider = "sqlite"
 
 [ai]
-provider = pydantic
+provider = "pydantic"
 ```
 
 ---

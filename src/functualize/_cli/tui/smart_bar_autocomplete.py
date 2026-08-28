@@ -175,6 +175,12 @@ class SmartBarAutoComplete:
             A list of DropdownItem objects (or dicts with equivalent data
             when textual-autocomplete is not available for testing).
         """
+        # A masked field offers no completions. The dropdown renders candidate
+        # text unmasked, so completing a secret would print it one row below the
+        # bullets that are hiding it — the mask would be theatre.
+        if getattr(getattr(self, "target", None), "_suppress_autocomplete", False):
+            return []
+
         text = getattr(state, "text", "")
         cursor_pos = getattr(state, "cursor_position", len(text))
 

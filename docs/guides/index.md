@@ -8,9 +8,9 @@ Whether you're configuring layered settings, building auto-discovered jobs, exte
 
 - [Usage Modes](modes.md) — Single-file, directory, library, and adapter modes — when to use each, how to scaffold, and feature comparison
 - [Architecture](architecture.md) — Boot sequence, three-layer job pipeline, config resolution, interactivity layer, and extension points overview
-- [Configuration System](configuration.md) — Layered INI-based configuration with environment overlays, upward directory search, and per-job sections
+- [Configuration System](configuration.md) — Layered TOML configuration with environment overlays, upward directory search, per-job sections, and credentials declared with `Secret[str]`
 - [Jobs and Auto-Discovery](jobs-discovery.md) — How jobs are discovered via `pkgutil`, registered as CLI commands, and grouped into sub-commands
-- [JobConfig with Pydantic](job-config.md) — Declarative, typed job configuration with automatic CLI option generation and multi-source resolution
+- [JobConfig with Pydantic](job-config.md) — Declarative, typed job configuration with automatic CLI option generation, multi-source resolution, and the `JOB_FIELD` environment convention
 - [RunContext Lifecycle](run-context.md) — Lifecycle hooks for setup, teardown, and error handling with metadata tracking and workflow steps
 - [Domain SDKs](domain-sdks.md) — Lightweight capability packages (AI, State, Tasks, Interactivity) with protocols, types, and testing doubles
 - [AI Capability](ai.md) — LLM interaction (complete, run, stream, extract), ToolScope restrictions, budget enforcement, and MockAI testing

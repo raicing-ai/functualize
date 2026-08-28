@@ -23,7 +23,7 @@ Project examples follow the scaffold shape (`func builtin scaffold init my-proje
 ```
 my_project/
 ├── pyproject.toml              # Dependencies + [project.scripts] entry point
-├── config.base.ini             # Base config (+ config.<env>.ini overlays)
+├── config.base.toml             # Base config (+ config.<env>.toml overlays)
 ├── src/my_project/
 │   ├── main.py                 # FunctualizeApp wiring
 │   └── jobs/                   # Auto-discovered job functions

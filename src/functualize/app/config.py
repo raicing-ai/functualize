@@ -81,9 +81,13 @@ class ConfigSources:
     providers, so a plugin that registers ``.yaml`` makes ``config.prod.yaml``
     discoverable without anyone editing this regex. The pattern used to spell
     ``(ini|toml)`` inline, which meant it silently disagreed with the file
-    reader in both directions: ``.cfg`` is parseable by the built-in ini
-    provider yet could not anchor a directory, and a plugin format could not
-    either.
+    reader in both directions: an extension some provider handled could not
+    anchor a directory unless the regex happened to name it.
+
+    Since ADR-007 the only extension registered by default is ``.toml``, so
+    ``config.prod.ini`` neither anchors nor resolves unless a plugin registers
+    ``IniFormatProvider``. That is a change in the provider set, not in this
+    rule.
     """
 
     file_pattern: str = r"^config\.(\w+)\.(\w+)$"

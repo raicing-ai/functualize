@@ -76,7 +76,7 @@ The standard mode for multi-job projects. Functualize discovers all job modules 
 
 - You have 3+ related jobs that share configuration
 - You want auto-discovery to build the CLI for you
-- You need config file resolution (TOML, INI, `.env`)
+- You need config file resolution (TOML, `.env`)
 - You want the TUI for interactive exploration
 
 ### How to scaffold
@@ -375,7 +375,7 @@ Or launch from the CLI with `my-tool tui` (when using `CliAdapter`, TUI is avail
 | Feature | Single-File | Directory | Library | Adapter |
 |---------|:-----------:|:---------:|:-------:|:-------:|
 | Auto-discovery | — | ✓ | Manual | Inherits from app |
-| Config files (TOML/INI) | — | ✓ | ✓ | ✓ |
+| Config files (TOML) | — | ✓ | ✓ | ✓ |
 | Environment variables | ✓ | ✓ | ✓ | ✓ |
 | Preset system | — | ✓ | ✓ | ✓ |
 | Plugin loading | — | ✓ | ✓ | ✓ |

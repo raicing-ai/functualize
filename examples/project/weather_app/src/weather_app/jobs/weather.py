@@ -17,7 +17,7 @@ class ForecastConfig(BaseModel):
     Values resolve from (highest to lowest precedence):
     1. CLI flags (--city, --days, --api-url)
     2. Environment variables (FORECAST_CITY, FORECAST_DAYS, FORECAST_API_URL)
-    3. Config files ([forecast] section in config.base.ini + ENVIRONMENT overlay)
+    3. Config files ([forecast] section in config.base.toml + ENVIRONMENT overlay)
     4. Model defaults below
     """
 

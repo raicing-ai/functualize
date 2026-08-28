@@ -35,9 +35,22 @@ JobConfig supports the following field types:
 | `Enum` subclass | Enumeration values | `env: Environment` |
 | `Optional[T]` | Nullable variant of any supported type | `tag: Optional[str]` |
 | `list[T]` | List of any supported base type or Enum | `targets: list[str]` |
+| `Secret[str]` | A credential — masked on every surface that renders config | `token: Secret[str]` |
+
+`Secret[str]` resolves exactly like a `str` — same section, same environment
+variable, same precedence — but its value is never rendered: not in
+`func builtin info --job`, not in `func builtin env`, not in the inline TUI's
+config table, and not in the bar while you type it. Reach for it whenever a
+field holds a credential. See [Credentials](configuration.md#credentials) for
+the full story, including how to find out which variable sets it.
 
 !!! warning "Unsupported types raise TypeError"
     If you use a type not listed above, Functualize raises a `TypeError` at **job registration time** (when the application starts), not at runtime. This ensures you catch type errors early.
+
+    `Secret[T]` for any `T` other than `str` is refused the same way. `Secret`
+    stores `str(value)` and `get_secret_value()` returns `str`, so
+    `Secret[int]` would be a claim it cannot keep. Declare `Secret[str]` and
+    convert at the point of use.
 
     ```python
     from pydantic import BaseModel
@@ -84,12 +97,26 @@ Any other value is treated as falsy.
 
 List fields accept **comma-separated strings** when provided via environment variables or config files:
 
-```ini
+```toml
 [my-job]
-targets = service-a, service-b, service-c
+targets = "service-a, service-b, service-c"
 ```
 
-From the CLI, list values are passed as comma-separated strings as well.
+```bash
+MY_JOB_TARGETS="service-a,service-b,service-c" func my-job
+```
+
+From the CLI the flag is repeated instead, which is what click's `multiple`
+options accept:
+
+```bash
+func my-job --targets service-a --targets service-b
+```
+
+!!! info "The flag has to be passed to count"
+    Omitting `--targets` leaves the field to the environment, the config file,
+    and then the model default, in that order. There is no way to pass "an
+    explicitly empty list" from the command line.
 
 ### Enum fields
 
@@ -116,28 +143,51 @@ Each JobConfig field is resolved from multiple sources in this priority order (h
 
 ```mermaid
 flowchart TD
-    A[CLI Argument] --> B{Value provided?}
+    A[CLI argument] --> B{Value provided?}
     B -->|Yes| C[Use CLI value]
-    B -->|No| D[Check Environment Variable]
+    B -->|No| D[Check environment variable]
     D --> E{JOBNAME_FIELDNAME set?}
     E -->|Yes| F[Use env var value]
-    E -->|No| G[Check Config File]
-    G --> H{INI section has key?}
+    E -->|No| G[Check config file]
+    G --> H{"[job-name] section has key?"}
     H -->|Yes| I[Use config file value]
     H -->|No| J{Model has default?}
     J -->|Yes| K[Use model default]
-    J -->|No| L[ValidationError]
+    J -->|No| L{Interactive surface?}
+    L -->|Yes| M[Prompt for it]
+    L -->|No| N[ValidationError]
 ```
 
 | Priority | Source | Convention |
 |----------|--------|------------|
 | 1 (highest) | CLI argument | `--field-name value` |
 | 2 | Environment variable | `JOBNAME_FIELDNAME` (uppercased) |
-| 3 | Config file INI section | Section name matches `job_name` |
+| 3 | Config file section | Section name matches `job_name` |
 | 4 (lowest) | Model default | Default value in the field definition |
 
+If nothing supplies a **required** field, an interactive surface asks for it;
+off one (CI, a pipe) the `ValidationError` is reported with the file that was
+read and the variable that would set it.
+
 !!! info "Environment variable naming"
-    The environment variable name is formed by joining the **job name** and **field name** with an underscore, both uppercased. For a job named `deploy` with a field `api_url`, the env var is `DEPLOY_API_URL`.
+    The environment variable name is formed by joining the **job name** and
+    **field name** with a single underscore, both uppercased, with hyphens and
+    dots flattened. For a job named `deploy` with a field `api_url`, the env var
+    is `DEPLOY_API_URL`. For a group-qualified job `infra.deploy`, it is
+    `INFRA_DEPLOY_API_URL`.
+
+    This is the only spelling. `DEPLOY__API_URL` and a bare `API_URL` were both
+    read at one time, ahead of the documented name; neither is any more. The
+    bare form in particular meant a field called `user` silently resolved to
+    your shell's `$USER` and its declared default was unreachable.
+
+    [Group options](group-options.md) are the one exception, and a different
+    feature: they keep `SCOPE__FIELD` (`DEPLOY__ENV`) because a nested group
+    path is flattened with single underscores, so `DEPLOY_WEB_ENV` would be
+    ambiguous with a group `deploy` carrying a field named `web_env`.
+
+    Run `func builtin env <job>` to see the resolved names and which of them are
+    actually set.
 
 ## Complete Example
 
@@ -229,13 +279,14 @@ Options:
 
 === "Config file"
 
-    ```ini title="config.base.ini"
+    ```toml title="config.base.toml"
     [deploy]
-    api_url = https://api.example.com
-    environment = prod
+    api_url = "https://api.example.com"
+    environment = "prod"
     timeout = 60
-    targets = service-a, service-b
-    ```
+    targets = "service-a, service-b"
+    
+```
 
     ```bash
     my-app deploy run

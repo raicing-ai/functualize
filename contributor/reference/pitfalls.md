@@ -29,6 +29,8 @@ so you can recognize it in new code.
 | 16 | A syscall on the left of `and` | `x.is_file() and name_matches(x)` — one stat per candidate |
 | 17 | `ast.parse` standing in for "the names resolve" | Generated code parses, then `AttributeError`s at runtime |
 | 18 | A hand-written blocklist of a library's reserved names | Passes for months, fails once a wider input budget draws the missing one |
+| 19 | One rule spelled independently in layers that may not import each other | Every copy is *correct*; the tool names a variable that resolves nothing |
+| 20 | Cross-test pollution that the default file order happens to hide | Passes as `pytest tests/`; fails on a subset, or intermittently under `-n auto` |
 
 ---
 
@@ -282,6 +284,66 @@ not hasattr(BaseModel, s)` is derived from the actual class and cannot fall behi
 The same shape bit twice more in generated identifiers: `str.isidentifier()` returns
 `True` for keywords, so `as` and `match` pass an "is this a valid name" check and then
 fail to compile in a `def`. Use `keyword.iskeyword` / `keyword.issoftkeyword` as well.
+
+## 19. A rule that cannot be shared needs a parity test, not a comment
+
+Trap 6 is "one registry, plus a test". Sometimes there is no registry to have.
+
+The environment-variable name rule — join the job name and the field name with a
+single underscore, uppercase, flatten hyphens and dots — is spelled **five
+times**: twice in `_config/resolved_field.py`, once in `_config/sources.py`, and
+twice in `_engine/missing_value.py`. `_config` and `_engine` are peers, and
+`layer-rules.md` forbids the import that would let them share one. Every copy
+carried a docstring promising it "matches the rule rather than importing", which
+reads as diligence and is in fact the whole problem: a comment is not a
+mechanism, and five hand-copied implementations of a rule have already started
+drifting by the time anyone counts them.
+
+What makes this class worse than ordinary duplication is the failure mode. Only
+`EnvSource._build_env_key` actually *reads* the environment; the other four only
+*print* names — in `builtin env`, in `info --job`, in a validation error, in the
+TUI. So a drift does not break resolution. It makes the tool confidently tell an
+operator to `export SYNC_API_URL=…` when the resolver is looking for something
+else, and they will believe it, because the tool said so. Silence would be
+better.
+
+**How to apply:** when a layer boundary genuinely forbids the shared import, the
+enforcement is a test that asserts every copy agrees, named so the next person
+adding a sixth copy finds it. `tests/config/test_env_name_rule_parity.py` derives
+the name from each producer and asserts they are equal, for the same input. A
+docstring claiming parity is a claim; a parity test is the parity.
+
+## 20. Alphabetical order is not test isolation
+
+`tests/core/test_show_info.py` passes `--dotenv-file` to an in-process
+`CliRunner`, which reaches the real `load_dotenv()` and sets `MY_VAR=hello` in
+the **test process**. `tests/cli/test_cli_integration.py::test_no_dotenv_flag`
+asserts `MY_VAR` is unset, to prove `--no-dotenv` suppresses loading. One test
+armed the trap the other was written to detect.
+
+It never failed, and the reason is the whole point: `tests/cli/` sorts before
+`tests/core/`, so a plain `pytest tests/` runs the victim first. The bug was
+real, live, and simply never scheduled into the open — until a subset run put
+the two directories in the other order. CI's slow tier runs `-n auto`, which
+distributes across workers and does not preserve that order at all, so it was
+an intermittent failure waiting for the right shard split.
+
+`monkeypatch` does not cover this. It reverses what *monkeypatch* did; this was
+done by production code holding a real reference to `os.environ`.
+
+**How to apply:** process-global state that production code mutates —
+`os.environ`, `sys.path`, a module-level cache, a registry singleton — is
+restored by an autouse fixture in `tests/conftest.py`, on both sides of every
+test, not in the handful that look like they need it. `_restore_environ`,
+`_reset_entry_point_cache` and `_isolate_home` are the three that exist.
+And when you add one, add the two-test pair that goes red without it —
+`tests/test_environment_isolation.py` is the worked example, including why its
+probe deliberately avoids the `FUNCTUALIZE_*` prefix that another fixture
+already strips.
+
+Corollary for reading a green suite: "passes as `pytest tests/`" is one
+schedule out of many. A test whose subject *is* isolation deserves to be run
+out of order once, on purpose.
 
 ---
 

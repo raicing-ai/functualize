@@ -45,12 +45,52 @@ from functualize._types.naming import (
     normalize_segment,
     resolve_name,
 )
-from functualize._types.redaction import MASK, is_secret_field, reveal
+from functualize._types.redaction import (
+    MASK,
+    display_value,
+    is_secret_field,
+    reveal,
+)
 from functualize.app._workflow_resume import deposit_gate_input, pending_gates
 from functualize.app.config import JobSources
 
+
+def job_config_fields(app: Any, job_name: str) -> list[Any]:
+    """A job's config as ``ResolvedField`` rows — the one resolution seam.
+
+    Re-exported here because ``_cli/`` may import only public API, and the
+    surfaces that report configuration (``builtin env``, the TUI panels) all
+    live there. They previously each re-derived values, knew different subsets
+    of the environment conventions, and disagreed with the executor.
+
+    Returns ``[]`` when the job declares no config model. Never raises for an
+    unresolved field: a caller asking "what is missing?" is answered, not
+    handed a ``ValidationError``.
+    """
+    from functualize._config.job_config import JobConfigView
+    from functualize._config.resolved_field import resolve_job_fields
+
+    try:
+        entry = app.execution_engine.materialize_job(job_name)
+    except Exception:
+        return []
+    config_class = getattr(entry, "config_class", None)
+    if config_class is None:
+        return []
+
+    return resolve_job_fields(
+        config_class,
+        job_name,
+        JobConfigView(
+            resolution_chain=app._resolution_chain,
+            default_section_prefix=job_name,
+        ),
+    )
+
+
 __all__ = [
     "auto_discover",
+    "job_config_fields",
     "is_secret_field",
     "MASK",
     "reveal",
@@ -64,6 +104,7 @@ __all__ = [
     "coerce_kwargs",
     "deposit_gate_input",
     "DiscoveryOverrides",
+    "display_value",
     "DiscoveryResult",
     "DIValidationError",
     "enumerate_group_names",

@@ -7,8 +7,8 @@ The README Quick Start's weather jobs, graduated into a real scaffolded `Functua
 ```
 weather_app/
 ├── pyproject.toml            ← [project.scripts] weather-app entry point
-├── config.base.ini           ← Base config, always loaded
-├── config.prod.ini           ← Overlay merged when ENVIRONMENT=prod
+├── config.base.toml           ← Base config, always loaded
+├── config.prod.toml           ← Overlay merged when ENVIRONMENT=prod
 ├── src/weather_app/
 │   ├── main.py               ← FunctualizeApp wiring (classic() preset)
 │   └── jobs/
@@ -42,7 +42,7 @@ uv run func            # bare func → inline TUI / job listing
 
 - The `func builtin scaffold init` project shape: `src/` layout, `main.py` wiring, `jobs/` directory
 - A `[project.scripts]` console entry point (`weather-app`) — distribute your jobs as a CLI
-- `classic()` config preset: CLI flags → env vars → `config.base.ini` + `ENVIRONMENT` overlay → defaults
+- `classic()` config preset: CLI flags → env vars → `config.base.toml` + `ENVIRONMENT` overlay → defaults
 - `@job_metadata` with `visibility="external"` — ready to serve over MCP by adding `functualize-mcp`
 - `rc.invoke()` + `rc.track_phase()` pipelines inside a project
 

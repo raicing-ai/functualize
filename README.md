@@ -205,7 +205,7 @@ func weather.py forecast --city Tokyo --days 5 --api-url https://api.prod.exampl
 export FORECAST_API_URL=https://api.staging.example.com
 func weather.py forecast --city Tokyo
 
-# 3. Config file (if a config.base.ini exists in the directory)
+# 3. Config file (if a config.base.toml exists in the directory)
 # [forecast]
 # api_url = https://weather.example.com
 # days = 3
@@ -585,9 +585,9 @@ export DATA_SYNC_BATCH_SIZE=500
 export DATA_SYNC_API_URL=https://api.prod.example.com
 
 # 3. Config files (base + environment overlay)
-# config.base.ini
+# config.base.toml
 # [data_sync]
-# api_url = https://api.example.com
+# api_url = "https://api.example.com"
 # batch_size = 100
 ```
 
@@ -595,23 +595,23 @@ Resolution order: **CLI → Env vars → Config file → Model defaults**. The s
 
 Config files use a **base + environment overlay** pattern. The active environment — `FUNCTUALIZE_ENV`, else `ENVIRONMENT`, else `ENV`, defaulting to `dev` — determines which overlay is merged on top of the base (matched case-insensitively):
 
-```bash
-# config.base.ini — always loaded
+```toml
+# config.base.toml — always loaded
 [data_sync]
-api_url = https://api.example.com
+api_url = "https://api.example.com"
 batch_size = 100
 
-# config.prod.ini — merged on top when ENVIRONMENT=prod
+# config.prod.toml — merged on top when ENVIRONMENT=prod
 [data_sync]
-api_url = https://api.prod.example.com
+api_url = "https://api.prod.example.com"
 batch_size = 500
 ```
 
 ```bash
-# Local dev (default) — uses config.base.ini + config.dev.ini
+# Local dev (default) — uses config.base.toml + config.dev.toml
 func data-sync
 
-# Production — uses config.base.ini + config.prod.ini overlay
+# Production — uses config.base.toml + config.prod.toml overlay
 ENVIRONMENT=prod func data-sync
 ```
 
@@ -652,7 +652,7 @@ myapp data_sync
 
 **Key points:**
 
-- The `ENVIRONMENT` variable (from shell or `.env`) controls which config overlay file is selected. If your `.env` sets `ENVIRONMENT=prod`, the app loads `config.prod.ini` on top of `config.base.ini`
+- The `ENVIRONMENT` variable (from shell or `.env`) controls which config overlay file is selected. If your `.env` sets `ENVIRONMENT=prod`, the app loads `config.prod.toml` on top of `config.base.toml`
 - Shell environment variables always take precedence over `.env` file values (python-dotenv does not override existing vars by default)
 - The effective resolution priority: **CLI flags > Shell env vars > `.env` file values > Config files > Model defaults**
 - Only the current working directory's `.env` (or an explicit `dotenv_path`) is considered — there is no upward directory scan, so a `.env` in a parent directory is never silently picked up

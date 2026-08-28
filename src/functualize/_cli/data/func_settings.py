@@ -170,7 +170,6 @@ def tui_settings() -> tuple[FuncSetting, ...]:
         _tui_spec("show_session_stamp", "true"),
         _tui_spec("history_retention", "100"),
         _tui_spec("signature_enabled", "true"),
-        _tui_spec("sensitive_keywords", "secret,password,token,key"),
         _tui_spec("default_override_target", "file"),
     )
 

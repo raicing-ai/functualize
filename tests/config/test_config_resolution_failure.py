@@ -119,7 +119,11 @@ class TestConfigSourceHint:
         assert "No config files were discovered" in hint
         # The two ways out, both of which the bare Pydantic error omits.
         assert "config.<slot>.<ext>" in hint
-        assert "REPORT__<FIELD>" in hint
+        # Single underscore: `JOB__FIELD` was removed (2026-08-27). The hint
+        # must name the spelling that actually resolves, which is the same one
+        # the guide teaches and `builtin env` emits.
+        assert "REPORT_<FIELD>" in hint
+        assert "REPORT__<FIELD>" not in hint
 
     def test_it_lists_the_files_that_were_read(self, tmp_path: Path) -> None:
         (Path.cwd() / "config.base.toml").write_text('[report]\ncity = "Kyoto"\n')
@@ -205,18 +209,22 @@ class TestDiscoveryAnchoring:
         # Slotted and non-toml: kept by the reader filter.
         assert "config.prod.cfg" in hint
 
-    def test_a_cfg_file_alone_can_anchor_and_resolve(self) -> None:
-        """Ratified 2026-07-20: the anchor no longer pins the extension.
+    def test_a_cfg_file_alone_no_longer_anchors(self) -> None:
+        """ADR-007: TOML is the only format registered by default.
 
-        `.cfg` is handled by the built-in ini provider, so a directory holding
-        only `config.base.cfg` must anchor on it. Previously the anchor regex
-        spelled `(ini|toml)` inline, so this file could be *read* but never
-        *found* — the same asymmetry as the slot, one level down.
+        Ratified 2026-07-20, the anchor stopped pinning the extension, and
+        `.cfg` anchored because the built-in INI provider was registered
+        unconditionally. It no longer is. The anchor still delegates the
+        extension question to the registered providers — the rule did not
+        change, the set of providers did — so a `.cfg` file now anchors nothing
+        and the required field goes unresolved. A project that still reads
+        INI registers the provider from a plugin, which boot loads before the
+        resolution chain exists — see ``tests/config/test_toml_only_formats.py``.
         """
         (Path.cwd() / "config.base.cfg").write_text("[report]\ncity = Osaka\n")
         AppState.reset()
 
-        assert _app().execute("report").return_value == "city=Osaka"
+        assert _app().execute("report").status is RunStatus.FAILURE
 
     def test_an_extension_no_provider_handles_does_not_anchor(self) -> None:
         """The extension check is delegated to the registered providers, not

@@ -59,12 +59,6 @@ SETTING_SCHEMAS: dict[str, SettingSchema] = {
         type="bool",
         description="Show signature slot",
     ),
-    "sensitive_keywords": SettingSchema(
-        name="sensitive_keywords",
-        type="list",
-        description="Comma-separated keywords to mask",
-        max_items=50,
-    ),
     "display_auto_switch": SettingSchema(
         name="display_auto_switch",
         type="enum",

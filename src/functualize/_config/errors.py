@@ -132,24 +132,6 @@ class RemoteTimeoutError(ConfigurationError):
         )
 
 
-class MigrationError(ConfigurationError):
-    """Error during configuration file migration (e.g., INI → TOML).
-
-    Attributes:
-        file: The file path that failed migration.
-        line: The line number where the issue was detected.
-        construct: Description of the unsupported construct.
-    """
-
-    def __init__(self, file: str, line: int, construct: str) -> None:
-        self.file = file
-        self.line = line
-        self.construct = construct
-        super().__init__(
-            f"Migration error in '{file}' at line {line}: unsupported {construct}"
-        )
-
-
 class PresetNotFoundError(ConfigurationError):
     """Referenced configuration preset does not exist.
 

@@ -170,6 +170,10 @@ def build_command_panels(app: FunctualizeInlineTUI) -> list[tuple[str, Any]]:
             short_flag=getattr(fd, "short_flag", None),
             type_annotation=getattr(fd, "type_annotation", "str") or "str",
             param_kind=ParamKind.CONFIG if has_config_class else ParamKind.PLAIN,
+            # The descriptor is the cache's copy of the model's answer, so the
+            # Config Table and its drill-down mask without importing the config
+            # class — which a warm boot never does.
+            secret=getattr(fd, "secret", False),
         )
 
         # --- Populate resolution chain ---

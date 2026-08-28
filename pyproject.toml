@@ -39,7 +39,6 @@ func = "functualize._cli.main:main"
 
 [project.entry-points."functualize.format_providers"]
 toml = "functualize._config.providers.toml:TomlFormatProvider"
-ini = "functualize._config.providers.ini:IniFormatProvider"
 
 [project.entry-points."functualize.remote_providers"]
 

@@ -1342,9 +1342,11 @@ class JobExecutionEngine:
             # Absent (library/embedded use) it defaults to "auto" — dispatch by
             # value type — so `out.emit()` still works outside the CLI.
             app = getattr(self, "_app", None)
+            # No `secrets=` here: config is resolved *after* DI wiring, so the
+            # values are not known yet. `_arm_output_redaction` fills them in
+            # from the model the job actually receives.
             return WiredStdout(
                 output_format=getattr(app, "_output_format", "auto") or "auto",
-                secrets=self._collect_job_secrets(context.job_name),
             )
         elif type_ is Shell:
             from functualize._engine.capabilities.shell import WiredShell
@@ -1510,41 +1512,68 @@ class JobExecutionEngine:
 
         return Secret(value)
 
-    def _collect_job_secrets(self, job_name: str) -> frozenset[str]:
-        """Gather the job's ``Secret`` config values for output redaction.
+    @staticmethod
+    def _secrets_of(model: Any) -> frozenset[str]:
+        """The secret strings carried by an already-resolved config model.
 
         Feeds ``WiredStdout`` so a secret cannot leak through the explicit data
         channel any more than through a command echo (schema §5). Best-effort by
-        design: redaction must never be the reason a job fails, so any
-        resolution problem yields an empty set rather than raising.
-        """
-        from functualize._types.redaction import collect_secret_values
+        design: redaction must never be the reason a job fails, so any problem
+        yields an empty set rather than raising.
 
-        try:
-            view = self._make_config_view(job_name)
-        except Exception:
+        Takes the model rather than a job name on purpose. This used to resolve
+        the config a *second* time, from the job name, with ``cli_values={}`` —
+        so a credential passed as ``--credential`` was in the model the job
+        received and absent from the set that redacts its output, and
+        ``out.write(config.credential)`` printed it in full. The env tier
+        masked, which is why every test passed. Only the instance the job is
+        actually handed has seen every precedence tier, so only it can answer
+        this. Resolving twice also duplicated any ``RemoteSource`` fetch and
+        could redact a rotated-away value.
+        """
+        from functualize._types.redaction import collect_secret_values, is_secret_field
+
+        if model is None:
             return frozenset()
-        if view is None:
+
+        fields = getattr(type(model), "model_fields", None)
+        if not isinstance(fields, dict):
             return frozenset()
 
         values: list[Any] = []
-        model = getattr(view, "model_fields", None) or getattr(
-            type(view), "model_fields", None
-        )
-        try:
-            names = (
-                list(model)
-                if model
-                else [n for n in dir(view) if not n.startswith("_")]
-            )
-            for name in names:
-                try:
-                    values.append(getattr(view, name))
-                except Exception:
-                    continue
-        except Exception:
-            return frozenset()
-        return frozenset(collect_secret_values(values))
+        plain: set[str] = set()
+        for name, info in fields.items():
+            try:
+                value = getattr(model, name)
+            except Exception:
+                continue
+            values.append(value)
+            # `collect_secret_values` only sees real `Secret` instances. A field
+            # marked with `json_schema_extra={"secret": True}` stays a plain
+            # `str`, so without this branch the marker would mask the field in
+            # `info --job` while its value flowed through `out.emit()` intact —
+            # the declaration/value split this work exists to close. One
+            # detector, both markers.
+            if is_secret_field(info) and isinstance(value, str) and value:
+                plain.add(value)
+        return frozenset(collect_secret_values(values) | plain)
+
+    def _arm_output_redaction(self, context: ExecutionContext, model: Any) -> None:
+        """Tell this run's ``Stdout`` which strings to mask.
+
+        Called once the config model the job will receive exists. DI wiring runs
+        first — a capability has to be built before the job's arguments are
+        resolved — so the capability starts with an empty set and is armed here
+        rather than at construction.
+        """
+        from functualize._engine.capabilities.stdout import WiredStdout
+
+        secrets = self._secrets_of(model)
+        if not secrets:
+            return
+        for cap in (context.capabilities or {}).values():
+            if isinstance(cap, WiredStdout):
+                cap.add_secrets(secrets)
 
     def _resolve_shell_setting(self, key: str) -> str | None:
         """Resolve a non-empty string from the ``[shell]`` config section."""
@@ -2047,6 +2076,7 @@ class JobExecutionEngine:
                         job_name=_scope,
                         config_view=_view,
                         cli_values=values,
+                        group_scope=_scope,
                     )
                 return _cls(**values)
 
@@ -2056,7 +2086,11 @@ class JobExecutionEngine:
             # asked for?" depend on which *kind* of field it is — the exact
             # distinction users cannot see and should not have to.
             instance = self._resolve_with_prompt(
-                _build, options_class, env_scope, scoped_values
+                _build,
+                options_class,
+                env_scope,
+                scoped_values,
+                group_scope=env_scope,
             )
             context.call_kwargs[param_name] = instance
 
@@ -2066,6 +2100,8 @@ class JobExecutionEngine:
         config_class: type,
         section: str,
         values: dict[str, Any],
+        *,
+        group_scope: str | None = None,
     ) -> Any:
         """Build a config model, asking for what the chain could not supply (T45).
 
@@ -2078,7 +2114,7 @@ class JobExecutionEngine:
         deliberately re-raised rather than restated as a typed substitute: it
         drives the CLI's field-level panel and the config-source hint, which
         name the files that were really read, the ``config.<slot>.<ext>`` rule
-        and ``JOB__<FIELD>``. Substituting it would trade a good diagnostic for
+        and ``JOB_<FIELD>``. Substituting it would trade a good diagnostic for
         a worse one on the path users hit most (CI).
 
         Args:
@@ -2113,7 +2149,7 @@ class JobExecutionEngine:
             if prompt is None:
                 raise
             collected = self._prompt_for_missing_config(
-                config_class, section, missing, prompt
+                config_class, section, missing, prompt, group_scope=group_scope
             )
             # One retry only. If the answers still do not validate, the second
             # ValidationError propagates and is rendered normally — better a
@@ -2126,6 +2162,8 @@ class JobExecutionEngine:
         job_name: str,
         missing: tuple[str, ...],
         prompt: Any,
+        *,
+        group_scope: str | None = None,
     ) -> dict[str, Any]:
         """Collect ``missing`` from an interactive surface.
 
@@ -2151,7 +2189,11 @@ class JobExecutionEngine:
                 Declining is not the same as never being asked, so it keeps its
                 own message rather than reusing the validation error.
         """
-        from functualize._engine.missing_value import env_var_for, resolve_missing_value
+        from functualize._engine.missing_value import (
+            env_var_for,
+            group_env_var_for,
+            resolve_missing_value,
+        )
         from functualize._types.redaction import is_secret_field
 
         fields = getattr(config_class, "model_fields", {})
@@ -2161,7 +2203,11 @@ class JobExecutionEngine:
             collected[name] = resolve_missing_value(
                 prompt,
                 field=name,
-                env_var=env_var_for(job_name, name),
+                env_var=(
+                    group_env_var_for(group_scope, name)
+                    if group_scope is not None
+                    else env_var_for(job_name, name)
+                ),
                 message=f"{job_name}: {name}",
                 secret=is_secret_field(fields.get(name)),
             )
@@ -2226,6 +2272,10 @@ class JobExecutionEngine:
         # Set on RunContext's job_config
         if rc is not None:
             rc.job_config = config_instance
+
+        # This instance has seen every precedence tier, the command line
+        # included; nothing earlier has. Arm output redaction from it.
+        self._arm_output_redaction(context, config_instance)
 
         # Find the config parameter name in the function signature and inject.
         #

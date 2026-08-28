@@ -28,7 +28,6 @@ from functualize._cli.tui.missing_args import get_missing_required_args
 from functualize._cli.tui.panel_host import PanelHost
 from functualize._cli.tui.path_field_editor import PathFieldEditor
 from functualize._cli.tui.path_suggestion_scanner import PathSuggestionScanner
-from functualize._cli.tui.preflight_widget import PreFlightWidget
 from functualize._cli.tui.settings_panel import SettingsPanel
 from functualize._cli.tui.settings_validator import validate_setting
 from functualize._cli.tui.shortcut_save_modal import ShortcutSaveModal
@@ -61,7 +60,6 @@ __all__ = [
     "PanelHost",
     "PathFieldEditor",
     "PathSuggestionScanner",
-    "PreFlightWidget",
     "SettingsPanel",
     "ShortcutSaveModal",
     "SmartBarAutoComplete",

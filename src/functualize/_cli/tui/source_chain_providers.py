@@ -221,6 +221,7 @@ class JobConfigChainProvider:
                     description=field.description,
                     type_hint=field.type_annotation or "str",
                     choices=field.choices,
+                    secret=getattr(field, "secret", False),
                 )
             )
         return keys

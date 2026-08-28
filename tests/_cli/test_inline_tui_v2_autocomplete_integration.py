@@ -202,11 +202,8 @@ class TestSmartBarAutoCompleteSubcommandMode:
         candidates = completer.get_candidates(state)
 
         names = [c.value for c in candidates]
-        assert names == sorted(["show", "path", "edit"]) or set(names) == {
-            "show",
-            "path",
-            "edit",
-        }
+        expected = ["show", "path", "edit"]
+        assert names == sorted(expected) or set(names) == set(expected)
 
     def test_partial_subcommand_filters(self):
         """``builtin cache c`` offers clear/check but not show."""

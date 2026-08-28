@@ -16,7 +16,7 @@
 | Group | Populated by | Purpose |
 |---|---|---|
 | `functualize.plugins` | Plugin packages (empty in core `pyproject.toml`) | Dynamic plugin discovery at boot (`_plugins/loader.py`) |
-| `functualize.format_providers` | Core: `toml` → `functualize._config.providers.toml:TomlFormatProvider`, `ini` → `functualize._config.providers.ini:IniFormatProvider` | Config file format parsers |
+| `functualize.format_providers` | Core: `toml` → `functualize._config.providers.toml:TomlFormatProvider`. `IniFormatProvider` is in-tree but **not** registered by default (ADR-007) — a plugin or a third-party entry point registers it. | Config file format parsers |
 | `functualize.remote_providers` | Reserved, empty in core; populated by plugins | Remote config source providers |
 
 ## Invocation Chain: `func <job>` → job execution

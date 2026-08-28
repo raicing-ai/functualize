@@ -21,7 +21,154 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a newly installed distribution can drop the snapshot with
   `functualize._primitives.entry_points.clear_entry_point_cache()`.
 
+### Removed — silently wrong values
+
+These three read config in ways that outranked the documented convention, so the
+correct value was *unreachable* while they stood. They are removed outright with
+no deprecation window: this project is pre-1.0, and `.spec/CONSTITUTION.md`
+forbids compat shims.
+
+- **A bare, unprefixed `FIELD` environment variable no longer populates a job
+  config field.** `_config/job_config.py` read `os.environ[FIELD.upper()]` ahead
+  of everything else, so a field named `user` resolved to your shell's `$USER`
+  and its declared default could never be reached. On a field named `token`,
+  `password`, `path`, `home` or `shell` that is credential and path
+  substitution from ambient state. No configuration made it safe.
+- **`JOB__FIELD` (double underscore) no longer resolves a job config field.**
+  It was undocumented, named only by an error message, and outranked the
+  `JOB_FIELD` form that `docs/guides/job-config.md` teaches, that
+  `func builtin env` emits, and that `info --job` reports. `JOB_FIELD` is now
+  the only spelling. *(Group options are a different feature and keep
+  `SCOPE__FIELD` — `DEPLOY__ENV`, `DEPLOY_WEB__ENV` — because a nested group
+  path is flattened with single underscores, so `DEPLOY_WEB_ENV` would be
+  ambiguous with a group `deploy` carrying a field named `web_env`.)*
+- **`.ini` and `.cfg` config files are no longer read by default** (ADR-007).
+  TOML is the only format registered at boot. `IniFormatProvider` remains
+  in-tree; register it from a plugin — boot loads plugins before it builds the
+  resolution chain, which registering on `app.config_registry` afterwards is too
+  late to do. To convert instead, quote the values by hand: TOML and INI share
+  section headers, and a project the framework cannot read now warns at boot
+  naming both ways out rather than running on model defaults in silence.
+
+The `tui.sensitive_keywords` setting is also gone. It was registered, schema'd
+and documented, and had no consumer.
+
+### Security
+
+- **Credentials were rendered in cleartext on three of the surfaces that show
+  configuration.** The inline TUI's preflight summary, the Config Table panel
+  and the source-chain detail view applied no secret test at all, so a field
+  declared `Secret[str]` or marked `json_schema_extra={"secret": True}` appeared
+  in full — on the screen a user studies immediately before running the job —
+  while `func builtin env` and `info --job` masked it. All three now mask, and
+  the source-chain view masks *losing* sources too. Provenance glyphs stay
+  visible; the value never is.
+- **A secret is masked in the SmartBar while it is being typed**, and the
+  autocomplete dropdown is suppressed for that field — a completion list under a
+  masked input would re-render the value one row below the mask.
+- **`_collect_job_secrets` always returned an empty set.** It asked a
+  `JobConfigView` for `model_fields`, found none, and fell through to iterating
+  `dir()`, which yielded four bound methods. Output redaction for job secrets
+  was therefore inert. It now reads the config model the job actually receives.
+- **A credential passed on the command line was written to stdout in full.**
+  The first fix for the above re-resolved the config from the job name with
+  `cli_values={}`, so the redaction set came from a different object than the
+  job did. The same credential in an environment variable masked, which is why
+  every test passed. Redaction is now armed from the resolved instance, after
+  config resolution — which also removes a duplicate resolution that re-fetched
+  every remote source.
+- Detection is by declaration, never by name. A name-based regex
+  (`secret|password|token|key`) masked `sort_key`, `keywords` and `monkey_patch`
+  while leaving a field named `credential` in cleartext.
+
 ### Fixed
+
+- **Every surface that reports configuration now agrees with the run.** Four
+  independent resolvers disagreed about *values*, not just formatting:
+  `USER=root-ambient func builtin info --job sync` reported `service-account`
+  while the run received `root-ambient`. A display that lies in the moment
+  before execution is worse than no display.
+
+  `info --job` and `func builtin env` read one `ResolvedField` seam.
+  The **TUI panels deliberately do not**: reaching that seam means importing
+  the job module, and the panels rebuild while you type, so it would forfeit
+  true-lazy boot. They share the *detector* instead — the model's
+  `secret`/`required`/`default`, carried through the discovery cache — and read
+  values from the same `ResolutionChain` the seam reads. See ADR-008,
+  Addendum A1.
+  `tests/config/test_secret_surface_parity.py` guards the CLI surfaces and
+  `tests/config/test_descriptor_cache_fidelity.py` guards the cache the TUI
+  trusts.
+- **A required field with no default read as `••• model default`.** Both
+  `info --job` and the TUI preflight tested `default is not None and default is
+  not ...`, but a Pydantic v2 required field's default is `PydanticUndefined` —
+  neither — so "not set (required)" was unreachable for *every* required field,
+  and a missing credential rendered as though it were configured. It now reads
+  as missing and names the variable that would set it.
+- **`func builtin env` crashed on the case it exists for.** A job with an
+  unresolved required field raised `ValidationError` out of the command whose
+  whole purpose is answering "what does this job need?". It now reports the
+  field instead.
+- **`func builtin env` could not tell a set secret from an unset one.** Both
+  printed `export SYNC_TOKEN='•••'`. Unset fields are now emitted commented out
+  with why, which makes the output a ready `.env` skeleton, and an *empty*
+  secret renders as empty rather than as a mask — masking nothing manufactures
+  the appearance of a configured credential.
+- **`Secret[str]` could not be used as a config field type.** It raised
+  `PydanticSchemaGenerationError` on a plain `BaseModel`; with
+  `arbitrary_types_allowed` it then refused the plain strings that config and
+  environment resolution supply, and `SUPPORTED_TYPES` rejected it
+  independently. It now validates from `str`, serializes to the mask **in JSON**
+  (`model_dump_json()`, `model_dump(mode="json")`), and advertises itself in
+  JSON schema so the descriptor cache carries its secretness to every surface.
+  A plain `model_dump()` returns the `Secret` object: the framework passes
+  config models between jobs by dumping and rebuilding them, and masking there
+  handed a child job `•••` instead of the credential. `Secret[int]` and friends
+  are now refused at registration — `Secret` stores `str(value)`, so any other
+  parameter was a claim it could not keep.
+- **A validation error now names the environment variable that would fix it**,
+  not only which config files were read.
+- **`_config/migration.py`, `migrate_ini_to_toml` and `MigrationError` are
+  deleted, and there is no `func builtin config migrate`.** The helper had zero
+  callers and zero tests; a command was built to reach it and then removed with
+  it. A conversion command exists to carry a user population across a break, and
+  pre-1.0 — with the format narrowed by hard removal — there is none to carry,
+  so the command's only caller would again have been the test suite. What the
+  narrowing owes its users is the diagnostic below, not an automated rewrite of
+  a file small enough to have been an INI file.
+- **A project the framework could no longer read ran in silence.** With TOML the
+  only registered format, `config.base.ini` failed the extension check in
+  config-path discovery — so it never anchored a directory, never reached the
+  file reader, and `builtin info` reported "No config files found" with the file
+  in the project root. Boot now warns once per such file, naming both ways
+  out — convert to TOML, or register a provider from a plugin, with the note
+  that plugins load before the resolution chain is built — and `builtin info`
+  lists them.
+- **`builtin info` echoed every config value verbatim**, including a credential
+  written into a config file — two panels above the `JobConfig` table that masks
+  the same value. The panel was built with `configparser` and
+  `ExtendedInterpolation` over `os.environ` (so it also expanded `${VAR}` before
+  printing) and rendered as `ini`: debris from before TOML-only. It now renders
+  the provider-parsed values and masks declared secrets.
+- **A secret's default was written into `cache.json` in cleartext.** A field
+  marked `json_schema_extra={"secret": True}` with a plain-`str` default had that
+  default serialized into the discovery cache, in a predictable XDG location.
+  `Secret[str]` defaults escaped only because `json.dumps` cannot serialize a
+  `Secret`. Secret defaults are now dropped on the declaration.
+- **A `list[T]` config field ignored every source.** `list[T]` becomes a click
+  option with `multiple=True`, and click supplies `()` when the flag is absent —
+  `() is not None`, so an unpassed flag won the whole precedence ladder and the
+  field resolved to `[]` regardless of the environment, the config file, or the
+  model's own default. The documented comma-separated form
+  (`DEPLOY_TARGETS=a,b,c`) now works, for the same reason: `coerce_value`, which
+  implements it, had no production caller at all.
+- **A value set with `config.set()` was invisible to every surface.** The
+  resolution seam reached past `JobConfigView` for its private chain, skipping
+  the override layer that `get()` consults first — so the run used one value and
+  every display reported another.
+- Enum and list values render in the form that *sets* them (`thorough`,
+  `a,b,c`) rather than in Python's repr (`Mode.THOROUGH`, `['a', 'b']`). These
+  surfaces exist to tell an operator what to put in a variable.
 
 - **A namespaced job was unreachable by the only name it published.**
   `NamespaceTransform` canonicalized the prefix when *writing* names but matched

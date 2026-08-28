@@ -105,9 +105,16 @@ So the loop is:
 ```
 
 If committing first is genuinely wrong — the change is not yet coherent — copy
-the file to the scratchpad and restore with `cp -f` instead. Plain `cp` prompts
-interactively and will hang a non-interactive shell, which is its own failure
-mode: a hung restore leaves sabotaged source in the tree.
+the file to the scratchpad and restore from there instead. **Do not restore with
+`cp -f`.** This shell aliases `cp` to `cp -i`, and the alias's `-i` is expanded
+*after* your `-f`, so the prompt wins: the restore either hangs or is silently
+skipped, and a skipped restore leaves sabotaged source in the tree looking
+exactly like a finished one. Observed 2026-08-28 — the sabotage was correctly
+detected, the restore reported nothing, and the suite stayed red.
+
+Use something that cannot prompt: `command cp -f`, `/bin/cp -f`, `install -m644`,
+or `python -c 'import shutil; shutil.copyfile(...)'`. Then `grep` the file for
+your sabotage marker before believing the restore happened.
 
 Sabotage is also how you find out a *test* is vacuous, not just a wire. Two
 tests written on 2026-07-21 passed under the exact regression they claimed to
@@ -174,6 +181,94 @@ work.
 Had this been done at the S3 gate, `func why` — listed in that stage's own
 deliverables — would have been caught immediately, because there is no test that
 runs `func why` and reads output.
+
+### 8. A masking test must start where the declaration starts
+
+*Added 2026-08-28, from the config/secrets review.*
+
+The secrets work shipped `tests/_cli/test_secret_masking_surfaces.py`, whose
+docstring reads "These tests exist to fail if the masking is removed. That is
+not rhetorical." It was rhetorical. The module built its own
+`SimpleNamespace(secret=True)` and handed it to the three formatters, so it
+proved the formatters mask when told to and nothing about whether anything told
+them to. Replacing the single line in `build_command_panels` that copies
+`FieldDescriptor.secret` onto `FieldDef` left **2181 tests passing** while every
+TUI surface rendered credentials in cleartext.
+
+A stand-in is not a neutral simplification here. `getattr(fd, "secret", False)`
+on a namespace with no `secret` attribute returns exactly what a broken wiring
+returns, so the test cannot distinguish the two states it exists to separate.
+
+**Rule.** A test for a declared property — secret, required, positional,
+stdin — starts at a real declaration (a `BaseModel`, a real job module) and
+follows it through every hop the production path takes, the cache round-trip
+included. Unit tests on the formatter are still worth having; they are not
+coverage of the wiring.
+
+`tests/_cli/test_secret_masking_wiring.py` is the worked example: four link
+classes, one per hop, and the sabotage turns eight of them red.
+
+### 9. Test the tier, not one tier
+
+Precedence ladders (CLI > env > file > default) invite a fixture that sets
+values one way and reuses it everywhere. Output redaction was armed from a
+second resolution that dropped CLI values, so `--credential hunter2` leaked
+while `$JOB_CREDENTIAL` masked — and every `cli_run` in the parity suite passed
+values through `env=`, so a four-tier ladder had one tier under test.
+
+The same shape hid a second bug: every config fixture used `str` and `int`
+fields, so `list[T]` — which resolved to `[]` no matter what any source said —
+was never exercised at all.
+
+**Rule.** For anything that reads config, the precedence tier and the field
+*shape* are test axes, not fixture constants. And add the guard test: a tier
+that supplies nothing masks, coerces, and resolves trivially, so assert the
+fixture really supplies the value before asserting what happens to it.
+
+### 10. A new type must be audited against its existing consumers
+
+`Secret` gained a Pydantic serializer that masked in every mode. Nobody ran
+`grep -rn model_dump src/`. Four internal callers were waiting — `Invoke` builds
+a child job's kwargs from `config.model_dump()`, and three more — so
+`rc.invoke("child", config=config)` silently handed the child `•••` and it
+authenticated with the mask string.
+
+**Rule.** Giving an existing type a new protocol hook (`__get_pydantic_*__`,
+`__str__`, `__eq__`, `__iter__`) is a change to every call site that already
+uses that protocol. Enumerate them in the same commit, and leave behind a test
+that names them — `tests/types/test_secret_serialization_seams.py` is the audit
+to re-run the next time that serializer changes.
+
+### 11. A breaking change must be tested from the state it breaks
+
+*Added 2026-08-28, from the config/secrets review.*
+
+ADR-007 narrowed the registered config formats to TOML. It shipped with a
+purpose-built test module, a control case, an end-to-end plugin escape hatch —
+and **every one of those tests started from a TOML project**. The single user
+population the change existed to break was the population nothing exercised.
+
+What that missed: a project whose only config was `config.base.ini` failed the
+extension check in config-path discovery, so it never anchored a directory,
+never reached the file reader, and never appeared in `ConfigFileInfo` either.
+The job ran on its model defaults, exit code 0, and `builtin info` reported "No
+config files found" with the file sitting in the project root. Not an error — a
+wrong value, in silence, which is the same failure the branch removed the bare
+`FIELD` environment fallback for.
+
+The instinct that produces this gap is reasonable, which is why it needs a rule:
+you write tests for the world *after* the change, because that is the world you
+are building. But a breaking change's whole risk lives in the world before it.
+
+**Rule.** When a change removes, narrows, or renames something, one fixture
+starts from the *old* state and asserts what a user standing in it actually
+sees. "It stops working" is not the assertion — `exit 1` with a message naming
+a remedy is a pass, and `exit 0` with a model default is the bug. Then assert
+the remedy the message names produces a working project, so the diagnostic
+cannot rot into naming a fix that no longer exists.
+`tests/config/test_legacy_ini_project.py` is the worked example, and it earned
+its keep twice: it caught the silence, and it is what failed when the
+conversion command the warning used to name was later removed.
 
 ## The one-line version
 

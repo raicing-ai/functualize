@@ -53,7 +53,11 @@ class TestBaseCatalogHasNoShellSettings:
     def test_shell_settings_appear_once_registered(self, clean_registry) -> None:
         register_settings(*tui_settings())
         names = [s.name for s in fs.FUNC_SETTINGS if s.section == "tui"]
-        assert len(names) == 8
+        # 7 since `tui.sensitive_keywords` was removed (2026-08-27): it was a
+        # registered, schema'd, user-settable promise of masking with no consumer
+        # reading it. Secret detection is model-driven (`is_secret_field`), so a
+        # keyword list has nothing left to mean.
+        assert len(names) == 7
         assert "tui.theme" in names
 
     def test_shell_settings_render_first(self, clean_registry) -> None:

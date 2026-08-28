@@ -18,8 +18,10 @@ contributor/
 │   ├── tui-command-panel.md        — Command panel ring (Ctrl+R) UX: Config Table/Files/Diff View
 │   └── codemaps/                   — Machine-assisted maps: overview, modules,
 │                                     dependencies (measured fan-in), entry-points, data-flow
-├── adr/                            — Architecture Decision Records
-│   └── 000-template.md            — ADR template
+├── adr/                            — Architecture Decision Records — the committed
+│   └── 000-template.md              record of *decisions* (proposals and review
+│                                     reports are session documents under `.spec/`
+│                                     and are never committed — see .spec/README.md)
 ├── guides/
 │   ├── adding-internal-module.md   — How to add code to an internal layer
 │   ├── adding-public-api.md        — How to expose a new symbol publicly
