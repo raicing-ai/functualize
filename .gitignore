@@ -87,6 +87,15 @@ site/
 .sidecar-base
 .td-root
 .functualize/
+# ...except the committed example plugin, which the blanket rule above swallowed.
+# Git will not descend into an excluded directory, so every level must be un-excluded
+# in turn, and each level re-ignores its own contents so that only the plugin sources
+# become trackable — never the cache, state or lock files a run drops beside them.
+!examples/plugins/file_based_plugin/.functualize/
+examples/plugins/file_based_plugin/.functualize/*
+!examples/plugins/file_based_plugin/.functualize/plugins/
+examples/plugins/file_based_plugin/.functualize/plugins/*
+!examples/plugins/file_based_plugin/.functualize/plugins/*.py
 .import_linter_cache/
 .mypy_cache/
 .pytest_cache/
