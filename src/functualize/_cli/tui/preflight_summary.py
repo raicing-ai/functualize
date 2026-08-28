@@ -53,7 +53,12 @@ def format_preflight_field_line(
             A formatted single-line string for the pre-flight summary.
     """
     name = fd.name
-    value = provided.get(name, "")
+    # A group option arrives already resolved — it is a field of the *path*,
+    # not of the job, so it is not in the job's `provided` tokens and never
+    # will be. Job descriptors carry no `value` attribute, so this reads as
+    # None for them and the token lookup below stands unchanged.
+    own_value = getattr(fd, "value", None)
+    value = own_value if own_value else provided.get(name, "")
     required = getattr(fd, "required", False)
     description = getattr(fd, "description", "") or ""
     default = getattr(fd, "default", None)
@@ -107,7 +112,10 @@ def format_preflight_field_line(
         # for an unfilled field, show its real resolved
         # source_type (env/file/remote/default) instead of a blind
         # default/blank fallback. A SmartBar value still wins ("cli").
-        if value:
+        own_source = getattr(fd, "source", None)
+        if own_source:
+            source = str(own_source)
+        elif value:
             source = "cli"
         elif resolved_source:
             source = resolved_source
@@ -125,7 +133,14 @@ def format_preflight_field_line(
 
     # Build the line prefix (everything before description)
     # Format: "  {indicator}{req_mark} {kind_label}{name}{short}: {value} ({source})  {type}  "
-    prefix = f"  {indicator}{req_mark} {kind_label}{display_name}{short_label}:"
+    # The declaring group, dimmed, on a group option's row — the same
+    # convention the config table uses, so one reader learns it once.
+    group_path = getattr(fd, "group_path", None)
+    group_label = f"[dim]\\[{group_path}][/dim] " if group_path else ""
+
+    prefix = (
+        f"  {indicator}{req_mark} {kind_label}{group_label}{display_name}{short_label}:"
+    )
     if shown:
         prefix += f" {shown}"
         if source:

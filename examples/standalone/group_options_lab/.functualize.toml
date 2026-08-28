@@ -1,0 +1,4 @@
+# Lets plain `func` drive this project, not just the installed `glab` script.
+# `[tool.group-options-lab]` in pyproject.toml is the same declaration under
+# the app's own identity; both are here so the example is runnable either way.
+jobs_directories = ["jobs"]

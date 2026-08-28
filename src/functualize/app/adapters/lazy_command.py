@@ -31,6 +31,7 @@ def make_lazy_command(
     app: Any,
     *,
     command_name: str | None = None,
+    group_option_values: dict[str, Any] | None = None,
 ) -> click.Command:
     """Build a ``click.Command`` from cached schema — no module import needed.
 
@@ -42,6 +43,12 @@ def make_lazy_command(
         app: The FunctualizeApp instance (provides execution_engine).
         command_name: CLI command name if it differs from ``descriptor.name``
             (e.g. the bare function name for a grouped job).
+        group_option_values: The mid-path group flags for this invocation
+            (S6a). The adapter passes one **mutable** dict shared with the
+            group nodes above this command: click parses a group's params
+            before it resolves the sub-command, so the dict is filled by the
+            time this callback runs. Baking the values in at construction
+            time would freeze them empty.
 
     Returns:
         A ``click.Command`` whose callback materializes and runs the job on
@@ -124,6 +131,9 @@ def make_lazy_command(
                 function=func,
                 config_class=config_class,
                 kwargs=kwargs,
+                group_option_values=dict(group_option_values)
+                if group_option_values
+                else None,
             )
 
     return click.Command(

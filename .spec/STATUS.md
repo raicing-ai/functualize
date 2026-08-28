@@ -6,9 +6,7 @@ Functualize is pre-release (Alpha). Breaking changes are free until v1.0.0.
 
 Committed design documents with per-assertion PASS/GAP verification against the current codebase. Fully self-contained — no external files needed to start work.
 
-| Intent | Doc | Assertions | Summary |
-|--------|-----|-----------|---------|
-| TUI Panel Adjustments for GroupOptions | [shape-intents/tui-group-options-panels.md](shape-intents/tui-group-options-panels.md) | 30 (4 pass, 26 gaps) | Render group-level CLI flags mid-path in 6 TUI panels: SmartBar, Config Table, Diff, Config Files, Pre-flight, and Job Browser. Kernel infrastructure (trie, resolution, execution) is complete — the TUI panels need to produce `deploy --env prod web run --image v1.2` instead of flat `deploy.web.run --env prod --image v1.2`. Changes across ~12 files in `_cli/tui/`. |
+_None currently open._
 
 ## Open Features
 
@@ -75,6 +73,131 @@ expansion. Deciding what to do about that is its own change, not covered here:
 
 
 ## Completed
+
+### TUI panel support for GroupOptions (2026-08-28, `feat/tui-group-options-panels`)
+
+`shape-intents/tui-group-options-panels.md` is **implemented**. Its stale
+tally — "30 (4 pass, 26 gaps)" — was wrong twice over: the real split was
+12 PASS / 18 GAP, and the feature was not merely unimplemented. The TUI was
+**actively broken** for any project declaring a `GroupOptions` subclass.
+
+**One cause, nine defects.** S6b wired the mid-path resolver into the TUI's
+*read* paths and left every *write-back* path parsing the bar's first token as
+the job. For the canonical text `deploy --env prod web run v1.2`, that token is
+the **group**. Editing a field truncated the command to `deploy`; the
+pending-sync emitted a dotted spelling its own resolver refuses; group
+overrides vanished; a path segment bound to the job's first positional
+(`image = "web"` — silent data corruption); Ctrl+S saved a shortcut naming a
+group, which is not invocable; panels were built for the group and so never
+appeared; readiness was evaluated against the group node, so the bar read READY
+regardless of what the job was missing; missing-args detection returned "not a
+command"; and completion's argument slice under-cut by two per mid-path flag,
+spilling path segments and a deeper group's flags into the job's own.
+
+Nobody had hit any of it, because **no example project declared a
+`GroupOptions` subclass** — the trie was always `None` and every defect dormant.
+`examples/standalone/group_options_lab/` is the fixture that arms them, and
+`tests/tui_group_options/` holds the regressions.
+
+What shipped:
+
+- **One emitter.** `build_command_line` (`_cli/tui/sync.py`) turns "which job,
+  which values" back into a line the user could have typed, placing each group
+  flag beside the segment of the group that declared it. Every producer — the
+  config-table sync, the pending sync, the pre-flight header, Ctrl+S — routes
+  through it, so `emit(resolve(text)) == text` holds by construction rather
+  than by four implementations agreeing.
+- **Two levels declaring one name.** The values dict is flat by design
+  (`_engine/executor.py`), so one value means one place to write it: the
+  **outermost** declaring level. `PendingExecution.group_option_paths` records
+  the attribution the flat dict cannot carry, and the snapshot and diff both
+  read it.
+- **Group options render as the path's, not the job's.** A dimmed `[deploy]`
+  prefix in the Config Table, the pre-flight and the diff; rows after the job's
+  own, outermost group first; filterable by group as well as by field name.
+  The Job Browser now shows `deploy web run`, and its filter takes dots,
+  spaces or hyphens.
+- **A group's credential masks.** `FieldDescriptor.secret` reaches a group
+  option through the cache for free, and the panel `FieldDef`s carry it —
+  sabotage-checked in both renderers, from the `Secret[str]` declared in the
+  example rather than from a stub (`wiring-discipline.md` §8).
+- **An unknown job flag stops READY.** Position is what separates a group's
+  flag from the job's own, so `deploy web run --env prod` is a job flag named
+  `env` and there is none. The bar says so instead of sending the user to a
+  click error unannounced.
+- **A seventh probe in `tests/group_options/test_surface_parity.py`.** The
+  harness previously drove the TUI's *resolver*; a field's kind is decided
+  again on the way to the screen, which is how two of the five recorded leaks
+  got past it. The render surface now partitions like the rest.
+
+**X.3 held throughout**: an ungrouped job renders byte-identically, verified
+live against the example's `status` control at every checkpoint.
+
+#### Scrutiny pass (2026-08-28) — eight more defects, and why the suite was green
+
+The work above was reviewed against its own intent and its own ADR. Eight
+further defects surfaced, six reproduced against a running app; all are fixed
+and pinned. What is worth recording is not the list but the **four shapes** the
+suite could not see, because each one recurs:
+
+1. **A test that builds its own fixture stops tracking the builder.**
+   `test_d1_editing_a_field_keeps_the_whole_command_path` hand-built a
+   two-row `FieldDef` list, deliberately, to isolate D1 from D6. Once D6 was
+   fixed and `build_command_panels` began emitting a *second kind* of row, the
+   stub could not grow a `group_path` and the test went on passing over a shape
+   the panel no longer produces. The live path — edit `[deploy] --env`, write
+   the bar back — emitted the flag at the **job's** position, the walk returned
+   no group value, the bar read READY, and the job ran on the unedited value.
+   This is `wiring-discipline.md` §8 ("start from the real declaration, not a
+   stub") applied to a field that is not a secret. The replacement,
+   `TestThePanelTheBuilderActuallyProduces`, drives `build_command_panels` and
+   walks **every** row it emits.
+
+2. **A rule enforced by prose is not enforced.** ADR-009 claimed the
+   `tokens[0]` grep gate made the root-cause class "mechanically detectable";
+   it was a bash snippet in a guide and nothing ran it. Meanwhile the same
+   branch had three more unenforced rules — one emitter, one tokenizer, every
+   `FieldDef` carries its wires — and a defect behind one of them. All four are
+   now `tests/tui_group_options/test_write_back_gate.py`, which caught a real
+   violation within an hour of being written.
+
+3. **A behaviour gated on a condition needs the *other* feature's tests re-run
+   under that condition.** Readiness was rewritten to resolve through the trie.
+   Every group-options fixture arms the trie and types a *job*; every
+   pre-existing readiness test runs where the trie is `None`. Nothing typed a
+   **builtin** with the trie armed — so `builtin env` greyed out in any project
+   declaring a `GroupOptions` subclass, and `action_execute` (gated on READY)
+   made Enter a silent no-op. The X.3 control proves an ungrouped *job* is
+   unaffected and says nothing about a builtin.
+   `TestBothSidesOfTheTrieGate` parametrises over both sides.
+
+4. **A one-off manual audit produces no artifact.** Two assertions were closed
+   by reading rather than by testing, and both were wrong for a shape the
+   reader did not have in front of them:
+   - "which flags does this job accept?" was compared by hand against `--help`
+     for the jobs that happened to exist, so a **positional** (a click
+     `Argument`, no flag spelling) and a **bool with a short flag** (no `--no-`
+     half) both slipped through. `TestReadinessAgreesWithClick` now derives the
+     answer from `build_click_params_from_fields` itself, over a fixture
+     carrying every shape the builder branches on.
+   - `CF.1–3` was discharged "by audit only" and was right for one level of
+     grouping and wrong for two.
+
+   The same shape covers the two remaining defects: the fixed point was tested
+   over a hand-written table of four whitespace-free lines (the emitters quote,
+   every reader called `.split()`, and a value with a space resolved to *no
+   job*), and "CLI parity" was six probes over one CLI — so nobody noticed that
+   an app's **own** entry point answered `No such option '--env'` while `func`
+   ran the same line. `tests/group_options/test_adapter_entry_point_parity.py`
+   is the seventh CLI probe.
+
+Recorded as ADR-009 decisions 9–11 and amendments to decisions 1 and 7.
+
+**Known gap, left deliberately**: `get_missing_required_args`
+(`_cli/tui/missing_args.py`) was fixed and still has **no production call
+path**. Kept rather than deleted — see *Potential Follow-ups* item 8 for what
+it would take to wire it up.
+
 
 ### Secrets and config unification (2026-08-27, `feat/secrets-and-config`)
 
@@ -265,6 +388,48 @@ Items identified during development that are worth doing but not yet designed:
     they have no reason to suspect the file was even considered. Discovery
     should report a module it failed to parse.
 
+13. **A second, unreachable "what's missing?" implementation** —
+    `get_missing_required_args` (`_cli/tui/missing_args.py`) answers "which required
+    arguments has the user not supplied yet?" and **nothing calls it**. Its only
+    references in `src/` are the import and `__all__` entry in `_cli/tui/__init__.py`;
+    its only callers are two test modules. The live answer comes from
+    `SmartBar.evaluate` (`_cli/tui/bar.py`), a separate implementation that walks the
+    tokens itself.
+
+    Kept rather than deleted (maintainer decision, 2026-08-28), because it returns
+    strictly more than `evaluate` does: field **descriptors**, not just names. That is
+    enough to render "Missing: `image` (str) — Image tag to deploy" where the bar today
+    can only say "Missing: image". Wiring it up is that feature, not a cleanup.
+
+    Both were repaired during the GroupOptions panel work (2026-08-28) — each matched
+    the bar's first token against the job list, which under a group is the *group*, so
+    `missing_args` returned "not a command" for every grouped job. The two agree today;
+    the standing cost is that a reader must work out which one runs.
+
+    To wire it: give `evaluate` the result instead of recomputing it, and delete the
+    duplicated token walk — they must not both survive, or they will drift. Note it is
+    `async` and `evaluate` is not, so the call has to move to where the app already
+    awaits (`on_input_changed`), with the result passed in. One more cost found in the
+    2026-08-28 scrutiny pass: its repair calls `build_group_option_trie` on every
+    invocation, unmemoized, where the app holds a cached property — harmless while it
+    is dead, and a per-keystroke cache read the moment it is not.
+
+14. **`omit_defaults` is API surface ahead of a caller** — `build_command_line`'s
+    keyword is specified, documented (ADR-009 decision 3) and tested, and nothing
+    passes it `True`. Either find the caller it was designed for — a snapshot restore
+    handing the emitter fully *resolved* values, where every field is present and most
+    are defaults nobody chose — or delete it. It is cheap to keep and cheap to remove;
+    what it must not do is sit unexplained.
+
+15. **The shell has no round-trip fuzz** — the fixed point `emit(resolve(text)) == text`
+    is asserted over a hand-written table plus a handful of value shapes. Both defects
+    the 2026-08-28 pass found on that property were *outside* the table (a group row
+    edited in the panel; a value containing a space). A generator over
+    {path depth} × {which levels declare flags} × {value shapes: empty, spaces, quotes,
+    leading dash, unicode} would have found both without anyone having to think of them.
+    The example project and `collision_tui` already supply the project shapes; what is
+    missing is the value axis.
+
 ## Recently Completed (2026-07)
 
 | Feature | Description |
@@ -282,6 +447,7 @@ Good first issues for new contributors (ordered by complexity):
 
 1. **Follow-up #2 (Preset awareness)** — small, self-contained TUI change in one panel (`panels/config_files.py`)
 2. **Follow-up #3 (Settings consumers)** — wire resolved settings to their actual behavior, one setting per PR
-3. **TUI Group Options Panels** — 30 assertions across 6 panels, good for a contributor familiar with Textual; the committed shape intent doc is a self-contained starting point
+3. **Follow-up #12 (SyntaxError vanishes silently)** — one diagnostic in discovery; the failure mode is easy to reproduce and the fix is contained
+4. **Follow-up #14 (`omit_defaults` has no caller)** — small and self-contained; the parameter is specified and tested but nothing passes it
 
 See `CONSTITUTION.md` for quality gates that apply to all changes.

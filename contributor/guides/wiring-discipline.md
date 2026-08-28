@@ -270,6 +270,97 @@ cannot rot into naming a fix that no longer exists.
 its keep twice: it caught the silence, and it is what failed when the
 conversion command the warning used to name was later removed.
 
+### 12. A stub fixture stops tracking its builder the moment the builder grows
+
+*Added 2026-08-28, from the GroupOptions shell scrutiny pass.*
+
+The write-back test that would have caught the branch's worst defect built its
+own two-row `FieldDef` list rather than calling `build_command_panels`. That was
+a deliberate, defensible isolation at the time: the builder had a defect of its
+own, and routing through it would have reproduced *that* defect instead of the
+one under test.
+
+Then the builder was fixed, and it learned to emit a **second kind** of row —
+group options, carrying `group_path`. The stub could not grow one. It went on
+passing, over a shape the panel no longer produces, while the live path emitted
+a group's flag at the job's position: the walk returned no group value, the bar
+read READY, and the job ran on the unedited value with nothing reported.
+
+This is §8 generalised past secrets. A stub is a snapshot of what the builder
+produced on the day it was written, and nothing tells you when the snapshot goes
+stale — the test's own greenness is the disguise.
+
+**Rule.** Isolating from a broken collaborator is fine; leaving the stub behind
+after the collaborator is fixed is not. When a defect that forced a stub gets
+fixed, the same commit re-points the test at the real builder. Where a stub must
+survive, iterate over **every** item the builder emits rather than a hand-picked
+one, so a new *kind* of output is a failure rather than an absence.
+`TestThePanelTheBuilderActuallyProduces` is the worked example.
+
+### 13. A rule you wrote down is not a rule you enforce
+
+*Added 2026-08-28, from the GroupOptions shell scrutiny pass.*
+
+ADR-009 listed among its wins that a grep gate "makes the root-cause class of
+defect **mechanically detectable** rather than a matter of review attention".
+The gate was a bash snippet in a guide. A snippet is detectable by a reader who
+thinks to run it, which is exactly the review attention the sentence claims to
+have replaced — and the same branch carried three sibling rules with no
+enforcement at all, one of them with a live defect behind it.
+
+**Rule.** If you write "this is mechanically detectable", make it a test in the
+same change. A grep gate is a `set` comparison over file contents and costs
+twenty lines; pin the sanctioned exceptions by their *content*, with the reason
+beside each, so adding one is a deliberate edit rather than a number going up.
+`tests/tui_group_options/test_write_back_gate.py` caught a real violation within
+an hour of being written — the author's own.
+
+### 14. A behaviour gated on a condition needs the *other* feature's tests run under it
+
+*Added 2026-08-28, from the GroupOptions shell scrutiny pass.*
+
+Readiness was rewritten to resolve commands through the group trie. Every
+group-options fixture arms the trie and types a *job*; every pre-existing
+readiness test runs in a project where the trie is `None`. The intersection —
+a **builtin**, with the trie armed — had no test, and there every builtin greyed
+out, which made Enter a silent no-op because execution is gated on READY.
+
+The branch did have a control for this: an ungrouped job that must render
+byte-identically. It proved the un-armed *feature* was unaffected and said
+nothing about an unrelated command *under the armed gate*, which is a different
+axis.
+
+**Rule.** When a change is gated on a condition (`if trie is not None`, a
+feature flag, a format version), the question is not "does the old behaviour
+still work?" but "does everything *else* still work on the new side of the
+gate?". Parametrise the pre-existing tests for the neighbouring features over
+both sides. `TestBothSidesOfTheTrieGate` is the worked example.
+
+### 15. "Verified by audit" leaves nothing behind to re-run
+
+*Added 2026-08-28, from the GroupOptions shell scrutiny pass.*
+
+Two assertions were closed by reading rather than by testing. Both were correct
+for the project shape in front of the reader and wrong for one that arrived
+later:
+
+- The Config Files panel was declared to need "zero code changes, verify by
+  audit only". True where a job's own config section *is* its declaring group's;
+  false for two levels of grouping, where the outer group's fields sat in the
+  same file and were never listed.
+- "Which flags does this job accept?" was compared by hand against `--help` for
+  the jobs that happened to exist — so a positional (a click `Argument`, no flag
+  spelling) and a bool carrying a short flag (no `--no-` half) both passed a
+  check that had already been declared thorough.
+
+**Rule.** An audit is a fine way to *decide*; it is not a way to *close*. If the
+conclusion is "no change needed", the artifact is a test asserting that, so the
+conclusion is re-checked when the shape it assumed changes. Where the audit
+compared against another component's behaviour, derive the expectation from that
+component rather than transcribing its output — `TestReadinessAgreesWithClick`
+reads `build_click_params_from_fields` itself, so the day the param builder
+changes a rule, a test says so.
+
 ## The one-line version
 
 > Code that only tests call is not shipped, however green it is. Before closing

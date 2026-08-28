@@ -15,8 +15,16 @@ shape — the tree of groups, jobs, and plugin commands. It replaces:
 - Duplicated `_is_valid_job_group()` in registry and sync
 
 The trie sits at the top of the layer order (in `_types/`, not `_discovery/`), making it
-importable by all four consumers without peer-layer violations: CLI dispatch (`_cli/`),
-TUI (`_cli/tui/`), engine (`_engine/`), and MCP metadata (`plugins/functualize-mcp/`).
+importable by all five consumers without peer-layer violations: CLI dispatch (`_cli/`),
+TUI (`_cli/tui/`), engine (`_engine/`), MCP metadata (`plugins/functualize-mcp/`), and
+the CLI **adapter** (`app/adapters/cli.py`), which mirrors the trie into a click command
+tree and hangs each declaring group's options on the matching node (ADR-009 decision 11).
+
+That fifth consumer is easy to forget — it was, for the whole of S6a/S6b — because it
+does not *walk* the trie at request time the way the other four do: it walks it once at
+registration and lets click own the parse. A change to how a group's flags are declared
+therefore has two landing sites, and `tests/group_options/test_adapter_entry_point_parity.py`
+is what keeps them agreeing.
 
 ## 2. Two Populations
 

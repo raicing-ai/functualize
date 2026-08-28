@@ -29,11 +29,24 @@ class PendingExecution:
         resolved_values: Mapping of field names to their ResolvedValue from
             the ResolutionChain.
         overrides: User-applied override values, keyed by field name.
+        group_option_values: Values for options declared by a group on the
+            job's path, keyed by field name. Kept apart from ``overrides``
+            because they are not the job's arguments: they belong to an
+            ancestor, they are spelled beside that ancestor's segment on the
+            command line, and folding them in is what once wrote a shortcut
+            handing a job flags it never declared. Flat, and keyed by field
+            name alone — the same shape the engine's own merge uses.
+        group_option_paths: Which group declared each of those values, keyed
+            by the same field name. The values dict is flat by design and so
+            cannot say; a snapshot key and a diff row both need to, or a
+            group's `env` and a job's own become one indistinguishable row.
     """
 
     job_name: str
     resolved_values: dict[str, ResolvedValueCompat]
     overrides: dict[str, Any] = field(default_factory=dict)
+    group_option_values: dict[str, Any] = field(default_factory=dict)
+    group_option_paths: dict[str, str] = field(default_factory=dict)
 
     def effective_value(self, field_name: str) -> Any:
         """Return override value if set, otherwise the resolved chain value.

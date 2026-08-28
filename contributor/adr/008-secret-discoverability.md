@@ -355,3 +355,36 @@ production entry point, one precedence tier and one field shape under test, and
 a new protocol hook added without auditing the type's existing consumers — are
 recorded as rules §8–§10 of `contributor/guides/wiring-discipline.md`, which is
 where they will be read again.
+
+### A5. A group option is a credential like any other (2026-08-28)
+
+`GroupOptions` declares flags at a group that every descendant job inherits.
+Nothing above said whether "detection follows the model" extends to them, and
+the answer is that it already did — for free, and unnoticed.
+
+`extract_group_options_fields` (`_discovery/group_options_extractor.py`) reuses
+the job path's `extract_field_descriptors` and then `dataclasses.replace`s only
+`short_flag` and `description`. `replace` preserves what it is not told about,
+so `secret` rides through into the cached `GroupOptionsSpec` untouched. A field
+declared `Secret[str]` on a `GroupOptions` subclass therefore arrives at the
+import-free panel path already marked, with no code aware it happened. That was
+verified against a real project rather than assumed, and is pinned by
+`examples/standalone/group_options_lab/tests/`.
+
+The consequence is that masking a group credential is not a feature to add but
+a wire not to drop. The panel `FieldDef`s built for group rows must carry
+`secret=` exactly as the job path does; omitting it renders the credential in
+cleartext in the Config Table and the pre-flight, which is precisely the leak
+this ADR closed. Sabotage-checked in both renderers: deleting the kwarg prints
+the credential and turns three tests red.
+
+Per §8 of `wiring-discipline.md`, those tests start from the `Secret[str]`
+declared in the example project — a `FieldDef` stub carrying `secret=True`
+would only prove the formatter masks when told to, which was never the thing in
+doubt.
+
+One asymmetry follows from A1 and is worth knowing before it looks like a bug:
+a secret's default is not written to the cache (`_serialize_default` returns
+`None` when `secret`), so any surface that omits a value for equalling its
+default cannot make that comparison for a credential. It renders the flag
+explicitly instead. See ADR-009 decision 3.

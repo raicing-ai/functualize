@@ -324,28 +324,46 @@ class DiffViewWidget(Widget):
 
         entries_widget.update("\n".join(lines))
 
+    @staticmethod
+    def _entry_label(entry: ConfigDiffEntry) -> str:
+        """The field's display name, with its group when it has one.
+
+        Same `[group] name` convention the config table and pre-flight use —
+        one reader learns it once. The stored ``field_name`` is already
+        group-prefixed to keep the keys distinct, so the group half is stripped
+        before re-adding it as a label rather than printing `deploy.env` twice
+        over.
+        """
+        if not entry.group_path:
+            return entry.field_name
+        name = entry.field_name
+        head = f"{entry.group_path}."
+        if name.startswith(head):
+            name = name[len(head) :]
+        return f"\\[{entry.group_path}] {name}"
+
     def _format_entry(self, entry: ConfigDiffEntry, color: str, prefix: str) -> str:
         """Format a single diff entry as a Rich markup line."""
         if entry.status == "changed":
             return (
-                f"[{color}]{prefix} {entry.field_name}: "
+                f"[{color}]{prefix} {self._entry_label(entry)}: "
                 f"{entry.previous_value!r} → {entry.current_value!r} "
                 f"({entry.current_source})[/{color}]"
             )
         elif entry.status == "removed":
             return (
-                f"[{color}]{prefix} {entry.field_name}: "
+                f"[{color}]{prefix} {self._entry_label(entry)}: "
                 f"{entry.previous_value!r} (removed)[/{color}]"
             )
         elif entry.status == "new":
             return (
-                f"[{color}]{prefix} {entry.field_name}: "
+                f"[{color}]{prefix} {self._entry_label(entry)}: "
                 f"{entry.current_value!r} ({entry.current_source})[/{color}]"
             )
         else:
             # unchanged
             return (
-                f"[{color}]{prefix} {entry.field_name}: "
+                f"[{color}]{prefix} {self._entry_label(entry)}: "
                 f"{entry.current_value!r} ({entry.current_source})[/{color}]"
             )
 
