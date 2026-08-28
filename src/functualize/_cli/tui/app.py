@@ -20,8 +20,8 @@ from functualize._cli.data.func_settings import FuncSettingsStore
 from functualize._cli.tui.bar import BarReadiness, SmartBar  # noqa: F401
 from functualize._cli.tui.bar_items import render_header_items, render_status_items
 from functualize._cli.tui.chain_resolution import (
-    _build_group_field_defs,
     build_command_panels,
+    build_group_field_defs,
     build_pending_execution,
     compute_chain_detail_rows,
 )
@@ -30,6 +30,7 @@ from functualize._cli.tui.cli_arg_parser import (
     group_option_specs_on_path,
     parse_cli_args_to_kwargs,
     resolve_tui_command,
+    tokenize_bar_text,
 )
 from functualize._cli.tui.descriptor_fields import get_descriptor_fields
 from functualize._cli.tui.diff_view_widget import DiffViewWidget
@@ -448,7 +449,7 @@ class FunctualizeInlineTUI(App[int]):
         # contains group nodes as well as jobs, so a bar evaluated on its first
         # token reports a group READY and never asks the real job what it is
         # still missing.
-        tokens = text.split() if text.strip() else []
+        tokens = tokenize_bar_text(text)
         _resolution = self.resolve_command(tokens)
         self._smart_bar.evaluate(
             tokens,
@@ -456,6 +457,7 @@ class FunctualizeInlineTUI(App[int]):
             self._get_required_fields,
             get_fields=self._get_job_fields,
             resolution=_resolution,
+            is_non_job_command=self._is_non_job_command,
         )
 
         # Invalidate command panels cache when job changes. The job is resolved
@@ -570,7 +572,16 @@ class FunctualizeInlineTUI(App[int]):
             return
         field_name = getattr(field_def, "name", None)
         if self._pending is not None and field_name:
-            self._pending.clear_override(field_name)
+            # A group row is not the job's override and must not be cleared as
+            # one: `clear_override` would miss the value entirely (leaving the
+            # flag standing mid-path in the bar) and, where the job declares a
+            # field of the same name, would clear the *job's* value instead.
+            # The attribution is on the row; use it.
+            if getattr(field_def, "group_path", None):
+                self._pending.group_option_values.pop(field_name, None)
+                self._pending.group_option_paths.pop(field_name, None)
+            else:
+                self._pending.clear_override(field_name)
         self._refresh_all_views()
 
     def on_config_table_panel_drill_down_requested(
@@ -1340,7 +1351,7 @@ class FunctualizeInlineTUI(App[int]):
 
         if self._smart_bar.readiness == BarReadiness.READY:
             text = self._smart_bar.value
-            tokens = text.split() if text.strip() else []
+            tokens = tokenize_bar_text(text)
             if not tokens:
                 return
             self._run_job(tokens)
@@ -1491,7 +1502,7 @@ class FunctualizeInlineTUI(App[int]):
         arrive as arguments the job never declared.
         """
         text = self._smart_bar.value
-        tokens = text.split() if text.strip() else []
+        tokens = tokenize_bar_text(text)
         if not tokens:
             return
         resolution = self.resolve_command(tokens)
@@ -1775,7 +1786,7 @@ class FunctualizeInlineTUI(App[int]):
         # Resolve the path the bar currently spells, so the whole of it
         # survives the rebuild.
         text = self._smart_bar.value
-        tokens = text.split() if text.strip() else []
+        tokens = tokenize_bar_text(text)
         if not tokens:
             return
         resolution = self.resolve_command(tokens)
@@ -1806,7 +1817,7 @@ class FunctualizeInlineTUI(App[int]):
         # the raw tail instead binds `web` — a path segment — to the job's
         # first positional.
         text = self._smart_bar.value
-        resolution = self.resolve_command(text.split() if text.strip() else [])
+        resolution = self.resolve_command(tokenize_bar_text(text))
         if sync_bar_to_overrides(text, panel.fields, resolution=resolution):
             panel.reload_table()
 
@@ -2194,6 +2205,19 @@ class FunctualizeInlineTUI(App[int]):
 
         return descriptor
 
+    def _is_non_job_command(self, name: str) -> bool:
+        """True when ``name`` is a top-level command that is not a job.
+
+        The group trie is built from jobs alone, so the walk cannot resolve a
+        builtin and hands back ``None``. Readiness needs to tell that apart
+        from a name that means nothing, or every builtin greys out in any
+        project declaring a ``GroupOptions`` subclass — and Enter, gated on
+        READY, becomes a silent no-op.
+        """
+        from functualize._cli.tui.job_execution import _is_non_job_command
+
+        return _is_non_job_command(self, name)
+
     def _group_option_paths(self, job_name: str) -> dict[str, str]:
         """Which group declared each option the job inherits, by field name.
 
@@ -2241,9 +2265,7 @@ class FunctualizeInlineTUI(App[int]):
         """
         try:
             log.clear()
-            tokens = (
-                self._smart_bar.value.split() if self._smart_bar.value.strip() else []
-            )
+            tokens = tokenize_bar_text(self._smart_bar.value)
             if not tokens:
                 return
             # Space-separated path walk (S6b), so the pre-flight panel resolves
@@ -2324,7 +2346,7 @@ class FunctualizeInlineTUI(App[int]):
             # one level up.
             fields = [
                 *fields,
-                *_build_group_field_defs(
+                *build_group_field_defs(
                     self, job_name, _preflight_resolution.group_values
                 ),
             ]

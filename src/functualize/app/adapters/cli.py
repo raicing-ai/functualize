@@ -22,6 +22,7 @@ import inspect
 import logging
 import os
 import sys
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import click
@@ -294,6 +295,7 @@ def _print_validation_error(job_name: str, error: Any, app: Any = None) -> None:
 def _build_job_command(
     descriptor: JobDescriptor,
     app: FunctualizeApp,
+    group_option_values: dict[str, Any] | None = None,
 ) -> tuple[click.Command, str]:
     """Build the click command for one job descriptor + its CLI command name.
 
@@ -321,12 +323,60 @@ def _build_job_command(
             job_config_class=config_class,
             app=app,
             command_name=command_name,
+            group_option_values=group_option_values,
         )
     else:
-        command = make_lazy_command(descriptor, app, command_name=command_name)
+        command = make_lazy_command(
+            descriptor,
+            app,
+            command_name=command_name,
+            group_option_values=group_option_values,
+        )
 
     setattr(command, _PANEL_ATTR, _get_job_panel(descriptor))
     return command, command_name
+
+
+def _group_option_params(
+    spec: Any,
+    sink: dict[str, Any],
+) -> tuple[list[click.Parameter], Callable[..., None]]:
+    """Render a group's declared options as click params + a depositing callback.
+
+    The **adapter** path — an app's own entry point, `glab deploy --env prod
+    web run v1.2` — never reaches ``_cli/main``'s ``walk_group_path``: click
+    owns the tree here and parses each group before it resolves the
+    sub-command. Without params of its own a group answered
+    ``Error: No such option '--env'`` for the one spelling the feature exists
+    for, so `func` and an app's own script disagreed about the same project.
+
+    The params come from ``build_click_params_from_fields`` — the same renderer the
+    job path uses (C-D1) — so a group flag is spelled exactly as the identical
+    job flag would be.
+
+    ``sink`` is the mutable dict shared with every job command beneath this
+    node. Only values click reports as coming from the **command line** are
+    deposited: ``group_option_values`` is the CLI layer, which outranks the
+    group's config file, so depositing a click *default* would silently beat
+    `[deploy] env = "staging"` with the same string and, worse, beat a real
+    file value with a declared default.
+    """
+    from functualize.app.adapters.click_params import build_click_params_from_fields
+
+    params = build_click_params_from_fields(list(spec.fields))
+    names = {p.name for p in params if p.name}
+
+    def _deposit(**kwargs: Any) -> None:
+        ctx = click.get_current_context()
+        for key, value in kwargs.items():
+            if key not in names:
+                continue
+            source = ctx.get_parameter_source(key)
+            if source is not None and source.name != "COMMANDLINE":
+                continue
+            sink[key] = value
+
+    return params, _deposit
 
 
 def _register_trie_node(
@@ -334,6 +384,9 @@ def _register_trie_node(
     node: TrieNode,
     jobs_by_path: dict[str, JobDescriptor],
     app: FunctualizeApp,
+    group_option_specs: dict[str, Any] | None = None,
+    group_option_values: dict[str, Any] | None = None,
+    path: str = "",
 ) -> None:
     """Recursively mirror one namespace-trie node into the click command tree.
 
@@ -347,24 +400,71 @@ def _register_trie_node(
     than a single group literally named ``infra.aws``.
     """
     descriptor = jobs_by_path.get(node.payload) if node.payload is not None else None
+    node_path = f"{path}.{node.segment}" if path else node.segment
 
     if descriptor is not None and node.is_leaf:
-        command, command_name = _build_job_command(descriptor, app)
+        command, command_name = _build_job_command(
+            descriptor, app, group_option_values=group_option_values
+        )
         parent.add_command(command, name=command_name)
         return
 
     if descriptor is not None:
         # Duality: runnable AND navigable.
-        job_command, _ = _build_job_command(descriptor, app)
+        job_command, _ = _build_job_command(
+            descriptor, app, group_option_values=group_option_values
+        )
         group: click.Group = make_duality_group(
             job_command, name=node.segment, panel=_get_job_panel(descriptor)
         )
     else:
         group = _make_pure_group(node.segment)
 
+    # Mid-path group options (S6a) for *this* node, if it declared any.
+    spec = (group_option_specs or {}).get(node_path)
+    if spec is not None and group_option_values is not None:
+        extra_params, deposit = _group_option_params(spec, group_option_values)
+        _attach_group_options(group, extra_params, deposit)
+
     parent.add_command(group, name=node.segment)
     for child in sorted(node.children.values(), key=lambda c: c.segment):
-        _register_trie_node(group, child, jobs_by_path, app)
+        _register_trie_node(
+            group,
+            child,
+            jobs_by_path,
+            app,
+            group_option_specs=group_option_specs,
+            group_option_values=group_option_values,
+            path=node_path,
+        )
+
+
+def _attach_group_options(
+    group: click.Group,
+    params: list[click.Parameter],
+    deposit: Callable[..., None],
+) -> None:
+    """Add a group's declared options and chain its depositing callback.
+
+    A duality group already has a callback (it runs the job when no
+    sub-command follows). Chaining rather than replacing keeps both: the
+    deposit runs first, then whatever the group already did. The job callback
+    is handed only the params it already knew about, so a group flag never
+    arrives as a job kwarg it never declared.
+    """
+    existing = group.callback
+    known = {p.name for p in group.params if p.name}
+    group.params = [*group.params, *params]
+    added = {p.name for p in params if p.name}
+
+    def _chained(**kwargs: Any) -> Any:
+        deposit(**{k: v for k, v in kwargs.items() if k in added})
+        if existing is None:
+            return None
+        return existing(**{k: v for k, v in kwargs.items() if k in known})
+
+    group.callback = _chained
+    group.invoke_without_command = group.invoke_without_command or False
 
 
 def register_discovered_jobs(
@@ -385,7 +485,13 @@ def register_discovered_jobs(
         cli_group: The click.Group to register commands on.
         app: The FunctualizeApp with discovered jobs.
     """
-    from functualize.app.utils import build_group_trie
+    from pathlib import Path
+
+    from functualize.app.utils import (
+        build_group_trie,
+        read_group_options_from_cache,
+        resolve_cache_path,
+    )
 
     jobs = app.get_jobs()
     jobs_by_path = {descriptor.name: descriptor for descriptor in jobs}
@@ -395,8 +501,32 @@ def register_discovered_jobs(
         builtin=False,
     )
 
+    # Mid-path group options (S6a). `get_jobs()` above is the scan that writes
+    # this cache section, so reading it here is warm and import-free.
+    try:
+        group_option_specs = read_group_options_from_cache(
+            resolve_cache_path(Path.cwd())
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("register_discovered_jobs: no group options (%s)", exc)
+        group_option_specs = {}
+
+    # One mutable dict for the whole invocation, shared by every group node
+    # that can fill it and every job command that reads it. click parses a
+    # group's params before it resolves the sub-command, so it is filled by
+    # the time any job callback runs — which is why the values cannot simply
+    # be baked into each command at construction time.
+    group_option_values: dict[str, Any] = {}
+
     for node in sorted(trie.root.children.values(), key=lambda c: c.segment):
-        _register_trie_node(cli_group, node, jobs_by_path, app)
+        _register_trie_node(
+            cli_group,
+            node,
+            jobs_by_path,
+            app,
+            group_option_specs=group_option_specs,
+            group_option_values=group_option_values,
+        )
 
 
 def register_plugin_commands(

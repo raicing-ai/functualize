@@ -21,12 +21,14 @@ Integration wiring:
 
 from __future__ import annotations
 
+import shlex
 from typing import TYPE_CHECKING, Any
 
 from functualize._cli.tui.cli_arg_parser import (
     group_option_specs_on_path,
     parse_cli_args_to_kwargs,
     resolve_tui_command,
+    tokenize_bar_text,
 )
 from functualize._cli.tui.panels.config_table import EditOrigin, FieldDef
 
@@ -61,23 +63,37 @@ def _emit_positional_then_named(
     named_parts: list[str] = []
     for name, value, positional, short_flag in entries:
         if positional:
-            positional_parts.append(value)
+            positional_parts.append(_quoted(value))
             continue
         if short_flag:
             flag = short_flag if short_flag.startswith("-") else f"-{short_flag}"
         else:
             flag = f"--{name}"
         named_parts.append(flag)
-        if " " in value or "\t" in value:
-            named_parts.append(f'"{value}"')
-        else:
-            named_parts.append(value)
+        # One quoting rule for the job's values and the group's alike — see
+        # `_quoted`. A second, looser copy here is what let `say "hi"` through.
+        named_parts.append(_quoted(value))
     return " ".join([*command_path, *positional_parts, *named_parts])
 
 
 def _quoted(value: str) -> str:
-    """Quote a value the shell would otherwise split."""
-    return f'"{value}"' if (" " in value or "\t" in value) else value
+    """Quote a value the tokenizer would otherwise split or mangle.
+
+    The inverse of ``tokenize_bar_text``, which is shlex-based — so the rule
+    has to be shlex's, not "wrap it in double quotes if it has a space".
+    ``say "hi"`` wrapped that way emits ``"say "hi""``, which shlex reads back
+    as ``say hi`` and, mid-path, leaves a stray token where a path segment
+    belongs.
+
+    Double quotes are kept for the common case because that is the spelling
+    every existing test and screenshot shows; ``shlex.quote`` takes over the
+    moment the value contains a quote character of its own.
+    """
+    if not value:
+        return value
+    if '"' in value or "'" in value:
+        return shlex.quote(value)
+    return f'"{value}"' if any(c.isspace() for c in value) else value
 
 
 def _group_flag_tokens(field: Any, value: Any) -> list[str]:
@@ -193,25 +209,50 @@ def sync_overrides_to_bar(
     short flag is set). Named values containing whitespace are enclosed in
     double quotes. When no overrides exist, returns just the command.
 
+    **The field list is partitioned on ``group_path`` first.** A row carrying
+    one is not the job's argument — it belongs to an ancestor and is spelled
+    beside that ancestor's segment — so it goes to ``group_values``, never to
+    ``job_overrides``. Routing it the other way emits `deploy web run -e prod`,
+    which parses as a *job* flag named `env`: the walk hands the value back as
+    `{}`, the job runs on the group's unedited value, and the edit is lost with
+    no error anywhere. Calling one emitter is not enough on its own — the
+    emitter can only place a flag correctly if it is told which kind it is.
+
+    Once the panel holds any group row it is **authoritative** for group
+    values: a row the user has reset (``edit_origin == NONE``) is absent from
+    the result, which is what makes `r` remove the flag from the bar rather
+    than leave it standing. ``group_values`` is the fallback for a field list
+    that carries no group rows at all.
+
     Args:
         job_name: The job's canonical dotted name. It is spelled back out as
             a path — `deploy web run` — by ``build_command_line``, which is
             what the shell reads and what its own resolver accepts.
         fields: The full field list from the ConfigTablePanel, in display order.
         group_values: Group option values to carry through, keyed by field
-            name. Without them an edit to any field silently drops every group
-            flag the user typed.
+            name, used only when ``fields`` carries no group rows. Without
+            them an edit to any field silently drops every group flag the user
+            typed.
         trie: The group trie, for placing those flags mid-path.
 
     Returns:
         The formatted bar text string.
     """
-    entries = [
-        (f.name, f.value, f.positional, f.short_flag)
-        for f in fields
-        if f.edit_origin != EditOrigin.NONE
-    ]
-    return build_command_line(job_name, entries, group_values or {}, trie)
+    entries: list[tuple[str, str, bool, str | None]] = []
+    panel_group_values: dict[str, Any] = {}
+    has_group_rows = False
+
+    for f in fields:
+        if getattr(f, "group_path", None):
+            has_group_rows = True
+            if f.edit_origin != EditOrigin.NONE:
+                panel_group_values[f.name] = f.value
+            continue
+        if f.edit_origin != EditOrigin.NONE:
+            entries.append((f.name, f.value, f.positional, f.short_flag))
+
+    effective = panel_group_values if has_group_rows else (group_values or {})
+    return build_command_line(job_name, entries, effective, trie)
 
 
 def sync_pending_overrides_to_bar(
@@ -287,7 +328,7 @@ def sync_bar_to_overrides(
         True if any field was actually changed, False otherwise — callers
         can use this to decide whether to reload a table display.
     """
-    tokens = bar_text.split() if bar_text.strip() else []
+    tokens = tokenize_bar_text(bar_text)
     if not tokens:
         return False
 

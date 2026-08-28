@@ -13,9 +13,12 @@ inherits, typed **mid-path**:
 func deploy --env prod web --region eu-west-1 run v1.2
 ```
 
-The kernel for this shipped in S6a/S6b and works: trie construction, the walk,
-inheritance, engine injection, and CLI/MCP/completion parity are covered by
-`tests/group_options/`. The shell did not follow. Its **read** paths were wired
+The kernel for this shipped in S6a/S6b and works *for `func`*: trie
+construction, the walk, inheritance, engine injection, and CLI/MCP/completion
+parity are covered by `tests/group_options/`. Two things did not follow. The
+shell is the subject of this ADR; an app's **own** entry point is the second,
+and it was invisible because all six parity probes drove one CLI — see
+decision 11. Its **read** paths were wired
 to the mid-path resolver (`resolve_tui_command`); every **write-back** path
 still took the bar's first token as the job name — and under a group, that
 token is the *group*.
@@ -60,6 +63,26 @@ than opening a second one.
 
 The property is enforced directly, over the canonical invocation table, in
 `tests/tui_group_options/test_smartbar_roundtrip.py`.
+
+**Amendment (2026-08-28, scrutiny pass).** One emitter is necessary and was not
+sufficient. `sync_overrides_to_bar` routed *every* edited row into the
+emitter's `job_overrides` argument, group rows included, so editing
+`[deploy] --env` emitted `deploy web run v1.2 -e prod` — a **job** flag named
+`env`, which the walk hands back as `{}`. The bar read READY (the check in
+decision 7 inspects `--` tokens only) and the job ran on the group's unedited
+value. The emitter places a flag correctly only if it is told which kind the
+flag is, so the real invariant is the **partition**, not the funnel:
+`sync_overrides_to_bar` now splits on `FieldDef.group_path` before it calls
+`build_command_line`, and a field list carrying any group row is authoritative
+for the group's values — which is also what makes `r` remove a flag rather than
+leave it standing (see decision 9).
+
+The quoting rule was the emitter's other half-truth. `_quoted` wrapped any
+value containing whitespace in double quotes while every reader called
+`str.split()`, so `deploy --env "us east" web run` resolved to *no job at all*.
+`tokenize_bar_text` (`cli_arg_parser.py`) is now the one owner of the inverse
+direction, shlex-based, and `_quoted` falls through to `shlex.quote` when the
+value carries a quote of its own.
 
 ### 2. Group flags emit mid-path; a name declared twice emits at the **outermost** level
 
@@ -172,6 +195,27 @@ undecorated form, and any short flag — so `deploy --no-dry-run web run` really
 refused by dispatch. The shell now matches dispatch in both cases, and a test
 pins each so the day the dispatch side changes, a test says so.
 
+**Amendment (2026-08-28, scrutiny pass).** That comparison was made once, by
+hand, over the field shapes the example projects happen to contain, and it
+missed two:
+
+- A **positional** is a `click.Argument` and has no flag spelling at all, so
+  `deploy web run --image v1.2` was refused by click and reported READY by the
+  bar — the exact failure this decision exists to close. (The example's own
+  `main.py` docstring advertised that spelling.)
+- A boolean's negative half exists only for a **plain** bool. With a short flag
+  the param builder emits `["--verbose", "-v"], is_flag=True` and no
+  `--no-verbose`, so allowing `no_<name>` unconditionally greenlit a line
+  dispatch refuses.
+
+`known` is now built from the same rules `build_click_params_from_fields`
+applies, field shape by field shape, and short flags are validated too (with a
+numeric guard, so `--count -1` stays a value). The rules are not restated in a
+test: `TestReadinessAgreesWithClick`
+(`tests/tui_group_options/test_write_back_contract.py`) derives the expected
+set from the param builder itself, over a fixture carrying every shape it
+branches on.
+
 ### 8. Two shape-intent assertions were void, not implemented
 
 - **`SBP.1`** asked for `parse_cli_args_to_kwargs` to return group values as
@@ -184,6 +228,68 @@ pins each so the day the dispatch side changes, a test says so.
 
 Both are recorded in the shape intent itself.
 
+### 9. A group row is reset as the *path's*, not as the job's
+
+**Added 2026-08-28 (scrutiny pass).** Shape-intent `CTE.3` — `r` on a
+`[deploy] --env` row clears the override and removes the flag from the bar —
+shipped unimplemented and untested, and it needed two things that were both
+missing.
+
+A group row built from a bar-typed value arrived with `edit_origin = NONE`, so
+`action_reset_override` hit its own no-op guard (Req 5.7) and never fired: the
+row *displayed* `source="cli"` while claiming nothing had been edited. It is
+now marked `VALUE`, with `original_value` set to what the row falls back to —
+the group's own resolved layer, else its declared default — exactly as the job
+path does for a CLI-provided field.
+
+And `on_config_table_panel_override_reset` cleared `PendingExecution.overrides`
+for every row. For a group row that both misses the value (the flag stays
+standing mid-path in the bar) and, where the job declares a field of the same
+name, clears the **job's** instead. The attribution is on the row; the handler
+now uses it, popping `group_option_values` / `group_option_paths`.
+
+### 10. Every group section on the path contributes to the Config Files panel
+
+**Added 2026-08-28 (scrutiny pass).** Shape-intent `CF.1–3` concluded "zero code
+changes, verify by audit only", and the audit left no artifact. It was right
+about the shape it reasoned over and wrong for two levels: the panel resolves
+one section — the job's — so `deploy.web.run` read `[deploy.web]` and reported
+`region`, while `[deploy]`'s `env` and `token`, in the same file two lines up,
+did not appear at all.
+
+`discover_config_files` now partitions its field list on `group_path` and reads
+each declaring group's section as well as the job's, labelling what it finds
+`[deploy] env`. Unescaped, unlike the other three renderers, because that column
+is a plain DataTable cell rather than Rich markup — the section shown beside it
+in the File column is written the same way.
+
+### 11. Mid-path flags work on an app's own entry point, not only on `func`
+
+**Added 2026-08-28 (scrutiny pass).** The Context above says the kernel "works",
+citing `tests/group_options/` for CLI parity. Those six probes drive
+`functualize._cli.main`. A standalone app does not go through it: `CliAdapter`
+builds a real nested `click.Group` tree and click owns the parse, so
+`walk_group_path` is never reached and the group answered `Error: No such
+option '--env'` for the one spelling the feature exists for.
+
+    func deploy --env prod web run v1.2   →  env = prod
+    glab deploy --env prod web run v1.2   →  No such option '--env'
+
+`group_options_lab`'s README says the two are interchangeable, and it now is.
+Each group node carries its declared options as real click params, rendered by
+`build_click_params_from_fields` — the same builder the job path uses, so a
+group flag is spelled exactly as the identical job flag would be — and a
+callback deposits them into one mutable dict shared with every job command
+beneath. Mutable rather than baked in at construction, because click parses a
+group's params before it resolves the sub-command.
+
+Only values click reports as coming from `COMMANDLINE` are deposited.
+`group_option_values` reaches the engine as the **CLI layer**, which outranks
+the group's config file, so depositing click's defaults would silently replace
+`[deploy] env = "from-file"` with `"staging"`. That is the one trap in giving a
+group real params, and it is pinned in
+`tests/group_options/test_adapter_entry_point_parity.py`.
+
 ## Consequences
 
 ### Positive
@@ -195,9 +301,15 @@ Both are recorded in the shape intent itself.
   group that declared them, in three panels that agree on how to say it.
 - A group option declared `Secret[str]` masks by the same rule a job's
   credential does — see ADR-008's Addendum A5.
-- The grep gate (`tokens[0]` → exactly 3 sanctioned sites, `tokens[1:]` → 1,
+- The grep gate (`tokens[0]` → the sanctioned sites, `tokens[1:]` → those, and
   `panels/` → 0) makes the root-cause class of defect mechanically detectable
-  rather than a matter of review attention.
+  rather than a matter of review attention. **It is a test**
+  (`tests/tui_group_options/test_write_back_gate.py`), not a recipe: as
+  originally written it was a bash snippet in a guide, which is exactly the
+  "review attention" the sentence claims to have replaced, and the scrutiny
+  pass that added the test found a further write-back defect behind a fourth,
+  equally unenforced rule. The gate now also owns "one tokenizer" and "every
+  `FieldDef` carries `secret=` and `group_path=`".
 
 ### Negative
 

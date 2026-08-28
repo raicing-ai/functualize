@@ -191,7 +191,7 @@ see what they contain and optionally edit values to persist.
 |--------|---------|
 | File | Source path + TOML section in brackets (e.g., `.functualize.toml [deploy]`, `pyproject.toml [tool.functualize.deploy]`) |
 | Status | `● exists` / `○ not found` / `● exists (read-only)` |
-| Fields | Comma-separated list of job fields that have values from this file (truncated with `…`) |
+| Fields | Comma-separated list of fields that have values from this file (truncated with `…`). A field declared by a **group** on the job's path is prefixed with its declaring group — `[deploy] env` — because it is read from that group's own section rather than the one in the File column. Unescaped, unlike the `[group]` prefix in the Config Table / pre-flight / diff: this is a plain DataTable cell, not Rich markup |
 
 ### Data Source
 

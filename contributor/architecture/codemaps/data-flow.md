@@ -148,10 +148,15 @@ interrupt job execution or starve peer surfaces. See
 User keystrokes → bar.py (SmartBar Input + BarReadiness FSM)
    │
    ▼
-cli_arg_parser.py tokenizes (--key value / -short / bare args)
+cli_arg_parser.py tokenizes — `tokenize_bar_text`, shlex-based, the one
+inverse of what the emitters quote
    │
    ▼
-job_execution.py resolves tokens → kwargs, cross-checks missing_args.py
+`resolve_tui_command` walks the tokens as a *path* (`deploy web run`),
+consuming any group's flags mid-path → (job_name, args, group_values)
+   │
+   ▼
+job_execution.py turns `resolution.args` — the job's OWN tokens — into kwargs
    │
    ▼
 run_job() launches execution as a thread worker (run_worker(..., thread=True))
@@ -166,4 +171,20 @@ engine.execute() (same path as CLI/programmatic — see §2)
 Results rendered into panels/job_browser.py, panels/config_table.py, dynamic_footer.py
 ```
 
-`sync.py` and `config_diff.py` keep the SmartBar text and config panels consistent with pure-Python state (no Textual import), enabling unit testing without a running app. See `contributor/architecture/tui-architecture.md` for the full keybinding map and panel ring structure — there is no separate argument-form modal; missing-argument handling stays inline in the SmartBar/pre-flight flow.
+`sync.py` and `config_diff.py` keep the SmartBar text and config panels consistent with pure-Python state (no Textual import), enabling unit testing without a running app.
+
+**The flow above runs backwards too, and that direction is where the defects
+live.** A panel edit rebuilds the bar: `sync.py`'s `build_command_line` is the
+only emitter, and `emit(resolve(text)) == text` is the property that keeps the
+two directions honest. Two things it needs from its caller — both were wrong
+once (ADR-009 decision 1, and its amendment):
+
+- the values must be **partitioned** on `FieldDef.group_path` first. A group's
+  flag handed in as one of the job's is emitted after the job, where the walk
+  reads it as the job's own — no error, no group value, wrong run.
+- a value the user typed must carry `edit_origin`, or a reset silently does
+  nothing.
+
+`missing_args.py` is **not** in the live path despite the name: readiness and
+"what is missing" are answered by `SmartBar.evaluate`. See `STATUS.md`
+follow-up 13. See `contributor/architecture/tui-architecture.md` for the full keybinding map and panel ring structure — there is no separate argument-form modal; missing-argument handling stays inline in the SmartBar/pre-flight flow.

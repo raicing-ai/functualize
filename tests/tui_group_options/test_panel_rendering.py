@@ -22,14 +22,14 @@ CREDENTIAL = "hunter2-real-credential"
 
 
 def _group_fields(tui, job_name: str, group_values: dict | None = None):
-    from functualize._cli.tui.chain_resolution import _build_group_field_defs
+    from functualize._cli.tui.chain_resolution import build_group_field_defs
 
-    return _build_group_field_defs(tui, job_name, group_values or {})
+    return build_group_field_defs(tui, job_name, group_values or {})
 
 
 class TestAGroupsCredentialIsMasked:
     """The security claim. Sabotage-checked: removing ``secret=`` from the
-    group `FieldDef` construction in ``_build_group_field_defs`` turns both of
+    group `FieldDef` construction in ``build_group_field_defs`` turns both of
     these red."""
 
     def test_the_declared_secret_reaches_the_panel_marked(

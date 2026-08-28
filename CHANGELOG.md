@@ -30,6 +30,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   subclass, and none existed until now — see
   `examples/standalone/group_options_lab/`.
 
+### Fixed — a scrutiny pass over the above (2026-08-28)
+
+Reviewing the work above against its own intent found eight more defects, six
+reproduced against a running app. They are recorded as amendments and new
+decisions in ADR-009 because each was a rule the branch had already written
+down and not enforced.
+
+- **Editing a group's row in the config table discarded the edit.** The row
+  was handed to the emitter as one of the job's own, so `[deploy] --env` came
+  out as `deploy web run v1.2 -e prod` — a *job* flag named `env`. The walk
+  hands that back as no group value at all, the bar still read Ready, and the
+  job ran on the group's unedited value with nothing reported anywhere.
+- **`r` on a group's row did nothing.** A value typed on the bar reached the
+  row marked as un-edited, so reset short-circuited; and the handler cleared
+  the job's overrides, which is not where a group's value lives. There was no
+  way to clear a group override from the panel.
+- **Every builtin greyed out in a project declaring `GroupOptions`.** The
+  group tree holds jobs, so `builtin env` resolved to nothing and the bar
+  refused it — and Enter, which fires only on Ready, became a silent no-op.
+- **`--image v1.2` read Ready and could not run.** A positional is a click
+  argument with no flag spelling; the new unknown-flag check compared names,
+  not shapes. A boolean carrying a short flag has no `--no-` half either, and
+  that spelling was accepted. Both are now derived from the same param builder
+  the CLI runs.
+- **A value containing a space resolved to nothing.** The emitters quote; every
+  reader split on whitespace. One shlex-based tokenizer now owns the inverse.
+- **The Config Files panel showed only the deepest group's fields.** It read
+  one section — the job's — so `[deploy]`'s `env`, in the same file two lines
+  above `[deploy.web]`'s `region`, was never listed.
+- **An app's own entry point refused mid-path flags entirely.**
+  `glab deploy --env prod web run v1.2` answered `No such option '--env'`
+  while `func` ran it: the adapter builds a real click tree and never reaches
+  the dispatcher's walk. Each group now carries its declared options as click
+  params. **The two entry points are one surface again.**
+- **The grep gate was a comment, not a check.** It is now a test, and it
+  caught a new violation the same day it was written.
+
 ### Added
 
 - **Group options render in the shell's panels.** The Config Table, pre-flight

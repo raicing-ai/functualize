@@ -123,8 +123,8 @@ Group option fields appear inline in the same DataTable as job fields, with a
 | Assertion | Expected behavior |
 |---|---|
 | `CTE.1` | Pressing `i` on a `[deploy] --env` row enters INSERT mode (same as any field) |
-| `CTE.2` | Committing the edit updates the SmartBar to `deploy --env <new_value> web run --image v1.2` |
-| `CTE.3` | Pressing `r` on a `[deploy] --env` row clears the override and removes `--env` from the SmartBar |
+| `CTE.2` | Committing the edit updates the SmartBar to `deploy --env <new_value> web run v1.2`. **The first pass emitted it at the *job's* position instead, silently discarding the edit; closed by the 2026-08-28 scrutiny pass — see ADR-009 decision 1's amendment.** (The original wording said `--image v1.2`; `image` is an `Arg()` and has no flag spelling.) |
+| `CTE.3` | Pressing `r` on a `[deploy] --env` row clears the override and removes `--env` from the SmartBar. **Shipped unimplemented and untested in the first pass; closed by the 2026-08-28 scrutiny pass — see ADR-009 decision 9.** |
 | `CTE.4` | `get_available_actions` shows the same hints for group rows as job rows (`i` edit, `r` reset, Enter detail) |
 
 ---
@@ -142,6 +142,14 @@ fields in that section, same as job config fields.
 | `CF.3` | Status column is unchanged — a file contributing group fields is still `★ active` |
 
 **Expected outcome:** This panel requires zero code changes. Verify by audit only.
+
+> **Wrong, and the audit left nothing behind to re-check.** `CF.1` holds only
+> where the job's own config section *is* the declaring group's. For
+> `deploy.web.run` the panel read `[deploy.web]` and never `[deploy]`, so an
+> outer group's fields — in the same file — did not appear. Closed by the
+> 2026-08-28 scrutiny pass; see ADR-009 decision 10. The general lesson: an
+> assertion discharged "by audit" produces no artifact, and cannot be re-run
+> when the project shape it reasoned over changes.
 
 ---
 

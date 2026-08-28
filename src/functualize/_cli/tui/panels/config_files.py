@@ -241,6 +241,15 @@ def discover_config_files(
     # Only CONFIG params contribute to file discovery (R5-AC5)
     config_fields = [f for f in fields if f.param_kind == ParamKind.CONFIG]
 
+    # The groups on the job's path that declared any of those fields, outermost
+    # first — each is its own TOML section, and the field list is already in
+    # that order (`build_group_field_defs`).
+    group_sections: list[str] = []
+    for f in config_fields:
+        gp = f.group_path
+        if gp and gp not in group_sections:
+            group_sections.append(gp)
+
     # Build ordered path list
     all_paths: list[Path] = []
     roles: dict[Path, ConfigFileRole] = {}
@@ -305,10 +314,33 @@ def discover_config_files(
 
         display_name = _make_display_name(file_path, cwd)
 
-        # Determine which fields this specific file defines by parsing it
+        # Determine which fields this specific file defines by parsing it.
+        # A group option is declared in the *group's* section, not the job's:
+        # `[deploy]` holds `env` while the job resolves against `[deploy.web]`.
+        # Reading one section therefore reported the file as contributing only
+        # what the deepest group happened to declare, and an outer group's
+        # fields — in the same file, two lines up — did not appear at all.
         fields_from_file: list[str] = _extract_fields_from_file(
-            file_path, section, config_fields
+            file_path, section, [f for f in config_fields if not f.group_path]
         )
+        for group_path in group_sections:
+            group_section = (
+                f"tool.functualize.{group_path}" if is_pyproject else group_path
+            )
+            fields_from_file.extend(
+                # `[deploy] env` — the same prefix the config table, the
+                # pre-flight and the diff use, so the reader is not asked to
+                # learn a fourth spelling for the same idea. Unescaped, unlike
+                # those three: this column is a plain DataTable cell, not Rich
+                # markup — the section in the File column beside it is written
+                # the same way.
+                f"[{group_path}] {name}"
+                for name in _extract_fields_from_file(
+                    file_path,
+                    group_section,
+                    [f for f in config_fields if f.group_path == group_path],
+                )
+            )
 
         entries.append(
             ConfigFileEntry(

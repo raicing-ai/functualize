@@ -64,13 +64,30 @@ JobResult
 
 | Adapter | Location | Trigger |
 |---|---|---|
-| `CliAdapter` | `app/adapters/cli.py` | Click command dispatch, built into core `[cli]` extras |
+| `CliAdapter` | `app/adapters/cli.py` | Click command dispatch, built into core `[cli]` extras. Builds one `click.Group` per path segment; a segment whose group declares `GroupOptions` also carries those as real click params, consumed **mid-path** (`glab deploy --env prod web run v1.2`) — see ADR-009 decision 11 |
 | `TuiAdapter` | `app/adapters/tui.py` + `_cli/tui/app.py` | inline SmartBar TUI (bare `func` on a TTY) / full-screen TUI |
 | HTTP adapter | `plugins/functualize-http` | asyncio HTTP server, `AdapterPlugin.run()` |
 | Lambda adapter | `plugins/functualize-lambda` | AWS Lambda event → `app.execute()` |
 | MCP adapter | `plugins/functualize-mcp` | FastMCP tool exposure of jobs |
 
 All delivery adapters converge on the same `engine.execute(name, fn, config_class, kwargs)` call — see `contributor/architecture/execution-flow.md` and `data-flow.md`.
+
+**One argument beside `kwargs`.** A job reached through a group that declares
+`GroupOptions` also carries `group_option_values` — a flat `{field: value}` map
+of the flags typed *before* the job name. They are not the job's kwargs (the job
+never declares them; it receives an options class), and they reach the engine as
+the **CLI layer**, outranking the group's config file. Two entry points fill it,
+and they must agree:
+
+| Path | Who consumes the mid-path flags |
+|---|---|
+| `func …` | `walk_group_path` in `_cli/dispatch.py`, before click sees the line |
+| an app's own script (`glab …`) | click itself, via params attached to each declaring group node in `app/adapters/cli.py` |
+
+The adapter path deposits only values click reports as coming from
+`COMMANDLINE`; depositing its defaults would silently beat the group's config
+file. Parity between the two is pinned by
+`tests/group_options/test_adapter_entry_point_parity.py`.
 
 ## Static/Programmatic Entry Point
 

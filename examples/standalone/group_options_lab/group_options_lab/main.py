@@ -3,10 +3,12 @@
 Every other example declares flags on a job. This one declares them on the
 path between the root and the job::
 
-    glab deploy --env prod web --region eu-west-1 run --image v1.2
+    glab deploy --env prod web --region eu-west-1 run v1.2
 
-`--env` belongs to `deploy`, `--region` to `deploy.web`, `--image` to the job
-itself, and all three arrive in one invocation. The job never declares `env` or
+`--env` belongs to `deploy`, `--region` to `deploy.web`, and `v1.2` is the
+job's own positional — all three arrive in one invocation. (`image` is declared
+`Arg()`, so it is a click *argument*: `--image v1.2` is not a spelling of it,
+and both the CLI and the shell refuse that line.) The job never declares `env` or
 `region`; it receives them by asking for the options class.
 
 Run it with ``uv run glab``, or with no arguments at a TTY to open the shell —

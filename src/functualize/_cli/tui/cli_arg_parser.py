@@ -71,6 +71,26 @@ def parse_cli_args_to_kwargs(
     return kwargs
 
 
+def tokenize_bar_text(text: str) -> list[str]:
+    """Split SmartBar text into tokens the way the emitters wrote it.
+
+    The one owner of "how bar text becomes tokens". ``str.split()`` is not it:
+    every emitter in ``sync.py`` quotes a value containing whitespace, and a
+    plain split hands the opening quote back as part of the value and the rest
+    as a stray path token. ``deploy --env "us east" web run`` then resolves to
+    *no job at all* — the fixed point ``emit(resolve(text)) == text`` fails on
+    the one input class the emitters go out of their way to produce.
+
+    Delegates to the completion tokenizer, which is shlex-based and already
+    tolerates the unclosed quote a user is mid-way through typing.
+    """
+    if not text.strip():
+        return []
+    from functualize._cli.completions.quote_handling import tokenize_smart_bar
+
+    return tokenize_smart_bar(text)
+
+
 def build_group_option_trie(func_app: Any) -> Any:
     """Build a ``GroupTrie`` over a booted app's jobs + cached group options.
 

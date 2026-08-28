@@ -30,6 +30,7 @@ from functualize._cli.tui.bar import BarReadiness
 from functualize._cli.tui.cli_arg_parser import (
     group_option_specs_on_path,
     parse_cli_args_to_kwargs,
+    tokenize_bar_text,
 )
 from functualize._cli.tui.descriptor_fields import get_descriptor_fields
 from functualize._cli.tui.diff_view_widget import DiffViewWidget
@@ -82,7 +83,7 @@ def _scalar_to_display(value: Any) -> str:
     return str(value)
 
 
-def _build_group_field_defs(
+def build_group_field_defs(
     app: FunctualizeInlineTUI,
     job_name: str,
     group_values: dict[str, Any],
@@ -96,6 +97,14 @@ def _build_group_field_defs(
     Order is the order ``group_option_specs_on_path`` returns — outermost first
     — and the caller appends the whole block **after** the job's own rows, so a
     reader sees the job's arguments before the path's.
+
+    A value the user typed on the bar arrives in ``group_values`` and is marked
+    ``edit_origin=VALUE``, exactly as a job field typed on the bar is. That mark
+    is load-bearing in both directions: it is what ``sync_overrides_to_bar``
+    re-emits mid-path when some *other* field is edited, and what makes `r` a
+    real reset rather than the no-op it is on an unmarked row. ``original_value``
+    is what the row falls back to — the group's own resolved layer, or its
+    declared default — so the reset restores rather than blanks.
 
     Reads the cached specs only. Materializing the declaring class to ask it
     would import a job module on every panel refresh, which is the one thing
@@ -116,25 +125,29 @@ def _build_group_field_defs(
                 resolved = chain.resolve_section(spec.group)
         except Exception as exc:
             app.log.warning(
-                f"_build_group_field_defs: resolution for group {spec.group!r} "
+                f"build_group_field_defs: resolution for group {spec.group!r} "
                 f"failed ({type(exc).__name__}): {exc}"
             )
 
         for fd in spec.fields:
-            if fd.name in group_values:
-                value = _scalar_to_display(group_values[fd.name])
-                source = "cli"
-            elif fd.name in resolved:
+            # What the row would read with no bar value at all: the group's
+            # resolved layer, else the declared default. Computed first and
+            # unconditionally, because it is also the reset target.
+            if fd.name in resolved:
                 entry = resolved[fd.name]
                 raw = getattr(entry, "value", entry)
-                value = _scalar_to_display(raw)
-                source = str(getattr(entry, "source_type", "file") or "file")
+                base_value = _scalar_to_display(raw)
+                base_source = str(getattr(entry, "source_type", "file") or "file")
             elif getattr(fd, "default", None) is not None:
-                value = _scalar_to_display(fd.default)
-                source = "default"
+                base_value = _scalar_to_display(fd.default)
+                base_source = "default"
             else:
-                value = ""
-                source = ""
+                base_value = ""
+                base_source = ""
+
+            typed = fd.name in group_values
+            value = _scalar_to_display(group_values[fd.name]) if typed else base_value
+            source = "cli" if typed else base_source
 
             field_defs.append(
                 FieldDef(
@@ -155,6 +168,9 @@ def _build_group_field_defs(
                     # would print the credential in the clear.
                     secret=getattr(fd, "secret", False),
                     group_path=spec.group,
+                    edit_origin=EditOrigin.VALUE if typed else EditOrigin.NONE,
+                    original_value=base_value,
+                    original_source=base_source,
                     chain=[ChainEntry(source=source.upper() or "Default", value=value)],
                 )
             )
@@ -174,7 +190,7 @@ def build_command_panels(app: FunctualizeInlineTUI) -> list[tuple[str, Any]]:
     if app._smart_bar.readiness == BarReadiness.GREY:
         return []
 
-    tokens = app._smart_bar.value.split() if app._smart_bar.value.strip() else []
+    tokens = tokenize_bar_text(app._smart_bar.value)
     if not tokens:
         return []
 
@@ -375,7 +391,7 @@ def build_command_panels(app: FunctualizeInlineTUI) -> list[tuple[str, Any]]:
     # Appended after the sort, not folded into it: the priority order ranks a
     # job's arguments against each other, and a field belonging to an ancestor
     # is not competing in that ranking.
-    field_defs.extend(_build_group_field_defs(app, job_name, resolution.group_values))
+    field_defs.extend(build_group_field_defs(app, job_name, resolution.group_values))
 
     # Build ConfigTablePanel and populate it
     app._panel_id_seq += 1
@@ -476,9 +492,7 @@ def build_pending_execution(
             # Parse the job's own args from the SmartBar. Same walk as
             # `build_command_panels`: the path and the group flags are not
             # this job's arguments.
-            tokens = (
-                app._smart_bar.value.split() if app._smart_bar.value.strip() else []
-            )
+            tokens = tokenize_bar_text(app._smart_bar.value)
             provided = parse_cli_args_to_kwargs(
                 app.resolve_command(tokens).args, fields=field_descriptors
             )

@@ -224,7 +224,7 @@ def _tui_settable(project: Path, monkeypatch) -> tuple[set[str], set[str]]:
     return set(job_kwargs), set(resolution.group_values)
 
 
-def _tui_render_settable(project: Path, monkeypatch) -> tuple[set[str], set[str]]:
+async def _tui_render_settable(project: Path, monkeypatch) -> tuple[set[str], set[str]]:
     """What the TUI *renders*, split into (job args, group options).
 
     The **seventh** surface, and the one the harness's own history argued for:
@@ -239,8 +239,8 @@ def _tui_render_settable(project: Path, monkeypatch) -> tuple[set[str], set[str]
     """
     from functualize._cli.tui.app import FunctualizeInlineTUI
     from functualize._cli.tui.chain_resolution import (
-        _build_group_field_defs,
         build_command_panels,
+        build_group_field_defs,
     )
     from functualize.app.config import JobSources
     from functualize.app.core import FunctualizeApp
@@ -254,17 +254,55 @@ def _tui_render_settable(project: Path, monkeypatch) -> tuple[set[str], set[str]
     tui = FunctualizeInlineTUI(func_app)
 
     job_name = ".".join(JOB_PATH)
-    group_rows = _build_group_field_defs(tui, job_name, {})
+    group_rows = build_group_field_defs(tui, job_name, {})
     job_rows = [
         f.name
         for f in tui._get_job_fields(job_name)
         if f.name not in {"rc", "run_context", "log"}
     ]
 
-    # The assembled panel is checked for ordering separately (D-1); here only
-    # the partition matters, so the two halves are read from the same builders
-    # the panel uses rather than from a mounted widget.
-    assert build_command_panels is not None
+    # Read back off the **assembled** panel, not off the two builders alone.
+    # `assert build_command_panels is not None` was the placeholder here, and
+    # it asserted nothing: a probe that calls the halves separately cannot see
+    # a partition the assembly loses. It did not, but the write-back path
+    # downstream of it did, so the probe now goes through the same object the
+    # screen does.
+    from functualize._cli.tui.panels.config_table import ConfigTablePanel
+
+    assembled_group: set[str] = set()
+    assembled_job: set[str] = set()
+    tables_seen = 0
+    # The assembly needs a running app — which is exactly why the first version
+    # of this probe stopped at the two builders and left a placeholder assert
+    # in place of the panel. Running one is cheap; the placeholder was free and
+    # checked nothing.
+    async with tui.run_test(size=(140, 40)) as pilot:
+        tui._smart_bar.value = " ".join(JOB_PATH)
+        await pilot.pause()
+        for _title, panel in build_command_panels(tui):
+            if not isinstance(panel, ConfigTablePanel):
+                continue
+            tables_seen += 1
+            for field_def in panel.fields:
+                if field_def.group_path:
+                    assembled_group.add(field_def.name)
+                else:
+                    assembled_job.add(field_def.name)
+
+    # Without this, an assembly that produced nothing would compare two empty
+    # sets and pass — the vacuous shape the placeholder had.
+    assert tables_seen == 1, (
+        f"expected exactly one config table from the assembly, got {tables_seen}"
+    )
+    assert assembled_group, "the assembled panel carried no group rows at all"
+    assert assembled_group == {f.name for f in group_rows}, (
+        "the assembled panel files group options differently from the builder "
+        "that produced them"
+    )
+    assert assembled_job.issuperset(set(job_rows) - {"rc", "run_context", "log"}), (
+        "the assembled panel dropped one of the job's own rows"
+    )
+
     return set(job_rows), {f.name for f in group_rows}
 
 
@@ -394,30 +432,30 @@ class TestSurfaceParity:
 
         assert options == {"env", "dry_run", "replicas"}
 
-    def test_the_tui_renders_the_same_partition_it_resolves(
+    async def test_the_tui_renders_the_same_partition_it_resolves(
         self, project, monkeypatch
     ) -> None:
         """The seventh surface. A resolver probe cannot catch a kind decided
         again on the way to the screen — which is exactly how leaks 4 and 5
         got past this file the first time."""
-        job_args, group_options = _tui_render_settable(project, monkeypatch)
+        job_args, group_options = await _tui_render_settable(project, monkeypatch)
 
         assert job_args == JOB_ARGUMENTS
         assert group_options == GROUP_OPTIONS
 
-    def test_no_injection_parameter_is_ever_rendered(
+    async def test_no_injection_parameter_is_ever_rendered(
         self, project, monkeypatch
     ) -> None:
         """Leak 4, stated against the renderer rather than the resolver."""
-        job_args, group_options = _tui_render_settable(project, monkeypatch)
+        job_args, group_options = await _tui_render_settable(project, monkeypatch)
 
         assert not ((job_args | group_options) & INJECTION_PARAMS)
 
-    def test_the_rendered_halves_are_disjoint(self, project, monkeypatch) -> None:
+    async def test_the_rendered_halves_are_disjoint(self, project, monkeypatch) -> None:
         """A field is one kind or the other, never both. A group option
         appearing in the job's rows would put it under the job's own flags,
         where the CLI does not accept it."""
-        job_args, group_options = _tui_render_settable(project, monkeypatch)
+        job_args, group_options = await _tui_render_settable(project, monkeypatch)
 
         assert job_args.isdisjoint(group_options)
 

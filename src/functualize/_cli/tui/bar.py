@@ -21,6 +21,19 @@ if TYPE_CHECKING:
 __all__ = ["BarReadiness", "SavedBarState", "SmartBar"]
 
 
+def _is_negative_number(token: str) -> bool:
+    """True for a `-`-prefixed token that is a number, not a flag.
+
+    `-5` and `-1.5` are values a positional can legitimately take. Without
+    this the flag check greys out a perfectly good line.
+    """
+    try:
+        float(token)
+    except ValueError:
+        return False
+    return True
+
+
 class BarReadiness(Enum):
     """State machine for the SmartBar's visual readiness indicator."""
 
@@ -116,6 +129,7 @@ class SmartBar(Input):
         get_required_fields: Callable[[str], list[str]],
         get_fields: Callable[[str], list[Any]] | None = None,
         resolution: TuiCommandResolution | None = None,
+        is_non_job_command: Callable[[str], bool] | None = None,
     ) -> BarReadiness:
         """Evaluate command tokens and update readiness state.
 
@@ -133,6 +147,14 @@ class SmartBar(Input):
                 whose required-field list is empty — and the bar reports READY
                 no matter what the real job is still missing. When omitted the
                 first token is used, which is right for an ungrouped project.
+            is_non_job_command: Returns True for a top-level command that is
+                not a job — a builtin. The group trie holds **jobs only**, so
+                the walk cannot resolve `builtin env` and returns ``None``;
+                without this predicate every builtin greys out the moment a
+                project declares a single ``GroupOptions`` subclass, and
+                ``action_execute`` (gated on READY) turns Enter into a silent
+                no-op. That is the exact failure ``_get_command_names``'s
+                docstring exists to prevent.
 
         Returns:
             The new BarReadiness value.
@@ -153,6 +175,17 @@ class SmartBar(Input):
 
         command = resolution.job_name
         args = resolution.args
+
+        if command is None and is_non_job_command is not None:
+            # A builtin is not in the trie and never will be — the CLI's own
+            # walk does not know about them either. Rather than teach the
+            # resolver a second command model, recognise the one shape the
+            # walk cannot reach and fall back to the flat reading, which is
+            # what a builtin has always been.
+            head = tokens[0]
+            if is_non_job_command(head):
+                command = head
+                args = list(tokens[1:])
 
         if command is None:
             # The walk did not reach a runnable job. Distinguish a path still
@@ -228,21 +261,55 @@ class SmartBar(Input):
         # from the job's own, so `deploy web run --env prod` is a job flag
         # called `env`, and there is no such thing. Reporting READY there sent
         # the user to a click error they had no warning of.
-        known = {f.name for f in fields} | set(required)
-        # A boolean field is rendered by click as a **pair** —
-        # `--optimize/--no-optimize` — so the negative spelling is a real flag
-        # the CLI accepts, and rejecting it here would grey out a valid line.
-        known |= {
-            f"no_{f.name}"
-            for f in fields
-            if (getattr(f, "type_annotation", "") or "") == "bool"
-        }
-        for tok in args:
-            if not tok.startswith("--") or len(tok) <= 2:
+        # The set is built from the same rules the click param builder applies
+        # (`app/adapters/click_params.py`), field by field, rather than from
+        # field *names*: what click accepts as `--x` is not "every field named
+        # x". Two of its rules bite.
+        #
+        #   * A **positional** field becomes a `click.Argument`, which has no
+        #     flag spelling at all — `deploy web run --image v1.2` is refused
+        #     by click even though `image` is a real field.
+        #   * A boolean's negative half exists only for a **plain** bool. With
+        #     a short flag click builds `["--verbose", "-v"], is_flag=True` and
+        #     no `--no-verbose`, so allowing the negative unconditionally
+        #     greenlights a line dispatch will reject.
+        known: set[str] = set()
+        known_short: set[str] = set()
+        for f in fields:
+            if getattr(f, "positional", False):
+                # Argument, not Option: given by being typed, never by name.
                 continue
-            flag_name = tok[2:].split("=", 1)[0].replace("-", "_")
-            if known and flag_name not in known:
-                reason = f"Unknown flag: --{tok[2:].split('=', 1)[0]}"
+            stdin_flag = getattr(f, "stdin_flag", None)
+            if getattr(f, "is_stdin", False) and stdin_flag:
+                known.add(stdin_flag.lstrip("-").replace("-", "_"))
+                continue
+            known.add(f.name)
+            short = getattr(f, "short_flag", None)
+            if short:
+                known_short.add(short.lstrip("-"))
+            elif (getattr(f, "type_annotation", "") or "") == "bool":
+                known.add(f"no_{f.name}")
+
+        # `fields` empty means "nothing known about this command" (a builtin,
+        # or a get_fields callback that was not supplied) — not "no flag is
+        # valid". Skip rather than grey out everything.
+        if fields:
+            for tok in args:
+                if tok.startswith("--"):
+                    if len(tok) <= 2:
+                        continue
+                    spelled = tok[2:].split("=", 1)[0]
+                    if spelled.replace("-", "_") in known:
+                        continue
+                elif tok.startswith("-") and len(tok) >= 2:
+                    if _is_negative_number(tok):
+                        continue
+                    spelled = tok[1:].split("=", 1)[0]
+                    if spelled in known_short:
+                        continue
+                else:
+                    continue
+                reason = f"Unknown flag: {tok.split('=', 1)[0]}"
                 self._validity_reason = reason
                 self.placeholder = reason
                 self._set_readiness(BarReadiness.GREY)

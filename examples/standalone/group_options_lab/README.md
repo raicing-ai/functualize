@@ -30,8 +30,10 @@ config section and env prefix, where a job option would read the job name.
 
 ## Every invocation, and what it proves
 
-Run from this directory. `func` and `glab` are interchangeable here; `.functualize.toml`
-exists so plain `func` works without installing the script.
+Run from this directory. `func` and `glab` are interchangeable here — including
+for the mid-path flags, which reach an app's own click tree as well as the
+`func` dispatcher (ADR-009 decision 11). `.functualize.toml` exists so plain
+`func` works without installing the script.
 
 | Invocation | What to look at |
 |---|---|
@@ -42,6 +44,8 @@ exists so plain `func` works without installing the script.
 | `func deploy web run v1 --env prod` | Must **error**. `--env` belongs to `deploy` and does not become a job flag by being written after the job. |
 | `func deploy --region eu-west-1 worker run` | Must **error at the group**. `worker` does not inherit `deploy.web`'s flags. |
 | `func status --verbose` | The control. Byte-identical output whether or not any of the above exists. |
+| `func deploy web run --image v1.2` | Must **error**. `image` is declared `Arg()`, so it is a click *argument* — `--image` is not a spelling of it. The shell greys the line out rather than letting it reach a click error unannounced. |
+| `glab deploy --env prod web run v1.2` | The same line through the app's **own** script. It went to `No such option '--env'` until ADR-009 decision 11; the two entry points are one surface now, and `tests/group_options/test_adapter_entry_point_parity.py` keeps them that way. |
 
 In the interactive shell (`func` with no arguments at a TTY), each of these is
 also the **canonical SmartBar text** for its command — which is the property the

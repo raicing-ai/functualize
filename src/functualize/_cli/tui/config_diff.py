@@ -79,9 +79,19 @@ def compute_config_diff(
     entries: list[ConfigDiffEntry] = []
 
     def _group_path_of(key: str) -> str | None:
-        """The declaring group for a key, or None for a job's own field."""
+        """The declaring group for a key, or None for a job's own field.
+
+        A **removed** entry is in the previous snapshot and not in the current
+        one, so it is absent from ``group_keys`` — yet its stored key is still
+        the group-prefixed `deploy.env`. Falling through to ``None`` there
+        printed that key raw, one row below a `[deploy] env` that had survived.
+        A key the job does not declare and that carries a dot is a group's, and
+        is labelled as one.
+        """
         if key in group_keys and key not in pending.resolved_values:
             return key.rsplit(".", 1)[0] if "." in key else None
+        if key not in pending.resolved_values and "." in key:
+            return key.rsplit(".", 1)[0]
         return None
 
     def _current(key: str) -> tuple[Any, str]:
