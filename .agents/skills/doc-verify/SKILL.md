@@ -57,6 +57,13 @@ only when `run-scenario` is invoked from the root. Started anywhere else, the
 directory is not found and the steps fail for a reason that has nothing to do
 with the doc they cite.
 
+**A third, for anyone running the suite locally**: `uv sync --all-packages`,
+`uv sync --all-extras` and `uv sync --group docs` each prune what the others
+install. Each CI job has its own environment so each flag is right there, but a
+local run needs all three at once —
+`uv sync --all-packages --all-extras --group docs` — or scenarios fail on
+missing packages and report it as documentation drift.
+
 The proof that both are satisfied:
 
 ```bash

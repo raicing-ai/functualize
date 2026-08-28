@@ -5,7 +5,7 @@ Usage:
     python run-scenario [options] <scenario.toml|directory/>
 
 Options:
-    --timeout N      Global timeout override (seconds, default 120)
+    --timeout N      Default timeout for steps that declare none (seconds, default 120)
     --engine X       Force engine: shell, docker, pty
     --match GLOB     Only run scenarios matching glob pattern
     --keep-containers  Don't remove Docker containers after test
@@ -490,8 +490,21 @@ def run_substep(
 
 
 def run_step(step: dict, g_env: dict, timeout: int, dry_run: bool) -> StepResult:
-    """Dispatch a step to the correct engine."""
+    """Dispatch a step to the correct engine.
+
+    A step's own ``timeout`` wins; the global one is the default for steps that
+    declare none. Until 2026-08-29 the global was passed through unconditionally
+    and every declared per-step timeout was read by nobody — 64 of them across
+    12 scenario files, up to `timeout = 600`, all silently capped at 120s.
+
+    That is not a cosmetic bug. `j-dev-contrib` runs the fast test suite and
+    declares `timeout = 600`; it appeared to pass only while the suite was
+    failing fast under `-x`, and started timing out the moment the suite went
+    green — a scenario reporting the *documentation* as broken because the code
+    got better.
+    """
     engine = step.get("engine", "shell")
+    timeout = int(step.get("timeout", timeout))
 
     if engine == "shell":
         return run_shell_step(step, g_env, timeout, dry_run)
@@ -847,7 +860,10 @@ def main():
         help="Scenario file or directory (default: examples/docs/scenarios/)",
     )
     parser.add_argument(
-        "--timeout", type=int, default=120, help="Global timeout (seconds)"
+        "--timeout",
+        type=int,
+        default=120,
+        help="Default timeout for steps that declare none (seconds)",
     )
     parser.add_argument(
         "--engine", choices=["shell", "docker", "pty"], help="Force engine"
