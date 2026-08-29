@@ -1915,6 +1915,14 @@ def _run_cli() -> None:
         # may discover function-level jobs (e.g., `run` inside `dummy.py`).
         # Try to execute as a job first; if the full app boot can't find it
         # either, _handle_job returns 1 with its own error message.
+        #
+        # `scope_id`/`prompt_gates` must be forwarded here exactly as Mode.JOB
+        # forwards them. UNKNOWN is the same job about to run — the only
+        # difference is that the cheap enumeration had not yet learned the
+        # name. Omitting them made `--scope-id` silently ignored on a cold
+        # discovery cache and honoured on every warm run afterwards, so a
+        # workflow minted a generated scope id on its first invocation and the
+        # caller's id addressed nothing.
         try:
             exit_code = _handle_job(
                 effective_args,
@@ -1924,6 +1932,8 @@ def _run_cli() -> None:
                 cli_flags,
                 output_format=output_format,
                 _app_ref=app_ref,
+                scope_id=scope_id,
+                prompt_gates=prompt_gates,
             )
         finally:
             if perf_format is not None and app_ref:
