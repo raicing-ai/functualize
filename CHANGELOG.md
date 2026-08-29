@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The filters themselves were correct, and `func builtin config show` reported
   your settings correctly. The cache header fingerprinted the format version, the
   package version, the Python version and your dependencies — and not the
-  discovery configuration that decides what the cache contains. It now carries a
+  discovery filter settings that decide what the cache contains. It now carries a
   `discovery_hash`, and a mismatch discards the cache the same way a format
   change does. See [ADR-010](contributor/adr/010-discovery-cache-filter-awareness.md).
 
