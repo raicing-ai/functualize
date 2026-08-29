@@ -79,6 +79,7 @@ def build_cached_provider(
     project_root: Path | None = None,
     pre_filter: Any = None,
     job_filter: Any = None,
+    discovery_hash: str | None = None,
 ) -> Any:
     """Build a CachedDirectoryScanProvider with appropriate cache storage.
 
@@ -131,6 +132,7 @@ def build_cached_provider(
         pre_filter=pre_filter,
         job_filter=job_filter,
         project_root=project_root,
+        discovery_hash=discovery_hash,
     )
 
 

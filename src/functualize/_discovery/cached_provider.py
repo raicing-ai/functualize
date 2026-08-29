@@ -95,11 +95,24 @@ class CachedDirectoryScanProvider:
         pre_filter: ModulePreFilter | None = None,
         job_filter: JobFilter | None = None,
         project_root: Path | None = None,
+        discovery_hash: str | None = None,
     ) -> None:
         self._directories = directories
         self._locator = locator
         self._pre_filter = pre_filter
         self._job_filter = job_filter
+        # Fingerprint of the discovery config the above filters were built from.
+        # A cache written under one filter set and replayed under another is
+        # wrong in both directions, so a mismatch discards the whole file.
+        #
+        # None means "this provider does not know the discovery config" — not
+        # "there is no config". It is the state of the `func builtin cache`
+        # commands, which build a bare provider over the CWD. They must not
+        # invalidate: `cache show` would then delete the cache as a side effect
+        # of inspecting it. Such a provider adopts the loaded value in
+        # `_load_cache` so a later persist cannot downgrade a good fingerprint
+        # to absent either.
+        self._discovery_hash = discovery_hash
         if project_root is not None:
             self._project_root = Path(project_root)
         elif directories:
@@ -279,6 +292,16 @@ class CachedDirectoryScanProvider:
                 except (ValueError, TypeError, KeyError) as e:
                     logger.warning("Failed to deserialize cache entry '%s': %s", key, e)
 
+            # A provider that was given no fingerprint adopts the cached one, so
+            # a later `_persist_cache` rewrites it rather than replacing a good
+            # value with None. Without this, `func builtin cache` commands would
+            # strip the fingerprint and force the next boot into a needless
+            # rebuild.
+            if self._discovery_hash is None:
+                cached_hash = data.get("discovery_hash")
+                if isinstance(cached_hash, str):
+                    self._discovery_hash = cached_hash
+
             decisions_data = data.get("pre_filter_decisions", {})
             if isinstance(decisions_data, dict):
                 for key, decision_data in decisions_data.items():
@@ -332,6 +355,7 @@ class CachedDirectoryScanProvider:
                 "functualize_version": get_functualize_version(),
                 "python_version": platform.python_version(),
                 "deps_hash": compute_deps_hash(self._project_root),
+                "discovery_hash": self._discovery_hash,
                 "generated_at": datetime.now(UTC).isoformat(),
                 "entries": {
                     key: descriptor.to_dict()
@@ -392,6 +416,19 @@ class CachedDirectoryScanProvider:
                 current_deps_hash,
             )
             return True
+
+        # A provider that does not know its discovery config cannot judge the
+        # cached fingerprint; skip rather than assert the empty config.
+        if self._discovery_hash is not None:
+            cached_discovery_hash = data.get("discovery_hash")
+            if cached_discovery_hash != self._discovery_hash:
+                logger.warning(
+                    "Cache invalidated: discovery config changed "
+                    "(cached=%r, current=%r)",
+                    cached_discovery_hash,
+                    self._discovery_hash,
+                )
+                return True
 
         return False
 

@@ -459,6 +459,16 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
         # Build the file-level and job-level filters from discovery_config
         pre_filter = None
         job_filter = None
+        # The fingerprint is computed for *every* boot, not only when a config
+        # is present. A boot that has just dropped its `exclude_patterns` must
+        # still invalidate the cache written while they were active, and
+        # `discovery_hash_from_config(None)` is the all-defaults digest, so the
+        # two directions agree.
+        from functualize._discovery.filter_factory import discovery_hash_from_config
+
+        discovery_hash = discovery_hash_from_config(
+            getattr(app, "_discovery_config", None)
+        )
         if getattr(app, "_discovery_config", None) is not None:
             from functualize._discovery.filter_factory import (
                 build_job_filter_from_config,
@@ -472,7 +482,10 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
 
         if app._lazy_boot:
             app._cached_provider = _build_cached_provider(
-                app._jobs_directories, pre_filter=pre_filter, job_filter=job_filter
+                app._jobs_directories,
+                pre_filter=pre_filter,
+                job_filter=job_filter,
+                discovery_hash=discovery_hash,
             )
             app._resolution_pipeline.add_provider(app._cached_provider)
         else:

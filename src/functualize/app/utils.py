@@ -121,6 +121,7 @@ __all__ = [
     "pending_gates",
     "read_display_modules_from_cache",
     "read_group_options_from_cache",
+    "compute_discovery_hash_from_config",
     "read_routing_names_from_cache",
     "read_routing_rows_from_cache",
     "resolve_cache_path",
@@ -1235,6 +1236,26 @@ def build_job_filter(discovery_config: Any) -> Any:
     return build_job_filter_from_config(discovery_config)
 
 
+def compute_discovery_hash_from_config(discovery_config: Any) -> str:
+    """Fingerprint a DiscoveryConfig for discovery-cache invalidation.
+
+    Public re-export of the ``_discovery`` helper so ``_cli`` can compare the
+    same fingerprint on its pre-boot routing read that the booted app writes,
+    without importing an internal package — the same reason
+    :func:`build_job_filter` is re-exported here.
+
+    Args:
+        discovery_config: Resolved discovery configuration, or None. None
+            fingerprints as the all-defaults configuration.
+
+    Returns:
+        A ``"sha256:<hex>"`` string.
+    """
+    from functualize._discovery.filter_factory import discovery_hash_from_config
+
+    return discovery_hash_from_config(discovery_config)
+
+
 def build_discovery_cache_provider(cwd: Path | None = None) -> Any:
     """Build the discovery cache provider over auto-discovered job directories.
 
@@ -1264,6 +1285,7 @@ def build_discovery_cache_provider(cwd: Path | None = None) -> Any:
 def read_routing_names_from_cache(
     cache_path: Path,
     job_filter: Any = None,
+    discovery_hash: str | None = None,
 ) -> tuple[set[str], set[str]] | None:
     """Read job names and group names from an existing cache file.
 
@@ -1298,6 +1320,13 @@ def read_routing_names_from_cache(
 
     # Validate cache format version
     if data.get("version") != CACHE_VERSION:
+        return None
+
+    # The booted provider invalidates on this too, but routing resolves *before*
+    # the app boots: without this check a cache written under `--exclude` is
+    # replayed here, the excluded job is absent from the routing names, and the
+    # command fails as "Unknown command" without the provider ever running.
+    if discovery_hash is not None and data.get("discovery_hash") != discovery_hash:
         return None
 
     entries = data.get("entries")
