@@ -1,6 +1,6 @@
 # ADR-010: Fingerprint the Discovery Config Into the Cache Header
 
-**Status**: accepted
+**Status**: accepted — the `base_dir` non-goal is **superseded by ADR-011**
 **Date**: 2026-08-29
 **Deciders**: Hakim
 
@@ -62,10 +62,16 @@ bug one setting narrower.
 
 **`None` on the provider means "does not know the config", not "no config".**
 That is the state of the bare provider the `func builtin cache` commands build.
-Such a provider skips the check and adopts the loaded fingerprint. Without this,
-`func builtin cache show` would fail the check against any cache written under an
-active filter and **delete it** — an inspection command destroying what it
-inspects.
+Such a provider skips the check. Without the skip, `func builtin cache show`
+would fail the check against any cache written under an active filter and
+**delete it** — an inspection command destroying what it inspects.
+
+The first implementation also had such a provider *adopt* the loaded fingerprint,
+so that a later persist could not downgrade a good value to absent. That branch
+was removed as unreachable: the only bare provider that persists is
+`cache rebuild`, and it unlinks the cache file *before* building the provider, so
+there is never anything to adopt. Deleting it left the full suite byte-identical
+— 8820 passed, 9 skipped, either way.
 
 `CACHE_VERSION` goes 15 → 16. Not cosmetic: anyone who ran `--exclude` on 0.1.0
 has a poisoned cache on disk, and only the version check reaches it, because a
@@ -73,12 +79,26 @@ has a poisoned cache on disk, and only the version check reaches it, because a
 the pre-boot fast-path readers compare `version`, so the repair lands on the
 first 0.1.1 invocation whichever surface runs first.
 
-**`base_dir` is deliberately not in the fingerprint.** `GlobExcludePreFilter`
-matches relative to it, and boot derives it from `jobs_directories[0]` while the
-builtins path has no equivalent — including it would guarantee a mismatch between
-two providers over one cache file, thrashing on every alternation. The residual
-exposure is a project changing `jobs_directories`, which changes the scan set and
-is already reconciled by the sync algorithm.
+**`base_dir` was left out of the fingerprint — and the reasoning was wrong.**
+As first recorded: `GlobExcludePreFilter` matches relative to it, boot derives it
+from `jobs_directories[0]` while the builtins path has no equivalent, including it
+would thrash two providers over one cache file, and the residual exposure — a
+project changing `jobs_directories` — "changes the scan set and is already
+reconciled by the sync algorithm".
+
+Both halves of that last clause were refuted by measurement during review.
+Reordering `jobs_directories` does **not** change the scan set: every listed
+directory is scanned either way. What changes is `base_dir` — and
+`GlobExcludePreFilter` admits any file *not* under it, so one `exclude_patterns`
+entry governs the first root and silently not the rest. Cold runs over `["a","b"]`
+and `["b","a"]` produce mirror-image correct contents under an **identical
+digest**, so the warm transition serves the stale one. That is X3 exactly, one
+setting over, and nothing reconciles it.
+
+**Superseded by ADR-011**, which fixes the filter instead of the fingerprint:
+matching becomes relative to whichever scan root contains the file — what
+`docs/cli/discovery.md` already documented — which removes `base_dir` as an input
+and leaves nothing to fingerprint.
 
 ## Consequences
 
@@ -94,15 +114,25 @@ is already reconciled by the sync algorithm.
 
 - One extra rebuild whenever the effective discovery config changes. This is the
   intended cost.
-- `func builtin cache rebuild` still rebuilds unfiltered — it is unfiltered today
-  and this change does not widen to fix it. Under the new semantics it writes no
-  fingerprint and the next boot invalidates and rebuilds correctly, so it
-  self-heals rather than poisons. Recorded as a follow-up.
+- `func builtin cache rebuild` still rebuilds unfiltered, and — **worse than
+  first recorded here** — writes no fingerprint at all, because it unlinks the
+  cache file before building the provider, leaving nothing to carry one. The next
+  command therefore invalidates and rescans, with a WARNING on stderr, in every
+  project including one with no filters configured. The cost is not the wrong
+  entry count first recorded; the rebuild is simply discarded. New at this change:
+  at `c1b6c26` the same sequence reused the cache silently. Fixed in ADR-011.
 
 ### Neutral
 
-- Child-project providers (`_app/boot.py`) still receive no discovery config and
-  so skip the check. They have none plumbed today; unchanged by this decision.
+- Child-project providers (`_app/boot.py`) receive no discovery config and so
+  skip the check. **This is not neutral, as first recorded.** Because
+  `find_functualize_dir` searches *upward*, a child under a parent that has
+  `.functualize/` resolves to the **parent's** cache file and writes last. The
+  parent's provider then finds `discovery_hash: null` and invalidates on **every**
+  boot, forever, with a WARNING on stderr. The warning is new at this change; the
+  underlying fault is not — at `c1b6c26` the same file already alternated between
+  parent and child entries, each boot destroying the other's, silently. Fixed in
+  ADR-011.
 
 ## Notes
 

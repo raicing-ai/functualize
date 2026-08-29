@@ -120,6 +120,20 @@ setting changes what goes into the cache, a change to that setting has to be abl
 to invalidate it — and the test has to run the *transition*, because every filter
 test in the suite ran cold and all of them stayed green through the defect.
 
+**And a fingerprint is only worth the number of construction sites that supply
+it.** The follow-up review found the digest wired at exactly one of four provider
+constructions. The other three passed `None`, meaning "does not know the config" —
+a sentinel that is safe to *read* past and ruinous to *write*. `cache rebuild`
+wrote `discovery_hash: null` and the next command discarded its work; child
+projects wrote `null` into the parent's shared cache file and made the parent
+invalidate on every boot forever. Both were self-inflicted by the fix, not by the
+original bug. The repair branch written to prevent exactly this — adopt the loaded
+fingerprint when you have none — was itself unreachable, because the one path that
+would have used it deletes the file before reading it. See
+[ADR-011](../adr/011-discovery-fingerprint-completeness.md). Two rules fall out:
+an "unknown" sentinel must never reach a *writer*, and a fingerprint's coverage is
+audited across construction sites, not across the fields of one dataclass.
+
 ## 6. A list hardcoded in five places has already drifted
 
 The builtin command list existed in five hardcoded copies. By the time anyone

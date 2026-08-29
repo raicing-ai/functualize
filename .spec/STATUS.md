@@ -85,12 +85,50 @@ Two guards were missing, and either would have caught the examples defect at
   `test_file_plugin.py` tests the plugin object and the loader in-process. No
   test asserts the README's `func greet` runs.
 
-### Ship-blocking — **DONE 2026-08-29**
+### Ship-blocking — landed, but the cut is **HELD**
 
 Items 1-6 and 9 are landed on `release/0.1.1`; item 7 is deferred to
 [`shape-intents/remote-config-source.md`](shape-intents/remote-config-source.md);
 item 8 was already fixed. The decision and its reasoning are in
 [ADR-010](../contributor/adr/010-discovery-cache-filter-awareness.md).
+
+**0.1.1 does not tag until Tranche B lands.** An adversarial review of
+`c1b6c26..c9d47e4` confirmed the headline fix — X1-X4 are closed, reproduced
+against `c1b6c26`, full suite 8820 passed / 9 skipped — and found nine things,
+three of which are behavioural defects the fix left open or introduced. Work is
+split across two feature directories:
+
+- [`features/0-1-1-review-followups/`](features/0-1-1-review-followups/) —
+  **Tranche A**, docs / dead code / disclosure. No behaviour change.
+- [`features/discovery-fingerprint-completeness/`](features/discovery-fingerprint-completeness/)
+  — **Tranche B**, the three behavioural defects. Blocks the tag.
+
+| F | Finding | Verdict | Where |
+|---|---|---|---|
+| F1 | `jobs_directories[0]` (`base_dir`) decides what `exclude_patterns` matches and is **not fingerprinted** — two orders give mirror-image correct contents under an identical digest, so the warm transition serves the stale one | confirmed, **blocks tag** | Tranche B / B1 |
+| F2 | `cache rebuild` unlinks the file then builds a bare provider, so it writes `discovery_hash: null` and the next command discards its work with a WARNING — in every project. New at HEAD | confirmed, **blocks tag** | Tranche B / B2 |
+| F3 | `find_functualize_dir` walks upward, so a child writes into the **parent's** cache file and the parent invalidates on every boot forever. Warning new at HEAD; the mutual clobbering pre-dates it | confirmed, **blocks tag** | Tranche B / B3 |
+| F4 | The `None`-fingerprint *adoption* branch is dead code — full suite byte-identical without it, and its one would-be caller deletes the file before reading | confirmed | Tranche A / A1 |
+| F5 | Two example READMEs still publish the retracted `cache clear` workaround (`discovery_lab`, `config_lab`) | confirmed | Tranche A / A3, A4 |
+| F6 | `TestPreBootRoutingReadHonoursTheFingerprint` names wiring `b5f918e` removed, and claims bare `func` renders without booting — it boots | confirmed | Tranche A / A2 |
+| F7 | `docs/cli/discovery.md` (`c9d47e4`) was outside every `[F]` list in `release-0-1-1-blockers/tasks.md` — the one undisclosed scope slip, and where the incomplete doc sweep lived | confirmed, disclosed here | — |
+| F8 | `discovery_lab` step 6 names a decorator (`job_metadata`) that exists nowhere in the example; the real one is `@job`. Broken at `c1b6c26` too | confirmed | Tranche A / A3 |
+| F9 | `docs/cli/discovery.md:114` documents matching "relative to the scanned directory"; the code matches relative to `jobs_directories[0]` | confirmed | Tranche B / B1 |
+
+Two review claims did **not** survive testing, and are recorded so they are not
+re-litigated:
+
+- **No non-booting surface serves stale names.** Every surface swept against a
+  poisoned cache — `--help`, `builtin info`, `cache show`, `cache check`,
+  `shell-init`, `mcp`, `mcp tools`, `func <job>`, `func <group>`,
+  `func <group> <job>`, bare `func`, standalone and declared-project — served the
+  correct listing and repaired the cache, asserting on **stdout only**. Every
+  `func builtin` command boots a full app in the `cli_app` callback. `b5f918e`'s
+  revert was right.
+- **The `None`-*skip* guard is load-bearing**, unlike the adoption branch beside
+  it: forcing `None` to compare makes
+  `test_cache_show_leaves_a_matching_cache_byte_identical` fail. The mid-execution
+  re-scope from "filtered cache" to "matching cache" was the correct call.
 
 | # | Item | Commit |
 |---|---|---|
