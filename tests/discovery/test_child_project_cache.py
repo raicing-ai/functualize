@@ -23,6 +23,7 @@ import json
 import logging
 from pathlib import Path
 
+from functualize._app.impl import build_cached_provider
 from functualize.app import FunctualizeApp
 from functualize.app.config import DiscoveryConfig, JobSources
 
@@ -131,4 +132,30 @@ class TestRepeatedBootsDoNotInvalidate:
         ]
         assert invalidations == [], (
             f"a warm boot rescanned instead of reusing its cache: {invalidations}"
+        )
+
+    def test_the_child_writes_a_real_fingerprint_to_its_own_cache(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A writer must never persist the "unknown" sentinel (ADR-011).
+
+        This one asserts the artefact rather than a symptom, deliberately. `None`
+        *skips* the check, so a child that wrote `discovery_hash: null` into its
+        own cache would still reuse it and log nothing — there is no behaviour to
+        observe today. It is still wrong: the moment a child gains a discovery
+        config of its own, that persisted `null` is the same defect one level
+        down, and it is the exact shape that made `cache rebuild` discard its own
+        work. Pin the invariant while it is cheap.
+        """
+        root = _make_tree(tmp_path)
+        _boot(root, monkeypatch)
+
+        child = root / "services" / "child"
+        stats = build_cached_provider(
+            [str(child / "jobs")], project_root=child, ancestor_search=False
+        ).stats()
+
+        data = json.loads(Path(stats.cache_path).read_text(encoding="utf-8"))
+        assert isinstance(data.get("discovery_hash"), str), (
+            "the child provider persisted the 'unknown' fingerprint sentinel"
         )
