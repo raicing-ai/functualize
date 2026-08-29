@@ -92,7 +92,7 @@ Items 1-6 and 9 are landed on `release/0.1.1`; item 7 is deferred to
 item 8 was already fixed. The decision and its reasoning are in
 [ADR-010](../contributor/adr/010-discovery-cache-filter-awareness.md).
 
-**0.1.1 does not tag until Tranche B lands.** An adversarial review of
+**Both tranches have landed. 0.1.1 is ready to tag.** An adversarial review of
 `c1b6c26..c9d47e4` confirmed the headline fix — X1-X4 are closed, reproduced
 against `c1b6c26`, full suite 8820 passed / 9 skipped — and found nine things,
 three of which are behavioural defects the fix left open or introduced. Work is
@@ -115,6 +115,7 @@ split across two feature directories:
 | F8 | `discovery_lab` step 6 names a decorator (`job_metadata`) that exists nowhere in the example; the real one is `@job`. Broken at `c1b6c26` too | confirmed | Tranche A / A3 |
 | F9 | `docs/cli/discovery.md:114` documents matching "relative to the scanned directory"; the code matches relative to `jobs_directories[0]` | confirmed | Tranche B / B1 |
 | F10 | `test_get_plugin_raises_key_error_for_unregistered` assumed only against the names *it* registered, so Hypothesis could propose an auto-registered entry-point plugin (`mcp`) as "unregistered" and the lookup rightly did not raise. Latent since before this branch; surfaced by a full-suite run and then persisted in `.hypothesis/`, so it would have failed CI deterministically | confirmed, fixed | Tranche A |
+| F11 | `tests/test_packaging.py` hardcoded `0.1.0` in two assertions, so the version had a **fourteenth** declaration site that no release checklist named — bumping the documented thirteen and running the suite landed red. Now derives the expected value from `pyproject.toml` | confirmed, fixed | Tranche A |
 
 Two review claims did **not** survive testing, and are recorded so they are not
 re-litigated:
@@ -130,6 +131,25 @@ re-litigated:
   it: forcing `None` to compare makes
   `test_cache_show_leaves_a_matching_cache_byte_identical` fail. The mid-execution
   re-scope from "filtered cache" to "matching cache" was the correct call.
+
+#### Final gates (2026-08-29, both tranches landed)
+
+| Gate | Result |
+|---|---|
+| Full suite `HYPOTHESIS_PROFILE=ci --run-slow -n auto` | **8832 passed, 9 skipped, 0 failed** (baseline 8820 + 12 new) |
+| `pytest examples/` | 139 passed |
+| All 11 plugin suites | 245 passed |
+| `ruff check` (src, tests, examples, plugins) + `format --check` | clean, 1096 files |
+| `mypy src/` | 0 errors, 295 files |
+| `lint-imports` | 5 kept, 0 broken |
+| doc-verify shell tier | 7 passed, 0 failed, 10 skipped (docker/pty, as CI) |
+| clean-clone CI job, simulated end to end at HEAD | both example commands PASS |
+| Review repros X1-X4, F1, F2, F3 | all produce the correct answer |
+| Version | 13/13 sites at `0.1.1`; `func --version` -> `functualize 0.1.1` |
+
+**Not tagged.** The tag is pushed after this lands on `master` and CI is green on
+the merge commit: `verify-ci` looks for the run that commit got when it landed,
+and `ci.yml` never runs on tags.
 
 | # | Item | Commit |
 |---|---|---|
