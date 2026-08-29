@@ -907,8 +907,27 @@ def wire_children_to_pipeline(app: Any) -> None:
         scan_dir = str(jobs_dir) if jobs_dir.is_dir() else str(child_path)
         try:
             if app._lazy_boot:
+                # `ancestor_search=False` is load-bearing. Without it
+                # `find_functualize_dir` walks *upward* from the child and lands
+                # on the parent's `.functualize/`, so parent and child write one
+                # `cache.json` and whichever boots last erases the other's
+                # entries -- the parent's cache never survived a boot. The child
+                # also wrote `discovery_hash: null` into it, which made the
+                # parent invalidate and rescan on every boot, forever, with a
+                # warning on stderr.
+                #
+                # Children are discovered with no filters, so the all-defaults
+                # digest is the honest fingerprint for what they write. See
+                # ADR-011.
+                from functualize._discovery.filter_factory import (
+                    discovery_hash_from_config,
+                )
+
                 provider: Any = build_cached_provider(
-                    [scan_dir], project_root=child_path
+                    [scan_dir],
+                    project_root=child_path,
+                    discovery_hash=discovery_hash_from_config(None),
+                    ancestor_search=False,
                 )
             else:
                 provider = DirectoryScanProvider(directories=[scan_dir])
