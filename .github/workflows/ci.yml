@@ -114,6 +114,67 @@ jobs:
       - name: Run example tests
         run: uv run pytest examples/ -v
 
+  # Every example command this repository publishes, run from a CLEAN CLONE.
+  #
+  # This closes a class the other jobs structurally cannot see. `055310b` and
+  # `7f09be4` were both files that existed on the author's disk and not in git:
+  # a plugin implementation, then the config anchor that made the example
+  # discoverable. Every job above checks out the working tree and then runs in
+  # it, so an untracked file is present for all of them and absent for every
+  # user. Both defects were green in CI and broken on `git clone`.
+  #
+  # `git clone` is the whole mechanism — it copies tracked files only, so a file
+  # git never knew about simply is not there. Nothing else in this workflow has
+  # that property.
+  #
+  # Deliberately narrow: the two examples whose READMEs publish a single
+  # self-contained command. Widening it to all 20 is worth doing and is a
+  # separate change — a guard that is hard to keep green stops being run.
+  clean-clone-examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # `git clone` below needs real history, not a tarball export.
+          fetch-depth: 1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Clone tracked files only
+        run: git clone --no-hardlinks . "$RUNNER_TEMP/clean"
+
+      - name: Install dependencies in the clone
+        working-directory: ${{ runner.temp }}/clean
+        run: uv sync --all-packages --all-extras
+
+      # The README publishes exactly one command for this example. It failed
+      # with "Unknown command 'greet'" on a clean clone twice.
+      # Both streams are captured on purpose. A job's `rc.log(...)` goes to
+      # stderr and a plugin's `print()` to stdout, so a stdout-only capture
+      # silently drops half of what these commands publish — the showcase
+      # assertion below is a `rc.log` line and never appears on stdout at all.
+      - name: file_based_plugin — the command its README publishes
+        working-directory: ${{ runner.temp }}/clean/examples/plugins/file_based_plugin
+        run: |
+          set -euo pipefail
+          out=$("$RUNNER_TEMP/clean/.venv/bin/func" greet 2>&1)
+          echo "$out"
+          echo "$out" | grep -q "\[run-notifier\] greet succeeded."
+
+      - name: showcase — the first command its README publishes
+        working-directory: ${{ runner.temp }}/clean/examples/standalone/showcase
+        run: |
+          set -euo pipefail
+          out=$("$RUNNER_TEMP/clean/.venv/bin/func" scripts/hello.py greet --name World 2>&1)
+          echo "$out"
+          echo "$out" | grep -q "Hello, World!"
+
   # Runs the commands the documentation tells a reader to run, and compares the
   # output against what the docs claim. Shell-engine scenarios only: docker
   # steps run full `pip install` cycles and pty steps drive a real terminal,
