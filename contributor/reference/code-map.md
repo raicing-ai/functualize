@@ -14,7 +14,7 @@
 | `classic()` | `app/presets.py` | Preset: CLI → Env → Files → Defaults |
 | `twelve_factor()` | `app/presets.py` | Preset: CLI → Env → Defaults (no files) |
 | `env_only()` | `app/presets.py` | Preset: CLI → Env → Defaults (minimal) |
-| `remote_first()` | `app/presets.py` | Preset: CLI → Remote → Env → Files → Defaults |
+| `remote_first()` | `app/presets.py` | Preset: CLI → Env → Files → Defaults. Named for an unwired capability — nothing constructs `RemoteSource`, so this resolves as `classic()` with a different file pattern |
 | `coerce_kwargs()` | `app/utils.py` | String → Python type coercion via Pydantic |
 | `import_job()` | `app/utils.py` | Import job function(s) from a file path |
 | `auto_discover()` | `app/utils.py` | Scan CWD for job directories |

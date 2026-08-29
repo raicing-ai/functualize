@@ -101,7 +101,7 @@ command = """
   functualize builtin scaffold init my-app3 --template simple &&
   cd my-app3 &&
   functualize builtin scaffold add tui-screen dashboard &&
-  test -f 'src/my_app3/screens/dashboard_screen.py' &&
+  test -f 'src/my_app3/screens/dashboard.py' &&
   test -f 'src/my_app3/screens/dashboard.tcss' &&
   echo 'ADD_TUI_OK'
 """

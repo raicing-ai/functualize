@@ -7,6 +7,7 @@ The lightest way to extend functualize: a single `.py` file in `.functualize/plu
 ```
 file_based_plugin/
 ├── README.md
+├── .functualize.toml          ← Points the scan at jobs/ (no pyproject.toml)
 ├── .functualize/
 │   └── plugins/
 │       └── run_notifier.py    ← The plugin (module-level `plugin` object)

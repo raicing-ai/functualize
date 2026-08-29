@@ -109,6 +109,50 @@ Run all verification commands to confirm the codebase is in a healthy state.
 
 **Outputs:** Exit codes and output for each command; BLOCKING findings for any non-zero exit or timeout.
 
+#### Phase 4b — Executable Docs & Examples Parity
+
+Phase 1 reads the documentation corpus. This phase **runs** it. The two are not
+substitutes: a claim like *"`api_key` → masked in field detail"* names no path and no
+symbol and contains no code to parse, so it passes Phase 1 while being false — which is
+how ADR-007/008 and ADR-009 falsified behavioural claims across ~50 doc pages and 20
+example projects with nothing failing.
+
+Like every other audit phase this one is **read-only**: it runs commands and reports
+findings, and fixes nothing.
+
+**Actions:**
+
+1. `uv sync --all-packages && uv run pytest examples/ -v` (900s timeout). Any failure is
+   **BLOCKING**. `--all-packages`, not `--all-extras`: the AI and plugin examples import
+   workspace packages. Note that the two flags prune each other, so this phase's
+   environment is not Phase 4's.
+2. Full doc-verify, **all engines** — not the shell subset CI runs:
+   `python .agents/skills/doc-verify/scripts/run-scenario examples/docs/scenarios/`,
+   with `.venv/bin` on `PATH` and the working directory at the repository root (both are
+   preconditions; missing either makes every step exit 127 and report as documentation
+   drift). A failed step is **BLOCKING**; a scenario erroring on its own harness is
+   **WARNING** — that is exactly the exit-code split, `1` for a failed step and `2` for a
+   scenario that could not be loaded. Before recording any failure, run
+   `a-core-builtins` alone to prove the harness works.
+3. `run-scenario --audit` — compare verifiable doc blocks against scenario count and
+   record the delta. At 2026-08-29: **134 blocks, 16 scenarios**. A growing gap is
+   **INFO**; a new doc page in a changed area with no scenario is **WARNING**.
+4. Walk every `examples/**/README.md` verification checklist the harness does not cover,
+   and every index list for directories missing from it (`examples/README.md`,
+   `examples/standalone/README.md`, `docs/examples/index.md`). A directory present on
+   disk and absent from an index is **WARNING**.
+5. Cross-check every ADR accepted since the last release against the docs asserting the
+   behaviour it changed. ADR-007, ADR-008 and ADR-009 are the worked examples and are the
+   reason this phase exists: each changed behaviour that documentation asserted in prose,
+   and no gate noticed.
+
+See `contributor/guides/docs-example-parity.md` for the drift classes this phase is
+looking for and the detection method for each.
+
+**Outputs:** Findings from executable documentation and example verification. BLOCKING for
+a failing example test or a failed doc-verify step; WARNING for a harness error, a missing
+index entry, or a changed area with no scenario; INFO for a growing block/scenario gap.
+
 #### Phase 5 — Plugin Workspace Scan
 
 Verify all plugin packages in the workspace are properly configured for release.

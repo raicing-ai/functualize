@@ -194,7 +194,7 @@ Add a new TUI screen. Generates a Textual `Screen` subclass and an associated TC
 
 | Context | Output Path | Notes |
 |---------|-------------|-------|
-| Project (`src/<package>/` exists) | `src/<package>/screens/<name>_screen.py` + `<name>.tcss` | Auto-detected |
+| Project (`src/<package>/` exists) | `src/<package>/screens/<name>.py` + `<name>.tcss` | Auto-detected |
 | Bare (no project structure) | Error — must specify `--target-dir` | Cannot auto-detect screen location |
 
 #### Arguments

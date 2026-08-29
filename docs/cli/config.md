@@ -22,7 +22,7 @@ Settings are resolved from highest to lowest priority. The first non-empty value
 └─────────────────────────────────────────────────┘
 ```
 
-> **See also:** [`examples/standalone/config_lab/`](../../examples/standalone/config_lab/) for a working precedence demo.
+> **See also:** [`examples/standalone/config_lab/`](https://github.com/raicing-ai/functualize/tree/master/examples/standalone/config_lab/) for a working precedence demo.
 
 ---
 
@@ -109,7 +109,7 @@ first. `jobs_directories` is consumed by the CLI's project discovery
 directory, and entries from every config layer in the upward walk contribute
 (nearest layer first).
 
-> **See also:** [`examples/standalone/showcase/`](../../examples/standalone/showcase/) for a `.functualize.toml` example.
+> **See also:** [`examples/standalone/showcase/`](https://github.com/raicing-ai/functualize/tree/master/examples/standalone/showcase/) for a `.functualize.toml` example.
 
 ---
 

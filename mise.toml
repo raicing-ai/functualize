@@ -1,5 +1,5 @@
 [env]
-_.path = ["./.venv/bin", "./examples/basic-app/.venv/bin"]
+_.path = ["./.venv/bin"]
 
 [tools]
 python = "3.11"

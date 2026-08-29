@@ -129,10 +129,13 @@ in for the job name:
 
 | Precedence | Source | Example |
 |---|---|---|
-| 1 (highest) | The flag on the command line | `func deploy --env prod …` |
-| 2 | Environment variable | `DEPLOY__ENV=prod` |
-| 3 | Config file section | `[deploy]` → `env = "prod"` |
-| 4 (lowest) | The field's declared default | `env: str = "staging"` |
+| 1 (highest) | Runtime override | `rc.config.set("env", "prod")` |
+| 2 | The flag on the command line | `func deploy --env prod …` |
+| 3 | Environment variable | `DEPLOY__ENV=prod` |
+| 4 | Config file section | `[deploy]` → `env = "prod"` |
+| 5 (lowest) | The field's declared default | `env: str = "staging"` |
+
+`config.set()` deposits an **override**: a value written during the run, which is where that run will then find it — above everything a source supplied, the command line included.
 
 A dotted group path flattens for the environment variable and stays dotted for
 the config section: `group="deploy.web"` reads `DEPLOY_WEB__ENV` and
@@ -149,6 +152,30 @@ file, environment and default layers:
 app.execute("deploy.web.run")           # opts.env comes from file/env/default
 rc.invoke("deploy.web.run")             # same
 ```
+
+The **mid-path flag layer is the one exception**, and it behaves the way its
+name suggests: it belongs to the command line that typed it.
+
+```python
+# The facade accepts one explicitly — this is how the CLI and MCP pass on the
+# flags they parsed.
+app.execute("deploy.web.run", group_option_values={"env": "prod"})
+
+# `rc.invoke` starts no command line, so it passes none. A job invoked from
+# inside another job resolves its group options from its own file, environment
+# and default layers — never from the flags typed at the parent.
+rc.invoke("deploy.web.run")
+```
+
+A `@workflow` step behaves the same as `rc.invoke` here: the walk runs each step
+as an ordinary job with no flag layer, so a step's group options come from
+file, environment and defaults.
+
+This is not a gap to route around. A flag is typed at one path, and a job the
+run happens to invoke afterwards sits at a path of its own — inheriting the
+parent's flags would mean a value typed for `deploy.web` silently steering a job
+under `deploy.worker`. Set the value where the child reads it (its section, or
+its environment variable) when it should apply to both.
 
 ## Two groups, one field
 
