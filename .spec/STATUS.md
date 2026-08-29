@@ -266,6 +266,15 @@ sound and does not need re-auditing. What follows is what it did **not** cover.
 
     **Fix**: add `--all-packages` to that job's sync. One word.
 
+    **Fixed (2026-08-29).** The job now syncs `--all-packages --all-extras`.
+    `--group docs` is deliberately not part of it: the one step that needed
+    mkdocs was `j-dev-contrib`'s `mkdocs build --strict`, and that step has
+    been removed — it cited `docs/contributing.md:370-494`, a range whose file
+    never mentions mkdocs at all, so it asserted a command no documented line
+    contains. `docs-build` owns that command with the right group synced. The
+    third flag remains necessary for a *local* run of the whole suite, as the
+    skill's precondition says.
+
 #### Judgment call, not a blocker
 
 12. **`test_a_closed_pipe_exits_zero_and_quietly` flakes under load.**

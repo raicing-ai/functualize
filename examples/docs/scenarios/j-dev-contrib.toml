@@ -45,9 +45,14 @@ command = "uv run lint-imports 2>&1; echo 'LINT_IMPORTS_DONE'"
 expected = { stdout_contains = "LINT_IMPORTS_DONE" }
 timeout = 30
 
-[[steps]]
-engine = "shell"
-description = "uv run mkdocs build --strict"
-command = "uv run mkdocs build --strict 2>&1 && echo 'MKDOCS_BUILD_OK'"
-expected = { stdout_contains = "MKDOCS_BUILD_OK", exit_code = 0 }
-timeout = 60
+# The `mkdocs build --strict` step was removed here (2026-08-29). It cited
+# `docs/contributing.md:370-494` but that doc never mentions mkdocs — the word
+# does not occur anywhere in the file — so the step asserted a command no
+# documented line contains, which is precisely what this scenario format
+# exists to prevent. It had never actually run: `doc-verify` only became a CI
+# job in this branch, and it syncs `--all-extras`, which does not install the
+# `docs` dependency group, so `uv run mkdocs` exited 2 on a missing
+# executable. `ci.yml:165` already warns against a job copying its neighbours
+# and losing `--group docs`. The command itself is not going unchecked: the
+# `docs-build` job runs `uv run mkdocs build --strict` on every PR with the
+# right group synced.

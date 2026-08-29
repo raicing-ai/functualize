@@ -150,8 +150,19 @@ jobs:
       - name: Set up Python
         run: uv python install 3.11
 
+      # `--all-packages` as well as `--all-extras`: the two prune each other,
+      # and `--all-extras` alone installs no workspace member. The shell
+      # scenarios import none today, so this was green by luck — the first one
+      # to touch an AI or plugin example would have failed on a missing
+      # package and been reported as documentation drift, which is the one
+      # thing this job must never do. (.spec/STATUS.md finding 11.)
+      #
+      # `--group docs` is deliberately not here: no scenario runs mkdocs, and
+      # the `docs-build` job below owns `mkdocs build --strict` with that group
+      # synced. A local run of the whole suite still needs all three at once,
+      # as the skill's precondition says.
       - name: Install dependencies
-        run: uv sync --all-extras
+        run: uv sync --all-packages --all-extras
 
       - name: Verify documented commands still behave as documented
         run: |
