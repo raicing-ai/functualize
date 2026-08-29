@@ -24,10 +24,10 @@ jobs:
         run: uv sync --all-extras
 
       - name: Ruff check
-        run: uv run ruff check src/ tests/ plugins/
+        run: uv run ruff check src/ tests/ plugins/ examples/
 
       - name: Ruff format check
-        run: uv run ruff format --check src/ tests/ plugins/
+        run: uv run ruff format --check src/ tests/ plugins/ examples/
 
   lint-imports:
     runs-on: ubuntu-latest
