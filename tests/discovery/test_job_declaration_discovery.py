@@ -135,7 +135,7 @@ class TestScanWarmCacheParity:
         _make_provider(tmp_path, jobs_dir).list_jobs()
 
         data = json.loads(_cache_file(tmp_path).read_text(encoding="utf-8"))
-        assert data["version"] == CACHE_VERSION == 15
+        assert data["version"] == CACHE_VERSION == 16
         # The declaration sub-dict is present in the cached entry.
         entry = next(iter(data["entries"].values()))
         assert entry["declaration"]["deps"]["policy"] == "keep-going"
