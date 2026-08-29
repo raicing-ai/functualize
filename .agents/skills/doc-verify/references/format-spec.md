@@ -64,7 +64,7 @@ scenario stops (no subsequent steps execute).
 |---|---|---|---|
 | `engine` | str | yes | `"shell"`, `"docker"`, or `"pty"` |
 | `description` | str | yes | What this step does |
-| `timeout` | int | no | Max seconds before step is killed (default: 60 for shell, 120 for docker, 30 for pty) |
+| `timeout` | int | no | Max seconds before step is killed. Default is the run's `--timeout` (120) for every engine — there are no per-engine defaults. A step declaring this wins over the flag. |
 | `expected` | dict | yes* | Assertions (required unless `steps` sub-steps are present) |
 | `env` | dict | no | Step-specific env vars (merged with scenario-level) |
 | `steps` | array | no | Sub-steps for multi-command sequences within a single engine session |

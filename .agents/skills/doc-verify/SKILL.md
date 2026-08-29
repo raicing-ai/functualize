@@ -261,12 +261,14 @@ python .agents/skills/doc-verify/scripts/run-scenario examples/docs/scenarios/ -
 ```
 
 Options:
-- `--timeout N` — global timeout override (seconds, default 120)
+- `--timeout N` — default timeout for steps that declare none (seconds, default
+  120). It is a default, not an override: a step declaring its own `timeout` wins,
+  so a run cannot be shortened from the command line.
 - `--engine X` — force engine (`shell`, `docker`, `pty`)
 - `--match GLOB` — only run scenarios matching glob pattern
 - `--keep-containers` — don't remove Docker containers after test (for debugging)
 - `--json FILE` — write JSON report to FILE
-- `--skip PTY` — skip PTY steps (useful in non-TTY environments like CI)
+- `--skip-pty` — skip PTY steps (useful in non-TTY environments like CI)
 
 ---
 
