@@ -31,6 +31,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now.** The cache format version bump repairs it on your first command after
   upgrading; you do not need to do anything.
 
+### Fixed — three more places the cache and the filters disagreed
+
+Found by an adversarial review of the fix above. All three are follow-ons from it
+rather than new ground: see
+[ADR-011](contributor/adr/011-discovery-fingerprint-completeness.md).
+
+- **`exclude_patterns` only applied to your first jobs directory.** It was matched
+  relative to `jobs_directories[0]`, and any file that was not under that
+  directory was admitted without being judged at all. So in a project with two
+  job directories, one exclusion governed the first and silently skipped the
+  second. It now matches relative to whichever scan root contains the file, which
+  is what the documentation already described.
+
+  This is a **behaviour change**: an exclusion that previously applied to one of
+  your job directories now applies to all of them. It only ever excludes more,
+  never fewer.
+
+  The same gap made the cache wrong. That first directory is not one of the
+  settings `discovery_hash` covers, so *reordering* `jobs_directories` changed
+  what the cache should hold while the fingerprint stayed identical — the warm
+  cache then replayed the wrong answer. Fixing the filter closes both.
+
+- **`func builtin cache rebuild` threw away its own work.** It wrote no
+  fingerprint, so the very next command decided the cache was stale and rescanned
+  — printing a warning, in every project, even with no filters configured. It also
+  ignored your filters while rebuilding. It now rebuilds under the filters in
+  effect, including flags on its own invocation, and the result is reused.
+
+- **Monorepo parent projects rescanned on every boot.** A child project declared
+  with `children=` wrote into its *parent's* cache file and erased the parent's
+  entries, and the parent then re-scanned every single boot with a warning on
+  stderr. Child projects now keep their own cache.
+
+The cache format version moves to 17, so the first command after upgrading
+rebuilds once. You do not need to do anything.
+
 ### Fixed — examples and their guards
 
 - **`examples/plugins/file_based_plugin` published four commands**, three of which
