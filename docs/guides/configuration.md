@@ -30,9 +30,19 @@ app = FunctualizeApp(name="myapp", config_sources=twelve_factor())
 # Env-only: CLI → Env → Defaults (minimal, with optional dotenv)
 app = FunctualizeApp(name="myapp", config_sources=env_only(dotenv=True))
 
-# Remote-first: CLI → Remote → Env → Files → Defaults
+# Remote-first: despite the name, resolves as classic() today — see the warning below
 app = FunctualizeApp(name="myapp", config_sources=remote_first())
 ```
+
+!!! warning "`remote_first()` does not resolve anything remotely"
+    The preset exists and is exported, but the boot wiring is not there:
+    nothing in the shipped package constructs a `RemoteSource`, and
+    `remote_first()` returns `config_resolution_chain=None`, which boot turns
+    into the classic chain `[CliSource, EnvSource, FileSource, DefaultSource]`.
+    It is `classic()` with a different file pattern and `dotenv=False`. Choose it
+    for a vault and your credentials come from a local file or the environment,
+    with nothing to say so.
+
 
 When no `config_sources` is specified, the default behavior is identical to `classic()`.
 
@@ -318,10 +328,14 @@ In this example, a job with `JOB_NAME = "data_sync"` reads from the `[data_sync]
 
 When a job function declares a `JobConfig` Pydantic model parameter, each field is resolved with this precedence:
 
-1. **CLI argument** — explicitly passed via the command line (e.g., `--batch-size 200`)
-2. **Environment variable** — `JOBNAME_FIELDNAME` uppercased (e.g., `DATA_SYNC_BATCH_SIZE`)
-3. **Config file section** — the `[job_name]` section in the loaded config files
-4. **Model default** — the default value defined on the Pydantic field
+1. **Runtime override** — a value deposited by `rc.config.set("batch_size", 200)` during the run
+2. **CLI argument** — explicitly passed via the command line (e.g., `--batch-size 200`)
+3. **Environment variable** — `JOBNAME_FIELDNAME` uppercased (e.g., `DATA_SYNC_BATCH_SIZE`)
+4. **Config file section** — the `[job_name]` section in the loaded config files
+5. **Model default** — the default value defined on the Pydantic field
+
+An override outranks the command line: it is written after the command line was
+read, and it is what the rest of the run reads back.
 
 ```mermaid
 flowchart TD
@@ -396,10 +410,14 @@ value.
 ### Finding out what a job needs
 
 ```console
-$ func builtin env sync
-export SYNC_API_URL='https://api.example.com'   # source: config.base.toml
-export SYNC_CREDENTIAL='•••'                    # source: env
+$ SYNC_CREDENTIAL=hunter2-real func builtin env sync
+export SYNC_API_URL=https://api.example.com  # source: file
+export SYNC_CREDENTIAL='•••'  # source: env
 ```
+
+The comment names the *kind* of source a value came from — `file`, `env`, `cli`,
+`default` — not the particular file. A plain value is printed unquoted; the mask
+is quoted because it is not a value you could paste back.
 
 Unset fields come back commented, so the output doubles as a `.env` skeleton and
 "is the credential configured?" has a visible answer:
@@ -410,9 +428,11 @@ $ func builtin env strict
 ```
 
 `func builtin env <job> -- <command>` runs a command with the resolved values in
-its environment instead of printing them. Secret values are omitted from both
-forms unless you pass `--include-secrets`, so the default output is safe to
-paste into a bug report.
+its environment instead of printing them. Secret fields are **masked** in the
+print form and **omitted** from the exec environment unless you pass
+`--include-secrets`, so the default output is safe to paste into a bug report
+while the exec form never puts a credential in a child process it did not ask
+for.
 
 ### Where credentials come from
 

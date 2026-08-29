@@ -173,6 +173,26 @@ and documented, and had no consumer.
 
 ### Fixed
 
+- **`--scope-id` was ignored on a workflow's first run and honoured on every
+  one after it.** The pre-boot enumeration that routes a command only knows
+  file *stems*, so a function-level job whose name differs from its file's —
+  `trip_planner` inside `weather.py`, the shape every workflow example uses —
+  classifies as `Mode.UNKNOWN` until the discovery cache is warm. `main()`
+  hands UNKNOWN straight to the same `_handle_job` that `Mode.JOB` uses, but
+  passed neither `scope_id` nor `prompt_gates`, and both default to
+  `None`/`False`.
+
+  The visible effect was a workflow that blocked at its gate under a
+  *generated* scope id rather than the one the caller passed, so an id minted
+  before the run addressed nothing: `workflow list` did not show it and
+  `workflow resume <id>` could not reach the scope that had just blocked. The
+  second invocation, now warm, routed as `Mode.JOB` and behaved correctly —
+  which is why this survived: it reproduces only against a cold cache, and any
+  attempt to check it by hand warms one on the first try.
+
+  `tests/cli/test_unknown_mode_gate_flags_e2e.py` runs against an isolated
+  `XDG_CACHE_HOME` so the cold path is the path under test.
+
 - **Every surface that reports configuration now agrees with the run.** Four
   independent resolvers disagreed about *values*, not just formatting:
   `USER=root-ambient func builtin info --job sync` reported `service-account`

@@ -84,6 +84,7 @@ Message Convention, Pull Request Guidelines.
 | Writing tests | `contributor/reference/testing-strategy.md` (domain-mirrored dirs + `tests/_support/` fixtures; no `tests/unit/` or `tests/properties/` dirs) |
 | Proposing a new layer, public API surface, or dependency-rule change | ADR is mandatory: record the decision in `contributor/adr/` (template: `contributor/adr/000-template.md`) |
 | Opening a PR, writing a release commit, or unsure how to name a branch | `CONTRIBUTING.md` §§ Branching Strategy / Commit Message Convention / Pull Request Guidelines — the summary in **Git discipline** above covers the common case; read these for breaking changes, the release commit, and why the changelog is hand-written |
+| Cutting a release, or bumping the version | `contributor/guides/docs-example-parity.md` — run the executable docs/examples parity pass. The release audit's doc scan is *static*: it checks that paths, symbols and syntax exist. A behavioural claim like "this field is masked" passes it while being false, which is how a breaking change reached ~50 doc pages and 20 example projects unnoticed |
 | Understanding overall architecture | `contributor/architecture/overview.md` + `contributor/architecture/codemaps/` (module catalog, measured fan-in, entry points, data flow) |
 | About to add a setting, filter, cache, registry, or TUI panel — or to debug one that "resolves but does nothing" | `contributor/reference/pitfalls.md` — 18 defects that already shipped here, each with the shape of the trap named. Several passed review *and* a test; four were only visible on the warm-cache or lazy-boot path |
 
@@ -165,7 +166,7 @@ def deploy(log: Log, invoke: Invoke, config: DeployConfig):
 
 ### Config system
 
-Layered resolution: **CLI → Env → Files → Remote → Defaults**. Built once at boot via `ResolutionChain` — zero per-invocation file I/O.
+Layered resolution: **Override → CLI → Env → Files → Defaults**. Built once at boot via `ResolutionChain` (`boot.py:781-797`) — zero per-invocation file I/O. There is no remote tier: nothing in the shipped package constructs a `RemoteSource`, `remote_first()` notwithstanding. `Override` is a value `config.set()` deposits during a run, and it outranks CLI.
 
 Presets are factory functions: `classic()`, `twelve_factor()`, `env_only()`, `remote_first()`. Any `(**kwargs) -> ConfigSources` function is a valid preset.
 

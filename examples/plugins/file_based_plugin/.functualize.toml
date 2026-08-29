@@ -1,0 +1,14 @@
+# Project config in the standalone `.functualize.toml` format — keys sit at the
+# root, without the `[tool.functualize]` wrapper. That format is the point here:
+# this example's headline is "no package, no pyproject.toml, no entry points",
+# so it must not acquire a pyproject.toml just to be runnable.
+#
+# Without this file there is no anchor, the scan falls back to the current
+# directory alone, and it never descends into jobs/ — so the README's
+# `func greet` failed with "Unknown command 'greet'" while the three functions
+# in test_file_plugin.py registered as jobs in its place.
+#
+# `plugins_directories` is deliberately NOT set. Leaving it unset is what makes
+# the loader fall back to the convention directory `.functualize/plugins/`,
+# which is the behaviour this example exists to demonstrate.
+jobs_directories = ["jobs"]

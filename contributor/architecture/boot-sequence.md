@@ -8,7 +8,7 @@ Steps execute in this fixed order. Do not reorder.
 |------|-------|-------------|
 | 0 | `dotenv` | `.env` loaded when `ConfigSources.dotenv`/`dotenv_path` requests it (`override=False`; before EnvSource can be consulted) |
 | 1 | `core_infra` | HookRegistry, DIRegistry, JobExecutionEngine instantiated |
-| 2 | `provider_registry` | Built-in TOML + INI format providers registered |
+| 2 | `provider_registry` | Built-in TOML format provider registered. `IniFormatProvider` is in-tree but must be registered by a plugin (ADR-007) |
 | 3 | `observability` | EventBus, MiddlewareStack created (before plugins so they can subscribe) |
 | 4 | `plugins` | Entry-point + file-based plugins loaded via PluginLoader (topological sort) |
 | 5 | `config_entry_points` | Format/remote provider entry points discovered |

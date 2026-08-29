@@ -1,47 +1,100 @@
 [scenario]
 name = "h-workflow"
 version = 1
-description = "Verify workflow list, blocked gates, and gate resume"
+description = "A real workflow DAG: the gate blocks, `workflow list` says so, resume walks past it"
 
 [source]
 file = "docs/cli/workflow.md"
 lines = "42-73"
-description = "Workflow list and resume commands"
+description = "Workflow list, state and resume, against a declared @workflow with a Gate"
 
 requires = []
 
+# Rewritten from `docker` to `shell` (2026-08-29). The previous version
+# scaffolded a project inside a container purely to obtain a workflow, then
+# declared no `@workflow`, reached no gate and resumed nothing — while
+# asserting a sentinel (`WORKFLOW_SETUP_OK`) its own command never printed, so
+# it had never passed. `examples/quickstart/step7_workflow/weather.py:56-60`
+# already declares a real `@workflow` with `Gate(name="preferences", ...)`, so
+# the scenario runs against that instead: no ~480s docker step, non-vacuous by
+# construction, and inside CI's `--engine shell` run rather than skipped by it.
+#
+# Every step asserts the *blocked state* explicitly, never just a zero exit. A
+# workflow scenario that only checks "the command ran" passes when the gate
+# never engages, which is exactly how the previous one became vacuous.
+
+# A scope id is single-use. `workflow cancel` clears the *scope*, but the
+# recorded step results and the answered gate survive it, so re-running under
+# the same id replays straight through and never reaches the gate — the
+# scenario would pass once and then fail forever. Each run therefore mints a
+# fresh id and shares it with the later steps through a file, because every
+# step is its own process.
+#
+# The file lives under `$DOC_VERIFY_SCRATCH`, a directory the runner makes once
+# per invocation, not at a fixed `/tmp` path. With a fixed name two concurrent
+# runs share one file: this scenario minted an id in step 1 and read the other
+# run's id in step 2, which had already been consumed — and a used scope can
+# never block again, so step 2 failed with nothing wrong in the doc it cites.
 [[steps]]
-engine = "docker"
-description = "Scaffold, create workflow, verify gate blocking and resume"
-image = "python:3.11-slim"
-volumes = { "." = "/src:ro" }
-workdir = "/tmp"
-command = """
-  pip install '/src[cli]' 2>&1 &&
-  functualize builtin scaffold init wf-test --template simple &&
-  cd wf-test &&
-  pip install '/src[cli]' 2>&1 &&
+description = "Mint a scope id for this run — a used one can never block again"
+engine = "shell"
+cwd = "examples/quickstart/step7_workflow"
+command = "echo \"doc-h-workflow-$(date +%s%N)\" > $DOC_VERIFY_SCRATCH/h-workflow-scope && cat $DOC_VERIFY_SCRATCH/h-workflow-scope"
+expected = { exit_code = 0, stdout_contains = "doc-h-workflow-" }
+timeout = 30
 
-  # Create a simple workflow job
-  cat > 'src/wf_test/jobs/trip.py' << 'PYEOF'
-from functualize.job import RunContext, Log
-from pydantic import BaseModel, Field
+[[steps]]
+description = "Running the workflow job BLOCKS at the gate — exit 5, not a failure"
+engine = "shell"
+cwd = "examples/quickstart/step7_workflow"
+command = "func --scope-id \"$(cat $DOC_VERIFY_SCRATCH/h-workflow-scope)\" trip-planner --city Tokyo"
+expected = { exit_code = 5, stderr_contains = "Blocked: gate 'preferences' in scope" }
+timeout = 60
 
-class TripConfig(BaseModel):
-    destination: str = Field(description="Where to go")
+[[steps]]
+description = "The first step ran before the gate — the walk reached it, not skipped it"
+engine = "shell"
+cwd = "examples/quickstart/step7_workflow"
+command = "func builtin workflow list | grep \"$(cat $DOC_VERIFY_SCRATCH/h-workflow-scope)\""
+expected = { exit_code = 0, stdout_contains = "trip-planner  blocked  gates: preferences" }
+timeout = 30
 
-class ApprovalInput(BaseModel):
-    approved: bool = Field(description="Approve?")
+[[steps]]
+description = "`workflow state` names the walk position and the pending gate"
+engine = "shell"
+cwd = "examples/quickstart/step7_workflow"
+command = "func builtin workflow state \"$(cat $DOC_VERIFY_SCRATCH/h-workflow-scope)\""
+expected = { exit_code = 0, stdout_contains = "Pending gates: preferences" }
+timeout = 30
 
-def trip_planner(rc: RunContext):
-    \"\"\"Plan a trip with approval gate.\"\"\"
-    rc.log(f"Planning trip to nowhere")
-    return "Done"
-PYEOF
+[[steps]]
+description = "`workflow resume` accepts input and says the job must be re-run"
+engine = "shell"
+cwd = "examples/quickstart/step7_workflow"
+command = "func builtin workflow resume \"$(cat $DOC_VERIFY_SCRATCH/h-workflow-scope)\" preferences --input '{\"budget\": \"mid-range\", \"interests\": [\"food\"]}'"
+expected = { exit_code = 0, stdout_contains = "Input accepted for gate 'preferences'." }
+timeout = 30
 
-  # Verify workflow list runs
-  functualize builtin workflow list 2>&1 &&
-  echo 'WORKFLOW_OK'
-"""
-expected = { stdout_contains = "WORKFLOW_SETUP_OK", exit_code = 0 }
-timeout = 480
+# Accepting input does not run the workflow. Re-invoking with the same scope
+# replays the walk: `forecast` is already recorded and is skipped, the gate is
+# now answered, and `travel_plan` and the epilogue run.
+[[steps]]
+description = "Re-running with the same --scope-id walks PAST the gate to the epilogue"
+engine = "shell"
+cwd = "examples/quickstart/step7_workflow"
+command = "func --scope-id \"$(cat $DOC_VERIFY_SCRATCH/h-workflow-scope)\" trip-planner --city Tokyo"
+expected = { exit_code = 0, stderr_contains = "Itinerary for Tokyo complete." }
+timeout = 60
+
+[[steps]]
+description = "The scope is no longer blocked — the gate was really passed"
+engine = "shell"
+cwd = "examples/quickstart/step7_workflow"
+# Scoped to this run's id, not the whole store. `workflow list` is global, so
+# asserting `stdout_not_contains = "blocked"` over all of it failed whenever any
+# unrelated blocked scope existed — another run's, or a developer's own. A
+# completed scope leaves the listing entirely, so absence is the assertion, and
+# `grep` exiting 1 on absence is why the markers are needed.
+command = "func builtin workflow list | grep \"$(cat $DOC_VERIFY_SCRATCH/h-workflow-scope)\" && echo STILL_LISTED || echo SCOPE_COMPLETED"
+expected = { exit_code = 0, stdout_contains = "SCOPE_COMPLETED", stdout_not_contains = "blocked" }
+timeout = 30

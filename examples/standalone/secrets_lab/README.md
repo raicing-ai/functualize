@@ -89,6 +89,12 @@ $ func report
 With no `REPORT_TOKEN`, this asks for it if the surface can ask, and otherwise
 fails naming the variable rather than dying on a 90-line traceback.
 
+## Tests
+
+```bash
+uv run pytest examples/standalone/secrets_lab/ -v
+```
+
 ## What is deliberately absent
 
 There is **no `[secrets]` section**, and no `${env:VAR}` interpolation in config

@@ -17,11 +17,12 @@ Run jobs with the `func` CLI, no project structure needed.
 - [AI Inbound](standalone/ai-inbound.md) — A job driven by an external AI agent via the AI_INBOUND gate strategy.
 - [AI Outbound](standalone/ai-outbound.md) — A job that calls an LLM using the AI capability for content generation.
 
-Also in the repo (source-only): [`showcase/`](https://github.com/raicing-ai/functualize/tree/master/examples/standalone/showcase) (the all-in-one project: CLI modes, inline TUI scenarios, surfaces, config inspector, AI jobs), [`discovery_lab/`](https://github.com/raicing-ai/functualize/tree/master/examples/standalone/discovery_lab) (all six discovery filters + global dirs from one jobs tree), and [`config_lab/`](https://github.com/raicing-ai/functualize/tree/master/examples/standalone/config_lab) (the config precedence chain).
+Also in the repo (source-only): [`showcase/`](https://github.com/raicing-ai/functualize/tree/master/examples/standalone/showcase) (the all-in-one project: CLI modes, inline TUI scenarios, surfaces, config inspector, AI jobs), [`discovery_lab/`](https://github.com/raicing-ai/functualize/tree/master/examples/standalone/discovery_lab) (all six discovery filters + global dirs from one jobs tree), [`config_lab/`](https://github.com/raicing-ai/functualize/tree/master/examples/standalone/config_lab) (the config precedence chain), [`secrets_lab/`](https://github.com/raicing-ai/functualize/tree/master/examples/standalone/secrets_lab) (declaring a credential with `Secret[str]`, and what every surface renders for it), [`group_options_lab/`](https://github.com/raicing-ai/functualize/tree/master/examples/standalone/group_options_lab) (flags that belong to a group rather than a job, typed mid-path), and [`deploy_tool/`](https://github.com/raicing-ai/functualize/tree/master/examples/standalone/deploy_tool) (an app that is not `func`: its own command name, config table and env prefix).
 
 ## Project (Full Applications)
 
 - [`weather_app/`](https://github.com/raicing-ai/functualize/tree/master/examples/project/weather_app) — the flagship: the Quick Start jobs as a scaffolded project with an entry point and layered config.
+- [`monorepo_children/`](https://github.com/raicing-ai/functualize/tree/master/examples/project/monorepo_children) — one parent app mounting child projects as namespaced job groups.
 
 Delivery-adapter projects live with their plugins:
 

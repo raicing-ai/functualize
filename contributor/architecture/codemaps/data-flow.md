@@ -7,7 +7,7 @@ Fixed order, do not reorder (see `contributor/architecture/boot-sequence.md` for
 | Step | Phase | Budget |
 |---|---|---|
 | 1 | `core_infra` — HookRegistry, DIRegistry, JobExecutionEngine instantiated | 50ms |
-| 2 | `provider_registry` — built-in TOML + INI format providers registered | 10ms |
+| 2 | `provider_registry` — built-in TOML format provider registered; `IniFormatProvider` needs a plugin (ADR-007) | 10ms |
 | 3 | `observability` — EventBus, MiddlewareStack created (before plugins, so plugins can subscribe) | 50ms |
 | 4 | `plugins` — entry-point + file-based plugins loaded via `PluginLoader` (topological sort) | 200ms |
 | 5 | `config_entry_points` — format/remote provider entry points discovered | 50ms |

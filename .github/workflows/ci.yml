@@ -88,6 +88,112 @@ jobs:
       - name: Run fast tests (unit only, no property tests)
         run: uv run pytest
 
+  # The examples are a second product surface: 20 projects a reader is told to
+  # run. Nothing executed them until now — `testpaths = ["tests"]`, so a broken
+  # example stayed green indefinitely. One did: a plugin file `.gitignore`
+  # swallowed, three tests red on every clean clone since it was written.
+  #
+  # `--all-packages`, not `--all-extras`: the AI and plugin examples import
+  # workspace packages.
+  examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies (workspace packages, not just extras)
+        run: uv sync --all-packages
+
+      - name: Run example tests
+        run: uv run pytest examples/ -v
+
+  # Runs the commands the documentation tells a reader to run, and compares the
+  # output against what the docs claim. Shell-engine scenarios only: docker
+  # steps run full `pip install` cycles and pty steps drive a real terminal,
+  # and `CLAUDE.md` forbids wiring `observe-tui` into CI. Those belong to the
+  # release pass.
+  #
+  # Two preconditions, both of which turn into false doc failures when missed:
+  # `.venv/bin` on PATH (or every step exits 127) and the working directory at
+  # the repository root (a shell step's `cwd` is process-relative).
+  #
+  # Fails on ANY non-zero exit. `run-scenario` returns 1 for a failed step and
+  # 2 for a scenario it could not load, so gating on 2 alone would pass every
+  # real documentation failure through.
+  #
+  # `--allow-skips` is the deliberate acknowledgement that this job does NOT
+  # verify the docker and pty scenarios — 10 of 16, covering installation,
+  # scaffold, quickstart, discovery, MCP and the whole TUI surface. Without the
+  # flag the run exits 3, because a scenario filtered out by `--engine` runs
+  # zero steps and verifies nothing; reporting that as a pass is what let the
+  # narrowing go unnoticed. The runner prints every unverified scenario and the
+  # tier that owes it, so removing this flag is how you see the gap again.
+  # The only owner those tiers actually have today is the manual release gate
+  # (`.agents/skills/release/SKILL.md` Phase 4). No scheduled workflow exists.
+  doc-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      # `--all-packages` as well as `--all-extras`: the two prune each other,
+      # and `--all-extras` alone installs no workspace member. The shell
+      # scenarios import none today, so this was green by luck — the first one
+      # to touch an AI or plugin example would have failed on a missing
+      # package and been reported as documentation drift, which is the one
+      # thing this job must never do. (.spec/STATUS.md finding 11.)
+      #
+      # `--group docs` is deliberately not here: no scenario runs mkdocs, and
+      # the `docs-build` job below owns `mkdocs build --strict` with that group
+      # synced. A local run of the whole suite still needs all three at once,
+      # as the skill's precondition says.
+      - name: Install dependencies
+        run: uv sync --all-packages --all-extras
+
+      - name: Verify documented commands still behave as documented
+        run: |
+          PATH="$PWD/.venv/bin:$PATH" python \
+            .agents/skills/doc-verify/scripts/run-scenario \
+            examples/docs/scenarios/ --engine shell --allow-skips
+
+  # `mkdocs build --strict` ran only on push to master (`docs.yml`), so a PR
+  # could break the docs build and only be caught after merge.
+  #
+  # `--group docs`, not `--all-extras`: mkdocs is not an extra, and a job
+  # copying its neighbours here fails on a missing `mkdocs` executable.
+  docs-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install documentation dependencies
+        run: uv sync --group docs
+
+      - name: Build documentation
+        run: uv run mkdocs build --strict
+
   # Full suite: property tests + coverage + multi-version + parallel.
   # Thorough validation, runs alongside test-fast.
   test-full:

@@ -160,10 +160,13 @@ flowchart TD
 
 | Priority | Source | Convention |
 |----------|--------|------------|
-| 1 (highest) | CLI argument | `--field-name value` |
-| 2 | Environment variable | `JOBNAME_FIELDNAME` (uppercased) |
-| 3 | Config file section | Section name matches `job_name` |
-| 4 (lowest) | Model default | Default value in the field definition |
+| 1 (highest) | Runtime override | `rc.config.set("field_name", value)` |
+| 2 | CLI argument | `--field-name value` |
+| 3 | Environment variable | `JOBNAME_FIELDNAME` (uppercased) |
+| 4 | Config file section | Section name matches `job_name` |
+| 5 (lowest) | Model default | Default value in the field definition |
+
+`config.set()` deposits an **override**: a value written during the run, which is where that run will then find it — above everything a source supplied, the command line included.
 
 If nothing supplies a **required** field, an interactive surface asks for it;
 off one (CI, a pipe) the `ValidationError` is reported with the file that was

@@ -639,7 +639,7 @@ Examples of *using* a specific first-party plugin belong in that plugin's own fo
 1. **Include a test file** (`test_*.py`) proving the example works (interactive TUI scenarios document manual steps instead)
 2. **Include a `README.md`** explaining the use case and how to run
 3. **Keep dependencies minimal** — Use testing doubles (MockAI, InMemoryState) instead of real backends
-4. **Keep tests green** — Run `uv run pytest examples/ -v` before submitting (requires `uv sync --all-packages`; example tests are not part of the CI suite)
+4. **Keep tests green** — Run `uv run pytest examples/ -v` before submitting (requires `uv sync --all-packages`). CI runs this too, in the `examples` job, so a broken example fails the pull request.
 
 ### Running Example Tests
 
