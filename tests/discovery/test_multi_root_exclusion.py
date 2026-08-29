@@ -98,9 +98,7 @@ class TestExclusionAppliesToEveryScanRoot:
 
 
 class TestWarmCacheSurvivesARootReorder:
-    def test_reordering_roots_is_safe_against_a_warm_cache(
-        self, cli_run, project_tree
-    ):
+    def test_reordering_roots_is_safe_against_a_warm_cache(self, cli_run, project_tree):
         """The transition. Warm under one order, then invoke under the other.
 
         Before ADR-011 this served the first order's answer — `yb` where the cold
