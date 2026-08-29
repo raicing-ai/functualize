@@ -106,12 +106,16 @@ class CachedDirectoryScanProvider:
         # wrong in both directions, so a mismatch discards the whole file.
         #
         # None means "this provider does not know the discovery config" — not
-        # "there is no config". It is the state of the `func builtin cache`
-        # commands, which build a bare provider over the CWD. They must not
-        # invalidate: `cache show` would then delete the cache as a side effect
-        # of inspecting it. Such a provider adopts the loaded value in
-        # `_load_cache` so a later persist cannot downgrade a good fingerprint
-        # to absent either.
+        # "there is no config" — so such a provider skips the check rather than
+        # asserting the empty config. Without the skip, a bare provider built
+        # over a directory with no config in hand would fail the comparison
+        # against any cache written under an active filter and delete it.
+        #
+        # In practice the skip only ever decides the *matching-cache* case:
+        # every `func builtin` command boots a full app first (`_cli/main.py`
+        # builds a FunctualizeApp in the `cli_app` callback), so a genuinely
+        # stale cache has already been invalidated and rebuilt by a
+        # config-aware provider before a bare one gets to read it.
         self._discovery_hash = discovery_hash
         if project_root is not None:
             self._project_root = Path(project_root)
@@ -291,16 +295,6 @@ class CachedDirectoryScanProvider:
                     self._by_name[descriptor.name] = descriptor
                 except (ValueError, TypeError, KeyError) as e:
                     logger.warning("Failed to deserialize cache entry '%s': %s", key, e)
-
-            # A provider that was given no fingerprint adopts the cached one, so
-            # a later `_persist_cache` rewrites it rather than replacing a good
-            # value with None. Without this, `func builtin cache` commands would
-            # strip the fingerprint and force the next boot into a needless
-            # rebuild.
-            if self._discovery_hash is None:
-                cached_hash = data.get("discovery_hash")
-                if isinstance(cached_hash, str):
-                    self._discovery_hash = cached_hash
 
             decisions_data = data.get("pre_filter_decisions", {})
             if isinstance(decisions_data, dict):

@@ -15,9 +15,12 @@ The reproductions are named X2/X3/X4 after `.spec/STATUS.md`:
 - **X4** filtered-then-unfiltered: `--exclude` once, then no flag at all. The one
   that matters: it removed a job from the CLI *permanently*.
 
-X4 is asserted through the real CLI (`cli_run`), not through the provider. It has
-to be: routing resolves job names from the cache *before* the app boots, so a
-provider-level test passes while `func <job>` still answers "Unknown command".
+X4 is asserted through the real CLI (`cli_run`), not through the provider, because
+the defect was user-visible as `Unknown command 'beta'` and only an end-to-end
+assertion sees that. Routing does resolve job names from the cache before the app
+boots — but a routing miss falls through to a handler that boots anyway, so the
+booted provider's invalidation repairs the cache on every surface. That is why
+`b5f918e` reverted the pre-boot fingerprint wiring rather than shipping it.
 """
 
 from __future__ import annotations
@@ -149,18 +152,23 @@ class TestWarmCacheHonoursFilterChanges:
         assert "Unknown command" not in _listed(result)
 
 
-class TestPreBootRoutingReadHonoursTheFingerprint:
-    """The bare listing never boots, so only the pre-boot read can fix it.
+class TestBareListingReflectsTheCurrentFilterConfig:
+    """The plain `func` listing, in both filter directions.
 
-    Every other X4 assertion in this file goes through a path that boots the app
-    — `builtin info` and `func <job>` both do — and the booted provider's
-    invalidation repairs the cache before the result is produced. That makes them
-    blind to the pre-boot routing read: removing it leaves all of them green.
+    This class once claimed to pin the pre-boot routing read's fingerprint. Both
+    halves of that claim were measured false and the class was renamed:
 
-    Bare `func` resolves its listing from the cache and prints it without
-    booting. It is the assertion that goes red when
-    `read_routing_names_from_cache` is not given the fingerprint, and it is the
-    reason the routing wiring exists.
+    - The routing wiring it named was reverted in `b5f918e` precisely *because*
+      removing it left these assertions green.
+    - Bare `func` does **not** render without booting. Against a cache poisoned
+      by `--exclude`, a bare `func` rewrites the header from the filtered digest
+      to the all-defaults one, restores the excluded entry, clears
+      `pre_filter_decisions`, and logs one invalidation line to stderr. It is
+      `_handle_bare` booting the app, exactly like every other surface.
+
+    What they do prove is worth keeping: the listing a user sees with no flags
+    tracks the *current* filter configuration, in both directions, against a warm
+    cache written under the other one.
 
     Asserts on **stdout only**. stderr carries the invalidation warning and the
     scanned file paths, both of which contain the substring "beta" — an

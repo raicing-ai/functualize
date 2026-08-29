@@ -176,6 +176,16 @@ def build_job_filter_from_config(config: DiscoveryConfig) -> JobFilter | None:
 # cannot be read off the dataclass. `test_discovery_hash.py` pins this tuple to
 # DiscoveryConfig's real field names *and* defaults, so drift fails a test rather
 # than silently fingerprinting an unset config as something else.
+# TRANSITIONAL(discovery-fingerprint-completeness/B1): these nine are every
+# `DiscoveryConfig` field, but they are not every input to the filter stack.
+# `build_pre_filter_from_config` also takes `base_dir`, which `_app/boot.py`
+# derives from `jobs_directories[0]`, and `GlobExcludePreFilter` admits any file
+# not under it. So reordering `jobs_directories` changes which files an
+# `exclude_patterns` entry can reject while this digest stays equal, and a warm
+# cache is replayed under the wrong answer. That is the current behaviour, not a
+# settled design: B1 makes the exclusion relative to whichever scan root contains
+# the file, which removes `base_dir` as an input and closes the gap without
+# adding a tenth field here. Remove this marker when B1 lands.
 _DISCOVERY_FINGERPRINT_FIELDS: tuple[tuple[str, object], ...] = (
     ("exclude_patterns", ()),
     ("extra_directories", ()),
