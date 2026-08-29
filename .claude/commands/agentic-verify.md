@@ -29,4 +29,9 @@ Prerequisite: all tasks in `.spec/features/<name>/tasks.md` are [x].
 3. Run verification skills (each determines its own tier via blast-radius analysis):
    - Invoke `verify-e2e` against `.spec/features/<name>/spec.md` — the skill will determine whether FULL, TARGETED, SMOKE, or SKIP is appropriate based on what files the feature touched. If it reports failures, investigate and fix before proceeding.
 4. Update `STATE.md`: mark feature complete with date
-5. Update `ROADMAP.md`: move feature to done
+5. Update `.spec/STATUS.md`: move the feature to Recently Completed
+6. Migrate what survives — the decision to `.spec/STATUS.md` or
+   `contributor/adr/`, any working rule to `contributor/guides/`.
+7. `git rm -r .spec/features/<name>` — the required `spec-artifacts-cleared`
+   check blocks the merge until this lands. The full artifacts stay recoverable
+   from the pull request: `git fetch origin refs/pull/<N>/head`.

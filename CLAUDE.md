@@ -12,19 +12,9 @@ To *see* what the live TUI/CLI renders while debugging or verifying a change (e.
 
 ## Spec-driven workflow
 
-This project uses spec-driven development. For non-trivial work, use the `spec-driven-developer` subagent:
-
-```
-claude --agent spec-driven-developer
-```
-
-Or invoke phase commands directly: `/agentic-execute`, `/agentic-plan`, `/agentic-specify`, `/agentic-verify`, `/agentic-explore`.
-
-Key files:
-- `.spec/STATE.md` — current in-flight work (read first if present; generated per-session, gitignored)
-- `.spec/CONSTITUTION.md` — non-negotiable rules
-- `.spec/ARCHITECTURE.md` — implementation-level architectural details
-- `.spec/TESTING.md` — test commands and conventions
+The contract lives in one place: [`.claude/rules/spec-workflow.md`](.claude/rules/spec-workflow.md),
+which loads at launch. It covers the phases, what is mechanically enforced, the
+exemption, and the version-control lifecycle.
 
 ## Documentation sync
 
