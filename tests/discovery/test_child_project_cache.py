@@ -20,6 +20,7 @@ just the live one.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 from functualize.app import FunctualizeApp
@@ -100,3 +101,34 @@ class TestChildDoesNotClobberTheParentCache:
         assert "alpha" in names
         assert "pbeta" not in names
         assert {"svc.childjob"} <= names
+
+
+class TestRepeatedBootsDoNotInvalidate:
+    """The symptom, asserted directly: no boot after the first should rescan.
+
+    This covers both halves of the fix at once. `ancestor_search=False` stops the
+    child writing into the parent's file; the all-defaults `discovery_hash` stops
+    it writing `null` into its **own**. Drop either and some provider reads a
+    fingerprint it disagrees with and logs this line on every boot.
+    """
+
+    def test_no_invalidation_warning_on_later_boots(
+        self, tmp_path: Path, monkeypatch, caplog
+    ) -> None:
+        root = _make_tree(tmp_path)
+        _boot(root, monkeypatch)
+
+        with caplog.at_level(
+            logging.WARNING, logger="functualize._discovery.cached_provider"
+        ):
+            _boot(root, monkeypatch)
+            _boot(root, monkeypatch)
+
+        invalidations = [
+            record.getMessage()
+            for record in caplog.records
+            if "Cache invalidated" in record.getMessage()
+        ]
+        assert invalidations == [], (
+            f"a warm boot rescanned instead of reusing its cache: {invalidations}"
+        )
