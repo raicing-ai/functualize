@@ -149,6 +149,56 @@ class TestWarmCacheHonoursFilterChanges:
         assert "Unknown command" not in _listed(result)
 
 
+class TestPreBootRoutingReadHonoursTheFingerprint:
+    """The bare listing never boots, so only the pre-boot read can fix it.
+
+    Every other X4 assertion in this file goes through a path that boots the app
+    — `builtin info` and `func <job>` both do — and the booted provider's
+    invalidation repairs the cache before the result is produced. That makes them
+    blind to the pre-boot routing read: removing it leaves all of them green.
+
+    Bare `func` resolves its listing from the cache and prints it without
+    booting. It is the assertion that goes red when
+    `read_routing_names_from_cache` is not given the fingerprint, and it is the
+    reason the routing wiring exists.
+
+    Asserts on **stdout only**. stderr carries the invalidation warning and the
+    scanned file paths, both of which contain the substring "beta" — an
+    assertion over the combined streams passes while the listing is wrong.
+    """
+
+    def test_bare_listing_shows_the_job_again_after_the_flag_is_dropped(
+        self, cli_run, project_tree
+    ) -> None:
+        root = _tree(project_tree)
+
+        cli_run(["--exclude", "test_*.py", "builtin", "info"], cwd=root)
+        listing = cli_run([], cwd=root)
+
+        assert listing.exit_code == 0
+        assert "alpha" in listing.stdout
+        assert "beta" in listing.stdout, (
+            "the bare listing is served from the pre-boot routing read; if beta "
+            "is missing, that read replayed a cache written under --exclude"
+        )
+
+    def test_bare_listing_hides_the_job_when_the_filter_is_added(
+        self, cli_run, project_tree
+    ) -> None:
+        """The same read, in the other direction."""
+        root = _tree(project_tree)
+
+        cli_run(["builtin", "info"], cwd=root)
+        (root / ".functualize.toml").write_text(
+            '[discovery]\nexclude_patterns = ["test_*.py"]\n', encoding="utf-8"
+        )
+        listing = cli_run([], cwd=root)
+
+        assert listing.exit_code == 0
+        assert "alpha" in listing.stdout
+        assert "beta" not in listing.stdout
+
+
 class TestCacheInspectionIsNonDestructive:
     """Inspecting a cache under the config that wrote it must not disturb it.
 
