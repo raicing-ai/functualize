@@ -612,37 +612,6 @@ def _build_routing_job_filter(
     return build_job_filter(cli_config.discovery)
 
 
-def _build_routing_discovery(
-    cli_flags: dict[str, Any], merged_config: dict[str, Any]
-) -> tuple[Any, str]:
-    """Build the pre-boot routing job filter and the discovery fingerprint.
-
-    Returns ``(job_filter, discovery_hash)``. The two are derived from one
-    ``resolve_cli_config`` call because the fingerprint needs the full config
-    unconditionally, which retires :func:`_build_routing_job_filter`'s
-    short-circuit for this call site.
-
-    That short-circuit cannot be kept. It skips config resolution when no
-    job-level setting is "in play", and the case the fingerprint exists to catch
-    is precisely the one where nothing is in play: a user who ran ``--exclude``
-    once and is now invoking with no flag, no config entry and no env var. The
-    cache is filtered, the caller asked for nothing, and only comparing the
-    fingerprint reveals the disagreement.
-    """
-    from functualize._cli.config import resolve_cli_config
-    from functualize.app.utils import (
-        build_job_filter,
-        compute_discovery_hash_from_config,
-    )
-
-    cli_config = resolve_cli_config(cli_flags=cli_flags)
-    discovery_hash = compute_discovery_hash_from_config(cli_config.discovery)
-
-    if _build_routing_job_filter(cli_flags, merged_config) is None:
-        return None, discovery_hash
-    return build_job_filter(cli_config.discovery), discovery_hash
-
-
 def _extract_aliases(merged_config: dict[str, Any]) -> dict[str, str]:
     """Extract user-configured aliases: global config, then project config.
 
@@ -1819,14 +1788,8 @@ def _run_cli() -> None:
     from functualize.app.utils import resolve_cache_path
 
     cache_path = resolve_cache_path(cwd)
-    _routing_job_filter, _routing_discovery_hash = _build_routing_discovery(
-        cli_flags, merged_config
-    )
-    cached = read_routing_names_from_cache(
-        cache_path,
-        job_filter=_routing_job_filter,
-        discovery_hash=_routing_discovery_hash,
-    )
+    _routing_job_filter = _build_routing_job_filter(cli_flags, merged_config)
+    cached = read_routing_names_from_cache(cache_path, job_filter=_routing_job_filter)
 
     if cached is not None:
         job_names, group_names = cached
