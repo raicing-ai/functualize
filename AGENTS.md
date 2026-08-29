@@ -200,23 +200,41 @@ Presets are factory functions: `classic()`, `twelve_factor()`, `env_only()`, `re
 
 ## Workflow
 
-This project uses spec-driven development.
+This project uses spec-driven development. The contract is in
+`.claude/rules/spec-workflow.md` — phases, what is enforced, the exemption, and
+the version-control lifecycle. This section covers only what is specific to
+running it.
 
 - **Claude Code**: invoke via `--agent spec-driven-developer` or `/agentic-*` commands
 - **Other agents**: see `.claude/agents/spec-driven-developer.md` for the full workflow reference
 
+### Plan mode in VS Code
+
+`.claude/settings.json` sets `permissions.defaultMode: "plan"`, but **the VS Code
+extension ignores it** — conversations it starts do not read project settings for
+the starting permission mode. If you drive this repo from VS Code, set
+
+```
+claudeCode.initialPermissionMode: "plan"
+```
+
+in your **VS Code user settings**. No file in this repository can set it for you.
+
+This is a convenience only. The workflow enforcement does not depend on plan
+mode, and plan mode is read-only, so the Specify and Plan phases cannot run
+inside it.
+
 ### .spec/ directory
 
-Stable reference docs (committed): `ARCHITECTURE.md`, `CONSTITUTION.md`, `TESTING.md`.
+Committed reference: `ARCHITECTURE.md`, `CONSTITUTION.md`, `TESTING.md`,
+`STATUS.md`, `exemptions.log`.
 
-Runtime state files (gitignored, auto-generated on first session):
-- `STATE.md` — current work-in-progress, read first if present (generated per-session, gitignored)
-- `PROJECT.md` — tech stack, repo structure, goals
-- `REQUIREMENTS.md` — functional + non-functional requirements
-- `ROADMAP.md` — feature backlog
-- `.agentic-coding` — version marker
+Committed **on the branch only**, cleared before merge: `features/<name>/` —
+`spec.md`, `contracts.md`, `plan.md`, `schema.md`, `research.md`, `tasks.md`.
+The required `spec-artifacts-cleared` CI check blocks merging while any remain.
 
-If these are missing after a fresh clone, the spec-driven workflow (Phase 0: Init) regenerates them automatically.
+Gitignored: `STATE.md` (per-session; if absent, treat as no work in flight),
+`plans/`, `proposals/`, `scrutiny-reports/`, `archive/`.
 
 ## Plugin tests
 

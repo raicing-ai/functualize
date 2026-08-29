@@ -945,6 +945,8 @@ Items identified during development that are worth doing but not yet designed:
     patterns match "the file's path relative to the scanned directory" — singular,
     and that is the bug: there is more than one scanned directory, and the filter
     only ever knows about one of them.
+19. **The workflow hooks have no committed tests** — `.claude/hooks/{spec_gate,agent_contract,plan_context,bash_audit}.py` were verified exhaustively at authoring time (deny/pass/exemption/staleness/dedup/symlink-containment/fail-open, against real captured harness payloads), but those matrices were throwaway scripts. `grep -rn '.claude/hooks' tests/` returns **0**. Nothing catches a regression if someone edits a validator. This is the repo's own reachability rule pointed at itself: the declared surfaces in the feature's `contracts.md` are exercised by no committed test. Fix: a `tests/harness/` tier feeding recorded payloads to each script and asserting on stdout and exit code — never calling internals, since the hook's public entry point *is* stdin/stdout.
+20. **User-scope `~/.claude/commands/agentic-*.md` shadow the project copies** — all five diverge, and two still name `ROADMAP.md` / `PROJECT.md`, files this repo removed. A maintainer with those personal copies gets the stale command; a fresh clone gets the correct one. Hooks hot-reload mid-session, but command definitions resolved this way do not. Fix: delete the user-scope copies so the project versions apply, or keep them deliberately and accept that project-level command fixes will not reach you.
 
     `boot.py:469` picks `base_dir = Path(app._jobs_directories[0])` and hands it to
     `build_pre_filter_from_config`. `GlobExcludePreFilter.should_import` then
@@ -982,6 +984,14 @@ Items identified during development that are worth doing but not yet designed:
     the docs promise elsewhere, so this is a defect to schedule, not a drift fix to
     rush. But it is the failure class `AGENTS.md:82` names: shipped, unit-tested,
     and unreachable on the path that matters.
+
+## Recently Completed (2026-08)
+
+| Feature | Description |
+|---------|-------------|
+| Spec-workflow enforcement | The spec-driven workflow is now mechanically enforced, not advisory. Four harness hooks in `.claude/hooks/`: a `PreToolUse` gate on `Edit`/`Write`/`NotebookEdit` that denies changes to `src/functualize/**` and `plugins/*/src/**` without a `tasks.md` carrying a wave graph; a `PreToolUse` rewrite that gives the built-in `Plan` agent the contract it cannot load; a `PostToolUse` injection of the execution contract at plan approval; and a `PostToolUse` `Bash` auditor that records shell bypasses. All fail open and resolve paths from the hook's `cwd`, so they validate the worktree rather than the session origin. Escape hatch is `.spec/EXEMPT`, logged to the committed `.spec/exemptions.log`. See [ADR-010](../contributor/adr/010-spec-workflow-enforcement-point.md) for why the gate fires on writes rather than at plan approval. |
+| Spec-workflow document repair | The workflow documents referenced four files that never existed and were gitignored — `PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, and the `.agentic-coding` marker — across 16 sites. `AGENTS.md` now supplies the project context anchor, Phase 0 keys on the committed `CONSTITUTION.md`, and Phase 5 targets `STATUS.md`. The `spec-driven-developer` tool list gained `Edit`, `Skill`, and `Agent`, without which three of its own instructions could not run. |
+| `.spec/features/` lifecycle | Feature artifacts are tracked on the branch so the spec, contracts, plan and task ledger are reviewable, then cleared before merge by the required `spec-artifacts-cleared` check, so master carries none. Recoverable afterwards via `git fetch origin refs/pull/<N>/head`. |
 
 ## Recently Completed (2026-07)
 

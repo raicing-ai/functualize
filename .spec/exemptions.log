@@ -1,0 +1,11 @@
+# Spec-workflow gate exemption ledger.
+#
+# One tab-separated record per honoured `.spec/EXEMPT`, appended by
+# .claude/hooks/spec_gate.py. Format (contracts.md C5):
+#
+#   <ISO-8601 timestamp>\t<worktree basename>\t<file_path>\t<reason>
+#
+# Records are deduplicated by (reason, hour), so a multi-file fix logs once.
+# This file is COMMITTED and is NOT removed by the feature-clearing step
+# (VCS.6) -- it is the durable record of every time the workflow was bypassed,
+# and it outlives the features it describes. Do not edit or prune by hand.

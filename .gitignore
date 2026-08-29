@@ -11,14 +11,11 @@ build/
 
 # Agents
 .spec/archive/
-.spec/features/
 .spec/scrutiny-reports/
 .spec/proposals/
+.spec/plans/
 .spec/.agentic-coding
 .spec/STATE.md
-.spec/PROJECT.md
-.spec/REQUIREMENTS.md
-.spec/ROADMAP.md
 .opencode/
 
 

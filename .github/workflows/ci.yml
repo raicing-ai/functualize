@@ -225,3 +225,25 @@ jobs:
         with:
           name: coverage-${{ matrix.python-version }}
           path: coverage.xml
+
+  # Feature artifacts under .spec/features/ are committed on the branch so the
+  # spec, contracts, plan and task ledger are reviewable, then cleared before
+  # merge so master carries none of them. This job is what makes that binding.
+  #
+  # It runs on pull_request AND on push to master, so the single job is both the
+  # blocking PR check and the post-merge master guard. No sparse-checkout:
+  # `git ls-files` needs a real index.
+  spec-artifacts-cleared:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assert .spec/features/ is cleared
+        run: |
+          tracked=$(git ls-files .spec/features/)
+          if [ -n "$tracked" ]; then
+            echo "::error::.spec/features/ still has tracked files. Migrate the durable half to .spec/STATUS.md or contributor/adr/, then 'git rm -r .spec/features/<name>' before merging."
+            echo "$tracked"
+            exit 1
+          fi
+          echo "OK: .spec/features/ carries no tracked files."

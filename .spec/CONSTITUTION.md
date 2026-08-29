@@ -92,7 +92,11 @@ Users import from public folders. Contributors work in internal folders. The `_c
 - Global mutable state / module-level singletons — reason: breaks testability and DI
 - Implicit `Callable` conventions for ports — reason: untyped, no IDE support. Define a Protocol.
 - `DeprecationWarning` / backward-compat shims — reason: pre-release, no users to deprecate toward. Remove old code.
-- Committing a proposal, plan, scrutiny, or review report — reason: an argument at a moment goes stale the day it lands and then contradicts the code. They are session documents under `.spec/proposals/` and `.spec/scrutiny-reports/`, both gitignored. Migrate the *decision* to an ADR and any *working rule* to `contributor/guides/` before deleting; see `.spec/README.md`. No committed file may link to those paths.
+- Committing a proposal, scrutiny, or review report **to master** — reason: an argument at a moment goes stale the day it lands and then contradicts the code. They are session documents under `.spec/proposals/` and `.spec/scrutiny-reports/`, both gitignored. Migrate the *decision* to an ADR and any *working rule* to `contributor/guides/` before deleting; see `.spec/README.md`. No committed file may link to those paths.
+
+  **Exception — `.spec/features/` (approved 2026-08-29).** A feature's `spec.md`, `contracts.md`, `plan.md`, `schema.md`, `research.md`, and `tasks.md` **are** tracked, on the branch, for the life of the branch. This is not a weakening of the rule above: it is conditional on the `spec-artifacts-cleared` CI check (`VCS.2`), which blocks merge while `git ls-files .spec/features/` is non-empty, so **master still accumulates none of it** and the stated reason cannot occur. The artifacts stay recoverable after merge via `git fetch origin refs/pull/<N>/head`.
+
+  The exception buys three things the gitignored arrangement could not: a reviewer can see the wave graph and the acceptance gates the diff claims to satisfy; `agentic-verify` step 2b's walk of `contracts.md` is auditable rather than private; and the artifacts travel across worktrees with the branch. Withdrawing the `VCS.2` check withdraws the exception with it — the two are one decision, not two.
 
 ## Quality Gates
 - All changes must pass: `uv run ruff check src/ tests/`, `uv run ruff format --check src/ tests/`, `uv run mypy src/`, `uv run pytest`

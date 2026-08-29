@@ -27,7 +27,51 @@
       "Read(./secrets/**)",
       "Read(~/.ssh/**)",
       "Read(~/.aws/**)"
-    ]
+    ],
+    "defaultMode": "plan"
   },
-  "respectGitignore": true
+  "respectGitignore": true,
+  "plansDirectory": ".spec/plans/",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/spec_gate.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/agent_contract.py"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/plan_context.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/bash_audit.py"
+          }
+        ]
+      }
+    ]
+  }
 }
