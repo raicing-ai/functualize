@@ -114,6 +114,7 @@ split across two feature directories:
 | F7 | `docs/cli/discovery.md` (`c9d47e4`) was outside every `[F]` list in `release-0-1-1-blockers/tasks.md` — the one undisclosed scope slip, and where the incomplete doc sweep lived | confirmed, disclosed here | — |
 | F8 | `discovery_lab` step 6 names a decorator (`job_metadata`) that exists nowhere in the example; the real one is `@job`. Broken at `c1b6c26` too | confirmed | Tranche A / A3 |
 | F9 | `docs/cli/discovery.md:114` documents matching "relative to the scanned directory"; the code matches relative to `jobs_directories[0]` | confirmed | Tranche B / B1 |
+| F10 | `test_get_plugin_raises_key_error_for_unregistered` assumed only against the names *it* registered, so Hypothesis could propose an auto-registered entry-point plugin (`mcp`) as "unregistered" and the lookup rightly did not raise. Latent since before this branch; surfaced by a full-suite run and then persisted in `.hypothesis/`, so it would have failed CI deterministically | confirmed, fixed | Tranche A |
 
 Two review claims did **not** survive testing, and are recorded so they are not
 re-litigated:
