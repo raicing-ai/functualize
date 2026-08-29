@@ -29,11 +29,17 @@ requires = []
 # scenario would pass once and then fail forever. Each run therefore mints a
 # fresh id and shares it with the later steps through a file, because every
 # step is its own process.
+#
+# The file lives under `$DOC_VERIFY_SCRATCH`, a directory the runner makes once
+# per invocation, not at a fixed `/tmp` path. With a fixed name two concurrent
+# runs share one file: this scenario minted an id in step 1 and read the other
+# run's id in step 2, which had already been consumed — and a used scope can
+# never block again, so step 2 failed with nothing wrong in the doc it cites.
 [[steps]]
 description = "Mint a scope id for this run — a used one can never block again"
 engine = "shell"
 cwd = "examples/quickstart/step7_workflow"
-command = "echo \"doc-h-workflow-$(date +%s%N)\" > /tmp/doc-verify-h-workflow-scope && cat /tmp/doc-verify-h-workflow-scope"
+command = "echo \"doc-h-workflow-$(date +%s%N)\" > $DOC_VERIFY_SCRATCH/h-workflow-scope && cat $DOC_VERIFY_SCRATCH/h-workflow-scope"
 expected = { exit_code = 0, stdout_contains = "doc-h-workflow-" }
 timeout = 30
 
@@ -41,7 +47,7 @@ timeout = 30
 description = "Running the workflow job BLOCKS at the gate — exit 5, not a failure"
 engine = "shell"
 cwd = "examples/quickstart/step7_workflow"
-command = "func --scope-id \"$(cat /tmp/doc-verify-h-workflow-scope)\" trip-planner --city Tokyo"
+command = "func --scope-id \"$(cat $DOC_VERIFY_SCRATCH/h-workflow-scope)\" trip-planner --city Tokyo"
 expected = { exit_code = 5, stderr_contains = "Blocked: gate 'preferences' in scope" }
 timeout = 60
 
@@ -49,7 +55,7 @@ timeout = 60
 description = "The first step ran before the gate — the walk reached it, not skipped it"
 engine = "shell"
 cwd = "examples/quickstart/step7_workflow"
-command = "func builtin workflow list | grep \"$(cat /tmp/doc-verify-h-workflow-scope)\""
+command = "func builtin workflow list | grep \"$(cat $DOC_VERIFY_SCRATCH/h-workflow-scope)\""
 expected = { exit_code = 0, stdout_contains = "trip-planner  blocked  gates: preferences" }
 timeout = 30
 
@@ -57,7 +63,7 @@ timeout = 30
 description = "`workflow state` names the walk position and the pending gate"
 engine = "shell"
 cwd = "examples/quickstart/step7_workflow"
-command = "func builtin workflow state \"$(cat /tmp/doc-verify-h-workflow-scope)\""
+command = "func builtin workflow state \"$(cat $DOC_VERIFY_SCRATCH/h-workflow-scope)\""
 expected = { exit_code = 0, stdout_contains = "Pending gates: preferences" }
 timeout = 30
 
@@ -65,7 +71,7 @@ timeout = 30
 description = "`workflow resume` accepts input and says the job must be re-run"
 engine = "shell"
 cwd = "examples/quickstart/step7_workflow"
-command = "func builtin workflow resume \"$(cat /tmp/doc-verify-h-workflow-scope)\" preferences --input '{\"budget\": \"mid-range\", \"interests\": [\"food\"]}'"
+command = "func builtin workflow resume \"$(cat $DOC_VERIFY_SCRATCH/h-workflow-scope)\" preferences --input '{\"budget\": \"mid-range\", \"interests\": [\"food\"]}'"
 expected = { exit_code = 0, stdout_contains = "Input accepted for gate 'preferences'." }
 timeout = 30
 
@@ -76,7 +82,7 @@ timeout = 30
 description = "Re-running with the same --scope-id walks PAST the gate to the epilogue"
 engine = "shell"
 cwd = "examples/quickstart/step7_workflow"
-command = "func --scope-id \"$(cat /tmp/doc-verify-h-workflow-scope)\" trip-planner --city Tokyo"
+command = "func --scope-id \"$(cat $DOC_VERIFY_SCRATCH/h-workflow-scope)\" trip-planner --city Tokyo"
 expected = { exit_code = 0, stderr_contains = "Itinerary for Tokyo complete." }
 timeout = 60
 
@@ -84,6 +90,11 @@ timeout = 60
 description = "The scope is no longer blocked — the gate was really passed"
 engine = "shell"
 cwd = "examples/quickstart/step7_workflow"
-command = "func builtin workflow list"
-expected = { exit_code = 0, stdout_not_contains = "blocked" }
+# Scoped to this run's id, not the whole store. `workflow list` is global, so
+# asserting `stdout_not_contains = "blocked"` over all of it failed whenever any
+# unrelated blocked scope existed — another run's, or a developer's own. A
+# completed scope leaves the listing entirely, so absence is the assertion, and
+# `grep` exiting 1 on absence is why the markers are needed.
+command = "func builtin workflow list | grep \"$(cat $DOC_VERIFY_SCRATCH/h-workflow-scope)\" && echo STILL_LISTED || echo SCOPE_COMPLETED"
+expected = { exit_code = 0, stdout_contains = "SCOPE_COMPLETED", stdout_not_contains = "blocked" }
 timeout = 30

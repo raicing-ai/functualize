@@ -27,7 +27,20 @@ environments and reports which ones still match reality.
 4. **Report, don't fix.** When a scenario fails, describe the drift — exact
    expected vs actual. Do not silently update the scenario to match the new
    behavior. That decision belongs to a human.
-5. **Before believing a doc-verify failure, prove the harness works.** Run
+5. **A skipped scenario is an unverified doc page, never a pass.** `--engine`
+   and `--skip-pty` mark non-matching steps `skip`, and a scenario whose steps
+   all skip rolls up to `skip`. That is exit **3**. Do not reach for
+   `--allow-skips` to make a run green — reach for it only when the narrowing
+   is the point (per-PR CI is the one standing case, and it says so in
+   `ci.yml`). Where each engine must actually run:
+
+   | Engine | Runs where |
+   |---|---|
+   | `shell` | per-PR CI (`ci.yml` `doc-verify` job) |
+   | `docker` | release gate Phase 4 only — no automated job exists yet |
+   | `pty` | local / release gate only — never automated CI (`CLAUDE.md:11`) |
+
+6. **Before believing a doc-verify failure, prove the harness works.** Run
    `a-core-builtins` first — it exercises the plumbing and nothing else. A run
    that reports many failures at once is far more likely to be one broken
    precondition than a documentation set that went stale all at the same
@@ -87,7 +100,8 @@ anything yet.
 | How do I create a new one? | Copy template, fill in `[source]` block, write steps |
 | How do I know what to verify? | See [references/doc-audit.md](references/doc-audit.md) |
 | What engines are available? | `shell`, `docker`, `pty` (TUI/CLI interaction) |
-| What happens on failure? | Runner exits **1** for a failed step, **2** for a scenario it could not load; writes `.err` diff, prints report. Any non-zero means the run is not clean — gating on `== 2` alone passes every real documentation failure |
+| What happens on failure? | Runner exits **1** for a failed step, **2** for a scenario it could not load, **3** when a scenario ran zero steps; writes `.err` diff, prints report. Any non-zero means the run is not clean — gating on `== 2` alone passes every real documentation failure |
+| A scenario "skipped" everything? | That is exit **3**, not a pass. `--engine`/`--skip-pty` filter steps out; a scenario left with none verified nothing. The report's **NOT VERIFIED** table names each one and the tier that owes it. Pass `--allow-skips` only to narrow a run deliberately |
 
 ---
 

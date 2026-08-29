@@ -34,7 +34,7 @@ timeout = 60
 [[steps]]
 engine = "shell"
 description = "uv run mypy src/"
-command = "uv run mypy src/ > /tmp/functualize-mypy.log 2>&1; echo 'MYPY_DONE'"
+command = "uv run mypy src/ > $DOC_VERIFY_SCRATCH/mypy.log 2>&1; echo 'MYPY_DONE'"
 expected = { stdout_contains = "MYPY_DONE" }
 timeout = 120
 

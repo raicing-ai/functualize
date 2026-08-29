@@ -127,6 +127,16 @@ jobs:
   # Fails on ANY non-zero exit. `run-scenario` returns 1 for a failed step and
   # 2 for a scenario it could not load, so gating on 2 alone would pass every
   # real documentation failure through.
+  #
+  # `--allow-skips` is the deliberate acknowledgement that this job does NOT
+  # verify the docker and pty scenarios — 10 of 16, covering installation,
+  # scaffold, quickstart, discovery, MCP and the whole TUI surface. Without the
+  # flag the run exits 3, because a scenario filtered out by `--engine` runs
+  # zero steps and verifies nothing; reporting that as a pass is what let the
+  # narrowing go unnoticed. The runner prints every unverified scenario and the
+  # tier that owes it, so removing this flag is how you see the gap again.
+  # The only owner those tiers actually have today is the manual release gate
+  # (`.agents/skills/release/SKILL.md` Phase 4). No scheduled workflow exists.
   doc-verify:
     runs-on: ubuntu-latest
     steps:
@@ -147,7 +157,7 @@ jobs:
         run: |
           PATH="$PWD/.venv/bin:$PATH" python \
             .agents/skills/doc-verify/scripts/run-scenario \
-            examples/docs/scenarios/ --engine shell
+            examples/docs/scenarios/ --engine shell --allow-skips
 
   # `mkdocs build --strict` ran only on push to master (`docs.yml`), so a PR
   # could break the docs build and only be caught after merge.
