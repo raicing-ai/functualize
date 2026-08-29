@@ -7,9 +7,10 @@ scans the convention directory at boot, imports each top-level non-underscore
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from functualize.plugin import StructuredEvent
+if TYPE_CHECKING:
+    from functualize.plugin import StructuredEvent
 
 
 class RunNotifier:
