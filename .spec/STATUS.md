@@ -499,6 +499,51 @@ Items identified during development that are worth doing but not yet designed:
     `docs/guides/group-options.md`, so the documentation is correct either way — this
     is a capability decision, not a drift fix.
 
+18. **`exclude_patterns` cannot reach any scan root but the first.** Surfaced while
+    giving `examples/plugins/file_based_plugin` the config file its README assumed.
+    The setting is documented as "exclude files matching glob patterns before any
+    other filter runs" (`docs/cli/discovery.md:101-114`), with the qualifier that
+    patterns match "the file's path relative to the scanned directory" — singular,
+    and that is the bug: there is more than one scanned directory, and the filter
+    only ever knows about one of them.
+
+    `boot.py:469` picks `base_dir = Path(app._jobs_directories[0])` and hands it to
+    `build_pre_filter_from_config`. `GlobExcludePreFilter.should_import` then
+    relativizes each candidate against that single directory and, for anything
+    outside it, returns `True` — "File is not under base_dir — cannot match, allow
+    through" (`_primitives/pre_filter.py:474-478`). Meanwhile the CLI boots the app
+    over *every* scan root and appends the CWD unconditionally
+    (`_cli/main.py:476-484`, `:1174-1177`, `:1292`), so a project with
+    `jobs_directories = ["jobs"]` scans both `jobs/` and the root while the filter
+    can only see `jobs/`.
+
+    **Concretely**: `exclude_patterns = ["**/test_*.py"]` — the exact line
+    `docs/cli/config.md:53` and `docs/cli/discovery.md:108` both print as the
+    canonical example — silently fails to exclude a `test_*.py` at the project root.
+    That is where the pattern is most obviously aimed, and where it does nothing.
+    Observed, not inferred: adding it to that example changed no listing.
+
+    **Why it went unnoticed**: `tests/test_pre_filter.py:436`,
+    `test_file_outside_base_dir_allowed`, pins the allow-through as deliberate — and
+    at the primitive level it is correct, because a filter that cannot relativize a
+    path has nothing to match. The defect is one layer up, in choosing a single
+    `base_dir` for a scan that spans several roots. Every test of the primitive
+    passes and will keep passing after a fix.
+
+    **The decision to make**: whether the filter is per-scan-root (build one
+    `GlobExcludePreFilter` per directory, each with its own `base_dir`) or
+    anchor-relative (one filter based at `discovery_result.anchor`, so patterns read
+    against the project root the way a `.gitignore` does). The second matches what a
+    reader writing `**/test_*.py` already assumes and keeps one filter instance; the
+    first is closer to the current structure. Either way `docs/cli/discovery.md`'s
+    "relative to the scanned directory" needs to become true rather than
+    approximately true.
+
+    No user-facing claim is currently *wrong* in a way that misleads about behaviour
+    the docs promise elsewhere, so this is a defect to schedule, not a drift fix to
+    rush. But it is the failure class `AGENTS.md:82` names: shipped, unit-tested,
+    and unreachable on the path that matters.
+
 ## Recently Completed (2026-07)
 
 | Feature | Description |
