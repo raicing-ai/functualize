@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — the job metadata cache ignored your discovery settings
+
+- **`exclude_patterns` and `--exclude` did nothing against a warm cache**, in both
+  directions. Adding `[discovery] exclude_patterns` to your config after having
+  run the tool once was silently ignored until you knew to run
+  `func builtin cache clear`.
+
+  Worse, and the reason this is a patch release: a **single `--exclude`
+  invocation removed the excluded jobs from your CLI permanently**. No flag set,
+  no config entry, no diagnostic — `func <job>` simply answered
+  `Unknown command`. The job was not shadowed or deprioritised; it was gone until
+  the cache was cleared by hand.
+
+  The filters themselves were correct, and `func builtin config show` reported
+  your settings correctly. The cache header fingerprinted the format version, the
+  package version, the Python version and your dependencies — and not the
+  discovery configuration that decides what the cache contains. It now carries a
+  `discovery_hash`, and a mismatch discards the cache the same way a format
+  change does. See [ADR-010](contributor/adr/010-discovery-cache-filter-awareness.md).
+
+  **If you ran `--exclude` on 0.1.0, you have a poisoned cache on disk right
+  now.** The cache format version bump repairs it on your first command after
+  upgrading; you do not need to do anything.
+
+### Fixed — examples and their guards
+
+- **`examples/plugins/file_based_plugin` published four commands**, three of which
+  were its own test suite, against the one its README documents. Its tests moved
+  under `tests/`, below the default scan depth.
+
+- Two guards added for the class of defect that produced it, both of which would
+  have caught it: a doc-verify scenario that runs the command that page
+  publishes, and a CI job that runs each published example command **from a clean
+  clone**. The originating defects were files that existed on a developer's disk
+  and not in git, which every existing job structurally could not see.
+
+
 ### Fixed — the interactive shell under `GroupOptions`
 
 - **Nine defects, one cause.** A `GroupOptions` subclass declares flags at a

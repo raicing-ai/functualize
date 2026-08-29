@@ -108,6 +108,18 @@ The format version and path resolution are defined once in
 rebuild once, automatically. Never add a second cache file for a slice of the same
 data.
 
+**A cache must also fingerprint the *configuration* that produced it, not only the
+shape of what it stores.** The header fingerprinted the format version, package
+version, Python version and dependency hash — and not the discovery config, so a
+cache built under one filter set was replayed under another. Adding
+`[discovery] exclude_patterns` after a warm run did nothing, and one `--exclude`
+invocation removed the excluded jobs *permanently*, because `PreFilterDecision`
+persists negative decisions with no record of which filter produced them. See
+[ADR-010](../adr/010-discovery-cache-filter-awareness.md). The general form: if a
+setting changes what goes into the cache, a change to that setting has to be able
+to invalidate it — and the test has to run the *transition*, because every filter
+test in the suite ran cold and all of them stayed green through the defect.
+
 ## 6. A list hardcoded in five places has already drifted
 
 The builtin command list existed in five hardcoded copies. By the time anyone
