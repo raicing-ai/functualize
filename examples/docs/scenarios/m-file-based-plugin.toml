@@ -1,0 +1,41 @@
+[scenario]
+name = "m-file-based-plugin"
+version = 1
+description = "The one command the file-based-plugin page publishes, and the plugin announcing it"
+
+[source]
+file = "docs/examples/plugins/file-based-plugin.md"
+lines = "11-17"
+description = "The Running block: cd into the example, run `func greet`, watch the plugin react"
+
+requires = []
+
+# This example shipped broken twice, and neither time did anything notice.
+# `055310b` and `7f09be4` were both files that existed locally and not in git,
+# so a clean clone had no plugin and no config anchor and `func greet` failed
+# with "Unknown command 'greet'". `uv run pytest examples/` did not catch it:
+# `tests/test_file_plugin.py` exercises the plugin object and the loader
+# in-process and never invokes the CLI. This scenario runs the command the
+# documentation actually tells a reader to run.
+
+[[steps]]
+description = "`func greet` runs, and the file-based plugin announces its success"
+engine = "shell"
+cwd = "examples/plugins/file_based_plugin"
+command = "func greet"
+# The plugin uses `print()`, so its announcement is on stdout. The job's own
+# `rc.log(...)` goes to stderr — asserting the wrong stream here would pass
+# on a run where the plugin never loaded at all, which is the defect.
+expected = { exit_code = 0, stdout_contains = "[run-notifier] greet succeeded." }
+timeout = 30
+
+[[steps]]
+description = "The example publishes only the command its page documents"
+engine = "shell"
+cwd = "examples/plugins/file_based_plugin"
+command = "func"
+# It published four for a while: `greet` plus three `test-*` jobs harvested from
+# its own suite at the example root. The tests now live under `tests/`, below the
+# default scan depth.
+expected = { exit_code = 0, stdout_contains = "greet", stdout_not_contains = "test-" }
+timeout = 30

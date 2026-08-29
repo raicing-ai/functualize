@@ -79,6 +79,8 @@ def build_cached_provider(
     project_root: Path | None = None,
     pre_filter: Any = None,
     job_filter: Any = None,
+    discovery_hash: str | None = None,
+    ancestor_search: bool = True,
 ) -> Any:
     """Build a CachedDirectoryScanProvider with appropriate cache storage.
 
@@ -97,6 +99,13 @@ def build_cached_provider(
         pre_filter: Optional ModulePreFilter to filter modules before import.
         job_filter: Optional JobFilter applied per descriptor on cache read
             (the ``require_job_*`` settings).
+        discovery_hash: Fingerprint of the discovery config the filters were
+            built from. ``None`` means "does not know the config" and skips the
+            check -- correct for a reader, wrong for anything that persists.
+        ancestor_search: When True (default) the ``.functualize/`` lookup walks
+            *upward* from ``project_root``. Child projects pass False so they
+            resolve their own cache instead of landing on the parent's and
+            sharing one ``cache.json`` with it (ADR-011).
 
     Returns:
         CachedDirectoryScanProvider instance.
@@ -108,7 +117,11 @@ def build_cached_provider(
     else:
         project_root = Path(project_root).resolve()
 
-    functualize_dir = find_functualize_dir(project_root)
+    if ancestor_search:
+        functualize_dir = find_functualize_dir(project_root)
+    else:
+        candidate = project_root / ".functualize"
+        functualize_dir = candidate if candidate.is_dir() else None
 
     if functualize_dir is not None:
         locator = (
@@ -131,6 +144,7 @@ def build_cached_provider(
         pre_filter=pre_filter,
         job_filter=job_filter,
         project_root=project_root,
+        discovery_hash=discovery_hash,
     )
 
 

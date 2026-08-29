@@ -193,7 +193,7 @@ The job-level filters then run over the extracted descriptors:
 2. **JobPostfixFilter** — function name string check
 3. **JobDecoratorFilter** — decorator names recorded during extraction
 
-These apply on *read* rather than on write, so the discovery cache stays a superset of what any one configuration admits and a changed `require_job_*` setting takes effect immediately. File-level filters decide what gets *written* to the cache and have no such property: after changing one, run `func builtin cache clear` or the previous listing persists.
+These apply on *read* rather than on write, so the discovery cache stays a superset of what any one configuration admits and a changed `require_job_*` setting takes effect immediately. File-level filters decide what gets *written* to the cache, so they cannot work that way — instead the cache header fingerprints your discovery filter settings, and changing any of them discards the cache and rescans. Either way a filter change takes effect on your next command; `func builtin cache clear` is not needed.
 
 ---
 

@@ -4,7 +4,8 @@ import importlib.util
 from pathlib import Path
 from unittest.mock import MagicMock
 
-_PLUGIN_FILE = Path(__file__).parent / ".functualize" / "plugins" / "run_notifier.py"
+_EXAMPLE_ROOT = Path(__file__).parent.parent
+_PLUGIN_FILE = _EXAMPLE_ROOT / ".functualize" / "plugins" / "run_notifier.py"
 
 
 def _load_plugin_module():
@@ -45,7 +46,7 @@ def test_loader_discovers_plugin_from_directory():
     import os
 
     cwd = os.getcwd()
-    os.chdir(Path(__file__).parent)
+    os.chdir(_EXAMPLE_ROOT)
     try:
         plugins = loader._discover_from_files(app)
     finally:

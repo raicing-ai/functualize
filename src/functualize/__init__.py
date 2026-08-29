@@ -1,6 +1,6 @@
 """Functualize - A reusable Python CLI framework."""
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from functualize._config.job_config import JobConfigView
 from functualize._gate import GateContext, GateResolver, GateStrategy

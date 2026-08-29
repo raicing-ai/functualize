@@ -7,6 +7,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-29
+
+### Fixed — the job metadata cache ignored your discovery settings
+
+- **`exclude_patterns` and `--exclude` did nothing against a warm cache**, in both
+  directions. Adding `[discovery] exclude_patterns` to your config after having
+  run the tool once was silently ignored until you knew to run
+  `func builtin cache clear`.
+
+  Worse, and the reason this is a patch release: a **single `--exclude`
+  invocation removed the excluded jobs from your CLI permanently**. No flag set,
+  no config entry, no diagnostic — `func <job>` simply answered
+  `Unknown command`. The job was not shadowed or deprioritised; it was gone until
+  the cache was cleared by hand.
+
+  The filters themselves were correct, and `func builtin config show` reported
+  your settings correctly. The cache header fingerprinted the format version, the
+  package version, the Python version and your dependencies — and not the
+  discovery filter settings that decide what the cache contains. It now carries a
+  `discovery_hash`, and a mismatch discards the cache the same way a format
+  change does. See [ADR-010](contributor/adr/010-discovery-cache-filter-awareness.md).
+
+  **If you ran `--exclude` on 0.1.0, you have a poisoned cache on disk right
+  now.** The cache format version bump repairs it on your first command after
+  upgrading; you do not need to do anything.
+
+### Fixed — three more places the cache and the filters disagreed
+
+Found by an adversarial review of the fix above. All three are follow-ons from it
+rather than new ground: see
+[ADR-011](contributor/adr/011-discovery-fingerprint-completeness.md).
+
+- **`exclude_patterns` only applied to your first jobs directory.** It was matched
+  relative to `jobs_directories[0]`, and any file that was not under that
+  directory was admitted without being judged at all. So in a project with two
+  job directories, one exclusion governed the first and silently skipped the
+  second. It now matches relative to whichever scan root contains the file, which
+  is what the documentation already described.
+
+  This is a **behaviour change**: an exclusion that previously applied to one of
+  your job directories now applies to all of them. It only ever excludes more,
+  never fewer.
+
+  The same gap made the cache wrong. That first directory is not one of the
+  settings `discovery_hash` covers, so *reordering* `jobs_directories` changed
+  what the cache should hold while the fingerprint stayed identical — the warm
+  cache then replayed the wrong answer. Fixing the filter closes both.
+
+- **`func builtin cache rebuild` threw away its own work.** It wrote no
+  fingerprint, so the very next command decided the cache was stale and rescanned
+  — printing a warning, in every project, even with no filters configured. It also
+  ignored your filters while rebuilding. It now rebuilds under the filters in
+  effect, including flags on its own invocation, and the result is reused.
+
+- **Monorepo parent projects rescanned on every boot.** A child project declared
+  with `children=` wrote into its *parent's* cache file and erased the parent's
+  entries, and the parent then re-scanned every single boot with a warning on
+  stderr. Child projects now keep their own cache.
+
+The cache format version moves to 17, so the first command after upgrading
+rebuilds once. You do not need to do anything.
+
+### Fixed — examples and their guards
+
+- **`examples/plugins/file_based_plugin` published four commands**, three of which
+  were its own test suite, against the one its README documents. Its tests moved
+  under `tests/`, below the default scan depth.
+
+- Two guards added for the class of defect that produced it, both of which would
+  have caught it: a doc-verify scenario that runs the command that page
+  publishes, and a CI job that runs each published example command **from a clean
+  clone**. The originating defects were files that existed on a developer's disk
+  and not in git, which every existing job structurally could not see.
+
+
 ### Fixed — the interactive shell under `GroupOptions`
 
 - **Nine defects, one cause.** A `GroupOptions` subclass declares flags at a
@@ -506,7 +581,8 @@ function knowing which.
   (`log = CapturingLog(); my_job(config, log); assert (...) in log.calls`), which
   is the style the scaffolded job template demonstrates. Routing `RunContext.log`
   through the injected `Log` is deferred to a later release.
-  *(Fixed after 0.1.0 — see Unreleased.)*
+  *(Fixed in 0.1.1.)*
 
-[Unreleased]: https://github.com/raicing-ai/functualize/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/raicing-ai/functualize/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/raicing-ai/functualize/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/raicing-ai/functualize/releases/tag/v0.1.0

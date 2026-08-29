@@ -85,7 +85,110 @@ Two guards were missing, and either would have caught the examples defect at
   `test_file_plugin.py` tests the plugin object and the loader in-process. No
   test asserts the README's `func greet` runs.
 
-### Ship-blocking
+### Ship-blocking — landed, but the cut is **HELD**
+
+Items 1-6 and 9 are landed on `release/0.1.1`; item 7 is deferred to
+[`shape-intents/remote-config-source.md`](shape-intents/remote-config-source.md);
+item 8 was already fixed. The decision and its reasoning are in
+[ADR-010](../contributor/adr/010-discovery-cache-filter-awareness.md).
+
+**Both tranches have landed. 0.1.1 is ready to tag.** An adversarial review of
+`c1b6c26..c9d47e4` confirmed the headline fix — X1-X4 are closed, reproduced
+against `c1b6c26`, full suite 8820 passed / 9 skipped — and found nine things,
+three of which are behavioural defects the fix left open or introduced. Work is
+split across two feature directories:
+
+- [`features/0-1-1-review-followups/`](features/0-1-1-review-followups/) —
+  **Tranche A**, docs / dead code / disclosure. No behaviour change.
+- [`features/discovery-fingerprint-completeness/`](features/discovery-fingerprint-completeness/)
+  — **Tranche B**, the three behavioural defects. Blocks the tag.
+
+| F | Finding | Verdict | Where |
+|---|---|---|---|
+| F1 | `jobs_directories[0]` (`base_dir`) decides what `exclude_patterns` matches and is **not fingerprinted** — two orders give mirror-image correct contents under an identical digest, so the warm transition serves the stale one | confirmed, **blocks tag** | Tranche B / B1 |
+| F2 | `cache rebuild` unlinks the file then builds a bare provider, so it writes `discovery_hash: null` and the next command discards its work with a WARNING — in every project. New at HEAD | confirmed, **blocks tag** | Tranche B / B2 |
+| F3 | `find_functualize_dir` walks upward, so a child writes into the **parent's** cache file and the parent invalidates on every boot forever. Warning new at HEAD; the mutual clobbering pre-dates it | confirmed, **blocks tag** | Tranche B / B3 |
+| F4 | The `None`-fingerprint *adoption* branch is dead code — full suite byte-identical without it, and its one would-be caller deletes the file before reading | confirmed | Tranche A / A1 |
+| F5 | Two example READMEs still publish the retracted `cache clear` workaround (`discovery_lab`, `config_lab`) | confirmed | Tranche A / A3, A4 |
+| F6 | `TestPreBootRoutingReadHonoursTheFingerprint` names wiring `b5f918e` removed, and claims bare `func` renders without booting — it boots | confirmed | Tranche A / A2 |
+| F7 | `docs/cli/discovery.md` (`c9d47e4`) was outside every `[F]` list in `release-0-1-1-blockers/tasks.md` — the one undisclosed scope slip, and where the incomplete doc sweep lived | confirmed, disclosed here | — |
+| F8 | `discovery_lab` step 6 names a decorator (`job_metadata`) that exists nowhere in the example; the real one is `@job`. Broken at `c1b6c26` too | confirmed | Tranche A / A3 |
+| F9 | `docs/cli/discovery.md:114` documents matching "relative to the scanned directory"; the code matches relative to `jobs_directories[0]` | confirmed | Tranche B / B1 |
+| F10 | `test_get_plugin_raises_key_error_for_unregistered` assumed only against the names *it* registered, so Hypothesis could propose an auto-registered entry-point plugin (`mcp`) as "unregistered" and the lookup rightly did not raise. Latent since before this branch; surfaced by a full-suite run and then persisted in `.hypothesis/`, so it would have failed CI deterministically | confirmed, fixed | Tranche A |
+| F11 | `tests/test_packaging.py` hardcoded `0.1.0` in two assertions, so the version had a **fourteenth** declaration site that no release checklist named — bumping the documented thirteen and running the suite landed red. Now derives the expected value from `pyproject.toml` | confirmed, fixed | Tranche A |
+
+Two review claims did **not** survive testing, and are recorded so they are not
+re-litigated:
+
+- **No non-booting surface serves stale names.** Every surface swept against a
+  poisoned cache — `--help`, `builtin info`, `cache show`, `cache check`,
+  `shell-init`, `mcp`, `mcp tools`, `func <job>`, `func <group>`,
+  `func <group> <job>`, bare `func`, standalone and declared-project — served the
+  correct listing and repaired the cache, asserting on **stdout only**. Every
+  `func builtin` command boots a full app in the `cli_app` callback. `b5f918e`'s
+  revert was right.
+- **The `None`-*skip* guard is load-bearing**, unlike the adoption branch beside
+  it: forcing `None` to compare makes
+  `test_cache_show_leaves_a_matching_cache_byte_identical` fail. The mid-execution
+  re-scope from "filtered cache" to "matching cache" was the correct call.
+
+#### Final gates (2026-08-29, both tranches landed)
+
+| Gate | Result |
+|---|---|
+| Full suite `HYPOTHESIS_PROFILE=ci --run-slow -n auto` | **8832 passed, 9 skipped, 0 failed** (baseline 8820 + 12 new) |
+| `pytest examples/` | 139 passed |
+| All 11 plugin suites | 245 passed |
+| `ruff check` (src, tests, examples, plugins) + `format --check` | clean, 1096 files |
+| `mypy src/` | 0 errors, 295 files |
+| `lint-imports` | 5 kept, 0 broken |
+| doc-verify shell tier | 7 passed, 0 failed, 10 skipped (docker/pty, as CI) |
+| clean-clone CI job, simulated end to end at HEAD | both example commands PASS |
+| Review repros X1-X4, F1, F2, F3 | all produce the correct answer |
+| Version | 13/13 sites at `0.1.1`; `func --version` -> `functualize 0.1.1` |
+
+**Not tagged.** The tag is pushed after this lands on `master` and CI is green on
+the merge commit: `verify-ci` looks for the run that commit got when it landed,
+and `ci.yml` never runs on tags.
+
+| # | Item | Commit |
+|---|---|---|
+| 1 | `discovery_hash` in the cache header | `8c42743`, `ddfd18f` |
+| 2 | `CACHE_VERSION` 15 -> 16 | `8c42743` |
+| 3 | X2/X3/X4 warm-cache regressions | `0785866`, `b992d14` |
+| 4 | `file_based_plugin` publishes only `greet` | `384b946` |
+| 5 | doc-verify scenario for that example | `6941aa4` |
+| 6 | clean-clone CI guard | `2b941e2` |
+| 9 | doc-verify's own `--timeout` docs | `688f8e2` |
+
+Gates: full suite under `HYPOTHESIS_PROFILE=ci --run-slow -n auto`; `pytest
+examples/` 139 passed; doc-verify shell tier; `lint-imports` 5 kept 0 broken;
+mypy 0 errors over 295 files; ruff clean including `examples/`.
+
+**One claim did not survive.** The first implementation also taught the pre-boot
+routing read (`read_routing_names_from_cache`) the fingerprint, on the reasoning
+that routing resolves job names before the app boots. Sabotage refuted it:
+removing the argument left every assertion green, including a bare-listing pair
+added specifically to catch it, because a routing miss falls through to a path
+that boots anyway. Reverted in `b5f918e` rather than shipped — it cost a
+`resolve_cli_config()` call inside a read documented at a ~3ms budget for
+behaviour no test could observe.
+
+#### New follow-ups this work produced
+
+- **`func builtin cache rebuild` rebuilds unfiltered.** It is unfiltered today and
+  this change did not widen to fix it. Under the new semantics it writes no
+  fingerprint and the next boot invalidates and rebuilds correctly, so it
+  self-heals rather than poisons — but its own "Cache rebuilt with N entries"
+  line reports an unfiltered count.
+- **Child-project providers (`_app/boot.py:888`) receive no discovery config**, so
+  they skip the fingerprint check. Unchanged by this work; they have none plumbed.
+- **`read_group_options_from_cache` cannot honour the fingerprint.** No call site
+  can supply it (`_dispatch_group` has no config in scope), so a group's declared
+  flags can be served from a cache written under a different filter set for one
+  invocation. Milder than the job case and self-healing on the next boot.
+
+### The original findings, as recorded
 
 1. **Fingerprint the discovery config into the cache header.** Add
    `discovery_hash` beside `deps_hash` in `_primitives/cache_format.py` —
@@ -187,7 +290,13 @@ sound and does not need re-auditing. What follows is what it did **not** cover.
 
 #### Ship-blocking
 
-7. **The `remote_first` gate is scope-blind; the stale promise survives in the
+7. **DEFERRED to a shape intent (2026-08-29).** Taken out of the 0.1.1 cut by
+   decision; the full evidence and the two coherent end states now live in
+   [`.spec/shape-intents/remote-config-source.md`](shape-intents/remote-config-source.md),
+   which is committed and self-contained. The finding as originally written
+   follows, unchanged.
+
+   **The `remote_first` gate is scope-blind; the stale promise survives in the
    public docstring.** The recorded gate,
    `grep -rn "→ Remote\|Remote →" --include="*.md" .` → 0 hits, is true. The
    `--include="*.md"` scoping is what makes it true. Dropping it:
@@ -445,7 +554,9 @@ task's `[F]`, and outside the "34/34 tasks, 16/16 acceptance criteria" claim.
 
 Committed design documents with per-assertion PASS/GAP verification against the current codebase. Fully self-contained — no external files needed to start work.
 
-_None currently open._
+| Shape intent | Scope |
+|---|---|
+| [`remote-config-source.md`](shape-intents/remote-config-source.md) | `RemoteSource` is defined, exported and documented with **zero construction sites in `src/`**, and the `remote_first` preset's docstring promises a chain the boot path does not build. Wire it or remove it — correcting only the docstrings is explicitly not an option. Carries the finding that the original gate passed *because of* its `--include="*.md"` scoping. |
 
 ## Open Features
 

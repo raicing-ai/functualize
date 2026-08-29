@@ -459,20 +459,42 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
         # Build the file-level and job-level filters from discovery_config
         pre_filter = None
         job_filter = None
+        # The fingerprint is computed for *every* boot, not only when a config
+        # is present. A boot that has just dropped its `exclude_patterns` must
+        # still invalidate the cache written while they were active, and
+        # `discovery_hash_from_config(None)` is the all-defaults digest, so the
+        # two directions agree.
+        from functualize._discovery.filter_factory import discovery_hash_from_config
+
+        discovery_hash = discovery_hash_from_config(
+            getattr(app, "_discovery_config", None)
+        )
         if getattr(app, "_discovery_config", None) is not None:
             from functualize._discovery.filter_factory import (
                 build_job_filter_from_config,
                 build_pre_filter_from_config,
             )
 
-            # Use first jobs directory as base_dir for glob patterns
-            base_dir = Path(app._jobs_directories[0])
-            pre_filter = build_pre_filter_from_config(app._discovery_config, base_dir)
+            # Every scan root, not just the first. `exclude_patterns` is
+            # matched relative to whichever root contains the candidate file, so
+            # an exclusion applies to every configured directory (ADR-011).
+            # Passing only the first left files under the others admitted
+            # unjudged, and made the cache digest incomplete: the root is not a
+            # DiscoveryConfig field, so reordering `jobs_directories` changed
+            # what the cache should hold while the fingerprint stayed equal.
+            scan_roots = [Path(d) for d in app._jobs_directories]
+            base_dir = scan_roots[0]
+            pre_filter = build_pre_filter_from_config(
+                app._discovery_config, base_dir, scan_roots
+            )
             job_filter = build_job_filter_from_config(app._discovery_config)
 
         if app._lazy_boot:
             app._cached_provider = _build_cached_provider(
-                app._jobs_directories, pre_filter=pre_filter, job_filter=job_filter
+                app._jobs_directories,
+                pre_filter=pre_filter,
+                job_filter=job_filter,
+                discovery_hash=discovery_hash,
             )
             app._resolution_pipeline.add_provider(app._cached_provider)
         else:
@@ -885,8 +907,27 @@ def wire_children_to_pipeline(app: Any) -> None:
         scan_dir = str(jobs_dir) if jobs_dir.is_dir() else str(child_path)
         try:
             if app._lazy_boot:
+                # `ancestor_search=False` is load-bearing. Without it
+                # `find_functualize_dir` walks *upward* from the child and lands
+                # on the parent's `.functualize/`, so parent and child write one
+                # `cache.json` and whichever boots last erases the other's
+                # entries -- the parent's cache never survived a boot. The child
+                # also wrote `discovery_hash: null` into it, which made the
+                # parent invalidate and rescan on every boot, forever, with a
+                # warning on stderr.
+                #
+                # Children are discovered with no filters, so the all-defaults
+                # digest is the honest fingerprint for what they write. See
+                # ADR-011.
+                from functualize._discovery.filter_factory import (
+                    discovery_hash_from_config,
+                )
+
                 provider: Any = build_cached_provider(
-                    [scan_dir], project_root=child_path
+                    [scan_dir],
+                    project_root=child_path,
+                    discovery_hash=discovery_hash_from_config(None),
+                    ancestor_search=False,
                 )
             else:
                 provider = DirectoryScanProvider(directories=[scan_dir])

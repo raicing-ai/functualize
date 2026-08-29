@@ -308,6 +308,12 @@ grep -h -e '^version = ' -e '^__version__ = ' \
   pyproject.toml src/functualize/__init__.py plugins/*/pyproject.toml \
   | grep -o '"[^"]*"' | sort | uniq -c
 
+#    Thirteen is the whole list. `tests/test_packaging.py` asserts that
+#    `__version__`, the installed dist metadata and `pyproject.toml` all agree,
+#    deriving the expected value rather than hardcoding it -- so it catches a
+#    missed site without being a fourteenth one. It used to hardcode `0.1.0`,
+#    which meant following this checklist exactly still landed a red suite.
+
 # 2. Update CHANGELOG.md
 #    - Move items from [Unreleased] to new [X.Y.Z] section
 #    - Add date: ## [X.Y.Z] - YYYY-MM-DD

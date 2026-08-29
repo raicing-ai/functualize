@@ -10,6 +10,7 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -540,10 +541,27 @@ def register_builtin_commands(cli_group: Any) -> None:
     cache_app = click.Group(name="cache", help="Manage the job metadata cache.")
 
     def _build_provider_for_cwd() -> Any:
-        """Build the cached provider over auto-discovered job directories."""
+        """Build the cached provider over auto-discovered job directories.
+
+        Built from the *resolved* discovery config -- including this
+        invocation's own global flags, so `func --exclude '…' builtin cache
+        rebuild` rebuilds under that exclusion rather than ignoring it.
+
+        Passing no config made every `func builtin cache` command bare, and a
+        bare provider persists `discovery_hash: null`. `cache rebuild` unlinks
+        the file and then writes through such a provider, so the next command
+        read a null fingerprint, called it a mismatch, and rescanned -- throwing
+        away the rebuild it had just been asked for, in every project including
+        one with no filters at all. See ADR-011.
+        """
+        from functualize._cli.config import resolve_cli_config
+        from functualize._cli.dispatch import _extract_global_options
         from functualize.app.utils import build_discovery_cache_provider
 
-        return build_discovery_cache_provider()
+        _global_opts, cli_flags = _extract_global_options(sys.argv)
+        cli_config = resolve_cli_config(cli_flags=cli_flags)
+
+        return build_discovery_cache_provider(discovery_config=cli_config.discovery)
 
     @cache_app.command("show")
     def cache_show() -> None:
