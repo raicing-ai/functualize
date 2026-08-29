@@ -85,7 +85,51 @@ Two guards were missing, and either would have caught the examples defect at
   `test_file_plugin.py` tests the plugin object and the loader in-process. No
   test asserts the README's `func greet` runs.
 
-### Ship-blocking
+### Ship-blocking — **DONE 2026-08-29**
+
+Items 1-6 and 9 are landed on `release/0.1.1`; item 7 is deferred to
+[`shape-intents/remote-config-source.md`](shape-intents/remote-config-source.md);
+item 8 was already fixed. The decision and its reasoning are in
+[ADR-010](../contributor/adr/010-discovery-cache-filter-awareness.md).
+
+| # | Item | Commit |
+|---|---|---|
+| 1 | `discovery_hash` in the cache header | `8c42743`, `ddfd18f` |
+| 2 | `CACHE_VERSION` 15 -> 16 | `8c42743` |
+| 3 | X2/X3/X4 warm-cache regressions | `0785866`, `b992d14` |
+| 4 | `file_based_plugin` publishes only `greet` | `384b946` |
+| 5 | doc-verify scenario for that example | `6941aa4` |
+| 6 | clean-clone CI guard | `2b941e2` |
+| 9 | doc-verify's own `--timeout` docs | `688f8e2` |
+
+Gates: full suite under `HYPOTHESIS_PROFILE=ci --run-slow -n auto`; `pytest
+examples/` 139 passed; doc-verify shell tier; `lint-imports` 5 kept 0 broken;
+mypy 0 errors over 295 files; ruff clean including `examples/`.
+
+**One claim did not survive.** The first implementation also taught the pre-boot
+routing read (`read_routing_names_from_cache`) the fingerprint, on the reasoning
+that routing resolves job names before the app boots. Sabotage refuted it:
+removing the argument left every assertion green, including a bare-listing pair
+added specifically to catch it, because a routing miss falls through to a path
+that boots anyway. Reverted in `b5f918e` rather than shipped — it cost a
+`resolve_cli_config()` call inside a read documented at a ~3ms budget for
+behaviour no test could observe.
+
+#### New follow-ups this work produced
+
+- **`func builtin cache rebuild` rebuilds unfiltered.** It is unfiltered today and
+  this change did not widen to fix it. Under the new semantics it writes no
+  fingerprint and the next boot invalidates and rebuilds correctly, so it
+  self-heals rather than poisons — but its own "Cache rebuilt with N entries"
+  line reports an unfiltered count.
+- **Child-project providers (`_app/boot.py:888`) receive no discovery config**, so
+  they skip the fingerprint check. Unchanged by this work; they have none plumbed.
+- **`read_group_options_from_cache` cannot honour the fingerprint.** No call site
+  can supply it (`_dispatch_group` has no config in scope), so a group's declared
+  flags can be served from a cache written under a different filter set for one
+  invocation. Milder than the job case and self-healing on the next boot.
+
+### The original findings, as recorded
 
 1. **Fingerprint the discovery config into the cache header.** Add
    `discovery_hash` beside `deps_hash` in `_primitives/cache_format.py` —
