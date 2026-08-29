@@ -99,7 +99,14 @@ from functualize._primitives.locator import _xdg_cache_dir, compute_project_id
 # `func <job>` answered "Unknown command". The bump is not cosmetic: anyone who ran
 # `--exclude` on 0.1.0 has a poisoned cache on disk right now, and only the version
 # check reaches it, because a 0.1.0 cache carries no `discovery_hash` to compare.
-CACHE_VERSION = 16
+# v17 (2026-08-29): no format change — `exclude_patterns` now matches relative to
+# whichever scan root contains the file rather than to `jobs_directories[0]`
+# (ADR-011). That changes which entries a *correct* cache holds for any project
+# with more than one scan root, and `discovery_hash` cannot see the change: the
+# nine fingerprinted `DiscoveryConfig` fields did not move, only the root the
+# filter judges against. A v16 cache therefore looks valid and is wrong, and only
+# the version check reaches it.
+CACHE_VERSION = 17
 
 # Cache file name within the resolved cache directory.
 CACHE_FILENAME = "cache.json"
