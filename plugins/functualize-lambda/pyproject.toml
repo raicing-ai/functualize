@@ -1,6 +1,6 @@
 [project]
 name = "functualize-lambda"
-version = "0.1.0"
+version = "0.1.1"
 description = "AWS Lambda adapter plugin for functualize - supports fat and thin Lambda deployment patterns"
 readme = "README.md"
 license = "MIT"

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-29
+
 ### Fixed — the job metadata cache ignored your discovery settings
 
 - **`exclude_patterns` and `--exclude` did nothing against a warm cache**, in both
@@ -579,7 +581,8 @@ function knowing which.
   (`log = CapturingLog(); my_job(config, log); assert (...) in log.calls`), which
   is the style the scaffolded job template demonstrates. Routing `RunContext.log`
   through the injected `Log` is deferred to a later release.
-  *(Fixed after 0.1.0 — see Unreleased.)*
+  *(Fixed in 0.1.1.)*
 
-[Unreleased]: https://github.com/raicing-ai/functualize/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/raicing-ai/functualize/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/raicing-ai/functualize/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/raicing-ai/functualize/releases/tag/v0.1.0
