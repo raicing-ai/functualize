@@ -187,7 +187,13 @@ sound and does not need re-auditing. What follows is what it did **not** cover.
 
 #### Ship-blocking
 
-7. **The `remote_first` gate is scope-blind; the stale promise survives in the
+7. **DEFERRED to a shape intent (2026-08-29).** Taken out of the 0.1.1 cut by
+   decision; the full evidence and the two coherent end states now live in
+   [`.spec/shape-intents/remote-config-source.md`](shape-intents/remote-config-source.md),
+   which is committed and self-contained. The finding as originally written
+   follows, unchanged.
+
+   **The `remote_first` gate is scope-blind; the stale promise survives in the
    public docstring.** The recorded gate,
    `grep -rn "→ Remote\|Remote →" --include="*.md" .` → 0 hits, is true. The
    `--include="*.md"` scoping is what makes it true. Dropping it:
@@ -445,7 +451,9 @@ task's `[F]`, and outside the "34/34 tasks, 16/16 acceptance criteria" claim.
 
 Committed design documents with per-assertion PASS/GAP verification against the current codebase. Fully self-contained — no external files needed to start work.
 
-_None currently open._
+| Shape intent | Scope |
+|---|---|
+| [`remote-config-source.md`](shape-intents/remote-config-source.md) | `RemoteSource` is defined, exported and documented with **zero construction sites in `src/`**, and the `remote_first` preset's docstring promises a chain the boot path does not build. Wire it or remove it — correcting only the docstrings is explicitly not an option. Carries the finding that the original gate passed *because of* its `--include="*.md"` scoping. |
 
 ## Open Features
 
