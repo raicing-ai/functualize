@@ -13,7 +13,8 @@ file_based_plugin/
 │       └── run_notifier.py    ← The plugin (module-level `plugin` object)
 ├── jobs/
 │   └── hello.py               ← A job to watch the plugin react to
-└── test_file_plugin.py
+└── tests/
+    └── test_file_plugin.py  ← Below the scan depth, so it publishes no commands
 ```
 
 ## Usage
