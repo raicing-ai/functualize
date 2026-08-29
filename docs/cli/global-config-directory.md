@@ -94,7 +94,7 @@ To enable global jobs, add the directory to `extra_directories`:
 extra_directories = ["~/.config/functualize/jobs"]
 ```
 
-> **See also:** [`examples/standalone/discovery_lab/`](../../examples/standalone/discovery_lab/) for a working example (its `global/` directory plays the role of `~/.config/functualize/jobs`).
+> **See also:** [`examples/standalone/discovery_lab/`](https://github.com/raicing-ai/functualize/tree/master/examples/standalone/discovery_lab/) for a working example (its `global/` directory plays the role of `~/.config/functualize/jobs`).
 
 ---
 
