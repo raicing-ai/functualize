@@ -267,3 +267,67 @@ class TestCacheHeaderCarriesTheFingerprint:
         ]
 
         assert filtered != plain
+
+
+class TestCacheRebuildLeavesAUsableCache:
+    """`func builtin cache rebuild` must leave a cache the next command reuses.
+
+    It unlinked the file and *then* built a bare provider, so there was nothing
+    left to carry a fingerprint and it persisted `discovery_hash: null`. The next
+    command read that as a mismatch and rescanned -- discarding the rebuild it had
+    just been asked for, with a warning, in every project including one with no
+    filters configured. See ADR-011.
+
+    Asserts on **stderr** here on purpose: the invalidation line is the symptom,
+    and it is the stream it is logged to.
+    """
+
+    def test_a_rebuilt_cache_is_not_invalidated_by_the_next_command(
+        self, cli_run, project_tree
+    ) -> None:
+        root = _tree(project_tree)
+        cli_run(["builtin", "info"], cwd=root)
+
+        rebuilt = cli_run(["builtin", "cache", "rebuild"], cwd=root)
+        assert rebuilt.exit_code == 0
+
+        following = cli_run(["builtin", "info"], cwd=root)
+
+        assert following.exit_code == 0
+        assert "Cache invalidated" not in following.stderr, (
+            "the rebuild wrote a fingerprint the very next boot disagreed with"
+        )
+
+    def test_rebuild_writes_a_fingerprint(self, cli_run, project_tree) -> None:
+        root = _tree(project_tree)
+        cli_run(["builtin", "info"], cwd=root)
+        cli_run(["builtin", "cache", "rebuild"], cwd=root)
+
+        data = json.loads(resolve_cache_path(root).read_text(encoding="utf-8"))
+
+        assert isinstance(data.get("discovery_hash"), str)
+
+    def test_rebuild_honours_a_flag_on_its_own_invocation(
+        self, cli_run, project_tree
+    ) -> None:
+        """It rebuilt unfiltered, so it re-admitted what the caller excluded."""
+        root = _tree(project_tree)
+
+        rebuilt = cli_run(
+            ["--exclude", "test_*.py", "builtin", "cache", "rebuild"], cwd=root
+        )
+
+        assert rebuilt.exit_code == 0
+        assert "1 entries" in rebuilt.stdout, (
+            f"expected the filtered count, got {rebuilt.stdout!r}"
+        )
+
+    def test_rebuild_honours_a_configured_filter(self, cli_run, project_tree) -> None:
+        root = _tree(project_tree, '[discovery]\nexclude_patterns = ["test_*.py"]\n')
+
+        rebuilt = cli_run(["builtin", "cache", "rebuild"], cwd=root)
+
+        assert rebuilt.exit_code == 0
+        assert "1 entries" in rebuilt.stdout, (
+            f"expected the filtered count, got {rebuilt.stdout!r}"
+        )

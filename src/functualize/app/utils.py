@@ -1235,7 +1235,10 @@ def build_job_filter(discovery_config: Any) -> Any:
     return build_job_filter_from_config(discovery_config)
 
 
-def build_discovery_cache_provider(cwd: Path | None = None) -> Any:
+def build_discovery_cache_provider(
+    cwd: Path | None = None,
+    discovery_config: Any = None,
+) -> Any:
     """Build the discovery cache provider over auto-discovered job directories.
 
     Public entry point for CLI tooling (`func cache` commands) that needs
@@ -1243,22 +1246,59 @@ def build_discovery_cache_provider(cwd: Path | None = None) -> Any:
 
     Args:
         cwd: Directory to discover from. Defaults to the current directory.
+        discovery_config: Resolved discovery configuration. When given, the
+            provider is built with the same pre-filter, job filter and
+            ``discovery_hash`` a booting app would build from it, so a command
+            that *writes* the cache writes it under the caller's filters and
+            under the fingerprint the next boot expects.
+
+            When ``None`` the provider is bare and skips the fingerprint check.
+            That is right for a pure reader; it is wrong for a writer, because a
+            bare provider persists ``discovery_hash: null`` and the next boot
+            reads that as a mismatch and rescans. See ADR-011.
 
     Returns:
         A CachedDirectoryScanProvider bound to the resolved cache location.
     """
     from functualize._app.impl import build_cached_provider
+    from functualize._discovery.filter_factory import (
+        build_job_filter_from_config,
+        build_pre_filter_from_config,
+        discovery_hash_from_config,
+    )
 
     if cwd is None:
         cwd = Path.cwd()
 
     discovery_result = auto_discover(cwd)
-    directories = (
-        discovery_result.job_sources.directories
-        if discovery_result.job_sources
-        else None
+    directories = list(
+        (
+            discovery_result.job_sources.directories
+            if discovery_result.job_sources
+            else []
+        )
+        or []
     )
-    return build_cached_provider(directories or [], project_root=cwd)
+
+    pre_filter = None
+    job_filter = None
+    discovery_hash = None
+    if discovery_config is not None:
+        discovery_hash = discovery_hash_from_config(discovery_config)
+        job_filter = build_job_filter_from_config(discovery_config)
+        if directories:
+            scan_roots = [Path(d) for d in directories]
+            pre_filter = build_pre_filter_from_config(
+                discovery_config, scan_roots[0], scan_roots
+            )
+
+    return build_cached_provider(
+        directories,
+        project_root=cwd,
+        pre_filter=pre_filter,
+        job_filter=job_filter,
+        discovery_hash=discovery_hash,
+    )
 
 
 def read_routing_names_from_cache(
