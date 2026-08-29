@@ -475,9 +475,18 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
                 build_pre_filter_from_config,
             )
 
-            # Use first jobs directory as base_dir for glob patterns
-            base_dir = Path(app._jobs_directories[0])
-            pre_filter = build_pre_filter_from_config(app._discovery_config, base_dir)
+            # Every scan root, not just the first. `exclude_patterns` is
+            # matched relative to whichever root contains the candidate file, so
+            # an exclusion applies to every configured directory (ADR-011).
+            # Passing only the first left files under the others admitted
+            # unjudged, and made the cache digest incomplete: the root is not a
+            # DiscoveryConfig field, so reordering `jobs_directories` changed
+            # what the cache should hold while the fingerprint stayed equal.
+            scan_roots = [Path(d) for d in app._jobs_directories]
+            base_dir = scan_roots[0]
+            pre_filter = build_pre_filter_from_config(
+                app._discovery_config, base_dir, scan_roots
+            )
             job_filter = build_job_filter_from_config(app._discovery_config)
 
         if app._lazy_boot:

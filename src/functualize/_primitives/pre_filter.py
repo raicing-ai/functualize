@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 import fnmatch
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -444,12 +445,26 @@ class DecoratorModulePreFilter:
 class GlobExcludePreFilter:
     """Exclude files matching any glob pattern (evaluated against relative path).
 
-    Matches the file's path relative to ``base_dir`` against each configured
-    pattern using :mod:`fnmatch` semantics (``*``, ``**``, ``?`` wildcards).
+    Matches the file's path relative to **whichever scan root contains it**
+    against each configured pattern, using :mod:`fnmatch` semantics (``*``,
+    ``**``, ``?`` wildcards). This is what ``docs/cli/discovery.md`` documents:
+    "relative to the scanned directory".
+
+    A single root was used until ADR-011, which meant a file under any *other*
+    scan root could not be relativized and was admitted unjudged — so one
+    ``exclude_patterns`` entry governed ``jobs_directories[0]`` and silently not
+    the rest. It also made the digest in the cache header incomplete, because
+    that root is not a ``DiscoveryConfig`` field and so was never fingerprinted.
+    Judging against the containing root fixes the filter and removes the
+    fingerprint gap together.
 
     Args:
         patterns: One or more glob pattern strings. All must be non-empty.
-        base_dir: The base directory against which file paths are relativized.
+        base_dir: The primary scan root. Kept first and positional so existing
+            single-root construction is unchanged.
+        scan_roots: The remaining scan roots, if any. The deepest root that is an
+            ancestor of the candidate file wins, so a nested root governs its own
+            files rather than its parent doing so.
 
     Raises:
         ValueError: If ``patterns`` is empty or contains any empty string.
@@ -457,7 +472,12 @@ class GlobExcludePreFilter:
     Satisfies the ``ModulePreFilter`` Protocol via structural typing.
     """
 
-    def __init__(self, patterns: tuple[str, ...], base_dir: Path) -> None:
+    def __init__(
+        self,
+        patterns: tuple[str, ...],
+        base_dir: Path,
+        scan_roots: Sequence[Path] = (),
+    ) -> None:
         if not patterns:
             raise ValueError("All glob patterns must be non-empty strings")
         for i, p in enumerate(patterns):
@@ -468,15 +488,24 @@ class GlobExcludePreFilter:
                 )
         self._patterns = patterns
         self._base_dir = base_dir
+        # Deepest-first, de-duplicated: the first root that is an ancestor of a
+        # candidate is the one it is judged against.
+        ordered: list[Path] = []
+        for root in (Path(base_dir), *(Path(r) for r in scan_roots)):
+            if root not in ordered:
+                ordered.append(root)
+        self._roots = tuple(sorted(ordered, key=lambda r: len(r.parts), reverse=True))
 
     def should_import(self, source_file: Path) -> bool:
         """Return False if the file matches any exclusion pattern."""
-        try:
-            rel_path = source_file.relative_to(self._base_dir)
-        except ValueError:
-            # File is not under base_dir — cannot match, allow through
-            return True
+        for root in self._roots:
+            try:
+                rel_str = str(source_file.relative_to(root))
+            except ValueError:
+                continue
+            return all(
+                not fnmatch.fnmatch(rel_str, pattern) for pattern in self._patterns
+            )
 
-        rel_str = str(rel_path)
-
-        return all(not fnmatch.fnmatch(rel_str, pattern) for pattern in self._patterns)
+        # Under no scan root — nothing to relativize against, so allow through.
+        return True

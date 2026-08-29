@@ -13,6 +13,7 @@ Only imports from ``_types/``, ``_primitives/``, and Python stdlib.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -47,6 +48,7 @@ if TYPE_CHECKING:
 def build_pre_filter_from_config(
     config: DiscoveryConfig,
     base_dir: Path,
+    scan_roots: Sequence[Path] = (),
 ) -> ModulePreFilter:
     """Build a composable pre-filter stack from a DiscoveryConfig.
 
@@ -64,7 +66,11 @@ def build_pre_filter_from_config(
 
     Args:
         config: Resolved discovery configuration.
-        base_dir: Base directory for glob pattern matching.
+        base_dir: Primary scan root for glob pattern matching.
+        scan_roots: The remaining scan roots. ``exclude_patterns`` is matched
+            relative to whichever of these contains the candidate file, so an
+            exclusion applies to every configured directory rather than only the
+            first (ADR-011). Defaults to empty, which is single-root behaviour.
 
     Returns:
         A ModulePreFilter combining all applicable filters via AND semantics.
@@ -86,7 +92,9 @@ def build_pre_filter_from_config(
 
     # 1. GlobExcludePreFilter — skip excluded files first (cheapest)
     if config.exclude_patterns:
-        filters.append(GlobExcludePreFilter(config.exclude_patterns, base_dir))
+        filters.append(
+            GlobExcludePreFilter(config.exclude_patterns, base_dir, scan_roots)
+        )
 
     # 2. DefaultModulePreFilter — always included (skip _-prefixed), except
     # for a module that declares a group's flags. `jobs/deploy/_group.py` is
@@ -176,16 +184,6 @@ def build_job_filter_from_config(config: DiscoveryConfig) -> JobFilter | None:
 # cannot be read off the dataclass. `test_discovery_hash.py` pins this tuple to
 # DiscoveryConfig's real field names *and* defaults, so drift fails a test rather
 # than silently fingerprinting an unset config as something else.
-# TRANSITIONAL(discovery-fingerprint-completeness/B1): these nine are every
-# `DiscoveryConfig` field, but they are not every input to the filter stack.
-# `build_pre_filter_from_config` also takes `base_dir`, which `_app/boot.py`
-# derives from `jobs_directories[0]`, and `GlobExcludePreFilter` admits any file
-# not under it. So reordering `jobs_directories` changes which files an
-# `exclude_patterns` entry can reject while this digest stays equal, and a warm
-# cache is replayed under the wrong answer. That is the current behaviour, not a
-# settled design: B1 makes the exclusion relative to whichever scan root contains
-# the file, which removes `base_dir` as an input and closes the gap without
-# adding a tenth field here. Remove this marker when B1 lands.
 _DISCOVERY_FINGERPRINT_FIELDS: tuple[tuple[str, object], ...] = (
     ("exclude_patterns", ()),
     ("extra_directories", ()),
