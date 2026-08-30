@@ -486,12 +486,19 @@ def hello():
     return "hello"
 '''
 
-# Generate valid subdirectory names for the scan
+# Generate valid subdirectory names for the scan.
+#
+# Filtered against `_SKIP_DIRECTORIES`, the names discovery skips
+# unconditionally (`build`, `dist`, `node_modules`, ...). Without this the
+# strategy can generate one of them, and every property here that asserts "a
+# directory with a qualifying file IS discovered" fails — correctly, since that
+# directory is excluded by design. It is a latent flake: it fires only on the
+# seed that happens to produce such a name.
 _subdir_name_strategy = st.text(
     alphabet=string.ascii_lowercase,
     min_size=1,
     max_size=8,
-)
+).filter(lambda name: name not in _SKIP_DIRECTORIES)
 
 
 def _make_qualifying_dir(parent: Path, name: str) -> Path:
