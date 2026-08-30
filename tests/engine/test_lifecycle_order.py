@@ -122,31 +122,46 @@ def test_the_sources_bind_precedes_the_force_override() -> None:
     )
 
 
-def test_the_four_writers_of_context_injected_are_still_four() -> None:
-    """`context.injected` is an exact subtraction, and the args hash depends on it.
+#: The lifecycle steps that add to `context.injected`, by the method that does
+#: it. Four steps, five call sites — `_inject_from_job` records in two branches
+#: of one step, which is why this counts *methods* rather than lines: the fact
+#: that matters is "a new place the engine injects", not "a new `if`".
+_INJECTION_STEPS = {
+    "_execute_lifecycle",  # 4  DI resolution
+    "_resolve_config_model",  # 6  the job's config model
+    "_resolve_group_options",  # 7  GroupOptions
+    "_inject_from_job",  # 10 FromJob
+}
 
-    A fifth injection site that forgets to record itself silently changes every
-    fingerprint key — defect D1, verbatim. This does not stop that; it makes the
-    person adding one read the page.
+
+def test_the_writers_of_context_injected_are_still_these_four() -> None:
+    """`context.injected` is an exact subtraction, and the args hash reads it.
+
+    It is how the engine tells "the caller passed this" from "the framework
+    supplied this". A fifth injection step that forgets to record itself
+    silently changes every fingerprint key — defect D1, verbatim, which made
+    every job with a capability parameter re-run forever.
+
+    This cannot stop someone adding one. It makes them read the page.
     """
     source = _EXECUTOR.read_text()
     tree = ast.parse(source)
-    fn = next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name == "_execute_lifecycle"
-    )
-    lines = source.splitlines()
-    start, end = fn.lineno, fn.end_lineno or fn.lineno
-    writes = sum(1 for line in lines[start - 1 : end] if "context.injected.add" in line)
-    # One literal call site in _execute_lifecycle (DI); the other three are in
-    # the helpers it calls. The count that matters is the total across the
-    # engine.
-    total = sum(1 for line in lines if "injected.add" in line)
-    assert writes >= 1
-    assert total == 4, (
-        f"{total} sites write context.injected, not 4. Update the list in "
-        "contributor/reference/execution-lifecycle.md — an injection site that "
+
+    writers: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        body = ast.get_source_segment(source, node) or ""
+        if "injected.add" in body:
+            writers.add(node.name)
+
+    # A method containing another that writes would be counted twice over; the
+    # enclosing `_execute_lifecycle` legitimately has its own call site.
+    assert writers == _INJECTION_STEPS, (
+        f"the set of steps writing context.injected changed: "
+        f"added {sorted(writers - _INJECTION_STEPS)}, "
+        f"removed {sorted(_INJECTION_STEPS - writers)}. Update the list in "
+        "contributor/reference/execution-lifecycle.md — an injection step that "
         "does not record itself changes every fingerprint key, silently."
     )
 

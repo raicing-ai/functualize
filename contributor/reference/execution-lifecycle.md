@@ -44,14 +44,24 @@ between a document and a contract.
 
 ## The four writers of `context.injected`
 
-Steps **4, 6, 7 and 10** each add parameter names to `context.injected`.
+Steps **4, 6, 7 and 10** each add parameter names to `context.injected`:
+
+| Step | Method |
+|---|---|
+| 4 | `_execute_lifecycle` itself, for DI-resolved parameters |
+| 6 | `_resolve_config_model` |
+| 7 | `_resolve_group_options` |
+| 10 | `_inject_from_job` — **two call sites**, one per branch, but one step |
 
 `context.injected` is an exact subtraction: it is how the engine tells "the
 caller passed this" from "the framework supplied this", and the args hash
-depends on the answer. **A fifth injection site that forgets to record itself
-silently changes every fingerprint key** — which is defect D1, verbatim.
+depends on the answer. **A fifth injection step that forgets to record itself
+silently changes every fingerprint key** — which is defect D1, verbatim: it made
+every job with a capability parameter re-run forever, and grow its state record
+without bound.
 
-If you add one, add it to this list too.
+`tests/engine/test_lifecycle_order.py` pins this set. If you add a step, add it
+there and here.
 
 ---
 
