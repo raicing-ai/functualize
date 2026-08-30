@@ -24,6 +24,7 @@ import logging
 import sys
 import typing
 from collections.abc import Callable, Sequence
+from enum import Enum
 from typing import TYPE_CHECKING, Annotated, Any
 
 import click
@@ -173,9 +174,11 @@ def build_click_params_from_descriptor(descriptor: Any) -> list[click.Parameter]
 
     The warm/lazy-boot counterpart to :func:`build_click_params`: it renders
     the same CLI shape from cached ``FieldDescriptor`` records without importing
-    the job module. Reproduces the Click parameter construction
-    param (Arg→Argument, Option/Stdin/plain→Option, plain bool→--flag/--no-flag,
-    short-flag bool→single flag, required-plain→positional argument).
+    the job module.
+
+    "The same shape" is now a property that is *asserted* rather than described.
+    It used to be a prose claim next to a second copy of the rules, and the copy
+    had drifted — see the comment above :func:`_config_field_option`.
     """
     return build_click_params_from_fields(descriptor.config_fields)
 
@@ -192,6 +195,17 @@ def build_click_params_from_fields(
     section. A second copy of this loop is how the two would drift — a group
     flag rendering differently from the identical job flag is the bug that
     would follow.
+
+    **Two rules, and which one applies is carried by the field.** A field
+    marked ``from_config_model`` is rendered by the config rule
+    (:func:`_config_field_option`: always an option, always ``default=None``,
+    the ladder supplies the value). Everything else is a plain signature
+    parameter, which has no ladder, so its default is passed through and a
+    required one becomes a positional.
+
+    The distinction cannot be recovered here from the list alone — a
+    ``JobDescriptor`` holds one ``config_fields`` list for both kinds and does
+    not serialize ``parameters`` — which is why it travels on the field.
     """
     # Preserve declaration order (cached config fields need not follow Python's
     # no-default-first rule, so a required field may legitimately trail optional
@@ -201,6 +215,28 @@ def build_click_params_from_fields(
 
     for field in fields:
         click_type, is_flag, multiple = _field_click_type(field)
+
+        if getattr(field, "from_config_model", False):
+            # A config field is rendered by the config rule, not the signature
+            # rule — see `_config_field_option`. This branch is what makes the
+            # warm path agree with `_config_option_params`; without it the two
+            # builders of one boundary disagreed on the default *and* on the
+            # parameter class, which is defect D7's shape on the pair this
+            # branch's predecessor did not consolidate.
+            params.append(
+                _config_field_option(
+                    field.name,
+                    click_type=click_type,
+                    is_flag=is_flag,
+                    multiple=multiple,
+                    help_text=_config_field_help(
+                        field.description,
+                        required=field.required,
+                        default=field.default,
+                    ),
+                )
+            )
+            continue
 
         if field.positional:
             if field.type_annotation.strip().startswith("list"):
@@ -288,14 +324,83 @@ def build_click_params_from_fields(
 
 
 # ─── Config model → click options ─────────
+#
+# One rule, two builders. `_config_option_params` reads a live pydantic model
+# (cold boot); `build_click_params_from_fields` reads cached `FieldDescriptor`
+# records (warm boot). They read different inputs and cannot be one function
+# without unifying those two representations — but what they *emit* is one
+# decision, and it lives here so it cannot be made twice.
+#
+# It was made twice, and the two copies disagreed. The warm copy passed the
+# model's default explicitly, which `_resolve_config_model` pops into
+# `cli_values` — the top tier of the ladder — so the pydantic default outranked
+# the config file, the environment, and everything else from the second run
+# onward. And it rendered a *required* field as a positional argument where the
+# cold copy renders a non-required option, so an app whose job took a required
+# config field from `config.base.toml` became uninvocable warm:
+# `Error: Missing argument 'TOKEN'`.
+#
+# `tests/config/test_click_builder_agreement.py` asserts they agree, which is
+# the same "prove the registry" discipline `contributor/reference/pitfalls.md`
+# #6 demands and that `app/adapters/surface_gate.py` already applies to one
+# attribute.
+
+
+def _config_field_option(
+    name: str,
+    *,
+    click_type: Any,
+    is_flag: bool,
+    multiple: bool,
+    help_text: str,
+) -> click.Option:
+    """The one rule for rendering a config-model field as a click parameter.
+
+    Always an ``Option``, never an ``Argument``, and always ``default=None``.
+
+    A config field is never a positional, because the config file, the
+    environment, a `.env`, a prompt and the CLI can each supply it — click
+    cannot know which, so it must report only what the *user typed*. ``None``
+    is how it says "not provided"; the resolution ladder supplies the rest.
+    Passing the model's default here would mean click reporting a value nobody
+    entered, at the highest precedence there is.
+    """
+    return click.Option(
+        [f"--{name.replace('_', '-')}"],
+        type=click_type,
+        default=None,
+        required=False,
+        is_flag=is_flag,
+        multiple=multiple,
+        help=help_text or None,
+        show_default=False,
+    )
+
+
+def _config_field_help(description: str, *, required: bool, default: Any) -> str:
+    """Annotate a config field's help with ``[required]`` / ``[default: X]``.
+
+    Click's own ``show_default`` cannot do this: the option carries
+    ``default=None`` on purpose, so the real default has to be rendered as
+    text or the user never sees it.
+    """
+    if required:
+        return f"{description} \\[required]" if description else "\\[required]"
+    if default is None or default is False:
+        return description
+    rendered = default.value if isinstance(default, Enum) else default
+    return (
+        f"{description} \\[default: {rendered}]"
+        if description
+        else f"\\[default: {rendered}]"
+    )
 
 
 def _config_option_params(job_config_class: type[BaseModel]) -> list[click.Parameter]:
     """Build a ``click.Option`` for every field of a Pydantic config model.
 
-    Each option defaults to ``None`` (to distinguish "not provided" from an
-    explicit value — the engine reads ``None`` as absence) with the help text
-    annotated ``[required]`` / ``[default: X]`` as Click convention expects.
+    The cold-boot half of the pair described above. Emits through
+    :func:`_config_field_option`, so the rule is stated once.
     """
     from pydantic_core import PydanticUndefined
 
@@ -303,7 +408,6 @@ def _config_option_params(job_config_class: type[BaseModel]) -> list[click.Param
 
     params: list[click.Parameter] = []
     for field_name, field_info in job_config_class.model_fields.items():
-        option_name = f"--{field_name.replace('_', '-')}"
         help_text = field_info.description or ""
 
         has_default = field_info.default is not PydanticUndefined or (
@@ -332,15 +436,12 @@ def _config_option_params(job_config_class: type[BaseModel]) -> list[click.Param
 
         click_type, is_flag, multiple = _click_type_for(_get_field_type(field_info))
         params.append(
-            click.Option(
-                [option_name],
-                type=click_type,
-                default=None,
-                required=False,
+            _config_field_option(
+                field_name,
+                click_type=click_type,
                 is_flag=is_flag,
                 multiple=multiple,
-                help=help_text or None,
-                show_default=False,
+                help_text=help_text,
             )
         )
     return params

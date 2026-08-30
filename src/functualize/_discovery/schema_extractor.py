@@ -67,6 +67,11 @@ def extract_field_descriptors(
                 required=required,
                 description=help_text,
                 secret=secret,
+                # Every field this function produces comes from a config model
+                # by construction — it is the only thing it is ever given. The
+                # marker exists because the *consumer* cannot tell: a warm boot
+                # sees one `config_fields` list that may hold either kind.
+                from_config_model=True,
             )
         )
 
