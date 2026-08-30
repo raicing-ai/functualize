@@ -101,3 +101,4 @@ gate awaiting input (still exit 5), or step 11.
 - `contributor/adr/014-capability-registry.md` — why step 13 is a loop over
   declarations rather than one hard-coded call
 - `contributor/guides/wiring-discipline.md` — how to prove a step is reached
+- `contributor/architecture/surface-boundary.md` — which surface a run started from, and which features must behave alike on both

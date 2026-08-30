@@ -19,6 +19,19 @@
 | `functualize.format_providers` | Core: `toml` → `functualize._config.providers.toml:TomlFormatProvider`. `IniFormatProvider` is in-tree but **not** registered by default (ADR-007) — a plugin or a third-party entry point registers it. | Config file format parsers |
 | `functualize.remote_providers` | Reserved, empty in core; populated by plugins | Remote config source providers |
 
+## Two entry points, one common path
+
+> **Read `contributor/architecture/surface-boundary.md` before adding a flag or
+> a dispatch behaviour.** This page catalogues what exists; that one states
+> which half of it is `func`-only by design and which half must work on a
+> `FunctualizeApp` too.
+
+Everything in the chain below **above** `FunctualizeApp(...)` is `func`'s own
+pre-boot layer — global-flag parsing, discovery, routing-name resolution, alias
+expansion, mode detection, and the rendering of listings and unknown-command
+errors. A user's own `main.py` has none of it and enters at `FunctualizeApp(...)`
+directly.
+
 ## Invocation Chain: `func <job>` → job execution
 
 ```
@@ -45,7 +58,9 @@ _cli/main.py: main()                                     [captures _module_impor
      _handle_bare() | _handle_unknown() | Click cli_app() (BUILTIN/--help)
   │
   ▼
-Handler constructs FunctualizeApp (functualize.app)
+Handler constructs FunctualizeApp (functualize.app)   ◄── THE BOUNDARY.
+                                                       A user's own main.py
+                                                       starts here.
   │
   ▼
 12-step boot sequence (_app/boot.py) — see data-flow.md
