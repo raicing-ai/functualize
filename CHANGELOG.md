@@ -7,6 +7,116 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — the pipeline features did not work
+
+`functualize` declared four pipeline features that did not behave as
+documented, and accepted one declaration it never acted on. Each defect hid the
+next, which is why they shipped together: the first made every job re-run, so
+the false clean the third would have produced was never reached, and the second
+made a warm boot silently swallow the exit code that would have shown it.
+
+- **A job with a `Log` (or any capability) parameter could never report fresh.**
+  The fingerprint key hashed the *whole* of the call arguments, including the
+  DI-injected capability instances, and an object's `repr` carries its memory
+  address. So the key changed every run: the job re-ran forever and its
+  `.functualize/state.json` grew without bound. The key is now a function of the
+  job's resolved config plus the arguments the **caller** passed — the executor
+  subtracts its own injections exactly, because it records them as it makes them.
+
+- **`FromJob` silently delivered nothing across processes.** Three readers
+  addressed the fingerprint record under `compute_args_hash(None, {})` while the
+  writer wrote under the resolved config, so for any job with a config class
+  they read a key nobody had written. The consumer's body did not run, no error
+  was raised, and the process **exited 0**. Every reader and the writer now
+  derive the key through one function.
+
+- **`func builtin why` contradicted the run that had just happened.** Same root
+  cause, at the explain site — and at *both* verdict sites, the dependency line
+  and the headline.
+
+- **A job annotated with a pydantic return type, or consuming a `FromJob`
+  parameter, failed with a `ValidationError` before its body ran.** There were
+  **seven** copies of "which parameter is this job's config class", and they had
+  drifted: one iterated the type-hints mapping's *values*, so a return
+  annotation became the config class; one resolved hints without
+  `include_extras=True`, so `Annotated[Envelope, FromJob(...)]` collapsed to
+  `Envelope`; one unwrapped `Annotated` deliberately and took the upstream
+  envelope as config; one read raw annotations, so under
+  `from __future__ import annotations` it could never find a config class at
+  all. One rule now, in one place.
+
+- **A pydantic model in a jobs module could not be instantiated if it referenced
+  another model by name.** The discovery scan exec'd job modules without
+  registering them in `sys.modules`, and pydantic resolves forward references
+  through `sys.modules[cls.__module__]` — which `from __future__ import
+  annotations` makes universal. The error named a class defined ten lines above
+  it.
+
+- **A job that raised exited 0, in silence, on warm boot.** The command wrapper
+  built from the discovery cache — used for every invocation after the first —
+  returned its result and inspected nothing. A gate pause exited 0 instead of 5,
+  and a refusal exited 0 instead of 3. The exit-code table is a contract with
+  scripts and agents; it held only on a project's very first run. Both command
+  builders now route through one boundary.
+
+- **A job taking `sh: Shell` broke on its second invocation** with
+  `Error: Missing argument 'SH'`, and `out: Stdout` broke on every invocation.
+  The discovery scan's list of engine-injected parameter types was one of five
+  hand-maintained copies, and was missing both. One list now.
+
+- **A job reported up to date with the artifact it promised to produce
+  deleted.** `Fingerprint(method="checksum")` never consulted `generates`;
+  `method="timestamp"` always had. Two methods of one feature disagreeing.
+
+### Added
+
+- **`Sources`** — a job can read the inputs its own `Fingerprint` declared,
+  without restating the glob:
+
+  ```python
+  @job(cache=Fingerprint(sources=["src/**/*.yaml"], generates=["out.json"]))
+  def parse(sources: Sources) -> Parsed:
+      files = {path: Path(path).read_text() for path in sources.keys()}
+  ```
+
+  Each entry carries `mtime`, `size` and `sha256` — the record the pre-flight
+  already computed on every run and discarded. `sources.declared` distinguishes
+  "declared no sources" from "declared sources that matched nothing".
+  See [ADR-012](contributor/adr/012-resolved-sources.md).
+
+- **`RunStatus.REFUSED`** — a job that declined to run because a declared
+  precondition for running it was not met. Exits **3**.
+
+### Changed (breaking)
+
+- **A stage whose declared inputs resolve to no files now refuses and exits 3.**
+  It previously reported "up to date — 0 sources unchanged" and exited 0: a
+  checksum run over an empty source map compares nothing and finds nothing
+  changed. A stage could certify success having verified nothing.
+
+- **A failing `Precondition` now exits 3, not 1**, and reports
+  `RunStatus.REFUSED` rather than `RunStatus.FAILURE`. Its own docstring has
+  always described refusal semantics ("non-zero = refuse"); reported as a
+  failure it was indistinguishable from a job that ran and threw. **If your CI
+  greps for exit 1 to detect a failed precondition, it must now look for 3.**
+
+- **A job that raises now exits 1 on a warm boot**, where it previously exited
+  0. This is the fix above, stated as the compatibility break it is: a pipeline
+  that appeared to pass may now correctly fail.
+
+- **Every stored fingerprint key changes once.** Excluding capabilities and
+  unifying the readers changes the key for every job. Existing records become
+  unreachable, so each job runs one extra time after upgrading. Nothing is lost
+  and no action is needed.
+
+- **`@job(matrix=...)` now raises `TypeError`**, and `NodeKind.MATRIX` is
+  removed. The keyword was accepted, validated, serialized and cached, and read
+  by nothing — matrix expansion was dropped by decision and only the declaration
+  surface survived, so a job declaring it ran once with its axis parameter
+  unbound and no error. `NodeKind.MATRIX` was constructed nowhere.
+
+  The discovery cache version is bumped (17 → 18) and rebuilds on first use.
+
 ## [0.1.1] - 2026-08-29
 
 ### Fixed — the job metadata cache ignored your discovery settings

@@ -30,7 +30,7 @@ A frozen dataclass representing a registered job's full metadata. Accessible via
 | `parameters` | `list[FieldDescriptor]` | Structured parameter schema for the job's configuration fields. |
 | `source` | `str` | Module path or file path. |
 | `metadata` | `dict[str, Any]` | Plugin extension data (JSON-serializable dict). Consumer-facing description/tags/category live on `declaration`. |
-| `declaration` | `JobDeclaration \| None` | Frozen declaration from `@job(...)` — carries deps, cache, guards, exec, matrix. |
+| `declaration` | `JobDeclaration \| None` | Frozen declaration from `@job(...)` — carries deps, cache, guards, exec. |
 
 ### Internal fields (for tooling/CLI/caching)
 

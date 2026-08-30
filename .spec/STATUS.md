@@ -605,22 +605,19 @@ is called out.
 | **`@job(matrix=...)` expansion** | Dropped by decision, not obsolescence. It expands one job into N descriptors, which forces fan-in semantics onto the dependency graph: the ratified proposal's §D.4 has plain `Deps(deploy)` fanning in over every instance while `Deps("deploy[env=dev]")` selects one. That is a real widening of the DAG's contract for a feature nothing currently needs. |
 | **Dry-run end-to-end wiring** | Dropped with the matrix work it was bundled with. The engine seam and `--dry-run`/`--explain` plumbing stay as they are (`_engine/scheduler.py`, `_cli/dispatch.py`); nothing is removed. |
 
-### Live code surface left by the matrix decision
+### Live code surface left by the matrix decision — REMOVED
 
-`@job(matrix=...)` is still **accepted and validated** and then does nothing — the worst
-of the three states, because a user who writes it gets neither an error nor an
-expansion. Deciding what to do about that is its own change, not covered here:
+Resolved on `fix/pipeline-readiness`. The surface described here — the `matrix=`
+parameter, the `JobDeclaration` field and its validation, both serializer keys,
+and `NodeKind.MATRIX` — is gone, and `@job(matrix=...)` now raises `TypeError`.
+`CACHE_VERSION` went 17 → 18 because `from_dict` reads keys by name, so an
+unbumped cache would have raised `KeyError` rather than degrading. `README.md`
+no longer advertises matrix parameterization.
 
-- `job/decorators.py:60` — the `matrix=` parameter on the public decorator.
-- `_types/job_declaration.py:460,488-494` — the field plus validation that raises
-  `ValueError` on a malformed matrix. Also serialized in `to_dict`/`from_dict`
-  (`:510,527`), so removing the field needs a cache-format bump.
-- `_types/naming.py:200` — `NodeKind.MATRIX`, consumed only by
-  `tests/discovery/test_group_trie.py:98`. Bracket-splitting for `deploy[env=dev]`
-  is documented in `contributor/architecture/group-trie.md:71`.
-- `README.md:31` advertises "matrix parameterization" as a shipped `@job` capability.
-  That line is currently false in effect and should go whichever way the decision lands.
-
+The **decision** above is unchanged: matrix expansion stays dropped. What was
+removed is the declaration surface it left behind, which was accepted and
+validated and read by nothing — the worst of the three states, because a user
+who wrote it got neither an error nor an expansion.
 
 ## Completed
 
