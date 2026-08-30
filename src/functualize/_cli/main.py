@@ -1452,26 +1452,19 @@ def _handle_job(
 def _detect_config_class(
     function: Callable[..., Any],
 ) -> type[Any] | None:
-    """Detect a Pydantic BaseModel config class in a function's parameters."""
-    import inspect as _inspect
+    """The single-file peer path's entry point to the one config-class rule.
 
-    from pydantic import BaseModel
+    Delegates to the shared detector, reached through the `app.utils`
+    re-export because `_cli` may import public folders only.
 
-    from functualize.app.utils import resolved_hints
+    Behavior change: this copy lacked the `GroupOptions` guard the other two
+    had, so a `GroupOptions` parameter was taken as the job's own config class
+    here — leaking the group's flags into the job's `--help` on this path
+    alone. Delegating fixes that.
+    """
+    from functualize.app.utils import detect_config_class
 
-    sig = _inspect.signature(function)
-    hints = resolved_hints(function)
-    for name, param in sig.parameters.items():
-        annotation = hints.get(name, param.annotation)
-        if annotation is _inspect.Parameter.empty:
-            continue
-        if (
-            isinstance(annotation, type)
-            and issubclass(annotation, BaseModel)
-            and annotation is not BaseModel
-        ):
-            return annotation
-    return None
+    return detect_config_class(function)
 
 
 def _register_single_file_peers(

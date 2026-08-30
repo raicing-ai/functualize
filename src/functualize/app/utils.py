@@ -22,6 +22,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from functualize._config.merge import merge_config_layers
 from functualize._primitives.cache_format import resolve_cache_path
+from functualize._primitives.config_class_detection import detect_config_class
 from functualize._primitives.di import DIValidationError
 from functualize._primitives.display_detection import (
     find_display_providers,
@@ -129,6 +130,7 @@ __all__ = [
     "resolve_state_path",
     "StateStore",
     "resolved_hints",
+    "detect_config_class",
     "resolve_effective_directories",
     "resolve_project_config",
     "resolve_user_config_dir",

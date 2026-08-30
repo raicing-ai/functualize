@@ -29,10 +29,7 @@ from functualize._discovery.naming import (
     qualified_name,
 )
 from functualize._discovery.schema_extractor import extract_field_descriptors
-from functualize._primitives.group_options_detection import (
-    is_group_options_subclass,
-)
-from functualize._types.annotations import resolved_hints
+from functualize._primitives.config_class_detection import detect_config_class
 from functualize._types.descriptors import JobDescriptor, RegisteredJob
 from functualize._types.errors import JobNotFoundError
 from functualize._types.from_job import declared_dependency_names
@@ -586,10 +583,11 @@ class JobRegistry:
     def _detect_job_config_class(
         function: Callable[..., Any],
     ) -> type[BaseModel] | None:
-        """Detect a JobConfig parameter in a function signature.
+        """The cold-boot entry point to the one config-class rule.
 
-        Looks for a parameter annotated with a Pydantic BaseModel subclass
-        (excluding RunContext and BaseModel itself).
+        Delegates to ``_primitives.config_class_detection``. This was the
+        correct copy of three; the rule now lives in one place so the warm and
+        single-file paths cannot drift from it again.
 
         Args:
             function: The function to inspect.
@@ -597,25 +595,7 @@ class JobRegistry:
         Returns:
             The Pydantic BaseModel subclass if found, None otherwise.
         """
-        sig = inspect.signature(function)
-        # Resolved, not raw: under PEP 563 the annotation is the string
-        # "MyConfig", which is not a type, so no config class would ever be
-        # detected and the job would run with no config resolution at all.
-        hints = resolved_hints(function)
-        for name, param in sig.parameters.items():
-            annotation = hints.get(name, param.annotation)
-            if annotation is inspect.Parameter.empty:
-                continue
-            if (
-                isinstance(annotation, type)
-                and issubclass(annotation, BaseModel)
-                and annotation is not BaseModel
-                # A GroupOptions parameter carries the *group's* flags, not
-                # this job's config fields (see sync.py).
-                and not is_group_options_subclass(annotation)
-            ):
-                return annotation
-        return None
+        return detect_config_class(function)
 
     def update_config_paths(self) -> None:
         """Re-resolve configurations after global options are processed.
