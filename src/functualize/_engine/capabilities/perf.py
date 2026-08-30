@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from functualize._engine.capabilities.spec import CapabilitySpec
+
 
 @dataclass(frozen=True)
 class Phase:
@@ -98,3 +100,12 @@ class Perf:
             "Perf.phases is not wired. "
             "This instance must be replaced by the observability layer at runtime."
         )
+
+
+# ── Registry entry (ADR-014) ───────────────────────────────────────────────
+
+CAPABILITY = CapabilitySpec(
+    name="Perf",
+    type=Perf,
+    factory=lambda ctx: Perf(),
+)

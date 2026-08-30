@@ -20,8 +20,10 @@ import sys
 from collections.abc import Iterable
 from typing import IO, Any
 
+from functualize._engine.capabilities.spec import CapabilitySpec
 from functualize._primitives.stdout_emitter import StdoutEmitter
 from functualize._types.redaction import redact
+from functualize._types.stdout import Stdout
 
 __all__ = ["WiredStdout"]
 
@@ -130,3 +132,33 @@ class WiredStdout:
         out = self._out()
         out.write(text)
         out.flush()
+
+
+# ── Registry entry (ADR-014) ───────────────────────────────────────────────
+#
+# Declared here rather than in `_types/stdout.py`, where the `Stdout` type
+# lives: `_types` may import nothing internal, so it cannot hold a factory that
+# constructs `WiredStdout`. The engine-side implementation module is the
+# nearest legal home, and it is still one place rather than four.
+
+
+def _make_stdout(ctx: Any) -> WiredStdout:
+    """Build the wired stdout channel for this invocation."""
+    # `--output` is a per-invocation CLI flag, not config: the CLI boundary
+    # deposits the resolved value on the app before dispatch. Absent
+    # (library/embedded use) it defaults to "auto" — dispatch by the emitted
+    # value's type — so `out.emit()` still works outside the CLI.
+    app = getattr(ctx.engine, "_app", None)
+    # No `secrets=` here: config is resolved *after* DI wiring, so the values
+    # are not known yet. `_arm_output_redaction` fills them in from the model
+    # the job actually receives.
+    return WiredStdout(
+        output_format=getattr(app, "_output_format", "auto") or "auto",
+    )
+
+
+CAPABILITY = CapabilitySpec(
+    name="Stdout",
+    type=Stdout,
+    factory=_make_stdout,
+)

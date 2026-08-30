@@ -24,6 +24,8 @@ from __future__ import annotations
 from collections.abc import ItemsView, KeysView, Mapping, Sequence
 from typing import Any
 
+from functualize._engine.capabilities.spec import CapabilitySpec
+
 
 class Sources:
     """The files this job's ``Fingerprint(sources=...)`` resolved to.
@@ -133,3 +135,38 @@ class Sources:
             f"Sources(declared={self._declared}, resolved={len(self._map)}, "
             f"generates={list(self._generates)!r})"
         )
+
+
+# ── Registry entry (ADR-014) ───────────────────────────────────────────────
+
+
+def _bind_from_preflight(instance: Sources, decision: Any) -> None:
+    """Hand the pre-flight's resolved source map to the injected instance.
+
+    A job whose declaration has no `Fingerprint` gets `declared=False`, which
+    is a different answer from an empty map (ADR-012).
+    """
+    if decision is None:
+        # No declaration, or nothing to pre-flight. Declared nothing.
+        instance._bind({}, declared=False)
+        return
+    instance._bind(
+        decision.source_map,
+        declared=bool(decision.declared_sources),
+        generates=decision.declared_generates,
+    )
+
+
+CAPABILITY = CapabilitySpec(
+    name="Sources",
+    type=Sources,
+    # Deliberately empty. The pre-flight has not run yet — DI resolves before
+    # it, because the pre-flight's args hash reads `context.injected` — so the
+    # resolved map does not exist at this point.
+    factory=lambda ctx: Sources(),
+    # ...which is why the second phase is declared rather than remembered. The
+    # executor completes every spec that declares one, right after the
+    # pre-flight decision exists. When it was one call at one line, losing it
+    # gave every job an empty map and no error anywhere.
+    preflight_bind=_bind_from_preflight,
+)

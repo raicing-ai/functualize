@@ -15,12 +15,25 @@ Each of those kept **its own copy** of the list, and the copies had drifted:
   paths.
 
 The failure is not subtle once seen, but it is invisible from any one layer,
-and adding a capability means remembering four places. So the list lives here,
+and adding a capability meant remembering four places. So the list lives here,
 once, and the copies are gone. `_primitives` is the home because every one of
 those layers may import it, including `_types`-only consumers.
 
 `_cli` may import public folders only, so it reaches this through the
 ``functualize.app.utils`` re-export.
+
+**This list is checked, not maintained** (D-4, ADR-014). Every capability now
+declares a ``CapabilitySpec`` beside itself, and
+``_engine/capabilities/registry.py`` derives the per-invocation type set, the
+factory dispatch and the pre-flight bind from those declarations. This set is
+the one representation that cannot derive: ``_discovery/providers.py`` consumes
+it, and ``_discovery`` and ``_engine`` are peer layers that may not import each
+other — matching on the *name* is the whole reason these are strings.
+
+So the registry asserts at **import** that its spec names equal this set, and
+refuses to start when they disagree. Adding a capability is still one
+declaration; forgetting the matching name here is a startup failure rather than
+a parameter that silently becomes a CLI flag.
 """
 
 from __future__ import annotations

@@ -13,6 +13,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+from functualize._engine.capabilities.spec import CapabilitySpec
+
 
 @dataclass(frozen=True)
 class JobContext:
@@ -45,3 +47,34 @@ class JobContext:
     def __post_init__(self) -> None:
         if self.invoke_depth < 0:
             raise ValueError(f"invoke_depth must be >= 0, got {self.invoke_depth}")
+
+
+# ── Registry entry (ADR-014) ───────────────────────────────────────────────
+
+
+def _make_job_context(ctx: Any) -> JobContext:
+    """Wire JobContext with the identity of the invocation in progress."""
+    from functualize._events.tracing import current_context as _current_ctx
+
+    prop_ctx = _current_ctx()
+    span_id = prop_ctx.span_id if prop_ctx.is_active else None
+
+    scope_id: str | None = None
+    if ctx.context.parent_scope is not None:
+        scope_id = getattr(ctx.context.parent_scope, "scope_id", None)
+
+    return JobContext(
+        name=ctx.context.job_name,
+        span_id=span_id,
+        cwd=ctx.context.cwd,
+        job_directory=ctx.context.job_directory,
+        invoke_depth=ctx.context.invoke_depth,
+        scope_id=scope_id,
+    )
+
+
+CAPABILITY = CapabilitySpec(
+    name="JobContext",
+    type=JobContext,
+    factory=_make_job_context,
+)
