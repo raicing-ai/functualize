@@ -20,3 +20,7 @@ exemption, and the version-control lifecycle.
 
 After completing a feature or before a release, run the `/sync-docs` skill to reconcile
 README, CHANGELOG, contributor docs, and `contributor/architecture/codemaps/` with the code.
+
+## Developer Preference
+
+When you need to ask any outstanding decisions you need me to make, make sure you ask them one-by-one with simple wording, snippets, examples and use-cases so I understand your question without having to read any file nor you assuming I have any context.
