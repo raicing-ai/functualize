@@ -60,6 +60,20 @@ class FingerprintVerdict:
     reason: str
     changed: tuple[str, ...] = field(default=())
 
+    #: The job declared sources and **none of them resolved to a file**.
+    #:
+    #: Distinct from "not up to date" and from "up to date". A checksum run
+    #: over an empty source map compares nothing and finds nothing changed, so
+    #: it used to answer ``up_to_date=True, "0 sources unchanged"`` — a stage
+    #: certifying success having verified nothing at all. The distinction
+    #: cannot be recovered downstream, because an empty ``source_map`` looks
+    #: identical whether the job declared no sources or declared sources that
+    #: matched nothing. So it is carried here, from the one place that can
+    #: still tell them apart.
+    #:
+    #: Defaulting to False keeps every existing construction valid.
+    refused: bool = field(default=False)
+
 
 def canonical_json(payload: Any) -> str:
     """Serialize ``payload`` deterministically for hashing.
@@ -274,6 +288,7 @@ def evaluate(
     generates: Sequence[str] = (),
     method: str = "checksum",
     job_version: str = "",
+    declared_sources: Sequence[str] = (),
 ) -> FingerprintVerdict:
     """Decide whether a job is up to date against its stored ``record``.
 
@@ -285,9 +300,30 @@ def evaluate(
 
     A record written under a different ``job_version`` is stale regardless of
     files: the declaration itself changed.
+
+    ``declared_sources`` is the *patterns* the job declared, alongside
+    ``source_map``, which is what those patterns resolved to. Only the caller
+    holds both, and only both together distinguish "declared nothing" from
+    "declared something that matched nothing" — the second of which is a
+    refusal (see :attr:`FingerprintVerdict.refused`). Passing the resolved map
+    alone, as this function used to receive, makes the two indistinguishable.
     """
     if method == "none":
         return FingerprintVerdict(False, "method=none — file checking disabled")
+
+    # Before any record check, and deliberately: the refusal is a statement
+    # about the world, not about a previous run. On the *first* run there is no
+    # record, so a record-first ordering would let a stage that verifies
+    # nothing run to completion and report success once before the false-clean
+    # even became reachable.
+    if declared_sources and not source_map:
+        patterns = ", ".join(declared_sources)
+        return FingerprintVerdict(
+            False,
+            f"declared sources resolved to no files ({patterns})",
+            refused=True,
+        )
+
     if record is None:
         return FingerprintVerdict(False, "no previous run recorded")
     if job_version and record.get("job_version") not in ("", job_version):
@@ -295,6 +331,22 @@ def evaluate(
 
     if method == "timestamp":
         return _evaluate_timestamp(root, source_map, generates)
+
+    # A declared output that is not on disk means the job is not up to date,
+    # whatever its inputs say. `timestamp` has always enforced this ("a
+    # missing output always forces a run"); `checksum` ignored `generates`
+    # entirely, so a job whose sources were unchanged reported fresh with its
+    # promised artifact deleted — and every downstream consumer then read a
+    # record describing a file that no longer exists.
+    base = Path(root).resolve()
+    missing = [out for out in generates if not (base / out).exists()]
+    if missing:
+        return FingerprintVerdict(
+            False,
+            f"output missing: {', '.join(sorted(missing))}",
+            tuple(sorted(missing)),
+        )
+
     return _evaluate_checksum(record, source_map)
 
 

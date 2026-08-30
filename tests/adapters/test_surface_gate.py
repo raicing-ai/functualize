@@ -154,6 +154,18 @@ class TestLazyCommandPath:
         )
         app = MagicMock()
         app.execution_engine.materialize_job.return_value = MagicMock()
+        # A real JobResult, not a mock: the lazy path now hands its result to
+        # the same boundary handler the eager path uses (so cold and warm agree
+        # on exit codes), and any mock attribute reads as "the job raised".
+        from functualize._engine.result import JobResult
+        from functualize._types.enums import RunStatus
+
+        app.execution_engine.execute.return_value = JobResult(
+            status=RunStatus.SUCCESS,
+            return_value=None,
+            duration_ms=0.0,
+            job_name="my_job",
+        )
 
         session = MagicMock()
         with (

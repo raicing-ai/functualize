@@ -2026,7 +2026,13 @@ class JobExecutionEngine:
 
         state = decision.verdict.state
         status = {
-            GuardState.ERROR: RunStatus.FAILURE,
+            # A failing `Precondition` is a refusal, not a failure: nothing
+            # ran and nothing raised — the job declined to start because a
+            # declared condition for running it was not met. Its own docstring
+            # already says "non-zero = refuse"; this is where that becomes an
+            # exit code the caller can act on (3, not 1).
+            GuardState.ERROR: RunStatus.REFUSED,
+            GuardState.REFUSED: RunStatus.REFUSED,
             GuardState.BLOCKED: RunStatus.BLOCKED,
         }.get(state, RunStatus.SKIPPED)
 

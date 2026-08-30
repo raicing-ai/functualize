@@ -20,6 +20,16 @@ class RunStatus(Enum):
     CANCELLED = "Cancelled"
     TIMEOUT = "Timeout"
     UNKNOWN = "Unknown"
+    #: The job declined to run because a declared precondition for running it
+    #: was not met — a `Precondition` guard failed, or a declared
+    #: `Fingerprint(sources=...)` resolved to no files at all.
+    #:
+    #: Distinct from FAILURE (the body ran and raised), from BLOCKED (a
+    #: declared pause point, resumable), and above all from SKIPPED. A skip
+    #: says "nothing to do" and exits 0; a refusal says "I was asked to verify
+    #: something that is not there" and exits 3. Collapsing them is how a
+    #: stage certifies success having verified nothing.
+    REFUSED = "Refused"
 
     @property
     def resumable(self) -> bool:

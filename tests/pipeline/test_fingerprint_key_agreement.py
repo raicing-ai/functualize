@@ -42,7 +42,7 @@ UPSTREAMS = {
     "config-and-capability": "def produce(cfg: Cfg, log: Log) -> Envelope:",
 }
 
-_JOBS_TEMPLATE = '''
+_JOBS_TEMPLATE = """
 from __future__ import annotations
 
 from typing import Annotated
@@ -70,7 +70,7 @@ class Envelope(BaseModel):
 @job(group=JOB_GROUP)
 def consume(up: Annotated[Envelope, FromJob("fj.produce")]) -> None:
     print(f"CONSUMED n={{up.n}}")
-'''
+"""
 
 
 def _write_project(tmp_path: Path, signature: str) -> Path:

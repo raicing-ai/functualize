@@ -41,6 +41,9 @@ HEADLINES: Mapping[GuardState, str] = {
     GuardState.SKIP_FRESH: "SKIP (up to date)",
     GuardState.BLOCKED: "BLOCKED (awaiting input)",
     GuardState.ERROR: "ERROR (precondition failed)",
+    # Deliberately not worded as a SKIP: a skip means "nothing to do", and a
+    # refusal means "I was asked to verify inputs that are not there".
+    GuardState.REFUSED: "REFUSED (declared inputs not present)",
 }
 
 

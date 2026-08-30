@@ -430,7 +430,10 @@ class WiredInvoke(Invoke):
             )
 
         # --- Fire INVOKE_FAILURE hook ---
-        if result.status == RunStatus.FAILURE:
+        # A refusal is a way for a child invoke to not have done its work, so
+        # the hook that exists to notice that must see it. `== FAILURE` let a
+        # refused child pass by silently.
+        if result.status in (RunStatus.FAILURE, RunStatus.REFUSED):
             failure_hooks = hook_registry._global_hooks.get(
                 HookEvent.INVOKE_FAILURE, []
             )

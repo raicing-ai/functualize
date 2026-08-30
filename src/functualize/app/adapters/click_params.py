@@ -837,47 +837,95 @@ def build_job_engine_callback(
                 workflow_scope_id=workflow_scope_id,
             )
 
-        if result.exception is not None:
-            # A downstream reader closing the pipe is not a job failure: the
-            # engine catches *every* exception into JobResult, so a
-            # BrokenPipeError raised inside the job would otherwise surface as
-            # exit 1 rather than the quiet 0 a `| head -5` deserves (T39).
-            if isinstance(result.exception, BrokenPipeError):
-                _exit_quietly_on_broken_pipe()
-
-            from pydantic import ValidationError as PydanticValidationError
-
-            from functualize._engine.missing_value import MissingValueError
-
-            if isinstance(result.exception, PydanticValidationError):
-                from functualize.app.adapters.cli import _print_validation_error
-
-                _print_validation_error(name, result.exception, app_ref)
-                # A config/usage error, not the job raising (T39 exit table).
-                raise SystemExit(ExitCode.USAGE) from result.exception
-
-            # A value was missing and nothing could be asked (T45 / T-S6b-4).
-            # Same class of failure as the ValidationError above — config, not
-            # the job raising — so it takes the same code. Its message already
-            # names the field and the environment variable that sets it, which
-            # is the whole point of the typed error; printing it plainly beats a
-            # traceback for the CI reader who has to act on it.
-            if isinstance(result.exception, MissingValueError):
-                click.echo(f"Error: {result.exception}", err=True)
-                raise SystemExit(ExitCode.USAGE) from result.exception
-
-            raise result.exception
-
-        # A gate pause ran *successfully* and is resumable, so it gets its own
-        # code rather than sharing one with a refusal (D-a). Without this the
-        # run would look like a plain success to any caller.
-        if result.status is RunStatus.BLOCKED:
-            _report_blocked(result)
-            raise SystemExit(ExitCode.BLOCKED)
-
-        return result.return_value
+        return deliver_job_result(result, name, app_ref)
 
     return wrapper
+
+
+def deliver_job_result(result: Any, name: str, app_ref: Any = None) -> Any:
+    """Turn a ``JobResult`` into stdout, an exit code, or a return value.
+
+    **The single place a run reaches the process boundary.** Both command
+    constructors route here — the eager one built from a live signature and
+    the lazy one built from a cached descriptor.
+
+    That is not tidiness. The lazy (warm-boot) wrapper used to return its
+    ``JobResult`` and inspect nothing, so on any second invocation of any job:
+
+    - a job that raised exited **0**, silently, with the traceback swallowed;
+    - a workflow blocked at a gate exited 0 instead of 5;
+    - a refusal exited 0 instead of 3.
+
+    Cold boot exited 1, warm boot exited 0, for the same job and the same
+    failure. Every guarantee in the exit-code table — which exists to be
+    scripted against — was true only on a project's first run.
+
+    Args:
+        result: The JobResult the engine returned.
+        name: Job name, for the validation-error panel.
+        app_ref: The app, for the same panel's config-source hints.
+
+    Returns:
+        ``result.return_value`` when the run finished normally.
+    """
+    if result.exception is not None:
+        # A downstream reader closing the pipe is not a job failure: the
+        # engine catches *every* exception into JobResult, so a
+        # BrokenPipeError raised inside the job would otherwise surface as
+        # exit 1 rather than the quiet 0 a `| head -5` deserves (T39).
+        if isinstance(result.exception, BrokenPipeError):
+            _exit_quietly_on_broken_pipe()
+
+        from pydantic import ValidationError as PydanticValidationError
+
+        from functualize._engine.missing_value import MissingValueError
+
+        if isinstance(result.exception, PydanticValidationError):
+            from functualize.app.adapters.cli import _print_validation_error
+
+            _print_validation_error(name, result.exception, app_ref)
+            # A config/usage error, not the job raising (T39 exit table).
+            raise SystemExit(ExitCode.USAGE) from result.exception
+
+        # A value was missing and nothing could be asked (T45 / T-S6b-4).
+        # Same class of failure as the ValidationError above — config, not
+        # the job raising — so it takes the same code. Its message already
+        # names the field and the environment variable that sets it, which
+        # is the whole point of the typed error; printing it plainly beats a
+        # traceback for the CI reader who has to act on it.
+        if isinstance(result.exception, MissingValueError):
+            click.echo(f"Error: {result.exception}", err=True)
+            raise SystemExit(ExitCode.USAGE) from result.exception
+
+        raise result.exception
+
+    # A gate pause ran *successfully* and is resumable, so it gets its own
+    # code rather than sharing one with a refusal (D-a). Without this the
+    # run would look like a plain success to any caller.
+    if result.status is RunStatus.BLOCKED:
+        _report_blocked(result)
+        raise SystemExit(ExitCode.BLOCKED)
+
+    # A refusal must reach the boundary, or the whole point is lost: a stage
+    # that declined to run because its declared inputs are not there would
+    # exit 0, and the pipeline after it would read that as "verified, nothing
+    # wrong". Silence plus exit 0 is precisely the false clean.
+    #
+    # Stated as its own branch rather than by routing every status through
+    # `exit_code_for_status`, deliberately: that table maps UNKNOWN to 1, and
+    # quietly turning some other currently-zero-exiting status into a failure
+    # is a wider change than this one is.
+    if result.status is RunStatus.REFUSED:
+        reason = str((getattr(result, "metadata", None) or {}).get("skip_reason") or "")
+        message = (
+            f"Refused: {reason}"
+            if reason
+            else "Refused: a declared precondition for running this job was not met."
+        )
+        print(message, file=sys.stderr)
+        raise SystemExit(ExitCode.REFUSED)
+
+    return result.return_value
 
 
 def create_job_click_command(

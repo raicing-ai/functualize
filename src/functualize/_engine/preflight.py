@@ -140,6 +140,10 @@ class Preflight:
                 source_map=source_map,
                 generates=generates,
                 method=method,
+                # The patterns, alongside what they resolved to. Only here are
+                # both in hand, and only both together tell "declared no
+                # sources" apart from "declared sources that matched nothing".
+                declared_sources=sources,
             )
 
         verdict = self._evaluator.evaluate(

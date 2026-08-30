@@ -126,7 +126,7 @@ def make_lazy_command(
                 live_ctx = stdout_live_session(app, descriptor)
 
         with live_ctx:
-            return engine.execute(
+            result = engine.execute(
                 job_name=descriptor.name,
                 function=func,
                 config_class=config_class,
@@ -135,6 +135,16 @@ def make_lazy_command(
                 if group_option_values
                 else None,
             )
+
+        # Through the same boundary the eager path uses. This wrapper used to
+        # return the JobResult and inspect nothing, so on warm boot — which is
+        # every invocation after the first — a job that raised exited 0 in
+        # silence, a gate pause exited 0 instead of 5, and a refusal exited 0
+        # instead of 3. The exit-code table is a contract with scripts; it held
+        # only on a project's very first run.
+        from functualize.app.adapters.click_params import deliver_job_result
+
+        return deliver_job_result(result, descriptor.name, app)
 
     return click.Command(
         name=command_name or descriptor.name,
