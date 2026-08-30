@@ -1130,6 +1130,7 @@ def _handle_group(
     _app_ref: list[Any] | None = None,
     scope_id: str | None = None,
     prompt_gates: bool = False,
+    force: bool = False,
 ) -> int:
     """Handle Mode.GROUP: boot app, then delegate to _dispatch_group.
 
@@ -1202,6 +1203,7 @@ def _handle_group(
     )
     app._output_format = output_format
     app._prompt_gates = prompt_gates
+    app._force = force
 
     # Deposit app reference for perf reporting by caller
     if _app_ref is not None:
@@ -1226,6 +1228,7 @@ def _handle_job(
     _app_ref: list[Any] | None = None,
     scope_id: str | None = None,
     prompt_gates: bool = False,
+    force: bool = False,
 ) -> int:
     """Handle Mode.JOB: boot app, find job, parse args, execute.
 
@@ -1321,6 +1324,7 @@ def _handle_job(
     )
     app._output_format = output_format
     app._prompt_gates = prompt_gates
+    app._force = force
 
     # Deposit app reference for perf reporting by caller
     if _app_ref is not None:
@@ -1502,6 +1506,7 @@ def _handle_single_file(
     _app_ref: list[Any] | None = None,
     scope_id: str | None = None,
     prompt_gates: bool = False,
+    force: bool = False,
 ) -> int:
     """Handle single-file execution mode directly (no FallbackGroup).
 
@@ -1595,6 +1600,7 @@ def _handle_single_file(
     )
     app._output_format = output_format
     app._prompt_gates = prompt_gates
+    app._force = force
 
     # Deposit app reference for perf reporting by caller
     if _app_ref is not None:
@@ -1842,6 +1848,7 @@ def _run_cli() -> None:
     # ── Workflow gate flags ────────────────────────────────────────────────
     scope_id = global_opts.scope_id
     prompt_gates = global_opts.prompt_gates
+    force = global_opts.force
 
     # Phase 3: Direct routing — no FallbackGroup
     if mode is Mode.SINGLE_FILE:
@@ -1852,6 +1859,7 @@ def _run_cli() -> None:
                 _app_ref=app_ref,
                 scope_id=scope_id,
                 prompt_gates=prompt_gates,
+                force=force,
             )
         finally:
             if perf_format is not None and app_ref:
@@ -1870,6 +1878,7 @@ def _run_cli() -> None:
                 _app_ref=app_ref,
                 scope_id=scope_id,
                 prompt_gates=prompt_gates,
+                force=force,
             )
         finally:
             if perf_format is not None and app_ref:
@@ -1889,6 +1898,7 @@ def _run_cli() -> None:
                 _app_ref=app_ref,
                 scope_id=scope_id,
                 prompt_gates=prompt_gates,
+                force=force,
             )
         finally:
             if perf_format is not None and app_ref:
@@ -1927,6 +1937,7 @@ def _run_cli() -> None:
                 _app_ref=app_ref,
                 scope_id=scope_id,
                 prompt_gates=prompt_gates,
+                force=force,
             )
         finally:
             if perf_format is not None and app_ref:

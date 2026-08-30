@@ -114,6 +114,7 @@ _GLOBAL_BOOL_FLAGS = frozenset(
         "--no-dotenv",
         "--prompt-gates",
         "--no-prompt-gates",
+        "--force",
         "--help",
         "-h",
     }
@@ -318,6 +319,7 @@ class ParsedGlobalOptions:
     output: str | None = None  # --output flag: json, text, or none
     scope_id: str | None = None  # --scope-id: resume a specific workflow scope
     prompt_gates: bool = False  # --prompt-gates: prompt for gate fields during walk
+    force: bool = False  # --force: run even when up to date
     first_positional_index: int = -1  # index into argv[1:] of first positional
 
 
@@ -353,6 +355,18 @@ def _extract_global_options(
         # Boolean flag: --no-dotenv
         if arg == "--no-dotenv":
             state.no_dotenv = True
+            i += 1
+            continue
+
+        # Boolean flag: --force. Valueless, so deliberately NOT in
+        # `_GLOBAL_OPTIONS_ALWAYS_VALUE` — that set is for options that consume
+        # the next token, and putting `--force` there would swallow the job
+        # name. It **must** also be in `_GLOBAL_BOOL_FLAGS`, which is the list
+        # `detect_mode` skips when looking for the first positional: a flag
+        # parsed here and unknown there is read as the command name, and
+        # `func --force build` answers `Unknown command 'force'`.
+        if arg == "--force":
+            state.force = True
             i += 1
             continue
 
@@ -450,6 +464,7 @@ def _extract_global_options(
         output=state.output,
         scope_id=state.scope_id,
         prompt_gates=state.prompt_gates,
+        force=state.force,
         first_positional_index=first_positional_index,
     )
 
@@ -508,6 +523,7 @@ class _OptionAccumulator:
         "output",
         "scope_id",
         "prompt_gates",
+        "force",
     )
 
     def __init__(self) -> None:
@@ -530,6 +546,7 @@ class _OptionAccumulator:
         self.output: str | None = None
         self.scope_id: str | None = None
         self.prompt_gates: bool = False
+        self.force: bool = False
 
 
 def _assign_option(
