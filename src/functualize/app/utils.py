@@ -30,7 +30,10 @@ from functualize._primitives.display_detection import (
     is_display_provider,
 )
 from functualize._primitives.locator import ResourceLocator
-from functualize._primitives.state_format import resolve_state_path
+from functualize._primitives.state_format import (
+    resolve_state_location,
+    resolve_state_path,
+)
 from functualize._primitives.state_store import StateStore
 from functualize._types.annotations import resolved_hints
 from functualize._types.descriptors import FieldDescriptor, GroupOptionsSpec
@@ -128,6 +131,7 @@ __all__ = [
     "resolve_cache_path",
     "TrieNode",
     "TrieResolution",
+    "resolve_state_location",
     "resolve_state_path",
     "StateStore",
     "resolved_hints",

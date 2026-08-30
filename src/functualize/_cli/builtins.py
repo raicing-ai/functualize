@@ -498,6 +498,32 @@ def _report_parallel(job_names: tuple[str, ...], results: list[Any]) -> None:
     raise SystemExit(exit_code_for_status(failed[0].status))
 
 
+def _state_location() -> tuple[Path, str, Path | None]:
+    """The resolved state path, its mode, and the directory that decided it.
+
+    One upward walk through the same function the engine uses, so the CLI
+    cannot report a path the engine would not write to.
+    """
+    from functualize.app.utils import resolve_state_location
+
+    return resolve_state_location(Path.cwd())
+
+
+def _state_mode_line(mode: str, marker: Path | None) -> str:
+    """Render the state-store mode for a human.
+
+    Both modes name what put them there, because "which mode am I in" was
+    undiscoverable and the answer decides where to look for the file. In
+    standalone mode the line also names the switch — a project that wants its
+    ledger versioned with the code only needs `mkdir .functualize`.
+    """
+    if mode == "project":
+        return f"project (.functualize/ found at {marker})"
+    return (
+        "standalone (no .functualize/ found; create one to keep state in the project)"
+    )
+
+
 def _mount(cli_group: Any, command: Any, name: str) -> None:
     """Add a builtin command/group under the 'Functualize Commands' help panel."""
     command._functualize_panel = "Functualize Commands"
@@ -651,16 +677,15 @@ def register_builtin_commands(cli_group: Any) -> None:
     @state_app.command("show")
     def state_show() -> None:
         """Show runtime state statistics."""
-        from pathlib import Path
+        from functualize.app.utils import StateStore
 
-        from functualize.app.utils import StateStore, resolve_state_path
-
-        path = resolve_state_path(Path.cwd())
+        path, mode, marker = _state_location()
         store = StateStore(path)
         click.echo(f"Fingerprints: {len(store.fingerprint_keys())}")
         click.echo(f"Scopes: {len(store.scope_ids())}")
         click.echo(f"History entries: {len(store.get_history())}")
         click.echo(f"State path: {path}")
+        click.echo(f"Mode:       {_state_mode_line(mode, marker)}")
 
     @state_app.command("clear")
     def state_clear() -> None:
@@ -1011,15 +1036,40 @@ def register_builtin_commands(cli_group: Any) -> None:
     # while the code to answer it sat unused.
     @builtin_app.command("why")
     @click.argument("job_name")
+    @click.option(
+        "--json",
+        "as_json",
+        is_flag=True,
+        default=False,
+        help="Emit the verdict as one JSON object instead of prose.",
+    )
     @click.pass_context
-    def why_command(ctx: click.Context, job_name: str) -> None:
-        """Explain whether a job would run, and why."""
+    def why_command(ctx: click.Context, job_name: str, as_json: bool) -> None:
+        """Explain whether a job would run, and why.
+
+        Exits non-zero when the job is not up to date, so a script can branch on
+        the answer: 0 fresh, 4 stale, 3 refused, 5 blocked at a gate, 2 for a
+        job that cannot be resolved. `ExitCode.STALE` had no producer at all
+        before this — a pinned number in a table described as "a contract with
+        scripts and agents".
+        """
+        import json as _json
+
         obj = ctx.find_root().obj
         if obj is None or "app" not in obj:
             click.echo("Error: No app context available.", err=True)
             raise SystemExit(1)
 
-        click.echo(obj["app"].explain(job_name))
+        app = obj["app"]
+        payload = app.explain_data(job_name)
+        # Both forms come off one set of verdicts (`explain_verdicts`), so the
+        # JSON and the prose cannot disagree about the same job — which is the
+        # failure `func builtin why` itself exists to make impossible.
+        click.echo(_json.dumps(payload) if as_json else app.explain(job_name))
+
+        code = int(payload.get("exit_code", 0))
+        if code:
+            raise SystemExit(code)
 
     # --- Config sub-group ---
     @click.group(
@@ -1399,6 +1449,18 @@ def register_builtin_commands(cli_group: Any) -> None:
                         click.echo(f"    - {d}")
                 else:
                     click.echo("  Convention dirs: (none detected)")
+
+        # Where freshness is remembered, and which of the two modes that is.
+        # `resolve_state_path` has always walked upward for a `.functualize/`
+        # and fallen back to the home cache, and nothing said which had
+        # happened — so a project could spend its whole life in standalone
+        # mode and then go looking for a `state.json` under a hashed directory
+        # it had never seen.
+        state_path, state_mode, state_marker = _state_location()
+        click.echo("")
+        click.echo("─── Runtime State ───")
+        click.echo(f"  State path: {state_path}")
+        click.echo(f"  Mode:       {_state_mode_line(state_mode, state_marker)}")
 
     _mount(builtin_app, show_info_command, "info")
 
