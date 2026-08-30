@@ -31,6 +31,7 @@ from functualize._engine.guards import GuardEvaluator, GuardState, GuardVerdict
 from functualize._primitives.fingerprint import (
     build_source_map,
     compute_args_hash,
+    config_payload,
     evaluate,
     expand_sources,
     fingerprint_key,
@@ -104,9 +105,16 @@ class Preflight:
         that omitted it addressed a different fingerprint key, and a job that
         had just run reported "no previous run recorded". Making the default
         *correct* removes the class rather than fixing each caller.
+
+        The default is now *actually* correct, which it could not previously
+        claim to be. An engine-triggered run — a dependency, a `FromJob`
+        upstream, a plain ``func <job>`` — passes no arguments of its own, and
+        the executor no longer folds its own injections into the hash, so
+        "config plus nothing" is exactly what such a run writes under. Same
+        dump (:func:`config_payload`) on both sides, so the two cannot drift.
         """
         if args_hash is None:
-            args_hash = compute_args_hash(config, {})
+            args_hash = compute_args_hash(config_payload(config), {})
         cache = getattr(declaration, "cache", None)
         guards = getattr(declaration, "guards", None)
         exec_decl = getattr(declaration, "exec", None)

@@ -74,12 +74,38 @@ def canonical_json(payload: Any) -> str:
     )
 
 
+def config_payload(config: Any) -> Any:
+    """A resolved config as plain data, ready for :func:`compute_args_hash`.
+
+    That function's contract is "pass a plain mapping — pydantic models should
+    be dumped by the caller, which owns the model's serialization rules", and
+    every caller passed the live model instead, relying on pydantic's ``repr``
+    being stable. It was, undocumented, and one non-``repr``-stable nested
+    field away from the same defect that made a job with a capability
+    parameter hash a new key every run.
+
+    Honouring the contract at each call site would re-create that drift at
+    each call site, so the dumping lives here: one function, every caller.
+
+    A field JSON mode cannot render must not break a run, so an un-dumpable
+    model falls back to itself, which :func:`canonical_json` reprs — the old
+    behavior, now the exception rather than the rule.
+    """
+    dump = getattr(config, "model_dump", None)
+    if dump is None:
+        return config
+    try:
+        return dump(mode="json")
+    except Exception:
+        return config
+
+
 def compute_args_hash(resolved_config: Any = None, call_args: Any = None) -> str:
     """Hash the resolved config + call args (§D.3 Fix 1).
 
     Pass the *resolved* config (post-precedence, post-env, post-prompt) as a
     plain mapping — pydantic models should be dumped by the caller, which owns
-    the model's serialization rules.
+    the model's serialization rules. :func:`config_payload` is that dump.
     """
     payload = {"config": resolved_config, "args": call_args}
     return hashlib.sha256(canonical_json(payload).encode()).hexdigest()

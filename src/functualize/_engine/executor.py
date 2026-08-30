@@ -266,6 +266,89 @@ class JobExecutionEngine:
             )
         return config_class()
 
+    # ── The one fingerprint-key derivation ────────────────────────────────
+    #
+    # There were three conventions across six call sites, and the writer used
+    # a fourth thing again: `compute_args_hash(config, context.call_kwargs)`
+    # with the *whole* kwargs mapping. By the time the pre-flight runs, that
+    # mapping holds five different kinds of thing, and only one of them
+    # belongs in the key:
+    #
+    #   DI-injected capabilities   no — unreconstructable, and `repr` carries
+    #                              a memory address, so a job with a `Log`
+    #                              parameter got a new key every single run
+    #                              and could never report fresh
+    #   the resolved config model  no — already passed as `config`
+    #   resolved GroupOptions      no — same, via config resolution
+    #   FromJob upstream values    no — derived from an upstream whose own
+    #                              freshness is separately checked, and
+    #                              circular for a reader to reconstruct
+    #   what the CALLER passed     yes
+    #
+    # Hence: config + (call_kwargs - everything the executor injected). The
+    # subtraction is exact rather than a type-sniffing heuristic because the
+    # executor recorded each of its own injections in `context.injected`.
+    #
+    # And because the engine passes no explicit args when it triggers a run
+    # itself — a dependency, a `FromJob` upstream, a plain `func <job>` — the
+    # explicit half is `{}` there, which is what lets a reader holding only a
+    # job name reconstruct the key. See `fingerprint_key_for`.
+
+    def _args_hash_for(self, context: Any) -> str:
+        """The args hash for an in-flight run: config + caller-passed args."""
+        from functualize._primitives.fingerprint import (
+            compute_args_hash,
+            config_payload,
+        )
+
+        rc = self._run_context_of(context)
+        config = getattr(rc, "job_config", None) if rc is not None else None
+        injected = getattr(context, "injected", None) or set()
+        explicit = {
+            name: value
+            for name, value in context.call_kwargs.items()
+            if name not in injected
+        }
+        return compute_args_hash(config_payload(config), explicit)
+
+    def fingerprint_key_for(self, job_name: str, method: str) -> str:
+        """The key an **engine-triggered** run of ``job_name`` writes under.
+
+        The reader-side counterpart of :meth:`_args_hash_for`. It resolves
+        config through :meth:`resolve_config_model`, which is the same
+        ``_config_resolver`` execution uses — so reader and writer agree by
+        construction rather than by convention.
+
+        The explicit-args half is ``{}`` because that is what an
+        engine-triggered run has: a dependency, a `FromJob` upstream and a
+        plain ``func <job>`` all pass no arguments of their own.
+
+        Propagates nothing: an unresolvable config degrades to ``None`` here,
+        because every caller is a *read* path (`why`, a `FromJob` lookup) that
+        must not turn a missing config field into a crash.
+        """
+        from functualize._primitives.fingerprint import (
+            compute_args_hash,
+            config_payload,
+            fingerprint_key,
+        )
+
+        try:
+            config = self.resolve_config_model(job_name)
+        except Exception as exc:
+            # `resolve_config_model` deliberately propagates ValidationError.
+            # A read path degrades — but says so, rather than silently
+            # answering as though the job declared no config.
+            logger.debug(
+                "config for %r could not be resolved while deriving its "
+                "fingerprint key (%s); using no config",
+                job_name,
+                exc,
+            )
+            config = None
+        args_hash = compute_args_hash(config_payload(config), {})
+        return fingerprint_key(job_name, args_hash, method)
+
     def _ensure_materialized(self, entry: RegisteredJob) -> RegisteredJob:
         """Materialize a lazily-registered entry; no-op for live entries.
 
@@ -736,6 +819,7 @@ class JobExecutionEngine:
             for param_name, value in di_kwargs.items():
                 if param_name not in context.call_kwargs:
                     context.call_kwargs[param_name] = value
+                    context.injected.add(param_name)
         except MissingProviderError:
             raise
 
@@ -1611,10 +1695,6 @@ class JobExecutionEngine:
         recorded, cause no work", so a missing value is the answer it asked
         for rather than a reason to run anything.
         """
-        from functualize._primitives.fingerprint import (
-            compute_args_hash,
-            fingerprint_key,
-        )
         from functualize._types.from_job import from_job_refs
 
         store = self._state_store()
@@ -1627,7 +1707,7 @@ class JobExecutionEngine:
                 continue
             for method in ("checksum", "timestamp", "none"):
                 record = store.get_fingerprint(
-                    fingerprint_key(ref.name, compute_args_hash(None, {}), method)
+                    self.fingerprint_key_for(ref.name, method)
                 )
                 if record is None:
                     continue
@@ -1785,11 +1865,7 @@ class JobExecutionEngine:
         if mode == "always":
             return False
 
-        from functualize._primitives.fingerprint import compute_args_hash
-
-        rc = self._run_context_of(context)
-        config = getattr(rc, "job_config", None) if rc is not None else None
-        args_hash = compute_args_hash(config, context.call_kwargs)
+        args_hash = self._args_hash_for(context)
         cache = self._exec_policy().run_modes
         if cache.seen(job_name, mode, args_hash):
             return True
@@ -1834,10 +1910,12 @@ class JobExecutionEngine:
                 continue  # caller supplied it
             if ref.name in live:
                 context.call_kwargs[param] = live[ref.name]
+                context.injected.add(param)
                 continue
             value = self._from_job_value(ref, scope_id, wanted.get(param))
             if value is not None:
                 context.call_kwargs[param] = value
+                context.injected.add(param)
 
     def _live_step_value(self, scope_id: str, step: str) -> Any:
         """The in-process value for ``step`` in this walk, if it is still held.
@@ -1866,11 +1944,7 @@ class JobExecutionEngine:
         if store is None:
             return None
 
-        from functualize._primitives.fingerprint import (
-            compute_args_hash,
-            fingerprint_key,
-            reusable_return_value,
-        )
+        from functualize._primitives.fingerprint import reusable_return_value
 
         if scope_id is not None:
             scope = store.get_scope(scope_id)
@@ -1896,9 +1970,7 @@ class JobExecutionEngine:
                     return self._live_step_value(scope_id, ref.name)
 
         for method in ("checksum", "timestamp", "none"):
-            record = store.get_fingerprint(
-                fingerprint_key(ref.name, compute_args_hash(None, {}), method)
-            )
+            record = store.get_fingerprint(self.fingerprint_key_for(ref.name, method))
             if record is not None:
                 return reusable_return_value(
                     record, job_name=ref.name, expected_type=expected_type
@@ -1931,15 +2003,13 @@ class JobExecutionEngine:
         ):
             return None
 
-        from functualize._primitives.fingerprint import compute_args_hash
-
         rc = self._run_context_of(context)
         config = getattr(rc, "job_config", None) if rc is not None else None
         decision = self._preflight().check(
             job_name,
             declaration,
             config=config,
-            args_hash=compute_args_hash(config, context.call_kwargs),
+            args_hash=self._args_hash_for(context),
         )
         context.metadata["preflight"] = {
             "state": decision.verdict.state.value,
@@ -2093,6 +2163,7 @@ class JobExecutionEngine:
                 group_scope=env_scope,
             )
             context.call_kwargs[param_name] = instance
+            context.injected.add(param_name)
 
     def _resolve_with_prompt(
         self,
@@ -2300,6 +2371,7 @@ class JobExecutionEngine:
                 and issubclass(annotation, config_class)
             ):
                 context.call_kwargs[param_name] = config_instance
+                context.injected.add(param_name)
                 break
 
     def _execute_with_lifecycle(self, context: ExecutionContext) -> JobResult:
