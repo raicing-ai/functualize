@@ -174,7 +174,11 @@ def log_exemption(cwd, file_path, reason):
                     if line.startswith("#"):
                         continue
                     parts = line.rstrip("\n").split("\t")
-                    if len(parts) == 4 and parts[0][:13] == hour_key and parts[3] == reason:
+                    if (
+                        len(parts) == 4
+                        and parts[0][:13] == hour_key
+                        and parts[3] == reason
+                    ):
                         return  # already recorded this hour
         with open(path, "a", encoding="utf-8") as fh:
             fh.write(f"{stamp}\t{os.path.basename(cwd)}\t{file_path}\t{reason}\n")

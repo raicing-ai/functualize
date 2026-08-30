@@ -43,9 +43,19 @@ def is_gated_rel(rel):
 def dirty_gated(cwd):
     try:
         r = subprocess.run(
-            ["git", "status", "--porcelain", "--untracked-files=all", "--",
-             GATED_DIR, "plugins"],
-            cwd=cwd, capture_output=True, text=True, timeout=10,
+            [
+                "git",
+                "status",
+                "--porcelain",
+                "--untracked-files=all",
+                "--",
+                GATED_DIR,
+                "plugins",
+            ],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if r.returncode != 0:
             return set()

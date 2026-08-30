@@ -207,7 +207,9 @@ def fanout(inv: Invoke, state: State, log: Log) -> None:
         [("lab.worker", {"slot": "a"}), ("lab.worker", {"slot": "b"})]
     )
     statuses = sorted(r.status.value for r in results)
-    print(f"FANOUT n={len(results)} statuses={statuses} parent_state={state.get('slot')}")
+    print(
+        f"FANOUT n={len(results)} statuses={statuses} parent_state={state.get('slot')}"
+    )
 
 
 # ── 9. State (runtime, across runs) — the one that persists ──────────────

@@ -88,7 +88,6 @@ def _per_invocation_types() -> set[type]:
     }
 
 
-
 class _MinimalConfigView:
     """Minimal config view stub for engine usage without injected factory.
 
