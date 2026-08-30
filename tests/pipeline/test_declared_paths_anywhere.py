@@ -144,7 +144,7 @@ if __name__ == "__main__":
     adapter.run()
 """
 
-_JOBS = '''
+_JOBS = """
 from functualize.job import Fingerprint, job
 
 JOB_GROUP = "d"
@@ -163,7 +163,7 @@ def viaparent() -> None:
 @job(group=JOB_GROUP, cache=Fingerprint(sources=["nothing/**/*.tf"]))
 def viamissing() -> None:
     print("RAN viamissing")
-'''
+"""
 
 
 def _project(tmp_path: Path) -> tuple[Path, Path]:

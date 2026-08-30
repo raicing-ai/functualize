@@ -38,7 +38,7 @@ if __name__ == "__main__":
 # are the controls: a literal path (which always worked), a pattern that matches
 # nothing, and a directory (which `.exists()` accepts and globbing must not
 # start rejecting).
-_JOBS = '''
+_JOBS = """
 from pathlib import Path
 
 from functualize.job import Fingerprint, job
@@ -70,7 +70,7 @@ def build_dir() -> None:
     print("RAN build-dir")
     Path("site").mkdir(exist_ok=True)
     (Path("site") / "index.html").write_text("<p>hi</p>")
-'''
+"""
 
 
 def _project(tmp_path: Path) -> Path:
