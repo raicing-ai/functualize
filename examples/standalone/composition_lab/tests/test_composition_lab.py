@@ -120,3 +120,61 @@ class TestTheInputsTheGuideQuotes:
                     sizes.append(int(line.split(":", 1)[1]))
         assert len(sizes) == 2
         assert sum(sizes) == 8
+
+
+# ── The release module ───────────────────────────────────────────────────
+#
+# `jobs/release.py` imports its sibling as a FLAT module (`from pipeline
+# import ...`), because that is the only form that works on both surfaces: the
+# discovery loader puts the module's own directory on `sys.path`, not the
+# project root. `from jobs.pipeline import ...` resolves under `main.py` — the
+# script's directory is `sys.path[0]` — and fails under `func`. Registering the
+# already-loaded module under its flat name is what lets this file load it.
+
+sys.modules["pipeline"] = pipeline
+release_mod = _load("composition_lab_release", "jobs/release.py")
+
+
+class TestTheReleaseModuleDeclaresItsShape:
+    """The three declarations single jobs could not show."""
+
+    def test_bundle_declares_a_glob_as_its_generates(self) -> None:
+        """`generates` entries are patterns, exactly as `sources` entries are.
+        Tested as literal paths a glob never exists, so the job reports
+        "output missing" forever and rebuilds on every run."""
+        cache = release_mod.bundle.__functualize_job__.cache
+        assert cache is not None
+        assert cache.sources == ("build/report.md",)
+        assert cache.generates == ("dist/*.tar.gz",)
+        assert any(ch in cache.generates[0] for ch in "*?[")
+
+    def test_the_group_option_is_declared_once_on_the_group(self) -> None:
+        assert release_mod.LabOptions.__group_path__ == "lab"
+        assert "strict" in release_mod.LabOptions.model_fields
+
+    def test_signoff_crosses_a_group_boundary_and_guards_nothing(self) -> None:
+        """Its dependency already produces the archive, so a guard checking for
+        one could never fire. The absence is the claim."""
+        decl = release_mod.signoff.__functualize_job__
+        assert decl.group == "check"
+        assert decl.deps is not None and decl.deps.refs == ("lab.bundle",)
+        assert decl.guards is None
+
+    def test_the_workflow_pauses_at_a_gate_before_sign_off(self) -> None:
+        declaration = release_mod.release.__functualize_workflow__
+        names = [node.name for node in declaration.nodes]
+        assert names == [
+            "lab.parse",
+            "lab.report",
+            "lab.publish",
+            "lab.bundle",
+            "approval-gate",
+            "check.signoff",
+        ]
+
+        gate = declaration.nodes[names.index("approval-gate")]
+        assert gate.awaits is release_mod.Approval
+        # The edge the gate exists for: nothing is signed off before the pause.
+        assert ("approval-gate", "check.signoff") in [
+            (e.source, e.target) for e in declaration.edges
+        ]

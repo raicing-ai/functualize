@@ -21,6 +21,21 @@ func lab publish            # the whole graph: parse -> report -> publish
 func builtin why lab.publish
 ```
 
+### Two surfaces, one declaration set
+
+The lab ships **both** entry points, because they are two different builders
+over the same jobs and they have disagreed:
+
+```bash
+func lab publish            # the bare CLI: pre-boot dispatch, live signature
+python main.py lab publish  # a FunctualizeApp: click's tree, cached descriptors
+```
+
+`./demo.sh` walks the whole lab and prints the exit code of every step —
+`./demo.sh` for the app, `./demo.sh func` for the CLI. It is a transcript, not
+a test; the assertions are in `tests/test_composition_lab_e2e.py`, which runs
+every sequence against **each** surface.
+
 ## One job per combination
 
 | Job | Pins |
@@ -34,6 +49,9 @@ func builtin why lab.publish
 | `lab probe` | `Shell` × `Exec(retry=...)` |
 | `lab fanout` / `lab worker` | `Invoke.parallel` × `State` — each child's `State` is its own |
 | `lab counter` | `State` does **not** persist; a file you own does |
+| `lab bundle` | `Fingerprint(generates=[<glob>])` — a **pattern**, not a literal path, plus `GroupOptions` |
+| `check signoff` | a **second group**; `Deps` crossing a group boundary, and a `GroupOptions` type read from outside its own group |
+| `lab release` | `@workflow` × `Gate` — a walk that pauses for approval and resumes with `--scope-id` |
 
 ## Verification checklist
 
@@ -53,3 +71,10 @@ the framework underneath.
 - [ ] `rm build/report.md` makes `lab report` run again with inputs unchanged
 - [ ] `func --output json lab emit` prints JSON; `func lab emit --output json` errors
 - [ ] `func lab fanout` reports `parent_state=None`
+- [ ] `func lab bundle` twice: the second is fresh, because `dist/*.tar.gz` matches
+- [ ] `func --force lab --strict bundle` re-runs and reports `strict=True`
+- [ ] `LAB_STRICT=true func check signoff` reports `strict=True` — the flag is
+      not on this job's command line, but the env layer still reaches it
+- [ ] `func lab release` exits **5** and names `--scope-id` in the message
+- [ ] depositing the gate's input and re-running with `--scope-id <id>` exits
+      **0** and prints `RELEASE complete` — on **both** surfaces

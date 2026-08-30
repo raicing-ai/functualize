@@ -176,7 +176,61 @@ lab.publish → SKIP (already done)
 ```
 
 `func builtin why <job>` is the tool for every "why did/didn't this run"
-question, and it reports the verdict the executor would actually reach.
+question, and it reports the verdict the executor would actually reach. It
+exits with that verdict too — `0` for a skip, `4` (`ExitCode.STALE`) for a job
+that would run — so a script can branch on it without parsing the text.
+
+### 4.1 The release half: a glob, a group flag, a second group, and a gate
+
+```
+  lab.publish ────────────► build/publish.stamp
+     │  Deps + Fingerprint(generates=["dist/*.tar.gz"])   a pattern, not a path
+     ▼
+  lab.bundle ─────────────► dist/lab-0.1.0.tar.gz        + GroupOptions(--strict)
+     │  Gate(awaits=Approval)                            the walk pauses here
+     ▼
+  check.signoff                                          a *second* group
+```
+
+```bash
+$ func lab bundle             # runs: dist/*.tar.gz matches nothing yet
+BUNDLED lab-0.1.0.tar.gz strict=False
+$ func lab bundle             # fresh: the glob matches now
+$ func --force lab --strict bundle
+BUNDLED lab-0.1.0.tar.gz strict=True
+```
+
+`--force` runs a job freshness would skip. `--strict` is declared **once** on
+the group and typed *mid-path* — `lab --strict bundle`, not
+`lab bundle --strict`.
+
+```bash
+$ func lab release            # blocks at the gate
+Blocked: gate 'approval-gate' in scope 'f81eb2d5' awaits input.
+  func builtin workflow resume f81eb2d5 approval-gate --input '{…}'
+  func lab release --scope-id f81eb2d5
+$ echo $?
+5
+```
+
+Deposit the input and re-run with that scope id and the walk finishes. Omit the
+scope id and you open a **new** walk that blocks again — resuming is opt-in.
+
+### 4.2 Two surfaces over one declaration set
+
+The lab ships `main.py` as well, and every claim on this page is verified
+against both:
+
+```bash
+func lab publish             # pre-boot dispatch, commands built from the live signature
+python main.py lab publish   # a FunctualizeApp: click's tree, built from cached descriptors
+```
+
+They are two different builders, and they have disagreed — on a config field's
+default, and on whether `--scope-id` existed at all, which left a gated walk on
+an app entry point blocked, able to accept a deposit, and impossible to resume.
+Anything that passes on one surface and fails on the other is a finding, which
+is why `tests/test_composition_lab_e2e.py` is parameterised over both.
 
 ---
 
@@ -244,6 +298,29 @@ func lab emit --output json      # Error: No such option '--output'
 A job's **return value is programmatic** — it feeds `FromJob` and `rc.invoke()`
 and never reaches stdout on its own. `out.emit()` is the explicit path, and it
 is the one that honours `--output`.
+
+### 5.6 `generates` entries are globs, not literal paths
+
+`generates=["dist/*.whl"]` — the form the `@job` docstring itself advertises —
+was tested with `(root / entry).exists()`, which is always false for a pattern.
+The job reported `output missing: dist/*.whl` forever and rebuilt on every
+invocation. It degrades to "always rebuild", never to an error, so the only
+symptom is a cache that quietly stops working. Both `sources` and `generates`
+are expanded the same way now, and a pattern matching **nothing** is a missing
+output that forces a run.
+
+### 5.7 A dependency is not a precondition
+
+```python
+@job(group="check", deps=Deps("lab.bundle"))          # correct
+def signoff(...): ...
+```
+
+Adding `Guards(preconditions=[Precondition(_archive_exists)])` on top reads
+like a safety net and is not one: `Deps` has already produced the archive by
+the time guards are evaluated, so the guard can never fire. Guard the *world*
+— things outside the graph that may not be fit to run in. Let `Deps` guard the
+graph.
 
 ---
 

@@ -20,7 +20,7 @@ requires = []
 [[steps]]
 engine = "shell"
 description = "Clean slate: no build/, no state, so freshness claims mean something"
-command = "cd examples/standalone/composition_lab && rm -rf build .functualize && mkdir -p .functualize && echo RESET"
+command = "cd examples/standalone/composition_lab && rm -rf build dist .functualize && mkdir -p .functualize && echo RESET"
 expected = { exit_code = 0, stdout_contains = "RESET" }
 timeout = 20
 
@@ -118,9 +118,9 @@ timeout = 60
 
 [[steps]]
 engine = "shell"
-description = "R10a: a satisfied status guard must NOT mask changed sources (guide §2 rule 2)"
+description = "R10a: a satisfied status guard must NOT mask changed sources (guide §2 rule 2). `why` exits 4 (ExitCode.STALE) for a job that would run — it reports a verdict, so its exit code is that verdict"
 command = "cd examples/standalone/composition_lab && echo '# touched' >> build/report.md && func builtin why lab.publish"
-expected = { exit_code = 0, stdout_contains = "status satisfied, but sources changed" }
+expected = { exit_code = 4, stdout_contains = "status satisfied, but sources changed" }
 timeout = 60
 
 [[steps]]
@@ -217,9 +217,86 @@ command = "cd examples/standalone/composition_lab && func builtin why lab.publis
 expected = { exit_code = 0, stdout_contains = "lab.publish" }
 timeout = 60
 
+# ── The second surface: the same lab, driven as an app ───────────────────
+#
+# `func` builds job commands from the live signature; a `FunctualizeApp` entry
+# point builds them from cached descriptors. Two builders over one declaration
+# set, and they have disagreed. Every claim below is asserted on both.
+
+[[steps]]
+engine = "shell"
+description = "main.py is a second entry point over the same jobs, and behaves identically"
+command = "cd examples/standalone/composition_lab && rm -rf build dist .functualize && python main.py lab publish"
+expected = { exit_code = 0, stdout_contains = "PUBLISHED" }
+timeout = 90
+
+# ── `generates` is a glob, not a literal path ────────────────────────────
+
+[[steps]]
+engine = "shell"
+description = "bundle declares generates=['dist/*.tar.gz'] — a pattern, and it runs"
+command = "cd examples/standalone/composition_lab && func lab bundle"
+expected = { exit_code = 0, stdout_contains = "BUNDLED lab-0.1.0.tar.gz strict=False" }
+timeout = 60
+
+[[steps]]
+description = "the glob now matches, so the job is fresh — tested as a literal it never would be"
+engine = "shell"
+command = "cd examples/standalone/composition_lab && func lab bundle"
+expected = { exit_code = 0, stdout_not_contains = "BUNDLED" }
+timeout = 60
+
+# ── --force, and a group option typed mid-path ───────────────────────────
+
+[[steps]]
+engine = "shell"
+description = "--force runs a job freshness would skip; --strict is declared once on the group"
+command = "cd examples/standalone/composition_lab && func --force lab --strict bundle"
+expected = { exit_code = 0, stdout_contains = "BUNDLED lab-0.1.0.tar.gz strict=True" }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "the same, on the app surface — the two builders must agree"
+command = "cd examples/standalone/composition_lab && python main.py --force lab --strict bundle"
+expected = { exit_code = 0, stdout_contains = "strict=True" }
+timeout = 90
+
+# ── A second group, and the rest of the config ladder ────────────────────
+
+[[steps]]
+engine = "shell"
+description = "check.signoff pulls its dependency across the group boundary"
+command = "cd examples/standalone/composition_lab && func check signoff"
+expected = { exit_code = 0, stdout_contains = "SIGNOFF verdicts=1 strict=False" }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "the group option is not on this job's command line, but the env layer still reaches it"
+command = "cd examples/standalone/composition_lab && LAB_STRICT=true func check signoff"
+expected = { exit_code = 0, stdout_contains = "SIGNOFF verdicts=2 strict=True" }
+timeout = 60
+
+# ── The gated walk: block, deposit, resume ───────────────────────────────
+
+[[steps]]
+engine = "shell"
+description = "a workflow with a Gate blocks with exit 5 and names the flag that resumes it"
+command = "cd examples/standalone/composition_lab && func lab release"
+expected = { exit_code = 5, stderr_contains = "--scope-id" }
+timeout = 90
+
+[[steps]]
+engine = "shell"
+description = "block -> deposit -> resume completes the SAME scope, on the app surface (the defect: --scope-id was a `func`-only pre-command global, so this walk could never finish)"
+command = '''cd examples/standalone/composition_lab && out=$(python main.py lab release 2>&1); id=$(printf '%s\n' "$out" | sed -n "s/.*scope '\([0-9a-f]*\)'.*/\1/p" | head -1); echo "scope=$id" && python main.py builtin workflow resume "$id" approval-gate --input '{"note":"ok"}' && python main.py lab release --scope-id "$id"'''
+expected = { exit_code = 0, stdout_contains = "RELEASE complete" }
+timeout = 120
+
 [[steps]]
 engine = "shell"
 description = "leave the tree clean for the next run"
-command = "cd examples/standalone/composition_lab && rm -rf build .functualize && echo CLEANED"
+command = "cd examples/standalone/composition_lab && rm -rf build dist .functualize && echo CLEANED"
 expected = { exit_code = 0, stdout_contains = "CLEANED" }
 timeout = 20
