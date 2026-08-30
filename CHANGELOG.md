@@ -68,6 +68,48 @@ made a warm boot silently swallow the exit code that would have shown it.
   deleted.** `Fingerprint(method="checksum")` never consulted `generates`;
   `method="timestamp"` always had. Two methods of one feature disagreeing.
 
+### Fixed — the follow-up audit
+
+An independent audit re-implemented the target pipeline from scratch, against
+the branch above, and found three defects the nine-criterion gate could not see.
+Two of them are that branch's own thesis turned back on it: it consolidated the
+*result* half of the cold/warm command pair and left the *parameter* half as two
+copies, and it fixed three instances of "one fact, N hand-maintained lists"
+without changing the pattern.
+
+- **An app resolved a config field to its pydantic default from its second run
+  onward, and a required config field made the app uninvocable.** On a
+  `FunctualizeApp` + `CliAdapter` entry point, warm boot builds commands from
+  the cached descriptor, and the two parameter builders disagreed: the cold one
+  passes `default=None` so the resolution ladder stays reachable, the warm one
+  passed the model's default *explicitly* — which lands in the top precedence
+  tier and outranks the config file, the environment, and every other source. A
+  **required** field additionally became a positional argument, so the app
+  answered `Error: Missing argument 'TOKEN'` from its second run onward.
+
+  This also broke the "one fingerprint key for every reader and writer"
+  guarantee through the config half: the writer hashed the config the run
+  received, the reader hashed the config the resolver returns, so `builtin why`
+  contradicted the run and a `FromJob` consumer read a key the upstream's warm
+  runs never wrote. The bare `func` CLI was immune, which is why nothing caught
+  it. The discovery cache version is bumped (18 → 19) and rebuilds on first use.
+
+- **`Fingerprint(generates=["dist/*.whl"])` could never report fresh** — the
+  form the `@job` docstring itself advertises. `sources` were globbed;
+  `generates` were tested as literal paths, and `(root / "dist/*.whl").exists()`
+  is always false, so the job reported `output missing` and rebuilt forever with
+  no error to say why.
+
+- **Declared inputs could not live outside the project.** Absolute patterns,
+  `../` patterns and patterns reaching through a symlinked directory were all
+  globbed and then discarded by a containment check that had been there since
+  the first commit, justified by one docstring line about the storage format.
+
+- **A `@workflow` `Gate` was unresumable from an app entry point.** `--scope-id`
+  was a pre-command flag of the bare `func` CLI only, so a gate on a
+  `FunctualizeApp` blocked at exit 5 forever and the deposited input was never
+  read.
+
 ### Added
 
 - **`Sources`** — a job can read the inputs its own `Fingerprint` declared,
@@ -86,6 +128,45 @@ made a warm boot silently swallow the exit code that would have shown it.
 
 - **`RunStatus.REFUSED`** — a job that declined to run because a declared
   precondition for running it was not met. Exits **3**.
+
+- **`--force`** — run a job even when it is up to date. A pre-command global on
+  both CLIs (`func --force build`, `app.py --force build`). It overrides a fresh
+  fingerprint and a satisfied `status` guard; it does **not** override a failing
+  `Precondition` (still 3) or a gate awaiting input (still 5) — those say the
+  declared conditions for running were not met, which `--force` does not change.
+  Previously the only way to re-run a fresh job was to touch a source file or
+  delete a state directory whose location was reported nowhere.
+
+- **`func builtin why <job> --json`**, and `why` now exits non-zero when the job
+  would run. `ExitCode.STALE` (4) has been pinned in the exit-code table since
+  the table was written and was produced nowhere; this gives it its first
+  producer and makes `why` scriptable. The JSON is built from the same guard
+  verdicts the prose renders, so the two forms cannot disagree.
+
+- **`--scope-id` on a job command**, on both surfaces: `app.py walk --scope-id
+  <id>`. The pre-command `func --scope-id <id> walk` still works.
+
+- **The shared `cli_run` test fixture is parameterised over both entry
+  points** (`func` | `app`), with an explicit `surfaces(...)` marker for the
+  cases where the second is not meaningful. 23 test files exercised only the
+  bare `func` CLI, which is why the config defect above survived —
+  `test_secret_surface_parity.py`, whose stated job is cross-surface config
+  agreement, was among them. Two genuine cross-surface gaps surfaced
+  immediately and are recorded rather than closed: a group listing answers
+  exit 0 on stdout from `func` and exit 2 on stderr from an app, and the app
+  surface has none of the pre-command discovery-filter flags.
+
+- **`contributor/reference/execution-lifecycle.md`** — the twenty steps of
+  `_execute_lifecycle` and the constraint that fixes each one's position,
+  with a test that fails if the source order changes. The constraints existed
+  only as comments inside a 323-line method.
+
+- **`func builtin state show` and `builtin info` report the state-store mode.**
+  There are two — `project` (a `.functualize/` directory was found; the ledger
+  lives in your project) and `standalone` (the `$XDG_CACHE_HOME` fallback for a
+  loose script). That has always been the behaviour and was documented nowhere;
+  `mkdir .functualize` is the switch, and the task-runner guide now says so
+  beside `Fingerprint`.
 
 ### Changed (breaking)
 
@@ -108,6 +189,31 @@ made a warm boot silently swallow the exit code that would have shown it.
   unifying the readers changes the key for every job. Existing records become
   unreachable, so each job runs one extra time after upgrading. Nothing is lost
   and no action is needed.
+
+- **`Fingerprint.generates` entries are glob patterns.** `dist/*.whl` now means
+  a wheel whose version is not known in advance, not a file literally named
+  `*.whl`. A pattern matching **nothing** is a missing output and forces a run —
+  the same verdict as an absent literal path. Nobody can have relied on the old
+  behaviour, because the old behaviour was "rebuild every time".
+
+- **`Fingerprint.sources` and `generates` may name paths outside the project**,
+  and each path is recorded as written. A pattern that silently matched nothing
+  may now match, so a job that reported `declared sources resolved to no files`
+  may now run. Existing records are unaffected: every key in the wild came from
+  an in-project relative declaration, and those are byte-identical under the new
+  rule. A record keyed by an *absolute* path will not match on another machine,
+  so that machine re-runs the job once. See
+  [ADR-013](contributor/adr/013-declared-paths-anywhere.md).
+
+- **`func builtin why` no longer always exits 0.** It exits 4 when the job would
+  run, 3 when it would refuse, 5 when it is blocked at a gate. **If you have a
+  script doing `func builtin why <job> && …`, it changes meaning.** That is the
+  point of the change — the verdict is now something a script can branch on.
+
+- **Every run status routes through the exit-code table.** `deliver_job_result`
+  hand-coded `BLOCKED` and `REFUSED` and let every other status fall through to
+  exit 0. No currently-observable exit code changes — nothing reaches that
+  fall-through today — but an unmapped status now exits 1 rather than 0.
 
 - **`@job(matrix=...)` now raises `TypeError`**, and `NodeKind.MATRIX` is
   removed. The keyword was accepted, validated, serialized and cached, and read

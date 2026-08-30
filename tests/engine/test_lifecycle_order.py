@@ -268,9 +268,11 @@ def test_sources_is_bound_by_the_time_the_body_runs(
     assert "sources=['built.txt']" in first.stdout, first.stdout
 
     # Warm: the command is now built from the cache, which is the path that
-    # historically dropped wiring.
-    (project / "built.txt").write_text("changed\n")
-    second = _run(project, "o", "downstream")
+    # historically dropped wiring. `--force` rather than touching `built.txt`,
+    # because the dep rewrites that file with identical content on every run —
+    # so an external edit is undone before the pre-flight ever sees it, and the
+    # job is legitimately fresh.
+    second = _run(project, "--force", "o", "downstream")
     assert "sources=['built.txt']" in second.stdout, second.stdout
 
 

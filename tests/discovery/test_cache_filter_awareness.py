@@ -29,6 +29,18 @@ import json
 from pathlib import Path
 
 from functualize._primitives.cache_format import resolve_cache_path
+from tests.conftest import surfaces
+
+# ─── Surface ──────────────────────────────────────────────────────────────
+#
+# `--exclude` is a **pre-command global flag of the bare `func` CLI**, parsed
+# by `_cli/dispatch.py` before boot. An app entry point does not have it, so
+# the transitions these tests drive cannot be expressed there at all.
+#
+# That is itself a cross-surface gap, and it is recorded in `.spec/STATE.md`
+# rather than closed here: no decision in this cycle covers giving the app
+# surface the discovery-filter flags. Restricted so the gap stays visible.
+pytestmark = surfaces("func")
 
 _ALPHA = """\"\"\"A job that must survive every filter transition.\"\"\"
 

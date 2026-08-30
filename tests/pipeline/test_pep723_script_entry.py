@@ -23,11 +23,22 @@ import textwrap
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from tests.conftest import surfaces
+
 from functualize._cli.pep723 import (
     declared_job,
     parse_pep723_deps,
     parse_script_metadata,
 )
+
+# ─── Surface ──────────────────────────────────────────────────────────────
+#
+# `func file.py …` is `Mode.SINGLE_FILE`, a dispatch mode of the bare `func`
+# CLI: it reads a path as the thing to run. An app entry point *is* the
+# program — it has no file to be handed and no such mode — so there is no
+# second surface for these to run on. Restricted, not deleted, so the reason
+# is in the file rather than in someone's memory.
+pytestmark = surfaces("func")
 
 if TYPE_CHECKING:
     import pytest
