@@ -13,23 +13,22 @@ Trigger (any of):
   Lambda event → LambdaAdapter → app.execute()
        │
        ▼
-┌──────────────────────────────────────────────────────────┐
-│  JobExecutionEngine.execute(job_name, function, kwargs)   │
-│                                                          │
-│  1. Get ResolutionPlan (cached by id(function))          │
-│  2. Build per-invocation capabilities (Log, Invoke, ...) │
-│  3. Resolve DI params from registry                      │
-│  4. Construct RunContext if function declares it         │
-│  5. Fire PRE_EXECUTE hooks (can BLOCK or MODIFY kwargs)  │
-│  6. Fire BEFORE_JOB hooks                                │
-│  7. Run middleware chain (yield-based, pre-phase)        │
-│  8. Call job function(**resolved_kwargs)                  │
-│  9. Run middleware chain (post-phase)                    │
-│  10. Fire AFTER_SUCCESS or AFTER_FAILURE hooks           │
-│  11. Fire ON_TEARDOWN hooks (always)                     │
-│  12. Return JobResult                                    │
-└──────────────────────────────────────────────────────────┘
+  JobExecutionEngine._execute_lifecycle  — twenty steps
+       │
+       ▼
+  _execute_with_lifecycle  — hooks and middleware around the body
 ```
+
+**The twenty steps, and the constraint that fixes each one's position, are in
+[`contributor/reference/execution-lifecycle.md`](../reference/execution-lifecycle.md).**
+
+A twelve-step summary used to live here. It omitted `Deps`, the pre-flight,
+`FromJob`, `Sources` and the fingerprint record — five of the things a reader
+comes to this page to ask about — so it was not a simplification but a stale
+list, and it is replaced by the link rather than re-summarized.
+
+What follows below is the part that page does not cover: what happens *inside*
+step 17, once the body is committed to running.
 
 ## DI Resolution
 

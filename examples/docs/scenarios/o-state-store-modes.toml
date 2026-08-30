@@ -1,0 +1,60 @@
+[scenario]
+name = "o-state-store-modes"
+version = 1
+description = "The two state-store modes, and the commands the guide says report them"
+
+[source]
+file = "docs/guides/task-runner.md"
+lines = "76-108"
+description = """
+"Where the freshness ledger lives" — the project/standalone table and the two
+commands it tells the reader to run. The behaviour it documents has always been
+true; nothing reported it, so a project could sit in standalone mode without
+knowing and then go looking for a state.json under a hashed cache directory.
+This scenario is what keeps the two commands agreeing with the page.
+
+Each step makes its own temporary directory: steps do not share a working
+directory, and the whole point here is what a *directory* determines.
+"""
+
+requires = []
+
+[[steps]]
+engine = "shell"
+description = "a directory with no .functualize/ reports standalone mode, and names the switch"
+command = """
+  d=$(mktemp -d) && cd "$d" &&
+  func builtin state show
+"""
+expected = { exit_code = 0, stdout_contains = "standalone (no .functualize/ found; create one to keep state in the project)" }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "mkdir .functualize is the switch — the mode flips to project"
+command = """
+  d=$(mktemp -d) && cd "$d" && mkdir .functualize &&
+  func builtin state show
+"""
+expected = { exit_code = 0, stdout_contains = ".functualize/ found at" }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "a declared project keeps its ledger inside itself"
+command = """
+  d=$(mktemp -d) && cd "$d" && mkdir .functualize &&
+  func builtin state show | grep 'State path:'
+"""
+expected = { exit_code = 0, stdout_contains = ".functualize/state.json" }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "builtin info reports the same two facts, beside config resolution"
+command = """
+  d=$(mktemp -d) && cd "$d" && mkdir .functualize &&
+  func builtin info
+"""
+expected = { exit_code = 0, stdout_contains = "Runtime State" }
+timeout = 60

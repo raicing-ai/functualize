@@ -45,15 +45,61 @@ Framework-injected parameters (`Log`, `Shell`, `Sources`, …) are excluded: the
 are not part of the call's meaning, and a live object's `repr` is not stable
 between processes.
 
-Two behaviours worth knowing before you rely on this:
+Four behaviours worth knowing before you rely on this:
 
 - **A declared output that is missing forces a run.** `generates` is part of the
   freshness question, not decoration — a job is not up to date if the artifact
   it promised to produce is not there.
+- **`sources` and `generates` are both glob patterns**, and a pattern that
+  matches nothing counts as missing:
+
+  ```python
+  @job(cache=Fingerprint(sources=["src/**/*.py"], generates=["dist/*.whl"]))
+  def build(sh: Shell): ...
+  ```
+
+  `dist/*.whl` is a declaration about a wheel whose version is not known in
+  advance. With `dist/` empty, the job is not fresh — same verdict as a missing
+  literal path, because "the promised artifact is not there" is one fact however
+  it was spelled.
+- **Declared paths may live anywhere.** Absolute patterns, `../` patterns and
+  patterns reaching through a symlinked directory are all declarable. Each path
+  is recorded as written, so an absolute one will not match on a teammate's
+  machine and their first run re-runs the job once — nothing breaks, the work is
+  just not shared. See
+  [ADR-013](https://github.com/raicing-ai/functualize/blob/master/contributor/adr/013-declared-paths-anywhere.md).
 - **Declared inputs that resolve to *nothing* refuse the run** (exit **3**),
   rather than reporting "0 sources unchanged, up to date". A stage cannot
   certify success having verified nothing. Declaring *no* sources is different
   and is unaffected.
+
+### Where the freshness ledger lives
+
+Fingerprints are stored in a runtime **state store**, and there are two modes.
+Which one you are in depends on a single directory:
+
+| Mode | When | Where the ledger lives |
+|---|---|---|
+| **project** | a `.functualize/` directory is found, walking upward from the working directory | `<that directory>/state.json` — inside your project, alongside the code it describes |
+| **standalone** | no `.functualize/` directory anywhere above you | `$XDG_CACHE_HOME/functualize/<project-id>/state.json` — a hashed directory under your home cache |
+
+`func` is meant to run over loose scripts anywhere on the filesystem, so
+standalone is the fallback rather than the failure: littering a `.functualize/`
+beside every one-off script would be worse than a keyed cache directory.
+
+**`mkdir .functualize` is the switch.** Do it when you want the ledger versioned
+with the project, shared by everyone working in it, or simply findable — after
+which `rm -rf .functualize` is a full reset.
+
+Both commands tell you which mode you are in and where the file actually is:
+
+```bash
+func builtin state show     # State path + Mode
+func builtin info           # the same two facts, beside config resolution
+```
+
+Worth checking before concluding a job "won't re-run": in standalone mode the
+file you are looking for is under a hashed directory you have never seen.
 
 ### Reading the inputs you declared
 
@@ -151,7 +197,10 @@ Use `func builtin why` to see guard results, fingerprint freshness, and which de
 
 ## State Management
 
-The state store (`.functualize/state.json`) holds fingerprints, guard results, and execution history:
+The state store holds fingerprints, guard results, and execution history. Its
+location depends on the mode described in
+[Where the freshness ledger lives](#where-the-freshness-ledger-lives) —
+`func builtin state show` prints the resolved path:
 
 ```bash
 func builtin state clear    # Clear runtime state (fingerprints, history, preconditions)

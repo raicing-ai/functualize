@@ -172,9 +172,21 @@ class Deps:
 class Fingerprint:
     """Up-to-date-checking inputs and outputs for a job (proposal §A.3, §D.3).
 
-    ``sources`` are glob patterns whose content/timestamps prove staleness;
-    ``generates`` are the outputs the job produces. ``method`` selects the
-    staleness test.
+    ``sources`` and ``generates`` are **both** glob patterns —
+    ``generates=["dist/*.whl"]`` is a declaration about a wheel whose version is
+    not known in advance, not about a file literally named ``*.whl``.
+    ``method`` selects the staleness test.
+
+    Neither is required to live under the project (ADR-013). An absolute
+    pattern, a ``../`` pattern, and a pattern reaching through a symlinked
+    directory are all declarable; each path is recorded as written, so an
+    absolute one does not match on another machine and that machine re-runs the
+    job once.
+
+    A declared output that is not on disk forces a run under **every** method,
+    and a pattern matching nothing counts as not on disk. Otherwise a job whose
+    inputs were unchanged would report fresh with its promised artifact
+    deleted.
     """
 
     sources: tuple[str, ...] = ()
