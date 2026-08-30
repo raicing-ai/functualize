@@ -200,5 +200,6 @@ caller to parse stderr.
 
 ## See Also
 
+- [Composing Capabilities](composition.md) — how this fits with the other capabilities: a combination matrix of what happens at each intersection, and the traps between them
 - [Shell Capability Guide](shell.md) — running external commands with lifecycle management
 - [Workflows Guide](workflows.md) — multi-step DAGs with gates and conditional branching

@@ -227,5 +227,6 @@ Workflow graphs are validated at decoration time:
 
 ## See Also
 
+- [Composing Capabilities](composition.md) — how this fits with the other capabilities: a combination matrix of what happens at each intersection, and the traps between them
 - [Task Runner Guide](task-runner.md) — `@job` decorator, deps, fingerprints, and guards
 - [MCP Guide](mcp.md) — exposing workflows to AI agents

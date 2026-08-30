@@ -505,3 +505,8 @@ def my_job(rc: RunContext) -> None:
 - Updating an existing key always succeeds
 - Adding a new key beyond the 64-key limit is silently discarded
 - Metadata is available on the `JobResult.metadata` field after execution
+
+## See Also
+
+- [Composing Capabilities](composition.md) — how the capabilities behave *together*: a combination matrix of what happens at each intersection, an idiomatic matrix, and the traps between them
+- [Task Runner](task-runner.md) — `@job` with dependencies, fingerprint caching and the guard pipeline
