@@ -34,7 +34,7 @@ from pydantic import BaseModel
 from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
 from functualize._primitives.config_class_detection import detect_config_class
 from functualize._types.enums import RunStatus
-from functualize._types.exit_codes import ExitCode
+from functualize._types.exit_codes import ExitCode, exit_code_for_status
 
 if TYPE_CHECKING:
     from functualize.app.core import FunctualizeApp
@@ -44,6 +44,47 @@ logger = logging.getLogger(__name__)
 # DI capability type names stripped from CLI signatures — the one list, not a
 # mirror of it. The mirrors drifted (see _primitives/capability_names).
 _DI_TYPE_NAMES = INJECTED_PARAM_TYPE_NAMES
+
+
+#: The kwarg a `--scope-id` command option binds to. A `@workflow` job command
+#: carries one; every other job does not, so it stays off their `--help` and
+#: cannot collide with a config field named `scope_id`.
+_SCOPE_ID_PARAM = "scope_id"
+
+
+def _scope_id_option() -> click.Option:
+    """The per-command `--scope-id`, for a job that declares a `@workflow`.
+
+    `func` has had a **pre-command** `--scope-id` since gates existed, and
+    `app/commands.py` never threaded it — so a `@workflow` with a `Gate` on a
+    `FunctualizeApp` blocked at exit 5 forever and the deposited input was never
+    read. There was no surface on an embedded app that could supply the scope.
+
+    Post-command, and on both surfaces, because that is where a reader looks:
+    the audit that found this got the pre-command position wrong twice before
+    reading `dispatch.py`. `func --scope-id X walk` still works.
+    """
+    return click.Option(
+        ["--scope-id", _SCOPE_ID_PARAM],
+        default=None,
+        required=False,
+        help="Resume the named workflow scope instead of starting a fresh one.",
+    )
+
+
+def _declares_workflow(function: Any) -> bool:
+    """True when a live function carries a ``@workflow`` declaration."""
+    return getattr(function, "__functualize_workflow__", None) is not None
+
+
+def _force_requested(app_ref: Any) -> bool:
+    """Did the caller ask to run anyway?
+
+    Deposited on the app by whichever CLI parsed it — both do, at the same
+    attribute — because the commands are built before the pre-command flags are
+    parsed. Same route `--output` takes.
+    """
+    return bool(getattr(app_ref, "_force", False))
 
 
 # ─── Small pure helpers (copies of the ones in adapters/cli.py) ──
@@ -234,6 +275,7 @@ def build_click_params_from_fields(
                         required=field.required,
                         default=field.default,
                     ),
+                    short_flag=field.short_flag,
                 )
             )
             continue
@@ -353,6 +395,7 @@ def _config_field_option(
     is_flag: bool,
     multiple: bool,
     help_text: str,
+    short_flag: str | None = None,
 ) -> click.Option:
     """The one rule for rendering a config-model field as a click parameter.
 
@@ -364,9 +407,18 @@ def _config_field_option(
     is how it says "not provided"; the resolution ladder supplies the rest.
     Passing the model's default here would mean click reporting a value nobody
     entered, at the highest precedence there is.
+
+    The rule covers the *decision* — parameter class, ``required``, ``default``
+    — not the spelling. ``short_flag`` stays a per-builder input because only
+    the cached descriptor records it: a ``GroupOptions`` field declared
+    ``Option("-e")`` reaches the CLI through this builder alone, and dropping
+    its short form here removed ``-e`` from completion.
     """
+    decls = [f"--{name.replace('_', '-')}"]
+    if short_flag:
+        decls.append(short_flag if short_flag.startswith("-") else f"-{short_flag}")
     return click.Option(
-        [f"--{name.replace('_', '-')}"],
+        decls,
         type=click_type,
         default=None,
         required=False,
@@ -790,39 +842,56 @@ def _report_blocked(result: Any) -> None:
     metadata = dict(getattr(result, "metadata", None) or {})
     gate = str(metadata.get("blocked_on") or metadata.get("blocked_reason") or "")
     scope = str(metadata.get("workflow_scope") or "")
+    job_name = str(metadata.get("job_name") or getattr(result, "job_name", "") or "")
 
     where = f"gate {gate!r}" if gate else "a gate"
     in_scope = f" in scope {scope!r}" if scope else ""
-    print(
-        f"Blocked: {where}{in_scope} awaits input. "
-        f"Re-run with --log-level DEBUG for the exact resume command.",
-        file=sys.stderr,
-    )
+    print(f"Blocked: {where}{in_scope} awaits input.", file=sys.stderr)
 
-    if not logger.isEnabledFor(logging.DEBUG):
-        return
-
-    resume = "func builtin workflow resume"
+    # The resume commands are printed at **default** level, not behind
+    # `--log-level DEBUG`. A blocked run is the one outcome a script most needs
+    # to act on, and "re-run with a different flag to find out what to do" is
+    # one indirection too many for the line a CI log carries.
+    #
+    # `argv[0]` rather than a literal `func`: on a `FunctualizeApp` entry point
+    # the command is `./main.py`, and printing `func` sent readers to a CLI that
+    # does not know about their project. The flag is spelled post-command for
+    # the same reason — that is where a reader looks, and the pre-command form
+    # is what the audit that found this got wrong twice.
+    program = _program_name()
+    resume = f"{program} builtin workflow resume"
     if scope and gate:
-        print(
-            f"  {resume} {scope} {gate} --input '{{…}}'",
-            file=sys.stderr,
-        )
+        print(f"  {resume} {scope} {gate} --input '{{…}}'", file=sys.stderr)
     else:
         print(
             f"  {resume} <scope> <gate> --input '{{…}}'  "
-            f"(run `func builtin workflow list` to find the scope)",
+            f"(run `{program} builtin workflow list` to find the scope)",
             file=sys.stderr,
         )
-    job_name = str(metadata.get("job_name") or "")
-    if scope and gate and job_name:
-        print(
-            f"  func --scope-id {scope} {job_name}",
-            file=sys.stderr,
-        )
+    if scope and job_name:
+        print(f"  {program} {job_name} --scope-id {scope}", file=sys.stderr)
+
+    if not logger.isEnabledFor(logging.DEBUG):
+        return
     schema = metadata.get("gate_input_schema")
     if schema:
         print(f"  input schema: {schema}", file=sys.stderr)
+
+
+def _program_name() -> str:
+    """How the user actually invoked this process.
+
+    A `FunctualizeApp` entry point is `./main.py`, not `func`, and telling its
+    operator to run `func …` sends them to a CLI that does not know about their
+    project at all.
+    """
+    import os
+
+    argv0 = sys.argv[0] if sys.argv else ""
+    if not argv0:
+        return "func"
+    base = os.path.basename(argv0)
+    return base or "func"
 
 
 # ─── Engine callback (shared with adapters/cli.py's create_job_command) ─────
@@ -878,6 +947,13 @@ def build_job_engine_callback(
                 "Ensure the app has been booted with an execution engine."
             )
 
+        # `--scope-id` is a command option on a `@workflow` job (see
+        # `_scope_id_option`), so it arrives as a kwarg and must not reach the
+        # job body. A per-command value wins over the pre-command global.
+        scope_id = kwargs.pop(_SCOPE_ID_PARAM, None) or workflow_scope_id
+        if scope_id is None:
+            scope_id = getattr(app_ref, "_workflow_scope_id", None)
+
         cli_values: dict[str, Any] = {}
         if job_config_class is not None:
             config_field_names = set(job_config_class.model_fields.keys())
@@ -926,7 +1002,8 @@ def build_job_engine_callback(
                 config_class=job_config_class,
                 kwargs={**direct_kwargs, **cli_values},
                 group_option_values=group_option_values,
-                workflow_scope_id=workflow_scope_id,
+                workflow_scope_id=scope_id,
+                force=_force_requested(app_ref),
             )
 
         return deliver_job_result(result, name, app_ref)
@@ -991,33 +1068,50 @@ def deliver_job_result(result: Any, name: str, app_ref: Any = None) -> Any:
 
         raise result.exception
 
-    # A gate pause ran *successfully* and is resumable, so it gets its own
-    # code rather than sharing one with a refusal (D-a). Without this the
-    # run would look like a plain success to any caller.
+    # Every terminal status takes its code from the one table (D-6). Two of
+    # them also have something to say first:
+    #
+    #  - a gate pause ran *successfully* and is resumable, so it gets its own
+    #    code rather than sharing one with a refusal (D-a); without the message
+    #    the run would look like a plain success to any caller;
+    #  - a refusal must reach the boundary or the whole point is lost — a stage
+    #    that declined to run because its declared inputs are not there would
+    #    exit 0, and the pipeline after it would read that as "verified,
+    #    nothing wrong". Silence plus exit 0 is precisely the false clean.
+    #
+    # The codes used to be hand-written next to those two messages, and every
+    # other status fell through to `return result.return_value` — exit 0.
+    # Nothing reaches that fall-through today (TIMEOUT and CANCELLED come only
+    # from `Invoke.parallel`, never from a top-level run), so this changes no
+    # observable exit code. What it removes is the trap: `_types/exit_codes.py`
+    # describes itself as "the single RunStatus -> process exit-code mapping"
+    # and warns that scattering SystemExit "is how that contract silently
+    # drifts", and this was the scattering. It is the same shape as D7 — a rule
+    # stated in two places, one of which quietly answered 0.
     if result.status is RunStatus.BLOCKED:
         _report_blocked(result)
-        raise SystemExit(ExitCode.BLOCKED)
+    elif result.status is RunStatus.REFUSED:
+        _report_refused(result)
 
-    # A refusal must reach the boundary, or the whole point is lost: a stage
-    # that declined to run because its declared inputs are not there would
-    # exit 0, and the pipeline after it would read that as "verified, nothing
-    # wrong". Silence plus exit 0 is precisely the false clean.
-    #
-    # Stated as its own branch rather than by routing every status through
-    # `exit_code_for_status`, deliberately: that table maps UNKNOWN to 1, and
-    # quietly turning some other currently-zero-exiting status into a failure
-    # is a wider change than this one is.
-    if result.status is RunStatus.REFUSED:
-        reason = str((getattr(result, "metadata", None) or {}).get("skip_reason") or "")
-        message = (
-            f"Refused: {reason}"
-            if reason
-            else "Refused: a declared precondition for running this job was not met."
-        )
-        print(message, file=sys.stderr)
-        raise SystemExit(ExitCode.REFUSED)
+    code = exit_code_for_status(result.status)
+    if code == ExitCode.OK:
+        return result.return_value
+    raise SystemExit(code)
 
-    return result.return_value
+
+def _report_refused(result: Any) -> None:
+    """Explain a pre-flight refusal on stderr.
+
+    Split from its exit code so the message and the number are separable, the
+    way :func:`_report_blocked` already is — the code now comes from the table.
+    """
+    reason = str((getattr(result, "metadata", None) or {}).get("skip_reason") or "")
+    message = (
+        f"Refused: {reason}"
+        if reason
+        else "Refused: a declared precondition for running this job was not met."
+    )
+    print(message, file=sys.stderr)
 
 
 def create_job_click_command(
@@ -1047,6 +1141,10 @@ def create_job_click_command(
     params, resolved_config, stdin_markers = build_click_params(
         function, job_config_class
     )
+    if _declares_workflow(function):
+        # A `@workflow` job can be resumed; every other job has nothing
+        # to resume, so the flag stays off its --help.
+        params = [*params, _scope_id_option()]
     markers = extract_capability_markers(function)
     callback = build_job_engine_callback(
         name,
