@@ -322,6 +322,36 @@ the time guards are evaluated, so the guard can never fire. Guard the *world*
 — things outside the graph that may not be fit to run in. Let `Deps` guard the
 graph.
 
+### 5.8 A mid-path flag does not cross into a walk
+
+`--strict` reaches `lab bundle` when you run it, and does not when the walk
+runs it:
+
+```bash
+$ func --force lab --strict bundle    # bundle is what you launched
+BUNDLED lab-0.1.0.tar.gz strict=True
+$ func lab --strict release           # bundle is a *step* of the walk
+BUNDLED lab-0.1.0.tar.gz strict=False
+```
+
+The flag layer belongs to the command line that typed it, and is not inherited
+by jobs the run reaches afterwards — `@workflow` steps, `Deps` upstreams and
+`rc.invoke` children alike. This is deliberate: a value typed at `lab` silently
+steering a job under another group is the failure it prevents.
+
+Every **other** layer does reach them, because each job resolves them for
+itself. To steer a whole walk, set one of those instead:
+
+```bash
+$ LAB__STRICT=true func lab release   # every step sees strict=True
+BUNDLED lab-0.1.0.tar.gz strict=True
+```
+
+Note the **double** underscore: a group option is `GROUP__FIELD`, prefixed by
+the group it is declared on, while a job's own config field is `JOB_FIELD`.
+[Group Options](group-options.md) covers the rule and the same move from
+Python.
+
 ---
 
 ## See Also

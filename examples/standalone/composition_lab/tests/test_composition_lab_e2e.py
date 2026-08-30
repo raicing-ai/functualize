@@ -191,7 +191,11 @@ class TestGroupOptionsAndForce:
         plain = lab.emitted(lab.ok("check", "signoff"))[-1]
         assert [v["verdict"] for v in plain] == ["unapproved"]
 
-        strict = lab.emitted(lab.ok("check", "signoff", LAB_STRICT="true"))[-1]
+        # `GROUP__FIELD`, with a DOUBLE underscore: the prefix is the class's
+        # `group=`, not the job's name. The single-underscore spelling also
+        # resolves, but it is the job-config form and not what a group option
+        # documents — asserting the documented one is the point.
+        strict = lab.emitted(lab.ok("check", "signoff", LAB__STRICT="true"))[-1]
         assert [v["verdict"] for v in strict] == ["unapproved", "strict-mode"]
 
 

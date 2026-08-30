@@ -274,9 +274,30 @@ timeout = 60
 [[steps]]
 engine = "shell"
 description = "the group option is not on this job's command line, but the env layer still reaches it"
-command = "cd examples/standalone/composition_lab && LAB_STRICT=true func check signoff"
+command = "cd examples/standalone/composition_lab && LAB__STRICT=true func check signoff"
 expected = { exit_code = 0, stdout_contains = "SIGNOFF verdicts=2 strict=True" }
 timeout = 60
+
+# ── Which layers cross into a walk, and which do not ─────────────────────
+#
+# A mid-path flag belongs to the path it was typed at. `lab bundle` reached as
+# a *step* of `lab release` therefore does not see `--strict`, while the env
+# layer — which every job reads for itself — does. `rm -rf dist` un-freshens
+# the step first, so a skipped `bundle` cannot make either claim pass vacuously.
+
+[[steps]]
+engine = "shell"
+description = "a mid-path flag is NOT inherited by a walk's steps"
+command = "cd examples/standalone/composition_lab && rm -rf dist && func lab --strict release"
+expected = { exit_code = 5, stdout_contains = "BUNDLED lab-0.1.0.tar.gz strict=False" }
+timeout = 90
+
+[[steps]]
+engine = "shell"
+description = "the env layer is, so one variable steers every step of the walk"
+command = "cd examples/standalone/composition_lab && rm -rf dist && LAB__STRICT=true func lab release"
+expected = { exit_code = 5, stdout_contains = "BUNDLED lab-0.1.0.tar.gz strict=True" }
+timeout = 90
 
 # ── The gated walk: block, deposit, resume ───────────────────────────────
 

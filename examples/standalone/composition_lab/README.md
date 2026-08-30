@@ -53,6 +53,42 @@ every sequence against **each** surface.
 | `check signoff` | a **second group**; `Deps` crossing a group boundary, and a `GroupOptions` type read from outside its own group |
 | `lab release` | `@workflow` × `Gate` — a walk that pauses for approval and resumes with `--scope-id` |
 
+## One flag, every job in the group
+
+`--strict` is declared once, by `LabOptions(GroupOptions, group="lab")` in
+`jobs/release.py`, and read by both `lab bundle` and `check signoff` — the
+latter from outside the `lab` group entirely. There is **one** lever per group
+option, not one per job:
+
+```bash
+func --force lab --strict bundle        # the flag: this command line only
+LAB__STRICT=true func check signoff     # the env var: every job, one variable
+```
+
+```toml
+# config.base.toml — the file layer, same reach as the env var, lower precedence
+[lab]
+strict = true
+```
+
+The env variable is `GROUP__FIELD` — **double** underscore, prefix taken from
+the class's `group=`, not from the job's name. A job's own config field uses
+the single-underscore job-name form instead (`LAB_REPORT_TITLE` above).
+
+**The flag does not cross into a walk.** `func lab release` runs `lab bundle`
+as a *step*, and with `func lab --strict release` that step still reports
+`strict=False`: a mid-path flag belongs to the path it was typed at, and is not
+inherited by jobs the run reaches afterwards — steps, `Deps` upstreams and
+`rc.invoke` children alike. To steer the whole walk, set a layer each job reads
+for itself:
+
+```bash
+LAB__STRICT=true func lab release       # every step sees strict=True
+```
+
+[`docs/guides/group-options.md`](../../../docs/guides/group-options.md) has the
+rule and shows how to set the same value from Python.
+
 ## Verification checklist
 
 Each of these is asserted by the scenario; run them by hand if you are changing
@@ -73,8 +109,11 @@ the framework underneath.
 - [ ] `func lab fanout` reports `parent_state=None`
 - [ ] `func lab bundle` twice: the second is fresh, because `dist/*.tar.gz` matches
 - [ ] `func --force lab --strict bundle` re-runs and reports `strict=True`
-- [ ] `LAB_STRICT=true func check signoff` reports `strict=True` — the flag is
+- [ ] `LAB__STRICT=true func check signoff` reports `strict=True` — the flag is
       not on this job's command line, but the env layer still reaches it
+- [ ] from a clean slate, `func lab --strict release` reports `strict=False` at
+      the bundle step — a mid-path flag is not inherited by a walk
+- [ ] `LAB__STRICT=true func lab release` reports `strict=True` at that step
 - [ ] `func lab release` exits **5** and names `--scope-id` in the message
 - [ ] depositing the gate's input and re-running with `--scope-id <id>` exits
       **0** and prints `RELEASE complete` — on **both** surfaces
