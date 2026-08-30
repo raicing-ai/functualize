@@ -27,9 +27,11 @@ asked to hash, no state-store coupling — callers persist the records.
 
 from __future__ import annotations
 
+import glob as _glob
 import hashlib
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -37,7 +39,7 @@ from typing import TYPE_CHECKING, Any
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping, Sequence
+    from collections.abc import Iterable, Iterator, Mapping, Sequence
 
 # Supported up-to-date methods (§D.3). "none" disables file checking entirely;
 # guards still apply.
@@ -152,24 +154,117 @@ def hash_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def expand_sources(root: Path | str, patterns: Iterable[str]) -> list[str]:
-    """Expand source globs to sorted, project-relative POSIX paths.
+#: Characters that make a declared entry a pattern rather than a literal path.
+_GLOB_METACHARACTERS = ("*", "?", "[")
 
-    Only files are returned (a directory match is not a source). Paths that
-    escape ``root`` are skipped — records must stay project-relative.
+
+def _is_pattern(entry: str) -> bool:
+    """True when ``entry`` is a glob rather than a literal path."""
+    return any(char in entry for char in _GLOB_METACHARACTERS)
+
+
+def _iter_matches(base: Path, pattern: str) -> Iterator[tuple[Path, str]]:
+    """Yield ``(absolute path, record key)`` for every match of one pattern.
+
+    The record key is the path **as the declaration named it** (ADR-013):
+    relative if the pattern was relative, absolute if it was absolute. There is
+    no containment check. A declared input may live anywhere on the machine —
+    a job body can already read any file it likes, and ``Fingerprint`` only
+    stats and hashes.
+
+    Three routes, because the three declared forms need three different
+    walkers, not because the rule differs:
+
+    - **absolute** — ``glob`` from the filesystem root; the key is the match.
+    - **relative with ``..``** — ``Path.glob`` does not match ``..`` segments at
+      all, so ``glob`` walks it and ``os.path.relpath`` renders the key. That
+      keeps the key machine-independent, which ``resolve()`` would not.
+    - **plain relative** — ``Path.glob``, and the key is ``relative_to(base)``
+      computed on the **unresolved** match. Resolving here is what used to
+      discard a file reached through a symlinked directory: the glob found it,
+      and then ``resolve().relative_to(base)`` raised ``ValueError`` because the
+      real location is outside the project.
+    """
+    as_path = Path(pattern)
+    if as_path.is_absolute():
+        for match in _glob.iglob(pattern, recursive=True):
+            found = Path(match)
+            yield found, found.as_posix()
+        return
+    if ".." in as_path.parts:
+        for match in _glob.iglob(str(base / pattern), recursive=True):
+            found = Path(match)
+            yield found, Path(os.path.relpath(found, base)).as_posix()
+        return
+    for match in base.glob(pattern):
+        yield match, match.relative_to(base).as_posix()
+
+
+def expand_sources(root: Path | str, patterns: Iterable[str]) -> list[str]:
+    """Expand source globs to sorted record keys, addressed as declared.
+
+    Only files are returned (a directory match is not a source).
+
+    Paths are **not** required to live under ``root``. Each is recorded the way
+    the declaration wrote it — relative if declared relative, absolute if
+    declared absolute (see :func:`_iter_matches`). The accepted consequence is
+    that a record keyed by an absolute path does not match on another machine,
+    so that machine re-runs the job once and writes its own; nothing breaks,
+    the work is simply not shared. ADR-013 records why that is the honest
+    behaviour and what it rules out.
     """
     base = Path(root).resolve()
     found: set[str] = set()
     for pattern in patterns:
-        for match in base.glob(pattern):
+        for match, key in _iter_matches(base, pattern):
             if not match.is_file():
                 continue
-            try:
-                relative = match.resolve().relative_to(base)
-            except ValueError:
-                continue  # outside the project root
-            found.add(relative.as_posix())
+            found.add(key)
     return sorted(found)
+
+
+def expand_generates(
+    root: Path | str, patterns: Iterable[str]
+) -> tuple[list[str], list[str]]:
+    """Resolve declared outputs. Returns ``(resolved, missing)``.
+
+    ``generates`` entries are glob patterns, exactly as ``sources`` entries are.
+    They were tested as literal paths — ``(root / entry).exists()`` — which is
+    always False for ``dist/*.whl``, the form the ``@job`` docstring itself
+    advertises. The job then reported ``output missing`` on every run and
+    rebuilt forever, with no error to say why.
+
+    **A pattern that matches nothing is a missing output, and forces a run.**
+    Zero matches and an absent literal path land on the same verdict, on
+    purpose: a job whose promised artifact is not there is not fresh, whatever
+    its inputs say. Any other answer would reintroduce the false clean that
+    making the default method consult ``generates`` exists to close.
+
+    ``resolved`` holds absolute paths, for stat-ing. ``missing`` holds the
+    declared entries **verbatim**, because that is the string the reader wrote
+    and an expansion of nothing has nothing to show them.
+
+    A non-pattern entry keeps the old existence semantics exactly, including
+    that a **directory** counts — ``generates=["dist"]`` is a legal declaration
+    and has nothing to do with globbing.
+    """
+    base = Path(root).resolve()
+    resolved: set[str] = set()
+    missing: list[str] = []
+    for entry in patterns:
+        if _is_pattern(entry):
+            matched = [found.as_posix() for found, _ in _iter_matches(base, entry)]
+            if matched:
+                resolved.update(matched)
+            else:
+                missing.append(entry)
+            continue
+        target = base / entry
+        if target.exists():
+            resolved.add(target.as_posix())
+        else:
+            missing.append(entry)
+    return sorted(resolved), missing
 
 
 def build_source_map(
@@ -338,8 +433,11 @@ def evaluate(
     # entirely, so a job whose sources were unchanged reported fresh with its
     # promised artifact deleted — and every downstream consumer then read a
     # record describing a file that no longer exists.
-    base = Path(root).resolve()
-    missing = [out for out in generates if not (base / out).exists()]
+    #
+    # `generates` entries are patterns (see `expand_generates`), so a pattern
+    # matching nothing counts as missing — the same verdict as an absent
+    # literal path, which is the only answer that keeps the rule above true.
+    missing = expand_generates(root, generates)[1]
     if missing:
         return FingerprintVerdict(
             False,
@@ -377,8 +475,7 @@ def _evaluate_timestamp(
         return FingerprintVerdict(
             False, "method=timestamp requires generates to compare against"
         )
-    base = Path(root).resolve()
-    missing = [out for out in generates if not (base / out).exists()]
+    resolved, missing = expand_generates(root, generates)
     if missing:
         return FingerprintVerdict(
             False,
@@ -388,7 +485,10 @@ def _evaluate_timestamp(
     newest_source = max(
         (entry.get("mtime", 0.0) for entry in source_map.values()), default=0.0
     )
-    oldest_output = min((base / out).stat().st_mtime for out in generates)
+    # Over the *resolved* set, not the declared patterns: `dist/*.whl` is not a
+    # path to stat, and the oldest thing a pattern matched is what decides
+    # whether the outputs are current.
+    oldest_output = min(Path(out).stat().st_mtime for out in resolved)
     if newest_source > oldest_output:
         return FingerprintVerdict(False, "sources newer than outputs")
     return FingerprintVerdict(True, "outputs newer than all sources")
