@@ -310,8 +310,17 @@ class TestStaticWiringZeroFilesystemIO:
 class TestStaticWiringBootPerformance:
     """Tests that static wiring boot completes in <5ms."""
 
+    @pytest.mark.perf_budget
     def test_cold_start_under_5ms(self) -> None:
-        """Fully-explicit config boots in under 5ms wall clock time."""
+        """Fully-explicit config boots in under 5ms wall clock time.
+
+        A mean over five runs against a 10ms threshold, so one slow iteration
+        decides it — and the first is routinely slow on a loaded runner
+        (`156.41ms` average from `['773.42ms', '2.24ms', '2.02ms', '2.11ms',
+        '2.25ms']`). Marked `perf_budget` so the `test-full` tier skips it;
+        `test-fast` still enforces it on every PR, serially and without
+        coverage, which is the only place the number means anything.
+        """
         chain = _make_noop_resolution_chain()
 
         # Warm up imports (first import may be slow)

@@ -105,9 +105,49 @@ def pytest_configure(config: pytest.Config) -> None:
     )
 
 
+def _timing_instrumentation(config: pytest.Config) -> list[str]:
+    """Name the active sources of timing distortion, if any.
+
+    Deliberately uses the xdist env var and pytest-cov's parsed option rather
+    than ``sys.gettrace()``: on 3.12+ coverage may attach via ``sys.monitoring``
+    instead of the trace hook, so ``gettrace()`` can miss it. Both signals used
+    here behave identically across 3.11-3.13.
+    """
+    active = []
+    if os.environ.get("PYTEST_XDIST_WORKER"):
+        active.append("xdist")
+    if getattr(config.option, "cov_source", None):
+        active.append("coverage")
+    return active
+
+
 def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:
+    # ── Wall-clock budgets, first ──────────────────────────────────────────
+    #
+    # A `perf_budget` assertion measures real elapsed time during boot, which
+    # is only meaningful in a clean, serial process. The `test-full` tier runs
+    # `pytest --run-slow --cov=functualize -n auto`: coverage inflates every
+    # call in the boot path and the xdist workers contend for the runner's
+    # cores, so the number describes the harness and the machine's load rather
+    # than the code.
+    #
+    # This runs BEFORE the `--run-slow` early return below, because that tier
+    # is the only one that carries coverage and xdist — guarding after it would
+    # skip nothing where it matters.
+    #
+    # Nothing is lost: `test-fast` runs the same tests with plain `pytest`, so
+    # every budget is still enforced on each PR.
+    active = _timing_instrumentation(config)
+    if active:
+        skip_perf = pytest.mark.skip(
+            reason=f"wall-clock budget is not measurable under {'+'.join(active)}"
+        )
+        for item in items:
+            if "perf_budget" in item.keywords:
+                item.add_marker(skip_perf)
+
     if config.getoption("--run-slow"):
         return
     skip_slow = pytest.mark.skip(reason="Need --run-slow option to run")
