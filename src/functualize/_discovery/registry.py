@@ -21,8 +21,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel
-
 from functualize._discovery.ast_extractor import extract_first_level_dependencies
 from functualize._discovery.naming import (
     normalize_name,
@@ -37,6 +35,8 @@ from functualize._types.naming import is_valid_job_group
 from functualize._types.workflow import workflow_shape_of
 
 if TYPE_CHECKING:
+    from pydantic import BaseModel
+
     from functualize._events.hooks import HookRegistry
     from functualize.app.core import FunctualizeApp
     from functualize.job.context import RunContext

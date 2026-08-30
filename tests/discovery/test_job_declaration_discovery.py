@@ -135,9 +135,13 @@ class TestScanWarmCacheParity:
         _make_provider(tmp_path, jobs_dir).list_jobs()
 
         data = json.loads(_cache_file(tmp_path).read_text(encoding="utf-8"))
-        assert data["version"] == CACHE_VERSION == 17
+        assert data["version"] == CACHE_VERSION == 18
         # The declaration sub-dict is present in the cached entry.
         entry = next(iter(data["entries"].values()))
         assert entry["declaration"]["deps"]["policy"] == "keep-going"
+        # Removed fields, each of which `from_dict` reads by name — so a cache
+        # still carrying one would raise KeyError rather than degrade, which is
+        # what the version pin above protects.
         assert "name" not in entry["declaration"]
         assert "aliases" not in entry["declaration"]
+        assert "matrix" not in entry["declaration"]

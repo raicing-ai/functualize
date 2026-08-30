@@ -18,7 +18,6 @@ Public API:
 from __future__ import annotations
 
 import contextlib
-import inspect
 import logging
 import os
 import sys
@@ -33,9 +32,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 
 from functualize._app.state import AppState
-from functualize._primitives.group_options_detection import (
-    is_group_options_subclass,
-)
+from functualize._primitives.config_class_detection import detect_config_class
 from functualize._types.enums import EnvironmentSource
 from functualize.app.adapters.click_params import (
     create_callback_click_command,
@@ -1407,8 +1404,6 @@ def _find_job_config_class(
     """
     import importlib
 
-    from pydantic import BaseModel
-
     try:
         entry = app._execution_engine.materialize_job(job_name)
         if entry.config_class is not None:
@@ -1436,20 +1431,13 @@ def _find_job_config_class(
         if func is None or not callable(func):
             continue
 
-        sig = inspect.signature(func)
-        for param in sig.parameters.values():
-            annotation = param.annotation
-            if annotation is inspect.Parameter.empty:
-                continue
-            if (
-                isinstance(annotation, type)
-                and issubclass(annotation, BaseModel)
-                and annotation is not BaseModel
-                # A GroupOptions parameter carries the *group's* flags, not
-                # this job's config fields (see _discovery/sync.py).
-                and not is_group_options_subclass(annotation)
-            ):
-                return annotation
+        # Through the one shared rule. This copy read `param.annotation`
+        # *raw*, so under `from __future__ import annotations` every
+        # annotation was a string and this fallback could never find a config
+        # class at all.
+        detected = detect_config_class(func)
+        if detected is not None:
+            return detected
 
     return None
 

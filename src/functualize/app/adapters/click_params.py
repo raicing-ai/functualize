@@ -30,9 +30,7 @@ import click
 from click.types import convert_type
 from pydantic import BaseModel
 
-from functualize._primitives.group_options_detection import (
-    is_group_options_subclass,
-)
+from functualize._primitives.config_class_detection import detect_config_class
 from functualize._types.enums import RunStatus
 from functualize._types.exit_codes import ExitCode
 
@@ -464,25 +462,19 @@ def build_click_params(
             for p in params
         ]
 
-    # Auto-detect config class from signature if not provided.
+    # Auto-detect config class from signature if not provided — through the
+    # one shared rule, not a local copy of it.
+    #
+    # The local copy this replaced used `_parse(...).base_type`, which
+    # deliberately unwraps `Annotated[...]` so that `Annotated[int, Option()]`
+    # yields `int`. Applied to the detection question that unwrapping is wrong:
+    # `Annotated[Findings, FromJob("audit.check")]` yielded `Findings`, a
+    # BaseModel subclass, so an upstream envelope became the job's config class
+    # and the job died in config resolution before its body ran. The filter
+    # loop 30 lines below already skipped `FromJob` params; the detection loop
+    # above it did not.
     if job_config_class is None and apply_job_filter:
-        for param in params:
-            annotation = param.annotation
-            if isinstance(annotation, str):
-                continue
-            info = _parse(annotation)
-            if (
-                info.base_type is not None
-                and isinstance(info.base_type, type)
-                and issubclass(info.base_type, BaseModel)
-                and info.base_type is not BaseModel
-                # A GroupOptions parameter carries the *group's* flags, which
-                # are parsed mid-path during the trie walk. Expanding them here
-                # would publish the same field as a second, job-level flag.
-                and not is_group_options_subclass(info.base_type)
-            ):
-                job_config_class = info.base_type
-                break
+        job_config_class = detect_config_class(function)
 
     # ── Filter to CLI-facing params (identical policy to create_job_command) ─
     kept: list[inspect.Parameter] = []

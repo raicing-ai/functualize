@@ -24,25 +24,23 @@ import pkgutil
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
-
-from pydantic import BaseModel
+from typing import TYPE_CHECKING, Any
 
 from functualize._discovery.ast_extractor import extract_first_level_dependencies
 from functualize._discovery.group_options_extractor import extract_group_options_spec
 from functualize._discovery.naming import normalize_name, qualified_name
 from functualize._discovery.schema_extractor import extract_field_descriptors
+from functualize._primitives.config_class_detection import detect_config_class
 from functualize._primitives.display_detection import find_display_providers
-from functualize._primitives.group_options_detection import (
-    find_group_options,
-    is_group_options_subclass,
-)
+from functualize._primitives.group_options_detection import find_group_options
 from functualize._primitives.pre_filter import extract_function_decorators
-from functualize._types.annotations import resolved_hints
 from functualize._types.descriptors import GroupOptionsSpec, JobDescriptor
 from functualize._types.from_job import from_job_names
 from functualize._types.naming import is_valid_job_group
 from functualize._types.workflow import workflow_shape_of
+
+if TYPE_CHECKING:
+    from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -161,8 +159,30 @@ def extract_module(source_file: str, project_root: Path) -> ModuleExtraction:
         sys.path.insert(0, module_dir)
         path_added = True
 
+    # Register BEFORE exec_module — the documented importlib recipe, and here
+    # it is load-bearing rather than ceremonial. A pydantic model resolves its
+    # forward references by looking its own `__module__` up in `sys.modules`,
+    # and under `from __future__ import annotations` *every* annotation is a
+    # forward reference. So a jobs module holding
+    #
+    #     class Finding(BaseModel): ...
+    #     class Findings(BaseModel):
+    #         payload: list[Finding]
+    #
+    # exec'd without this line produces a `Findings` that cannot be
+    # instantiated: "`Findings` is not fully defined". The class builds, the
+    # scan succeeds, the job registers — and the failure surfaces only when the
+    # body finally constructs one, as a pydantic error naming a class the
+    # author defined right there.
+    #
+    # The name is uniquified per source file above, so nothing real can be
+    # shadowed. On failure the entry is removed rather than left half-executed.
+    sys.modules[unique_module_name] = module
     try:
         spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(unique_module_name, None)
+        raise
     finally:
         if path_added and module_dir in sys.path:
             sys.path.remove(module_dir)
@@ -406,31 +426,8 @@ def _find_all_job_functions(
             except (TypeError, OSError):
                 continue
 
-        # Detect JobConfig parameter for this function
-        job_config_class: type[BaseModel] | None = None
-        try:
-            sig = inspect.signature(attr)
-            hints = resolved_hints(attr)
-            for name, param in sig.parameters.items():
-                annotation = hints.get(name, param.annotation)
-                if annotation is inspect.Parameter.empty:
-                    continue
-                if (
-                    isinstance(annotation, type)
-                    and issubclass(annotation, BaseModel)
-                    and annotation is not BaseModel
-                    # A GroupOptions parameter is an injection point for the
-                    # *group's* flags, not this job's config class. Treating it
-                    # as the config class would flatten the group's fields into
-                    # the job's own CLI options, so `--env` would exist both
-                    # mid-path and after the leaf, bound to one field.
-                    and not is_group_options_subclass(annotation)
-                ):
-                    job_config_class = annotation
-                    break
-        except (ValueError, TypeError):
-            pass
-
-        results.append((attr, job_config_class))
+        # The job's config class, through the one shared rule
+        # (_primitives/config_class_detection) rather than a local copy.
+        results.append((attr, detect_config_class(attr)))
 
     return results
