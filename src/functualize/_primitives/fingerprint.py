@@ -196,8 +196,12 @@ def _iter_matches(base: Path, pattern: str) -> Iterator[tuple[Path, str]]:
             found = Path(match)
             yield found, Path(os.path.relpath(found, base)).as_posix()
         return
-    for match in base.glob(pattern):
-        yield match, match.relative_to(base).as_posix()
+    # `found`, not `match`: the two branches above bind `match` to the `str`
+    # that `glob.iglob` yields, and `Path.glob` yields `Path`. One name cannot
+    # be both, so reusing `match` here is a type error even though every branch
+    # is correct on its own.
+    for found in base.glob(pattern):
+        yield found, found.relative_to(base).as_posix()
 
 
 def expand_sources(root: Path | str, patterns: Iterable[str]) -> list[str]:

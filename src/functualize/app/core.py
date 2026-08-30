@@ -131,6 +131,8 @@ class FunctualizeApp:
     # runtime until the CLI assigns them.
     _output_format: str
     _prompt_gates: bool
+    _force: bool
+    _workflow_scope_id: str | None
 
     def __init__(
         self,
