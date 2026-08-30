@@ -23,6 +23,7 @@ guard that never fires — the failure mode this module was written to end.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -53,14 +54,39 @@ class PreflightDecision:
     check and its record silently drift apart.
     """
 
-    __slots__ = ("key", "recorded_value", "verdict")
+    __slots__ = (
+        "declared_generates",
+        "declared_sources",
+        "key",
+        "recorded_value",
+        "source_map",
+        "verdict",
+    )
 
     def __init__(
-        self, verdict: GuardVerdict, key: str, recorded_value: Any = None
+        self,
+        verdict: GuardVerdict,
+        key: str,
+        recorded_value: Any = None,
+        *,
+        source_map: Mapping[str, Any] | None = None,
+        declared_sources: Sequence[str] = (),
+        declared_generates: Sequence[str] = (),
     ) -> None:
         self.verdict = verdict
         self.key = key
         self.recorded_value = recorded_value
+        #: What the declared patterns resolved to — the record
+        #: `build_source_map` already builds on every run and this class used
+        #: to discard. The `Sources` capability reads it; nothing is
+        #: recomputed for it (ADR-012).
+        self.source_map: Mapping[str, Any] = source_map or {}
+        #: The patterns as declared. Carried *alongside* the resolved map
+        #: because only the pair distinguishes "declared no sources" from
+        #: "declared sources that matched nothing" — the same distinction the
+        #: R3 refusal turns on. One mechanism, two consumers.
+        self.declared_sources: tuple[str, ...] = tuple(declared_sources)
+        self.declared_generates: tuple[str, ...] = tuple(declared_generates)
 
     @property
     def should_run(self) -> bool:
@@ -122,29 +148,43 @@ class Preflight:
         method = getattr(cache, "method", "checksum") if cache is not None else "none"
         key = fingerprint_key(job_name, args_hash, method)
 
+        # The declaration's own patterns, independent of whether a state store
+        # exists: a job's `Sources` must report what it declared even where
+        # there is nothing to compare against.
+        sources = list(getattr(cache, "sources", ()) or ()) if cache is not None else []
+        generates = (
+            list(getattr(cache, "generates", ()) or ()) if cache is not None else []
+        )
+
         fingerprint_verdict = None
         has_file_signal = False
-        if cache is not None and self._store is not None:
-            sources = list(getattr(cache, "sources", ()) or ())
-            generates = list(getattr(cache, "generates", ()) or ())
+        source_map: Mapping[str, Any] = {}
+        if cache is not None:
             has_file_signal = method != "none" and bool(sources)
-            record = self._store.get_fingerprint(key)
+            # `record` needs the store; resolving the patterns does not. Built
+            # unconditionally so the `Sources` capability (ADR-012) is answerable
+            # on a run with no state store, where freshness is not.
+            record = (
+                self._store.get_fingerprint(key) if self._store is not None else None
+            )
             source_map = build_source_map(
                 self._root,
                 expand_sources(self._root, sources),
                 previous=(record or {}).get("sources"),
             )
-            fingerprint_verdict = evaluate(
-                record,
-                root=self._root,
-                source_map=source_map,
-                generates=generates,
-                method=method,
-                # The patterns, alongside what they resolved to. Only here are
-                # both in hand, and only both together tell "declared no
-                # sources" apart from "declared sources that matched nothing".
-                declared_sources=sources,
-            )
+            if self._store is not None:
+                fingerprint_verdict = evaluate(
+                    record,
+                    root=self._root,
+                    source_map=source_map,
+                    generates=generates,
+                    method=method,
+                    # The patterns, alongside what they resolved to. Only here
+                    # are both in hand, and only both together tell "declared
+                    # no sources" apart from "declared sources that matched
+                    # nothing".
+                    declared_sources=sources,
+                )
 
         verdict = self._evaluator.evaluate(
             platforms=getattr(exec_decl, "platforms", None),
@@ -165,7 +205,14 @@ class Preflight:
             recorded = reusable_return_value(
                 self._store.get_fingerprint(key), job_name=job_name
             )
-        return PreflightDecision(verdict, key, recorded)
+        return PreflightDecision(
+            verdict,
+            key,
+            recorded,
+            source_map=source_map,
+            declared_sources=sources,
+            declared_generates=generates,
+        )
 
     def record(
         self,

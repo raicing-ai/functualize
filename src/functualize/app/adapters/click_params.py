@@ -30,6 +30,7 @@ import click
 from click.types import convert_type
 from pydantic import BaseModel
 
+from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
 from functualize._primitives.config_class_detection import detect_config_class
 from functualize._types.enums import RunStatus
 from functualize._types.exit_codes import ExitCode
@@ -39,19 +40,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# DI capability type names stripped from CLI signatures (mirror adapters/cli.py).
-_DI_TYPE_NAMES = frozenset(
-    {
-        "RunContext",
-        "Log",
-        "Invoke",
-        "Prompt",
-        "Perf",
-        "State",
-        "JobContext",
-        "JobConfigView",
-    }
-)
+# DI capability type names stripped from CLI signatures — the one list, not a
+# mirror of it. The mirrors drifted (see _primitives/capability_names).
+_DI_TYPE_NAMES = INJECTED_PARAM_TYPE_NAMES
 
 
 # ─── Small pure helpers (copies of the ones in adapters/cli.py) ──

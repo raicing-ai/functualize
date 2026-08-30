@@ -37,6 +37,7 @@ from functualize._engine.resolution import ResolutionPlan, build_resolution_plan
 from functualize._engine.validation import ArgValidator
 from functualize._events import EventBus, HookEvent, HookRegistry
 from functualize._primitives import DIRegistry, MissingProviderError
+from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
 from functualize._types import AmbiguousJobError, JobResult, RunStatus
 from functualize._types.annotations import resolved_hints
 from functualize._types.redaction import Secret, redacted_snapshot
@@ -48,6 +49,44 @@ if TYPE_CHECKING:
     from functualize._engine.result import RegisteredJob
 
 logger = logging.getLogger(__name__)
+
+
+def _per_invocation_types() -> set[type]:
+    """The capability types the engine instantiates per invocation.
+
+    One set, because there were two — the resolution plan's ("is this
+    parameter resolvable?") and the resolver's ("instantiate it") — and a type
+    present in one but not the other resolves to nothing with no error. The
+    *names* of these live in `_primitives/capability_names` for the layers that
+    may not import them; this is the same list as types, for the layer that
+    can.
+    """
+    from functualize._engine.capabilities.invoke import Invoke
+    from functualize._engine.capabilities.job_context import JobContext
+    from functualize._engine.capabilities.live import Live
+    from functualize._engine.capabilities.log import Log
+    from functualize._engine.capabilities.perf import Perf
+    from functualize._engine.capabilities.prompt import Prompt
+    from functualize._engine.capabilities.sources import Sources
+    from functualize._engine.capabilities.state import State
+    from functualize._engine.capabilities.tty import TTY
+    from functualize._types.shell import Shell
+    from functualize._types.stdout import Stdout
+
+    return {
+        Log,
+        Invoke,
+        Prompt,
+        Perf,
+        Shell,
+        Stdout,
+        State,
+        Sources,
+        JobContext,
+        TTY,
+        Live,
+    }
+
 
 
 class _MinimalConfigView:
@@ -463,21 +502,9 @@ class JobExecutionEngine:
 
         errors: list[ResolutionError] = []
 
-        # Per-invocation types handled by the engine, not the DI registry
-        per_invocation_type_names = {
-            "RunContext",
-            "Log",
-            "Invoke",
-            "Prompt",
-            "Perf",
-            "Shell",
-            "Stdout",
-            "State",
-            "JobContext",
-            "JobConfigView",
-            "TTY",
-            "Live",
-        }
+        # Per-invocation types handled by the engine, not the DI registry —
+        # the one list (see _primitives/capability_names).
+        per_invocation_type_names = INJECTED_PARAM_TYPE_NAMES
 
         sig = inspect.signature(func)
 
@@ -956,6 +983,13 @@ class JobExecutionEngine:
         from functualize._engine.guards import GuardState
 
         preflight_decision = self._preflight_check(job_name, function, context)
+
+        # Fill in the `Sources` capability, if the job asked for one. This sits
+        # before the force_fresh branch below on purpose: that branch discards
+        # the decision, and discarding it after binding would hand a job an
+        # empty source map on exactly the runs a `FromJob` dependent triggers.
+        self._bind_sources(context, preflight_decision)
+
         if (
             force_fresh
             and preflight_decision is not None
@@ -1206,34 +1240,13 @@ class JobExecutionEngine:
         if func_id in self._resolution_plan_cache:
             return self._resolution_plan_cache[func_id]
 
-        from functualize._engine.capabilities.invoke import Invoke
-        from functualize._engine.capabilities.job_context import JobContext
-        from functualize._engine.capabilities.live import Live
-        from functualize._engine.capabilities.log import Log
-        from functualize._engine.capabilities.perf import Perf
-        from functualize._engine.capabilities.prompt import Prompt
         from functualize._engine.capabilities.runcontext import RunContext
-        from functualize._engine.capabilities.state import State
-        from functualize._engine.capabilities.tty import TTY
-        from functualize._types.shell import Shell
-        from functualize._types.stdout import Stdout
 
         registered_types = set(self._di_registry.available_types())
         # Per-invocation capability types are always resolvable even when
         # not explicitly registered in the DI registry
         _config_view_type = self._config_view_type
-        per_invocation_types: set[type] = {
-            Log,
-            Invoke,
-            Prompt,
-            Perf,
-            Shell,
-            Stdout,
-            State,
-            JobContext,
-            TTY,
-            Live,
-        }
+        per_invocation_types = _per_invocation_types()
         if _config_view_type is not None:
             per_invocation_types.add(_config_view_type)
         registered_types |= per_invocation_types
@@ -1270,31 +1283,8 @@ class JobExecutionEngine:
         resolved: dict[str, Any] = {}
         per_invocation_caps: dict[type, Any] = {}
 
-        # Import per-invocation capability types
-        from functualize._engine.capabilities.invoke import Invoke
-        from functualize._engine.capabilities.job_context import JobContext
-        from functualize._engine.capabilities.live import Live
-        from functualize._engine.capabilities.log import Log
-        from functualize._engine.capabilities.perf import Perf
-        from functualize._engine.capabilities.prompt import Prompt
-        from functualize._engine.capabilities.state import State
-        from functualize._engine.capabilities.tty import TTY
-        from functualize._types.shell import Shell
-        from functualize._types.stdout import Stdout
-
         _config_view_type = self._config_view_type
-        per_invocation_type_set: set[type] = {
-            Log,
-            Invoke,
-            Prompt,
-            Perf,
-            Shell,
-            Stdout,
-            State,
-            JobContext,
-            TTY,
-            Live,
-        }
+        per_invocation_type_set = _per_invocation_types()
         if _config_view_type is not None:
             per_invocation_type_set.add(_config_view_type)
 
@@ -1411,10 +1401,19 @@ class JobExecutionEngine:
         from functualize._engine.capabilities.log import Log
         from functualize._engine.capabilities.perf import Perf
         from functualize._engine.capabilities.prompt import Prompt
+        from functualize._engine.capabilities.sources import Sources
         from functualize._engine.capabilities.state import State
         from functualize._engine.capabilities.tty import TTY, terminal_available
         from functualize._types.shell import Shell
         from functualize._types.stdout import Stdout
+
+        if type_ is Sources:
+            # Deliberately empty. The pre-flight has not run yet — DI resolves
+            # before it — so the resolved map does not exist at this point.
+            # `_bind_sources` fills it in before the body is called. If that
+            # call is ever lost, every job sees an empty map and no error,
+            # which is why its tests assert through a run rather than here.
+            return Sources()
 
         if type_ is Log:
             return Log(job_name=context.job_name)
@@ -2017,6 +2016,36 @@ class JobExecutionEngine:
             "checks": list(decision.verdict.checks),
         }
         return decision
+
+    @staticmethod
+    def _bind_sources(context: Any, decision: Any) -> None:
+        """Hand the pre-flight's resolved source map to the job's `Sources`.
+
+        DI resolves before the pre-flight runs, so `Sources` is injected empty
+        and filled in here — the last point before the body is invoked at which
+        the resolved map exists. Without this call the capability resolves,
+        injects, and reports nothing, with no error anywhere: the exact
+        "wired but inert" shape `contributor/guides/wiring-discipline.md`
+        exists for. Its tests therefore run a job and read what the body saw.
+
+        A job that asked for no `Sources` costs nothing here. A job whose
+        declaration has no `Fingerprint` gets `declared=False`, which is a
+        different answer from an empty map (ADR-012).
+        """
+        from functualize._engine.capabilities.sources import Sources
+
+        instance = (context.capabilities or {}).get(Sources)
+        if instance is None:
+            return
+        if decision is None:
+            # No declaration, or nothing to pre-flight. Declared nothing.
+            instance._bind({}, declared=False)
+            return
+        instance._bind(
+            decision.source_map,
+            declared=bool(decision.declared_sources),
+            generates=decision.declared_generates,
+        )
 
     def _preflight_result(
         self, job_name: str, context: Any, decision: Any, start_time: float
