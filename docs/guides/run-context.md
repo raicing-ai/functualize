@@ -3,7 +3,7 @@
 The `RunContext` is the execution context injected into every job function. It is a thin facade (~500 LOC) that delegates to capability classes (`Log`, `Invoke`, `Prompt`, `Perf`, `State`, `WorkflowTracker`). It provides configuration access, logging, metadata tracking, phase tracking, job invocation, and event emission.
 
 ```python
-from functualize.job import RunContext, Log, Invoke, Prompt, Perf, State
+from functualize.job import RunContext, Log, Invoke, Prompt, Perf, State, Sources
 ```
 
 This guide covers the lifecycle hooks that wrap job execution, the RunContext metadata fields, and how to track phase progress within your jobs.

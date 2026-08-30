@@ -14,7 +14,9 @@ The `RunContext` is a thin facade (~870 LOC) that delegates to capability classe
 **Module location:** `src/functualize/job/context.py`
 
 ```python
-from functualize.job import RunContext, Log, Invoke, Prompt, Perf, State, JobContext, JobConfigView
+from functualize.job import (
+    RunContext, Log, Invoke, Prompt, Perf, State, Sources, JobContext, JobConfigView,
+)
 ```
 
 ### Core Properties

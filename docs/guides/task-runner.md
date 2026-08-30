@@ -38,7 +38,42 @@ def build(sh: Shell):
     sh(["uv", "build"])
 ```
 
-The build only re-runs when its source files change. The fingerprint includes both the file hashes and the resolved config/args — the same job with different arguments gets different fingerprints.
+The build only re-runs when its source files change. The fingerprint includes the
+file hashes and the job's resolved config, plus any arguments **the caller
+passed** — the same job with different arguments gets different fingerprints.
+Framework-injected parameters (`Log`, `Shell`, `Sources`, …) are excluded: they
+are not part of the call's meaning, and a live object's `repr` is not stable
+between processes.
+
+Two behaviours worth knowing before you rely on this:
+
+- **A declared output that is missing forces a run.** `generates` is part of the
+  freshness question, not decoration — a job is not up to date if the artifact
+  it promised to produce is not there.
+- **Declared inputs that resolve to *nothing* refuse the run** (exit **3**),
+  rather than reporting "0 sources unchanged, up to date". A stage cannot
+  certify success having verified nothing. Declaring *no* sources is different
+  and is unaffected.
+
+### Reading the inputs you declared
+
+The glob you declare is expanded on every run to decide freshness. Read the
+result rather than restating it:
+
+```python
+from functualize.job import Fingerprint, Sources, job
+
+@job(cache=Fingerprint(sources=["src/**/*.yaml"], generates=["out/parsed.json"]))
+def parse(sources: Sources) -> None:
+    for path in sources.keys():           # project-relative POSIX paths
+        text = Path(path).read_text()
+    entry = sources["src/app.yaml"]        # {"mtime": float, "size": int, "sha256": str}
+```
+
+Restating the glob in the body is how the freshness check and the work drift
+apart. `sources.declared` tells "declared no sources" apart from "declared
+sources that matched nothing"; `sources.generates` carries the declared outputs.
+See [ADR-012](https://github.com/raicing-ai/functualize/blob/master/contributor/adr/012-resolved-sources.md).
 
 ### With guards
 
@@ -50,7 +85,12 @@ def deploy_docker(sh: Shell):
     sh(["docker", "compose", "up", "-d"])
 ```
 
-Guards are checked before dependencies. The pipeline is: **platforms → preconditions → status → fingerprint**. If Docker isn't running, the job fails immediately rather than after an opaque error from the shell.
+Guards are checked before dependencies. The pipeline is: **platforms →
+preconditions → status → fingerprint**. If Docker isn't running the job
+**refuses** immediately — `RunStatus.REFUSED`, exit **3** — rather than failing
+after an opaque error from the shell. Exit 3 is distinct from exit 1 on purpose:
+nothing ran and nothing raised, so a caller can tell "I declined to start" from
+"the body threw".
 
 ## Value Objects Reference
 
@@ -142,7 +182,21 @@ Jobs with a `Stdout` capability act as Unix pipeline stages:
 func build --output ndjson | jq '.targets'
 ```
 
-`func build` emits NDJSON; `jq` processes it. The exit code table propagates through the pipeline.
+`func build` emits NDJSON; `jq` processes it. The exit code table propagates
+through the pipeline:
+
+| Code | Meaning |
+|---|---|
+| 0 | success — **and skipped**: a guard saying "nothing to do" did what was asked |
+| 1 | the job body raised |
+| 2 | usage or config error |
+| 3 | **refused** — a declared precondition for running was not met: a `Precondition` failed, or `Fingerprint(sources=…)` resolved to no files |
+| 4 | stale-check failure (`--check`) |
+| 5 | blocked awaiting gate input — ran successfully and is resumable |
+
+3 and 5 are deliberately different: a workflow paused at a gate *ran* and can be
+resumed; a refusal never started. The same code for both would force every
+caller to parse stderr.
 
 ## See Also
 
