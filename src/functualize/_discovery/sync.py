@@ -252,7 +252,7 @@ def extract_module(source_file: str, project_root: Path) -> ModuleExtraction:
                 )
 
         # @job(...) declaration: identity overrides (name/group) plus the
-        # cached operational contract (deps/cache/guards/exec/matrix).
+        # cached operational contract (deps/cache/guards/exec).
         declaration = getattr(job_func, "__functualize_job__", None)
         workflow_shape = workflow_shape_of(job_func)
         raw_group = (

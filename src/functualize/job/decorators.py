@@ -57,7 +57,6 @@ def job(
     cache: Fingerprint | None = None,
     guards: Guards | None = None,
     exec: Exec | None = None,
-    matrix: dict[str, list[Any]] | None = None,
 ) -> F | Callable[[F], F]:
     """Declare a job's identity and operational contract (proposal §A.3–A.6).
 
@@ -100,7 +99,6 @@ def job(
         cache=cache,
         guards=guards,
         exec=exec,
-        matrix=matrix,
     )
 
     def apply(func: F) -> F:

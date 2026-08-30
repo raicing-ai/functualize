@@ -189,7 +189,7 @@ class NodeKind(Enum):
     """What a node denotes.
 
     A node carrying both a payload and children keeps the payload's kind
-    (``JOB``/``MATRIX``/``PLUGIN``) and stays navigable as a group — the
+    (``JOB``/``PLUGIN``/``BUILTIN``) and stays navigable as a group — the
     duality case (a ``deploy`` job that also has ``deploy web`` beneath it).
     """
 
@@ -197,7 +197,6 @@ class NodeKind(Enum):
     GROUP = "group"
     PLUGIN = "plugin"
     BUILTIN = "builtin"
-    MATRIX = "matrix"
 
 
 @dataclass(frozen=True)
@@ -346,8 +345,8 @@ class GroupTrie:
                 the **full dotted name** the descriptor carries
                 (``infra.aws.provision-it``), not the leaf — the leaf is
                 obtained by stripping the group prefix, which is exact and
-                stays correct for a matrix instance whose bracketed suffix may
-                itself contain a dot. ``kind`` is a :class:`NodeKind` value.
+                stays correct for a leaf whose own name contains a dot that is
+                not a path separator. ``kind`` is a :class:`NodeKind` value.
             plugin_namespaces: ``(namespace_or_None, command_name)`` rows — the
                 ``PluginCommand.namespace`` *string*, never the object.
             groups: Dotted group names to materialize as *payload-less* nodes,
@@ -564,8 +563,8 @@ def _job_segments(group: str | None, name: str) -> list[str]:
 
     ``name`` is the descriptor's full dotted name, so the leaf is `name` with
     the group prefix stripped rather than ``name.rsplit(".", 1)``. The
-    difference matters for a matrix instance such as ``deploy[version=1.2]``,
-    whose bracketed suffix may contain a dot that is not a path separator.
+    difference matters for any leaf carrying a dot of its own, such as
+    ``deploy[version=1.2]``: that dot is part of the name, not a separator.
     """
     segments = _split_group(group)
     prefix = f"{group}." if group else ""

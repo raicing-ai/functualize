@@ -106,7 +106,13 @@ from functualize._primitives.locator import _xdg_cache_dir, compute_project_id
 # nine fingerprinted `DiscoveryConfig` fields did not move, only the root the
 # filter judges against. A v16 cache therefore looks valid and is wrong, and only
 # the version check reaches it.
-CACHE_VERSION = 17
+# v18 (2026-08-30): JobDeclaration lost `matrix`. It was accepted, validated and
+# cached, and read by nothing — matrix expansion was dropped by decision
+# (`.spec/STATUS.md`), leaving only the declaration surface behind, so a job
+# declaring it ran once with its axis parameter unbound and no error. `to_dict`
+# no longer writes the key and `from_dict` reads keys by name, so a v17 entry
+# would raise KeyError rather than degrade; the bump forces a one-time rebuild.
+CACHE_VERSION = 18
 
 # Cache file name within the resolved cache directory.
 CACHE_FILENAME = "cache.json"

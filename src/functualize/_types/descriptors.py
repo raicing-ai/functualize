@@ -224,7 +224,7 @@ class JobDescriptor:
     #: None means no preference (setting / framework default apply).
     surface_hint: str | None = None
     #: The frozen ``JobDeclaration`` from ``@job(...)`` (proposal §A.3), or None
-    #: for convention-discovered jobs. Carries deps/cache/guards/exec/matrix and
+    #: for convention-discovered jobs. Carries deps/cache/guards/exec and
     #: identity overrides. Read off ``func.__functualize_job__`` at extraction
     #: time and cached, so warm/lazy boot has it without importing the module.
     declaration: JobDeclaration | None = None
