@@ -2,7 +2,7 @@
 
 **Status**: accepted
 **Date**: 2026-08-30
-**Deciders**: Hakim (decision D-2, `pipeline-readiness/DECISIONS-2026-08-30.md`), agent
+**Deciders**: Hakim (decision D-2), agent
 
 ## Context
 
@@ -105,8 +105,8 @@ through a symlinked subtree keeps the name the declaration used.
 
 ## References
 
-- `pipeline-readiness/DECISIONS-2026-08-30.md` — D-2
-- `pipeline-readiness/idiomatic-audit/NOTES.md` — F3, with the reproduction
-- `pipeline-readiness/idiomatic-audit/repro/repro_03_sources_through_symlink.py`
+- `examples/standalone/composition_lab/` — the pipeline this was found in;
+  `demo.sh` walks it and `tests/test_composition_lab_e2e.py` asserts it on
+  both surfaces
 - `src/functualize/_primitives/fingerprint.py` — `_iter_matches`, `expand_sources`
 - `tests/pipeline/test_declared_paths_anywhere.py`

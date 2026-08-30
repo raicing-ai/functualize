@@ -269,10 +269,12 @@ def test_the_blocked_message_names_a_command_path_not_a_job_address(
     following it answered `No such command 'audit.audit-run'`, which is worse
     than printing nothing: it makes the resume feature itself look broken.
 
-    Found by running `pipeline-readiness/idiomatic-audit/demo.sh`, not by a
-    test — every workflow job in the suite happened to be ungrouped. That is
-    the whole argument for keeping a realistic pipeline around as an
-    integration check.
+    Found by running a realistic pipeline end to end, not by a test — every
+    workflow job in the suite happened to be ungrouped. That is the whole
+    argument for keeping one around as an integration check, which is what
+    `examples/standalone/composition_lab/` (its `demo.sh`, and
+    `tests/test_composition_lab_e2e.py`) now is: `lab.release` is a grouped
+    workflow job, gated, run on both surfaces.
     """
     project = _project(tmp_path)
 

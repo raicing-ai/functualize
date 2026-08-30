@@ -11,8 +11,10 @@ both live *today*:
   `FieldDescriptor`s.
 
 They disagree on `default` for every field with a non-`None` default, and on
-the *parameter class* for a required field. See
-`pipeline-readiness/idiomatic-audit/repro/repro_01_warm_config_default.py`.
+the *parameter class* for a required field. Only the warm path is reachable
+from a `FunctualizeApp` entry point, which is why the divergence survived: it
+was invisible from `func`. `examples/standalone/composition_lab/` ships both
+surfaces and runs every claim against each.
 
 This is the unit-level counterpart of the discipline
 `contributor/reference/pitfalls.md` #6 demands and that

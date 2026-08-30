@@ -2,7 +2,8 @@
 
 **Status**: accepted
 **Date**: 2026-08-30
-**Deciders**: Hakim (decision D-4, `pipeline-readiness/DECISIONS-2026-08-30.md`, plus the follow-up question on where the name set lives), agent
+**Deciders**: Hakim (decision D-4, plus the follow-up question on where the
+name set lives), agent
 
 ## Context
 
@@ -17,10 +18,10 @@ failed silently**:
 | 4 | `_primitives/capability_names.INJECTED_PARAM_TYPE_NAMES` | the parameter becomes a **CLI flag**; cold boot works, warm boot dies with `Error: Missing argument 'SH'` |
 | 5 | a `_bind_*` method **and** its one call site inside `_execute_lifecycle` | the capability is injected and **inert** |
 
-Sites 2 and 4 are defect D8 of the `pipeline-readiness` branch — `Shell` and
-`Stdout` missing from one copy of the list. Site 5 is the standing risk in the
-`Sources` two-phase bind, which that branch introduced and mitigated with a
-cold-and-warm sabotage test.
+Sites 2 and 4 were a real defect — `Shell` and `Stdout` missing from one copy
+of the list, so a warm boot turned them into CLI flags. Site 5 is the standing
+risk in the `Sources` two-phase bind, mitigated with a cold-and-warm sabotage
+test.
 
 **That branch fixed three instances of the pattern without changing the
 pattern.** An independent audit named this as the structural cause of D7, D8 and
@@ -135,9 +136,8 @@ one place a capability is declared.
 
 ## References
 
-- `pipeline-readiness/DECISIONS-2026-08-30.md` — D-4
-- `pipeline-readiness/COMBINATION-COVERAGE-AND-PRIOR-ART.md` §2.2 — the NestJS comparison
-- `pipeline-readiness/AUDIT-REPORT-opus5.md` §6 — the Open–Closed analysis
+- `examples/standalone/composition_lab/` — every capability in the registry
+  used together, on both surfaces
 - `src/functualize/_engine/capabilities/spec.py`, `registry.py`
 - `src/functualize/_primitives/capability_names.py`
 - `tests/engine/test_capability_registry.py`

@@ -4,8 +4,8 @@
 **Date**: 2026-08-30
 **Deciders**: Hakim (decision D1 during Specify), agent
 
-> Filed as 012, not 010 as `.spec/features/pipeline-readiness/plan.md` says:
-> 010 was already taken twice (`010-discovery-cache-filter-awareness`,
+> Filed as 012, not 010 as the originating plan said: 010 was already taken
+> twice (`010-discovery-cache-filter-awareness`,
 > `010-spec-workflow-enforcement-point`) and 011 once.
 
 ## Context
@@ -112,5 +112,8 @@ That is worth recording, because the gate was quietly deciding this ADR:
 
 So the criterion would have rejected the design chosen here for a reason that
 has nothing to do with whether a job can read its inputs. It was rewritten to
-assert the behavior in the table above. The fixture pipeline
-(`pipeline-readiness/acceptance/code_audit/`) was not touched.
+assert the behavior in the table above. The fixture pipeline it runs against
+was not touched — that pipeline now lives in
+`examples/standalone/composition_lab/`, whose `lab.parse` reads its declared
+inputs through `Sources` and is exercised end to end by `demo.sh` and
+`tests/test_composition_lab_e2e.py`.
