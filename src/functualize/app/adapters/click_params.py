@@ -869,7 +869,14 @@ def _report_blocked(result: Any) -> None:
             file=sys.stderr,
         )
     if scope and job_name:
-        print(f"  {program} {job_name} --scope-id {scope}", file=sys.stderr)
+        # The *command path*, not the job name. A job is addressed as
+        # `audit.audit-run` and invoked as `audit audit-run` — its group is a
+        # command group, and neither surface has a top-level command with a dot
+        # in it. Printing the dotted form gives the reader
+        # `No such command 'audit.audit-run'`, which is worse than printing
+        # nothing: it looks like the resume feature is the thing that is broken.
+        command_path = job_name.replace(".", " ")
+        print(f"  {program} {command_path} --scope-id {scope}", file=sys.stderr)
 
     if not logger.isEnabledFor(logging.DEBUG):
         return

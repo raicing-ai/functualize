@@ -82,7 +82,42 @@ def plain(log: Log) -> str:
 def walk(log: Log) -> str:
     log("WALK BODY RAN")
     return "done"
+
 '''
+
+
+# A *grouped* workflow job, in its own module so the module-level `JOB_GROUP`
+# does not regroup the ungrouped jobs above. Its whole point is that a grouped
+# job is addressed `flow.grouped-walk` and invoked `flow grouped-walk`.
+_GROUPED = """
+from pydantic import BaseModel, Field
+
+from functualize import workflow
+from functualize.job import Log, job
+from functualize.workflow import END, Edge, Gate, Step
+
+JOB_GROUP = "flow"
+
+
+class Ask2(BaseModel):
+    text: str = Field(description="anything")
+
+
+@job(group=JOB_GROUP)
+def step_one(log: Log) -> str:
+    log("grouped first ran")
+    return "one"
+
+
+@workflow(
+    steps=[Step(step_one), Gate(name="pause2", awaits=Ask2)],
+    edges=[Edge("flow.step-one", "pause2"), Edge("pause2", END)],
+)
+@job(group=JOB_GROUP)
+def grouped_walk(log: Log) -> str:
+    log("GROUPED BODY RAN")
+    return "done"
+"""
 
 
 def _project(tmp_path: Path) -> Path:
@@ -95,6 +130,7 @@ def _project(tmp_path: Path) -> Path:
     jobs = tmp_path / "jobs"
     jobs.mkdir()
     (jobs / "w.py").write_text(_JOBS)
+    (jobs / "g.py").write_text(_GROUPED)
     return tmp_path
 
 
@@ -219,3 +255,41 @@ def test_the_pre_command_flag_still_works(tmp_path: Path) -> None:
     blob = resumed.stdout + resumed.stderr
     assert resumed.returncode == 0, blob
     assert "WALK BODY RAN" in blob, blob
+
+
+@pytest.mark.parametrize("surface", SURFACES)
+def test_the_blocked_message_names_a_command_path_not_a_job_address(
+    surface: str, tmp_path: Path
+) -> None:
+    """A grouped job is *addressed* dotted and *invoked* with spaces.
+
+    `audit.audit-run` is the job's name; `audit audit-run` is how you run it —
+    its group is a command group, and neither surface has a top-level command
+    with a dot in it. The first version of this message printed the address, so
+    following it answered `No such command 'audit.audit-run'`, which is worse
+    than printing nothing: it makes the resume feature itself look broken.
+
+    Found by running `pipeline-readiness/idiomatic-audit/demo.sh`, not by a
+    test — every workflow job in the suite happened to be ungrouped. That is
+    the whole argument for keeping a realistic pipeline around as an
+    integration check.
+    """
+    project = _project(tmp_path)
+
+    blocked = _run(project, surface, "flow", "grouped-walk")
+    assert blocked.returncode == 5, blocked.stdout + blocked.stderr
+    err = blocked.stderr
+
+    assert "flow.grouped-walk --scope-id" not in err, (
+        "the message printed the job address, which is not a runnable command"
+    )
+    assert re.search(r"flow grouped-walk --scope-id [0-9a-f]+", err), err
+
+    # And the command it printed actually runs.
+    match = re.search(r"--scope-id ([0-9a-f]+)", err)
+    assert match is not None
+    resumed = _run(
+        project, surface, "flow", "grouped-walk", "--scope-id", match.group(1)
+    )
+    assert "No such command" not in resumed.stdout + resumed.stderr
+    assert "No such option" not in resumed.stdout + resumed.stderr
