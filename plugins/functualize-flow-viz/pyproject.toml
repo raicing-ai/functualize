@@ -1,6 +1,6 @@
 [project]
 name = "functualize-flow-viz"
-version = "0.1.1"
+version = "0.1.2"
 description = "Inline flow visualization plugin for functualize job execution"
 readme = "README.md"
 license = "MIT"

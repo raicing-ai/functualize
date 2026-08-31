@@ -1,6 +1,6 @@
 [project]
 name = "functualize"
-version = "0.1.1"
+version = "0.1.2"
 description = "A reusable Python CLI framework with auto-discovery, structured run context, layered configuration, and TUI integration"
 readme = "README.md"
 license = "MIT"

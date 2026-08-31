@@ -1,6 +1,6 @@
 [project]
 name = "functualize-http"
-version = "0.1.1"
+version = "0.1.2"
 description = "HTTP delivery adapter plugin for functualize using asyncio"
 readme = "README.md"
 license = "MIT"
