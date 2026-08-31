@@ -18,6 +18,7 @@ The files committed here are the canonical design reference. Additional working 
 | Intent | Assertions |
 |--------|-----------|
 | [TUI Panel Adjustments for GroupOptions](shape-intents/tui-group-options-panels.md) | 30 (4 pass, 26 gaps) |
+| [Workflow Run Parameters](shape-intents/workflow-run-parameters.md) | 7 (2 pass, 5 gaps) |
 
 When a shape intent graduates to implementation, it is atomized into a task list under `.spec/features/<name>/` (gitignored) and executed via the spec-driven-developer workflow.
 
