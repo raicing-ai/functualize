@@ -1,0 +1,6 @@
+[discovery]
+# Jobs live at jobs/<module>.py, one level down.
+scan_depth = 2
+# Strict mode: a function is only a job if it carries @job. `audit` does not,
+# which is the bug the eval case asks the agent to diagnose.
+require_job_decorators = ["job"]

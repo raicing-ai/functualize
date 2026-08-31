@@ -1,0 +1,148 @@
+# Deliberately not part of ci.yml: every case spends money on a live agent run.
+# Manual dispatch ONLY — never on a push, a pull request, or a schedule.
+#
+# A weekly cron lived here to catch drift from merged skill edits. It was
+# removed: an unattended job that spends money every Monday needs someone
+# watching it, and nobody is yet. Restore it when there is an owner for the
+# bill and the results:
+#
+#   schedule:
+#     - cron: '0 6 * * 1'      # Mondays 06:00 UTC
+#
+# Until then, run it by hand after editing a SKILL.md — the Actions tab, or
+# `gh workflow run skill-evals.yml -f suite=triggering`.
+name: Skill evals
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Which suite to run
+        type: choice
+        default: triggering
+        options: [triggering, functualize, functualize-app, functualize-skill, all]
+      repeat:
+        description: Repeats per case (variance control)
+        default: '3'
+      floor:
+        description: Aggregate pass-rate floor, percent (the backstop gate)
+        default: '90'
+
+concurrency:
+  group: skill-evals
+  cancel-in-progress: false
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+        working-directory: evals
+
+      # Needed only for suites/triggering.yaml, which runs on the host because
+      # its provider allows no tool but Skill.
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Build sandbox image
+        working-directory: evals
+        run: docker build -t functualize-evals:latest docker
+
+      - name: Preflight
+        working-directory: evals
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          FZ_EVAL_ENGINE: docker
+        run: python3 scripts/preflight.py
+
+      # Proves the credential, the sandbox and the *grader* all work before
+      # spending real money. A broken grader fails every llm-rubric and reads
+      # as failing skills, so it is worth the fraction of a cent.
+      - name: Doctor
+        working-directory: evals
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          FZ_EVAL_ENGINE: docker
+        run: python3 scripts/doctor.py
+
+      - name: Run suite
+        working-directory: evals
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          FZ_EVAL_ENGINE: docker
+          PROMPTFOO_DISABLE_TELEMETRY: '1'
+          # A GitHub runner has 16 GB and promptfoo's default is -j 4, so four
+          # containers at the 4 GB default cap is the entire machine. Halve
+          # both: memory pressure buys nothing here, the cases are latency
+          # bound on the agent, not on the runner.
+          FZ_EVAL_MEMORY: 2g
+        run: |
+          suite='${{ github.event.inputs.suite || 'triggering' }}'
+          if [ "$suite" = all ]; then
+            # ONE EVAL PER SUITE, sequentially. `-c 'suites/*.yaml'` reads like
+            # "run them all" but promptfoo MERGES the configs into a single
+            # eval and takes the cross-product: every provider in every suite
+            # against every test in every other suite. With 4 suites that is
+            # ~5 x 34 = 170 cases instead of 34, most of them nonsense (a
+            # routing probe with no shell handed a "build me an app" task),
+            # times --repeat. Hours and tens of dollars per invocation.
+            targets='suites/triggering.yaml suites/functualize.yaml suites/functualize-app.yaml suites/functualize-skill.yaml'
+          else
+            targets="suites/$suite.yaml"
+          fi
+          # `--repeat`, not `--runs`: promptfoo has no `--runs` flag, and a
+          # single run per case makes the 0/k-vs-flaky distinction the gate
+          # relies on impossible to draw.
+          for target in $targets; do
+            echo "== $target"
+            npx promptfoo eval \
+              -c "$target" \
+              --no-cache \
+              --repeat '${{ github.event.inputs.repeat || 3 }}' \
+              --output "results/$(basename "$target" .yaml).json" \
+              --no-progress-bar || true
+            # The gate reads the *latest* eval, so it has to run per suite —
+            # after the loop it would grade only the last one and call the rest
+            # green.
+            python3 scripts/gate.py --max-age 120 \
+              --floor '${{ github.event.inputs.floor || 90 }}' || echo FAIL >> results/gate-failures
+          done
+
+      # promptfoo exits non-zero on any single failing assertion, and has no
+      # per-case threshold: `PROMPTFOO_PASS_RATE_THRESHOLD` is global, so a case
+      # that fails every repeat can hide behind the others' average
+      # (promptfoo#5847). The gate decides instead, on failure *shape*:
+      # harness errors and any case at 0/k block; flaky cases are reported.
+      # Per-suite gating happens inside the loop above (the gate reads the
+      # latest eval, so it cannot be deferred to the end). This is the verdict.
+      - name: Gate
+        working-directory: evals
+        run: |
+          if [ -s results/gate-failures ]; then
+            echo "$(wc -l < results/gate-failures) suite(s) failed the gate"
+            exit 1
+          fi
+          echo "all suites passed the gate"
+
+      - name: Publish report
+        if: always()
+        working-directory: evals
+        run: npx promptfoo export latest --output results/report.html || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: skill-eval-results
+          path: evals/results/
+          retention-days: 30

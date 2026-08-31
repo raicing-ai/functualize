@@ -1,0 +1,192 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+#
+# Axis 2: routing. Cheap (1-2 turns, no tools but Skill), so run it on every
+# change to any SKILL.md description.
+#
+# All four descriptions contain "functualize", so a binary did-it-fire test
+# passes trivially. What this measures is the 4-way confusion matrix plus the
+# false-positive rate on near-misses.
+#
+#   npx promptfoo eval -c suites/triggering.yaml
+#
+# The `func-not-found` cases below pin a boundary that was ambiguous until
+# both descriptions were rewritten to respect it: `functualize-cli` owns the
+# tool (is it installed, which one is on PATH), `functualize` owns the jobs.
+# A regression here means someone reintroduced the overlap in a description.
+
+description: functualize skills — which one does a prompt route to?
+
+prompts:
+  - '{{query}}'
+
+providers:
+  - id: file://../providers/claude_router.py
+    label: router
+    config:
+      # Pinned: routing and task quality differ per model, so an
+      # unpinned default makes runs non-comparable. FZ_EVAL_MODEL overrides.
+      model: claude-sonnet-5
+      max_turns: 3
+      # promptfoo's OWN worker timeout, in MILLISECONDS — its default is 300s
+      # regardless of `timeout_s`, which is a harness key promptfoo cannot see.
+      # 180s happens to fit under that default; pinning it anyway, because
+      # relying on an undocumented default is what made two task cases die as
+      # "Python worker timed out after 300000ms" with no case and no trace.
+      timeout: 300000
+      timeout_s: 180
+
+defaultTest:
+  options:
+    # No rubric in this suite uses this today — every case is graded by the
+    # deterministic `skill_selected` assertion. It stays wired anyway: adding
+    # an `llm-rubric` without it silently routes grading to gpt-5 over the
+    # OpenAI API, a credential nothing else here uses, and the resulting
+    # failures read as broken skills rather than as a missing key.
+    provider: file://../providers/claude_grader.py
+  assert:
+    # No `config:` here — promptfoo does not render templates inside assertion
+    # config, so `{{expect}}` would arrive verbatim. The assertion reads the
+    # test's `vars`, which are rendered.
+    - type: python
+      value: file://../asserts/skill_selected.py
+
+tests:
+  # ---- should route to `functualize` (the reference skill) ----------------
+  - vars:
+      expect: functualize
+      query: >-
+        my @job function in jobs/inventory.py isn't showing up when i run the
+        cli, restock works fine but audit just isn't there. no error, it's
+        silently missing
+  - vars:
+      expect: functualize
+      query: >-
+        I need to add a DATADOG_API_KEY to one of my jobs. where do credentials
+        go so they don't end up in --help output
+  - vars:
+      expect: functualize
+      query: >-
+        what's the right way to get log output out of a job? is it just print()
+        or is there a RunContext thing
+  - vars:
+      expect: functualize
+      query: >-
+        add a --dry-run flag to the sync job in src/acme/jobs.py
+
+  # ---- should route to `functualize-app` (building a program) -------------
+  - vars:
+      expect: functualize-app
+      query: >-
+        I want to build a little command line tool for managing my homelab
+        backups. use functualize. set it up properly with tests
+  - vars:
+      expect: functualize-app
+      query: >-
+        can you make this functualize CLI production ready? it's got no tests
+        and I want to ship it to my team next week
+  - vars:
+      expect: functualize-app
+      query: >-
+        starting a new functualize project that needs an interactive TUI screen
+        for picking which environment to deploy to
+
+  # ---- should route to `functualize-skill` (authoring a skill) -----------
+  - vars:
+      expect: functualize-skill
+      query: >-
+        writing a SKILL.md for our deploy runbook and the scripts/ need to
+        actually do real work, not be throwaway bash. can functualize help
+  - vars:
+      expect: functualize-skill
+      query: >-
+        how do I publish this skill so the rest of the company can install it?
+        should it be a plugin marketplace or just a repo
+
+  # ---- should route to `functualize-cli` (the tool, not the jobs) --------
+  - vars:
+      expect: functualize-cli
+      query: >-
+        where does func keep its cache? I think it's serving me a stale job list
+        after I renamed a module
+  - vars:
+      expect: functualize-cli
+      query: >-
+        set up shell completions for func in zsh, and while you're at it tell me
+        which config file the tui theme setting lives in
+  - vars:
+      expect: functualize-cli
+      query: >-
+        I want to upgrade functualize to the latest version. it's installed with
+        uv as a tool I think
+
+  # ---- the tool/jobs boundary --------------------------------------------
+  # "Can I run func at all" is a question about the tool, so it belongs to
+  # functualize-cli even though the user is ultimately trying to run a job.
+  # These two cases are the regression guard on that boundary.
+  - vars:
+      expect: functualize-cli
+      query: >-
+        getting "func: command not found" in this repo. there's a uv.lock and a
+        mise.toml. how do I actually run the thing
+  - vars:
+      expect: functualize-cli
+      query: >-
+        func --version says 0.0.9 but pyproject pins 0.1.0. which one is
+        actually on my path
+
+  # ---- job discovery vs tool operation -----------------------------------
+  # "What jobs are there and what do they take" is a question about the jobs,
+  # so it routes to `functualize`, whose section 1 owns `info schema`.
+  # "How do I make the CLI print JSON" is a question about the tool.
+  - vars:
+      expect: functualize
+      query: >-
+        i need a machine readable list of every job in this repo and the args
+        each one takes, without opening --help for each group one by one
+  - vars:
+      expect: functualize-cli
+      query: >-
+        can I make func builtin info print json by default instead of those box
+        drawing tables? something I set once, not a flag every time
+
+  # ---- near-misses: none of ours should fire -----------------------------
+  # These share vocabulary but need something else entirely. A skill that
+  # grabs these is stealing turns from whatever should have handled them.
+  - vars:
+      expect: "none"
+      query: >-
+        what does functools.partial do again? I always mix it up with
+        functools.wraps
+  - vars:
+      expect: "none"
+      query: >-
+        my click CLI isn't picking up the --verbose flag, it just gets ignored.
+        using click 8.1
+  - vars:
+      expect: "none"
+      query: >-
+        write me a python function that takes a list of dicts and groups them
+        by a key
+  # ---- contributor work: may fire, but must hand off ----------------------
+  # Decided: an end-user skill activating here is fine, so long as it says the
+  # answer lives in the functualize repo's own contributor docs rather than
+  # inventing one about internals it does not describe.
+  #
+  # These two are ROUTING ONLY. Whether the handoff actually happens is graded
+  # in suites/functualize.yaml, because it cannot be graded here: this provider
+  # stops the agent after its first step and asks for one sentence about what
+  # it did, so the handoff has no turn in which to appear. Grading it here
+  # failed 3/3 on the task-shaped prompt while routing was perfectly correct —
+  # the probe was measuring its own STOP_INSTRUCTION.
+  - description: fixing the framework's own tests — routes to functualize
+    vars:
+      expect: functualize
+      query: >-
+        the functualize test suite is failing on master, tests/tui_audit has 4
+        red. can you fix the source
+  - description: contributor question — routes to functualize
+    vars:
+      expect: functualize
+      query: >-
+        how do I add a new capability type to functualize itself? I want to add
+        a Metrics capability alongside Log and Invoke
