@@ -4,6 +4,12 @@ The Regular Release workflow executes six sequential gates. Each gate must pass 
 
 After all gates pass, a confirmation prompt is presented. Only upon explicit user consent does the tag-and-push execution occur.
 
+**These gates assume Phase 0 (Release Prep) has already landed on `master`.** Gates 2, 3
+and 4 check for a dated changelog heading and bumped versions — conditions that are false
+on a fresh `master` at the start of every release. Where a remediation below says "commit
+the change", that commit reaches `master` through a pull request, never a direct branch
+push (Hard Rule 2). See the Phase 0 section in `SKILL.md` for the full prep sequence.
+
 ---
 
 ## Gate Execution Order
