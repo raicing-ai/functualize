@@ -99,3 +99,4 @@
 2026-08-31T19:09:34+0700	end-user-skills	src/functualize/job/capabilities.py	shell-write: no tasks.md and no .spec/EXEMPT
 2026-08-31T19:09:34+0700	end-user-skills	src/functualize/job/decorators.py	shell-write: no tasks.md and no .spec/EXEMPT
 2026-08-31T19:11:25+0700	end-user-skills	/home/viltohmyst/code/raicing-ai/functualize/.worktrees/end-user-skills/src/functualize/_discovery/providers.py	resolving merge conflicts from origin/master (10 commits) on an existing feature branch; no new behaviour, collapsing a duplicated capability-name list onto master canonical one
+2026-08-31T20:41:37+0700	release-0-1-2	/home/viltohmyst/code/raicing-ai/functualize/.worktrees/release-0-1-2/src/functualize/__init__.py	Mechanical 0.1.2 release version bump. Changes the single
