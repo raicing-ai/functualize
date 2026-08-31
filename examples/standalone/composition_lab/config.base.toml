@@ -1,0 +1,9 @@
+[general]
+app_name = "composition-lab"
+
+# The section is the job's *canonical name*, not the model's name and not the
+# leaf. `lab.report` takes a `config: ReportConfig` parameter, so its fields
+# resolve from here — and from `LAB_REPORT_TITLE` in the environment, which
+# overrides this, and from `--title` on the command line, which overrides both.
+[lab.report]
+title = "Composition Lab"

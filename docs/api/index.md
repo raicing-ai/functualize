@@ -9,7 +9,7 @@ When source code docstrings are updated, the API reference reflects those change
 | Module | Import Path | Description |
 |--------|-------------|-------------|
 | [App](core.md) | `functualize.app` | Application construction: `FunctualizeApp`, config objects, preset factory functions. |
-| [Job](context.md) | `functualize.job` | Job author API: `RunContext`, capability classes (`Log`, `Invoke`, `Prompt`, `Perf`, `State`). |
+| [Job](context.md) | `functualize.job` | Job author API: `RunContext`, capability classes (`Log`, `Invoke`, `Prompt`, `Perf`, `State`, `Sources`). |
 | [Plugin](plugins.md) | `functualize.plugin` | Plugin author API: `EventBus`, `Surface`, `PromptCollector`, `LiveConstruct`, protocols. |
 | [Types](discovery.md) | `functualize.types` | Shared types: `JobDescriptor`, `FieldDescriptor`, `JobResult`, `RunStatus`, enums. |
 

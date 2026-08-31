@@ -22,6 +22,7 @@ from __future__ import annotations
 import sys
 from typing import TYPE_CHECKING, Any
 
+from functualize._engine.capabilities.spec import CapabilitySpec
 from functualize._types.errors import TerminalUnavailable
 
 if TYPE_CHECKING:
@@ -113,3 +114,21 @@ def terminal_available() -> bool:
         return bool(sys.stdin.isatty() and sys.stdout.isatty())
     except Exception:
         return False
+
+
+# ── Registry entry (ADR-014) ───────────────────────────────────────────────
+
+CAPABILITY = CapabilitySpec(
+    name="TTY",
+    type=TTY,
+    # `caps` is the live per-invocation map — TTY resolves rc from it lazily,
+    # so declaration order does not matter. Availability is the capability
+    # floor (Phase 5's orchestrator refines it per surface). `funcapp` lets
+    # tty.run push a Surface-conforming app onto the surface stack for its
+    # window.
+    factory=lambda ctx: TTY(
+        caps=ctx.caps,
+        available=terminal_available(),
+        funcapp=getattr(ctx.engine, "_app", None),
+    ),
+)

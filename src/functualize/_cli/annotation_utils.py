@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, get_args, get_origin
 
+from functualize.app.utils import INJECTED_PARAM_TYPE_NAMES
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -28,18 +30,10 @@ CLI_COMPATIBLE_TYPES: tuple[type, ...] = (str, int, float, bool, Path)
 
 #: DI capability type names that are injected by the execution engine.
 #: Parameters with these types are stripped from CLI signatures.
-_DI_TYPE_NAMES: frozenset[str] = frozenset(
-    {
-        "RunContext",
-        "Log",
-        "Invoke",
-        "Prompt",
-        "Perf",
-        "State",
-        "JobContext",
-        "JobConfigView",
-    }
-)
+#:
+#: The one list, reached through the public re-export because `_cli` may import
+#: public folders only. It used to be a local copy, and the copies drifted.
+_DI_TYPE_NAMES: frozenset[str] = INJECTED_PARAM_TYPE_NAMES
 
 
 # ---------------------------------------------------------------------------

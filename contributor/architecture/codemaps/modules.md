@@ -67,6 +67,8 @@ Only frozen dataclasses, Enums, Protocol definitions. `descriptors.py` (`JobDesc
 | `job_filter.py` | **Job level**: `JobFilter`/`JobCandidate` protocols, `RawJobCandidate`, `JobPrefixFilter`/`JobPostfixFilter`/`JobDecoratorFilter`, `AllJobFilters` — the `require_job_*` family, judged per function |
 | `cache_format.py` | Discovery-cache format: `CACHE_VERSION`, `PreFilterDecision`, `DisplayCacheEntry`, `resolve_cache_path()` (stdlib-only; shared by writer + fast-path readers) |
 | `display_detection.py` | `is_display_provider`/`find_display_providers` duck-type seam, shared by the job scan and the TUI (via `app.utils` re-exports) |
+| `config_class_detection.py` | `detect_config_class()` — the **one** definition of "which parameter is this job's config class", after seven copies drifted apart (cold, warm, single-file, scan, sync, and both CLI adapters) |
+| `capability_names.py` | `INJECTED_PARAM_TYPE_NAMES` — the **one** list of engine-injected parameter types, after five copies drifted (`Shell` missing from the scan's copy broke `sh: Shell` on warm boot) |
 | `lazy.py` | `lazy_cached` descriptor |
 | `resilient.py` | `resilient(iterable, on_error)` generator |
 | `modules.py` | `iter_module_files(directory)` |
@@ -85,7 +87,7 @@ Only frozen dataclasses, Enums, Protocol definitions. `descriptors.py` (`JobDesc
 
 ### `_engine/` — Execution Lifecycle
 
-`executor.py` (`JobExecutionEngine`), `middleware.py`, `context.py` (`ExecutionContext`), `resolution.py` (`ResolutionPlan`/DI binding), `result.py` (`RegisteredJob` internals), `capabilities/invoke.py` (`Invoke`, ~150 LOC), `capabilities/workflow.py` (`WorkflowTracker`, ~100 LOC), `capabilities/runcontext.py` (15 importers — the concrete `RunContext` capability wiring; only `TYPE_CHECKING`-time reference to `_config.job_config`).
+`executor.py` (`JobExecutionEngine`), `middleware.py`, `context.py` (`ExecutionContext`), `resolution.py` (`ResolutionPlan`/DI binding), `result.py` (`RegisteredJob` internals), `capabilities/invoke.py` (`Invoke`, ~150 LOC), `capabilities/workflow.py` (`WorkflowTracker`, ~100 LOC), `capabilities/runcontext.py` (15 importers — the concrete `RunContext` capability wiring; only `TYPE_CHECKING`-time reference to `_config.job_config`), `capabilities/sources.py` (`Sources` — the resolved inputs a job's own `Fingerprint` declared; injected empty at DI time and bound from the `PreflightDecision` before the body runs, because DI resolves *before* the pre-flight — see ADR-012), `preflight.py` (`Preflight`/`PreflightDecision` — the guard+staleness seam; also carries the resolved source map that `Sources` reads), `guards.py` (`GuardState`/`GuardEvaluator`, incl. `GuardState.REFUSED`).
 
 ### `_plugins/` — Plugin Loading
 

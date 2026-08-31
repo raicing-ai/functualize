@@ -35,6 +35,7 @@ from functualize.job._shell import (
     ShellError,
     ShellResult,
 )
+from functualize.job._sources import Sources
 from functualize.job._state import State
 from functualize.job._stdout import Stdout
 
@@ -48,6 +49,7 @@ __all__ = [
     "Perf",
     "Prompt",
     "Shell",
+    "Sources",
     "State",
     "Stdout",
     "TTY",

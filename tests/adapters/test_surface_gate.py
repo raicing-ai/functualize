@@ -19,6 +19,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+from functualize._types.enums import RunStatus
 from functualize.app.adapters.surface_gate import wants_stdout_surface
 
 # =============================================================================
@@ -154,6 +155,18 @@ class TestLazyCommandPath:
         )
         app = MagicMock()
         app.execution_engine.materialize_job.return_value = MagicMock()
+        # A real JobResult, not a mock: the lazy path now hands its result to
+        # the same boundary handler the eager path uses (so cold and warm agree
+        # on exit codes), and any mock attribute reads as "the job raised".
+        from functualize._engine.result import JobResult
+        from functualize._types.enums import RunStatus
+
+        app.execution_engine.execute.return_value = JobResult(
+            status=RunStatus.SUCCESS,
+            return_value=None,
+            duration_ms=0.0,
+            job_name="my_job",
+        )
 
         session = MagicMock()
         with (
@@ -185,7 +198,15 @@ class TestCreateJobCommandPath:
 
         app = MagicMock()
         engine = MagicMock(spec=JobExecutionEngine)
-        engine.execute.return_value = MagicMock(exception=None)
+        # A real status, not a MagicMock attribute: `deliver_job_result` now
+        # routes every status through `exit_code_for_status`, so a mock that
+        # never says what it is simulating exits 1 rather than falling through
+        # to 0. That fall-through was the trap D-6 removed, and this fixture is
+        # a small instance of it — the test asserted surface behaviour while
+        # silently modelling a run with no outcome.
+        engine.execute.return_value = MagicMock(
+            exception=None, status=RunStatus.SUCCESS
+        )
         app._execution_engine = engine
         app.execution_engine = engine
         app.get_job.return_value = descriptor

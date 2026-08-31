@@ -1,0 +1,323 @@
+[scenario]
+name = "n-composition"
+version = 1
+description = "Verify every behavioural claim in docs/guides/composition.md by running the composition lab"
+
+[source]
+file = "docs/guides/composition.md"
+lines = "1-999"
+description = "The composition guide — use cases, the combination matrix, the idiomatic matrix, and the five intersection traps"
+
+requires = []
+
+# Every step below asserts a *state*, never just "the command ran". The guide's
+# claims are about behaviour at the seams between features, and a scenario that
+# checks only exit codes passes when the seam is broken (docs-example-parity.md,
+# "Writing a scenario that cannot pass vacuously").
+
+# ── Reset ────────────────────────────────────────────────────────────────
+
+[[steps]]
+engine = "shell"
+description = "Clean slate: no build/, no state, so freshness claims mean something"
+command = "cd examples/standalone/composition_lab && rm -rf build dist .functualize && mkdir -p .functualize && echo RESET"
+expected = { exit_code = 0, stdout_contains = "RESET" }
+timeout = 20
+
+# ── §2 rule 4 + §1: Fingerprint × Sources × a pydantic return ────────────
+
+[[steps]]
+engine = "shell"
+description = "parse reads its declared inputs through Sources — no second glob (guide §1, §2 rule 4)"
+command = "cd examples/standalone/composition_lab && func lab parse"
+expected = { exit_code = 0, stdout_contains = "PARSED n=2 total=8 keys=['inputs/alpha.yaml', 'inputs/beta.yaml']" }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "Sources.declared is True for a job that DOES declare sources (the §5.3 distinction, positive half)"
+command = "cd examples/standalone/composition_lab && rm -rf build && func lab parse 2>&1 | grep 'declared=True'"
+expected = { exit_code = 0, stdout_contains = "declared=True" }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "a capability parameter is never a CLI argument (Sources, Log, Shell alike)"
+command = "cd examples/standalone/composition_lab && func lab parse --help"
+expected = { exit_code = 0, stdout_not_contains = "SOURCES", stdout_contains = "[OPTIONS]" }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "second run skips as fresh — the body does not print (guide §4)"
+command = "cd examples/standalone/composition_lab && func lab parse"
+expected = { exit_code = 0, stdout_not_contains = "PARSED" }
+timeout = 60
+
+# ── §2 rule 4: three annotation kinds in one signature ───────────────────
+
+[[steps]]
+engine = "shell"
+description = "report takes a config parameter, a FromJob parameter AND a pydantic return type (guide §2 rule 4)"
+command = "cd examples/standalone/composition_lab && func lab report"
+expected = { exit_code = 0, stdout_contains = "REPORT title='Composition Lab' items=2" }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "the config section is the job's canonical name, and the env layer overrides the file"
+command = "cd examples/standalone/composition_lab && rm -rf build && LAB_REPORT_TITLE='From The Env' func lab report"
+expected = { exit_code = 0, stdout_contains = "REPORT title='From The Env'" }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "the CLI layer overrides the env layer"
+command = "cd examples/standalone/composition_lab && rm -rf build && LAB_REPORT_TITLE='From The Env' func lab report --title 'From The CLI'"
+expected = { exit_code = 0, stdout_contains = "REPORT title='From The CLI'" }
+timeout = 60
+
+# ── §2 rule 3: config IS in the key, capabilities are NOT ────────────────
+
+[[steps]]
+engine = "shell"
+description = "changing resolved config re-runs the job — config is in the fingerprint key (guide §2 rule 3)"
+command = "cd examples/standalone/composition_lab && func lab report --title 'Key A' && func lab report --title 'Key B'"
+expected = { exit_code = 0, stdout_contains = "REPORT title='Key B'" }
+timeout = 90
+
+[[steps]]
+engine = "shell"
+description = "returning to a previously-recorded config is fresh — that key was already written"
+command = "cd examples/standalone/composition_lab && func lab report --title 'Key A'"
+expected = { exit_code = 0, stdout_not_contains = "REPORT" }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "a job taking Log/Sources still reports fresh — capabilities are excluded from the key (guide §2 rule 3)"
+command = "cd examples/standalone/composition_lab && func builtin why lab.parse"
+expected = { exit_code = 0, stdout_contains = "up to date" }
+timeout = 60
+
+# ── §2 rule 2: R10a — status ANDs with staleness ─────────────────────────
+
+[[steps]]
+engine = "shell"
+description = "publish runs the first time: deps -> report, then its own stamp is written"
+command = "cd examples/standalone/composition_lab && rm -rf build && func lab publish"
+expected = { exit_code = 0, stdout_contains = "PUBLISHED" }
+timeout = 90
+
+[[steps]]
+engine = "shell"
+description = "with the stamp present and sources unchanged, the status guard skips it"
+command = "cd examples/standalone/composition_lab && func lab publish"
+expected = { exit_code = 0, stdout_not_contains = "PUBLISHED" }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "R10a: a satisfied status guard must NOT mask changed sources (guide §2 rule 2). `why` exits 4 (ExitCode.STALE) for a job that would run — it reports a verdict, so its exit code is that verdict"
+command = "cd examples/standalone/composition_lab && echo '# touched' >> build/report.md && func builtin why lab.publish"
+expected = { exit_code = 4, stdout_contains = "status satisfied, but sources changed" }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "and it really re-runs, not just reports that it would"
+command = "cd examples/standalone/composition_lab && func lab publish"
+expected = { exit_code = 0, stdout_contains = "PUBLISHED" }
+timeout = 60
+
+# ── §5.2 / §5.3: refusal is exit 3, and is not a crash or a skip ─────────
+
+[[steps]]
+engine = "shell"
+description = "a failing Precondition REFUSES with exit 3, and the body never runs (guide §5.2)"
+command = "cd examples/standalone/composition_lab && func lab gated"
+expected = { exit_code = 3, stdout_not_contains = "GATED BODY RAN", stderr_contains = "Refused" }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "declared sources resolving to NOTHING also refuse — clean-having-verified-nothing is impossible (guide §5.3)"
+command = "cd examples/standalone/composition_lab && func lab verify"
+expected = { exit_code = 3, stdout_not_contains = "VERIFY BODY RAN", stderr_contains = "declared sources resolved to no files" }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "declaring NO sources is unaffected — the distinction §5.3 is about"
+command = "cd examples/standalone/composition_lab && func lab counter"
+expected = { exit_code = 0, stdout_contains = "COUNTER n=" }
+timeout = 60
+
+# ── §5.4: a missing declared output forces a run ─────────────────────────
+
+[[steps]]
+engine = "shell"
+description = "deleting a declared `generates` target forces a re-run, inputs unchanged (guide §5.4)"
+command = "cd examples/standalone/composition_lab && rm -f build/report.md && func lab report"
+expected = { exit_code = 0, stdout_contains = "REPORT" }
+timeout = 60
+
+# ── §5.5: --output is a global flag; return values are programmatic ──────
+
+[[steps]]
+engine = "shell"
+description = "`func --output json lab emit` prints the envelope as JSON (guide §5.5)"
+command = "cd examples/standalone/composition_lab && func --output json lab emit"
+expected = { exit_code = 0, stdout_contains = "\"total\":8" }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "the flag AFTER the job name is an error — the guide's decoy, so this is not vacuous"
+command = "cd examples/standalone/composition_lab && func lab emit --output json"
+expected = { exit_code = 2, stderr_contains = "No such option" }
+timeout = 60
+
+# ── §1 / §5.1: Shell, Exec(retry), Invoke.parallel, State ────────────────
+
+[[steps]]
+engine = "shell"
+description = "Shell runs the command and returns its stdout to the body"
+command = "cd examples/standalone/composition_lab && func lab probe"
+expected = { exit_code = 0, stdout_contains = "PROBE probe-ok" }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "inv.parallel runs N children; each child's State is its OWN, and the parent sees none of it (guide §5.1)"
+command = "cd examples/standalone/composition_lab && func lab fanout"
+expected = { exit_code = 0, stdout_contains = "FANOUT n=2 statuses=['Success', 'Success'] parent_state=None" }
+timeout = 90
+
+[[steps]]
+engine = "shell"
+description = "State does not persist across runs; a file you own does (guide §5.1)"
+command = "cd examples/standalone/composition_lab && func lab counter && func lab counter"
+expected = { exit_code = 0, stdout_contains = "COUNTER n=" }
+timeout = 90
+
+# ── The graph as a whole ─────────────────────────────────────────────────
+
+[[steps]]
+engine = "shell"
+description = "the full pipeline from clean: parse -> report -> publish, driven by declarations only (guide §4)"
+command = "cd examples/standalone/composition_lab && rm -rf build && func lab publish"
+expected = { exit_code = 0, stdout_contains = "PUBLISHED" }
+timeout = 90
+
+[[steps]]
+engine = "shell"
+description = "and `why` reports the verdict the executor actually reached (guide §4)"
+command = "cd examples/standalone/composition_lab && func builtin why lab.publish"
+expected = { exit_code = 0, stdout_contains = "lab.publish" }
+timeout = 60
+
+# ── The second surface: the same lab, driven as an app ───────────────────
+#
+# `func` builds job commands from the live signature; a `FunctualizeApp` entry
+# point builds them from cached descriptors. Two builders over one declaration
+# set, and they have disagreed. Every claim below is asserted on both.
+
+[[steps]]
+engine = "shell"
+description = "main.py is a second entry point over the same jobs, and behaves identically"
+command = "cd examples/standalone/composition_lab && rm -rf build dist .functualize && python main.py lab publish"
+expected = { exit_code = 0, stdout_contains = "PUBLISHED" }
+timeout = 90
+
+# ── `generates` is a glob, not a literal path ────────────────────────────
+
+[[steps]]
+engine = "shell"
+description = "bundle declares generates=['dist/*.tar.gz'] — a pattern, and it runs"
+command = "cd examples/standalone/composition_lab && func lab bundle"
+expected = { exit_code = 0, stdout_contains = "BUNDLED lab-0.1.0.tar.gz strict=False" }
+timeout = 60
+
+[[steps]]
+description = "the glob now matches, so the job is fresh — tested as a literal it never would be"
+engine = "shell"
+command = "cd examples/standalone/composition_lab && func lab bundle"
+expected = { exit_code = 0, stdout_not_contains = "BUNDLED" }
+timeout = 60
+
+# ── --force, and a group option typed mid-path ───────────────────────────
+
+[[steps]]
+engine = "shell"
+description = "--force runs a job freshness would skip; --strict is declared once on the group"
+command = "cd examples/standalone/composition_lab && func --force lab --strict bundle"
+expected = { exit_code = 0, stdout_contains = "BUNDLED lab-0.1.0.tar.gz strict=True" }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "the same, on the app surface — the two builders must agree"
+command = "cd examples/standalone/composition_lab && python main.py --force lab --strict bundle"
+expected = { exit_code = 0, stdout_contains = "strict=True" }
+timeout = 90
+
+# ── A second group, and the rest of the config ladder ────────────────────
+
+[[steps]]
+engine = "shell"
+description = "check.signoff pulls its dependency across the group boundary"
+command = "cd examples/standalone/composition_lab && func check signoff"
+expected = { exit_code = 0, stdout_contains = "SIGNOFF verdicts=1 strict=False" }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "the group option is not on this job's command line, but the env layer still reaches it"
+command = "cd examples/standalone/composition_lab && LAB__STRICT=true func check signoff"
+expected = { exit_code = 0, stdout_contains = "SIGNOFF verdicts=2 strict=True" }
+timeout = 60
+
+# ── Which layers cross into a walk, and which do not ─────────────────────
+#
+# A mid-path flag belongs to the path it was typed at. `lab bundle` reached as
+# a *step* of `lab release` therefore does not see `--strict`, while the env
+# layer — which every job reads for itself — does. `rm -rf dist` un-freshens
+# the step first, so a skipped `bundle` cannot make either claim pass vacuously.
+
+[[steps]]
+engine = "shell"
+description = "a mid-path flag is NOT inherited by a walk's steps"
+command = "cd examples/standalone/composition_lab && rm -rf dist && func lab --strict release"
+expected = { exit_code = 5, stdout_contains = "BUNDLED lab-0.1.0.tar.gz strict=False" }
+timeout = 90
+
+[[steps]]
+engine = "shell"
+description = "the env layer is, so one variable steers every step of the walk"
+command = "cd examples/standalone/composition_lab && rm -rf dist && LAB__STRICT=true func lab release"
+expected = { exit_code = 5, stdout_contains = "BUNDLED lab-0.1.0.tar.gz strict=True" }
+timeout = 90
+
+# ── The gated walk: block, deposit, resume ───────────────────────────────
+
+[[steps]]
+engine = "shell"
+description = "a workflow with a Gate blocks with exit 5 and names the flag that resumes it"
+command = "cd examples/standalone/composition_lab && func lab release"
+expected = { exit_code = 5, stderr_contains = "--scope-id" }
+timeout = 90
+
+[[steps]]
+engine = "shell"
+description = "block -> deposit -> resume completes the SAME scope, on the app surface (the defect: --scope-id was a `func`-only pre-command global, so this walk could never finish)"
+command = '''cd examples/standalone/composition_lab && out=$(python main.py lab release 2>&1); id=$(printf '%s\n' "$out" | sed -n "s/.*scope '\([0-9a-f]*\)'.*/\1/p" | head -1); echo "scope=$id" && python main.py builtin workflow resume "$id" approval-gate --input '{"note":"ok"}' && python main.py lab release --scope-id "$id"'''
+expected = { exit_code = 0, stdout_contains = "RELEASE complete" }
+timeout = 120
+
+[[steps]]
+engine = "shell"
+description = "leave the tree clean for the next run"
+command = "cd examples/standalone/composition_lab && rm -rf build dist .functualize && echo CLEANED"
+expected = { exit_code = 0, stdout_contains = "CLEANED" }
+timeout = 20

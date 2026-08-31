@@ -208,3 +208,4 @@ The AI SDK registers gate strategies for workflow integration:
 - [AI Inbound Example](../examples/standalone/ai-inbound.md)
 - [ToolScope Builder](domain-sdks.md)
 - [Workflows Guide](workflows.md)
+- [Composing Capabilities](composition.md) — the combination matrix for using AI alongside `Fingerprint`, `Deps` and the guard pipeline

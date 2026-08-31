@@ -14,6 +14,8 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
+from functualize._engine.capabilities.spec import CapabilitySpec
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -430,7 +432,10 @@ class WiredInvoke(Invoke):
             )
 
         # --- Fire INVOKE_FAILURE hook ---
-        if result.status == RunStatus.FAILURE:
+        # A refusal is a way for a child invoke to not have done its work, so
+        # the hook that exists to notice that must see it. `== FAILURE` let a
+        # refused child pass by silently.
+        if result.status in (RunStatus.FAILURE, RunStatus.REFUSED):
             failure_hooks = hook_registry._global_hooks.get(
                 HookEvent.INVOKE_FAILURE, []
             )
@@ -802,3 +807,25 @@ class WiredInvoke(Invoke):
                     ),
                     job_name=job_name,
                 )
+
+
+# ── Registry entry (ADR-014) ───────────────────────────────────────────────
+
+
+def _make_invoke(ctx: Any) -> WiredInvoke:
+    """Wire Invoke to the engine with depth tracking, gates, and scope."""
+    return WiredInvoke(
+        execution_engine=ctx.engine,
+        gate_registry=ctx.engine._gate_registry,
+        invoke_depth=ctx.context.invoke_depth,
+        max_invoke_depth=ctx.engine._max_invoke_depth,
+        workflow_scope=ctx.context.parent_scope,
+        cwd=ctx.context.cwd,
+    )
+
+
+CAPABILITY = CapabilitySpec(
+    name="Invoke",
+    type=Invoke,
+    factory=_make_invoke,
+)

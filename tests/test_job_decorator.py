@@ -53,7 +53,6 @@ class TestBareAndParameterizedForms:
             cache=Fingerprint(sources=["src/**/*.py"], generates=["dist/*.whl"]),
             guards=Guards(preconditions=["docker --version"]),
             exec=Exec(retry=Retry(attempts=2)),
-            matrix={"env": ["dev", "prod"]},
         )
         def deploy() -> None: ...
 
@@ -62,7 +61,6 @@ class TestBareAndParameterizedForms:
         assert decl.deps is not None and decl.deps.refs == ("lint", "test")
         assert decl.cache is not None and decl.cache.generates == ("dist/*.whl",)
         assert decl.exec is not None
-        assert decl.matrix == {"env": ["dev", "prod"]}
 
 
 class TestIdentity:
@@ -121,10 +119,16 @@ class TestValidationAtDecorationTime:
             @job(deps="lint")  # type: ignore[arg-type]
             def deploy() -> None: ...
 
-    def test_invalid_matrix_raises(self) -> None:
-        with pytest.raises(ValueError, match="matrix"):
+    def test_matrix_is_not_accepted(self) -> None:
+        """Removed: it was accepted, validated and cached, and read by nothing.
 
-            @job(matrix={"env": "dev"})  # type: ignore[dict-item]
+        Matrix expansion was dropped by decision, so a job declaring `matrix`
+        ran once with its axis parameter unbound and no error. Asserting the
+        rejection keeps a re-add from passing silently.
+        """
+        with pytest.raises(TypeError, match="unexpected keyword argument"):
+
+            @job(matrix={"env": ["dev"]})  # type: ignore[call-overload]
             def deploy() -> None: ...
 
     def test_name_and_aliases_are_not_accepted(self) -> None:
@@ -158,7 +162,6 @@ class TestSerializationRoundTrip:
                 status=["test -f x"],
             ),
             exec=Exec(retry=Retry(attempts=2, on_exit_codes=(1,))),
-            matrix={"env": ["dev", "prod"]},
         )
         as_dict = decl.to_dict()
         # JSON-serializable

@@ -20,7 +20,12 @@ from typing import TYPE_CHECKING, Any
 
 import click
 
-from functualize.app.adapters.click_params import build_click_params_from_descriptor
+from functualize.app.adapters.click_params import (
+    _SCOPE_ID_PARAM,
+    _force_requested,
+    _scope_id_option,
+    build_click_params_from_descriptor,
+)
 
 if TYPE_CHECKING:
     from functualize._types.descriptors import JobDescriptor
@@ -58,6 +63,13 @@ def make_lazy_command(
     def lazy_wrapper(**kwargs: Any) -> Any:
         """Lazy command: materializes via the engine on first invocation."""
         from functualize._types.errors import JobMaterializationError
+
+        # Same two reads the eager path makes, so a job behaves identically
+        # cold and warm. This wrapper passed neither: it never threaded a scope
+        # id at all, which is why a gated `@workflow` on an app blocked forever.
+        scope_id = kwargs.pop(_SCOPE_ID_PARAM, None) or getattr(
+            app, "_workflow_scope_id", None
+        )
 
         # Capability floor (surface-architecture.md §5): a job that owns the
         # terminal (declares `tty: TTY`) cannot run where there is none. Refuse
@@ -126,7 +138,7 @@ def make_lazy_command(
                 live_ctx = stdout_live_session(app, descriptor)
 
         with live_ctx:
-            return engine.execute(
+            result = engine.execute(
                 job_name=descriptor.name,
                 function=func,
                 config_class=config_class,
@@ -134,11 +146,30 @@ def make_lazy_command(
                 group_option_values=dict(group_option_values)
                 if group_option_values
                 else None,
+                workflow_scope_id=scope_id,
+                force=_force_requested(app),
             )
+
+        # Through the same boundary the eager path uses. This wrapper used to
+        # return the JobResult and inspect nothing, so on warm boot — which is
+        # every invocation after the first — a job that raised exited 0 in
+        # silence, a gate pause exited 0 instead of 5, and a refusal exited 0
+        # instead of 3. The exit-code table is a contract with scripts; it held
+        # only on a project's very first run.
+        from functualize.app.adapters.click_params import deliver_job_result
+
+        return deliver_job_result(result, descriptor.name, app)
+
+    params = build_click_params_from_descriptor(descriptor)
+    # The cached descriptor already records the `@workflow` topology (v10), so
+    # the warm path can tell which jobs need the option without importing the
+    # module — which is the whole point of the descriptor.
+    if getattr(descriptor, "workflow", None) is not None:
+        params = [*params, _scope_id_option()]
 
     return click.Command(
         name=command_name or descriptor.name,
-        params=build_click_params_from_descriptor(descriptor),
+        params=params,
         callback=lazy_wrapper,
         help=descriptor.docstring or None,
     )

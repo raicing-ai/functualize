@@ -18,7 +18,6 @@ Public API:
 from __future__ import annotations
 
 import contextlib
-import inspect
 import logging
 import os
 import sys
@@ -33,9 +32,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 
 from functualize._app.state import AppState
-from functualize._primitives.group_options_detection import (
-    is_group_options_subclass,
-)
+from functualize._primitives.config_class_detection import detect_config_class
 from functualize._types.enums import EnvironmentSource
 from functualize.app.adapters.click_params import (
     create_callback_click_command,
@@ -822,6 +819,8 @@ class CliAdapter:
             config_directory: Path | None = None,
             perf_report: str | None = None,
             perf_filter: str | None = None,
+            force: bool = False,
+            scope_id: str | None = None,
             **generated: Any,
         ) -> None:
             """Global options processed before any sub-command.
@@ -893,6 +892,14 @@ class CliAdapter:
             else:
                 app_instance.job_registry.update_config_paths()
 
+            # Deposited on the app rather than passed down, because the
+            # commands were built before this callback ran — the same route
+            # `--output` already takes. `func` reaches the identical attributes
+            # from `_cli/main.py`, so the two surfaces agree.
+            app_instance._force = force
+            if scope_id is not None:
+                app_instance._workflow_scope_id = scope_id
+
             ctx.obj = {
                 "app": app_instance,
                 "fallbacks": fallbacks,
@@ -948,6 +955,22 @@ class CliAdapter:
                 ["--perf-filter"],
                 default=None,
                 help="Filter pattern for --perf-report.",
+            ),
+            # Parity with the bare `func` CLI, which has both as pre-command
+            # globals. Without them an app entry point could not force a run at
+            # all, and could not resume a gated workflow from any surface —
+            # a `@workflow` with a `Gate` blocked at exit 5 forever.
+            click.Option(
+                ["--force"],
+                is_flag=True,
+                default=False,
+                help="Run even when up to date. Does not override a failed "
+                "precondition or a gate.",
+            ),
+            click.Option(
+                ["--scope-id"],
+                default=None,
+                help="Resume the named workflow scope instead of starting a fresh one.",
             ),
             *_generated_setting_options(),
             *self._cli_group.params,
@@ -1407,8 +1430,6 @@ def _find_job_config_class(
     """
     import importlib
 
-    from pydantic import BaseModel
-
     try:
         entry = app._execution_engine.materialize_job(job_name)
         if entry.config_class is not None:
@@ -1436,20 +1457,13 @@ def _find_job_config_class(
         if func is None or not callable(func):
             continue
 
-        sig = inspect.signature(func)
-        for param in sig.parameters.values():
-            annotation = param.annotation
-            if annotation is inspect.Parameter.empty:
-                continue
-            if (
-                isinstance(annotation, type)
-                and issubclass(annotation, BaseModel)
-                and annotation is not BaseModel
-                # A GroupOptions parameter carries the *group's* flags, not
-                # this job's config fields (see _discovery/sync.py).
-                and not is_group_options_subclass(annotation)
-            ):
-                return annotation
+        # Through the one shared rule. This copy read `param.annotation`
+        # *raw*, so under `from __future__ import annotations` every
+        # annotation was a string and this fallback could never find a config
+        # class at all.
+        detected = detect_config_class(func)
+        if detected is not None:
+            return detected
 
     return None
 

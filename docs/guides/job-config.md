@@ -441,3 +441,4 @@ def run(rc: RunContext, config: OrchestratorConfig):
 - **[Jobs and Auto-Discovery](jobs-discovery.md)** — Learn how job modules are discovered and registered
 - **[RunContext Lifecycle](run-context.md)** — Use lifecycle hooks alongside your JobConfig
 - **[TUI Integration](tui.md)** — See how JobConfig fields render in the interactive TUI
+- **[Composing Capabilities](composition.md)** — how this fits with the other capabilities: a combination matrix of what happens at each intersection, and the traps between them

@@ -62,6 +62,10 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "Prompt",
         "Perf",
         "State",
+        # The resolved inputs a job's own Fingerprint declared, so the body
+        # reads what the freshness check already resolved instead of restating
+        # the glob (ADR-012).
+        "Sources",
         "JobContext",
         "JobConfigView",
         "TTY",

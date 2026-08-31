@@ -117,6 +117,40 @@ Gate resolution goes through the gate registry. Three surface outcomes:
 
 ---
 
+## Getting values into a step
+
+A `Step` takes **no arguments** — it names a job, and that job's own
+declaration supplies everything else. There is no way to pin a parameter from
+the graph, by design: a step is a pointer at behaviour that is already declared
+and independently runnable.
+
+So a value reaches a step the same way it reaches any job:
+
+- **Its config ladder.** Config file, environment variable, and defaults are
+  re-resolved on every execution and reach every step of the walk. A
+  [group option](group-options.md) is the one lever that covers a whole family
+  of jobs at once — `LAB__STRICT=true` is read by every job declaring that
+  class.
+- **From an earlier step**, with `FromJob`. Inside a walk this is a *read* of
+  the recorded result, never a trigger, and boot validation rejects the graph
+  unless it already orders that step first.
+
+```python
+@job(group="check", deps=Deps("lab.bundle"))
+def signoff(parsed: Annotated[Parsed, FromJob("lab.report")]) -> None: ...
+```
+
+The **mid-path flag layer is the exception**: it belongs to the command line
+that typed it, so `func lab --strict release` does not set `--strict` for the
+walk's steps. To steer a whole walk, set a layer each job reads for itself —
+`LAB__STRICT=true func lab release`. See
+[Group Options](group-options.md#steering-a-whole-run-from-code) for that move
+from Python.
+
+To compute a value and share it, make the computation the graph's **first
+step** and have the others read it with `FromJob`. The decorated function's own
+body cannot do this — it is an epilogue, and runs only after `END`.
+
 ## Epilogue Body
 
 The workflow function's body executes **after** `END` is reached. It receives standard DI:
@@ -227,5 +261,6 @@ Workflow graphs are validated at decoration time:
 
 ## See Also
 
+- [Composing Capabilities](composition.md) — how this fits with the other capabilities: a combination matrix of what happens at each intersection, and the traps between them
 - [Task Runner Guide](task-runner.md) — `@job` decorator, deps, fingerprints, and guards
 - [MCP Guide](mcp.md) — exposing workflows to AI agents

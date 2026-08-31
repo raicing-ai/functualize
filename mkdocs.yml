@@ -98,6 +98,7 @@ nav:
     - Hierarchy Validation: guides/hierarchy-validation.md
     - Shell Capability: guides/shell.md
     - Task Runner: guides/task-runner.md
+    - Composing Capabilities: guides/composition.md
   - API Reference:
     - api/index.md
     - Config: api/config.md

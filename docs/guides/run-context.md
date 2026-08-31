@@ -3,7 +3,7 @@
 The `RunContext` is the execution context injected into every job function. It is a thin facade (~500 LOC) that delegates to capability classes (`Log`, `Invoke`, `Prompt`, `Perf`, `State`, `WorkflowTracker`). It provides configuration access, logging, metadata tracking, phase tracking, job invocation, and event emission.
 
 ```python
-from functualize.job import RunContext, Log, Invoke, Prompt, Perf, State
+from functualize.job import RunContext, Log, Invoke, Prompt, Perf, State, Sources
 ```
 
 This guide covers the lifecycle hooks that wrap job execution, the RunContext metadata fields, and how to track phase progress within your jobs.
@@ -505,3 +505,8 @@ def my_job(rc: RunContext) -> None:
 - Updating an existing key always succeeds
 - Adding a new key beyond the 64-key limit is silently discarded
 - Metadata is available on the `JobResult.metadata` field after execution
+
+## See Also
+
+- [Composing Capabilities](composition.md) — how the capabilities behave *together*: a combination matrix of what happens at each intersection, an idiomatic matrix, and the traps between them
+- [Task Runner](task-runner.md) — `@job` with dependencies, fingerprint caching and the guard pipeline

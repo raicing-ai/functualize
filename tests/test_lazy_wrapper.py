@@ -70,6 +70,26 @@ def _fd(
     )
 
 
+def _ok_result(job_name: str):
+    """A successful JobResult, for tests that mock the execution engine.
+
+    The lazy command path routes its result through the same boundary handler
+    the eager path uses, so a MagicMock standing in for a JobResult now reads
+    as "the job raised" (`result.exception is not None` is true of any mock
+    attribute). That routing is deliberate — cold and warm boot must agree on
+    exit codes — so these doubles return a real result.
+    """
+    from functualize._engine.result import JobResult
+    from functualize._types.enums import RunStatus
+
+    return JobResult(
+        status=RunStatus.SUCCESS,
+        return_value=None,
+        duration_ms=0.0,
+        job_name=job_name,
+    )
+
+
 def _make_descriptor(
     name: str = "test_job",
     module_path: str = "test_module",
@@ -244,6 +264,11 @@ class TestMakeLazyCommand:
         desc = _make_descriptor(name="my_func", module_path="my.module")
         app = MagicMock()
         app.execution_engine.materialize_job.side_effect = KeyError("my_func")
+        # The lazy path now hands its JobResult to the same boundary handler
+        # the eager path uses, so a bare MagicMock result is no longer inert —
+        # it reads as "the job raised". That routing is the point (cold and
+        # warm must agree on exit codes), so the double becomes a real result.
+        app.execution_engine.execute.return_value = _ok_result("my_func")
         mock_module = MagicMock()
         mock_func = MagicMock()
         mock_module.my_func = mock_func
@@ -266,6 +291,7 @@ class TestMakeLazyCommand:
         app = MagicMock()
         entry = MagicMock()
         app.execution_engine.materialize_job.return_value = entry
+        app.execution_engine.execute.return_value = _ok_result("my_func")
 
         with patch(
             "functualize._discovery.lazy_wrapper.importlib.import_module",

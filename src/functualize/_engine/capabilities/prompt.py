@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from functualize._engine.capabilities.spec import CapabilitySpec
 from functualize._types.interactivity import (
     InputNotAvailable,
     PromptChoice,
@@ -146,3 +147,12 @@ class Prompt:
         """
         provider = self._ensure_provider()
         return provider.collect(request)
+
+
+# ── Registry entry (ADR-014) ───────────────────────────────────────────────
+
+CAPABILITY = CapabilitySpec(
+    name="Prompt",
+    type=Prompt,
+    factory=lambda ctx: Prompt(),
+)

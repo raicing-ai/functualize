@@ -81,21 +81,21 @@ class TestBuild:
         assert mcp.children["serve"].payload == "mcp.serve"
         assert trie.root.children["solo"].payload == "solo"
 
-    def test_matrix_row_is_a_leaf_sibling_of_its_base(self) -> None:
-        """Matrix expansion is deferred (S7); the trie ingests the row shape.
+    def test_bracketed_leaf_is_a_sibling_of_its_base(self) -> None:
+        """A leaf carrying a dot of its own is not split on that dot.
 
-        The bracketed suffix is carried verbatim — notably it is NOT split on
-        the dot inside `version=1.2`, because the leaf is derived by stripping
-        the group prefix rather than by `rsplit(".")`.
+        `version=1.2`'s dot is part of the leaf, not a path separator, because
+        the leaf is derived by stripping the group prefix rather than by
+        `rsplit(".")`. That is `_job_segments`' whole reason for existing.
         """
         trie = _trie(
             jobs=[
                 (None, "deploy", "job"),
-                (None, "deploy[env=dev]", "matrix"),
-                ("release", "release.ship[version=1.2]", "matrix"),
+                (None, "deploy[env=dev]", "job"),
+                ("release", "release.ship[version=1.2]", "job"),
             ]
         )
-        assert trie.root.children["deploy[env=dev]"].kind is NodeKind.MATRIX
+        assert trie.root.children["deploy[env=dev]"].kind is NodeKind.JOB
         assert "ship[version=1.2]" in trie.root.children["release"].children
 
 

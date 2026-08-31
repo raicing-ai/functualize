@@ -41,6 +41,9 @@ HEADLINES: Mapping[GuardState, str] = {
     GuardState.SKIP_FRESH: "SKIP (up to date)",
     GuardState.BLOCKED: "BLOCKED (awaiting input)",
     GuardState.ERROR: "ERROR (precondition failed)",
+    # Deliberately not worded as a SKIP: a skip means "nothing to do", and a
+    # refusal means "I was asked to verify inputs that are not there".
+    GuardState.REFUSED: "REFUSED (declared inputs not present)",
 }
 
 
@@ -97,3 +100,36 @@ def render_dep_line(name: str, verdict: GuardVerdict) -> str:
 def _name_of(model: object) -> str:
     """Best-effort display name for an awaited gate model."""
     return getattr(model, "__name__", None) or str(model)
+
+
+def explain_exit_code(verdict: GuardVerdict) -> int:
+    """The process exit code `func builtin why` should terminate with.
+
+    `ExitCode.STALE` (4) is pinned in `_types/exit_codes.py`, documented there
+    as "stale-check failure", and had **no producer anywhere in the codebase** —
+    an inert surface of the same class as the `@job(matrix=…)` kwarg this branch
+    removed. Taskfile's `task --status` is the feature that number was reserved
+    for; `why` was 90% of it and answered exit 0 for every outcome, so no script
+    could branch on it.
+
+    Deliberately reuses the *run* table's numbers for the outcomes it shares
+    with a run: a refusal is 3 whether you ask about it or trigger it, and a
+    blocked gate is 5. Inventing a second vocabulary for "what would happen"
+    versus "what happened" is how two tables drift.
+    """
+    from functualize._types.exit_codes import ExitCode
+
+    if verdict.state.is_skip:
+        return int(ExitCode.OK)
+    if verdict.state in (GuardState.ERROR, GuardState.REFUSED):
+        return int(ExitCode.REFUSED)
+    if verdict.state is GuardState.BLOCKED:
+        return int(ExitCode.BLOCKED)
+    return int(ExitCode.STALE)
+
+
+def model_name(model: object) -> str | None:
+    """The awaited model's name, for the JSON payload."""
+    if model is None:
+        return None
+    return _name_of(model)

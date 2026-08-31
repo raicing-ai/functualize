@@ -45,8 +45,7 @@ APP_READY when plugins have registered. Full tree with all four surfaces' entrie
 trie = GroupTrie.from_cache(cache_rows, *, groups=builtin_groups)
 ```
 
-- `cache_rows`: rows from the discovery cache, each with `name`, `group`, and matrix
-  instance data
+- `cache_rows`: rows from the discovery cache, each with `name`, `group`, and `kind`
 - `groups`: additional entries (e.g. `builtin` commands)
 - **Leaf derivation:** strip group prefix — NOT `rsplit` (the group is the full dotted
   path; the leaf is the segment after it)
@@ -76,8 +75,6 @@ the job handle and the group's children.
 ## 5. Naming Normalization
 
 - `normalize_segment(name)` — lowercase, strip non-alphanumeric
-- Bracket-aware caveat for future matrix values: `deploy[env=dev]` is split into
-  `deploy` (trie segment) + `[env=dev]` (matrix selector) before normalization
 
 ## 6. Reserved Names
 

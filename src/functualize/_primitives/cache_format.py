@@ -106,7 +106,23 @@ from functualize._primitives.locator import _xdg_cache_dir, compute_project_id
 # nine fingerprinted `DiscoveryConfig` fields did not move, only the root the
 # filter judges against. A v16 cache therefore looks valid and is wrong, and only
 # the version check reaches it.
-CACHE_VERSION = 17
+# v18 (2026-08-30): JobDeclaration lost `matrix`. It was accepted, validated and
+# cached, and read by nothing — matrix expansion was dropped by decision
+# (`.spec/STATUS.md`), leaving only the declaration surface behind, so a job
+# declaring it ran once with its axis parameter unbound and no error. `to_dict`
+# no longer writes the key and `from_dict` reads keys by name, so a v17 entry
+# would raise KeyError rather than degrade; the bump forces a one-time rebuild.
+# v19 (2026-08-30): `FieldDescriptor` gained `from_config_model`. A job
+# descriptor carries one `config_fields` list holding either a config model's
+# fields or the plain signature's parameters, and `parameters` is not
+# serialized — so a warm boot could not tell the two apart and rendered both by
+# the signature rule. A config field then arrived at click carrying its
+# pydantic default, which `_resolve_config_model` reads as a CLI value and
+# ranks above the config file; a *required* config field became a positional
+# argument and the app answered `Missing argument 'TOKEN'` from its second run
+# onward. A v18 entry has no such key, so it would resolve `False` for every
+# field and reproduce exactly that; the bump forces a one-time rebuild.
+CACHE_VERSION = 19
 
 # Cache file name within the resolved cache directory.
 CACHE_FILENAME = "cache.json"

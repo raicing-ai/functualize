@@ -18,9 +18,20 @@ from functualize._types.enums import RunStatus
 
 logger = logging.getLogger(__name__)
 
-# Terminal states that cannot be transitioned from
+# Terminal states that cannot be transitioned from.
+#
+# REFUSED belongs here for the same reason FAILURE does: the step is over. It
+# was omitted when the status was added, and the omission is silent — a refused
+# step simply never gets `end_time` or `duration`, so it reads as still running
+# in every consumer of this record.
 _TERMINAL_STATES = frozenset(
-    {RunStatus.SUCCESS, RunStatus.FAILURE, RunStatus.CANCELLED, RunStatus.TIMEOUT}
+    {
+        RunStatus.SUCCESS,
+        RunStatus.FAILURE,
+        RunStatus.CANCELLED,
+        RunStatus.TIMEOUT,
+        RunStatus.REFUSED,
+    }
 )
 
 
@@ -148,7 +159,11 @@ class WorkflowTracker:
                 "on_phase_start", step_name, step_status, truncated_message
             )
 
-            if step_status == RunStatus.FAILURE:
+            # `in (FAILURE, REFUSED)`, not `== FAILURE`: a refused step
+            # matched neither branch, so neither on_phase_failure nor
+            # on_phase_complete fired and the phase ended without any hook
+            # being told.
+            if step_status in (RunStatus.FAILURE, RunStatus.REFUSED):
                 self._fire_step_hook(
                     "on_phase_failure", step_name, step_status, truncated_message
                 )
@@ -177,7 +192,11 @@ class WorkflowTracker:
             )
 
             # Fire status change events
-            if step_status == RunStatus.FAILURE:
+            # `in (FAILURE, REFUSED)`, not `== FAILURE`: a refused step
+            # matched neither branch, so neither on_phase_failure nor
+            # on_phase_complete fired and the phase ended without any hook
+            # being told.
+            if step_status in (RunStatus.FAILURE, RunStatus.REFUSED):
                 self._fire_step_hook(
                     "on_phase_failure", step_name, step_status, truncated_message
                 )

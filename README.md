@@ -29,7 +29,7 @@ If you're building internal tooling, deployment pipelines, or any multi-step aut
 
 - **Auto-discovery** — Drop job files into a directory and they're automatically registered as CLI commands. Six configurable filters control what qualifies.
 - **Job Groups** — `JOB_GROUP` organizes commands into hierarchies (`func infra deploy`). `GroupOptions` declare flags shared by every job under a group.
-- **`@job` decorator** — Declare metadata, visibility, dependencies, caching, and matrix parameterization on any job function.
+- **`@job` decorator** — Declare metadata, visibility, dependencies, caching, guards, and execution policy on any job function.
 - **Structured RunContext** — Capability-based execution: `Log`, `Invoke`, `Prompt`, `Perf`, `State`, plus `FromJob` for declarative dependency injection and `FromStep` for binding a gate tool to an earlier step's result.
 - **Layered Configuration** — Resolution chain with preset strategies (classic, twelve-factor, env-only, remote-first) and `.env` file support.
 - **Declarative Job Config** — Pydantic models drive CLI options, config resolution, and TUI form fields.

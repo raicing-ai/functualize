@@ -24,6 +24,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from tests.conftest import surfaces
+
+# ─── Surface ──────────────────────────────────────────────────────────────
+#
+# `--exclude` is a pre-command global of the bare `func` CLI only; see the
+# note in `test_cache_filter_awareness.py`.
+pytestmark = surfaces("func")
+
 _PYPROJECT = """[project]
 name = "multi-root-fixture"
 version = "0.1.0"

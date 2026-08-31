@@ -1130,6 +1130,7 @@ def _handle_group(
     _app_ref: list[Any] | None = None,
     scope_id: str | None = None,
     prompt_gates: bool = False,
+    force: bool = False,
 ) -> int:
     """Handle Mode.GROUP: boot app, then delegate to _dispatch_group.
 
@@ -1202,6 +1203,7 @@ def _handle_group(
     )
     app._output_format = output_format
     app._prompt_gates = prompt_gates
+    app._force = force
 
     # Deposit app reference for perf reporting by caller
     if _app_ref is not None:
@@ -1226,6 +1228,7 @@ def _handle_job(
     _app_ref: list[Any] | None = None,
     scope_id: str | None = None,
     prompt_gates: bool = False,
+    force: bool = False,
 ) -> int:
     """Handle Mode.JOB: boot app, find job, parse args, execute.
 
@@ -1321,6 +1324,7 @@ def _handle_job(
     )
     app._output_format = output_format
     app._prompt_gates = prompt_gates
+    app._force = force
 
     # Deposit app reference for perf reporting by caller
     if _app_ref is not None:
@@ -1452,26 +1456,19 @@ def _handle_job(
 def _detect_config_class(
     function: Callable[..., Any],
 ) -> type[Any] | None:
-    """Detect a Pydantic BaseModel config class in a function's parameters."""
-    import inspect as _inspect
+    """The single-file peer path's entry point to the one config-class rule.
 
-    from pydantic import BaseModel
+    Delegates to the shared detector, reached through the `app.utils`
+    re-export because `_cli` may import public folders only.
 
-    from functualize.app.utils import resolved_hints
+    Behavior change: this copy lacked the `GroupOptions` guard the other two
+    had, so a `GroupOptions` parameter was taken as the job's own config class
+    here — leaking the group's flags into the job's `--help` on this path
+    alone. Delegating fixes that.
+    """
+    from functualize.app.utils import detect_config_class
 
-    sig = _inspect.signature(function)
-    hints = resolved_hints(function)
-    for name, param in sig.parameters.items():
-        annotation = hints.get(name, param.annotation)
-        if annotation is _inspect.Parameter.empty:
-            continue
-        if (
-            isinstance(annotation, type)
-            and issubclass(annotation, BaseModel)
-            and annotation is not BaseModel
-        ):
-            return annotation
-    return None
+    return detect_config_class(function)
 
 
 def _register_single_file_peers(
@@ -1509,6 +1506,7 @@ def _handle_single_file(
     _app_ref: list[Any] | None = None,
     scope_id: str | None = None,
     prompt_gates: bool = False,
+    force: bool = False,
 ) -> int:
     """Handle single-file execution mode directly (no FallbackGroup).
 
@@ -1602,6 +1600,7 @@ def _handle_single_file(
     )
     app._output_format = output_format
     app._prompt_gates = prompt_gates
+    app._force = force
 
     # Deposit app reference for perf reporting by caller
     if _app_ref is not None:
@@ -1849,6 +1848,7 @@ def _run_cli() -> None:
     # ── Workflow gate flags ────────────────────────────────────────────────
     scope_id = global_opts.scope_id
     prompt_gates = global_opts.prompt_gates
+    force = global_opts.force
 
     # Phase 3: Direct routing — no FallbackGroup
     if mode is Mode.SINGLE_FILE:
@@ -1859,6 +1859,7 @@ def _run_cli() -> None:
                 _app_ref=app_ref,
                 scope_id=scope_id,
                 prompt_gates=prompt_gates,
+                force=force,
             )
         finally:
             if perf_format is not None and app_ref:
@@ -1877,6 +1878,7 @@ def _run_cli() -> None:
                 _app_ref=app_ref,
                 scope_id=scope_id,
                 prompt_gates=prompt_gates,
+                force=force,
             )
         finally:
             if perf_format is not None and app_ref:
@@ -1896,6 +1898,7 @@ def _run_cli() -> None:
                 _app_ref=app_ref,
                 scope_id=scope_id,
                 prompt_gates=prompt_gates,
+                force=force,
             )
         finally:
             if perf_format is not None and app_ref:
@@ -1934,6 +1937,7 @@ def _run_cli() -> None:
                 _app_ref=app_ref,
                 scope_id=scope_id,
                 prompt_gates=prompt_gates,
+                force=force,
             )
         finally:
             if perf_format is not None and app_ref:

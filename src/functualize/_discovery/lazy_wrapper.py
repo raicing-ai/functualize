@@ -13,73 +13,30 @@ packages stay import-light (no click).
 from __future__ import annotations
 
 import importlib
-import inspect
 import sys
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
+
+from functualize._primitives.config_class_detection import detect_config_class
 
 if TYPE_CHECKING:
     from functualize._types.descriptors import JobDescriptor
 
 
 def _detect_config_class(func: Callable[..., Any]) -> type | None:
-    """Detect the Pydantic BaseModel config class from a function's signature.
+    """The warm-boot entry point to the one config-class rule.
 
-    Inspects the function's parameters for a type annotation that is a
-    subclass of pydantic.BaseModel (but not BaseModel itself). Uses
-    typing.get_type_hints() to resolve string annotations from
-    `from __future__ import annotations`.
+    Delegates to ``_primitives.config_class_detection``. This used to be a
+    third copy of the rule and it had drifted twice over: it iterated the
+    hints mapping's *values* (so a pydantic return annotation was taken as
+    config) and resolved hints without ``include_extras=True`` (so
+    ``Annotated[Envelope, FromJob(...)]`` collapsed to bare ``Envelope`` and
+    was taken as config too). A job that ran cold therefore failed warm.
 
-    Args:
-        func: The job function to inspect.
-
-    Returns:
-        The config class if found, None otherwise.
+    The name is kept: ``_app/boot.py`` and ``app/adapters/lazy_command.py``
+    import it.
     """
-    import typing
-
-    from pydantic import BaseModel
-
-    from functualize._primitives.group_options_detection import (
-        is_group_options_subclass,
-    )
-
-    try:
-        hints = typing.get_type_hints(func)
-    except Exception:
-        # Fall back to inspect.signature for cases where get_type_hints fails
-        try:
-            sig = inspect.signature(func)
-        except (ValueError, TypeError):
-            return None
-
-        for param in sig.parameters.values():
-            annotation = param.annotation
-            if annotation is inspect.Parameter.empty:
-                continue
-            if (
-                isinstance(annotation, type)
-                and issubclass(annotation, BaseModel)
-                and annotation is not BaseModel
-                and not is_group_options_subclass(annotation)
-            ):
-                return annotation
-        return None
-
-    for annotation in hints.values():
-        if (
-            isinstance(annotation, type)
-            and issubclass(annotation, BaseModel)
-            and annotation is not BaseModel
-            # A GroupOptions parameter carries the *group's* flags, not this
-            # job's config fields (see _discovery/sync.py). This is the
-            # warm-boot path, so missing it here leaks the group's fields into
-            # the job's own `--help` even when the eager paths are correct.
-            and not is_group_options_subclass(annotation)
-        ):
-            return annotation
-
-    return None
+    return detect_config_class(func)
 
 
 def _import_real_function(descriptor: JobDescriptor) -> Callable[..., Any]:

@@ -17,7 +17,7 @@ import os
 import shutil
 from pathlib import Path
 
-from tests.conftest import SUPPORT_CONFIGS, SUPPORT_PROJECTS
+from tests.conftest import SUPPORT_CONFIGS, SUPPORT_PROJECTS, surfaces
 
 # ===========================================================================
 # Routing Mode: BUILTIN
@@ -160,6 +160,9 @@ class TestJobRouting:
 # ===========================================================================
 
 
+# `func`-only: the group listing is rendered by `_dispatch_group`. See the surface note in
+# `tests/cli/test_group_dispatch_trie.py` and `.spec/STATE.md`.
+@surfaces("func")
 class TestGroupRouting:
     """Test GROUP mode — `func <group> <job>` dispatches to grouped jobs."""
 
@@ -213,6 +216,9 @@ class TestGroupRouting:
 # ===========================================================================
 
 
+# `func`-only: `func file.py` is Mode.SINGLE_FILE; an app *is* the program. See the surface note in
+# `tests/cli/test_group_dispatch_trie.py` and `.spec/STATE.md`.
+@surfaces("func")
 class TestSingleFileRouting:
     """Test SINGLE_FILE mode — `func script.py` runs a standalone file."""
 
@@ -309,6 +315,9 @@ class TestNameNormalization:
 # ===========================================================================
 
 
+# `func`-only: resolves through `func`'s own CLI-config chain. See the surface note in
+# `tests/cli/test_group_dispatch_trie.py` and `.spec/STATE.md`.
+@surfaces("func")
 class TestXdgConfigResolution:
     """Test that XDG global config files are discovered and applied."""
 
@@ -358,6 +367,9 @@ class TestXdgConfigResolution:
 # ===========================================================================
 
 
+# `func`-only: resolves through `func`'s own CLI-config chain. See the surface note in
+# `tests/cli/test_group_dispatch_trie.py` and `.spec/STATE.md`.
+@surfaces("func")
 class TestProjectConfigPrecedence:
     """Test project config file resolution and precedence."""
 
@@ -414,6 +426,9 @@ class TestProjectConfigPrecedence:
 # ===========================================================================
 
 
+# `func`-only: aliases are resolved by `func`'s pre-boot dispatch. See the surface note in
+# `tests/cli/test_group_dispatch_trie.py` and `.spec/STATE.md`.
+@surfaces("func")
 class TestAliasExpansion:
     """Test that aliases defined in config expand to real job names."""
 
@@ -565,6 +580,9 @@ class TestCacheBehavior:
 # ===========================================================================
 
 
+# `func`-only: pre-command global flags of the bare `func` CLI. See the surface note in
+# `tests/cli/test_group_dispatch_trie.py` and `.spec/STATE.md`.
+@surfaces("func")
 class TestGlobalFlags:
     """Test global CLI flags (--log-level, --no-dotenv, etc)."""
 
@@ -695,6 +713,9 @@ class TestErrorHandling:
 # ===========================================================================
 
 
+# `func`-only: asserts `func`'s unknown-command exit code, not click's. See the surface note in
+# `tests/cli/test_group_dispatch_trie.py` and `.spec/STATE.md`.
+@surfaces("func")
 class TestStaticFixtureProjects:
     """Test using committed static project fixtures from _support/."""
 

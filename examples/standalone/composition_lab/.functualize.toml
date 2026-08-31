@@ -1,0 +1,2 @@
+# Lets plain `func` drive this project from its own directory.
+jobs_directories = ["jobs"]

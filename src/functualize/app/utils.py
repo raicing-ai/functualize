@@ -22,13 +22,18 @@ from pydantic import TypeAdapter, ValidationError
 
 from functualize._config.merge import merge_config_layers
 from functualize._primitives.cache_format import resolve_cache_path
+from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
+from functualize._primitives.config_class_detection import detect_config_class
 from functualize._primitives.di import DIValidationError
 from functualize._primitives.display_detection import (
     find_display_providers,
     is_display_provider,
 )
 from functualize._primitives.locator import ResourceLocator
-from functualize._primitives.state_format import resolve_state_path
+from functualize._primitives.state_format import (
+    resolve_state_location,
+    resolve_state_path,
+)
 from functualize._primitives.state_store import StateStore
 from functualize._types.annotations import resolved_hints
 from functualize._types.descriptors import FieldDescriptor, GroupOptionsSpec
@@ -126,9 +131,12 @@ __all__ = [
     "resolve_cache_path",
     "TrieNode",
     "TrieResolution",
+    "resolve_state_location",
     "resolve_state_path",
     "StateStore",
     "resolved_hints",
+    "detect_config_class",
+    "INJECTED_PARAM_TYPE_NAMES",
     "resolve_effective_directories",
     "resolve_project_config",
     "resolve_user_config_dir",

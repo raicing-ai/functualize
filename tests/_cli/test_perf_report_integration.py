@@ -11,6 +11,17 @@ from __future__ import annotations
 
 import json
 
+from tests.conftest import surfaces
+
+# `func`-only: `--perf-report` is a pre-command global with **optional-value
+# lookahead** — bare `--perf-report` means `text`, and `--perf-report json`
+# consumes the value only when it is one. That lookahead lives in
+# `_cli/dispatch.py::_GLOBAL_OPTIONS_OPTIONAL_VALUE`; click has no equivalent,
+# so on an app the same flag answers `requires an argument`.
+#
+# One more face of the dispatch-layer divergence recorded in `.spec/STATE.md`.
+pytestmark = surfaces("func")
+
 
 class TestPerfReportTextWithJob:
     """func --perf-report text <job> produces text perf report on stderr."""

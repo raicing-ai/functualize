@@ -159,8 +159,20 @@ class TestGuards:
 
         result = _app(guarded=guarded).execute("guarded")
 
-        assert result.status is RunStatus.FAILURE
+        # REFUSED, not FAILURE — which is what this test's own name has always
+        # said, and what `Precondition`'s docstring has always promised
+        # ("non-zero = refuse"). Nothing ran and nothing raised: the job
+        # declined to start because a declared condition for running it was not
+        # met. Reported as FAILURE it was indistinguishable from a job that ran
+        # and threw, and it exited 1 rather than the pinned refusal code 3.
+        assert result.status is RunStatus.REFUSED
         assert ran == []
+
+    def test_a_failing_precondition_exits_three(self) -> None:
+        """The refusal must survive to the process boundary (T39 exit table)."""
+        from functualize._types.exit_codes import ExitCode, exit_code_for_status
+
+        assert exit_code_for_status(RunStatus.REFUSED) == ExitCode.REFUSED == 3
 
     def test_a_passing_precondition_lets_the_job_run(self) -> None:
         ran: list[str] = []
