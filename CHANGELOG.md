@@ -7,6 +7,121 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`func builtin info` grew subcommands — job discovery without prose parsing.**
+  Core could describe a job's inputs as JSON Schema, but only through the
+  `functualize-mcp` plugin; without it an agent had to parse a prose listing or
+  walk every group's `--help` one command at a time.
+
+  ```bash
+  func builtin info schema                 # every command's arguments as JSON Schema
+  func builtin info schema --kind job      # the project's jobs only
+  func builtin info schema --kind builtin  # func's own commands only
+  func builtin info schema <name>          # one command, by dotted path
+  func builtin info jobs [--json]          # the catalogue
+  func builtin info jobs <job>             # one job in detail
+  func builtin info all [--json]           # jobs + config + environment, one document
+  ```
+
+  It covers **jobs and builtins alike**, by walking the one command tree rather
+  than the job list — `CommandNode`'s own contract is that "nothing here
+  distinguishes a job from a builtin". Otherwise an agent would still have had
+  to walk `--help` down through the ~30 builtin subcommands. Each entry carries
+  `kind` and `path` (the segments to type, as an array) alongside the MCP tool
+  fields.
+
+  Bare `func builtin info` is unchanged — it is what every skill and doc points
+  at. `func --help` gained a labelled `For AI agents:` block naming the schema
+  command and both its filters, `FUNCTUALIZE_CLI_OUTPUT`, and `skills list`, so
+  the whole command surface is one call away from the first thing anyone runs.
+
+  The JSON Schema renderer moved into core (`functualize.app.utils.job_input_schema`)
+  and the MCP plugin now calls it, so an MCP tool definition and
+  `func builtin info schema` cannot describe a job differently.
+
+- **`func builtin skills` — the agent skills that ship with your functualize.**
+  Functualize ships four Agent Skills (`functualize`, `functualize-app`,
+  `functualize-cli`, `functualize-skill`) that teach a coding agent the contracts
+  which are invisible from the file it is editing: capabilities are injected by
+  parameter type, a returned value is not printed, discovery is convention plus
+  filters, `func` is often not on PATH. They now travel *inside the
+  distribution*, so what an agent reads is the version you actually installed.
+
+  ```bash
+  func builtin skills list          # what ships, with descriptions
+  func builtin skills install       # into this project, via the skills CLI
+  func builtin skills path          # composes: npx skills add "$(…)"
+  func builtin skills materialize   # copy to $XDG_DATA_HOME, version-stamped
+  ```
+
+  `install` sources the *local* directory rather than a git ref, which is what
+  pins the skills to the installed release — retiring the version-drift cost
+  ADR-006 accepted, without building the agent-path installer it deferred.
+  Without Node, `cp -R "$(func builtin skills path)"/* .claude/skills/` does the
+  same job. The location is surfaced in the `func --help` epilog and in
+  `func builtin info`, both computed rather than hardcoded.
+
+- **A fourth skill, `functualize-cli`,** covering the operator surface: install
+  and upgrade, which environment `func` lives in, the XDG config and data
+  layout, settings precedence, the TUI, cache and runtime state, and shell
+  completions.
+
+### Changed
+
+- **`[cli] output` now selects a renderer instead of being ignored.** The
+  setting resolved, validated against `{rich, plain, json}` and warned on bad
+  values — and was read by nothing except `config show` printing it back.
+  It now drives the `builtin info` family: `json` emits structure with no flag
+  (`export FUNCTUALIZE_CLI_OUTPUT=json`), `plain` drops the box-drawing
+  characters that made piped output unparseable, `rich` stays the default. An
+  explicit `--json` overrides it. Named in both `func --help` and
+  `func builtin info --help`, because a setting nobody can discover is worth
+  about as much as one that does nothing.
+
+- **`skills/` is now packaged.** Force-included into the wheel as
+  `functualize/_skills` and added to the sdist. Previously it shipped in neither
+  artifact and was referenced by no document in the repository.
+
+### Fixed
+
+- **Builtin command flags were published as untyped strings, under the wrong
+  names.** Three defects in the command tree, all invisible while nothing read
+  it — `CommandNode.params()` had no production consumer before `info schema`:
+  click's type vocabulary (`integer`, `boolean`, `choice`) was absent from
+  `TYPE_MAP`, so every builtin flag degraded to `"type": "string"`; the
+  published name was the Python identifier rather than the flag, so
+  `@click.option("--json", "json_out")` would have told a caller to type
+  `--json-out`; and click's `Sentinel.UNSET` (its marker for "no default", which
+  is not `None`) serialized through as the literal string `"Sentinel.UNSET"`.
+
+- **Engine-injected capabilities were published as required tool arguments.**
+  `Stdout` and `Shell` are the two capabilities that live in `functualize._types`
+  rather than `_engine/capabilities`, and the hand-maintained exclusion list in
+  `_discovery` was assembled from the latter — so a job declaring
+  `out: Stdout, sh: Shell` advertised `out` and `sh` as **required string
+  inputs** on every descriptor-driven surface, including live MCP tools. The
+  CLI was unaffected because it tests the live annotation on a separate path,
+  which is why the leak survived: the only surface that leaked was the one with
+  no test comparing it to another. The list now lives in
+  `_types/capabilities.py` and is asserted equal to the engine's actual
+  injection dispatch.
+
+  The existing property test could not have caught this — it builds its stub
+  types *from* the same list, so it verified "everything in the list is
+  excluded" and was blind to anything the list forgot.
+
+- **Agent skills described APIs that do not exist.** Found by the new
+  `tests/skills/` conformance suite, which checks every claim in the shipped
+  prose against the running framework: the capability table called the
+  per-invocation `State` capability "persistence across runs"; `TestRunContext`
+  was documented as a constructor when it is a builder reached via `.create()`;
+  tests asserted on a `CapturingLog.messages` attribute that does not exist
+  (the record is `.calls`, holding `(level, message)` tuples); the `--output`
+  vocabulary omitted its default `auto`; and the install suggestion omitted the
+  `[cli]` extra, which is where `click`, `rich` and `textual` live — a bare
+  `functualize` install produces a `func` that cannot run.
+
 ### Performance
 
 - **Boot scans installed entry points once instead of seven times.** Constructing

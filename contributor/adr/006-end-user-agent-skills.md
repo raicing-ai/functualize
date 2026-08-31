@@ -1,8 +1,8 @@
 # ADR-006: End-User Agent Skills — Authoring Location and Distribution Strategy
 
-**Status**: proposed
+**Status**: accepted — §2 amended by [ADR-009](009-shipping-skills-in-the-distribution.md)
 **Date**: 2026-08-27
-**Deciders**: Hakim, with agent-assisted research
+**Deciders**: Core team, with agent-assisted research
 
 ## Context
 
@@ -130,20 +130,25 @@ renames the value without it reaching the transcript.
 
 ### Negative
 
-- No version locking until the installer exists: a user can install skills from
-  `master` while running an older release.
+- ~~No version locking until the installer exists: a user can install skills
+  from `master` while running an older release.~~ **Resolved by
+  [ADR-009](009-shipping-skills-in-the-distribution.md)**: the skills ship
+  inside the wheel and `func builtin skills install` sources them from the local
+  directory, so what lands is pinned to the installed release.
 - Plugin-provided skills are impossible until then; plugin authors must publish
   separate repositories in the interim.
 - Requires Node (`npx`) for the primary install path, which is a real cost for a
-  Python framework.
+  Python framework. Softened by ADR-009: `cp -R "$(func builtin skills path)"/*`
+  is a documented, Node-free alternative.
 
 ### Neutral
 
 - Third-party skills already vendored under `.agents/skills/` (e.g. `improve`,
   MIT, authored by shadcn; `auditing-python-security`, pinned from
   `wdm0006/python-skills`) must be *referenced*, not redistributed.
-- `skills/` is a new top-level directory that is neither packaged nor tested by
-  the existing suites.
+- ~~`skills/` is a new top-level directory that is neither packaged nor tested
+  by the existing suites.~~ **Resolved by ADR-009**: force-included into the
+  wheel and sdist, and covered by `tests/skills/`.
 
 ## Alternatives Considered
 

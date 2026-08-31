@@ -793,6 +793,89 @@ Every plugin ships runnable examples in its own folder: [`plugins/<name>/example
 
 For plugin quality tiers and publishing guidelines, see [plugins/PUBLISHING.md](https://github.com/raicing-ai/functualize/blob/master/plugins/PUBLISHING.md).
 
+## Discovering the Command Surface
+
+Every functualize app describes itself at runtime. One call returns every
+command — your jobs *and* the builtins — with the arguments each accepts, as
+JSON Schema:
+
+```bash
+func builtin info schema
+```
+
+```json
+[{"name": "demo.report", "kind": "job", "path": ["demo", "report"],
+  "description": "Emit a small report.",
+  "inputSchema": {"type": "object",
+                  "properties": {"rows": {"type": "integer", "default": 3}}}}]
+```
+
+No plugin required, and no walking each group's `--help` in turn. Narrow with
+`--kind job` or `--kind builtin`, or name one command by its dotted path
+(`func builtin info schema builtin.skills.materialize`). It is the same
+renderer that builds the MCP tool definitions, so what you read is exactly what
+a tool call would accept.
+
+| Command | Answers |
+|---|---|
+| `func builtin info` | The overview: jobs, config resolution, state path, skills |
+| `func builtin info jobs [<job>]` | The catalogue, or one job in detail (`--json` for structure) |
+| `func builtin info schema [<name>]` | Input contracts as JSON Schema, jobs and builtins — always JSON |
+| `func builtin info all` | Everything above as one document |
+| `func builtin why <job>` | Whether a job would run, and why |
+
+Set the renderer once instead of passing a flag every time:
+
+```bash
+export FUNCTUALIZE_CLI_OUTPUT=json     # or "plain" for no box-drawing
+```
+
+`func --help` names all of this at the bottom, so nothing above needs to be
+memorised:
+
+```
+For AI agents:
+  func builtin info schema                 all commands + args, as JSON
+  func builtin info schema --kind job      jobs only
+  func builtin info schema --kind builtin  builtin commands only
+  func builtin skills list                 agent skills for this version
+  export FUNCTUALIZE_CLI_OUTPUT=json       make JSON the default
+```
+
+## AI Agent Skills
+
+Functualize ships [Agent Skills](https://agent-skills.io) that teach a coding
+agent the contracts which are invisible from the file it is editing — that
+capabilities are injected by parameter type, that returning a value does not
+print it, that discovery is convention plus filters, and that `func` is
+frequently not on `PATH`.
+
+They travel **inside the distribution**, so what your agent reads is the version
+you actually installed rather than whatever the main branch says today.
+
+```bash
+func builtin skills list          # what ships, with descriptions
+func builtin skills install       # install into this project (uses npx skills)
+```
+
+| Skill | For |
+|---|---|
+| `functualize` | Writing, running and debugging jobs in an existing project |
+| `functualize-app` | Building a CLI or TUI on functualize, end to end |
+| `functualize-cli` | Installing, upgrading and configuring `func` itself |
+| `functualize-skill` | Authoring an agent skill whose scripts are functualize jobs |
+
+Without Node, copy them yourself:
+
+```bash
+cp -R "$(func builtin skills path)"/* .claude/skills/
+```
+
+`func builtin skills materialize` writes a version-stamped copy under
+`$XDG_DATA_HOME/functualize/skills/` for when the environment holding the wheel
+is disposable (`uvx`, PEP 723 script envs) or a project that does not depend on
+functualize still needs a stable path.
+
 ## Requirements
 
 - Python 3.11+
