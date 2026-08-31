@@ -43,7 +43,49 @@ logger = logging.getLogger(__name__)
 # ─── click group for BUILTIN mode (plain Group, no FallbackGroup) ────────
 
 
-@click.group(name="func", invoke_without_command=True)
+class _LeftMarginEpilogGroup(click.Group):
+    """A ``click.Group`` whose epilog starts at the left margin.
+
+    Click renders ``epilog`` inside ``formatter.indentation()`` and puts it
+    through ``wrap_text``. Both hurt here: the block's heading ends up indented
+    two columns *under* "Commands:", reading as another command rather than a
+    new section, and the extra two columns push the widest line past a narrow
+    terminal so it wraps mid-word.
+
+    Written verbatim instead. The epilog is a hand-aligned table — wrapping it
+    at all destroys the columns, so the right behaviour is to emit it as given
+    and keep the source lines short enough not to need wrapping (a test pins
+    that).
+    """
+
+    def format_epilog(self, ctx: click.Context, formatter: Any) -> None:
+        if not self.epilog:
+            return
+        formatter.write_paragraph()
+        for line in self.epilog.splitlines():
+            formatter.write(f"{line}\n")
+
+
+@click.group(
+    name="func",
+    cls=_LeftMarginEpilogGroup,
+    invoke_without_command=True,
+    # A labelled block at the left margin, because an indented paragraph after
+    # "Commands:" reads as another command. The heading says who it is for, so
+    # a human skims past it and an agent knows to stop.
+    #
+    # Command-first, description second: the left column is copy-pasteable.
+    # Lines stay inside 72 columns so a narrow terminal does not wrap the
+    # hand-aligned table — `_LeftMarginEpilogGroup` emits them verbatim.
+    epilog=(
+        "For AI agents:\n"
+        "  func builtin info schema                 all commands + args, as JSON\n"
+        "  func builtin info schema --kind job      jobs only\n"
+        "  func builtin info schema --kind builtin  builtin commands only\n"
+        "  func builtin skills list                 agent skills for this version\n"
+        "  export FUNCTUALIZE_CLI_OUTPUT=json       make JSON the default"
+    ),
+)
 @click.option(
     "--log-level",
     default="INFO",

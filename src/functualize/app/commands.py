@@ -241,7 +241,7 @@ class ClickCommandNode:
 
         fields: list[FieldDescriptor] = []
         for param in getattr(self._command, "params", []):
-            name = getattr(param, "name", None)
+            name = _param_public_name(param)
             if not name or name == "help":
                 continue
             param_type = getattr(param, "type", None)
@@ -314,6 +314,33 @@ def _builtin_needs_terminal(family: str, segment: str) -> bool:
     if command is None:
         return False
     return bool(command.needs_terminal([segment]))
+
+
+def _param_public_name(param: object) -> str | None:
+    """The name a *caller types*, not the Python identifier click binds to.
+
+    Across the tree the invariant is "the flag is derivable from the name":
+    a job parameter ``rows`` is passed as ``--rows``, so publishing the name is
+    enough. Click breaks that invariant whenever a command spells the two
+    differently — ``@click.option("--json", "json_out")`` binds ``json_out``
+    while the flag is ``--json`` — and publishing the identifier would tell a
+    caller to type ``--json-out``, which does not exist.
+
+    So an option reports its longest declared flag with the dashes stripped,
+    restoring the invariant, and an argument reports its identifier because a
+    positional has no flag to disagree with.
+    """
+    declarations = [
+        opt
+        for opt in getattr(param, "opts", []) or []
+        if isinstance(opt, str) and opt.startswith("-")
+    ]
+    if declarations:
+        # Longest wins: `-p/--prune` publishes `prune`, never `p`. The short
+        # form is carried separately by ``FieldDescriptor.short_flag``.
+        return max(declarations, key=len).lstrip("-")
+    identifier = getattr(param, "name", None)
+    return identifier if isinstance(identifier, str) else None
 
 
 class ClickCommandProvider:

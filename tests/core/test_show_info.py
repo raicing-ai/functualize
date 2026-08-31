@@ -109,10 +109,28 @@ class TestShowInfoBasic:
     """Tests for basic builtin info command output."""
 
     def test_show_info_command_exists(self):
+        """`info` is a group now; its help comes from the builtin registry.
+
+        Asserting on the registry's own description rather than a literal
+        keeps this from drifting the next time the wording changes — the
+        registry is the single source every other list derives from.
+        """
+        from functualize._cli.builtins import BUILTIN_COMMANDS
+
         app = FunctualizeApp(name="testapp")
         result = _invoke(app, ["builtin", "info", "--help"])
         assert result.exit_code == 0
-        assert "Show current CLI configuration" in result.output
+
+        described = next(c for c in BUILTIN_COMMANDS if c.name == "info").description
+        assert described in result.output
+
+    def test_show_info_help_lists_its_subcommands(self):
+        """An agent reading `info --help` should find the structured views."""
+        app = FunctualizeApp(name="testapp")
+        result = _invoke(app, ["builtin", "info", "--help"])
+        assert result.exit_code == 0
+        for subcommand in ("jobs", "schema", "all"):
+            assert subcommand in result.output
 
     def test_show_info_displays_log_level(self):
         app = FunctualizeApp(name="testapp")

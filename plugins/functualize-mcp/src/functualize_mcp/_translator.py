@@ -41,18 +41,11 @@ def read_cached_group_options() -> dict[str, Any]:
 
 
 # Mapping from functualize type_annotation strings to JSON Schema types.
-_TYPE_MAP: dict[str, dict[str, Any]] = {
-    "str": {"type": "string"},
-    "int": {"type": "integer"},
-    "float": {"type": "number"},
-    "bool": {"type": "boolean"},
-    "list": {"type": "array"},
-    "dict": {"type": "object"},
-    "list[str]": {"type": "array", "items": {"type": "string"}},
-    "list[int]": {"type": "array", "items": {"type": "integer"}},
-    "list[float]": {"type": "array", "items": {"type": "number"}},
-    "list[bool]": {"type": "array", "items": {"type": "boolean"}},
-}
+# The annotation → JSON Schema mapping, the per-field rendering and the
+# object assembly all live in core (`functualize.app.utils`), because
+# `func builtin info schema` publishes the same contract. Two copies is how
+# the surfaces drift: this plugin once published `Stdout` and `Shell` as
+# required arguments while the CLI filtered them correctly.
 
 
 @dataclass(frozen=True)
@@ -236,85 +229,42 @@ class JobToolTranslator:
     def _build_input_schema(self, descriptor: Any) -> dict[str, Any]:
         """Build a JSON Schema object from the job's config fields.
 
-        Uses config_fields if populated, otherwise falls back to parameters.
+        Delegates to core so an MCP tool and ``func builtin info schema``
+        cannot describe the same job differently.
         """
-        fields = [
-            f
-            for f in (descriptor.config_fields or descriptor.parameters)
-            if not self._is_group_options_param(f)
-        ]
-        if not fields:
-            return {"type": "object", "properties": {}, "required": []}
+        from functualize.app.utils import job_input_schema
 
-        properties: dict[str, Any] = {}
-        required: list[str] = []
+        return job_input_schema(
+            descriptor,
+            group_options_class_names=self._group_options_class_names(),
+        )
 
-        for f in fields:
-            properties[f.name] = self._field_property(f)
-            if f.required:
-                required.append(f.name)
+    def _group_options_class_names(self) -> frozenset[str]:
+        """Class names of the group-options declarations in scope.
 
-        schema: dict[str, Any] = {
-            "type": "object",
-            "properties": properties,
-        }
-        if required:
-            schema["required"] = required
-
-        return schema
-
-    def _is_group_options_param(self, f: Any) -> bool:
-        """Is this parameter the *injection point* for a group's options?
-
-        `def run(image: str, opts: DeployOptions)` — `opts` is where the
-        resolved instance lands, not something a caller supplies. Exposed as a
-        tool argument it would appear as a bare string an agent might fill in,
-        and the flags it stands for are already published individually. The
-        CLI excludes it by testing the live annotation; here the descriptor is
-        cached, so the equivalent signal is the declared class name matching a
-        known declaration.
+        A parameter annotated with one is the *injection point* for a group's
+        resolved options, not something a caller supplies, and the flags it
+        stands for are already published individually. The CLI excludes it by
+        testing the live annotation; here the descriptor is cached, so the
+        equivalent signal is the declared class name.
         """
         if not self._group_options:
-            return False
-        annotation = (getattr(f, "type_annotation", "") or "").strip()
-        if not annotation:
-            return False
-        known = {
-            getattr(spec, "class_name", None) for spec in self._group_options.values()
-        }
-        return annotation in known
+            return frozenset()
+        return frozenset(
+            name
+            for spec in self._group_options.values()
+            if (name := getattr(spec, "class_name", None))
+        )
 
     def _field_property(self, f: Any) -> dict[str, Any]:
         """One ``FieldDescriptor`` as a JSON Schema property.
 
-        Shared by the job's own fields and its inherited group options: the
-        two are the same record type, and a group flag that described itself
-        differently from an identical job flag would be a wart an agent has no
-        way to interpret.
+        Core's renderer, so a group option inherited into a tool and the same
+        field published by ``func builtin info schema`` are byte-identical.
         """
-        prop: dict[str, Any] = {}
+        from functualize.app.utils import field_property
 
-        # Map type annotation to JSON Schema type
-        type_annotation = f.type_annotation
-        if type_annotation in _TYPE_MAP:
-            prop.update(_TYPE_MAP[type_annotation])
-        else:
-            # For unknown types, use string as fallback
-            prop["type"] = "string"
-
-        # Add description if available
-        if f.description:
-            prop["description"] = f.description
-
-        # Add default if present and not required
-        if not f.required and f.default is not None:
-            prop["default"] = f.default
-
-        # Add enum choices if available
-        if f.choices:
-            prop["enum"] = f.choices
-
-        return prop
+        return field_property(f)
 
     def _build_annotations(self, descriptor: Any) -> dict[str, Any]:
         """Build tool annotations from the @job declaration tags and metadata."""

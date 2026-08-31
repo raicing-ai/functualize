@@ -33,6 +33,7 @@ from functualize._primitives.group_options_detection import (
 )
 from functualize._types import FieldDescriptor, JobDescriptor
 from functualize._types.annotations import resolved_hints
+from functualize._types.capabilities import INJECTED_CAPABILITY_TYPE_NAMES
 from functualize._types.from_job import from_job_names
 from functualize._types.naming import normalize_name, normalize_segment
 from functualize._types.workflow import workflow_shape_of
@@ -41,21 +42,12 @@ logger = logging.getLogger(__name__)
 
 
 # Names of types that should be excluded from parameter extraction
-# (framework-injected parameters, not user-facing CLI parameters)
-_EXCLUDED_PARAM_TYPE_NAMES = frozenset(
-    {
-        "RunContext",
-        "Log",
-        "Invoke",
-        "Prompt",
-        "Perf",
-        "State",
-        "JobContext",
-        "JobConfigView",
-        "TTY",
-        "Live",
-    }
-)
+# (framework-injected parameters, not user-facing CLI parameters).
+#
+# Sourced from `_types.capabilities` rather than restated here: this list was
+# maintained by hand and drifted, publishing `Stdout` and `Shell` as required
+# arguments on every descriptor-driven surface. See that module for the why.
+_EXCLUDED_PARAM_TYPE_NAMES = INJECTED_CAPABILITY_TYPE_NAMES
 
 # Capability marker type names harvested into job-level JobDescriptor flags
 # (routing hints), distinct from user-facing CLI parameters.
