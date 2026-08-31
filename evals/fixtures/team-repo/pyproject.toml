@@ -1,0 +1,17 @@
+[project]
+name = "payments-api"
+version = "2.4.0"
+requires-python = ">=3.11"
+dependencies = ["functualize[cli]"]
+
+[tool.uv.sources]
+functualize = { path = "{{REPO_ROOT}}" }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.functualize.discovery]
+# Jobs live at src/<pkg>/jobs.py, so the scan must descend that far.
+scan_depth = 3
+require_file_import = "functualize"

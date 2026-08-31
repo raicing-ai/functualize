@@ -1,0 +1,28 @@
+{
+  "name": "functualize-skill-evals",
+  "private": true,
+  "description": "promptfoo eval suite for the end-user agent skills in ../skills",
+  "scripts": {
+    "image": "sh -c '${FZ_EVAL_ENGINE:-$(command -v podman >/dev/null && echo podman || echo docker)} build -t ${FZ_EVAL_IMAGE:-functualize-evals:latest} docker'",
+    "preflight": "python3 scripts/preflight.py",
+    "validate": "sh -c 'for s in suites/*.yaml; do echo \"-- $s\"; promptfoo validate config -c \"$s\" || exit 1; done'",
+    "doctor": "python3 scripts/doctor.py",
+    "case": "python3 scripts/case.py",
+    "trigger": "promptfoo eval -c suites/triggering.yaml -j 6 --repeat ${FZ_EVAL_REPEAT:-3}",
+    "task": "promptfoo eval -c suites/functualize.yaml --no-cache --repeat ${FZ_EVAL_REPEAT:-3}",
+    "app": "promptfoo eval -c suites/functualize-app.yaml --no-cache --repeat ${FZ_EVAL_REPEAT:-3}",
+    "skill": "promptfoo eval -c suites/functualize-skill.yaml --no-cache --repeat ${FZ_EVAL_REPEAT:-3}",
+    "all": "sh -c 'for s in suites/triggering.yaml suites/functualize.yaml suites/functualize-app.yaml suites/functualize-skill.yaml; do echo \"\\n== $s\"; promptfoo eval -c \"$s\" --no-cache --repeat ${FZ_EVAL_REPEAT:-3} || true; done'",
+    "trigger:ci": "sh -c 'promptfoo eval -c suites/triggering.yaml -j 6 --repeat ${FZ_EVAL_REPEAT:-3}; python3 scripts/gate.py --max-age 120'",
+    "all:ci": "sh -c 'rc=0; for s in suites/triggering.yaml suites/functualize.yaml suites/functualize-app.yaml suites/functualize-skill.yaml; do echo \"\\n== $s\"; promptfoo eval -c \"$s\" --no-cache --repeat ${FZ_EVAL_REPEAT:-3} || true; python3 scripts/gate.py --max-age 480 || rc=1; done; exit $rc'",
+    "view": "promptfoo view",
+    "watch": "sh -c 'mkdir -p results && touch results/progress.log && tail -f results/progress.log'",
+    "inspect": "python3 scripts/inspect_run.py",
+    "gate": "python3 scripts/gate.py",
+    "smoke": "sh -c 'for s in suites/functualize.yaml suites/functualize-app.yaml suites/functualize-skill.yaml; do echo \"\\n== $s\"; promptfoo eval -c \"$s\" --no-cache --repeat 1 --filter-providers ^with-skills$ || true; done'",
+    "confirm": "sh -c 'test -n \"$1\" || { echo \"usage: npm run confirm -- <eval-id>\"; exit 2; }; promptfoo eval -c suites/functualize.yaml --no-cache --repeat 5 --filter-failing \"$1\"; python3 scripts/gate.py' --"
+  },
+  "devDependencies": {
+    "promptfoo": "^0.122.2"
+  }
+}

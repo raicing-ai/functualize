@@ -43,7 +43,31 @@ logger = logging.getLogger(__name__)
 # ─── click group for BUILTIN mode (plain Group, no FallbackGroup) ────────
 
 
-@click.group(name="func", invoke_without_command=True)
+class _LeftMarginEpilogGroup(click.Group):
+    """The root ``func`` group, carrying the agent block at the left margin.
+
+    The rendering rule and the text both live in
+    ``_primitives/agent_epilog.py``; this is only the click seam. The
+    adapter's ``AgentEpilogGroup`` is the same three lines over the same
+    helper — sharing the *class* instead would mean importing
+    ``app/adapters/cli.py`` (and rich) at ``main.py`` import time, which is
+    what the lazy-boot work exists to avoid.
+
+    Imported inside the method, not at module scope, for the same reason: a
+    warm boot must not pay for help text nobody asked to render.
+    """
+
+    def format_epilog(self, ctx: click.Context, formatter: Any) -> None:
+        from functualize.app.utils import write_agent_epilog
+
+        write_agent_epilog(ctx.find_root().info_name or "func", formatter)
+
+
+@click.group(
+    name="func",
+    cls=_LeftMarginEpilogGroup,
+    invoke_without_command=True,
+)
 @click.option(
     "--log-level",
     default="INFO",

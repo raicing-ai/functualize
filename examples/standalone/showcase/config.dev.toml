@@ -1,3 +1,9 @@
+# NOTE ON VERSION CONTROL: this overlay is committed only because the example
+# has to work from a fresh clone, and it holds nothing sensitive. In a real
+# project, config.base.toml is the only committed layer — the per-environment
+# overlays stay out of git so they can carry local credentials. `func builtin
+# scaffold init` emits a .gitignore that enforces exactly that.
+#
 # DEV overlay — active by default. The environment comes from
 # FUNCTUALIZE_ENV > ENVIRONMENT > ENV, defaulting to DEV, so this file is
 # merged on top of config.base.toml unless you select another environment.

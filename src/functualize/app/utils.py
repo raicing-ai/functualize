@@ -21,6 +21,10 @@ from typing import Any
 from pydantic import TypeAdapter, ValidationError
 
 from functualize._config.merge import merge_config_layers
+from functualize._primitives.agent_epilog import (
+    agent_epilog,
+    write_agent_epilog,
+)
 from functualize._primitives.cache_format import resolve_cache_path
 from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
 from functualize._primitives.config_class_detection import detect_config_class
@@ -28,6 +32,11 @@ from functualize._primitives.di import DIValidationError
 from functualize._primitives.display_detection import (
     find_display_providers,
     is_display_provider,
+)
+from functualize._primitives.job_schema import (
+    field_property,
+    input_schema,
+    job_input_schema,
 )
 from functualize._primitives.locator import ResourceLocator
 from functualize._primitives.state_format import (
@@ -137,9 +146,15 @@ __all__ = [
     "resolved_hints",
     "detect_config_class",
     "INJECTED_PARAM_TYPE_NAMES",
+    "agent_epilog",
     "resolve_effective_directories",
     "resolve_project_config",
     "resolve_user_config_dir",
+    "field_property",
+    "input_schema",
+    "job_input_schema",
+    "write_agent_epilog",
+    "resolve_user_data_dir",
     "ResourceLocator",
     "merge_config_layers",
     "group_ancestors",
@@ -856,6 +871,23 @@ def resolve_user_config_dir() -> Path:
     if xdg:
         return Path(xdg) / "functualize"
     return Path.home() / ".config" / "functualize"
+
+
+def resolve_user_data_dir() -> Path:
+    """Resolve the XDG *data* directory for functualize.
+
+    Uses $XDG_DATA_HOME/functualize if set to a non-empty string, otherwise
+    falls back to ~/.local/share/functualize.
+
+    Distinct from :func:`resolve_user_config_dir` on purpose: config is what
+    the user writes and expects to survive, data is what functualize writes
+    and may regenerate. Materialized agent skills are the latter — a copy of
+    what the installed wheel already carries, safe to delete.
+    """
+    xdg = os.environ.get("XDG_DATA_HOME", "")
+    if xdg:
+        return Path(xdg) / "functualize"
+    return Path.home() / ".local" / "share" / "functualize"
 
 
 def _read_toml_file(path: Path) -> dict[str, Any] | None:

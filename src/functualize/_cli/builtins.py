@@ -93,6 +93,17 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
         requires_subcommand=True,
     ),
     BuiltinCommand(
+        "skills",
+        "Locate and install the AI agent skills shipped with this version",
+        (
+            ("path", "Print the directory holding this version's skills"),
+            ("list", "List the shipped skills with their descriptions"),
+            ("materialize", "Copy the skills into the XDG data directory"),
+            ("install", "Install the skills into a project via the skills CLI"),
+        ),
+        requires_subcommand=True,
+    ),
+    BuiltinCommand(
         "scaffold",
         "Generate project scaffolding",
         (
@@ -119,7 +130,19 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
     BuiltinCommand("shell-init", "Emit a static shell completion script"),
     BuiltinCommand("why", "Explain whether a job would run, and why"),
     BuiltinCommand("version", "Show the functualize version"),
-    BuiltinCommand("info", "Display app state, discovered jobs, and config"),
+    BuiltinCommand(
+        "info",
+        "Display app state, discovered jobs, and config",
+        (
+            ("jobs", "List discovered jobs, or show one in detail"),
+            ("schema", "Print every job's input contract as JSON Schema"),
+            ("all", "Everything info knows, as one document"),
+        ),
+        # Bare `info` is the overview and the documented first stop; the
+        # subcommands narrow it. Requiring one would break every skill,
+        # doc and habit that says "run func builtin info".
+        requires_subcommand=False,
+    ),
 )
 """Every first-party command. These are the children of ``builtin`` — none of
 them is a top-level name any more, so none of them is a name a job cannot have.
@@ -1377,6 +1400,126 @@ def register_builtin_commands(cli_group: Any) -> None:
 
     _mount(builtin_app, domains_app, "domains")
 
+    # --- Skills sub-group (agent skills shipped with this version) ---
+    # A sibling of `cache` and `state`, not a `scaffold` template: scaffold
+    # output is user-owned and edited afterwards, while these are framework-
+    # owned and replaced wholesale on upgrade (ADR-006 §3).
+    skills_app = click.Group(
+        name="skills",
+        help="Locate and install the AI agent skills shipped with this version.",
+    )
+
+    def _require_skills_location() -> Any:
+        from functualize._cli.skills import resolve_skills_dir
+
+        location = resolve_skills_dir()
+        if location is None:
+            click.echo(
+                "No skills directory found for this installation.",
+                err=True,
+            )
+            raise SystemExit(ExitCode.USAGE)
+        return location
+
+    @skills_app.command("path")
+    def skills_path() -> None:
+        """Print the directory holding this version's agent skills.
+
+        Machine-readable on purpose — one path, no decoration, so it composes:
+        `npx skills add "$(func builtin skills path)"`.
+        """
+        click.echo(str(_require_skills_location().path))
+
+    @skills_app.command("list")
+    def skills_list() -> None:
+        """List the shipped skills with their descriptions."""
+        from functualize import __version__
+        from functualize._cli.skills import list_skills
+
+        location = _require_skills_location()
+        skills = list_skills(location.path)
+        if not skills:
+            click.echo(f"No skills found in {location.path}")
+            return
+
+        origin = (
+            f"functualize {__version__} (packaged)"
+            if location.is_packaged
+            else f"source checkout at {location.path} (not version-pinned)"
+        )
+        click.echo(f"Agent skills from {origin}")
+        click.echo("")
+        for skill in skills:
+            click.echo(f"  {skill.name}")
+            click.echo(f"    {skill.summary}")
+            click.echo(f"    {skill.path}")
+            click.echo("")
+        click.echo("Install into a project:  func builtin skills install")
+
+    @skills_app.command("materialize")
+    @click.option(
+        "--prune",
+        is_flag=True,
+        default=False,
+        help="Also delete materialized skills for other functualize versions.",
+    )
+    def skills_materialize(prune: bool) -> None:
+        """Copy this version's skills into the XDG data directory.
+
+        Useful when the environment holding the wheel is disposable (uvx, a
+        PEP 723 script env) or when a project that does not depend on
+        functualize needs a stable path to point an agent at.
+        """
+        from functualize import __version__
+        from functualize._cli.skills import materialize_skills
+
+        location = _require_skills_location()
+        destination, names = materialize_skills(location.path, __version__, prune=prune)
+        for name in names:
+            click.echo(f"  {name}")
+        click.echo(f"{len(names)} skill(s) → {destination}")
+
+    @skills_app.command("install")
+    @click.option(
+        "--dry-run",
+        is_flag=True,
+        default=False,
+        help="Print the command that would run instead of running it.",
+    )
+    def skills_install(dry_run: bool) -> None:
+        """Install the shipped skills into the current project.
+
+        Shells out to the skills CLI rather than reimplementing its
+        agent-path matrix (ADR-006 §2). The source is the local directory, so
+        what lands is pinned to the installed functualize — not whatever
+        master happens to say today.
+        """
+        location = _require_skills_location()
+        command = ["npx", "skills", "add", str(location.path)]
+        rendered = " ".join(command)
+
+        if dry_run:
+            click.echo(rendered)
+            return
+
+        if shutil.which("npx") is None:
+            click.echo(
+                "npx was not found on PATH. The skills CLI needs Node.\n"
+                "\n"
+                "Run this once Node is available:\n"
+                f"  {rendered}\n"
+                "\n"
+                "Or copy the directory into your agent's skills folder:\n"
+                f"  cp -R {location.path}/* .claude/skills/",
+                err=True,
+            )
+            raise SystemExit(ExitCode.USAGE)
+
+        click.echo(f"$ {rendered}")
+        raise SystemExit(subprocess.call(command))
+
+    _mount(builtin_app, skills_app, "skills")
+
     # --- Scaffold sub-group ---
     from functualize._cli.scaffold.cli import scaffold_app
 
@@ -1392,8 +1535,27 @@ def register_builtin_commands(cli_group: Any) -> None:
 
     _mount(builtin_app, version_command, "version")
 
-    # --- Show-info command (resolves app lazily from ctx.obj) ---
-    @click.command("show-info")
+    # --- Info sub-group (resolves app lazily from ctx.obj) ---
+    # A group rather than a command, with `invoke_without_command=True`, so
+    # bare `func builtin info` keeps printing the overview every doc and skill
+    # points at while the subcommands add the structured views.
+    def _info_app_and_config(ctx: click.Context) -> tuple[Any, Any]:
+        obj = ctx.find_root().obj
+        if obj is None or "app" not in obj:
+            click.echo("Error: No app context available.", err=True)
+            raise SystemExit(ExitCode.USAGE)
+        return obj["app"], obj.get("cli_config")
+
+    def _emit_json(payload: Any) -> None:
+        import json
+
+        click.echo(json.dumps(payload, indent=2, default=str))
+
+    @click.group(
+        name="info",
+        invoke_without_command=True,
+        help="Display app state, discovered jobs, and config.",
+    )
     @click.option(
         "--job",
         default=None,
@@ -1405,22 +1567,48 @@ def register_builtin_commands(cli_group: Any) -> None:
         default=False,
         help="Display all current process environment variables.",
     )
+    @click.option(
+        "--json",
+        "json_out",
+        is_flag=True,
+        default=False,
+        help=(
+            "Emit the full report as JSON (same as `info all --json`). "
+            "Set FUNCTUALIZE_CLI_OUTPUT=json to make it the default, or "
+            "=plain for text without box-drawing."
+        ),
+    )
     @click.pass_context
-    def show_info_command(
-        ctx: click.Context, job: str | None, show_env_vars: bool
+    def info_group(
+        ctx: click.Context, job: str | None, show_env_vars: bool, json_out: bool
     ) -> None:
         """Show current CLI configuration, discovered jobs, and resolved config."""
-        obj = ctx.find_root().obj
-        if obj is None or "app" not in obj:
-            click.echo("Error: No app context available.", err=True)
-            raise SystemExit(1)
+        if ctx.invoked_subcommand is not None:
+            return
+
+        from functualize._cli.info import (
+            full_report,
+            render_report_text,
+            resolve_renderer,
+        )
+
+        app, cli_config = _info_app_and_config(ctx)
+        renderer = resolve_renderer(json_out, cli_config)
+
+        if renderer == "json":
+            _emit_json(full_report(app, cli_config))
+            return
+
+        if renderer == "plain":
+            for line in render_report_text(full_report(app, cli_config)):
+                click.echo(line)
+            return
 
         from functualize.app.adapters.cli import _show_info_impl
 
-        _show_info_impl(obj["app"], job=job, show_env_vars=show_env_vars)
+        _show_info_impl(app, job=job, show_env_vars=show_env_vars)
 
         # Display resolution info (import_libs, anchor, convention dirs)
-        cli_config = obj.get("cli_config")
         if cli_config is not None:
             click.echo("")
             click.echo("─── Config Resolution ───")
@@ -1462,6 +1650,152 @@ def register_builtin_commands(cli_group: Any) -> None:
         click.echo(f"  State path: {state_path}")
         click.echo(f"  Mode:       {_state_mode_line(state_mode, state_marker)}")
 
-    _mount(builtin_app, show_info_command, "info")
+        # Agent skills. `info` is where the skills themselves tell an agent to
+        # look first, so it is where the answer to "do skills exist, and
+        # where?" belongs — the --help epilog only has room for the pointer.
+        from functualize._cli.skills import list_skills, resolve_skills_dir
+
+        location = resolve_skills_dir()
+        click.echo("")
+        click.echo("─── Agent Skills ───")
+        if location is None:
+            click.echo("  (none found for this installation)")
+        else:
+            names = ", ".join(s.name for s in list_skills(location.path)) or "(none)"
+            click.echo(f"  Path: {location.path}")
+            click.echo(f"  Origin: {location.origin}")
+            click.echo(f"  Skills: {names}")
+            click.echo("  Install: func builtin skills install")
+
+        click.echo("")
+        click.echo("Machine-readable: func builtin info schema | info jobs --json")
+
+    @info_group.command("jobs")
+    @click.argument("name", required=False)
+    @click.option(
+        "--json",
+        "json_out",
+        is_flag=True,
+        default=False,
+        help="Emit JSON. Default it with FUNCTUALIZE_CLI_OUTPUT=json.",
+    )
+    @click.pass_context
+    def info_jobs(ctx: click.Context, name: str | None, json_out: bool) -> None:
+        """List discovered jobs, or show one in detail.
+
+        With no NAME this is the catalog — every job with its one-line summary.
+        With a NAME it is that job in full, including its input schema.
+        """
+        from functualize._cli.info import (
+            job_catalog,
+            job_detail,
+            render_catalog_text,
+            resolve_renderer,
+        )
+
+        app, cli_config = _info_app_and_config(ctx)
+        renderer = resolve_renderer(json_out, cli_config)
+
+        if name is not None:
+            detail = job_detail(app, name)
+            if detail is None:
+                click.echo(f"Error: no job named '{name}'.", err=True)
+                raise SystemExit(ExitCode.USAGE)
+            if renderer == "json":
+                _emit_json(detail)
+                return
+            click.echo(f"{detail['name']}  {detail['summary']}".rstrip())
+            if detail["group"]:
+                click.echo(f"  group: {detail['group']}")
+            if detail["source_file"]:
+                click.echo(f"  source: {detail['source_file']}")
+            if detail["requires_tty"]:
+                click.echo("  requires a terminal")
+            if detail["dependencies"]:
+                click.echo(f"  depends on: {', '.join(detail['dependencies'])}")
+            click.echo("  parameters:")
+            if not detail["parameters"]:
+                click.echo("    (none)")
+            for param in detail["parameters"]:
+                flag = (
+                    "required"
+                    if param["required"]
+                    else f"default={param.get('default')!r}"
+                )
+                click.echo(f"    {param['name']}: {param.get('type')} ({flag})")
+            return
+
+        catalog = job_catalog(app)
+        if renderer == "json":
+            _emit_json(catalog)
+            return
+        for line in render_catalog_text(catalog):
+            click.echo(line)
+
+    @info_group.command("schema")
+    @click.argument("name", required=False)
+    @click.option(
+        "--kind",
+        type=click.Choice(["job", "builtin"]),
+        default=None,
+        help="Restrict to jobs, or to builtin commands. Default: both.",
+    )
+    @click.pass_context
+    def info_schema(ctx: click.Context, name: str | None, kind: str | None) -> None:
+        """Print every command's input contract as JSON Schema.
+
+        Covers jobs *and* builtins: both are nodes in one command tree, and an
+        agent should not have to walk `--help` for the builtin subtree either.
+        Address one command by its dotted path — `demo.report`,
+        `builtin.skills.materialize`.
+
+        Always JSON — it is a contract, not a display. Built by the same core
+        renderer the MCP plugin calls, so a tool definition and this command
+        cannot describe a command differently.
+        """
+        from functualize._cli.info import command_schemas
+
+        app, _ = _info_app_and_config(ctx)
+        schemas = command_schemas(app, name, kind=kind)
+        if name is not None and not schemas:
+            click.echo(f"Error: no command named '{name}'.", err=True)
+            raise SystemExit(ExitCode.USAGE)
+        _emit_json(schemas[0] if name is not None else schemas)
+
+    @info_group.command("all")
+    @click.option(
+        "--json",
+        "json_out",
+        is_flag=True,
+        default=False,
+        help="Emit JSON. Default it with FUNCTUALIZE_CLI_OUTPUT=json.",
+    )
+    @click.pass_context
+    def info_all(ctx: click.Context, json_out: bool) -> None:
+        """Everything info knows, as one document.
+
+        Environment, config resolution, agent skills, and every job with its
+        input schema — one fetch instead of four commands and three prose
+        formats.
+        """
+        from functualize._cli.info import (
+            full_report,
+            render_report_text,
+            resolve_renderer,
+        )
+
+        app, cli_config = _info_app_and_config(ctx)
+        report = full_report(app, cli_config)
+
+        # `all` is a document, not a display: there is no panelled version of
+        # it, so `rich` and `plain` render the same text and only `json`
+        # differs.
+        if resolve_renderer(json_out, cli_config) == "json":
+            _emit_json(report)
+            return
+        for line in render_report_text(report):
+            click.echo(line)
+
+    _mount(builtin_app, info_group, "info")
 
     _mount(cli_group, builtin_app, "builtin")

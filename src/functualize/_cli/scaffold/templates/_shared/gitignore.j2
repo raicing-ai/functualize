@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment files — these carry credentials and must never be committed.
+.env
+.env.*
+!.env.example
+
+# Config layers.
+#
+# config.base.toml is the only committed layer: it holds what is true in every
+# environment. The per-environment overlays are local to each machine and may
+# carry development credentials, so they stay out of version control.
+#
+# Commit a config.dev.toml.example alongside the base file so a fresh clone can
+# reconstruct what its overlay needs.
+config.*.toml
+!config.base.toml
+!config.*.example.toml
+
+# Functualize runtime state
+.functualize/
+.functualize_cache.json
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+
+# OS
+.DS_Store
+Thumbs.db

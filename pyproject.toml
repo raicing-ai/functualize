@@ -110,9 +110,19 @@ functualize-mcp = { workspace = true }
 [tool.hatch.build.targets.wheel]
 packages = ["src/functualize"]
 
+# Agent skills are authored at the repo root (where the skills CLI and a
+# Claude Code marketplace look for them) and carried into the wheel so an
+# installed functualize can hand an agent the skills for *that* version.
+# One source of truth, two consumers. `_cli/skills.py` resolves the packaged
+# copy first and falls back to the repo directory for editable installs;
+# tests/skills/test_packaging.py asserts this mapping still exists.
+[tool.hatch.build.targets.wheel.force-include]
+"skills" = "functualize/_skills"
+
 [tool.hatch.build.targets.sdist]
 only-include = [
     "src/functualize",
+    "skills",
     "README.md",
     "LICENSE",
     "CHANGELOG.md",

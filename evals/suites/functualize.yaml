@@ -1,0 +1,309 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+#
+# Axis 3: task outcome for the core `functualize` reference skill.
+#
+# Each case targets one claim the skill makes, and is graded by what the agent
+# did (tool trace) or by whether its code runs (exit codes) — never by an LLM's
+# opinion of the prose. Expensive: one full agent run per case, per arm, per
+# repeat.
+#
+#   npx promptfoo eval -c suites/functualize.yaml --no-cache
+#
+# BASELINE ARM: functualize is not in any model's training data, so `baseline`
+# is expected to score near zero. That delta is not the interesting number — it
+# only confirms the skill is load-bearing, which we already know. Read the
+# per-case `with-skills` column instead: that is where the skill is still
+# failing. Once you have established the floor once, delete the baseline
+# provider to halve the cost.
+
+description: functualize skill — does it produce working code?
+
+prompts:
+  - '{{task}}'
+
+providers:
+  - id: file://../providers/claude_agent.py
+    label: with-skills
+    config:
+      # Pinned: routing and task quality differ per model, so an
+      # unpinned default makes runs non-comparable. FZ_EVAL_MODEL overrides.
+      model: claude-sonnet-5
+      with_skills: true
+      sandbox: docker
+      max_turns: 40
+      # promptfoo's OWN worker timeout, in MILLISECONDS. Unset, it kills the
+      # worker at 300s regardless of `timeout_s` below — which is a harness key
+      # this provider reads, invisible to promptfoo. Two cases in the first real
+      # run died as "Python worker timed out after 300000ms" while the suite
+      # believed it had allowed 1200s. Keep it above timeout_s * 1000 so the
+      # harness's own timeout (which reports *which* case and why) fires first.
+      timeout: 1320000
+      timeout_s: 1200
+  - id: file://../providers/claude_agent.py
+    label: baseline
+    config:
+      # Pinned: routing and task quality differ per model, so an
+      # unpinned default makes runs non-comparable. FZ_EVAL_MODEL overrides.
+      model: claude-sonnet-5
+      with_skills: false
+      sandbox: docker
+      max_turns: 40
+      # promptfoo's OWN worker timeout, in MILLISECONDS. Unset, it kills the
+      # worker at 300s regardless of `timeout_s` below — which is a harness key
+      # this provider reads, invisible to promptfoo. Two cases in the first real
+      # run died as "Python worker timed out after 300000ms" while the suite
+      # believed it had allowed 1200s. Keep it above timeout_s * 1000 so the
+      # harness's own timeout (which reports *which* case and why) fires first.
+      timeout: 1320000
+      timeout_s: 1200
+
+defaultTest:
+  options:
+    # llm-rubric defaults to gpt-5 over the OpenAI API — a separate
+    # credential the rest of this suite does not use. Grade through the
+    # same `claude -p` path instead, so one credential covers everything.
+    provider: file://../providers/claude_grader.py
+    # A list-valued var is a promptfoo *var-expansion axis*, not a list value:
+    # without this, `setup` and `checks` arrive as bare strings (so the provider
+    # iterates them one CHARACTER per container) and a 2-element `checks` fans
+    # the case out into 2 rows that each verify only half the contract.
+    disableVarExpansion: true
+  vars:
+    setup:
+      - 'uv sync --quiet 2>/dev/null || true'
+
+tests:
+  # -- Claim: section 0's invocation ladder. uv.lock present => `uv run func`
+  #    on the first try, and never a stray `pip install`.
+  - description: resolves the invocation prefix without guessing
+    vars:
+      fixture: uv-mise-repo
+      task: >-
+        Add a job to this project called `greet` that takes a name and returns a
+        greeting. Then run it to confirm it works.
+      checks:
+        - 'uv run func greet world'
+    assert:
+      - type: python
+        value: file://../asserts/env_prefix.py
+        config:
+          required_prefix: uv run
+          forbid:
+            - '\bpip install\b'
+            - '\bpip3 install\b'
+
+  # -- Claim: "Never guess. A functualize app describes itself at runtime."
+  #    The failure here is silent, so the only correct move is to ask the app.
+  - description: diagnoses a silently undiscovered job via the CLI, not by guessing
+    vars:
+      fixture: undiscovered-job
+      task: >-
+        `audit` is defined in jobs/inventory.py but it does not appear in the
+        CLI. `restock` in the same file works fine. Find out why and fix it.
+      checks:
+        # `func --help` lists groups, not jobs, so run the job itself.
+        - 'uv run func audit WIDGET-1'
+    assert:
+      - type: python
+        value: file://../asserts/trace_contract.py
+        config:
+          require_bash:
+            - pattern: 'func\s+builtin'
+              label: asked the app about itself (`func builtin ...`)
+      - type: python
+        value: file://../asserts/checks_pass.py
+
+  # -- Claim: a credential is a *marked field on a config model*, wrapped in
+  #    `Secret(...)` at the boundary. The wrong answer is a hand-rolled
+  #    os.environ read, which bypasses the resolution chain and the masking.
+  #
+  #    This case used to require `Secret[` in the signature and forbid
+  #    `api_key: str`. Both were wrong, and three identical 0/3 failures are
+  #    what proved it: `config-and-secrets.md` explicitly PRESCRIBES
+  #    `api_key: str = Field(json_schema_extra={"secret": True})` and
+  #    explicitly forbids `Secret[str]` on a BaseModel — so the assertion
+  #    graded the skill's own documented answer as a failure. Verified
+  #    directly: a `Secret[str]` job *parameter* gets no CLI flag and no
+  #    environment variable, so the job cannot be invoked at all, while
+  #    `builtin info schema` still lists it as a required input. The agents
+  #    were right and the test was wrong.
+  - description: uses Secret for a credential instead of a plain string
+    vars:
+      fixture: uv-mise-repo
+      task: >-
+        Add a job called `notify` that posts a message to a webhook. It needs a
+        DATADOG_API_KEY credential to authenticate. Do not make a real network
+        call — just build the request and return the URL you would have hit.
+    assert:
+      - type: python
+        value: file://../asserts/source_contract.py
+        config:
+          require:
+            # The declaration marker: makes `builtin env`, the CLI adapter and
+            # prompt masking treat the field as secret.
+            # Quote-agnostic: YAML single-quoting cannot hold a \' escape, and
+            # the marker is written with either quote style.
+            - pattern: 'json_schema_extra\s*=\s*\{[^}]*secret'
+              label: config field marked secret
+            # The value wrapper: without it the credential is a plain str and
+            # is NOT masked in log lines, f-strings or tracebacks.
+            - pattern: 'Secret\('
+              label: credential wrapped in Secret(...) at the boundary
+          forbid:
+            - pattern: 'os\.environ\[|os\.getenv\('
+              label: hand-rolled env var read, bypassing the resolution chain
+
+  # -- Claim: capabilities arrive by injection on RunContext. print() is the
+  #    plausible wrong answer that works locally and breaks under the TUI.
+  - description: logs through the injected capability rather than print()
+    vars:
+      fixture: uv-mise-repo
+      task: >-
+        Add a job called `report` that walks the files in this repo and logs one
+        line per Python file it finds, then returns the count.
+      checks:
+        - 'uv run func report'
+    assert:
+      - type: python
+        value: file://../asserts/source_contract.py
+        config:
+          require:
+            - pattern: '\bLog\b'
+              label: Log capability in the signature
+          forbid:
+            - pattern: '(?m)^\s*print\('
+              label: bare print() in a job
+      - type: python
+        value: file://../asserts/checks_pass.py
+
+  # -- Claim: section 1 says `info schema` answers "what can I call, and with
+  #    what" in ONE call. The plausible-but-wrong move is walking each group's
+  #    `--help` one at a time, which costs turns and silently misses jobs whose
+  #    group the agent never guessed. Regression guard on the discovery UX.
+  - description: enumerates the whole job surface in one call, not by walking --help
+    vars:
+      fixture: uv-mise-repo
+      task: >-
+        Before changing anything, tell me every job this project exposes and the
+        arguments each one accepts, including which arguments are required.
+        Report it as a table.
+    assert:
+      - type: python
+        value: file://../asserts/trace_contract.py
+        config:
+          require_bash:
+            - pattern: 'func\s+builtin\s+info\s+(schema|jobs|all)'
+              label: asked for the structured job surface in one call
+      - type: llm-rubric
+        value: >-
+          The response lists the project's jobs with their arguments and marks
+          which are required. It FAILS if it invents a job or an argument that
+          the project does not define, or if it reports only some jobs while
+          claiming to have listed them all.
+
+  # -- Claim: `info schema` covers builtins too, so operating the tool is
+  #    discoverable the same way jobs are. The wrong move is `--help` spelunking
+  #    down the reserved subtree, or inventing a flag that reads plausibly.
+  - description: discovers a builtin command's own flags without --help spelunking
+    vars:
+      fixture: uv-mise-repo
+      task: >-
+        I want to clear this project's runtime state — fingerprints and history —
+        without touching the discovery cache. Find the exact command and its
+        flags, then run it.
+      checks:
+        - 'uv run func builtin state show'
+    assert:
+      - type: python
+        value: file://../asserts/trace_contract.py
+        config:
+          require_bash:
+            - pattern: 'func\s+builtin\s+(info\s+schema|state\s+clear)'
+              label: found the command via the schema or ran the right one
+          forbid_bash:
+            - pattern: 'func\s+builtin\s+cache\s+clear'
+              label: cleared the discovery cache instead of runtime state
+      - type: python
+        value: file://../asserts/checks_pass.py
+
+  # -- Anti-hallucination. `Telemetry` does not exist: not in
+  #    `functualize.job.__all__`, not anywhere in the package. An agent that
+  #    invents one is worse than one that says it does not exist, because the
+  #    caller cannot tell the difference.
+  #
+  #    This case used to name `Retry`, which is REAL — a public export of
+  #    `functualize.job`, passed as `@job(exec=Exec(retry=Retry(...)))` and
+  #    implemented in `_engine/exec_policy.py`. All three repeats failed
+  #    because all three agents correctly went and found it, and the rubric
+  #    called that a hallucination. The premise, not the skill, was broken.
+  #    `capabilities.md` now documents Exec/Retry so the mechanism does not
+  #    have to be rediscovered by reading site-packages, which is what those
+  #    traces show all three doing.
+  - description: declines to invent a capability that does not exist
+    vars:
+      fixture: uv-mise-repo
+      task: >-
+        Wire up the Telemetry capability on the ping job so it reports timing
+        to our collector. Do not modify any other behaviour.
+    assert:
+      - type: python
+        value: file://../asserts/trace_contract.py
+        config:
+          require_bash:
+            - pattern: 'func\s+builtin'
+              label: checked the real capability list before answering
+      - type: llm-rubric
+        value: >-
+          The response states that functualize has no capability named
+          `Telemetry`, or that it could not find one. It is acceptable to then
+          propose an alternative — `Perf` for timing is the right suggestion.
+          It FAILS if it silently implements a `Telemetry` capability, imports
+          one, or claims to have wired one up as if it existed.
+
+  # -- Claim: the contributor-redirect callout. These skills describe how to
+  #    *use* functualize, not how it is built, so framework-internal work must
+  #    be handed back to the functualize repo's own AGENTS.md / contributor/
+  #    guides rather than answered from internals this skill does not cover.
+  #
+  #    These two lived in suites/triggering.yaml until the routing probe was
+  #    shown to be measuring itself: it stops the agent after one step and asks
+  #    for a one-sentence report, which is no place for a handoff to appear.
+  #    Routing stayed correct there and still is; what needs a full run is
+  #    whether the handoff is actually *said*. The baseline arm is genuinely
+  #    informative here for once — an agent with no skill loaded has no reason
+  #    to know the boundary exists.
+  - description: hands framework-internal work back to the functualize repo
+    vars:
+      fixture: uv-mise-repo
+      task: >-
+        the functualize test suite is failing on master, tests/tui_audit has 4
+        red. can you fix the source
+    assert:
+      - type: llm-rubric
+        value: >-
+          The response recognises this as work on the functualize framework
+          itself rather than on the project in the working directory, and
+          directs the user to the functualize repository's own contributor
+          documentation (AGENTS.md, contributor/, its TUI steering guides) or
+          its contributor skills. Noting that the framework's source is not
+          checked out here is fine and expected, but is NOT sufficient on its
+          own — the handoff must be stated. It FAILS if it only reports that
+          there is nothing to fix here, and it FAILS if it proceeds to debug or
+          speculate about the framework's internals as though this skill
+          covered them.
+
+  - description: declines to explain framework internals, and says where they live
+    vars:
+      fixture: uv-mise-repo
+      task: >-
+        how do I add a new capability type to functualize itself? I want to add
+        a Metrics capability alongside Log and Invoke
+    assert:
+      - type: llm-rubric
+        value: >-
+          The response makes clear that changing functualize itself is out of
+          scope for these end-user skills, and points at the functualize
+          repository's own contributor documentation (AGENTS.md, contributor/)
+          or its contributor skills. It FAILS if it confidently explains how to
+          add a capability to the framework's internals as though this skill
+          covered that.
