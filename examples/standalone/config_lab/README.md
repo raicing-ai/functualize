@@ -18,10 +18,6 @@ The lab ships a *simulated* global config at `xdg/functualize/config.toml`.
 Pointing `XDG_CONFIG_HOME` at `./xdg` activates it without touching your real
 `~/.config/functualize/config.toml`.
 
-> **Cache note:** the discovery cache persists the last scan and does not yet
-> fingerprint the filter configuration. **Run `func builtin cache clear` between the
-> steps below**, or the listing will show stale results.
-
 ## Step-by-step verification
 
 | # | Run | Expect | Which layer won |

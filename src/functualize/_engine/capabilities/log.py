@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 from typing import ClassVar
 
+from functualize._engine.capabilities.spec import CapabilitySpec
+
 _DEFAULT_LOGGER = logging.getLogger("functualize.job")
 
 #: The level names accepted by every logging entry point in the framework.
@@ -87,3 +89,12 @@ class Log:
     def debug(self, msg: object) -> None:
         """Log at DEBUG level."""
         self(msg, level="debug")
+
+
+# ── Registry entry (ADR-014) ───────────────────────────────────────────────
+
+CAPABILITY = CapabilitySpec(
+    name="Log",
+    type=Log,
+    factory=lambda ctx: Log(job_name=ctx.context.job_name),
+)

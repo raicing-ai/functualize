@@ -49,10 +49,18 @@ class GuardState(Enum):
     SKIP_FRESH = "skip_fresh"
     BLOCKED = "blocked"
     ERROR = "error"
+    #: The job declared inputs and none of them resolved. It did not run, and
+    #: it is emphatically **not** a skip: a skip means "nothing to do", and
+    #: this means "I was asked to verify files that are not there". Reporting
+    #: it as a skip is the false-clean this state exists to make impossible.
+    REFUSED = "refused"
 
     @property
     def is_skip(self) -> bool:
-        """True for the three skip states (neutral, satisfied, fresh)."""
+        """True for the three skip states (neutral, satisfied, fresh).
+
+        REFUSED is not among them, on purpose — see the member's own note.
+        """
         return self in (
             GuardState.SKIP_NEUTRAL,
             GuardState.SKIP_SATISFIED,
@@ -171,6 +179,14 @@ class GuardEvaluator:
         fresh = fingerprint.up_to_date if fingerprint is not None else False
         if fingerprint is not None:
             checks.append(f"fingerprint  {fingerprint.reason}")
+
+        # Before every skip branch below, including the status-guard one. A
+        # refusal that could be reached by falling through to SKIP_FRESH — or
+        # short-circuited by a status guard saying "already done" — would be
+        # the exact false-clean this is here to prevent: a stage certifying
+        # success having verified nothing.
+        if fingerprint is not None and fingerprint.refused:
+            return GuardVerdict(GuardState.REFUSED, fingerprint.reason, tuple(checks))
 
         if satisfied:
             # R10a: status ANDs with file staleness where a file signal exists.

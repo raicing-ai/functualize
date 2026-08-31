@@ -36,9 +36,14 @@ def _reset_state():
 
 
 def _create_config_file(
-    directory: Path, content: str, filename: str = "config.base.ini"
+    directory: Path, content: str, filename: str = "config.base.toml"
 ) -> Path:
-    """Write a config INI file into the given directory."""
+    """Write a config TOML file into the given directory.
+
+    TOML is the only format registered by default (ADR-007); these files used
+    to be INI and were read only because ``boot_standard`` registered the INI
+    provider unconditionally.
+    """
     config_file = directory / filename
     config_file.write_text(content)
     return config_file
@@ -187,7 +192,7 @@ class TestFullCLIInvocation:
         config_dir.mkdir()
         _create_config_file(
             config_dir,
-            "[general]\napp_name = integration-test\n",
+            '[general]\napp_name = "integration-test"\n',
         )
 
         jobs_dir = tmp_path / "jobs"
@@ -628,7 +633,7 @@ class TestJobConfigResolutionEndToEnd:
         config_dir.mkdir()
         _create_config_file(
             config_dir,
-            "[file_cfg]\nport = 9090\nhost = config-host\n",
+            '[file_cfg]\nport = 9090\nhost = "config-host"\n',
         )
 
         jobs_dir = tmp_path / "jobs"
@@ -671,7 +676,11 @@ class TestJobConfigResolutionEndToEnd:
         config_dir.mkdir()
         _create_config_file(
             config_dir,
-            "[prec_job]\nalpha = from-config\nbeta = from-config\ngamma = from-config\ndelta = from-config\n",
+            "[prec_job]\n"
+            'alpha = "from-config"\n'
+            'beta = "from-config"\n'
+            'gamma = "from-config"\n'
+            'delta = "from-config"\n',
         )
 
         jobs_dir = tmp_path / "jobs"
@@ -829,7 +838,7 @@ class TestShowInfoIntegration:
         """show-info displays config directory information."""
         config_dir = tmp_path / "cfg"
         config_dir.mkdir()
-        _create_config_file(config_dir, "[myapp]\nkey = value\n")
+        _create_config_file(config_dir, '[myapp]\nkey = "value"\n')
 
         app = FunctualizeApp(name="testapp")
         result = runner.invoke(

@@ -1,4 +1,4 @@
-"""The excluded-capability list must equal what the engine actually injects.
+"""Capability parameters must not survive extraction onto any surface.
 
 `test_di_exclusion_properties.py` builds its stub types *from*
 `_EXCLUDED_PARAM_TYPE_NAMES`, so it verifies "everything in the list is
@@ -8,57 +8,22 @@ every descriptor-driven surface while the CLI filtered them correctly: the CLI
 tests the live annotation on a separate path, so the only surface that leaked
 was the one with no test comparing it to another.
 
-These tests bind the list to two independent sources — the engine's injection
-dispatch, and the CLI's own parameter rendering — so a new capability cannot be
-added without either updating the list or failing here.
+`_engine/capabilities/registry.py` now asserts at import that the declared
+`CapabilitySpec` names equal `INJECTED_PARAM_TYPE_NAMES`, which owns the
+"list agrees with the engine" half of this. What it cannot cover is *behaviour*:
+that extraction actually drops those parameters, on the live public types and
+under deferred annotations. That is what remains here.
 """
 
 from __future__ import annotations
 
 import importlib
-import re
 import sys
-from pathlib import Path
 
 import pytest
 
 from functualize._discovery.providers import extract_parameters_from_signature
-from functualize._types.capabilities import INJECTED_CAPABILITY_TYPE_NAMES
-
-EXECUTOR = (
-    Path(__file__).resolve().parents[2]
-    / "src"
-    / "functualize"
-    / "_engine"
-    / "executor.py"
-)
-
-
-def _engine_injected_names() -> set[str]:
-    """Type names the executor's capability factory dispatches on.
-
-    Read from source rather than kept by hand: a second hand-kept list would
-    reproduce the bug this file exists to prevent. If the dispatch is
-    restructured this test fails, which is when a human should look at the
-    exclusion list anyway.
-    """
-    found = set(re.findall(r"(?:if|elif) type_ is (\w+):", EXECUTOR.read_text()))
-    # Injected on separate paths: RunContext *is* the context rather than
-    # something built from it, and the config view arrives through the app's
-    # configured view type rather than a literal identity branch.
-    return found | {"RunContext", "JobConfigView"}
-
-
-def test_exclusion_list_matches_engine_injection():
-    """Every injected capability is excluded, and nothing else is."""
-    injected = _engine_injected_names()
-    assert injected == INJECTED_CAPABILITY_TYPE_NAMES, (
-        "capability exclusion drift — a parameter the engine fills would be "
-        "published as a caller-supplied argument (or a real argument would be "
-        "deleted).\n"
-        f"  injected but not excluded: {sorted(injected - INJECTED_CAPABILITY_TYPE_NAMES)}\n"
-        f"  excluded but not injected: {sorted(INJECTED_CAPABILITY_TYPE_NAMES - injected)}"
-    )
+from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
 
 
 def test_no_capability_survives_parameter_extraction():
@@ -81,6 +46,7 @@ def test_no_capability_survives_parameter_extraction():
         Prompt,
         RunContext,
         Shell,
+        Sources,
         State,
         Stdout,
     )
@@ -94,6 +60,7 @@ def test_no_capability_survives_parameter_extraction():
         ask: Prompt,
         perf: Perf,
         st: State,
+        srcs: Sources,
         tty: TTY,
         live: Live,
         ctx: JobContext,
@@ -110,7 +77,7 @@ def test_no_capability_survives_parameter_extraction():
     )
 
 
-@pytest.mark.parametrize("capability", sorted(INJECTED_CAPABILITY_TYPE_NAMES))
+@pytest.mark.parametrize("capability", sorted(INJECTED_PARAM_TYPE_NAMES))
 def test_each_capability_is_excluded_under_pep_563(capability, tmp_path):
     """PEP 563 turns every annotation into a string — exclusion must survive it.
 
@@ -143,7 +110,7 @@ def test_each_capability_is_excluded_under_pep_563(capability, tmp_path):
 
 def test_stdin_is_not_treated_as_a_capability():
     """`Stdin` is a marker on a real parameter — excluding it deletes a flag."""
-    assert "Stdin" not in INJECTED_CAPABILITY_TYPE_NAMES
+    assert "Stdin" not in INJECTED_PARAM_TYPE_NAMES
 
     from typing import Annotated
 

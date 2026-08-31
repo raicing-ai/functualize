@@ -25,7 +25,7 @@ def parent_project(tmp_path: Path) -> Path:
         - pyproject.toml with functualize>=0.2.0 dependency
         - src/parent_app/__init__.py
         - src/parent_app/jobs/ directory
-        - config.base.ini with [general] and [children] sections
+        - config.base.toml with [general] and [children] sections
 
     Returns:
         Path to the parent project directory.
@@ -54,9 +54,10 @@ def parent_project(tmp_path: Path) -> Path:
     (jobs_dir / "__init__.py").write_text("")
 
     # Config with [general] and [children] sections
-    config_file = project_dir / "config.base.ini"
+    config_file = project_dir / "config.base.toml"
     config_file.write_text(
-        "[general]\napp_name = parent_app\n\n[children]\nchild_app = ../child_project\n"
+        '[general]\napp_name = "parent_app"\n\n'
+        '[children]\nchild_app = "../child_project"\n'
     )
 
     return project_dir
@@ -175,7 +176,7 @@ def child_project_no_version(tmp_path: Path) -> Path:
 def strict_config(tmp_path: Path) -> Path:
     """Create a config directory with strict_hierarchy_validation = true.
 
-    Creates a config.base.ini with the [general] section containing
+    Creates a config.base.toml with the [general] section containing
     strict_hierarchy_validation = true.
 
     Returns:
@@ -184,14 +185,14 @@ def strict_config(tmp_path: Path) -> Path:
     config_dir = tmp_path / "strict_config"
     config_dir.mkdir()
 
-    config_file = config_dir / "config.base.ini"
+    config_file = config_dir / "config.base.toml"
     config_file.write_text(
         "[general]\n"
-        "app_name = strict_app\n"
+        'app_name = "strict_app"\n'
         "strict_hierarchy_validation = true\n"
         "\n"
         "[children]\n"
-        "child = ../child_project\n"
+        'child = "../child_project"\n'
     )
 
     return config_dir
@@ -201,7 +202,7 @@ def strict_config(tmp_path: Path) -> Path:
 def non_strict_config(tmp_path: Path) -> Path:
     """Create a config directory without the strict_hierarchy_validation option.
 
-    Creates a config.base.ini with a [general] section that does not
+    Creates a config.base.toml with a [general] section that does not
     include the strict_hierarchy_validation option, defaulting to
     non-strict mode.
 
@@ -211,9 +212,10 @@ def non_strict_config(tmp_path: Path) -> Path:
     config_dir = tmp_path / "non_strict_config"
     config_dir.mkdir()
 
-    config_file = config_dir / "config.base.ini"
+    config_file = config_dir / "config.base.toml"
     config_file.write_text(
-        "[general]\napp_name = non_strict_app\n\n[children]\nchild = ../child_project\n"
+        '[general]\napp_name = "non_strict_app"\n\n'
+        '[children]\nchild = "../child_project"\n'
     )
 
     return config_dir

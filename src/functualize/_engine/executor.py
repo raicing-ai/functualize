@@ -37,6 +37,7 @@ from functualize._engine.resolution import ResolutionPlan, build_resolution_plan
 from functualize._engine.validation import ArgValidator
 from functualize._events import EventBus, HookEvent, HookRegistry
 from functualize._primitives import DIRegistry, MissingProviderError
+from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
 from functualize._types import AmbiguousJobError, JobResult, RunStatus
 from functualize._types.annotations import resolved_hints
 from functualize._types.redaction import Secret, redacted_snapshot
@@ -48,6 +49,22 @@ if TYPE_CHECKING:
     from functualize._engine.result import RegisteredJob
 
 logger = logging.getLogger(__name__)
+
+
+def _per_invocation_types() -> set[type]:
+    """The capability types the engine instantiates per invocation.
+
+    Derived from the capability registry (ADR-014), not restated here. It was
+    restated here, and there were two lists — the resolution plan's ("is this
+    parameter resolvable?") and the resolver's ("instantiate it") — so a type
+    present in one but not the other resolved to nothing, with no error.
+
+    Returns a fresh mutable set because both callers add the dynamic
+    ``JobConfigView`` type to it.
+    """
+    from functualize._engine.capabilities.registry import PER_INVOCATION_TYPES
+
+    return set(PER_INVOCATION_TYPES)
 
 
 class _MinimalConfigView:
@@ -266,6 +283,89 @@ class JobExecutionEngine:
             )
         return config_class()
 
+    # ── The one fingerprint-key derivation ────────────────────────────────
+    #
+    # There were three conventions across six call sites, and the writer used
+    # a fourth thing again: `compute_args_hash(config, context.call_kwargs)`
+    # with the *whole* kwargs mapping. By the time the pre-flight runs, that
+    # mapping holds five different kinds of thing, and only one of them
+    # belongs in the key:
+    #
+    #   DI-injected capabilities   no — unreconstructable, and `repr` carries
+    #                              a memory address, so a job with a `Log`
+    #                              parameter got a new key every single run
+    #                              and could never report fresh
+    #   the resolved config model  no — already passed as `config`
+    #   resolved GroupOptions      no — same, via config resolution
+    #   FromJob upstream values    no — derived from an upstream whose own
+    #                              freshness is separately checked, and
+    #                              circular for a reader to reconstruct
+    #   what the CALLER passed     yes
+    #
+    # Hence: config + (call_kwargs - everything the executor injected). The
+    # subtraction is exact rather than a type-sniffing heuristic because the
+    # executor recorded each of its own injections in `context.injected`.
+    #
+    # And because the engine passes no explicit args when it triggers a run
+    # itself — a dependency, a `FromJob` upstream, a plain `func <job>` — the
+    # explicit half is `{}` there, which is what lets a reader holding only a
+    # job name reconstruct the key. See `fingerprint_key_for`.
+
+    def _args_hash_for(self, context: Any) -> str:
+        """The args hash for an in-flight run: config + caller-passed args."""
+        from functualize._primitives.fingerprint import (
+            compute_args_hash,
+            config_payload,
+        )
+
+        rc = self._run_context_of(context)
+        config = getattr(rc, "job_config", None) if rc is not None else None
+        injected = getattr(context, "injected", None) or set()
+        explicit = {
+            name: value
+            for name, value in context.call_kwargs.items()
+            if name not in injected
+        }
+        return compute_args_hash(config_payload(config), explicit)
+
+    def fingerprint_key_for(self, job_name: str, method: str) -> str:
+        """The key an **engine-triggered** run of ``job_name`` writes under.
+
+        The reader-side counterpart of :meth:`_args_hash_for`. It resolves
+        config through :meth:`resolve_config_model`, which is the same
+        ``_config_resolver`` execution uses — so reader and writer agree by
+        construction rather than by convention.
+
+        The explicit-args half is ``{}`` because that is what an
+        engine-triggered run has: a dependency, a `FromJob` upstream and a
+        plain ``func <job>`` all pass no arguments of their own.
+
+        Propagates nothing: an unresolvable config degrades to ``None`` here,
+        because every caller is a *read* path (`why`, a `FromJob` lookup) that
+        must not turn a missing config field into a crash.
+        """
+        from functualize._primitives.fingerprint import (
+            compute_args_hash,
+            config_payload,
+            fingerprint_key,
+        )
+
+        try:
+            config = self.resolve_config_model(job_name)
+        except Exception as exc:
+            # `resolve_config_model` deliberately propagates ValidationError.
+            # A read path degrades — but says so, rather than silently
+            # answering as though the job declared no config.
+            logger.debug(
+                "config for %r could not be resolved while deriving its "
+                "fingerprint key (%s); using no config",
+                job_name,
+                exc,
+            )
+            config = None
+        args_hash = compute_args_hash(config_payload(config), {})
+        return fingerprint_key(job_name, args_hash, method)
+
     def _ensure_materialized(self, entry: RegisteredJob) -> RegisteredJob:
         """Materialize a lazily-registered entry; no-op for live entries.
 
@@ -380,21 +480,9 @@ class JobExecutionEngine:
 
         errors: list[ResolutionError] = []
 
-        # Per-invocation types handled by the engine, not the DI registry
-        per_invocation_type_names = {
-            "RunContext",
-            "Log",
-            "Invoke",
-            "Prompt",
-            "Perf",
-            "Shell",
-            "Stdout",
-            "State",
-            "JobContext",
-            "JobConfigView",
-            "TTY",
-            "Live",
-        }
+        # Per-invocation types handled by the engine, not the DI registry —
+        # the one list (see _primitives/capability_names).
+        per_invocation_type_names = INJECTED_PARAM_TYPE_NAMES
 
         sig = inspect.signature(func)
 
@@ -548,6 +636,7 @@ class JobExecutionEngine:
         workflow_scope_id: str | None = None,
         run_dependencies: bool = True,
         force_fresh: bool = False,
+        force: bool = False,
         group_option_values: dict[str, Any] | None = None,
     ) -> JobResult:
         """Execute a job, then record the run in history (T42).
@@ -578,6 +667,7 @@ class JobExecutionEngine:
             workflow_scope_id=workflow_scope_id,
             run_dependencies=run_dependencies,
             force_fresh=force_fresh,
+            force=force,
             group_option_values=group_option_values,
         )
         if invoke_depth == 0:
@@ -646,6 +736,7 @@ class JobExecutionEngine:
         workflow_scope_id: str | None = None,
         run_dependencies: bool = True,
         force_fresh: bool = False,
+        force: bool = False,
         group_option_values: dict[str, Any] | None = None,
     ) -> JobResult:
         """Execute a job with full lifecycle.
@@ -736,6 +827,7 @@ class JobExecutionEngine:
             for param_name, value in di_kwargs.items():
                 if param_name not in context.call_kwargs:
                     context.call_kwargs[param_name] = value
+                    context.injected.add(param_name)
         except MissingProviderError:
             raise
 
@@ -872,21 +964,38 @@ class JobExecutionEngine:
         from functualize._engine.guards import GuardState
 
         preflight_decision = self._preflight_check(job_name, function, context)
-        if (
-            force_fresh
-            and preflight_decision is not None
-            and preflight_decision.verdict.state is GuardState.SKIP_FRESH
-        ):
-            # A `FromJob` dependent needs this job's *value*, and the recorded
-            # one cannot be reused. Freshness answers "are the outputs on disk
-            # current?" — it says nothing about a return value that was never
-            # storable, so honouring it here would hand the dependent nothing.
-            #
-            # Only SKIP_FRESH is overridden. A platform mismatch, a satisfied
-            # `status` guard, or a gate awaiting input are all still refusals:
-            # wanting a value is not a reason to run somewhere the job does not
-            # belong.
-            preflight_decision = None
+
+        # Fill in the `Sources` capability, if the job asked for one. This sits
+        # before the force branch below on purpose: that branch discards the
+        # decision, and discarding it after binding would hand a job an empty
+        # source map on exactly the runs a `FromJob` dependent triggers.
+        self._bind_preflight_capabilities(context, preflight_decision)
+
+        # Two overrides, and they are not the same claim.
+        #
+        # `force_fresh` comes from the workflow walker, for a `FromJob`
+        # dependent that needs this job's *value* when the recorded one cannot
+        # be reused. Freshness answers "are the outputs on disk current?" — it
+        # says nothing about a return value that was never storable, so
+        # honouring it there would hand the dependent nothing. It overrides
+        # **only** SKIP_FRESH: a platform mismatch, a satisfied `status` guard
+        # or a gate awaiting input all still stand, because wanting a value is
+        # not a reason to run somewhere the job does not belong.
+        #
+        # `force` comes from a person typing `--force`, which is the stronger
+        # claim "run anyway" — so it also overrides a satisfied `status` guard,
+        # matching Taskfile's `-f`. Neither overrides a failing `Precondition`
+        # (still exit 3) or a gate (still exit 5): those say the declared
+        # conditions for running were not met, and `--force` does not change
+        # what is true about the world. Neither touches the `Exec.run` skip
+        # above, which is intra-run de-duplication rather than a freshness
+        # claim.
+        if preflight_decision is not None:
+            _state = preflight_decision.verdict.state
+            if (force_fresh and _state is GuardState.SKIP_FRESH) or (
+                force and _state in (GuardState.SKIP_FRESH, GuardState.SKIP_SATISFIED)
+            ):
+                preflight_decision = None
         if preflight_decision is not None and not preflight_decision.should_run:
             return self._preflight_result(
                 job_name, context, preflight_decision, start_time
@@ -1122,34 +1231,13 @@ class JobExecutionEngine:
         if func_id in self._resolution_plan_cache:
             return self._resolution_plan_cache[func_id]
 
-        from functualize._engine.capabilities.invoke import Invoke
-        from functualize._engine.capabilities.job_context import JobContext
-        from functualize._engine.capabilities.live import Live
-        from functualize._engine.capabilities.log import Log
-        from functualize._engine.capabilities.perf import Perf
-        from functualize._engine.capabilities.prompt import Prompt
         from functualize._engine.capabilities.runcontext import RunContext
-        from functualize._engine.capabilities.state import State
-        from functualize._engine.capabilities.tty import TTY
-        from functualize._types.shell import Shell
-        from functualize._types.stdout import Stdout
 
         registered_types = set(self._di_registry.available_types())
         # Per-invocation capability types are always resolvable even when
         # not explicitly registered in the DI registry
         _config_view_type = self._config_view_type
-        per_invocation_types: set[type] = {
-            Log,
-            Invoke,
-            Prompt,
-            Perf,
-            Shell,
-            Stdout,
-            State,
-            JobContext,
-            TTY,
-            Live,
-        }
+        per_invocation_types = _per_invocation_types()
         if _config_view_type is not None:
             per_invocation_types.add(_config_view_type)
         registered_types |= per_invocation_types
@@ -1186,31 +1274,8 @@ class JobExecutionEngine:
         resolved: dict[str, Any] = {}
         per_invocation_caps: dict[type, Any] = {}
 
-        # Import per-invocation capability types
-        from functualize._engine.capabilities.invoke import Invoke
-        from functualize._engine.capabilities.job_context import JobContext
-        from functualize._engine.capabilities.live import Live
-        from functualize._engine.capabilities.log import Log
-        from functualize._engine.capabilities.perf import Perf
-        from functualize._engine.capabilities.prompt import Prompt
-        from functualize._engine.capabilities.state import State
-        from functualize._engine.capabilities.tty import TTY
-        from functualize._types.shell import Shell
-        from functualize._types.stdout import Stdout
-
         _config_view_type = self._config_view_type
-        per_invocation_type_set: set[type] = {
-            Log,
-            Invoke,
-            Prompt,
-            Perf,
-            Shell,
-            Stdout,
-            State,
-            JobContext,
-            TTY,
-            Live,
-        }
+        per_invocation_type_set = _per_invocation_types()
         if _config_view_type is not None:
             per_invocation_type_set.add(_config_view_type)
 
@@ -1313,6 +1378,13 @@ class JobExecutionEngine:
     ) -> Any:
         """Create a fresh per-invocation capability instance.
 
+        A lookup in the capability registry, not a ladder over concrete types.
+        It was a 129-line ``if/elif`` chain ending in a bare ``type_()``
+        fallback, so a capability whose branch was never added was constructed
+        with no arguments — which either worked by accident or produced an
+        inert object, and never said which. Every branch is now a
+        ``CapabilitySpec.factory`` written beside its capability (ADR-014).
+
         Args:
             type_: The capability type to create.
             context: The current execution context.
@@ -1320,109 +1392,31 @@ class JobExecutionEngine:
 
         Returns:
             A new instance of the capability type.
+
+        Raises:
+            KeyError: If ``type_`` is not in the registry. Deliberately loud:
+                the old silent fallback is the failure this replaced.
         """
-        from functualize._engine.capabilities.invoke import Invoke, WiredInvoke
-        from functualize._engine.capabilities.job_context import JobContext
-        from functualize._engine.capabilities.live import Live
-        from functualize._engine.capabilities.log import Log
-        from functualize._engine.capabilities.perf import Perf
-        from functualize._engine.capabilities.prompt import Prompt
-        from functualize._engine.capabilities.state import State
-        from functualize._engine.capabilities.tty import TTY, terminal_available
-        from functualize._types.shell import Shell
-        from functualize._types.stdout import Stdout
+        from functualize._engine.capabilities.registry import (
+            SPEC_BY_TYPE,
+            CapabilityContext,
+        )
 
-        if type_ is Log:
-            return Log(job_name=context.job_name)
-        elif type_ is Stdout:
-            from functualize._engine.capabilities.stdout import WiredStdout
-
-            # `--output` is a per-invocation CLI flag, not config: the CLI
-            # boundary deposits the resolved value on the app before dispatch.
-            # Absent (library/embedded use) it defaults to "auto" — dispatch by
-            # value type — so `out.emit()` still works outside the CLI.
-            app = getattr(self, "_app", None)
-            return WiredStdout(
-                output_format=getattr(app, "_output_format", "auto") or "auto",
-                secrets=self._collect_job_secrets(context.job_name),
-            )
-        elif type_ is Shell:
-            from functualize._engine.capabilities.shell import WiredShell
-            from functualize._events.perf import perf_timeline
-
-            echo_sink, output_sink = self._resolve_shell_sinks()
-            return WiredShell(
-                cwd=str(context.cwd) if context.cwd else None,
-                program=self._resolve_shell_program(),
-                perf=perf_timeline,
-                event_bus=self._event_bus,
-                sudo_password=self._resolve_sudo_password(),
-                echo_sink=echo_sink,
-                output_sink=output_sink,
-                # For the sudo-password fallback only (T-S6b-4). Built on the
-                # same active collector every other prompt resolves through, so
-                # an interactive surface can answer and a piped one refuses.
-                prompt=self._resolve_prompt_capability(),
-            )
-        elif type_ is State:
-            return State()
-        elif type_ is Perf:
-            return Perf()
-        elif type_ is Prompt:
-            return Prompt()
-        elif type_ is TTY:
-            # ``caps`` is the live per-invocation map — TTY resolves rc from it
-            # lazily, so declaration order does not matter. Availability is the
-            # capability floor (Phase 5's orchestrator refines it per surface).
-            # ``funcapp`` lets tty.run push a Surface-conforming app onto the
-            # surface stack for its window.
-            return TTY(
-                caps=caps,
-                available=terminal_available(),
-                funcapp=getattr(self, "_app", None),
-            )
-        elif type_ is Live:
-            # Bind to the active live-capable surface (the CLI's StdoutSurface,
-            # or a job app's own live zone). None → a degrading no-op Live.
-            from functualize._engine.surface_routing import active_live_zone
-
-            return Live(_zone=active_live_zone(getattr(self, "_app", None)))
-        elif type_ is Invoke:
-            # Wire Invoke to execution engine with depth tracking, gate dispatch,
-            # and scope propagation
-            gate_registry = self._gate_registry
-            return WiredInvoke(
-                execution_engine=self,
-                gate_registry=gate_registry,
-                invoke_depth=context.invoke_depth,
-                max_invoke_depth=self._max_invoke_depth,
-                workflow_scope=context.parent_scope,
-                cwd=context.cwd,
-            )
-        elif type_ is JobContext:
-            # Wire JobContext with invoke_depth, scope_id, cwd, job_directory,
-            # and span_id from the active PropagationContext
-            from functualize._events.tracing import current_context as _current_ctx
-
-            prop_ctx = _current_ctx()
-            span_id = prop_ctx.span_id if prop_ctx.is_active else None
-
-            scope_id: str | None = None
-            if context.parent_scope is not None:
-                scope_id = getattr(context.parent_scope, "scope_id", None)
-
-            return JobContext(
-                name=context.job_name,
-                span_id=span_id,
-                cwd=context.cwd,
-                job_directory=context.job_directory,
-                invoke_depth=context.invoke_depth,
-                scope_id=scope_id,
-            )
-        elif self._config_view_type is not None and type_ is self._config_view_type:
+        # The one type resolved by *identity against a runtime value* rather
+        # than statically: the config-view class is discovered at boot, so it
+        # cannot be a key in a registry written at import time.
+        if self._config_view_type is not None and type_ is self._config_view_type:
             return self._make_config_view(context.job_name)
-        else:
-            return type_()
+
+        spec = SPEC_BY_TYPE.get(type_)
+        if spec is None or spec.factory is None:
+            raise KeyError(
+                f"no capability factory for {type_!r}. Declare a CapabilitySpec "
+                f"beside the capability and add its name to "
+                f"_primitives/capability_names.INJECTED_PARAM_TYPE_NAMES; see "
+                f"contributor/adr/014-capability-registry.md."
+            )
+        return spec.factory(CapabilityContext(engine=self, context=context, caps=caps))
 
     def _run_deferred_shells(self, context: ExecutionContext) -> None:
         """Unwind ``sh.defer()`` registrations for this invocation (§B.5).
@@ -1510,41 +1504,68 @@ class JobExecutionEngine:
 
         return Secret(value)
 
-    def _collect_job_secrets(self, job_name: str) -> frozenset[str]:
-        """Gather the job's ``Secret`` config values for output redaction.
+    @staticmethod
+    def _secrets_of(model: Any) -> frozenset[str]:
+        """The secret strings carried by an already-resolved config model.
 
         Feeds ``WiredStdout`` so a secret cannot leak through the explicit data
         channel any more than through a command echo (schema §5). Best-effort by
-        design: redaction must never be the reason a job fails, so any
-        resolution problem yields an empty set rather than raising.
-        """
-        from functualize._types.redaction import collect_secret_values
+        design: redaction must never be the reason a job fails, so any problem
+        yields an empty set rather than raising.
 
-        try:
-            view = self._make_config_view(job_name)
-        except Exception:
+        Takes the model rather than a job name on purpose. This used to resolve
+        the config a *second* time, from the job name, with ``cli_values={}`` —
+        so a credential passed as ``--credential`` was in the model the job
+        received and absent from the set that redacts its output, and
+        ``out.write(config.credential)`` printed it in full. The env tier
+        masked, which is why every test passed. Only the instance the job is
+        actually handed has seen every precedence tier, so only it can answer
+        this. Resolving twice also duplicated any ``RemoteSource`` fetch and
+        could redact a rotated-away value.
+        """
+        from functualize._types.redaction import collect_secret_values, is_secret_field
+
+        if model is None:
             return frozenset()
-        if view is None:
+
+        fields = getattr(type(model), "model_fields", None)
+        if not isinstance(fields, dict):
             return frozenset()
 
         values: list[Any] = []
-        model = getattr(view, "model_fields", None) or getattr(
-            type(view), "model_fields", None
-        )
-        try:
-            names = (
-                list(model)
-                if model
-                else [n for n in dir(view) if not n.startswith("_")]
-            )
-            for name in names:
-                try:
-                    values.append(getattr(view, name))
-                except Exception:
-                    continue
-        except Exception:
-            return frozenset()
-        return frozenset(collect_secret_values(values))
+        plain: set[str] = set()
+        for name, info in fields.items():
+            try:
+                value = getattr(model, name)
+            except Exception:
+                continue
+            values.append(value)
+            # `collect_secret_values` only sees real `Secret` instances. A field
+            # marked with `json_schema_extra={"secret": True}` stays a plain
+            # `str`, so without this branch the marker would mask the field in
+            # `info --job` while its value flowed through `out.emit()` intact —
+            # the declaration/value split this work exists to close. One
+            # detector, both markers.
+            if is_secret_field(info) and isinstance(value, str) and value:
+                plain.add(value)
+        return frozenset(collect_secret_values(values) | plain)
+
+    def _arm_output_redaction(self, context: ExecutionContext, model: Any) -> None:
+        """Tell this run's ``Stdout`` which strings to mask.
+
+        Called once the config model the job will receive exists. DI wiring runs
+        first — a capability has to be built before the job's arguments are
+        resolved — so the capability starts with an empty set and is armed here
+        rather than at construction.
+        """
+        from functualize._engine.capabilities.stdout import WiredStdout
+
+        secrets = self._secrets_of(model)
+        if not secrets:
+            return
+        for cap in (context.capabilities or {}).values():
+            if isinstance(cap, WiredStdout):
+                cap.add_secrets(secrets)
 
     def _resolve_shell_setting(self, key: str) -> str | None:
         """Resolve a non-empty string from the ``[shell]`` config section."""
@@ -1582,10 +1603,6 @@ class JobExecutionEngine:
         recorded, cause no work", so a missing value is the answer it asked
         for rather than a reason to run anything.
         """
-        from functualize._primitives.fingerprint import (
-            compute_args_hash,
-            fingerprint_key,
-        )
         from functualize._types.from_job import from_job_refs
 
         store = self._state_store()
@@ -1598,7 +1615,7 @@ class JobExecutionEngine:
                 continue
             for method in ("checksum", "timestamp", "none"):
                 record = store.get_fingerprint(
-                    fingerprint_key(ref.name, compute_args_hash(None, {}), method)
+                    self.fingerprint_key_for(ref.name, method)
                 )
                 if record is None:
                     continue
@@ -1756,11 +1773,7 @@ class JobExecutionEngine:
         if mode == "always":
             return False
 
-        from functualize._primitives.fingerprint import compute_args_hash
-
-        rc = self._run_context_of(context)
-        config = getattr(rc, "job_config", None) if rc is not None else None
-        args_hash = compute_args_hash(config, context.call_kwargs)
+        args_hash = self._args_hash_for(context)
         cache = self._exec_policy().run_modes
         if cache.seen(job_name, mode, args_hash):
             return True
@@ -1805,10 +1818,12 @@ class JobExecutionEngine:
                 continue  # caller supplied it
             if ref.name in live:
                 context.call_kwargs[param] = live[ref.name]
+                context.injected.add(param)
                 continue
             value = self._from_job_value(ref, scope_id, wanted.get(param))
             if value is not None:
                 context.call_kwargs[param] = value
+                context.injected.add(param)
 
     def _live_step_value(self, scope_id: str, step: str) -> Any:
         """The in-process value for ``step`` in this walk, if it is still held.
@@ -1837,11 +1852,7 @@ class JobExecutionEngine:
         if store is None:
             return None
 
-        from functualize._primitives.fingerprint import (
-            compute_args_hash,
-            fingerprint_key,
-            reusable_return_value,
-        )
+        from functualize._primitives.fingerprint import reusable_return_value
 
         if scope_id is not None:
             scope = store.get_scope(scope_id)
@@ -1867,9 +1878,7 @@ class JobExecutionEngine:
                     return self._live_step_value(scope_id, ref.name)
 
         for method in ("checksum", "timestamp", "none"):
-            record = store.get_fingerprint(
-                fingerprint_key(ref.name, compute_args_hash(None, {}), method)
-            )
+            record = store.get_fingerprint(self.fingerprint_key_for(ref.name, method))
             if record is not None:
                 return reusable_return_value(
                     record, job_name=ref.name, expected_type=expected_type
@@ -1902,15 +1911,13 @@ class JobExecutionEngine:
         ):
             return None
 
-        from functualize._primitives.fingerprint import compute_args_hash
-
         rc = self._run_context_of(context)
         config = getattr(rc, "job_config", None) if rc is not None else None
         decision = self._preflight().check(
             job_name,
             declaration,
             config=config,
-            args_hash=compute_args_hash(config, context.call_kwargs),
+            args_hash=self._args_hash_for(context),
         )
         context.metadata["preflight"] = {
             "state": decision.verdict.state.value,
@@ -1918,6 +1925,37 @@ class JobExecutionEngine:
             "checks": list(decision.verdict.checks),
         }
         return decision
+
+    @staticmethod
+    def _bind_preflight_capabilities(context: Any, decision: Any) -> None:
+        """Complete every capability whose spec declares a pre-flight bind.
+
+        DI resolves before the pre-flight runs — it must, because the
+        pre-flight's args hash reads ``context.injected`` — so a capability
+        carrying pre-flight data is injected **empty** and completed here, the
+        last point before the body is invoked at which the decision exists.
+
+        Which capabilities those are is read from the registry rather than
+        written out here. The old shape was one hard-coded call at one line:
+        lose it and the capability resolves, injects, and reports nothing, with
+        no error anywhere — the "wired but inert" failure
+        ``contributor/guides/wiring-discipline.md`` exists for. A second
+        capability of the same shape would have had to remember it again; now
+        it declares it and this loop finds it.
+
+        A job that asked for none of them costs nothing here.
+        """
+        from functualize._engine.capabilities.registry import CAPABILITY_SPECS
+
+        caps = context.capabilities or {}
+        if not caps:
+            return
+        for spec in CAPABILITY_SPECS:
+            if spec.preflight_bind is None or spec.type is None:
+                continue
+            instance = caps.get(spec.type)
+            if instance is not None:
+                spec.preflight_bind(instance, decision)
 
     def _preflight_result(
         self, job_name: str, context: Any, decision: Any, start_time: float
@@ -1927,7 +1965,13 @@ class JobExecutionEngine:
 
         state = decision.verdict.state
         status = {
-            GuardState.ERROR: RunStatus.FAILURE,
+            # A failing `Precondition` is a refusal, not a failure: nothing
+            # ran and nothing raised — the job declined to start because a
+            # declared condition for running it was not met. Its own docstring
+            # already says "non-zero = refuse"; this is where that becomes an
+            # exit code the caller can act on (3, not 1).
+            GuardState.ERROR: RunStatus.REFUSED,
+            GuardState.REFUSED: RunStatus.REFUSED,
             GuardState.BLOCKED: RunStatus.BLOCKED,
         }.get(state, RunStatus.SKIPPED)
 
@@ -2047,6 +2091,7 @@ class JobExecutionEngine:
                         job_name=_scope,
                         config_view=_view,
                         cli_values=values,
+                        group_scope=_scope,
                     )
                 return _cls(**values)
 
@@ -2056,9 +2101,14 @@ class JobExecutionEngine:
             # asked for?" depend on which *kind* of field it is — the exact
             # distinction users cannot see and should not have to.
             instance = self._resolve_with_prompt(
-                _build, options_class, env_scope, scoped_values
+                _build,
+                options_class,
+                env_scope,
+                scoped_values,
+                group_scope=env_scope,
             )
             context.call_kwargs[param_name] = instance
+            context.injected.add(param_name)
 
     def _resolve_with_prompt(
         self,
@@ -2066,6 +2116,8 @@ class JobExecutionEngine:
         config_class: type,
         section: str,
         values: dict[str, Any],
+        *,
+        group_scope: str | None = None,
     ) -> Any:
         """Build a config model, asking for what the chain could not supply (T45).
 
@@ -2078,7 +2130,7 @@ class JobExecutionEngine:
         deliberately re-raised rather than restated as a typed substitute: it
         drives the CLI's field-level panel and the config-source hint, which
         name the files that were really read, the ``config.<slot>.<ext>`` rule
-        and ``JOB__<FIELD>``. Substituting it would trade a good diagnostic for
+        and ``JOB_<FIELD>``. Substituting it would trade a good diagnostic for
         a worse one on the path users hit most (CI).
 
         Args:
@@ -2113,7 +2165,7 @@ class JobExecutionEngine:
             if prompt is None:
                 raise
             collected = self._prompt_for_missing_config(
-                config_class, section, missing, prompt
+                config_class, section, missing, prompt, group_scope=group_scope
             )
             # One retry only. If the answers still do not validate, the second
             # ValidationError propagates and is rendered normally — better a
@@ -2126,6 +2178,8 @@ class JobExecutionEngine:
         job_name: str,
         missing: tuple[str, ...],
         prompt: Any,
+        *,
+        group_scope: str | None = None,
     ) -> dict[str, Any]:
         """Collect ``missing`` from an interactive surface.
 
@@ -2151,7 +2205,11 @@ class JobExecutionEngine:
                 Declining is not the same as never being asked, so it keeps its
                 own message rather than reusing the validation error.
         """
-        from functualize._engine.missing_value import env_var_for, resolve_missing_value
+        from functualize._engine.missing_value import (
+            env_var_for,
+            group_env_var_for,
+            resolve_missing_value,
+        )
         from functualize._types.redaction import is_secret_field
 
         fields = getattr(config_class, "model_fields", {})
@@ -2161,7 +2219,11 @@ class JobExecutionEngine:
             collected[name] = resolve_missing_value(
                 prompt,
                 field=name,
-                env_var=env_var_for(job_name, name),
+                env_var=(
+                    group_env_var_for(group_scope, name)
+                    if group_scope is not None
+                    else env_var_for(job_name, name)
+                ),
                 message=f"{job_name}: {name}",
                 secret=is_secret_field(fields.get(name)),
             )
@@ -2227,6 +2289,10 @@ class JobExecutionEngine:
         if rc is not None:
             rc.job_config = config_instance
 
+        # This instance has seen every precedence tier, the command line
+        # included; nothing earlier has. Arm output redaction from it.
+        self._arm_output_redaction(context, config_instance)
+
         # Find the config parameter name in the function signature and inject.
         #
         # Annotations are resolved rather than read raw. Under
@@ -2250,6 +2316,7 @@ class JobExecutionEngine:
                 and issubclass(annotation, config_class)
             ):
                 context.call_kwargs[param_name] = config_instance
+                context.injected.add(param_name)
                 break
 
     def _execute_with_lifecycle(self, context: ExecutionContext) -> JobResult:

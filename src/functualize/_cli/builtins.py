@@ -10,6 +10,7 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -348,55 +349,62 @@ def _emit_config_field(
         lines.append(f"{key} = {toml_val}  # source: {source}")
 
 
-def _resolve_env_vars(app: Any, job_name: str) -> list[tuple[str, str, bool]]:
-    """Resolve a job's config into ``(ENV_NAME, value, is_secret)`` triples (T43).
+def _resolve_env_vars(app: Any, job_name: str) -> list[Any]:
+    """A job's config as :class:`ResolvedField` rows, for export (T43).
 
-    Uses the app's one resolution seam (:meth:`resolved_job_config`) so the
-    values match a real run and ``info --job``. ``ENV_NAME`` is
-    ``{JOB}_{FIELD}`` upper-cased with hyphens flattened — the same name
-    ``info --job`` reports and the resolution chain reads back, so the export
-    round-trips.
+    Reads the one resolution seam, so the names and values match a real run and
+    ``info --job``. Two things this deliberately does *not* do:
+
+    - It does not construct the Pydantic model, so a job with a required field
+      that nothing sets is reported rather than raising ``ValidationError``.
+      The command exists to tell an operator what is missing; a traceback in
+      exactly that case made it useless when it was most needed.
+    - It does not drop unresolved fields. They are the answer, not noise.
     """
-    from functualize.app.utils import is_secret_field, reveal
+    from functualize.app.utils import job_config_fields
 
-    model = app.resolved_job_config(job_name)
-    if model is None:
-        return []
-
-    fields = getattr(type(model), "model_fields", {})
-    rows: list[tuple[str, str, bool]] = []
-    for field_name, field_info in fields.items():
-        value = getattr(model, field_name, None)
-        if value is None:
-            continue
-        env_name = f"{job_name}_{field_name}".upper().replace("-", "_")
-        # `reveal` unwraps a `Secret` to its real string; whether that real
-        # value is ever shown is decided later by the caller's opt-in, not here.
-        rows.append((env_name, str(reveal(value)), is_secret_field(field_info)))
-    return rows
+    return job_config_fields(app, job_name)
 
 
-def _env_print(env_vars: list[tuple[str, str, bool]], include_secrets: bool) -> None:
+def _env_print(env_vars: list[Any], include_secrets: bool) -> None:
     """Print ``export NAME=value`` lines for ``eval`` (T43).
 
     A secret is masked unless the caller opted in, so the default output is safe
     to paste into a bug report or read off a shared screen; ``eval``-ing it with
     a masked secret would set the variable to ``•••``, which is the point — the
     real value takes a deliberate ``--include-secrets``.
+
+    An unresolved field is emitted **commented out**, with why. Masking used to
+    make a set secret and an unset one byte-identical (``SYNC_TOKEN='•••'``
+    either way), so the one command an operator would reach for to answer "is
+    the credential configured?" could not answer it. Commenting the unset ones
+    also makes the output a ready ``.env`` skeleton, which is what the
+    ``--template`` flag was going to be for.
     """
     import shlex
 
     import click
 
-    from functualize.app.utils import MASK
+    from functualize.app.utils import display_value, reveal
 
-    for name, value, is_secret in env_vars:
-        shown = value if (include_secrets or not is_secret) else MASK
-        click.echo(f"export {name}={shlex.quote(shown)}")
+    for f in env_vars:
+        if not f.is_set:
+            note = "REQUIRED — not set" if f.required else "not set"
+            click.echo(f"# {f.env_name}=  # {note}")
+            continue
+        # `reveal` unwraps a `Secret`; whether that real value is shown is the
+        # caller's opt-in, decided here rather than at resolution time.
+        shown = (
+            str(reveal(f.value))
+            if include_secrets
+            else display_value(f.value, secret=f.secret)
+        )
+        source = f"  # source: {f.source}" if f.source else ""
+        click.echo(f"export {f.env_name}={shlex.quote(shown)}{source}")
 
 
 def _env_exec(
-    env_vars: list[tuple[str, str, bool]],
+    env_vars: list[Any],
     command: list[str],
     include_secrets: bool,
 ) -> None:
@@ -413,11 +421,15 @@ def _env_exec(
 
     import click
 
+    from functualize.app.utils import reveal
+
     child_env = dict(os.environ)
-    for name, value, is_secret in env_vars:
-        if is_secret and not include_secrets:
+    for f in env_vars:
+        if not f.is_set:
             continue
-        child_env[name] = value
+        if f.secret and not include_secrets:
+            continue
+        child_env[f.env_name] = str(reveal(f.value))
 
     try:
         completed = subprocess.run(command, env=child_env, check=False)
@@ -509,6 +521,32 @@ def _report_parallel(job_names: tuple[str, ...], results: list[Any]) -> None:
     raise SystemExit(exit_code_for_status(failed[0].status))
 
 
+def _state_location() -> tuple[Path, str, Path | None]:
+    """The resolved state path, its mode, and the directory that decided it.
+
+    One upward walk through the same function the engine uses, so the CLI
+    cannot report a path the engine would not write to.
+    """
+    from functualize.app.utils import resolve_state_location
+
+    return resolve_state_location(Path.cwd())
+
+
+def _state_mode_line(mode: str, marker: Path | None) -> str:
+    """Render the state-store mode for a human.
+
+    Both modes name what put them there, because "which mode am I in" was
+    undiscoverable and the answer decides where to look for the file. In
+    standalone mode the line also names the switch — a project that wants its
+    ledger versioned with the code only needs `mkdir .functualize`.
+    """
+    if mode == "project":
+        return f"project (.functualize/ found at {marker})"
+    return (
+        "standalone (no .functualize/ found; create one to keep state in the project)"
+    )
+
+
 def _mount(cli_group: Any, command: Any, name: str) -> None:
     """Add a builtin command/group under the 'Functualize Commands' help panel."""
     command._functualize_panel = "Functualize Commands"
@@ -552,10 +590,27 @@ def register_builtin_commands(cli_group: Any) -> None:
     cache_app = click.Group(name="cache", help="Manage the job metadata cache.")
 
     def _build_provider_for_cwd() -> Any:
-        """Build the cached provider over auto-discovered job directories."""
+        """Build the cached provider over auto-discovered job directories.
+
+        Built from the *resolved* discovery config -- including this
+        invocation's own global flags, so `func --exclude '…' builtin cache
+        rebuild` rebuilds under that exclusion rather than ignoring it.
+
+        Passing no config made every `func builtin cache` command bare, and a
+        bare provider persists `discovery_hash: null`. `cache rebuild` unlinks
+        the file and then writes through such a provider, so the next command
+        read a null fingerprint, called it a mismatch, and rescanned -- throwing
+        away the rebuild it had just been asked for, in every project including
+        one with no filters at all. See ADR-011.
+        """
+        from functualize._cli.config import resolve_cli_config
+        from functualize._cli.dispatch import _extract_global_options
         from functualize.app.utils import build_discovery_cache_provider
 
-        return build_discovery_cache_provider()
+        _global_opts, cli_flags = _extract_global_options(sys.argv)
+        cli_config = resolve_cli_config(cli_flags=cli_flags)
+
+        return build_discovery_cache_provider(discovery_config=cli_config.discovery)
 
     @cache_app.command("show")
     def cache_show() -> None:
@@ -645,16 +700,15 @@ def register_builtin_commands(cli_group: Any) -> None:
     @state_app.command("show")
     def state_show() -> None:
         """Show runtime state statistics."""
-        from pathlib import Path
+        from functualize.app.utils import StateStore
 
-        from functualize.app.utils import StateStore, resolve_state_path
-
-        path = resolve_state_path(Path.cwd())
+        path, mode, marker = _state_location()
         store = StateStore(path)
         click.echo(f"Fingerprints: {len(store.fingerprint_keys())}")
         click.echo(f"Scopes: {len(store.scope_ids())}")
         click.echo(f"History entries: {len(store.get_history())}")
         click.echo(f"State path: {path}")
+        click.echo(f"Mode:       {_state_mode_line(mode, marker)}")
 
     @state_app.command("clear")
     def state_clear() -> None:
@@ -1005,15 +1059,40 @@ def register_builtin_commands(cli_group: Any) -> None:
     # while the code to answer it sat unused.
     @builtin_app.command("why")
     @click.argument("job_name")
+    @click.option(
+        "--json",
+        "as_json",
+        is_flag=True,
+        default=False,
+        help="Emit the verdict as one JSON object instead of prose.",
+    )
     @click.pass_context
-    def why_command(ctx: click.Context, job_name: str) -> None:
-        """Explain whether a job would run, and why."""
+    def why_command(ctx: click.Context, job_name: str, as_json: bool) -> None:
+        """Explain whether a job would run, and why.
+
+        Exits non-zero when the job is not up to date, so a script can branch on
+        the answer: 0 fresh, 4 stale, 3 refused, 5 blocked at a gate, 2 for a
+        job that cannot be resolved. `ExitCode.STALE` had no producer at all
+        before this — a pinned number in a table described as "a contract with
+        scripts and agents".
+        """
+        import json as _json
+
         obj = ctx.find_root().obj
         if obj is None or "app" not in obj:
             click.echo("Error: No app context available.", err=True)
             raise SystemExit(1)
 
-        click.echo(obj["app"].explain(job_name))
+        app = obj["app"]
+        payload = app.explain_data(job_name)
+        # Both forms come off one set of verdicts (`explain_verdicts`), so the
+        # JSON and the prose cannot disagree about the same job — which is the
+        # failure `func builtin why` itself exists to make impossible.
+        click.echo(_json.dumps(payload) if as_json else app.explain(job_name))
+
+        code = int(payload.get("exit_code", 0))
+        if code:
+            raise SystemExit(code)
 
     # --- Config sub-group ---
     @click.group(
@@ -1558,6 +1637,18 @@ def register_builtin_commands(cli_group: Any) -> None:
                         click.echo(f"    - {d}")
                 else:
                     click.echo("  Convention dirs: (none detected)")
+
+        # Where freshness is remembered, and which of the two modes that is.
+        # `resolve_state_path` has always walked upward for a `.functualize/`
+        # and fallen back to the home cache, and nothing said which had
+        # happened — so a project could spend its whole life in standalone
+        # mode and then go looking for a `state.json` under a hashed directory
+        # it had never seen.
+        state_path, state_mode, state_marker = _state_location()
+        click.echo("")
+        click.echo("─── Runtime State ───")
+        click.echo(f"  State path: {state_path}")
+        click.echo(f"  Mode:       {_state_mode_line(state_mode, state_marker)}")
 
         # Agent skills. `info` is where the skills themselves tell an agent to
         # look first, so it is where the answer to "do skills exist, and

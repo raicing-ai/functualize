@@ -34,6 +34,30 @@ New features follow the spec-driven-development phases described in `.claude/age
 | 4: Execute | Tasks ready | Implementation + `[x]` checkmarks |
 | 5: Verify | All `[x]` | Gate passes, ROADMAP.md updated |
 
-Phase 0–5 working files (`STATE.md`, `features/`, `scrutiny-reports/`, `ROADMAP.md`) are gitignored — they are session-local and not committed. Only permanent design decisions and shape intents are committed here.
+Phase 0–5 working files (`STATE.md`, `features/`, `proposals/`, `scrutiny-reports/`, `ROADMAP.md`) are gitignored — they are session-local and not committed. Only permanent design decisions and shape intents are committed here.
+
+## Session documents vs. the committed record
+
+**Proposals and scrutiny/review reports are session documents. They live under `.spec/` and are never committed.**
+
+| Kind | Where | Committed? |
+|---|---|---|
+| A proposal / plan for a change | `.spec/proposals/` | **No** — gitignored |
+| A scrutiny, audit, or review report | `.spec/scrutiny-reports/` | **No** — gitignored |
+| The decision a proposal argued for | `contributor/adr/NNN-*.md` | **Yes** |
+| A behaviour rule the review produced | `contributor/guides/*.md` | **Yes** |
+| A design "specified, not yet implemented" | `.spec/shape-intents/` | **Yes** |
+
+The reason is that a proposal is an *argument at a moment* — it cites line numbers, it is superseded by its own implementation, and it goes stale the day it lands. An ADR is a *decision*, and stays true. Committing the argument means the repository accumulates documents that contradict the code and each other, and a reader cannot tell which one is current.
+
+**When a proposal or report lands, migrate what survives before deleting it:**
+
+1. The decision, and the reasoning a future reader needs to not re-litigate it → the relevant **ADR** (add an Addendum section if the ADR is already accepted).
+2. Any rule about *how to work* that came out of it → the relevant **`contributor/guides/`** document.
+3. Anything still open → **`STATUS.md`**, self-contained, with no reference to the gitignored file.
+
+Nothing in a committed file may link to `.spec/proposals/` or `.spec/scrutiny-reports/` — those paths do not exist for anyone who clones the repository. `contributor/` had a `proposals/` and a `reports/` directory until 2026-08-28 for this reason; both are gone.
+
+*Precedent: the secrets/config work (ADR-007, ADR-008) shipped its proposal and two review reports into `contributor/`. The durable half is now ADR-008's Addendum and `wiring-discipline.md` §8–§10; the arguments went back to `.spec/`.*
 
 `STATUS.md` is the public-facing complement: it lists active work, open features, follow-ups, recently completed milestones, and contribution entry points — all self-contained without references to gitignored files.

@@ -76,6 +76,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import surfaces
+
 # ── The one fixture, containing all three kinds of field ────────────────────
 
 _GROUP_MODULE = '''\
@@ -224,6 +226,88 @@ def _tui_settable(project: Path, monkeypatch) -> tuple[set[str], set[str]]:
     return set(job_kwargs), set(resolution.group_values)
 
 
+async def _tui_render_settable(project: Path, monkeypatch) -> tuple[set[str], set[str]]:
+    """What the TUI *renders*, split into (job args, group options).
+
+    The **seventh** surface, and the one the harness's own history argued for:
+    ``_tui_settable`` above drives the resolver, and leaks 4 and 5 got past a
+    resolver probe because a field's kind is decided again on the way to the
+    screen. A row a user reads a field name from is a row that can be filed
+    under the wrong kind — the config table and the pre-flight both build their
+    rows from a `FieldDef`, and ``group_path`` is where the kind is recorded.
+
+    An injection parameter must appear in neither set: it is an outlet, not an
+    input, and a row inviting a value for `opts` was leak 4 verbatim.
+    """
+    from functualize._cli.tui.app import FunctualizeInlineTUI
+    from functualize._cli.tui.chain_resolution import (
+        build_command_panels,
+        build_group_field_defs,
+    )
+    from functualize.app.config import JobSources
+    from functualize.app.core import FunctualizeApp
+
+    monkeypatch.chdir(project)
+    jobs_dir = project / ".functualize" / "jobs"
+    func_app = FunctualizeApp(
+        name="parity-tui-render", job_sources=JobSources(directories=[str(jobs_dir)])
+    )
+    func_app.get_jobs()
+    tui = FunctualizeInlineTUI(func_app)
+
+    job_name = ".".join(JOB_PATH)
+    group_rows = build_group_field_defs(tui, job_name, {})
+    job_rows = [
+        f.name
+        for f in tui._get_job_fields(job_name)
+        if f.name not in {"rc", "run_context", "log"}
+    ]
+
+    # Read back off the **assembled** panel, not off the two builders alone.
+    # `assert build_command_panels is not None` was the placeholder here, and
+    # it asserted nothing: a probe that calls the halves separately cannot see
+    # a partition the assembly loses. It did not, but the write-back path
+    # downstream of it did, so the probe now goes through the same object the
+    # screen does.
+    from functualize._cli.tui.panels.config_table import ConfigTablePanel
+
+    assembled_group: set[str] = set()
+    assembled_job: set[str] = set()
+    tables_seen = 0
+    # The assembly needs a running app — which is exactly why the first version
+    # of this probe stopped at the two builders and left a placeholder assert
+    # in place of the panel. Running one is cheap; the placeholder was free and
+    # checked nothing.
+    async with tui.run_test(size=(140, 40)) as pilot:
+        tui._smart_bar.value = " ".join(JOB_PATH)
+        await pilot.pause()
+        for _title, panel in build_command_panels(tui):
+            if not isinstance(panel, ConfigTablePanel):
+                continue
+            tables_seen += 1
+            for field_def in panel.fields:
+                if field_def.group_path:
+                    assembled_group.add(field_def.name)
+                else:
+                    assembled_job.add(field_def.name)
+
+    # Without this, an assembly that produced nothing would compare two empty
+    # sets and pass — the vacuous shape the placeholder had.
+    assert tables_seen == 1, (
+        f"expected exactly one config table from the assembly, got {tables_seen}"
+    )
+    assert assembled_group, "the assembled panel carried no group rows at all"
+    assert assembled_group == {f.name for f in group_rows}, (
+        "the assembled panel files group options differently from the builder "
+        "that produced them"
+    )
+    assert assembled_job.issuperset(set(job_rows) - {"rc", "run_context", "log"}), (
+        "the assembled panel dropped one of the job's own rows"
+    )
+
+    return set(job_rows), {f.name for f in group_rows}
+
+
 def _completion_settable(project: Path, monkeypatch) -> tuple[set[str], set[str]]:
     """What the SmartBar *offers*, split into (job flags, group flags).
 
@@ -338,6 +422,14 @@ class TestSurfaceParity:
         assert not (flags & GROUP_OPTIONS), "a group option leaked into job --help"
         assert not (flags & INJECTION_PARAMS), "an injection param leaked into --help"
 
+    # A **group listing** is not cross-surface yet, and this is where that
+    # shows: `func deploy web` lists the group through `_dispatch_group`
+    # — exit 0, on stdout — while an app entry point lets click own the
+    # tree and answers its own help on stderr with exit 2. A real
+    # divergence, pre-existing, surfaced by parameterising `cli_run`, and
+    # outside this cycle's decided scope. Recorded in .spec/STATE.md and
+    # restricted rather than deleted, so the gap stays visible.
+    @surfaces("func")
     def test_the_group_listing_shows_its_own_options(self, cli_run, project) -> None:
         """Leak 1, from the CLI side: the group's options must be *reachable*,
         not silently absent because the declaration was never scanned."""
@@ -345,11 +437,54 @@ class TestSurfaceParity:
 
         assert options == {"env", "dry_run"}
 
+    # A **group listing** is not cross-surface yet, and this is where that
+    # shows: `func deploy web` lists the group through `_dispatch_group`
+    # — exit 0, on stdout — while an app entry point lets click own the
+    # tree and answers its own help on stderr with exit 2. A real
+    # divergence, pre-existing, surfaced by parameterising `cli_run`, and
+    # outside this cycle's decided scope. Recorded in .spec/STATE.md and
+    # restricted rather than deleted, so the gap stays visible.
+    @surfaces("func")
     def test_a_nested_listing_shows_inherited_options(self, cli_run, project) -> None:
         options = _group_listing_options(cli_run, project, ["deploy", "web"])
 
         assert options == {"env", "dry_run", "replicas"}
 
+    async def test_the_tui_renders_the_same_partition_it_resolves(
+        self, project, monkeypatch
+    ) -> None:
+        """The seventh surface. A resolver probe cannot catch a kind decided
+        again on the way to the screen — which is exactly how leaks 4 and 5
+        got past this file the first time."""
+        job_args, group_options = await _tui_render_settable(project, monkeypatch)
+
+        assert job_args == JOB_ARGUMENTS
+        assert group_options == GROUP_OPTIONS
+
+    async def test_no_injection_parameter_is_ever_rendered(
+        self, project, monkeypatch
+    ) -> None:
+        """Leak 4, stated against the renderer rather than the resolver."""
+        job_args, group_options = await _tui_render_settable(project, monkeypatch)
+
+        assert not ((job_args | group_options) & INJECTION_PARAMS)
+
+    async def test_the_rendered_halves_are_disjoint(self, project, monkeypatch) -> None:
+        """A field is one kind or the other, never both. A group option
+        appearing in the job's rows would put it under the job's own flags,
+        where the CLI does not accept it."""
+        job_args, group_options = await _tui_render_settable(project, monkeypatch)
+
+        assert job_args.isdisjoint(group_options)
+
+    # A **group listing** is not cross-surface yet, and this is where that
+    # shows: `func deploy web` lists the group through `_dispatch_group`
+    # — exit 0, on stdout — while an app entry point lets click own the
+    # tree and answers its own help on stderr with exit 2. A real
+    # divergence, pre-existing, surfaced by parameterising `cli_run`, and
+    # outside this cycle's decided scope. Recorded in .spec/STATE.md and
+    # restricted rather than deleted, so the gap stays visible.
+    @surfaces("func")
     def test_no_group_option_is_ever_a_job_flag(self, cli_run, project) -> None:
         """The invariant behind leak 2, stated directly: the job-argument set
         and the group-option set are disjoint on every CLI surface."""
@@ -376,6 +511,14 @@ class TestSurfaceParity:
 
         assert properties.isdisjoint(INJECTION_PARAMS)
 
+    # A **group listing** is not cross-surface yet, and this is where that
+    # shows: `func deploy web` lists the group through `_dispatch_group`
+    # — exit 0, on stdout — while an app entry point lets click own the
+    # tree and answers its own help on stderr with exit 2. A real
+    # divergence, pre-existing, surfaced by parameterising `cli_run`, and
+    # outside this cycle's decided scope. Recorded in .spec/STATE.md and
+    # restricted rather than deleted, so the gap stays visible.
+    @surfaces("func")
     def test_the_cli_and_mcp_agree_on_the_settable_set(self, cli_run, project) -> None:
         """The cross-surface invariant in one assertion: the union of what the
         CLI lets a user set (job flags + mid-path group options) equals what
@@ -434,6 +577,14 @@ class TestSurfaceParity:
 
         assert (job_args | group).isdisjoint(INJECTION_PARAMS)
 
+    # A **group listing** is not cross-surface yet, and this is where that
+    # shows: `func deploy web` lists the group through `_dispatch_group`
+    # — exit 0, on stdout — while an app entry point lets click own the
+    # tree and answers its own help on stderr with exit 2. A real
+    # divergence, pre-existing, surfaced by parameterising `cli_run`, and
+    # outside this cycle's decided scope. Recorded in .spec/STATE.md and
+    # restricted rather than deleted, so the gap stays visible.
+    @surfaces("func")
     def test_the_tui_and_cli_agree_on_the_settable_partition(
         self, cli_run, project, monkeypatch
     ) -> None:
@@ -473,6 +624,14 @@ class TestSurfaceParity:
 
         assert (job_flags | group_flags).isdisjoint(INJECTION_PARAMS)
 
+    # A **group listing** is not cross-surface yet, and this is where that
+    # shows: `func deploy web` lists the group through `_dispatch_group`
+    # — exit 0, on stdout — while an app entry point lets click own the
+    # tree and answers its own help on stderr with exit 2. A real
+    # divergence, pre-existing, surfaced by parameterising `cli_run`, and
+    # outside this cycle's decided scope. Recorded in .spec/STATE.md and
+    # restricted rather than deleted, so the gap stays visible.
+    @surfaces("func")
     def test_completion_agrees_with_the_cli_on_the_settable_partition(
         self, cli_run, project, monkeypatch
     ) -> None:
@@ -506,6 +665,14 @@ class TestSurfaceParity:
 
         assert settable.isdisjoint(INJECTION_PARAMS)
 
+    # A **group listing** is not cross-surface yet, and this is where that
+    # shows: `func deploy web` lists the group through `_dispatch_group`
+    # — exit 0, on stdout — while an app entry point lets click own the
+    # tree and answers its own help on stderr with exit 2. A real
+    # divergence, pre-existing, surfaced by parameterising `cli_run`, and
+    # outside this cycle's decided scope. Recorded in .spec/STATE.md and
+    # restricted rather than deleted, so the gap stays visible.
+    @surfaces("func")
     def test_shell_init_agrees_with_the_cli_on_the_settable_set(
         self, cli_run, project, monkeypatch
     ) -> None:

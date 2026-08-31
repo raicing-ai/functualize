@@ -98,11 +98,56 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers", "slow: marks tests as slow (property-based, hypothesis)"
     )
+    config.addinivalue_line(
+        "markers",
+        "surfaces(*names): restrict a cli_run test to the named entry points "
+        "('func', 'app'). See tests/conftest.py::surfaces.",
+    )
+
+
+def _timing_instrumentation(config: pytest.Config) -> list[str]:
+    """Name the active sources of timing distortion, if any.
+
+    Deliberately uses the xdist env var and pytest-cov's parsed option rather
+    than ``sys.gettrace()``: on 3.12+ coverage may attach via ``sys.monitoring``
+    instead of the trace hook, so ``gettrace()`` can miss it. Both signals used
+    here behave identically across 3.11-3.13.
+    """
+    active = []
+    if os.environ.get("PYTEST_XDIST_WORKER"):
+        active.append("xdist")
+    if getattr(config.option, "cov_source", None):
+        active.append("coverage")
+    return active
 
 
 def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:
+    # ── Wall-clock budgets, first ──────────────────────────────────────────
+    #
+    # A `perf_budget` assertion measures real elapsed time during boot, which
+    # is only meaningful in a clean, serial process. The `test-full` tier runs
+    # `pytest --run-slow --cov=functualize -n auto`: coverage inflates every
+    # call in the boot path and the xdist workers contend for the runner's
+    # cores, so the number describes the harness and the machine's load rather
+    # than the code.
+    #
+    # This runs BEFORE the `--run-slow` early return below, because that tier
+    # is the only one that carries coverage and xdist — guarding after it would
+    # skip nothing where it matters.
+    #
+    # Nothing is lost: `test-fast` runs the same tests with plain `pytest`, so
+    # every budget is still enforced on each PR.
+    active = _timing_instrumentation(config)
+    if active:
+        skip_perf = pytest.mark.skip(
+            reason=f"wall-clock budget is not measurable under {'+'.join(active)}"
+        )
+        for item in items:
+            if "perf_budget" in item.keywords:
+                item.add_marker(skip_perf)
+
     if config.getoption("--run-slow"):
         return
     skip_slow = pytest.mark.skip(reason="Need --run-slow option to run")
@@ -160,6 +205,40 @@ def _reset_entry_point_cache() -> Iterator[None]:
     clear_entry_point_cache()
     yield
     clear_entry_point_cache()
+
+
+@pytest.fixture(autouse=True)
+def _restore_environ() -> Iterator[None]:
+    """Give every test back the environment it started with.
+
+    A test that loads a `.env` in-process — `--dotenv-file` through the
+    `CliRunner`, or a direct `load_dotenv()` — mutates `os.environ` for the
+    rest of the session. `monkeypatch` cannot undo that: monkeypatch reverses
+    what *monkeypatch* did, and this was done by production code holding a real
+    reference to the process environment.
+
+    This shipped. `tests/core/test_show_info.py`'s `dotenv_file` fixture writes
+    `MY_VAR=hello`, and `tests/cli/test_cli_integration.py::test_no_dotenv_flag`
+    asserts `MY_VAR` is *unset* to prove `--no-dotenv` suppresses loading. Each
+    passes alone; run in one process in that order, the second reads the first's
+    leak and fails — an order-dependent failure in the one test whose subject is
+    environment isolation.
+
+    Same reasoning as `_reset_entry_point_cache` above: the coupling is
+    invisible and order-sensitive, so the environment is restored on both sides
+    of every test rather than in the handful that look like they need it today.
+    """
+    saved = os.environ.copy()
+    yield
+    if os.environ != saved:
+        # Restore by difference rather than clear-then-update: the TUI tests
+        # run worker threads, and a thread that reads the environment during
+        # teardown must never observe the empty window a `clear()` opens.
+        for key in set(os.environ) - set(saved):
+            os.environ.pop(key, None)
+        for key, value in saved.items():
+            if os.environ.get(key) != value:
+                os.environ[key] = value
 
 
 @pytest.fixture()
@@ -297,15 +376,100 @@ def clean_sys_modules():
 # ===========================================================================
 
 
-@pytest.fixture()
-def cli_run(xdg_dirs: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch):
+#: The two entry points a project has. They are two genuinely different CLIs —
+#: `tests/group_options/test_adapter_entry_point_parity.py` says so in its own
+#: docstring — and until this fixture was parameterised, `cli_run` ran only the
+#: first, so 23 test files exercised one of them. One of the defects that hid in
+#: the gap made an app uninvocable from its second run onward, and the file
+#: whose stated job is cross-surface config agreement was among the 23.
+SURFACES = ("func", "app")
+
+
+def _run_through_app(args: list[str]) -> None:
+    """Invoke the same argv through a `FunctualizeApp` + `CliAdapter`.
+
+    This is what a project's own ``main.py`` is: build an app over the current
+    directory and hand it to the adapter. Building it in-process rather than
+    shelling out to a generated script keeps the runner's monkeypatching and
+    capture working exactly as they always did.
+
+    **Discovery is resolved the way `func` resolves it**, through the same
+    ``auto_discover`` seam, so the two surfaces see the same jobs. Constructing
+    a bare ``FunctualizeApp("app")`` instead finds nothing in a project whose
+    jobs live in a declared directory — which turns every test into a failure
+    about the fixture rather than about the surface.
+
+    What is *not* shared is what the second surface exists to exercise: the
+    adapter's own command tree, built from cached descriptors on a warm boot.
+    That is the builder pair the audit found disagreeing.
+
+    Click runs in its **standalone** mode, as it does for a real entry point:
+    it renders its own usage errors and exits, and the caller above already
+    translates that ``SystemExit`` into a code. Running it non-standalone
+    instead makes click *raise* for cases it normally handles — a bare group
+    invocation becomes ``NoArgsIsHelpError`` rather than help text and exit 0 —
+    so the fixture would report failures no real user could see.
+    """
+    from functualize.app import FunctualizeApp
+    from functualize.app.adapters import CliAdapter
+    from functualize.app.config import JobSources
+    from functualize.app.utils import auto_discover
+
+    cwd = Path.cwd()
+    discovered = auto_discover(cwd)
+    directories = list(discovered.job_sources.directories or []) or list(
+        discovered.jobs_directories
+    )
+    if str(cwd.resolve()) not in directories:
+        directories.append(str(cwd.resolve()))
+
+    app = FunctualizeApp(
+        "app", job_sources=JobSources(directories=directories, lazy=True)
+    )
+    adapter = CliAdapter()
+    adapter(app)
+    adapter.cli_command.main(args, prog_name="app.py")
+
+
+def surfaces(*names: str) -> pytest.MarkDecorator:
+    """Restrict a test or module to the named `cli_run` surfaces.
+
+    Opting out is explicit and carries its reason in the test, because a silent
+    default that quietly ran one surface is what produced the gap. Use it when
+    a test is *about* the bare CLI — pre-boot dispatch, global-flag parsing,
+    PEP-723 single-file scripts — rather than about behaviour a project should
+    get from either entry point.
+
+        pytestmark = surfaces("func")  # module-level
+
+        @surfaces("func")              # or per test
+        def test_version_flag(cli_run): ...
+    """
+    unknown = set(names) - set(SURFACES)
+    assert not unknown, f"unknown surface(s): {sorted(unknown)}"
+    return pytest.mark.surfaces(*names)
+
+
+@pytest.fixture(params=SURFACES)
+def cli_run(
+    request: pytest.FixtureRequest,
+    xdg_dirs: types.SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+):
     """In-process CLI runner that exercises the real main() path.
 
     Returns a callable: (args, cwd=None, env=None) -> SimpleNamespace(stdout, stderr, exit_code)
 
-    Inspired by pyinvoke's run()/expect() helpers. Runs functualize's main()
-    in the current process with captured stdout/stderr. No subprocess overhead,
-    fast and deterministic.
+    **Parameterised over surface** (`func` | `app`), so a test written once runs
+    on both entry points:
+
+    - ``func`` — ``sys.argv = ["func", *args]`` into ``functualize._cli.main``;
+    - ``app``  — a ``FunctualizeApp`` + ``CliAdapter`` over the same project
+      tree, which is what a project's own ``main.py`` builds.
+
+    The result object is identical in both, so no existing test needs
+    rewriting. Restrict with :func:`surfaces` where the second is not
+    meaningful.
 
     The `xdg_dirs` dependency ensures all XDG paths are isolated. Tests can
     write config files into `xdg_dirs.functualize_config` to test config
@@ -324,6 +488,10 @@ def cli_run(xdg_dirs: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch):
             assert result.exit_code == 0
             assert "hi" in result.stdout
     """
+    surface = request.param
+    marker = request.node.get_closest_marker("surfaces")
+    if marker is not None and surface not in marker.args:
+        pytest.skip(f"restricted to surface(s) {list(marker.args)}")
 
     def _run(
         args: list[str] | str,
@@ -355,9 +523,12 @@ def cli_run(xdg_dirs: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch):
                 contextlib.redirect_stderr(stderr_buf),
             ):
                 try:
-                    from functualize._cli.main import main
+                    if surface == "app":
+                        _run_through_app(args)
+                    else:
+                        from functualize._cli.main import main
 
-                    main()
+                        main()
                     code = 0
                 except SystemExit as e:
                     code = e.code if e.code is not None else 0

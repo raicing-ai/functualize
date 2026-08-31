@@ -2,7 +2,9 @@
 
 Property 11: Step hooks fire on correct transitions
 - ON_PHASE_START fires only on NEW step creation (first call with step_name), not updates
-- ON_PHASE_FAILURE fires for each call with RunStatus.FAILURE status
+- ON_PHASE_FAILURE fires for each call with a FAILURE *or* REFUSED status.
+  A refusal is not a success, and before REFUSED existed a refused step
+  matched neither branch — so the phase ended with no hook told anything.
 - ON_PHASE_COMPLETE fires for each call with RunStatus.SUCCESS status
 - These are independent: a step created with FAILURE should fire both START and FAILURE
 
@@ -112,8 +114,13 @@ class TestStepHookTransitions:
     def test_on_phase_failure_fires_for_each_failure_status(
         self, steps: list[tuple[str, RunStatus, str]]
     ) -> None:
-        """ON_PHASE_FAILURE fires for each call with RunStatus.FAILURE status,
+        """ON_PHASE_FAILURE fires for each call with a failed status,
         regardless of whether step is new or updated.
+
+        Two statuses qualify. `REFUSED` says the job declined to run because a
+        declared precondition was not met; it is not a success and must not be
+        reported as one. Before it existed, a refused step matched neither the
+        failure nor the completion branch and the phase ended silently.
 
         **Validates: Requirements 19.2**
         """
@@ -130,11 +137,13 @@ class TestStepHookTransitions:
         for step_name, status, message in steps:
             rc.track_phase(step_name, message, status)
 
-        # ON_PHASE_FAILURE should fire for every call where status is FAILURE
+        # Both statuses the tracker treats as a failed phase. `step_status` is
+        # passed through to the hook, so the expectation carries the actual
+        # status rather than assuming FAILURE.
         expected_failures = [
-            (step_name, RunStatus.FAILURE)
+            (step_name, status)
             for step_name, status, _ in steps
-            if status == RunStatus.FAILURE
+            if status in (RunStatus.FAILURE, RunStatus.REFUSED)
         ]
 
         assert failure_fired == expected_failures
@@ -328,7 +337,7 @@ class TestStepHookTransitions:
             if step_name not in unique_step_names:
                 expected_start += 1
                 unique_step_names.add(step_name)
-            if status == RunStatus.FAILURE:
+            if status in (RunStatus.FAILURE, RunStatus.REFUSED):
                 expected_failure += 1
             if status == RunStatus.SUCCESS:
                 expected_complete += 1

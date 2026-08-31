@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from functualize._engine.capabilities.spec import CapabilitySpec
+
 
 class State:
     """Per-invocation key-value state store.
@@ -67,3 +69,12 @@ class State:
         if not prefix:
             return list(self._store.keys())
         return [k for k in self._store if k.startswith(prefix)]
+
+
+# ── Registry entry (ADR-014) ───────────────────────────────────────────────
+
+CAPABILITY = CapabilitySpec(
+    name="State",
+    type=State,
+    factory=lambda ctx: State(),
+)

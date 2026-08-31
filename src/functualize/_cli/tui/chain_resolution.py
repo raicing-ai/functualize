@@ -27,7 +27,11 @@ from typing import TYPE_CHECKING, Any
 from functualize._cli.data.pending_execution import PendingExecution
 from functualize._cli.data.resolved_value_compat import ResolvedValueCompat
 from functualize._cli.tui.bar import BarReadiness
-from functualize._cli.tui.cli_arg_parser import parse_cli_args_to_kwargs
+from functualize._cli.tui.cli_arg_parser import (
+    group_option_specs_on_path,
+    parse_cli_args_to_kwargs,
+    tokenize_bar_text,
+)
 from functualize._cli.tui.descriptor_fields import get_descriptor_fields
 from functualize._cli.tui.diff_view_widget import DiffViewWidget
 from functualize._cli.tui.field_priority import sort_fields_by_priority
@@ -79,6 +83,100 @@ def _scalar_to_display(value: Any) -> str:
     return str(value)
 
 
+def build_group_field_defs(
+    app: FunctualizeInlineTUI,
+    job_name: str,
+    group_values: dict[str, Any],
+) -> list[FieldDef]:
+    """One ``FieldDef`` per group option the job inherits, outermost group first.
+
+    A group option is a field of the *path*: `deploy` declares `--env` and every
+    job beneath it gets it. It is not the job's own field, and the table says so
+    with a dimmed `[deploy]` prefix rather than by mixing it in unmarked.
+
+    Order is the order ``group_option_specs_on_path`` returns — outermost first
+    — and the caller appends the whole block **after** the job's own rows, so a
+    reader sees the job's arguments before the path's.
+
+    A value the user typed on the bar arrives in ``group_values`` and is marked
+    ``edit_origin=VALUE``, exactly as a job field typed on the bar is. That mark
+    is load-bearing in both directions: it is what ``sync_overrides_to_bar``
+    re-emits mid-path when some *other* field is edited, and what makes `r` a
+    real reset rather than the no-op it is on an unmarked row. ``original_value``
+    is what the row falls back to — the group's own resolved layer, or its
+    declared default — so the reset restores rather than blanks.
+
+    Reads the cached specs only. Materializing the declaring class to ask it
+    would import a job module on every panel refresh, which is the one thing
+    the panel path is built not to do.
+    """
+    specs = group_option_specs_on_path(app._group_trie, job_name)
+    if not specs:
+        return []
+
+    field_defs: list[FieldDef] = []
+    for spec in specs:
+        # The group's own config section, resolved the same way a job's is —
+        # the group path substitutes for the job name, which is the whole rule.
+        resolved: dict[str, Any] = {}
+        try:
+            chain = app._func_app.resolution_chain()
+            if chain is not None:
+                resolved = chain.resolve_section(spec.group)
+        except Exception as exc:
+            app.log.warning(
+                f"build_group_field_defs: resolution for group {spec.group!r} "
+                f"failed ({type(exc).__name__}): {exc}"
+            )
+
+        for fd in spec.fields:
+            # What the row would read with no bar value at all: the group's
+            # resolved layer, else the declared default. Computed first and
+            # unconditionally, because it is also the reset target.
+            if fd.name in resolved:
+                entry = resolved[fd.name]
+                raw = getattr(entry, "value", entry)
+                base_value = _scalar_to_display(raw)
+                base_source = str(getattr(entry, "source_type", "file") or "file")
+            elif getattr(fd, "default", None) is not None:
+                base_value = _scalar_to_display(fd.default)
+                base_source = "default"
+            else:
+                base_value = ""
+                base_source = ""
+
+            typed = fd.name in group_values
+            value = _scalar_to_display(group_values[fd.name]) if typed else base_value
+            source = "cli" if typed else base_source
+
+            field_defs.append(
+                FieldDef(
+                    name=fd.name,
+                    value=value,
+                    source=source,
+                    required=getattr(fd, "required", False),
+                    choices=getattr(fd, "choices", None),
+                    description=getattr(fd, "description", "") or "",
+                    positional=False,
+                    short_flag=getattr(fd, "short_flag", None),
+                    type_annotation=getattr(fd, "type_annotation", "str") or "str",
+                    param_kind=ParamKind.CONFIG,
+                    # A group option is a config field like any other, so it is
+                    # a credential like any other. The flag rides in on the
+                    # cached descriptor for free — `extract_group_options_fields`
+                    # reuses the job path's extractor — and dropping it here
+                    # would print the credential in the clear.
+                    secret=getattr(fd, "secret", False),
+                    group_path=spec.group,
+                    edit_origin=EditOrigin.VALUE if typed else EditOrigin.NONE,
+                    original_value=base_value,
+                    original_source=base_source,
+                    chain=[ChainEntry(source=source.upper() or "Default", value=value)],
+                )
+            )
+    return field_defs
+
+
 def build_command_panels(app: FunctualizeInlineTUI) -> list[tuple[str, Any]]:
     """Build command panels based on current job's field definitions.
 
@@ -92,11 +190,17 @@ def build_command_panels(app: FunctualizeInlineTUI) -> list[tuple[str, Any]]:
     if app._smart_bar.readiness == BarReadiness.GREY:
         return []
 
-    tokens = app._smart_bar.value.split() if app._smart_bar.value.strip() else []
+    tokens = tokenize_bar_text(app._smart_bar.value)
     if not tokens:
         return []
 
-    job_name = tokens[0]
+    # Resolve the path the bar spells. The bar's first token is the outermost *group*
+    # for anything grouped, and a group has no descriptor — so resolving by it
+    # returned no panels at all for every grouped job.
+    resolution = app.resolve_command(tokens)
+    job_name = resolution.job_name
+    if job_name is None:
+        return []
     descriptor = app._find_job_descriptor(job_name)
     if descriptor is None:
         return []
@@ -112,10 +216,10 @@ def build_command_panels(app: FunctualizeInlineTUI) -> list[tuple[str, Any]]:
     raw_parameters = getattr(descriptor, "parameters", None) or []
     has_config_class = raw_config_fields != raw_parameters
 
-    # Parse current CLI args from SmartBar to pre-populate values
-    provided = parse_cli_args_to_kwargs(
-        tokens[1:] if len(tokens) > 1 else [], fields=field_descriptors
-    )
+    # Parse the job's *own* args — the walk already consumed the path segments
+    # and every mid-path group flag, so nothing that belongs to a group can
+    # land on a job field here.
+    provided = parse_cli_args_to_kwargs(resolution.args, fields=field_descriptors)
 
     # Kernel's discovered files, fetched once for every field's chain and for
     # the Config Files panel below. Each carries its role and its own values
@@ -170,6 +274,10 @@ def build_command_panels(app: FunctualizeInlineTUI) -> list[tuple[str, Any]]:
             short_flag=getattr(fd, "short_flag", None),
             type_annotation=getattr(fd, "type_annotation", "str") or "str",
             param_kind=ParamKind.CONFIG if has_config_class else ParamKind.PLAIN,
+            # The descriptor is the cache's copy of the model's answer, so the
+            # Config Table and its drill-down mask without importing the config
+            # class — which a warm boot never does.
+            secret=getattr(fd, "secret", False),
         )
 
         # --- Populate resolution chain ---
@@ -279,6 +387,12 @@ def build_command_panels(app: FunctualizeInlineTUI) -> list[tuple[str, Any]]:
     # Sort fields by priority (R3-AC1, R3-AC2)
     field_defs = sort_fields_by_priority(field_defs)
 
+    # Group options come after the job's own rows, outermost group first (D-1).
+    # Appended after the sort, not folded into it: the priority order ranks a
+    # job's arguments against each other, and a field belonging to an ancestor
+    # is not competing in that ranking.
+    field_defs.extend(build_group_field_defs(app, job_name, resolution.group_values))
+
     # Build ConfigTablePanel and populate it
     app._panel_id_seq += 1
     panel = ConfigTablePanel(id=f"config-table-command-{app._panel_id_seq}")
@@ -375,12 +489,12 @@ def build_pending_execution(
     if descriptor is not None:
         field_descriptors = get_descriptor_fields(descriptor)
         if field_descriptors:
-            # Parse current CLI args from SmartBar
-            tokens = (
-                app._smart_bar.value.split() if app._smart_bar.value.strip() else []
-            )
+            # Parse the job's own args from the SmartBar. Same walk as
+            # `build_command_panels`: the path and the group flags are not
+            # this job's arguments.
+            tokens = tokenize_bar_text(app._smart_bar.value)
             provided = parse_cli_args_to_kwargs(
-                tokens[1:] if len(tokens) > 1 else [], fields=field_descriptors
+                app.resolve_command(tokens).args, fields=field_descriptors
             )
 
             # Try to get real resolution from the kernel's ResolutionChain

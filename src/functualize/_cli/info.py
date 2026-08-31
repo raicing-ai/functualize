@@ -13,6 +13,7 @@ than by review.
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -47,11 +48,21 @@ def resolve_renderer(json_flag: bool, cli_config: Any) -> str:
     ``[cli] output = "plain"`` still gets JSON when a caller asks for it, and
     an agent that exports ``FUNCTUALIZE_CLI_OUTPUT=json`` never has to pass a
     flag at all.
+
+    The environment is read directly as a *fallback*, not as a precedence
+    change. On the ``func`` entry point the settings store has already folded
+    ``FUNCTUALIZE_CLI_OUTPUT`` into ``cli_config``, and that value still wins
+    here. But a project's own ``main.py`` builds no store, so ``cli_config`` is
+    ``None`` on that surface and the documented env var silently did nothing —
+    on the entry point an agent working inside a project actually runs.
     """
     if json_flag:
         return "json"
     configured = getattr(cli_config, "output", None)
-    return str(configured) if configured in RENDERERS else "rich"
+    if configured in RENDERERS:
+        return str(configured)
+    from_env = os.environ.get("FUNCTUALIZE_CLI_OUTPUT")
+    return from_env if from_env in RENDERERS else "rich"
 
 
 def _summary(descriptor: Any) -> str:
@@ -248,16 +259,18 @@ def full_report(app: FunctualizeApp, cli_config: Any = None) -> dict[str, Any]:
         "jobs": [job_detail(app, entry["name"]) for entry in job_catalog(app)],
     }
 
-    if cli_config is not None:
-        anchor = getattr(cli_config, "anchor", None)
-        report["config"] = {
-            "anchor": str(anchor) if anchor is not None else None,
-            "import_libs": [
-                str(p) for p in getattr(cli_config, "import_libs", ()) or ()
-            ],
-            "dotenv": bool(getattr(cli_config, "dotenv", False)),
-            "output": getattr(cli_config, "output", None),
-        }
+    # Always present, even with no store to read. This is a document an agent
+    # parses, so its *shape* must not depend on which entry point produced it:
+    # a project's own `main.py` builds no CLI settings store, and omitting the
+    # key there means every consumer needs a branch for "which surface am I
+    # talking to" — the drift ADR-010 exists to prevent.
+    anchor = getattr(cli_config, "anchor", None)
+    report["config"] = {
+        "anchor": str(anchor) if anchor is not None else None,
+        "import_libs": [str(p) for p in getattr(cli_config, "import_libs", ()) or ()],
+        "dotenv": bool(getattr(cli_config, "dotenv", False)),
+        "output": getattr(cli_config, "output", None),
+    }
 
     location = resolve_skills_dir()
     report["skills"] = (

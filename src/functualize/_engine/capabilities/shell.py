@@ -32,9 +32,11 @@ import time
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
+from functualize._engine.capabilities.spec import CapabilitySpec
 from functualize._types.redaction import collect_secret_values, redact, reveal
 from functualize._types.shell import (
     FailingResponder,
+    Shell,
     ShellError,
     ShellResult,
 )
@@ -1089,3 +1091,38 @@ def _quote(value: Any) -> str:
         text = reveal(value)
         return '"' + text.replace('"', '\\"') + '"' if text else '""'
     return shlex.quote(reveal(value))
+
+
+# ── Registry entry (ADR-014) ───────────────────────────────────────────────
+#
+# Declared here rather than in `_types/shell.py`, where the `Shell` protocol
+# lives: `_types` may import nothing internal, so it cannot hold a factory that
+# constructs `WiredShell`. See the note in `stdout.py`.
+
+
+def _make_shell(ctx: Any) -> WiredShell:
+    """Build the wired shell for this invocation."""
+    from functualize._events.perf import perf_timeline
+
+    engine = ctx.engine
+    echo_sink, output_sink = engine._resolve_shell_sinks()
+    return WiredShell(
+        cwd=str(ctx.context.cwd) if ctx.context.cwd else None,
+        program=engine._resolve_shell_program(),
+        perf=perf_timeline,
+        event_bus=engine._event_bus,
+        sudo_password=engine._resolve_sudo_password(),
+        echo_sink=echo_sink,
+        output_sink=output_sink,
+        # For the sudo-password fallback only (T-S6b-4). Built on the same
+        # active collector every other prompt resolves through, so an
+        # interactive surface can answer and a piped one refuses.
+        prompt=engine._resolve_prompt_capability(),
+    )
+
+
+CAPABILITY = CapabilitySpec(
+    name="Shell",
+    type=Shell,
+    factory=_make_shell,
+)

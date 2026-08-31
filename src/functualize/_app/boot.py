@@ -339,7 +339,6 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     perf_timeline.mark("boot.imports.start")
 
     from functualize._app.impl import build_cached_provider as _build_cached_provider
-    from functualize._config.providers.ini import IniFormatProvider
     from functualize._config.providers.toml import TomlFormatProvider
     from functualize._config.registry import ProviderRegistry
     from functualize._discovery.registry import JobRegistry
@@ -460,20 +459,42 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
         # Build the file-level and job-level filters from discovery_config
         pre_filter = None
         job_filter = None
+        # The fingerprint is computed for *every* boot, not only when a config
+        # is present. A boot that has just dropped its `exclude_patterns` must
+        # still invalidate the cache written while they were active, and
+        # `discovery_hash_from_config(None)` is the all-defaults digest, so the
+        # two directions agree.
+        from functualize._discovery.filter_factory import discovery_hash_from_config
+
+        discovery_hash = discovery_hash_from_config(
+            getattr(app, "_discovery_config", None)
+        )
         if getattr(app, "_discovery_config", None) is not None:
             from functualize._discovery.filter_factory import (
                 build_job_filter_from_config,
                 build_pre_filter_from_config,
             )
 
-            # Use first jobs directory as base_dir for glob patterns
-            base_dir = Path(app._jobs_directories[0])
-            pre_filter = build_pre_filter_from_config(app._discovery_config, base_dir)
+            # Every scan root, not just the first. `exclude_patterns` is
+            # matched relative to whichever root contains the candidate file, so
+            # an exclusion applies to every configured directory (ADR-011).
+            # Passing only the first left files under the others admitted
+            # unjudged, and made the cache digest incomplete: the root is not a
+            # DiscoveryConfig field, so reordering `jobs_directories` changed
+            # what the cache should hold while the fingerprint stayed equal.
+            scan_roots = [Path(d) for d in app._jobs_directories]
+            base_dir = scan_roots[0]
+            pre_filter = build_pre_filter_from_config(
+                app._discovery_config, base_dir, scan_roots
+            )
             job_filter = build_job_filter_from_config(app._discovery_config)
 
         if app._lazy_boot:
             app._cached_provider = _build_cached_provider(
-                app._jobs_directories, pre_filter=pre_filter, job_filter=job_filter
+                app._jobs_directories,
+                pre_filter=pre_filter,
+                job_filter=job_filter,
+                discovery_hash=discovery_hash,
             )
             app._resolution_pipeline.add_provider(app._cached_provider)
         else:
@@ -487,11 +508,18 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
 
     perf_timeline.mark("boot.core_infra.end")
 
-    # 2. Initialize ProviderRegistry with built-in providers
+    # 2. Initialize ProviderRegistry with the one built-in format (ADR-007).
+    #    TOML is the only format registered by default. ``IniFormatProvider``
+    #    remains in-tree and importable, but registering it on
+    #    ``app.config_registry`` after construction is too late — the
+    #    resolution chain is built from this registry a few steps below, and
+    #    never re-reads it. A plugin is the escape hatch: boot loads plugins
+    #    before it builds the chain, precisely so they can register formats.
+    #    See ADR-007, "The escape hatch is a plugin, not a post-construction
+    #    call".
     perf_timeline.mark("boot.provider_registry.start")
     app.config_registry = ProviderRegistry()
     app.config_registry.register_format_provider(TomlFormatProvider())
-    app.config_registry.register_format_provider(IniFormatProvider())
     perf_timeline.mark("boot.provider_registry.end")
 
     # 3. Initialize observability BEFORE plugin loading
@@ -545,11 +573,31 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
         app._resolution_chain = app._config_sources.config_resolution_chain
     else:
         # Default path: discover config files and build the classic chain
+        # Files that look like config but no provider can read. Kept on the
+        # app so `builtin info` can name them: they never anchor and never
+        # reach FileSource, so this walk is the only thing that sees them.
+        unreadable: list[str] = []
         app._config_path = discover_config_path(
             app._config_file_regex,
             app.name,
             extensions=app.config_registry.list_format_providers().keys(),
+            unreadable=unreadable,
         )
+        app._unreadable_config_files = unreadable
+        for candidate in unreadable:
+            # Warn at boot, not only in `builtin info`. The operator who needs
+            # this most is the one running a job and getting the model default,
+            # who has no reason to suspect the config file they wrote is being
+            # ignored and no reason to go looking for a diagnostic command.
+            logger.warning(
+                "Ignoring %s: no config format provider is registered for %s. "
+                "Convert it to TOML, or register a provider from a plugin — "
+                "plugins load before the resolution chain is built, which "
+                "registering on `app.config_registry` afterwards is too late "
+                "to do (ADR-007).",
+                candidate,
+                Path(candidate).suffix or "(no extension)",
+            )
         AppState.set("config_directory", app._config_path)
         # A non-default file_pattern must reach FileSource, not just anchor
         # discovery; the dataclass class attribute holds the field default.
@@ -643,6 +691,7 @@ def discover_config_path(
     config_file_regex: str,
     app_name: str,
     extensions: Collection[str] | None = None,
+    unreadable: list[str] | None = None,
 ) -> str:
     """Discover config directory by searching upward from CWD.
 
@@ -660,6 +709,17 @@ def discover_config_path(
             anchor that accepted extensions nobody can parse would anchor a
             directory on a file that then contributes nothing. Passing None
             skips the check, for callers with no registry to consult.
+        unreadable: Optional list, appended with every file that *looked* like
+            a config file but carried an extension no provider handles. Those
+            files are otherwise invisible: rejecting them here means they never
+            anchor, never enter ``FileSource._discovered_paths``, and so never
+            reach ``ConfigFileInfo.parsed`` either. A project whose only config
+            was ``config.base.ini`` therefore ran on model defaults in total
+            silence once ADR-007 made TOML the sole registered format — no
+            error, no warning, and ``builtin info`` reporting "No config files
+            found". Collected here rather than re-walked later, because this
+            loop is already the only place that sees them and it is on the boot
+            path (the docstring below explains why it counts syscalls).
 
     Returns:
         Path to the directory containing config files.
@@ -683,6 +743,8 @@ def discover_config_path(
                     if not regex.match(entry.name):
                         continue
                     if known is not None and entry.suffix.lower() not in known:
+                        if unreadable is not None and entry.is_file():
+                            unreadable.append(str(entry))
                         continue
                     if not entry.is_file():
                         continue
@@ -845,8 +907,27 @@ def wire_children_to_pipeline(app: Any) -> None:
         scan_dir = str(jobs_dir) if jobs_dir.is_dir() else str(child_path)
         try:
             if app._lazy_boot:
+                # `ancestor_search=False` is load-bearing. Without it
+                # `find_functualize_dir` walks *upward* from the child and lands
+                # on the parent's `.functualize/`, so parent and child write one
+                # `cache.json` and whichever boots last erases the other's
+                # entries -- the parent's cache never survived a boot. The child
+                # also wrote `discovery_hash: null` into it, which made the
+                # parent invalidate and rescan on every boot, forever, with a
+                # warning on stderr.
+                #
+                # Children are discovered with no filters, so the all-defaults
+                # digest is the honest fingerprint for what they write. See
+                # ADR-011.
+                from functualize._discovery.filter_factory import (
+                    discovery_hash_from_config,
+                )
+
                 provider: Any = build_cached_provider(
-                    [scan_dir], project_root=child_path
+                    [scan_dir],
+                    project_root=child_path,
+                    discovery_hash=discovery_hash_from_config(None),
+                    ancestor_search=False,
                 )
             else:
                 provider = DirectoryScanProvider(directories=[scan_dir])

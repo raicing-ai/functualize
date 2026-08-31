@@ -10,8 +10,17 @@ Contains foundational utilities that other layers build upon:
 - resilient: error-tolerant iteration wrapper
 - iter_module_files: module file discovery utility
 
-This package imports ONLY from `_types/` and Python stdlib.
-Zero third-party runtime dependencies.
+This package imports ONLY from `_types/` and Python stdlib **at import time**.
+
+Five modules reach pydantic *lazily*, inside the functions that need it —
+`config_class_detection`, `group_options_detection`, `cache_format`,
+`state_format` and `fingerprint`. Each is asking a question about a pydantic
+object it was handed, so the dependency is on the caller's data rather than on
+this package: importing `functualize._primitives` still pulls in nothing but
+stdlib, which is the property the layer rule is about.
+
+The previous wording, "Zero third-party runtime dependencies", was false as
+stated and true as intended; this says the intended thing.
 """
 
 from functualize._primitives.di import (

@@ -67,6 +67,8 @@ Only frozen dataclasses, Enums, Protocol definitions. `descriptors.py` (`JobDesc
 | `job_filter.py` | **Job level**: `JobFilter`/`JobCandidate` protocols, `RawJobCandidate`, `JobPrefixFilter`/`JobPostfixFilter`/`JobDecoratorFilter`, `AllJobFilters` — the `require_job_*` family, judged per function |
 | `cache_format.py` | Discovery-cache format: `CACHE_VERSION`, `PreFilterDecision`, `DisplayCacheEntry`, `resolve_cache_path()` (stdlib-only; shared by writer + fast-path readers) |
 | `display_detection.py` | `is_display_provider`/`find_display_providers` duck-type seam, shared by the job scan and the TUI (via `app.utils` re-exports) |
+| `config_class_detection.py` | `detect_config_class()` — the **one** definition of "which parameter is this job's config class", after seven copies drifted apart (cold, warm, single-file, scan, sync, and both CLI adapters) |
+| `capability_names.py` | `INJECTED_PARAM_TYPE_NAMES` — the **one** list of engine-injected parameter types, after five copies drifted (`Shell` missing from the scan's copy broke `sh: Shell` on warm boot) |
 | `lazy.py` | `lazy_cached` descriptor |
 | `resilient.py` | `resilient(iterable, on_error)` generator |
 | `modules.py` | `iter_module_files(directory)` |
@@ -81,11 +83,11 @@ Only frozen dataclasses, Enums, Protocol definitions. `descriptors.py` (`JobDesc
 
 ### `_config/` — Configuration Resolution
 
-`chain.py` (`ResolutionChain`), `sources.py` (`CliSource`, `EnvSource`, `FileSource`, `RemoteSource`, `DefaultSource`), `job_config.py` (`JobConfigView` + validation — 13 importers), `errors.py` (10 importers), `providers/` (`TomlFormatProvider`, `IniFormatProvider`).
+`chain.py` (`ResolutionChain`), `sources.py` (`CliSource`, `EnvSource`, `FileSource`, `RemoteSource`, `DefaultSource`), `job_config.py` (`JobConfigView` + validation — 13 importers), `resolved_field.py` (`ResolvedField` / `resolve_job_fields` — the seam `builtin info --job` and `builtin env` both read, so a display cannot disagree with the run; needs a live model, which is why the TUI does *not* read it — ADR-008 A1), `errors.py` (10 importers), `providers/` (`TomlFormatProvider` — the only provider registered by default; `IniFormatProvider` is in-tree and plugin-registered only, ADR-007).
 
 ### `_engine/` — Execution Lifecycle
 
-`executor.py` (`JobExecutionEngine`), `middleware.py`, `context.py` (`ExecutionContext`), `resolution.py` (`ResolutionPlan`/DI binding), `result.py` (`RegisteredJob` internals), `capabilities/invoke.py` (`Invoke`, ~150 LOC), `capabilities/workflow.py` (`WorkflowTracker`, ~100 LOC), `capabilities/runcontext.py` (15 importers — the concrete `RunContext` capability wiring; only `TYPE_CHECKING`-time reference to `_config.job_config`).
+`executor.py` (`JobExecutionEngine`), `middleware.py`, `context.py` (`ExecutionContext`), `resolution.py` (`ResolutionPlan`/DI binding), `result.py` (`RegisteredJob` internals), `capabilities/invoke.py` (`Invoke`, ~150 LOC), `capabilities/workflow.py` (`WorkflowTracker`, ~100 LOC), `capabilities/runcontext.py` (15 importers — the concrete `RunContext` capability wiring; only `TYPE_CHECKING`-time reference to `_config.job_config`), `capabilities/sources.py` (`Sources` — the resolved inputs a job's own `Fingerprint` declared; injected empty at DI time and bound from the `PreflightDecision` before the body runs, because DI resolves *before* the pre-flight — see ADR-012), `preflight.py` (`Preflight`/`PreflightDecision` — the guard+staleness seam; also carries the resolved source map that `Sources` reads), `guards.py` (`GuardState`/`GuardEvaluator`, incl. `GuardState.REFUSED`).
 
 ### `_plugins/` — Plugin Loading
 
@@ -117,7 +119,7 @@ Composition: `app.py` (composition root, wires state machines and delegates to p
 | Display chrome | `display_affinity.py`, `display_chrome.py`, `display_provider_discovery.py`, `display_slot.py` (mounted; hosts drill-down view stack + `current_interactive_widget`), `theme_manager.py`, `bar_items.py` (plugin header/status bar items — pure logic, no Textual dep) |
 | Live surfaces | `panel_live_zone.py` (PANEL binding for `live: Live`; pushes per-run), `live_panel_widget.py` (`live.panel` construct as an interactive general-ring panel), `thread_marshal.py` |
 | Modals | `shortcut_save_modal.py` (Ctrl+S, `ModalScreen[str \| None]`), `modals/` (empty package, reserved) |
-| Misc widgets | `breadcrumb_header_widget.py`, `dynamic_footer.py`/`dynamic_footer_widget.py`, `preflight_summary.py`/`preflight_widget.py`, `settings_panel.py`/`settings_validator.py`, `descriptor_fields.py`, `field_priority.py`, `type_hint_formatter.py`, `sync.py` (state↔SmartBar sync, no Textual dep) |
+| Misc widgets | `breadcrumb_header_widget.py`, `dynamic_footer.py`/`dynamic_footer_widget.py`, `preflight_summary.py`, `settings_panel.py`/`settings_validator.py`, `descriptor_fields.py`, `field_priority.py`, `type_hint_formatter.py`, `sync.py` (state↔SmartBar sync, no Textual dep) |
 | Ring state | `models/panel_ring_controller.py`, `models/ring_models.py` — declared but unused; the live ring is a plain `_active_ring: str \| None` on `FunctualizeInlineTUI` (see `tui-architecture.md`) |
 
 See `contributor/guides/tui-panels.md` for the hard rule every panel widget must follow (`min-height` in `DEFAULT_CSS`) and the deferred-population pattern.

@@ -24,10 +24,10 @@ jobs:
         run: uv sync --all-extras
 
       - name: Ruff check
-        run: uv run ruff check src/ tests/ plugins/
+        run: uv run ruff check src/ tests/ plugins/ examples/
 
       - name: Ruff format check
-        run: uv run ruff format --check src/ tests/ plugins/
+        run: uv run ruff format --check src/ tests/ plugins/ examples/
 
   lint-imports:
     runs-on: ubuntu-latest
@@ -88,6 +88,173 @@ jobs:
       - name: Run fast tests (unit only, no property tests)
         run: uv run pytest
 
+  # The examples are a second product surface: 20 projects a reader is told to
+  # run. Nothing executed them until now — `testpaths = ["tests"]`, so a broken
+  # example stayed green indefinitely. One did: a plugin file `.gitignore`
+  # swallowed, three tests red on every clean clone since it was written.
+  #
+  # `--all-packages`, not `--all-extras`: the AI and plugin examples import
+  # workspace packages.
+  examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies (workspace packages, not just extras)
+        run: uv sync --all-packages
+
+      - name: Run example tests
+        run: uv run pytest examples/ -v
+
+  # Every example command this repository publishes, run from a CLEAN CLONE.
+  #
+  # This closes a class the other jobs structurally cannot see. `055310b` and
+  # `7f09be4` were both files that existed on the author's disk and not in git:
+  # a plugin implementation, then the config anchor that made the example
+  # discoverable. Every job above checks out the working tree and then runs in
+  # it, so an untracked file is present for all of them and absent for every
+  # user. Both defects were green in CI and broken on `git clone`.
+  #
+  # `git clone` is the whole mechanism — it copies tracked files only, so a file
+  # git never knew about simply is not there. Nothing else in this workflow has
+  # that property.
+  #
+  # Deliberately narrow: the two examples whose READMEs publish a single
+  # self-contained command. Widening it to all 20 is worth doing and is a
+  # separate change — a guard that is hard to keep green stops being run.
+  clean-clone-examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # `git clone` below needs real history, not a tarball export.
+          fetch-depth: 1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Clone tracked files only
+        run: git clone --no-hardlinks . "$RUNNER_TEMP/clean"
+
+      - name: Install dependencies in the clone
+        working-directory: ${{ runner.temp }}/clean
+        run: uv sync --all-packages --all-extras
+
+      # The README publishes exactly one command for this example. It failed
+      # with "Unknown command 'greet'" on a clean clone twice.
+      # Both streams are captured on purpose. A job's `rc.log(...)` goes to
+      # stderr and a plugin's `print()` to stdout, so a stdout-only capture
+      # silently drops half of what these commands publish — the showcase
+      # assertion below is a `rc.log` line and never appears on stdout at all.
+      - name: file_based_plugin — the command its README publishes
+        working-directory: ${{ runner.temp }}/clean/examples/plugins/file_based_plugin
+        run: |
+          set -euo pipefail
+          out=$("$RUNNER_TEMP/clean/.venv/bin/func" greet 2>&1)
+          echo "$out"
+          echo "$out" | grep -q "\[run-notifier\] greet succeeded."
+
+      - name: showcase — the first command its README publishes
+        working-directory: ${{ runner.temp }}/clean/examples/standalone/showcase
+        run: |
+          set -euo pipefail
+          out=$("$RUNNER_TEMP/clean/.venv/bin/func" scripts/hello.py greet --name World 2>&1)
+          echo "$out"
+          echo "$out" | grep -q "Hello, World!"
+
+  # Runs the commands the documentation tells a reader to run, and compares the
+  # output against what the docs claim. Shell-engine scenarios only: docker
+  # steps run full `pip install` cycles and pty steps drive a real terminal,
+  # and `CLAUDE.md` forbids wiring `observe-tui` into CI. Those belong to the
+  # release pass.
+  #
+  # Two preconditions, both of which turn into false doc failures when missed:
+  # `.venv/bin` on PATH (or every step exits 127) and the working directory at
+  # the repository root (a shell step's `cwd` is process-relative).
+  #
+  # Fails on ANY non-zero exit. `run-scenario` returns 1 for a failed step and
+  # 2 for a scenario it could not load, so gating on 2 alone would pass every
+  # real documentation failure through.
+  #
+  # `--allow-skips` is the deliberate acknowledgement that this job does NOT
+  # verify the docker and pty scenarios — 10 of 16, covering installation,
+  # scaffold, quickstart, discovery, MCP and the whole TUI surface. Without the
+  # flag the run exits 3, because a scenario filtered out by `--engine` runs
+  # zero steps and verifies nothing; reporting that as a pass is what let the
+  # narrowing go unnoticed. The runner prints every unverified scenario and the
+  # tier that owes it, so removing this flag is how you see the gap again.
+  # The only owner those tiers actually have today is the manual release gate
+  # (`.agents/skills/release/SKILL.md` Phase 4). No scheduled workflow exists.
+  doc-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      # `--all-packages` as well as `--all-extras`: the two prune each other,
+      # and `--all-extras` alone installs no workspace member. The shell
+      # scenarios import none today, so this was green by luck — the first one
+      # to touch an AI or plugin example would have failed on a missing
+      # package and been reported as documentation drift, which is the one
+      # thing this job must never do. (.spec/STATUS.md finding 11.)
+      #
+      # `--group docs` is deliberately not here: no scenario runs mkdocs, and
+      # the `docs-build` job below owns `mkdocs build --strict` with that group
+      # synced. A local run of the whole suite still needs all three at once,
+      # as the skill's precondition says.
+      - name: Install dependencies
+        run: uv sync --all-packages --all-extras
+
+      - name: Verify documented commands still behave as documented
+        run: |
+          PATH="$PWD/.venv/bin:$PATH" python \
+            .agents/skills/doc-verify/scripts/run-scenario \
+            examples/docs/scenarios/ --engine shell --allow-skips
+
+  # `mkdocs build --strict` ran only on push to master (`docs.yml`), so a PR
+  # could break the docs build and only be caught after merge.
+  #
+  # `--group docs`, not `--all-extras`: mkdocs is not an extra, and a job
+  # copying its neighbours here fails on a missing `mkdocs` executable.
+  docs-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install documentation dependencies
+        run: uv sync --group docs
+
+      - name: Build documentation
+        run: uv run mkdocs build --strict
+
   # Full suite: property tests + coverage + multi-version + parallel.
   # Thorough validation, runs alongside test-fast.
   test-full:
@@ -119,3 +286,25 @@ jobs:
         with:
           name: coverage-${{ matrix.python-version }}
           path: coverage.xml
+
+  # Feature artifacts under .spec/features/ are committed on the branch so the
+  # spec, contracts, plan and task ledger are reviewable, then cleared before
+  # merge so master carries none of them. This job is what makes that binding.
+  #
+  # It runs on pull_request AND on push to master, so the single job is both the
+  # blocking PR check and the post-merge master guard. No sparse-checkout:
+  # `git ls-files` needs a real index.
+  spec-artifacts-cleared:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assert .spec/features/ is cleared
+        run: |
+          tracked=$(git ls-files .spec/features/)
+          if [ -n "$tracked" ]; then
+            echo "::error::.spec/features/ still has tracked files. Migrate the durable half to .spec/STATUS.md or contributor/adr/, then 'git rm -r .spec/features/<name>' before merging."
+            echo "$tracked"
+            exit 1
+          fi
+          echo "OK: .spec/features/ carries no tracked files."

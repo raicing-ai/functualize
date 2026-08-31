@@ -45,7 +45,9 @@ class SmartBarProtocol(Protocol):
 
     def save_state(self) -> None: ...
     def restore_state(self) -> None: ...
-    def enter_edit_mode(self, field_name: str, value: str, hint: str) -> None: ...
+    def enter_edit_mode(
+        self, field_name: str, value: str, hint: str, *, secret: bool = False
+    ) -> None: ...
     def enter_invalid(self, error_msg: str) -> None: ...
     # These three mirror `textual.widget.Widget`, which SmartBar inherits:
     # variadic class names, an `update` keyword, and a `Self` return. Declaring
@@ -122,9 +124,13 @@ class InsertModeController:
         # Save current bar state (Req 4.1)
         self._bar.save_state()
 
-        # Repurpose bar for editing (Req 4.2)
+        # Repurpose bar for editing (Req 4.2). A secret field masks as it is
+        # typed — the same `is_secret_field` answer that masks it in the panel
+        # behind the bar, so the two can never disagree.
         hint = f"Editing {field.name}"
-        self._bar.enter_edit_mode(field.name, field.value, hint)
+        self._bar.enter_edit_mode(
+            field.name, field.value, hint, secret=getattr(field, "secret", False)
+        )
 
         # Add "editing" class and focus (Req 4.2)
         self._bar.add_class("editing")
@@ -200,6 +206,7 @@ class InsertModeController:
                 self._editing_field.name,
                 self._bar.value,
                 f"Editing {self._editing_field.name}",
+                secret=getattr(self._editing_field, "secret", False),
             )
 
     # --- Private helpers ---

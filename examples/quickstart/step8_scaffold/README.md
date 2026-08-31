@@ -13,7 +13,7 @@ Generated layout:
 ```
 weather-app/
 ├── pyproject.toml        # [project.scripts] weather-app entry point
-├── config.base.ini
+├── config.base.toml
 └── src/weather_app/
     ├── __init__.py
     ├── main.py           # FunctualizeApp wiring

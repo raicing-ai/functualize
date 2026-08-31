@@ -26,8 +26,8 @@ def _reset_state():
 @pytest.fixture
 def config_dir(tmp_path):
     """Create a temporary config directory with a base config file."""
-    config_file = tmp_path / "config.base.ini"
-    config_file.write_text("[general]\napp_name = test\n")
+    config_file = tmp_path / "config.base.toml"
+    config_file.write_text('[general]\napp_name = "test"\n')
     return tmp_path
 
 
@@ -68,7 +68,7 @@ class TestFunctualizeAppInit:
         assert app._config_file_regex == DEFAULT_CONFIG_FILE_REGEX
 
     def test_custom_config_file_regex(self):
-        custom_regex = r"^settings\.(\w+)\.ini$"
+        custom_regex = r"^settings\.(\w+)\.toml$"
         app = FunctualizeApp(
             name="testapp",
             config_sources=ConfigSources(file_pattern=custom_regex),
@@ -101,8 +101,8 @@ class TestConfigDiscovery:
 
     def test_discovers_config_from_cwd(self, tmp_path):
         """When config files exist in CWD, uses that directory."""
-        config_file = tmp_path / "config.base.ini"
-        config_file.write_text("[general]\nkey = value\n")
+        config_file = tmp_path / "config.base.toml"
+        config_file.write_text('[general]\nkey = "value"\n')
 
         with patch("os.getcwd", return_value=str(tmp_path)):
             app = FunctualizeApp(name="testapp")
@@ -110,8 +110,8 @@ class TestConfigDiscovery:
 
     def test_discovers_config_from_parent(self, tmp_path):
         """When config files exist in a parent directory, finds them."""
-        config_file = tmp_path / "config.base.ini"
-        config_file.write_text("[general]\nkey = value\n")
+        config_file = tmp_path / "config.base.toml"
+        config_file.write_text('[general]\nkey = "value"\n')
 
         child_dir = tmp_path / "subdir" / "deep"
         child_dir.mkdir(parents=True)

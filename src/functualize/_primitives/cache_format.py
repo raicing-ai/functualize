@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.metadata
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -85,7 +86,43 @@ from functualize._primitives.locator import _xdg_cache_dir, compute_project_id
 # surface-suppressed). What remained — "render as if piped" — is already the
 # surface-hint ladder's job. `from_dict` reads keys by name, so a v13 entry
 # would raise KeyError rather than degrade; the bump forces a one-time rebuild.
-CACHE_VERSION = 14
+# v15 (2026-08-27): FieldDescriptor gained `secret`. The TUI panels mask from the
+# cached descriptor — a warm boot never imports the config model — so a v14 entry
+# would render every credential in cleartext until the next rescan. `_field_from_dict`
+# defaults the key to False, which is exactly the wrong direction to fail in, so the
+# version bump (not the default) is what protects the value.
+# v16 (2026-08-29): new header field `discovery_hash`, fingerprinting the effective
+# discovery filter configuration. Without it the cache was replayed under whatever
+# filters happened to be active: adding `[discovery] exclude_patterns` after a warm
+# run did nothing, and a single `--exclude` run removed the excluded jobs *permanently*
+# — the next flagless invocation replayed the filtered `pre_filter_decisions` and
+# `func <job>` answered "Unknown command". The bump is not cosmetic: anyone who ran
+# `--exclude` on 0.1.0 has a poisoned cache on disk right now, and only the version
+# check reaches it, because a 0.1.0 cache carries no `discovery_hash` to compare.
+# v17 (2026-08-29): no format change — `exclude_patterns` now matches relative to
+# whichever scan root contains the file rather than to `jobs_directories[0]`
+# (ADR-011). That changes which entries a *correct* cache holds for any project
+# with more than one scan root, and `discovery_hash` cannot see the change: the
+# nine fingerprinted `DiscoveryConfig` fields did not move, only the root the
+# filter judges against. A v16 cache therefore looks valid and is wrong, and only
+# the version check reaches it.
+# v18 (2026-08-30): JobDeclaration lost `matrix`. It was accepted, validated and
+# cached, and read by nothing — matrix expansion was dropped by decision
+# (`.spec/STATUS.md`), leaving only the declaration surface behind, so a job
+# declaring it ran once with its axis parameter unbound and no error. `to_dict`
+# no longer writes the key and `from_dict` reads keys by name, so a v17 entry
+# would raise KeyError rather than degrade; the bump forces a one-time rebuild.
+# v19 (2026-08-30): `FieldDescriptor` gained `from_config_model`. A job
+# descriptor carries one `config_fields` list holding either a config model's
+# fields or the plain signature's parameters, and `parameters` is not
+# serialized — so a warm boot could not tell the two apart and rendered both by
+# the signature rule. A config field then arrived at click carrying its
+# pydantic default, which `_resolve_config_model` reads as a CLI value and
+# ranks above the config file; a *required* config field became a positional
+# argument and the app answered `Missing argument 'TOKEN'` from its second run
+# onward. A v18 entry has no such key, so it would resolve `False` for every
+# field and reproduce exactly that; the bump forces a one-time rebuild.
+CACHE_VERSION = 19
 
 # Cache file name within the resolved cache directory.
 CACHE_FILENAME = "cache.json"
@@ -294,6 +331,44 @@ def compute_deps_hash(project_root: Path) -> str:
 
     digest = hashlib.sha256(deps_text.encode("utf-8")).hexdigest()
     return f"sha256:{digest}"
+
+
+def compute_discovery_hash(fields: Sequence[tuple[str, object]]) -> str:
+    """Compute a sha256 fingerprint of the effective discovery filter config.
+
+    Returns a "sha256:<hex>" string. Callers pass ``(name, value)`` pairs for the
+    discovery settings that shape which modules and jobs are admitted; the pairs
+    are sorted by name, so declaration order does not affect the digest.
+
+    ``None`` and an empty container hash **differently** on purpose. To the filter
+    factory ``None`` means "not configured" (no constraint) while ``()`` / ``""``
+    means "configured empty", and those are not the same filter set — collapsing
+    them here would reintroduce the class of bug this field exists to close.
+
+    Lives here rather than in ``_discovery`` because the fast-path cache readers
+    must compare it without importing ``_discovery``; and it takes primitive pairs
+    rather than a ``DiscoveryConfig`` because ``_primitives`` may not import the
+    public ``app`` package (see ``.spec/CONSTITUTION.md`` layer rules).
+    """
+    parts: list[str] = []
+    for name, value in sorted(fields, key=lambda pair: pair[0]):
+        parts.append(f"{name}={_normalize_discovery_value(value)}")
+    payload = "\n".join(parts)
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return f"sha256:{digest}"
+
+
+def _normalize_discovery_value(value: object) -> str:
+    """Render one discovery setting as a stable, unambiguous string.
+
+    The ``\x00`` separator and the type tags keep ``("a", "b")`` distinct from
+    ``("a,b",)`` and ``None`` distinct from ``()``.
+    """
+    if value is None:
+        return "\x00none"
+    if isinstance(value, (list, tuple)):
+        return "\x00seq(" + "\x00".join(str(item) for item in value) + ")"
+    return f"\x00str({value})"
 
 
 def _extract_dependencies_section(toml_content: str) -> str | None:

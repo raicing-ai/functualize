@@ -14,7 +14,7 @@ description: >
   skill.
 license: MIT
 metadata:
-  version: "0.1.0"
+  version: "0.1.1"
   project: functualize
 ---
 

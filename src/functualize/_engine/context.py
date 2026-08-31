@@ -41,6 +41,7 @@ class ExecutionContext:
         capabilities: Per-invocation capability instances (type → instance).
         config_class: Optional Pydantic model class for job config validation.
         parent_scope: Optional workflow scope propagated from parent invoke.
+        injected: Names in ``call_kwargs`` the **executor** put there.
     """
 
     job_name: str
@@ -55,6 +56,24 @@ class ExecutionContext:
     capabilities: dict[type, Any] = field(default_factory=dict)
     config_class: type | None = None
     parent_scope: Any | None = None
+
+    #: Parameter names in ``call_kwargs`` that the executor injected — DI
+    #: capabilities, the resolved config model, resolved group options, and
+    #: `FromJob` upstream values.
+    #:
+    #: The fingerprint key is a function of the arguments that are
+    #: *semantically part of the call*, and this set is what makes that an
+    #: exact subtraction rather than a type-sniffing guess: the executor knows
+    #: every injection it made, so ``call_kwargs - injected`` is precisely the
+    #: arguments a caller actually passed. Everything in here is either
+    #: unreconstructable by a later reader (a live capability instance, whose
+    #: ``repr`` carries a memory address) or already accounted for elsewhere in
+    #: the key (the resolved config, passed separately).
+    #:
+    #: A parameter the *caller* supplied is never added — `_inject_from_job`
+    #: and the DI loop both skip names already in ``call_kwargs`` — so a
+    #: caller-passed value correctly stays in the key.
+    injected: set[str] = field(default_factory=set)
 
     @property
     def elapsed_ms(self) -> float:

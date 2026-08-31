@@ -152,4 +152,5 @@ assert fake.calls == [(["git", "status"], {})]
 
 ## See Also
 
+- [Composing Capabilities](composition.md) — how this fits with the other capabilities: a combination matrix of what happens at each intersection, and the traps between them
 - [Task Runner Guide](task-runner.md) — `@job` with `deps`, `fingerprint`, `guards`

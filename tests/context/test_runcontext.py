@@ -50,7 +50,8 @@ class TestRunStatus:
         assert RunStatus.UNKNOWN.value == "Unknown"
 
     def test_all_members(self):
-        assert len(RunStatus) == 8
+        assert len(RunStatus) == 9
+        assert RunStatus.REFUSED.value == "Refused"
 
     def test_only_success_counts_as_having_run(self):
         """SKIPPED is not a failure — a guard or a fresh fingerprint answered

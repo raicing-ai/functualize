@@ -5,7 +5,7 @@ tool's ``inputSchema``, ``func builtin info schema``, and anything else that
 needs to tell a caller what a job accepts. Each of those rendering the schema
 itself is how the surfaces drift — the MCP plugin owned this code alone, and
 it published ``Stdout`` and ``Shell`` as required string arguments while the
-CLI filtered them correctly (see ``_types/capabilities.py``).
+CLI filtered them correctly (see ``_primitives/capability_names.py``).
 
 So the rendering lives here, in a layer both the CLI and a plugin can reach
 through ``functualize.app.utils``, and there is exactly one definition of what
@@ -174,8 +174,8 @@ def job_input_schema(
             might try to fill in.
 
     Capabilities are already absent: the descriptor's parameters exclude them
-    at extraction (``_types/capabilities.py``), which is the single place that
-    decision is made.
+    at extraction (``_primitives/capability_names.py``), which is the single
+    place that decision is made.
     """
     known = frozenset(group_options_class_names)
 

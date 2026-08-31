@@ -75,7 +75,7 @@ class Call:
     """A parameterized dependency reference — a job plus bound keyword args.
 
     Produced by the ``call()`` factory. Lets a dependency carry config
-    overrides, which matrix selectors and parameterized deps require: e.g.
+    overrides, which parameterized deps require: e.g.
     ``call(build, target="wheel")`` is a distinct dep from
     ``call(build, target="sdist")`` (proposal §A.4).
     """
@@ -172,9 +172,21 @@ class Deps:
 class Fingerprint:
     """Up-to-date-checking inputs and outputs for a job (proposal §A.3, §D.3).
 
-    ``sources`` are glob patterns whose content/timestamps prove staleness;
-    ``generates`` are the outputs the job produces. ``method`` selects the
-    staleness test.
+    ``sources`` and ``generates`` are **both** glob patterns —
+    ``generates=["dist/*.whl"]`` is a declaration about a wheel whose version is
+    not known in advance, not about a file literally named ``*.whl``.
+    ``method`` selects the staleness test.
+
+    Neither is required to live under the project (ADR-013). An absolute
+    pattern, a ``../`` pattern, and a pattern reaching through a symlinked
+    directory are all declarable; each path is recorded as written, so an
+    absolute one does not match on another machine and that machine re-runs the
+    job once.
+
+    A declared output that is not on disk forces a run under **every** method,
+    and a pattern matching nothing counts as not on disk. Otherwise a job whose
+    inputs were unchanged would report fresh with its promised artifact
+    deleted.
     """
 
     sources: tuple[str, ...] = ()
@@ -457,7 +469,6 @@ class JobDeclaration:
     cache: Fingerprint | None = None
     guards: Guards | None = None
     exec: Exec | None = None
-    matrix: dict[str, list[Any]] | None = None
 
     def __post_init__(self) -> None:
         # None is accepted as "none of these" and normalized to an empty tuple.
@@ -485,14 +496,6 @@ class JobDeclaration:
                     f"@job {label} must be a {typ.__name__} or None, "
                     f"got {type(obj).__name__}"
                 )
-        if self.matrix is not None:
-            if not isinstance(self.matrix, dict):
-                raise ValueError("@job matrix must be a dict[str, list] or None")
-            for key, vals in self.matrix.items():
-                if not isinstance(key, str) or not isinstance(vals, list):
-                    raise ValueError(
-                        "@job matrix must map string axis names to value lists"
-                    )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -507,7 +510,6 @@ class JobDeclaration:
             "cache": self.cache.to_dict() if self.cache is not None else None,
             "guards": self.guards.to_dict() if self.guards is not None else None,
             "exec": self.exec.to_dict() if self.exec is not None else None,
-            "matrix": self.matrix,
         }
 
     @classmethod
@@ -524,5 +526,4 @@ class JobDeclaration:
             cache=Fingerprint.from_dict(data["cache"]) if data["cache"] else None,
             guards=Guards.from_dict(data["guards"]) if data["guards"] else None,
             exec=Exec.from_dict(data["exec"]) if data["exec"] else None,
-            matrix=data["matrix"],
         )

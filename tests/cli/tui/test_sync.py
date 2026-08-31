@@ -24,7 +24,27 @@ def _make_field(
 
 
 class TestSyncOverridesToBar:
-    """Tests for sync_overrides_to_bar format logic."""
+    """Tests for sync_overrides_to_bar format logic.
+
+    Every case here is ungrouped and passes no trie, so the output is the flat
+    `<job> <args…>` it has always been. The grouped rendering — where the name
+    is spelled back out as a path with the group's flags mid-path — needs a
+    real trie and lives in ``tests/tui_group_options/``.
+    """
+
+    def test_no_trie_keeps_the_dotted_spelling(self) -> None:
+        """The degradation path, and why it is the *dotted* name.
+
+        With no trie the resolver reads the first token as the whole job name,
+        so a spaced path would parse back as a job called `deploy` with two
+        stray arguments. The dotted form is what round-trips there. The spaced
+        rendering needs a trie — see ``tests/tui_group_options/``.
+        """
+        fields = [
+            _make_field("image", "v1.2", edit_origin=EditOrigin.VALUE),
+        ]
+        result = sync_overrides_to_bar("deploy.web.run", fields)
+        assert result == "deploy.web.run --image v1.2"
 
     def test_single_override(self) -> None:
         """Single override produces 'job --field value'."""

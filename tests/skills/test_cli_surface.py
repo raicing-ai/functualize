@@ -29,7 +29,9 @@ def test_help_epilog_points_at_the_skills(cli_run):
     """One line, in the epilog — `--help` prints on every mistyped command."""
     result = cli_run(["--help"])
     assert result.exit_code == 0
-    assert "func builtin skills list" in result.stdout
+    # Program-name agnostic: the block names the invoked entry point, not
+    # always `func`. See tests/cli/test_info_subcommands.py for the why.
+    assert "builtin skills list" in result.stdout
 
 
 def test_skills_path_prints_one_bare_path(cli_run):

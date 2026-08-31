@@ -3,7 +3,7 @@ site_url: https://raicing-ai.github.io/functualize/
 site_description: A reusable Python CLI framework with auto-discovery, structured run context, layered configuration, and TUI integration.
 repo_url: https://github.com/raicing-ai/functualize
 repo_name: raicing-ai/functualize
-edit_uri: edit/main/docs/
+edit_uri: edit/master/docs/
 
 theme:
   name: material
@@ -98,6 +98,7 @@ nav:
     - Hierarchy Validation: guides/hierarchy-validation.md
     - Shell Capability: guides/shell.md
     - Task Runner: guides/task-runner.md
+    - Composing Capabilities: guides/composition.md
   - API Reference:
     - api/index.md
     - Config: api/config.md

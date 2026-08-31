@@ -52,6 +52,12 @@ def extract_field_descriptors(
         required = name in required_fields
         help_text = prop.get("description", "")
 
+        # Both secret markers land here as one key: `Secret[str]` emits it via
+        # `__get_pydantic_json_schema__`, and `json_schema_extra={"secret": True}`
+        # is copied through verbatim by Pydantic. Reading the schema rather than
+        # the annotation is what keeps the two markers a single mechanism.
+        secret = bool(prop.get("secret", False))
+
         fields.append(
             FieldDescriptor(
                 name=name,
@@ -60,6 +66,12 @@ def extract_field_descriptors(
                 default=default,
                 required=required,
                 description=help_text,
+                secret=secret,
+                # Every field this function produces comes from a config model
+                # by construction — it is the only thing it is ever given. The
+                # marker exists because the *consumer* cannot tell: a warm boot
+                # sees one `config_fields` list that may hold either kind.
+                from_config_model=True,
             )
         )
 

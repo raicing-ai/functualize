@@ -8,15 +8,16 @@ Whether you're configuring layered settings, building auto-discovered jobs, exte
 
 - [Usage Modes](modes.md) — Single-file, directory, library, and adapter modes — when to use each, how to scaffold, and feature comparison
 - [Architecture](architecture.md) — Boot sequence, three-layer job pipeline, config resolution, interactivity layer, and extension points overview
-- [Configuration System](configuration.md) — Layered INI-based configuration with environment overlays, upward directory search, and per-job sections
+- [Configuration System](configuration.md) — Layered TOML configuration with environment overlays, upward directory search, per-job sections, and credentials declared with `Secret[str]`
 - [Jobs and Auto-Discovery](jobs-discovery.md) — How jobs are discovered via `pkgutil`, registered as CLI commands, and grouped into sub-commands
-- [JobConfig with Pydantic](job-config.md) — Declarative, typed job configuration with automatic CLI option generation and multi-source resolution
+- [JobConfig with Pydantic](job-config.md) — Declarative, typed job configuration with automatic CLI option generation, multi-source resolution, and the `JOB_FIELD` environment convention
 - [RunContext Lifecycle](run-context.md) — Lifecycle hooks for setup, teardown, and error handling with metadata tracking and workflow steps
 - [Domain SDKs](domain-sdks.md) — Lightweight capability packages (AI, State, Tasks, Interactivity) with protocols, types, and testing doubles
 - [AI Capability](ai.md) — LLM interaction (complete, run, stream, extract), ToolScope restrictions, budget enforcement, and MockAI testing
 - [Workflows](workflows.md) — Declarative multi-step job graphs with `@workflow`, conditional branching, gates, and scope tracking
 - [Shell Capability](shell.md) — Run external commands with lifecycle management, secret redaction, context managers, and FakeShell testing
 - [Task Runner](task-runner.md) — `@job` decorator with dependencies, fingerprint caching, guard pipeline, parallel execution, and pipeline mode
+- [Composing Capabilities](composition.md) — **how the guides above fit together**: use cases, a combination matrix of what happens at each intersection, an idiomatic matrix of what you lose by hand-rolling, and the five traps between features. Every claim is executed by `examples/standalone/composition_lab/`
 - [MCP Adapter](mcp.md) — Expose jobs as MCP tools for external AI agents, schema export, multi-server management
 - [Plugins](plugins.md) — Extending Functualize with entry-point-based plugins and the PluginMetadata protocol
 - [Interactivity](interactivity.md) — the Surface and PromptCollector protocols, the TTY and Live job capabilities, rc.prompt(), and rc.emit()

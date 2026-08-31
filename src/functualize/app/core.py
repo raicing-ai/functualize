@@ -131,6 +131,8 @@ class FunctualizeApp:
     # runtime until the CLI assigns them.
     _output_format: str
     _prompt_gates: bool
+    _force: bool
+    _workflow_scope_id: str | None
 
     def __init__(
         self,
@@ -699,18 +701,46 @@ class FunctualizeApp:
     def explain(self, job_name: str) -> str:
         """Render why ``job_name`` would or would not run (§D.6).
 
+        The prose half of :meth:`explain_verdicts`, which is where the
+        evaluation lives. Two forms of one answer, derived from one set of
+        verdicts, so `func builtin why` and `func builtin why --json` cannot
+        disagree — a `--json` that re-derived the verdicts would be a second
+        reader of the same question, which is the shape of every defect this
+        module's history records.
+        """
+        from functualize._engine.explain import render_dep_line, render_verdict
+
+        target, deps, note, error = self.explain_verdicts(job_name)
+        if error is not None:
+            return error
+
+        assert target is not None
+        rendered = render_verdict(
+            job_name,
+            target,
+            deps=[render_dep_line(name, verdict) for name, verdict in deps],
+        )
+        return f"{rendered}\n  {note}" if note else rendered
+
+    def explain_verdicts(self, job_name: str) -> tuple[Any, list[Any], str, str | None]:
+        """The raw material behind `func builtin why`.
+
+        Returns ``(target_verdict, [(dep_name, dep_verdict), …], note, error)``.
+        ``error`` is a rendered string for the two cases that have no verdict at
+        all — an unresolvable job, and one with no `@job` declaration — and is
+        None otherwise.
+
         Evaluates the same pre-flight pipeline the executor consults, so this
         can never describe a decision the run would not make. Evaluated fresh
         rather than read from a cache: a verdict is a function of the world
         *now* — files on disk, a precondition's exit code — and a stored
         explanation goes stale exactly when someone asks.
 
-        Lives on the app because both `func why` and the TUI need it, and
-        neither may import the engine directly.
+        Lives on the app because `func why`, the JSON form and the TUI all need
+        it, and none of them may import the engine directly.
         """
         from pathlib import Path
 
-        from functualize._engine.explain import render_dep_line, render_verdict
         from functualize._engine.guards import GuardState, GuardVerdict
         from functualize._engine.preflight import Preflight
         from functualize._primitives.state_store import StateStore
@@ -718,17 +748,46 @@ class FunctualizeApp:
         try:
             entry = self.execution_engine.materialize_job(job_name)
         except Exception as exc:
-            return f"{job_name} → UNKNOWN\n  {type(exc).__name__}: {exc}"
+            return None, [], "", f"{job_name} → UNKNOWN\n  {type(exc).__name__}: {exc}"
 
         declaration = getattr(entry.function, "__functualize_job__", None)
         if declaration is None:
             return (
+                None,
+                [],
+                "",
                 f"{job_name} → WOULD RUN\n"
-                "  no @job declaration — nothing guards or caches this job"
+                "  no @job declaration — nothing guards or caches this job",
             )
 
         store = StateStore.for_project(Path.cwd())
         preflight = Preflight(store)
+
+        def config_for(name: str) -> Any:
+            """The config a run of ``name`` would resolve, or None.
+
+            The fingerprint key is a function of the resolved config, so
+            omitting it here addressed a *different* key than the run wrote
+            under and this method reported "no previous run recorded" for a
+            job that had just succeeded — the contradiction §D.6 exists to
+            make impossible.
+
+            `resolve_config_model` deliberately propagates ValidationError; on
+            a read path that must degrade rather than turn `why` into a crash,
+            so an unresolvable config becomes None *and says so* in the log.
+            """
+            import logging
+
+            try:
+                return self.execution_engine.resolve_config_model(name)
+            except Exception as exc:
+                logging.getLogger(__name__).debug(
+                    "config for %r could not be resolved while explaining it "
+                    "(%s); the verdict is computed without it",
+                    name,
+                    exc,
+                )
+                return None
 
         def verdict_for(name: str) -> Any:
             try:
@@ -738,17 +797,22 @@ class FunctualizeApp:
             dep_declaration = getattr(dep_entry.function, "__functualize_job__", None)
             if dep_declaration is None:
                 return GuardVerdict(GuardState.RUN, "no @job declaration")
-            return preflight.check(name, dep_declaration).verdict
+            return preflight.check(
+                name, dep_declaration, config=config_for(name)
+            ).verdict
 
         # A dependency's own verdict matters: a fresh target with a stale dep
         # still runs, and a user staring at the target alone cannot see why.
-        dep_lines = [
-            render_dep_line(name, verdict_for(name))
+        deps = [
+            (name, verdict_for(name))
             for name in self.execution_engine._declared_dep_names(job_name)
         ]
-        rendered = render_verdict(
-            job_name, preflight.check(job_name, declaration).verdict, deps=dep_lines
-        )
+        # The *target's* verdict needs the same config as the dependencies'.
+        # It produces the headline, so getting this one wrong is the visible
+        # half of the contradiction.
+        target = preflight.check(
+            job_name, declaration, config=config_for(job_name)
+        ).verdict
 
         # Resolved Q19: a recorded value that cannot be handed to a `FromJob`
         # dependent is a reason the upstream keeps re-running, and it is
@@ -756,21 +820,77 @@ class FunctualizeApp:
         # value cannot travel. `func why` is where someone already asks "why
         # did this run again", so the answer belongs here.
         note = self._return_value_note(job_name, declaration, store)
-        return f"{rendered}\n  {note}" if note else rendered
+        return target, deps, note, None
+
+    def explain_data(self, job_name: str) -> dict[str, Any]:
+        """`func builtin why --json` — the same verdicts, as data.
+
+        `ExitCode.STALE` (4) has been pinned in `_types/exit_codes.py` since the
+        table was written, documented as "stale-check failure", and produced
+        **nowhere**: an inert surface of the same class as the `@job(matrix=…)`
+        kwarg this branch removed. `why` answers exactly the question that
+        number was reserved for, and answered it in prose with exit 0, so no
+        script could act on it. This gives the code its first producer.
+
+        `exit_code` is in the payload as well as being the process's exit code,
+        so a caller that captured stdout does not also have to capture ``$?``.
+        """
+        from functualize._engine.explain import explain_exit_code, model_name
+        from functualize._types.exit_codes import ExitCode
+
+        target, deps, note, error = self.explain_verdicts(job_name)
+        if error is not None:
+            return {
+                "job": job_name,
+                "state": "unknown",
+                "will_run": True,
+                "reason": error.split("\n", 1)[-1].strip(),
+                "checks": [],
+                "awaiting": None,
+                "note": None,
+                "deps": [],
+                "exit_code": int(ExitCode.USAGE),
+            }
+
+        assert target is not None
+        return {
+            "job": job_name,
+            # The enum's *wire* values, so a new member is a new string rather
+            # than a renamed one.
+            "state": target.state.value,
+            "will_run": bool(target.will_run),
+            "reason": target.reason,
+            # No `changed` key: a `GuardVerdict` does not carry the
+            # fingerprint's changed-path list — it carries the rendered
+            # explanation of it, in `reason` and `checks`. Emitting an
+            # always-empty array would be worse than omitting it.
+            "checks": list(target.checks),
+            "awaiting": model_name(target.awaiting),
+            "note": note or None,
+            "deps": [
+                {
+                    "job": name,
+                    "state": verdict.state.value,
+                    "will_run": bool(verdict.will_run),
+                }
+                for name, verdict in deps
+            ],
+            "exit_code": int(explain_exit_code(target)),
+        }
 
     def _return_value_note(self, job_name: str, declaration: Any, store: Any) -> str:
         """One line about an unusable recorded return value, or ""."""
-        from functualize._primitives.fingerprint import (
-            compute_args_hash,
-            fingerprint_key,
-            why_return_value_unreusable,
-        )
+        from functualize._primitives.fingerprint import why_return_value_unreusable
 
         if getattr(declaration, "cache", None) is None:
             return ""
         for method in ("checksum", "timestamp", "none"):
+            # Through the engine's own key derivation. Reading under
+            # `compute_args_hash(None, {})` found no record for any job with a
+            # config class, so the note this method exists to print was
+            # unprintable exactly where it mattered most.
             record = store.get_fingerprint(
-                fingerprint_key(job_name, compute_args_hash(None, {}), method)
+                self.execution_engine.fingerprint_key_for(job_name, method)
             )
             if record is not None:
                 return why_return_value_unreusable(record)

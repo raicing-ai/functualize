@@ -17,12 +17,11 @@ Public API:
 
 from __future__ import annotations
 
-import configparser
 import contextlib
-import inspect
 import logging
 import os
 import sys
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import click
@@ -33,10 +32,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 
 from functualize._app.state import AppState
-from functualize._primitives.group_options_detection import (
-    is_group_options_subclass,
-)
-from functualize._primitives.locator import ResourceLocator
+from functualize._primitives.config_class_detection import detect_config_class
 from functualize._types.enums import EnvironmentSource
 from functualize.app.adapters.click_params import (
     create_callback_click_command,
@@ -77,7 +73,41 @@ def _make_pure_group(name: str) -> NormalizingGroup:
 # ─── Groups ──────────────────────────────────────────────────────────────
 
 
-class NormalizingGroup(click.Group):
+class AgentEpilogGroup(click.Group):
+    """A root ``click.Group`` that renders the agent block at the left margin.
+
+    Click renders ``epilog`` inside ``formatter.indentation()`` and puts it
+    through ``wrap_text``. Both hurt: the heading ends up two columns *under*
+    "Commands:", reading as another command rather than a new section, and the
+    extra indent pushes the widest line past a narrow terminal so it wraps
+    mid-word through a hand-aligned table.
+
+    Written verbatim instead, and **built at render time from the name click
+    was actually invoked as** — a project's own ``main.py`` must not be told to
+    run ``func``. See ``_primitives/agent_epilog.py``.
+
+    Mixed into ``NormalizingGroup`` so both root groups an app can end up with
+    (``NormalizingGroup`` and ``FallbackGroup``) inherit it, and used by
+    ``func``'s own group in ``_cli/main.py``. One definition: a second copy of
+    this is how the block came to exist on one entry point only.
+    """
+
+    #: Off by default, because ``NormalizingGroup`` is also every *sub*group in
+    #: the trie — a default of True repeats the block on `builtin --help`, on
+    #: each job group, and on down. Only whoever builds the root turns it on.
+    emit_agent_epilog: bool = False
+
+    def format_epilog(self, ctx: click.Context, formatter: Any) -> None:
+        if not self.emit_agent_epilog:
+            super().format_epilog(ctx, formatter)
+            return
+
+        from functualize._primitives.agent_epilog import write_agent_epilog
+
+        write_agent_epilog(ctx.find_root().info_name or "func", formatter)
+
+
+class NormalizingGroup(AgentEpilogGroup):
     """click.Group that resolves a command name through the naming policy.
 
     Jobs register under their canonical name (``build-wheel``), so this is what
@@ -216,15 +246,30 @@ def _config_source_hint(app: Any, job_name: str) -> str:
     except Exception:  # introspection must never mask the real error
         return ""
 
+    # The env spelling must be the one that actually resolves. It used to name
+    # `JOB__<FIELD>`, which contradicted the guide, `builtin env` and
+    # `info --job` — a suggestion naming a variable that sets nothing is worse
+    # than no suggestion at all.
+    env_hint = f"{job_name.upper().replace('-', '_').replace('.', '_')}_<FIELD>"
+
     if files:
         names = ", ".join(str(getattr(f, "path", f)) for f in files)
-        return f"Config files read: {names}"
+        # Naming the variable matters *most* here. When no file was found the
+        # user at least knows the file is the problem; when files were read and
+        # a field is still missing, "which files" alone does not say what to do
+        # about it.
+        return (
+            f"Config files read: {names}\n"
+            f"Set the missing field with {env_hint} in the environment, or add "
+            f"it to the [{job_name}] section. `func builtin env {job_name}` "
+            f"lists every variable and which are set."
+        )
     return (
         "No config files were discovered. Files must be named "
         "config.<slot>.<ext> (e.g. config.base.toml) — a plain config.toml is "
         "not read, and <ext> must be one a registered format provider handles "
-        "(.toml, .ini, .cfg by default). You can also set "
-        f"{job_name.upper().replace('-', '_')}__<FIELD> in the environment."
+        f"(.toml by default; a plugin can register more). You can also set "
+        f"{env_hint} in the environment."
     )
 
 
@@ -281,6 +326,7 @@ def _print_validation_error(job_name: str, error: Any, app: Any = None) -> None:
 def _build_job_command(
     descriptor: JobDescriptor,
     app: FunctualizeApp,
+    group_option_values: dict[str, Any] | None = None,
 ) -> tuple[click.Command, str]:
     """Build the click command for one job descriptor + its CLI command name.
 
@@ -308,12 +354,60 @@ def _build_job_command(
             job_config_class=config_class,
             app=app,
             command_name=command_name,
+            group_option_values=group_option_values,
         )
     else:
-        command = make_lazy_command(descriptor, app, command_name=command_name)
+        command = make_lazy_command(
+            descriptor,
+            app,
+            command_name=command_name,
+            group_option_values=group_option_values,
+        )
 
     setattr(command, _PANEL_ATTR, _get_job_panel(descriptor))
     return command, command_name
+
+
+def _group_option_params(
+    spec: Any,
+    sink: dict[str, Any],
+) -> tuple[list[click.Parameter], Callable[..., None]]:
+    """Render a group's declared options as click params + a depositing callback.
+
+    The **adapter** path — an app's own entry point, `glab deploy --env prod
+    web run v1.2` — never reaches ``_cli/main``'s ``walk_group_path``: click
+    owns the tree here and parses each group before it resolves the
+    sub-command. Without params of its own a group answered
+    ``Error: No such option '--env'`` for the one spelling the feature exists
+    for, so `func` and an app's own script disagreed about the same project.
+
+    The params come from ``build_click_params_from_fields`` — the same renderer the
+    job path uses (C-D1) — so a group flag is spelled exactly as the identical
+    job flag would be.
+
+    ``sink`` is the mutable dict shared with every job command beneath this
+    node. Only values click reports as coming from the **command line** are
+    deposited: ``group_option_values`` is the CLI layer, which outranks the
+    group's config file, so depositing a click *default* would silently beat
+    `[deploy] env = "staging"` with the same string and, worse, beat a real
+    file value with a declared default.
+    """
+    from functualize.app.adapters.click_params import build_click_params_from_fields
+
+    params = build_click_params_from_fields(list(spec.fields))
+    names = {p.name for p in params if p.name}
+
+    def _deposit(**kwargs: Any) -> None:
+        ctx = click.get_current_context()
+        for key, value in kwargs.items():
+            if key not in names:
+                continue
+            source = ctx.get_parameter_source(key)
+            if source is not None and source.name != "COMMANDLINE":
+                continue
+            sink[key] = value
+
+    return params, _deposit
 
 
 def _register_trie_node(
@@ -321,6 +415,9 @@ def _register_trie_node(
     node: TrieNode,
     jobs_by_path: dict[str, JobDescriptor],
     app: FunctualizeApp,
+    group_option_specs: dict[str, Any] | None = None,
+    group_option_values: dict[str, Any] | None = None,
+    path: str = "",
 ) -> None:
     """Recursively mirror one namespace-trie node into the click command tree.
 
@@ -334,24 +431,71 @@ def _register_trie_node(
     than a single group literally named ``infra.aws``.
     """
     descriptor = jobs_by_path.get(node.payload) if node.payload is not None else None
+    node_path = f"{path}.{node.segment}" if path else node.segment
 
     if descriptor is not None and node.is_leaf:
-        command, command_name = _build_job_command(descriptor, app)
+        command, command_name = _build_job_command(
+            descriptor, app, group_option_values=group_option_values
+        )
         parent.add_command(command, name=command_name)
         return
 
     if descriptor is not None:
         # Duality: runnable AND navigable.
-        job_command, _ = _build_job_command(descriptor, app)
+        job_command, _ = _build_job_command(
+            descriptor, app, group_option_values=group_option_values
+        )
         group: click.Group = make_duality_group(
             job_command, name=node.segment, panel=_get_job_panel(descriptor)
         )
     else:
         group = _make_pure_group(node.segment)
 
+    # Mid-path group options (S6a) for *this* node, if it declared any.
+    spec = (group_option_specs or {}).get(node_path)
+    if spec is not None and group_option_values is not None:
+        extra_params, deposit = _group_option_params(spec, group_option_values)
+        _attach_group_options(group, extra_params, deposit)
+
     parent.add_command(group, name=node.segment)
     for child in sorted(node.children.values(), key=lambda c: c.segment):
-        _register_trie_node(group, child, jobs_by_path, app)
+        _register_trie_node(
+            group,
+            child,
+            jobs_by_path,
+            app,
+            group_option_specs=group_option_specs,
+            group_option_values=group_option_values,
+            path=node_path,
+        )
+
+
+def _attach_group_options(
+    group: click.Group,
+    params: list[click.Parameter],
+    deposit: Callable[..., None],
+) -> None:
+    """Add a group's declared options and chain its depositing callback.
+
+    A duality group already has a callback (it runs the job when no
+    sub-command follows). Chaining rather than replacing keeps both: the
+    deposit runs first, then whatever the group already did. The job callback
+    is handed only the params it already knew about, so a group flag never
+    arrives as a job kwarg it never declared.
+    """
+    existing = group.callback
+    known = {p.name for p in group.params if p.name}
+    group.params = [*group.params, *params]
+    added = {p.name for p in params if p.name}
+
+    def _chained(**kwargs: Any) -> Any:
+        deposit(**{k: v for k, v in kwargs.items() if k in added})
+        if existing is None:
+            return None
+        return existing(**{k: v for k, v in kwargs.items() if k in known})
+
+    group.callback = _chained
+    group.invoke_without_command = group.invoke_without_command or False
 
 
 def register_discovered_jobs(
@@ -372,7 +516,13 @@ def register_discovered_jobs(
         cli_group: The click.Group to register commands on.
         app: The FunctualizeApp with discovered jobs.
     """
-    from functualize.app.utils import build_group_trie
+    from pathlib import Path
+
+    from functualize.app.utils import (
+        build_group_trie,
+        read_group_options_from_cache,
+        resolve_cache_path,
+    )
 
     jobs = app.get_jobs()
     jobs_by_path = {descriptor.name: descriptor for descriptor in jobs}
@@ -382,8 +532,32 @@ def register_discovered_jobs(
         builtin=False,
     )
 
+    # Mid-path group options (S6a). `get_jobs()` above is the scan that writes
+    # this cache section, so reading it here is warm and import-free.
+    try:
+        group_option_specs = read_group_options_from_cache(
+            resolve_cache_path(Path.cwd())
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("register_discovered_jobs: no group options (%s)", exc)
+        group_option_specs = {}
+
+    # One mutable dict for the whole invocation, shared by every group node
+    # that can fill it and every job command that reads it. click parses a
+    # group's params before it resolves the sub-command, so it is filled by
+    # the time any job callback runs — which is why the values cannot simply
+    # be baked into each command at construction time.
+    group_option_values: dict[str, Any] = {}
+
     for node in sorted(trie.root.children.values(), key=lambda c: c.segment):
-        _register_trie_node(cli_group, node, jobs_by_path, app)
+        _register_trie_node(
+            cli_group,
+            node,
+            jobs_by_path,
+            app,
+            group_option_specs=group_option_specs,
+            group_option_values=group_option_values,
+        )
 
 
 def register_plugin_commands(
@@ -611,6 +785,10 @@ class CliAdapter:
             # must not depend on whether a fallback chain happens to be wired.
             group_cls = FallbackGroup if self._fallbacks else NormalizingGroup
             self._cli_group = group_cls(name=app.name, invoke_without_command=True)
+            # This is the root, so it is the one group that carries the agent
+            # block. A caller who brings their own group keeps their own help
+            # text — turning it on there would edit output they own.
+            self._cli_group.emit_agent_epilog = True
 
         should_register_callback = (
             register_callback
@@ -679,6 +857,8 @@ class CliAdapter:
             config_directory: Path | None = None,
             perf_report: str | None = None,
             perf_filter: str | None = None,
+            force: bool = False,
+            scope_id: str | None = None,
             **generated: Any,
         ) -> None:
             """Global options processed before any sub-command.
@@ -750,6 +930,14 @@ class CliAdapter:
             else:
                 app_instance.job_registry.update_config_paths()
 
+            # Deposited on the app rather than passed down, because the
+            # commands were built before this callback ran — the same route
+            # `--output` already takes. `func` reaches the identical attributes
+            # from `_cli/main.py`, so the two surfaces agree.
+            app_instance._force = force
+            if scope_id is not None:
+                app_instance._workflow_scope_id = scope_id
+
             ctx.obj = {
                 "app": app_instance,
                 "fallbacks": fallbacks,
@@ -805,6 +993,22 @@ class CliAdapter:
                 ["--perf-filter"],
                 default=None,
                 help="Filter pattern for --perf-report.",
+            ),
+            # Parity with the bare `func` CLI, which has both as pre-command
+            # globals. Without them an app entry point could not force a run at
+            # all, and could not resume a gated workflow from any surface —
+            # a `@workflow` with a `Gate` blocked at exit 5 forever.
+            click.Option(
+                ["--force"],
+                is_flag=True,
+                default=False,
+                help="Run even when up to date. Does not override a failed "
+                "precondition or a gate.",
+            ),
+            click.Option(
+                ["--scope-id"],
+                default=None,
+                help="Resume the named workflow scope instead of starting a fresh one.",
             ),
             *_generated_setting_options(),
             *self._cli_group.params,
@@ -967,42 +1171,7 @@ def _show_info_impl(
         Panel(info_table, title="[bold]General Info[/bold]", border_style="green")
     )
 
-    resolver = ResourceLocator().search_explicit(str(config_dir))
-    config_files = resolver.resolve("config.*")
-
-    if config_files:
-        for config_file in config_files:
-            original_parser = configparser.ConfigParser(
-                interpolation=configparser.ExtendedInterpolation()
-            )
-            original_parser.read(config_file)
-
-            interpolated_parser = configparser.ConfigParser(
-                os.environ, interpolation=configparser.ExtendedInterpolation()
-            )
-            interpolated_parser.read(config_file)
-
-            interpolated_lines: list[str] = []
-            for section in original_parser.sections():
-                interpolated_lines.append(f"[{section}]")
-                for key, value in original_parser.items(section, raw=True):
-                    try:
-                        interpolated_lines.append(
-                            f"{key} = {interpolated_parser[section][key]}"
-                        )
-                    except Exception:
-                        interpolated_lines.append(f"{key} = {value}")
-                interpolated_lines.append("")
-
-            interpolated_content = "\n".join(interpolated_lines)
-            syntax = Syntax(
-                interpolated_content, "ini", theme="monokai", line_numbers=False
-            )
-            console.print(
-                Panel(syntax, title=f"[bold]{config_file}[/bold]", border_style="cyan")
-            )
-    else:
-        console.print("[yellow]No config files found.[/yellow]")
+    _print_config_files(app, console)
 
     registered = app.job_registry._registered_commands
     if registered:
@@ -1110,23 +1279,181 @@ def _show_job_config(app: FunctualizeApp, console: Console, job_name: str) -> No
     config_table.add_column("Value")
     config_table.add_column("Source", style="dim italic")
 
-    from functualize._types.redaction import MASK, is_secret_field
+    from functualize._config.resolved_field import resolve_job_fields
+    from functualize._types.redaction import display_value
 
-    for field_name, field_info in job_config_class.model_fields.items():
-        value, source = _resolve_field_with_source(
-            app, field_name, field_info, job_name
+    # One resolver. This used to be `_resolve_field_with_source`, a private
+    # re-implementation that knew one env convention, skipped coercion, and so
+    # could report a value the run would not use.
+    try:
+        from functualize._config.job_config import JobConfigView
+
+        fields = resolve_job_fields(
+            job_config_class,
+            job_name,
+            JobConfigView(
+                resolution_chain=app._resolution_chain,
+                default_section_prefix=job_name,
+            ),
         )
-        # F3 sweep: a `secret=True` / `Secret[str]` field must never render its
-        # resolved value here — `info --job` is a display sink like every other
-        # (schema §5), and this table used to print the plaintext. Masking on
-        # presence, not on value, so an empty secret still reads as a secret.
-        if is_secret_field(field_info):
-            display = MASK if value is not None else "(none)"
+    except Exception:  # introspection must never mask the real error
+        fields = []
+
+    for f in fields:
+        if f.is_missing_required:
+            # The state an operator most needs to see. It used to render as
+            # `••• model default` for a secret and `PydanticUndefined` for a
+            # plain field, because the guard tested `default is not None`, and
+            # a Pydantic v2 required field's default is `PydanticUndefined` —
+            # neither None nor Ellipsis, so the "not set" branch was
+            # unreachable for every required field.
+            display = "[bold red]not set[/bold red]"
+            source = f"required — set {f.origin}"
+        elif not f.is_set:
+            display = "(none)"
+            source = f"not set — set {f.origin}"
         else:
-            display = str(value) if value is not None else "(none)"
-        config_table.add_row(field_name, display, source)
+            # Mask on presence, not on value: an empty secret still reads as a
+            # secret, so a viewer cannot infer "unset" from a blank cell.
+            display = display_value(f.value, secret=f.secret)
+            source = _describe_source(f)
+        config_table.add_row(f.name, display, source)
 
     console.print(config_table)
+
+
+def _secret_keys_for_section(app: Any, section: str) -> set[str]:
+    """Field names the job owning ``section`` declares secret.
+
+    Read from the cached ``FieldDescriptor``s — the same boot-free answer the
+    TUI panels use — so listing config files never imports a job module.
+    """
+    try:
+        descriptor = app.get_job(section)
+    except Exception:
+        return set()
+    if descriptor is None:
+        return set()
+    fields = getattr(descriptor, "config_fields", None) or []
+    return {f.name for f in fields if getattr(f, "secret", False)}
+
+
+def _render_file_values(app: Any, values: dict[str, Any]) -> str:
+    """A file's parsed contents as TOML text, with declared secrets masked.
+
+    This panel used to be built with ``configparser`` and
+    ``ExtendedInterpolation`` over ``os.environ``, rendered as ``ini``. Two
+    things were wrong with that after ADR-007: the format is TOML, and every
+    value was echoed verbatim — so a credential written into a config file
+    appeared here in full, two panels above the ``JobConfig`` table that
+    carefully masks the very same value. The interpolation made it worse by
+    expanding ``${VAR}`` from the environment before printing.
+    """
+    from functualize._types.redaction import display_value
+
+    lines: list[str] = []
+    scalars = {k: v for k, v in values.items() if not isinstance(v, dict)}
+    for key, value in scalars.items():
+        lines.append(f"{key} = {value!r}")
+    if scalars:
+        lines.append("")
+
+    for section, section_values in values.items():
+        if not isinstance(section_values, dict):
+            continue
+        secret_keys = _secret_keys_for_section(app, section)
+        lines.append(f"[{section}]")
+        for key, value in section_values.items():
+            shown = display_value(value, secret=key in secret_keys)
+            lines.append(
+                f"{key} = {shown!r}" if isinstance(value, str) else f"{key} = {shown}"
+            )
+        lines.append("")
+    return "\n".join(lines).rstrip("\n")
+
+
+def _print_unreadable_config_file(path: str, console: Console) -> None:
+    """Say that a config-shaped file is being ignored, and what to do about it.
+
+    Silence is the failure mode this whole area exists to remove. A project
+    whose only config was ``config.base.ini`` ran on model defaults after
+    ADR-007 with no error, no warning, and this command — the one an operator
+    reaches for to ask "what config is in effect?" — reporting "No config files
+    found".
+    """
+    from pathlib import Path
+
+    extension = Path(path).suffix or "(none)"
+    # The path goes in the *body*, not only the title: Rich ellipsizes a title
+    # that does not fit and wraps a body that does not, so on a long path a
+    # title-only report names no file at all.
+    console.print(
+        Panel(
+            f"[bold red]Not read[/bold red] — no config format provider is "
+            f"registered for [bold]{extension}[/bold], so nothing in this file "
+            f"takes effect.\n\n"
+            f"[bold]{path}[/bold]\n\n"
+            f"Convert it to TOML, or register a provider from a plugin — "
+            f"plugins load before the resolution chain is built (ADR-007).",
+            title="[bold]Unreadable config file[/bold]",
+            border_style="red",
+        )
+    )
+
+
+def _print_config_files(app: Any, console: Console) -> None:
+    """One panel per discovered config file, including the ones nothing read.
+
+    A file the kernel found but no ``FormatProvider`` could parse is reported
+    rather than omitted. Omitting it is how a project whose only config is
+    ``config.base.ini`` silently ran on model defaults after ADR-007 made TOML
+    the sole registered format: no error, no warning, and this command — the
+    one an operator reaches for to ask "what config is in effect?" — did not
+    mention the file at all.
+    """
+    try:
+        infos = app.config_files()
+    except Exception:
+        infos = []
+
+    # Files that look like config but that no registered provider can read.
+    # Reported separately because they never even reach FileSource: anchoring
+    # rejects them on extension, so they carry no role and no rank.
+    unreadable = list(getattr(app, "_unreadable_config_files", None) or [])
+
+    if not infos and not unreadable:
+        console.print("[yellow]No config files found.[/yellow]")
+        return
+
+    for path in unreadable:
+        _print_unreadable_config_file(path, console)
+
+    for info in infos:
+        if not info.parsed:
+            _print_unreadable_config_file(info.path, console)
+            continue
+
+        body = _render_file_values(app, info.values)
+        console.print(
+            Panel(
+                Syntax(body, "toml", theme="monokai", line_numbers=False)
+                if body
+                else "[dim](empty)[/dim]",
+                title=f"[bold]{info.path}[/bold]",
+                border_style="cyan",
+            )
+        )
+
+
+def _describe_source(f: Any) -> str:
+    """How `info --job` names where a value came from."""
+    if f.source == "env":
+        return f"env var ({f.origin})"
+    if f.source == "default":
+        return "model default"
+    if f.source == "cli":
+        return "CLI argument"
+    return f"{f.source} ({f.origin})" if f.origin else f.source
 
 
 def _find_job_config_class(
@@ -1140,8 +1467,6 @@ def _find_job_config_class(
     the function signature for entries the engine doesn't know.
     """
     import importlib
-
-    from pydantic import BaseModel
 
     try:
         entry = app._execution_engine.materialize_job(job_name)
@@ -1170,65 +1495,15 @@ def _find_job_config_class(
         if func is None or not callable(func):
             continue
 
-        sig = inspect.signature(func)
-        for param in sig.parameters.values():
-            annotation = param.annotation
-            if annotation is inspect.Parameter.empty:
-                continue
-            if (
-                isinstance(annotation, type)
-                and issubclass(annotation, BaseModel)
-                and annotation is not BaseModel
-                # A GroupOptions parameter carries the *group's* flags, not
-                # this job's config fields (see _discovery/sync.py).
-                and not is_group_options_subclass(annotation)
-            ):
-                return annotation
+        # Through the one shared rule. This copy read `param.annotation`
+        # *raw*, so under `from __future__ import annotations` every
+        # annotation was a string and this fallback could never find a config
+        # class at all.
+        detected = detect_config_class(func)
+        if detected is not None:
+            return detected
 
     return None
-
-
-def _resolve_field_with_source(
-    app: FunctualizeApp,
-    field_name: str,
-    field_info: object,
-    job_name: str,
-) -> tuple[object, str]:
-    """Resolve a single JobConfig field value and determine its source."""
-    from functualize._config.errors import MissingKeyError
-
-    env_key = f"{job_name.upper()}_{field_name.upper()}"
-    env_value = os.environ.get(env_key)
-    if env_value is not None:
-        return env_value, f"env var ({env_key})"
-
-    try:
-        resolved = app._resolution_chain.resolve(field_name, job_name)
-        return (
-            resolved.value,
-            f"config file [{job_name}] (via {resolved.source_type})",
-        )
-    except MissingKeyError:
-        pass
-
-    from pydantic.fields import FieldInfo
-
-    if isinstance(field_info, FieldInfo):
-        if field_info.default is not None and field_info.default is not ...:
-            return field_info.default, "model default"
-        factory = field_info.default_factory
-        if factory is not None:
-            # Pydantic v2 allows two factory shapes: the usual zero-arg one,
-            # and one taking the already-validated fields. This is a display
-            # path over a single field with no validated model to hand over,
-            # so the data-taking form has nothing to be called with — report
-            # it rather than crashing `info --job` on a TypeError.
-            try:
-                return factory(), "model default (factory)"  # type: ignore[call-arg]
-            except TypeError:
-                return None, "model default (factory, needs validated data)"
-
-    return None, "not set (required)"
 
 
 __all__ = [

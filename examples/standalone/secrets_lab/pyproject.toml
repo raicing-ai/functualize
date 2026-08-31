@@ -1,0 +1,2 @@
+[tool.functualize]
+jobs_directories = ["jobs"]

@@ -193,6 +193,14 @@ class TestPluginInstanceRegistry:
 
         app = FunctualizeApp(name="testapp")
 
+        # A real app boots with its entry-point plugins already indexed —
+        # `mcp`, `flow-viz`, `functualize-http`, `functualize-lambda` at the time
+        # of writing. Those names are inside `plugin_names`' alphabet, so
+        # assuming only against `registered_names` let Hypothesis propose one of
+        # them as "unregistered" and the lookup rightly did not raise. Assume
+        # against what the app actually holds, not against what this test added.
+        assume(unregistered_name not in app._plugin_name_index)
+
         # Register plugins
         for name in registered_names:
             plugin = _make_conforming_plugin(name)

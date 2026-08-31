@@ -11,9 +11,25 @@ Requirements: 14.1, 14.4, 14.6, 14.7, 14.8
 
 import importlib.metadata
 import subprocess
+import tomllib
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent
+
+
+def _declared_version() -> str:
+    """The version `pyproject.toml` declares — the release's source of truth.
+
+    Asserted against rather than hardcoded. A literal here is a fourteenth place
+    the version is declared, on top of the thirteen `CONTRIBUTING.md` lists, and
+    it is one no release checklist mentions: bumping the documented thirteen and
+    running the suite lands red, which is exactly what happened cutting 0.1.1.
+    Comparing the sources to each other keeps the invariant that matters — every
+    declaration agrees — without adding a site to bump.
+    """
+    data = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text("utf-8"))
+    version: str = data["project"]["version"]
+    return version
 
 
 class TestPackageMetadata:
@@ -24,14 +40,14 @@ class TestPackageMetadata:
         import functualize
 
         assert hasattr(functualize, "__version__")
-        assert functualize.__version__ == "0.1.0"
+        assert functualize.__version__ == _declared_version()
 
     def test_package_has_required_metadata_fields(self):
         """Package metadata includes name, version, description, requires-python."""
         meta = importlib.metadata.metadata("functualize")
 
         assert meta["Name"] == "functualize"
-        assert meta["Version"] == "0.1.0"
+        assert meta["Version"] == _declared_version()
         assert meta["Summary"] is not None and len(meta["Summary"]) > 0
         assert meta["Requires-Python"] is not None
 

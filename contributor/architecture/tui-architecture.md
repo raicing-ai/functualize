@@ -106,8 +106,9 @@ makes `KeyDispatcher` pass every key through untouched instead of routing it.
 or `"general"` — not an enum or state machine). Panels are hardcoded
 builders, not a dynamic `PanelProvider` registry.
 
-- **Command ring** (`Ctrl+R`, requires a recognized job name) —
-  `tui/chain_resolution.py:build_command_panels()`:
+- **Command ring** (`Ctrl+R`, requires a recognized job — resolved by *walking*
+  the bar's tokens as a path, not by reading the first one: under a group that
+  token is the group) — `tui/chain_resolution.py:build_command_panels()`:
   1. `ConfigTablePanel` (`tui/panels/config_table.py`) — "Config Table"
   2. `ConfigFilesPanel` (`tui/panels/config_files.py`) — "Config Files"
   3. `DiffViewWidget` (`tui/diff_view_widget.py`) — "Diff View" (includes an
@@ -115,6 +116,15 @@ builders, not a dynamic `PanelProvider` registry.
 
   See `contributor/architecture/tui-command-panel.md` for the full UX spec
   of these three panels (columns, edit flows, breadcrumb drill-down).
+
+  All three render a job's **inherited** group options alongside its own
+  fields, prefixed `[deploy]` and attributed by `FieldDef.group_path` /
+  `ConfigDiffEntry.group_path`. A group row is a first-class row: editable,
+  resettable, and written back to its own **mid-path** position in the bar.
+  The rules that keeps true are ADR-009 and
+  `contributor/guides/tui-panels.md` §11–§14 — read them before touching a
+  write-back path, and note the gate in
+  `tests/tui_group_options/test_write_back_gate.py` enforces four of them.
 
 - **General ring** (`Ctrl+E`, always available) —
   `tui/job_listing.py:build_general_panels()`:
@@ -170,9 +180,9 @@ extension point, until something wires them.
 
 ## Settings panel
 
-`SettingsPanel` exposes the 8 settings the shell registers
+`SettingsPanel` exposes the 7 settings the shell registers
 (`default_surface`, `show_session_stamp`, `history_retention`,
-`signature_enabled`, `sensitive_keywords`, `display_auto_switch`,
+`signature_enabled`, `display_auto_switch`,
 `default_override_target`, `theme`), validated by `tui/settings_validator.py`. A quick edit posts
 `SettingChanged`, which `on_settings_panel_setting_changed` applies to the
 running app (`_apply_settings`) — session-scoped, "unsaved". Persisting to a

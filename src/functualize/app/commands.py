@@ -196,8 +196,8 @@ class ClickCommandNode:
     def name(self) -> str:
         """The **registration key**, not ``click.Command.name``.
 
-        They can differ: ``_mount(show_info_command, "info")`` registers under
-        ``info`` while the command object keeps the name ``show-info``. The key
+        They can differ: ``_mount`` takes the key as its own argument, so a
+        command object named ``show-info`` can register under ``info``. The key
         is what a user types, so it is what the tree exposes.
         """
         return self._path[-1] if self._path else str(self._command.name or "")

@@ -129,14 +129,35 @@ in for the job name:
 
 | Precedence | Source | Example |
 |---|---|---|
-| 1 (highest) | The flag on the command line | `func deploy --env prod …` |
-| 2 | Environment variable | `DEPLOY__ENV=prod` |
-| 3 | Config file section | `[deploy]` → `env = "prod"` |
-| 4 (lowest) | The field's declared default | `env: str = "staging"` |
+| 1 (highest) | Runtime override | `rc.config.set("env", "prod")` |
+| 2 | The flag on the command line | `func deploy --env prod …` |
+| 3 | Environment variable | `DEPLOY__ENV=prod` |
+| 4 | Config file section | `[deploy]` → `env = "prod"` |
+| 5 (lowest) | The field's declared default | `env: str = "staging"` |
+
+`config.set()` deposits an **override**: a value written during the run, which is where that run will then find it — above everything a source supplied, the command line included.
 
 A dotted group path flattens for the environment variable and stays dotted for
 the config section: `group="deploy.web"` reads `DEPLOY_WEB__ENV` and
 `[deploy.web]`.
+
+**One variable covers the whole group.** `DEPLOY__ENV` is read by every job
+that declares `DeployOptions`, whatever that job is called and whatever group
+it sits in — there is no per-job variable to export. That is the difference
+from a job's own config field, which is scoped to the job that declares it:
+
+| Setting | Variable | Prefix |
+|---|---|---|
+| A group option | `DEPLOY__ENV` | the class's `group=`, **double** underscore |
+| A field on a job's own config model | `DEPLOY_WEB_RUN_IMAGE` | the full job name, single underscore |
+
+The double underscore is what keeps a nested path unambiguous: `DEPLOY_WEB_ENV`
+cannot be told apart from group `deploy` carrying a field named `web_env`.
+
+The variable is shared but the **opt-in is per signature** — a job sees the
+value only if it declares the parameter. Any job may declare the class,
+including one outside the group, which is how a job under `check` can read
+`DeployOptions`.
 
 A flag beats the environment, matching how a job's own flag does — an exported
 default you cannot override from the command line would defeat the point of
@@ -149,6 +170,72 @@ file, environment and default layers:
 app.execute("deploy.web.run")           # opts.env comes from file/env/default
 rc.invoke("deploy.web.run")             # same
 ```
+
+The **mid-path flag layer is the one exception**, and it behaves the way its
+name suggests: it belongs to the command line that typed it.
+
+```python
+# The facade accepts one explicitly — this is how the CLI and MCP pass on the
+# flags they parsed.
+app.execute("deploy.web.run", group_option_values={"env": "prod"})
+
+# `rc.invoke` starts no command line, so it passes none. A job invoked from
+# inside another job resolves its group options from its own file, environment
+# and default layers — never from the flags typed at the parent.
+rc.invoke("deploy.web.run")
+```
+
+A `@workflow` step behaves the same as `rc.invoke` here: the walk runs each step
+as an ordinary job with no flag layer, so a step's group options come from
+file, environment and defaults.
+
+This is not a gap to route around. A flag is typed at one path, and a job the
+run happens to invoke afterwards sits at a path of its own — inheriting the
+parent's flags would mean a value typed for `deploy.web` silently steering a job
+under `deploy.worker`. Set the value where the child reads it (its section, or
+its environment variable) when it should apply to both.
+
+## Steering a whole run from code
+
+The file, environment and default layers are re-read on **every** job
+execution — nothing is snapshotted at boot. A value written before the run
+reaches a job is therefore picked up by that job, including jobs reached
+indirectly as `@workflow` steps, `Deps` upstreams or `rc.invoke` children:
+
+```python
+import os
+
+os.environ["DEPLOY__ENV"] = "prod"
+app.execute("deploy.release")        # every step of the walk resolves env="prod"
+```
+
+The same works from inside a job that drives others. `os.environ` is
+process-global, so restore it when the value should not outlive the call:
+
+```python
+@job(group="deploy")
+def release(invoke: Invoke) -> None:
+    previous = os.environ.get("DEPLOY__ENV")
+    os.environ["DEPLOY__ENV"] = "prod"
+    try:
+        invoke("deploy.web.run")
+    finally:
+        if previous is None:
+            os.environ.pop("DEPLOY__ENV", None)
+        else:
+            os.environ["DEPLOY__ENV"] = previous
+```
+
+The flag layer is the one that does **not** reach them, for the reason above:
+
+```python
+# The workflow job is given env="prod". Its steps are not.
+app.execute("deploy.release", group_option_values={"env": "prod"})
+```
+
+For a value that should always apply, prefer the config file section or an
+explicit `ConfigSources(config_resolution_chain=...)` over mutating the
+environment.
 
 ## Two groups, one field
 

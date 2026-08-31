@@ -130,10 +130,10 @@ Budget is tracked per `WorkflowScope` via the `ai:budget_spent` state key.
 
 Configure via the `[ai]` section in your config file:
 
-```ini
+```toml
 [ai]
-provider = pydantic
-model = gpt-4o
+provider = "pydantic"
+model = "gpt-4o"
 max_tokens = 4096
 budget_usd = 5.00
 timeout_seconds = 120
@@ -208,3 +208,4 @@ The AI SDK registers gate strategies for workflow integration:
 - [AI Inbound Example](../examples/standalone/ai-inbound.md)
 - [ToolScope Builder](domain-sdks.md)
 - [Workflows Guide](workflows.md)
+- [Composing Capabilities](composition.md) — the combination matrix for using AI alongside `Fingerprint`, `Deps` and the guard pipeline

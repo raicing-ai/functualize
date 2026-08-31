@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### Added — the agent-facing surface
 
 - **`func builtin info` grew subcommands — job discovery without prose parsing.**
   Core could describe a job's inputs as JSON Schema, but only through the
@@ -32,9 +32,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fields.
 
   Bare `func builtin info` is unchanged — it is what every skill and doc points
-  at. `func --help` gained a labelled `For AI agents:` block naming the schema
+  at. `--help` gained a labelled `For AI agents:` block naming the schema
   command and both its filters, `FUNCTUALIZE_CLI_OUTPUT`, and `skills list`, so
   the whole command surface is one call away from the first thing anyone runs.
+
+  The block renders on **both** entry points — `func` and a project's own
+  `main.py` — spelled for whichever was invoked, so it never tells you to run a
+  `func` that may not be on PATH. For a program name long enough that the
+  aligned table would exceed 72 columns it drops the description column rather
+  than overflow, because a block emitted verbatim has nothing to re-wrap it.
 
   The JSON Schema renderer moved into core (`functualize.app.utils.job_input_schema`)
   and the MCP plugin now calls it, so an MCP tool definition and
@@ -67,7 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   layout, settings precedence, the TUI, cache and runtime state, and shell
   completions.
 
-### Changed
+### Changed — the agent-facing surface
 
 - **`[cli] output` now selects a renderer instead of being ignored.** The
   setting resolved, validated against `{rich, plain, json}` and warned on bad
@@ -83,7 +89,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `functualize/_skills` and added to the sdist. Previously it shipped in neither
   artifact and was referenced by no document in the repository.
 
-### Fixed
+### Fixed — surfaces that disagreed with each other
+
+- **Three agent-facing surfaces worked only when invoked as `func`.** All found
+  by the dual-surface `cli_run` harness, running each test against `func` *and*
+  against a project's own `main.py`:
+
+  - `FUNCTUALIZE_CLI_OUTPUT` did nothing on a project's own app. The variable is
+    folded into the CLI settings store, and a project's `main.py` builds no
+    store — so the documented "export it once instead of passing a flag" path
+    silently failed on the entry point an agent inside a project actually runs.
+    The environment is now read as a fallback, leaving `func`'s precedence
+    unchanged.
+  - `info all` omitted its `config` key on that same surface, so the shape of a
+    document meant to be *parsed* depended on which entry point produced it.
+    The key is always present now, with nulls when there is no store.
+  - The `For AI agents:` `--help` block did not render there at all (see above).
 
 - **Builtin command flags were published as untyped strings, under the wrong
   names.** Three defects in the command tree, all invisible while nothing read
@@ -95,19 +116,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--json-out`; and click's `Sentinel.UNSET` (its marker for "no default", which
   is not `None`) serialized through as the literal string `"Sentinel.UNSET"`.
 
-- **Engine-injected capabilities were published as required tool arguments.**
-  `Stdout` and `Shell` are the two capabilities that live in `functualize._types`
-  rather than `_engine/capabilities`, and the hand-maintained exclusion list in
-  `_discovery` was assembled from the latter — so a job declaring
+- **Engine-injected capabilities were published as required *tool* arguments.**
+  The same drift fixed below under "a job taking `sh: Shell` broke on its second
+  invocation" had a second victim nobody had looked at: a job declaring
   `out: Stdout, sh: Shell` advertised `out` and `sh` as **required string
-  inputs** on every descriptor-driven surface, including live MCP tools. The
-  CLI was unaffected because it tests the live annotation on a separate path,
-  which is why the leak survived: the only surface that leaked was the one with
-  no test comparing it to another. The list now lives in
-  `_types/capabilities.py` and is asserted equal to the engine's actual
-  injection dispatch.
+  inputs** on every descriptor-driven surface, live MCP tools included. The CLI
+  was unaffected because it tests the live annotation on a separate path, which
+  is why the leak survived — the only surface that leaked was the one with no
+  test comparing it to another.
 
-  The existing property test could not have caught this — it builds its stub
+  Both surfaces now render from `_primitives/job_schema.py` and subtract the one
+  list in `_primitives/capability_names.py`, and
+  `tests/discovery/test_capability_parity.py` checks the *behaviour* — that
+  extraction really drops those parameters, on the live public types and under
+  deferred annotations.
+
+  The existing property test could not have caught this: it builds its stub
   types *from* the same list, so it verified "everything in the list is
   excluded" and was blind to anything the list forgot.
 
@@ -121,6 +145,387 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   vocabulary omitted its default `auto`; and the install suggestion omitted the
   `[cli]` extra, which is where `click`, `rich` and `textual` live — a bare
   `functualize` install produces a `func` that cannot run.
+
+### Fixed — the pipeline features did not work
+
+`functualize` declared four pipeline features that did not behave as
+documented, and accepted one declaration it never acted on. Each defect hid the
+next, which is why they shipped together: the first made every job re-run, so
+the false clean the third would have produced was never reached, and the second
+made a warm boot silently swallow the exit code that would have shown it.
+
+- **A job with a `Log` (or any capability) parameter could never report fresh.**
+  The fingerprint key hashed the *whole* of the call arguments, including the
+  DI-injected capability instances, and an object's `repr` carries its memory
+  address. So the key changed every run: the job re-ran forever and its
+  `.functualize/state.json` grew without bound. The key is now a function of the
+  job's resolved config plus the arguments the **caller** passed — the executor
+  subtracts its own injections exactly, because it records them as it makes them.
+
+- **`FromJob` silently delivered nothing across processes.** Three readers
+  addressed the fingerprint record under `compute_args_hash(None, {})` while the
+  writer wrote under the resolved config, so for any job with a config class
+  they read a key nobody had written. The consumer's body did not run, no error
+  was raised, and the process **exited 0**. Every reader and the writer now
+  derive the key through one function.
+
+- **`func builtin why` contradicted the run that had just happened.** Same root
+  cause, at the explain site — and at *both* verdict sites, the dependency line
+  and the headline.
+
+- **A job annotated with a pydantic return type, or consuming a `FromJob`
+  parameter, failed with a `ValidationError` before its body ran.** There were
+  **seven** copies of "which parameter is this job's config class", and they had
+  drifted: one iterated the type-hints mapping's *values*, so a return
+  annotation became the config class; one resolved hints without
+  `include_extras=True`, so `Annotated[Envelope, FromJob(...)]` collapsed to
+  `Envelope`; one unwrapped `Annotated` deliberately and took the upstream
+  envelope as config; one read raw annotations, so under
+  `from __future__ import annotations` it could never find a config class at
+  all. One rule now, in one place.
+
+- **A pydantic model in a jobs module could not be instantiated if it referenced
+  another model by name.** The discovery scan exec'd job modules without
+  registering them in `sys.modules`, and pydantic resolves forward references
+  through `sys.modules[cls.__module__]` — which `from __future__ import
+  annotations` makes universal. The error named a class defined ten lines above
+  it.
+
+- **A job that raised exited 0, in silence, on warm boot.** The command wrapper
+  built from the discovery cache — used for every invocation after the first —
+  returned its result and inspected nothing. A gate pause exited 0 instead of 5,
+  and a refusal exited 0 instead of 3. The exit-code table is a contract with
+  scripts and agents; it held only on a project's very first run. Both command
+  builders now route through one boundary.
+
+- **A job taking `sh: Shell` broke on its second invocation** with
+  `Error: Missing argument 'SH'`, and `out: Stdout` broke on every invocation.
+  The discovery scan's list of engine-injected parameter types was one of five
+  hand-maintained copies, and was missing both. One list now.
+
+- **A job reported up to date with the artifact it promised to produce
+  deleted.** `Fingerprint(method="checksum")` never consulted `generates`;
+  `method="timestamp"` always had. Two methods of one feature disagreeing.
+
+### Fixed — the follow-up audit
+
+An independent audit re-implemented the target pipeline from scratch, against
+the branch above, and found three defects the nine-criterion gate could not see.
+Two of them are that branch's own thesis turned back on it: it consolidated the
+*result* half of the cold/warm command pair and left the *parameter* half as two
+copies, and it fixed three instances of "one fact, N hand-maintained lists"
+without changing the pattern.
+
+- **An app resolved a config field to its pydantic default from its second run
+  onward, and a required config field made the app uninvocable.** On a
+  `FunctualizeApp` + `CliAdapter` entry point, warm boot builds commands from
+  the cached descriptor, and the two parameter builders disagreed: the cold one
+  passes `default=None` so the resolution ladder stays reachable, the warm one
+  passed the model's default *explicitly* — which lands in the top precedence
+  tier and outranks the config file, the environment, and every other source. A
+  **required** field additionally became a positional argument, so the app
+  answered `Error: Missing argument 'TOKEN'` from its second run onward.
+
+  This also broke the "one fingerprint key for every reader and writer"
+  guarantee through the config half: the writer hashed the config the run
+  received, the reader hashed the config the resolver returns, so `builtin why`
+  contradicted the run and a `FromJob` consumer read a key the upstream's warm
+  runs never wrote. The bare `func` CLI was immune, which is why nothing caught
+  it. The discovery cache version is bumped (18 → 19) and rebuilds on first use.
+
+- **`Fingerprint(generates=["dist/*.whl"])` could never report fresh** — the
+  form the `@job` docstring itself advertises. `sources` were globbed;
+  `generates` were tested as literal paths, and `(root / "dist/*.whl").exists()`
+  is always false, so the job reported `output missing` and rebuilt forever with
+  no error to say why.
+
+- **Declared inputs could not live outside the project.** Absolute patterns,
+  `../` patterns and patterns reaching through a symlinked directory were all
+  globbed and then discarded by a containment check that had been there since
+  the first commit, justified by one docstring line about the storage format.
+
+- **A `@workflow` `Gate` was unresumable from an app entry point.** `--scope-id`
+  was a pre-command flag of the bare `func` CLI only, so a gate on a
+  `FunctualizeApp` blocked at exit 5 forever and the deposited input was never
+  read.
+
+### Added
+
+- **`Sources`** — a job can read the inputs its own `Fingerprint` declared,
+  without restating the glob:
+
+  ```python
+  @job(cache=Fingerprint(sources=["src/**/*.yaml"], generates=["out.json"]))
+  def parse(sources: Sources) -> Parsed:
+      files = {path: Path(path).read_text() for path in sources.keys()}
+  ```
+
+  Each entry carries `mtime`, `size` and `sha256` — the record the pre-flight
+  already computed on every run and discarded. `sources.declared` distinguishes
+  "declared no sources" from "declared sources that matched nothing".
+  See [ADR-012](contributor/adr/012-resolved-sources.md).
+
+- **`RunStatus.REFUSED`** — a job that declined to run because a declared
+  precondition for running it was not met. Exits **3**.
+
+- **`--force`** — run a job even when it is up to date. A pre-command global on
+  both CLIs (`func --force build`, `app.py --force build`). It overrides a fresh
+  fingerprint and a satisfied `status` guard; it does **not** override a failing
+  `Precondition` (still 3) or a gate awaiting input (still 5) — those say the
+  declared conditions for running were not met, which `--force` does not change.
+  Previously the only way to re-run a fresh job was to touch a source file or
+  delete a state directory whose location was reported nowhere.
+
+- **`func builtin why <job> --json`**, and `why` now exits non-zero when the job
+  would run. `ExitCode.STALE` (4) has been pinned in the exit-code table since
+  the table was written and was produced nowhere; this gives it its first
+  producer and makes `why` scriptable. The JSON is built from the same guard
+  verdicts the prose renders, so the two forms cannot disagree.
+
+- **`--scope-id` on a job command**, on both surfaces: `app.py walk --scope-id
+  <id>`. The pre-command `func --scope-id <id> walk` still works.
+
+- **The shared `cli_run` test fixture is parameterised over both entry
+  points** (`func` | `app`), with an explicit `surfaces(...)` marker for the
+  cases where the second is not meaningful. 23 test files exercised only the
+  bare `func` CLI, which is why the config defect above survived —
+  `test_secret_surface_parity.py`, whose stated job is cross-surface config
+  agreement, was among them. Two genuine cross-surface gaps surfaced
+  immediately and are recorded rather than closed: a group listing answers
+  exit 0 on stdout from `func` and exit 2 on stderr from an app, and the app
+  surface has none of the pre-command discovery-filter flags.
+
+- **`contributor/reference/execution-lifecycle.md`** — the twenty steps of
+  `_execute_lifecycle` and the constraint that fixes each one's position,
+  with a test that fails if the source order changes. The constraints existed
+  only as comments inside a 323-line method.
+
+- **`func builtin state show` and `builtin info` report the state-store mode.**
+  There are two — `project` (a `.functualize/` directory was found; the ledger
+  lives in your project) and `standalone` (the `$XDG_CACHE_HOME` fallback for a
+  loose script). That has always been the behaviour and was documented nowhere;
+  `mkdir .functualize` is the switch, and the task-runner guide now says so
+  beside `Fingerprint`.
+
+### Changed (breaking)
+
+- **A stage whose declared inputs resolve to no files now refuses and exits 3.**
+  It previously reported "up to date — 0 sources unchanged" and exited 0: a
+  checksum run over an empty source map compares nothing and finds nothing
+  changed. A stage could certify success having verified nothing.
+
+- **A failing `Precondition` now exits 3, not 1**, and reports
+  `RunStatus.REFUSED` rather than `RunStatus.FAILURE`. Its own docstring has
+  always described refusal semantics ("non-zero = refuse"); reported as a
+  failure it was indistinguishable from a job that ran and threw. **If your CI
+  greps for exit 1 to detect a failed precondition, it must now look for 3.**
+
+- **A job that raises now exits 1 on a warm boot**, where it previously exited
+  0. This is the fix above, stated as the compatibility break it is: a pipeline
+  that appeared to pass may now correctly fail.
+
+- **Every stored fingerprint key changes once.** Excluding capabilities and
+  unifying the readers changes the key for every job. Existing records become
+  unreachable, so each job runs one extra time after upgrading. Nothing is lost
+  and no action is needed.
+
+- **`Fingerprint.generates` entries are glob patterns.** `dist/*.whl` now means
+  a wheel whose version is not known in advance, not a file literally named
+  `*.whl`. A pattern matching **nothing** is a missing output and forces a run —
+  the same verdict as an absent literal path. Nobody can have relied on the old
+  behaviour, because the old behaviour was "rebuild every time".
+
+- **`Fingerprint.sources` and `generates` may name paths outside the project**,
+  and each path is recorded as written. A pattern that silently matched nothing
+  may now match, so a job that reported `declared sources resolved to no files`
+  may now run. Existing records are unaffected: every key in the wild came from
+  an in-project relative declaration, and those are byte-identical under the new
+  rule. A record keyed by an *absolute* path will not match on another machine,
+  so that machine re-runs the job once. See
+  [ADR-013](contributor/adr/013-declared-paths-anywhere.md).
+
+- **`func builtin why` no longer always exits 0.** It exits 4 when the job would
+  run, 3 when it would refuse, 5 when it is blocked at a gate. **If you have a
+  script doing `func builtin why <job> && …`, it changes meaning.** That is the
+  point of the change — the verdict is now something a script can branch on.
+
+- **Every run status routes through the exit-code table.** `deliver_job_result`
+  hand-coded `BLOCKED` and `REFUSED` and let every other status fall through to
+  exit 0. No currently-observable exit code changes — nothing reaches that
+  fall-through today — but an unmapped status now exits 1 rather than 0.
+
+- **`@job(matrix=...)` now raises `TypeError`**, and `NodeKind.MATRIX` is
+  removed. The keyword was accepted, validated, serialized and cached, and read
+  by nothing — matrix expansion was dropped by decision and only the declaration
+  surface survived, so a job declaring it ran once with its axis parameter
+  unbound and no error. `NodeKind.MATRIX` was constructed nowhere.
+
+  The discovery cache version is bumped (17 → 18) and rebuilds on first use.
+
+## [0.1.1] - 2026-08-29
+
+### Fixed — the job metadata cache ignored your discovery settings
+
+- **`exclude_patterns` and `--exclude` did nothing against a warm cache**, in both
+  directions. Adding `[discovery] exclude_patterns` to your config after having
+  run the tool once was silently ignored until you knew to run
+  `func builtin cache clear`.
+
+  Worse, and the reason this is a patch release: a **single `--exclude`
+  invocation removed the excluded jobs from your CLI permanently**. No flag set,
+  no config entry, no diagnostic — `func <job>` simply answered
+  `Unknown command`. The job was not shadowed or deprioritised; it was gone until
+  the cache was cleared by hand.
+
+  The filters themselves were correct, and `func builtin config show` reported
+  your settings correctly. The cache header fingerprinted the format version, the
+  package version, the Python version and your dependencies — and not the
+  discovery filter settings that decide what the cache contains. It now carries a
+  `discovery_hash`, and a mismatch discards the cache the same way a format
+  change does. See [ADR-010](contributor/adr/010-discovery-cache-filter-awareness.md).
+
+  **If you ran `--exclude` on 0.1.0, you have a poisoned cache on disk right
+  now.** The cache format version bump repairs it on your first command after
+  upgrading; you do not need to do anything.
+
+### Fixed — three more places the cache and the filters disagreed
+
+Found by an adversarial review of the fix above. All three are follow-ons from it
+rather than new ground: see
+[ADR-011](contributor/adr/011-discovery-fingerprint-completeness.md).
+
+- **`exclude_patterns` only applied to your first jobs directory.** It was matched
+  relative to `jobs_directories[0]`, and any file that was not under that
+  directory was admitted without being judged at all. So in a project with two
+  job directories, one exclusion governed the first and silently skipped the
+  second. It now matches relative to whichever scan root contains the file, which
+  is what the documentation already described.
+
+  This is a **behaviour change**: an exclusion that previously applied to one of
+  your job directories now applies to all of them. It only ever excludes more,
+  never fewer.
+
+  The same gap made the cache wrong. That first directory is not one of the
+  settings `discovery_hash` covers, so *reordering* `jobs_directories` changed
+  what the cache should hold while the fingerprint stayed identical — the warm
+  cache then replayed the wrong answer. Fixing the filter closes both.
+
+- **`func builtin cache rebuild` threw away its own work.** It wrote no
+  fingerprint, so the very next command decided the cache was stale and rescanned
+  — printing a warning, in every project, even with no filters configured. It also
+  ignored your filters while rebuilding. It now rebuilds under the filters in
+  effect, including flags on its own invocation, and the result is reused.
+
+- **Monorepo parent projects rescanned on every boot.** A child project declared
+  with `children=` wrote into its *parent's* cache file and erased the parent's
+  entries, and the parent then re-scanned every single boot with a warning on
+  stderr. Child projects now keep their own cache.
+
+The cache format version moves to 17, so the first command after upgrading
+rebuilds once. You do not need to do anything.
+
+### Fixed — examples and their guards
+
+- **`examples/plugins/file_based_plugin` published four commands**, three of which
+  were its own test suite, against the one its README documents. Its tests moved
+  under `tests/`, below the default scan depth.
+
+- Two guards added for the class of defect that produced it, both of which would
+  have caught it: a doc-verify scenario that runs the command that page
+  publishes, and a CI job that runs each published example command **from a clean
+  clone**. The originating defects were files that existed on a developer's disk
+  and not in git, which every existing job structurally could not see.
+
+
+### Fixed — the interactive shell under `GroupOptions`
+
+- **Nine defects, one cause.** A `GroupOptions` subclass declares flags at a
+  *group* that every job beneath it inherits, typed mid-path:
+  `func deploy --env prod web run v1.2`. The kernel shipped working; the shell
+  did not follow. Its **read** paths walked the group tree while every
+  **write-back** path still read the bar's first token as the job — and under a
+  group, that token is the group.
+
+  Editing any field truncated the command to `deploy`; the bar was rewritten in
+  a dotted spelling its own resolver refuses; the group flags the user typed
+  vanished; a path segment bound to the job's first positional (`image` became
+  `"web"`, silently); Ctrl+S saved a shortcut naming a group, which cannot be
+  invoked; no config panel appeared for any grouped job; readiness was computed
+  against the group, so the bar read READY whatever the job was missing;
+  missing-argument detection reported "not a command"; and completion spilled
+  path segments and a deeper group's flags into the job's own arguments,
+  retiring flags the user had not used.
+
+  None of it was reachable without a project declaring a `GroupOptions`
+  subclass, and none existed until now — see
+  `examples/standalone/group_options_lab/`.
+
+### Fixed — a scrutiny pass over the above (2026-08-28)
+
+Reviewing the work above against its own intent found eight more defects, six
+reproduced against a running app. They are recorded as amendments and new
+decisions in ADR-009 because each was a rule the branch had already written
+down and not enforced.
+
+- **Editing a group's row in the config table discarded the edit.** The row
+  was handed to the emitter as one of the job's own, so `[deploy] --env` came
+  out as `deploy web run v1.2 -e prod` — a *job* flag named `env`. The walk
+  hands that back as no group value at all, the bar still read Ready, and the
+  job ran on the group's unedited value with nothing reported anywhere.
+- **`r` on a group's row did nothing.** A value typed on the bar reached the
+  row marked as un-edited, so reset short-circuited; and the handler cleared
+  the job's overrides, which is not where a group's value lives. There was no
+  way to clear a group override from the panel.
+- **Every builtin greyed out in a project declaring `GroupOptions`.** The
+  group tree holds jobs, so `builtin env` resolved to nothing and the bar
+  refused it — and Enter, which fires only on Ready, became a silent no-op.
+- **`--image v1.2` read Ready and could not run.** A positional is a click
+  argument with no flag spelling; the new unknown-flag check compared names,
+  not shapes. A boolean carrying a short flag has no `--no-` half either, and
+  that spelling was accepted. Both are now derived from the same param builder
+  the CLI runs.
+- **A value containing a space resolved to nothing.** The emitters quote; every
+  reader split on whitespace. One shlex-based tokenizer now owns the inverse.
+- **The Config Files panel showed only the deepest group's fields.** It read
+  one section — the job's — so `[deploy]`'s `env`, in the same file two lines
+  above `[deploy.web]`'s `region`, was never listed.
+- **An app's own entry point refused mid-path flags entirely.**
+  `glab deploy --env prod web run v1.2` answered `No such option '--env'`
+  while `func` ran it: the adapter builds a real click tree and never reaches
+  the dispatcher's walk. Each group now carries its declared options as click
+  params. **The two entry points are one surface again.**
+- **The grep gate was a comment, not a check.** It is now a test, and it
+  caught a new violation the same day it was written.
+
+### Added
+
+- **Group options render in the shell's panels.** The Config Table, pre-flight
+  summary and diff show each inherited flag with a dimmed `[deploy]` prefix
+  naming the group that declared it, after the job's own fields and outermost
+  group first. Rows filter by group as well as by field name. A group option
+  declared `Secret[str]` masks exactly as a job's credential does.
+- **The Job Browser shows commands as they are typed** — `deploy web run`,
+  not `deploy.web.run` — and its filter accepts dots, spaces or hyphens.
+- **The pre-flight header renders the CLI spelling.** It printed the dotted
+  name directly beneath a bar showing the spaced one; the dotted form is a
+  spelling the shell does not accept back. This changes the header for
+  ungrouped projects too.
+- **An unknown job flag no longer reads READY.** Position is what separates a
+  group's flag from the job's own, so `deploy web run --env prod` asks for a
+  job flag named `env` and there is none. The shell used to show Ready and a
+  full pre-flight panel listing `--env` one line above under `[deploy]`, then
+  fail at dispatch. It now says `Unknown flag: --env`.
+
+  **This applies to every project, grouped or not**: `greet --nonsense bob`
+  now greys out too. A boolean's negative spelling is still accepted, because
+  click renders a job's boolean as a pair — `--verbose/--no-verbose` — and the
+  negative half is a real flag even though no field is named `no_verbose`. A
+  **group's** boolean has no such pair (`_flag_aliases` in `_cli/dispatch.py`
+  builds only the positive form), so `deploy --no-dry-run web run` is refused
+  by the shell exactly as dispatch refuses it.
+- **`examples/standalone/group_options_lab/`** — two levels of group
+  inheritance, a job under both, an ungrouped control, a required positional
+  and a group credential.
 
 ### Performance
 
@@ -136,7 +541,174 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a newly installed distribution can drop the snapshot with
   `functualize._primitives.entry_points.clear_entry_point_cache()`.
 
+### Removed — silently wrong values
+
+These three read config in ways that outranked the documented convention, so the
+correct value was *unreachable* while they stood. They are removed outright with
+no deprecation window: this project is pre-1.0, and `.spec/CONSTITUTION.md`
+forbids compat shims.
+
+- **A bare, unprefixed `FIELD` environment variable no longer populates a job
+  config field.** `_config/job_config.py` read `os.environ[FIELD.upper()]` ahead
+  of everything else, so a field named `user` resolved to your shell's `$USER`
+  and its declared default could never be reached. On a field named `token`,
+  `password`, `path`, `home` or `shell` that is credential and path
+  substitution from ambient state. No configuration made it safe.
+- **`JOB__FIELD` (double underscore) no longer resolves a job config field.**
+  It was undocumented, named only by an error message, and outranked the
+  `JOB_FIELD` form that `docs/guides/job-config.md` teaches, that
+  `func builtin env` emits, and that `info --job` reports. `JOB_FIELD` is now
+  the only spelling. *(Group options are a different feature and keep
+  `SCOPE__FIELD` — `DEPLOY__ENV`, `DEPLOY_WEB__ENV` — because a nested group
+  path is flattened with single underscores, so `DEPLOY_WEB_ENV` would be
+  ambiguous with a group `deploy` carrying a field named `web_env`.)*
+- **`.ini` and `.cfg` config files are no longer read by default** (ADR-007).
+  TOML is the only format registered at boot. `IniFormatProvider` remains
+  in-tree; register it from a plugin — boot loads plugins before it builds the
+  resolution chain, which registering on `app.config_registry` afterwards is too
+  late to do. To convert instead, quote the values by hand: TOML and INI share
+  section headers, and a project the framework cannot read now warns at boot
+  naming both ways out rather than running on model defaults in silence.
+
+The `tui.sensitive_keywords` setting is also gone. It was registered, schema'd
+and documented, and had no consumer.
+
+### Security
+
+- **Credentials were rendered in cleartext on three of the surfaces that show
+  configuration.** The inline TUI's preflight summary, the Config Table panel
+  and the source-chain detail view applied no secret test at all, so a field
+  declared `Secret[str]` or marked `json_schema_extra={"secret": True}` appeared
+  in full — on the screen a user studies immediately before running the job —
+  while `func builtin env` and `info --job` masked it. All three now mask, and
+  the source-chain view masks *losing* sources too. Provenance glyphs stay
+  visible; the value never is.
+- **A secret is masked in the SmartBar while it is being typed**, and the
+  autocomplete dropdown is suppressed for that field — a completion list under a
+  masked input would re-render the value one row below the mask.
+- **`_collect_job_secrets` always returned an empty set.** It asked a
+  `JobConfigView` for `model_fields`, found none, and fell through to iterating
+  `dir()`, which yielded four bound methods. Output redaction for job secrets
+  was therefore inert. It now reads the config model the job actually receives.
+- **A credential passed on the command line was written to stdout in full.**
+  The first fix for the above re-resolved the config from the job name with
+  `cli_values={}`, so the redaction set came from a different object than the
+  job did. The same credential in an environment variable masked, which is why
+  every test passed. Redaction is now armed from the resolved instance, after
+  config resolution — which also removes a duplicate resolution that re-fetched
+  every remote source.
+- Detection is by declaration, never by name. A name-based regex
+  (`secret|password|token|key`) masked `sort_key`, `keywords` and `monkey_patch`
+  while leaving a field named `credential` in cleartext.
+
 ### Fixed
+
+- **`--scope-id` was ignored on a workflow's first run and honoured on every
+  one after it.** The pre-boot enumeration that routes a command only knows
+  file *stems*, so a function-level job whose name differs from its file's —
+  `trip_planner` inside `weather.py`, the shape every workflow example uses —
+  classifies as `Mode.UNKNOWN` until the discovery cache is warm. `main()`
+  hands UNKNOWN straight to the same `_handle_job` that `Mode.JOB` uses, but
+  passed neither `scope_id` nor `prompt_gates`, and both default to
+  `None`/`False`.
+
+  The visible effect was a workflow that blocked at its gate under a
+  *generated* scope id rather than the one the caller passed, so an id minted
+  before the run addressed nothing: `workflow list` did not show it and
+  `workflow resume <id>` could not reach the scope that had just blocked. The
+  second invocation, now warm, routed as `Mode.JOB` and behaved correctly —
+  which is why this survived: it reproduces only against a cold cache, and any
+  attempt to check it by hand warms one on the first try.
+
+  `tests/cli/test_unknown_mode_gate_flags_e2e.py` runs against an isolated
+  `XDG_CACHE_HOME` so the cold path is the path under test.
+
+- **Every surface that reports configuration now agrees with the run.** Four
+  independent resolvers disagreed about *values*, not just formatting:
+  `USER=root-ambient func builtin info --job sync` reported `service-account`
+  while the run received `root-ambient`. A display that lies in the moment
+  before execution is worse than no display.
+
+  `info --job` and `func builtin env` read one `ResolvedField` seam.
+  The **TUI panels deliberately do not**: reaching that seam means importing
+  the job module, and the panels rebuild while you type, so it would forfeit
+  true-lazy boot. They share the *detector* instead — the model's
+  `secret`/`required`/`default`, carried through the discovery cache — and read
+  values from the same `ResolutionChain` the seam reads. See ADR-008,
+  Addendum A1.
+  `tests/config/test_secret_surface_parity.py` guards the CLI surfaces and
+  `tests/config/test_descriptor_cache_fidelity.py` guards the cache the TUI
+  trusts.
+- **A required field with no default read as `••• model default`.** Both
+  `info --job` and the TUI preflight tested `default is not None and default is
+  not ...`, but a Pydantic v2 required field's default is `PydanticUndefined` —
+  neither — so "not set (required)" was unreachable for *every* required field,
+  and a missing credential rendered as though it were configured. It now reads
+  as missing and names the variable that would set it.
+- **`func builtin env` crashed on the case it exists for.** A job with an
+  unresolved required field raised `ValidationError` out of the command whose
+  whole purpose is answering "what does this job need?". It now reports the
+  field instead.
+- **`func builtin env` could not tell a set secret from an unset one.** Both
+  printed `export SYNC_TOKEN='•••'`. Unset fields are now emitted commented out
+  with why, which makes the output a ready `.env` skeleton, and an *empty*
+  secret renders as empty rather than as a mask — masking nothing manufactures
+  the appearance of a configured credential.
+- **`Secret[str]` could not be used as a config field type.** It raised
+  `PydanticSchemaGenerationError` on a plain `BaseModel`; with
+  `arbitrary_types_allowed` it then refused the plain strings that config and
+  environment resolution supply, and `SUPPORTED_TYPES` rejected it
+  independently. It now validates from `str`, serializes to the mask **in JSON**
+  (`model_dump_json()`, `model_dump(mode="json")`), and advertises itself in
+  JSON schema so the descriptor cache carries its secretness to every surface.
+  A plain `model_dump()` returns the `Secret` object: the framework passes
+  config models between jobs by dumping and rebuilding them, and masking there
+  handed a child job `•••` instead of the credential. `Secret[int]` and friends
+  are now refused at registration — `Secret` stores `str(value)`, so any other
+  parameter was a claim it could not keep.
+- **A validation error now names the environment variable that would fix it**,
+  not only which config files were read.
+- **`_config/migration.py`, `migrate_ini_to_toml` and `MigrationError` are
+  deleted, and there is no `func builtin config migrate`.** The helper had zero
+  callers and zero tests; a command was built to reach it and then removed with
+  it. A conversion command exists to carry a user population across a break, and
+  pre-1.0 — with the format narrowed by hard removal — there is none to carry,
+  so the command's only caller would again have been the test suite. What the
+  narrowing owes its users is the diagnostic below, not an automated rewrite of
+  a file small enough to have been an INI file.
+- **A project the framework could no longer read ran in silence.** With TOML the
+  only registered format, `config.base.ini` failed the extension check in
+  config-path discovery — so it never anchored a directory, never reached the
+  file reader, and `builtin info` reported "No config files found" with the file
+  in the project root. Boot now warns once per such file, naming both ways
+  out — convert to TOML, or register a provider from a plugin, with the note
+  that plugins load before the resolution chain is built — and `builtin info`
+  lists them.
+- **`builtin info` echoed every config value verbatim**, including a credential
+  written into a config file — two panels above the `JobConfig` table that masks
+  the same value. The panel was built with `configparser` and
+  `ExtendedInterpolation` over `os.environ` (so it also expanded `${VAR}` before
+  printing) and rendered as `ini`: debris from before TOML-only. It now renders
+  the provider-parsed values and masks declared secrets.
+- **A secret's default was written into `cache.json` in cleartext.** A field
+  marked `json_schema_extra={"secret": True}` with a plain-`str` default had that
+  default serialized into the discovery cache, in a predictable XDG location.
+  `Secret[str]` defaults escaped only because `json.dumps` cannot serialize a
+  `Secret`. Secret defaults are now dropped on the declaration.
+- **A `list[T]` config field ignored every source.** `list[T]` becomes a click
+  option with `multiple=True`, and click supplies `()` when the flag is absent —
+  `() is not None`, so an unpassed flag won the whole precedence ladder and the
+  field resolved to `[]` regardless of the environment, the config file, or the
+  model's own default. The documented comma-separated form
+  (`DEPLOY_TARGETS=a,b,c`) now works, for the same reason: `coerce_value`, which
+  implements it, had no production caller at all.
+- **A value set with `config.set()` was invisible to every surface.** The
+  resolution seam reached past `JobConfigView` for its private chain, skipping
+  the override layer that `get()` consults first — so the run used one value and
+  every display reported another.
+- Enum and list values render in the form that *sets* them (`thorough`,
+  `a,b,c`) rather than in Python's repr (`Mode.THOROUGH`, `['a', 'b']`). These
+  surfaces exist to tell an operator what to put in a variable.
 
 - **A namespaced job was unreachable by the only name it published.**
   `NamespaceTransform` canonicalized the prefix when *writing* names but matched
@@ -364,7 +936,8 @@ function knowing which.
   (`log = CapturingLog(); my_job(config, log); assert (...) in log.calls`), which
   is the style the scaffolded job template demonstrates. Routing `RunContext.log`
   through the injected `Log` is deferred to a later release.
-  *(Fixed after 0.1.0 — see Unreleased.)*
+  *(Fixed in 0.1.1.)*
 
-[Unreleased]: https://github.com/raicing-ai/functualize/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/raicing-ai/functualize/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/raicing-ai/functualize/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/raicing-ai/functualize/releases/tag/v0.1.0

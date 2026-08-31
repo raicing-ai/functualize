@@ -58,12 +58,22 @@ test.
 
 ### 2. Capability exclusion has one source of truth
 
-`_types/capabilities.py` holds `INJECTED_CAPABILITY_TYPE_NAMES`, and
-`tests/discovery/test_capability_parity.py` asserts it equals the executor's
-actual injection dispatch — read from source by regex, because a second
-hand-kept list is the bug itself. Names rather than types because `_types`
-imports nothing internal and extraction must handle string (PEP 563)
-annotations.
+`_primitives/capability_names.py` holds `INJECTED_PARAM_TYPE_NAMES` (ADR-014),
+and `_engine/capabilities/registry.py` refuses to start when the declared
+`CapabilitySpec` names disagree with it. Names rather than types because
+`_discovery` may not import `_engine` — they are peer layers — and because
+extraction must handle string (PEP 563) annotations, where a name is all there
+is.
+
+That invariant is structural, so `tests/discovery/test_capability_parity.py`
+covers what it cannot: the *behaviour* — that extraction actually drops those
+parameters, on the live public types and under deferred annotations.
+
+This ADR originally proposed a second list in `_types/capabilities.py` checked
+against the executor's dispatch by regex. It was collapsed onto the
+`_primitives` list on merge: two canonical lists is the bug this section exists
+to prevent, and the registry's import-time check is stronger than a regex over
+source.
 
 `Stdin` is deliberately excluded from the set: it is an `Annotated[...]` marker
 on a real user-supplied parameter, and treating it as a capability would delete
@@ -167,16 +177,16 @@ passing a flag on every call — the ergonomics pup gets from sniffing
 `CLAUDECODE`/`CURSOR_AGENT` environment variables, without functualize having to
 maintain a list of agent vendors.
 
-### 5. `func --help` names it
+### 5. `--help` names it — on both entry points
 
 The epilog is a labelled block at the left margin:
 
 ```
 For AI agents:
-  func builtin info schema                 all commands + args, as JSON
+  func builtin info schema                 all commands, as JSON
   func builtin info schema --kind job      jobs only
   func builtin info schema --kind builtin  builtin commands only
-  func builtin skills list                 agent skills for this version
+  func builtin skills list                 skills for this version
   export FUNCTUALIZE_CLI_OUTPUT=json       make JSON the default
 ```
 
@@ -184,13 +194,39 @@ Three rendering decisions, all of them corrections to click's defaults:
 
 - **The heading sits level with `Commands:`.** Click renders `epilog` inside
   `formatter.indentation()`, which put it two columns in — reading as another
-  command rather than a new section. `_LeftMarginEpilogGroup` overrides
-  `format_epilog` to emit at the margin.
+  command rather than a new section. Both root groups override `format_epilog`
+  to emit at the margin.
 - **It is never re-wrapped.** Click puts the epilog through `wrap_text`, which
   reflows a hand-aligned table into prose. Emitting verbatim makes source width
   the only thing between a narrow terminal and a mangled table, so lines are
-  pinned to 72 columns by test rather than to 80.
+  pinned to `MAX_EPILOG_COLUMNS` (72) rather than to 80.
 - **Command first, description second**, so the left column is copy-pasteable.
+
+**Spelled for the program that was invoked, and on both root groups.** The
+block first shipped on `func` alone with a hardcoded `func` prefix — which is
+the wrong entry point to have it on, since the skills tell an agent that `func`
+is often not on PATH and to use the project's own `main.py`. So the surface an
+agent actually runs was the surface with no pointer, and the advice it would
+have printed there was un-followable anyway.
+
+The text now comes from `_primitives/agent_epilog.py`, built at render time
+from `ctx.find_root().info_name`, and both root groups render it through one
+helper. Two consequences worth naming:
+
+- The 72-column budget was previously satisfied by hand-alignment at *exactly*
+  72, so a longer program name silently overflowed into the mangled table the
+  cap exists to prevent. The renderer now drops the description column instead
+  when the aligned table would not fit — the commands are the part an agent
+  needs.
+- `NormalizingGroup` is every *sub*group in the trie, not just the root, so the
+  block is opt-in (`emit_agent_epilog`) rather than inherited; otherwise it
+  repeats on `builtin --help` and on every job group.
+
+This gap was found by the dual-surface `cli_run` harness landing on `master`
+in parallel with this work — the epilog tests passed on a single surface and
+failed the moment the second one existed. Worth recording as evidence for the
+harness rather than as a footnote: it is the same class of defect as the
+capability leak in §2, caught the same way.
 
 `--help` prints on every mistyped command, so it is not the place for a
 paragraph — but each line answers a question an agent otherwise resolves the

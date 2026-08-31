@@ -9,6 +9,11 @@ Budget philosophy:
 - Budgets are generous enough to pass on CI but tight enough to catch
   gross regressions (e.g., accidentally loading a heavy module eagerly).
 - Total boot time is tracked as a sum of phases.
+- Budgets are asserted only in a clean, serial process. They carry the
+  `perf_budget` marker and are skipped under coverage or xdist, because
+  tracing and worker contention measure the harness rather than the code.
+  The `test-fast` CI tier runs them plain, so they still gate every PR.
+  See tests/perf/conftest.py.
 
 To update budgets after intentional changes, run:
     pytest tests/perf/test_startup_budget.py -v
@@ -90,6 +95,7 @@ def boot_report():
 class TestStartupBudget:
     """Verify each boot phase stays within its time budget."""
 
+    @pytest.mark.perf_budget
     def test_total_boot_time(self, boot_report) -> None:
         """Total boot time stays within budget."""
         phase = boot_report.phase("boot.total")
@@ -99,6 +105,7 @@ class TestStartupBudget:
             f"budget of {BUDGET_TOTAL_BOOT_MS}ms"
         )
 
+    @pytest.mark.perf_budget
     def test_core_infra_budget(self, boot_report) -> None:
         """Core infrastructure instantiation stays within budget."""
         phase = boot_report.phase("boot.core_infra")
@@ -108,6 +115,7 @@ class TestStartupBudget:
             f"budget of {BUDGET_CORE_INFRA_MS}ms"
         )
 
+    @pytest.mark.perf_budget
     def test_provider_registry_budget(self, boot_report) -> None:
         """Provider registry setup stays within budget."""
         phase = boot_report.phase("boot.provider_registry")
@@ -117,6 +125,7 @@ class TestStartupBudget:
             f"budget of {BUDGET_PROVIDER_REGISTRY_MS}ms"
         )
 
+    @pytest.mark.perf_budget
     def test_observability_budget(self, boot_report) -> None:
         """Observability initialization stays within budget."""
         phase = boot_report.phase("boot.observability")
@@ -126,6 +135,7 @@ class TestStartupBudget:
             f"budget of {BUDGET_OBSERVABILITY_MS}ms"
         )
 
+    @pytest.mark.perf_budget
     def test_plugins_budget(self, boot_report) -> None:
         """Plugin loading stays within budget."""
         phase = boot_report.phase("boot.plugins")
@@ -135,6 +145,7 @@ class TestStartupBudget:
             f"budget of {BUDGET_PLUGINS_MS}ms"
         )
 
+    @pytest.mark.perf_budget
     def test_config_entry_points_budget(self, boot_report) -> None:
         """Config entry point discovery stays within budget."""
         phase = boot_report.phase("boot.config_entry_points")
@@ -144,6 +155,7 @@ class TestStartupBudget:
             f"budget of {BUDGET_CONFIG_ENTRY_POINTS_MS}ms"
         )
 
+    @pytest.mark.perf_budget
     def test_config_resolution_budget(self, boot_report) -> None:
         """Config resolution chain build stays within budget."""
         phase = boot_report.phase("boot.config_resolution")
@@ -153,6 +165,7 @@ class TestStartupBudget:
             f"budget of {BUDGET_CONFIG_RESOLUTION_MS}ms"
         )
 
+    @pytest.mark.perf_budget
     def test_job_registration_budget(self, boot_report) -> None:
         """Job registration stays within budget."""
         phase = boot_report.phase("boot.job_registration")
@@ -162,6 +175,7 @@ class TestStartupBudget:
             f"budget of {BUDGET_JOB_REGISTRATION_MS}ms"
         )
 
+    @pytest.mark.perf_budget
     def test_children_budget(self, boot_report) -> None:
         """Child project mounting stays within budget."""
         phase = boot_report.phase("boot.children")

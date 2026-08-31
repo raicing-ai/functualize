@@ -29,6 +29,12 @@ so you can recognize it in new code.
 | 16 | A syscall on the left of `and` | `x.is_file() and name_matches(x)` — one stat per candidate |
 | 17 | `ast.parse` standing in for "the names resolve" | Generated code parses, then `AttributeError`s at runtime |
 | 18 | A hand-written blocklist of a library's reserved names | Passes for months, fails once a wider input budget draws the missing one |
+| 19 | One rule spelled independently in layers that may not import each other | Every copy is *correct*; the tool names a variable that resolves nothing |
+| 20 | Cross-test pollution that the default file order happens to hide | Passes as `pytest tests/`; fails on a subset, or intermittently under `-n auto` |
+| 21 | A live object reaching a hash or a cache key | Works in one process; a new key every run, and no two machines agree |
+| 22 | A reader that reconstructs a key the writer computed | Both look correct in isolation; the read silently misses and returns "never ran" |
+| 23 | A second command/dispatch path that skips the result-handling contract | Cold boot exits 1, warm boot exits 0 — for the same failure |
+| 24 | `exec_module` without `sys.modules` registration | The module works until something resolves a forward reference through it |
 
 ---
 
@@ -105,6 +111,32 @@ The format version and path resolution are defined once in
 **How to apply:** bump `CACHE_VERSION` when the descriptor shape changes; caches
 rebuild once, automatically. Never add a second cache file for a slice of the same
 data.
+
+**A cache must also fingerprint the *configuration* that produced it, not only the
+shape of what it stores.** The header fingerprinted the format version, package
+version, Python version and dependency hash — and not the discovery config, so a
+cache built under one filter set was replayed under another. Adding
+`[discovery] exclude_patterns` after a warm run did nothing, and one `--exclude`
+invocation removed the excluded jobs *permanently*, because `PreFilterDecision`
+persists negative decisions with no record of which filter produced them. See
+[ADR-010](../adr/010-discovery-cache-filter-awareness.md). The general form: if a
+setting changes what goes into the cache, a change to that setting has to be able
+to invalidate it — and the test has to run the *transition*, because every filter
+test in the suite ran cold and all of them stayed green through the defect.
+
+**And a fingerprint is only worth the number of construction sites that supply
+it.** The follow-up review found the digest wired at exactly one of four provider
+constructions. The other three passed `None`, meaning "does not know the config" —
+a sentinel that is safe to *read* past and ruinous to *write*. `cache rebuild`
+wrote `discovery_hash: null` and the next command discarded its work; child
+projects wrote `null` into the parent's shared cache file and made the parent
+invalidate on every boot forever. Both were self-inflicted by the fix, not by the
+original bug. The repair branch written to prevent exactly this — adopt the loaded
+fingerprint when you have none — was itself unreachable, because the one path that
+would have used it deletes the file before reading it. See
+[ADR-011](../adr/011-discovery-fingerprint-completeness.md). Two rules fall out:
+an "unknown" sentinel must never reach a *writer*, and a fingerprint's coverage is
+audited across construction sites, not across the fields of one dataclass.
 
 ## 6. A list hardcoded in five places has already drifted
 
@@ -282,6 +314,149 @@ not hasattr(BaseModel, s)` is derived from the actual class and cannot fall behi
 The same shape bit twice more in generated identifiers: `str.isidentifier()` returns
 `True` for keywords, so `as` and `match` pass an "is this a valid name" check and then
 fail to compile in a `def`. Use `keyword.iskeyword` / `keyword.issoftkeyword` as well.
+
+## 19. A rule that cannot be shared needs a parity test, not a comment
+
+Trap 6 is "one registry, plus a test". Sometimes there is no registry to have.
+
+The environment-variable name rule — join the job name and the field name with a
+single underscore, uppercase, flatten hyphens and dots — is spelled **five
+times**: twice in `_config/resolved_field.py`, once in `_config/sources.py`, and
+twice in `_engine/missing_value.py`. `_config` and `_engine` are peers, and
+`layer-rules.md` forbids the import that would let them share one. Every copy
+carried a docstring promising it "matches the rule rather than importing", which
+reads as diligence and is in fact the whole problem: a comment is not a
+mechanism, and five hand-copied implementations of a rule have already started
+drifting by the time anyone counts them.
+
+What makes this class worse than ordinary duplication is the failure mode. Only
+`EnvSource._build_env_key` actually *reads* the environment; the other four only
+*print* names — in `builtin env`, in `info --job`, in a validation error, in the
+TUI. So a drift does not break resolution. It makes the tool confidently tell an
+operator to `export SYNC_API_URL=…` when the resolver is looking for something
+else, and they will believe it, because the tool said so. Silence would be
+better.
+
+**How to apply:** when a layer boundary genuinely forbids the shared import, the
+enforcement is a test that asserts every copy agrees, named so the next person
+adding a sixth copy finds it. `tests/config/test_env_name_rule_parity.py` derives
+the name from each producer and asserts they are equal, for the same input. A
+docstring claiming parity is a claim; a parity test is the parity.
+
+## 20. Alphabetical order is not test isolation
+
+`tests/core/test_show_info.py` passes `--dotenv-file` to an in-process
+`CliRunner`, which reaches the real `load_dotenv()` and sets `MY_VAR=hello` in
+the **test process**. `tests/cli/test_cli_integration.py::test_no_dotenv_flag`
+asserts `MY_VAR` is unset, to prove `--no-dotenv` suppresses loading. One test
+armed the trap the other was written to detect.
+
+It never failed, and the reason is the whole point: `tests/cli/` sorts before
+`tests/core/`, so a plain `pytest tests/` runs the victim first. The bug was
+real, live, and simply never scheduled into the open — until a subset run put
+the two directories in the other order. CI's slow tier runs `-n auto`, which
+distributes across workers and does not preserve that order at all, so it was
+an intermittent failure waiting for the right shard split.
+
+`monkeypatch` does not cover this. It reverses what *monkeypatch* did; this was
+done by production code holding a real reference to `os.environ`.
+
+**How to apply:** process-global state that production code mutates —
+`os.environ`, `sys.path`, a module-level cache, a registry singleton — is
+restored by an autouse fixture in `tests/conftest.py`, on both sides of every
+test, not in the handful that look like they need it. `_restore_environ`,
+`_reset_entry_point_cache` and `_isolate_home` are the three that exist.
+And when you add one, add the two-test pair that goes red without it —
+`tests/test_environment_isolation.py` is the worked example, including why its
+probe deliberately avoids the `FUNCTUALIZE_*` prefix that another fixture
+already strips.
+
+Corollary for reading a green suite: "passes as `pytest tests/`" is one
+schedule out of many. A test whose subject *is* isolation deserves to be run
+out of order once, on purpose.
+
+## 21. A live object must never reach a hash or a cache key
+
+`compute_args_hash` hashed the *whole* of a job's call arguments, which by that
+point included the DI-injected capability instances. `canonical_json` falls back
+to `repr` for anything unserializable, and `object.__repr__` embeds the memory
+address — so a job declaring `log: Log` wrote a **different fingerprint key on
+every run**. It could never report fresh, and its `state.json` grew without
+bound. A unit test on the hash function passes: within one process, one object,
+one repr.
+
+The fix was not "filter out capabilities" but "state what belongs in the key":
+the resolved config plus the arguments the *caller* passed. The executor records
+each injection as it makes it (`ExecutionContext.injected`), so the subtraction
+is exact rather than a type-sniffing guess.
+
+**How to apply:** before hashing or caching a structure, ask what in it is
+*reconstructable by a later reader in another process*. Anything else does not
+belong. If a `default=repr` fallback can be reached at all, something
+unserializable is already in there. Assert the **number of keys written** after N
+unchanged runs — freshness assertions pass for the wrong reason.
+
+## 22. A reader must not reconstruct a key the writer computed
+
+Five readers addressed fingerprint records under
+`compute_args_hash(None, {})` — substituting `None` for a config they could
+have resolved — while the writer wrote under the resolved config. For any job
+with a config class they read a key nobody had written. Every site is locally
+sensible; the divergence exists only *between* them.
+
+Its worst instance was not a wrong message. A `FromJob` consumer of a fresh
+upstream got **no value, no error, and exit 0** — the body never ran, and
+nothing said so. In a single process the upstream's live return value masked it
+entirely, which is why it survived: the obvious test passes.
+
+**How to apply:** one function derives the key, and every reader and the writer
+call it. If a reader needs data the writer had, give it the writer's resolver
+rather than a plausible default — `ExecutionEngine.fingerprint_key_for` resolves
+config through the same `_config_resolver` `execute()` uses, so the two agree by
+construction. Test across **separate processes**; one process hides this class
+of bug completely.
+
+## 23. Two dispatch paths, one result-handling contract
+
+`create_job_click_command` (built from a live signature) inspected its
+`JobResult` and mapped it to an exit code. `make_lazy_command` (built from the
+discovery cache) returned the `JobResult` and inspected nothing. Warm boot is
+*every invocation after the first*, so in practice: a job that raised exited
+**0** in silence, a gate pause exited 0 instead of 5, and a refusal exited 0
+instead of 3. The exit-code table — which exists to be scripted against — held
+only on a project's very first run.
+
+This also hid an unrelated fix: the refusal status was being produced correctly
+and swallowed at the boundary, so the feature looked unimplemented.
+
+**How to apply:** when two constructors produce the same kind of thing, the
+handling after it is *one function both call*. And run every end-to-end
+assertion **twice** — the second run is a different code path in this codebase,
+always. A test that runs a project once cannot see half of what can be wrong.
+
+## 24. `exec_module` without registering in `sys.modules`
+
+The discovery scan executed job modules via
+`importlib.util.module_from_spec` + `exec_module`, skipping the documented
+`sys.modules[name] = module` step. Everything worked — until a jobs file
+contained two pydantic models where one referenced the other:
+
+```python
+class Item(BaseModel): ...
+class Envelope(BaseModel):
+    payload: list[Item]        # a forward reference under PEP 563
+```
+
+Pydantic resolves forward references by looking the class's own `__module__` up
+in `sys.modules`, and `from __future__ import annotations` makes *every*
+annotation a forward reference. The class built, the scan succeeded, the job
+registered — and `Envelope(...)` raised "`Envelope` is not fully defined",
+naming a class defined ten lines above it.
+
+**How to apply:** register before `exec_module` and remove the entry on failure.
+The name is uniquified per source file, so nothing real is shadowed. More
+generally: the importlib recipe's steps are not ceremony — dataclasses,
+pickling, and `get_type_hints` all reach back through `sys.modules`.
 
 ---
 

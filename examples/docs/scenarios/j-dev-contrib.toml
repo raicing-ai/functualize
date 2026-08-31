@@ -10,12 +10,25 @@ description = "Test running and code quality commands"
 
 requires = []
 
+# Two things were wrong with this step, and the second hid the first.
+#
+# `...; echo 'PYTEST_DONE'` runs the echo *regardless* of pytest's exit code,
+# and the only assertion was that PYTEST_DONE appeared — so this step passed
+# with the test suite red. It is the "fails open, or asserts nothing" drift
+# class named in contributor/guides/docs-example-parity.md, in the scenario
+# suite that guide is about.
+#
+# And 600s was never enough headroom: the fast tier ran ~530s before this
+# branch added its cross-process pipeline tests, and ~595s after — so the
+# step timed out rather than reporting anything. Note that ADR-003 puts the
+# fast tier's target at <= 60s; at ~595s it has drifted an order of magnitude
+# past that. Raising this timeout accommodates the drift, it does not fix it.
 [[steps]]
 engine = "shell"
-description = "uv run pytest (fast tests only)"
-command = "uv run pytest -x -q --no-header 2>&1; echo 'PYTEST_DONE'"
-expected = { stdout_contains = "PYTEST_DONE" }
-timeout = 600
+description = "uv run pytest (fast tier — must actually pass, not merely finish)"
+command = "uv run pytest -x -q --no-header && echo 'PYTEST_OK'"
+expected = { stdout_contains = "PYTEST_OK", exit_code = 0 }
+timeout = 1200
 
 [[steps]]
 engine = "shell"
@@ -34,7 +47,7 @@ timeout = 60
 [[steps]]
 engine = "shell"
 description = "uv run mypy src/"
-command = "uv run mypy src/ > /tmp/functualize-mypy.log 2>&1; echo 'MYPY_DONE'"
+command = "uv run mypy src/ > $DOC_VERIFY_SCRATCH/mypy.log 2>&1; echo 'MYPY_DONE'"
 expected = { stdout_contains = "MYPY_DONE" }
 timeout = 120
 
@@ -45,9 +58,14 @@ command = "uv run lint-imports 2>&1; echo 'LINT_IMPORTS_DONE'"
 expected = { stdout_contains = "LINT_IMPORTS_DONE" }
 timeout = 30
 
-[[steps]]
-engine = "shell"
-description = "uv run mkdocs build --strict"
-command = "uv run mkdocs build --strict 2>&1 && echo 'MKDOCS_BUILD_OK'"
-expected = { stdout_contains = "MKDOCS_BUILD_OK", exit_code = 0 }
-timeout = 60
+# The `mkdocs build --strict` step was removed here (2026-08-29). It cited
+# `docs/contributing.md:370-494` but that doc never mentions mkdocs — the word
+# does not occur anywhere in the file — so the step asserted a command no
+# documented line contains, which is precisely what this scenario format
+# exists to prevent. It had never actually run: `doc-verify` only became a CI
+# job in this branch, and it syncs `--all-extras`, which does not install the
+# `docs` dependency group, so `uv run mkdocs` exited 2 on a missing
+# executable. `ci.yml:165` already warns against a job copying its neighbours
+# and losing `--group docs`. The command itself is not going unchecked: the
+# `docs-build` job runs `uv run mkdocs build --strict` on every PR with the
+# right group synced.

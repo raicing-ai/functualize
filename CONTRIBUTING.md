@@ -298,15 +298,33 @@ in the commit footer instead.
 ## Release Process
 
 ```bash
-# 1. Bump the version in all THIRTEEN places it is declared:
+# 1. Bump the version in all SEVENTEEN places it is declared:
 #    - pyproject.toml               version = "X.Y.Z"
 #    - src/functualize/__init__.py  __version__ = "X.Y.Z"
 #    - plugins/*/pyproject.toml     version = "X.Y.Z"   (11 packages)
+#    - skills/*/SKILL.md            metadata.version    (4 skills)
 #
-#    Then verify none was missed. This must print exactly one line, "13":
-grep -h -e '^version = ' -e '^__version__ = ' \
-  pyproject.toml src/functualize/__init__.py plugins/*/pyproject.toml \
+#    Then verify none was missed. This must print exactly one line, "17":
+{ grep -h -e '^version = ' -e '^__version__ = ' \
+    pyproject.toml src/functualize/__init__.py plugins/*/pyproject.toml
+  grep -h -m1 '^  version:' skills/*/SKILL.md; } \
   | grep -o '"[^"]*"' | sort | uniq -c
+
+#    Seventeen is the whole list. `tests/test_packaging.py` asserts that
+#    `__version__`, the installed dist metadata and `pyproject.toml` all agree,
+#    deriving the expected value rather than hardcoding it -- so it catches a
+#    missed site without being an eighteenth one. It used to hardcode `0.1.0`,
+#    which meant following this checklist exactly still landed a red suite.
+#
+#    The four skills are checked the same way, by
+#    `tests/skills/test_frontmatter.py::test_metadata_version_tracks_the_package`
+#    against `__version__`. `metadata.version` is inert to every skills client
+#    (there is no `version` field in the spec), but it is what an installed
+#    skill self-identifies with, and a stale value is worse than none. Note the
+#    `-m1`: `functualize-skill/SKILL.md` also contains an *example* frontmatter
+#    block teaching skill authoring, at the same indentation and with its own
+#    version. It is not a release site and must not be bumped, so only the
+#    first match in each file counts.
 
 # 2. Update CHANGELOG.md
 #    - Move items from [Unreleased] to new [X.Y.Z] section
@@ -416,7 +434,7 @@ There is no `release:` type. A version bump is `chore(release): v0.2.0`.
 |------|--------|-------|
 | `conventional-pre-commit` | Commit subject type and shape, at commit time | `.pre-commit-config.yaml` (needs `pre-commit install --hook-type commit-msg`) |
 | PR Title workflow | PR title type, single-token scope, lowercase subject, no trailing period | `.github/workflows/pr-title.yml` |
-| `master` ruleset | Changes arrive by PR; squash is the only merge method; `lint`, `lint-imports`, `typecheck`, `test-fast`, `gitleaks` and `lint-title` must pass; no force-push; no branch deletion | GitHub repository ruleset named `master` |
+| `master` ruleset | Changes arrive by PR; squash is the only merge method; `lint`, `lint-imports`, `typecheck`, `test-fast`, `test-full` (3.11, 3.12, 3.13), `gitleaks` and `lint-title` must pass; no force-push; no branch deletion | GitHub repository ruleset named `master` |
 | `release tags` ruleset | A `v*` tag cannot be deleted or moved once pushed | GitHub repository ruleset named `release tags` |
 
 The first two overlap deliberately. The hook cannot see a PR title, and the PR
@@ -429,10 +447,17 @@ The ruleset requires **zero approving reviews**. Its job is to guarantee that
 every change reaches `master` through a PR with green CI, not to simulate a
 review process that a single maintainer cannot perform on their own work.
 
-`test-full` is deliberately *not* required. It is red for reasons unrelated to
-any individual change (see `.spec/STATUS.md`), and a permanently-failing
-required check trains people to merge past a red tick. Add it to the ruleset in
-the same PR that turns it green.
+`test-full` **is** required, and is green. It was held out of the ruleset while
+it was red for reasons unrelated to any individual change, because a
+permanently-failing required check trains people to merge past a red tick; it
+was added once that was fixed.
+
+It is a matrix job, so GitHub reports it as three separate checks — `test-full
+(3.11)`, `test-full (3.12)` and `test-full (3.13)` — and all three are required
+by name. A bare `test-full` context is never reported by anything, so requiring
+it would wedge every PR. Adding or removing a Python version from the matrix
+means editing the ruleset to match, or the new version goes unenforced and the
+dropped one blocks every merge.
 
 Repository and organization admins can bypass the ruleset, so the release commit
 described below can still be pushed straight to `master`. That bypass is a

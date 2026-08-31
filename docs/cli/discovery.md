@@ -36,7 +36,7 @@ This is the default for new projects — you get auto-discovery with no configur
 jobs_directories = ["jobs"]
 ```
 
-> **See also:** [`examples/standalone/discovery_lab/`](../../examples/standalone/discovery_lab/) — its baseline step (no filters) demonstrates convention mode.
+> **See also:** [`examples/standalone/discovery_lab/`](https://github.com/raicing-ai/functualize/tree/master/examples/standalone/discovery_lab/) — its baseline step (no filters) demonstrates convention mode.
 
 ---
 
@@ -79,7 +79,7 @@ Detects all import forms:
 - `from functualize.job import RunContext`
 - Imports inside `try`/`except` blocks at module level
 
-> **See also:** [`examples/standalone/discovery_lab/`](../../examples/standalone/discovery_lab/), step 4 of its filter matrix.
+> **See also:** [`examples/standalone/discovery_lab/`](https://github.com/raicing-ai/functualize/tree/master/examples/standalone/discovery_lab/), step 4 of its filter matrix.
 
 ### `require_file_marker`
 
@@ -96,7 +96,7 @@ The file must contain a top-level assignment like:
 __functualize__ = True  # marks this file for discovery
 ```
 
-> **See also:** [`examples/standalone/discovery_lab/`](../../examples/standalone/discovery_lab/), step 5 of its filter matrix.
+> **See also:** [`examples/standalone/discovery_lab/`](https://github.com/raicing-ai/functualize/tree/master/examples/standalone/discovery_lab/), step 5 of its filter matrix.
 
 ### `exclude_patterns`
 
@@ -146,7 +146,7 @@ def helper(): ...       # ✗ no decorator — not registered
 
 Matching is on the decorator's **root name**, read from the source AST: `@job` and `@job(...)` both match `"job"`, while `@registry.job` matches `"registry"`. The AST is the source of truth because a transparent decorator (one that returns the function unchanged) leaves nothing on the imported object to inspect.
 
-> **See also:** [`examples/standalone/discovery_lab/`](../../examples/standalone/discovery_lab/), step 6 of its filter matrix.
+> **See also:** [`examples/standalone/discovery_lab/`](https://github.com/raicing-ai/functualize/tree/master/examples/standalone/discovery_lab/), step 6 of its filter matrix.
 
 ### `require_job_prefix`
 
@@ -193,7 +193,7 @@ The job-level filters then run over the extracted descriptors:
 2. **JobPostfixFilter** — function name string check
 3. **JobDecoratorFilter** — decorator names recorded during extraction
 
-These apply on *read* rather than on write, so the discovery cache stays a superset of what any one configuration admits and a changed `require_job_*` setting takes effect immediately. File-level filters decide what gets *written* to the cache and have no such property: after changing one, run `func builtin cache clear` or the previous listing persists.
+These apply on *read* rather than on write, so the discovery cache stays a superset of what any one configuration admits and a changed `require_job_*` setting takes effect immediately. File-level filters decide what gets *written* to the cache, so they cannot work that way — instead the cache header fingerprints your discovery filter settings, and changing any of them discards the cache and rescans. Either way a filter change takes effect on your next command; `func builtin cache clear` is not needed.
 
 ---
 
@@ -240,7 +240,7 @@ require_job_prefix = "run_"
 
 Only `job_*.py` files, only `run_*` functions.
 
-> **See also:** [`examples/standalone/discovery_lab/`](../../examples/standalone/discovery_lab/), step 8 of its filter matrix, for a multi-filter example.
+> **See also:** [`examples/standalone/discovery_lab/`](https://github.com/raicing-ai/functualize/tree/master/examples/standalone/discovery_lab/), step 8 of its filter matrix, for a multi-filter example.
 
 ---
 

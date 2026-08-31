@@ -53,7 +53,14 @@ class MockSmartBar:
         self._classes.discard("editing")
         self._classes.discard("invalid")
 
-    def enter_edit_mode(self, field_name: str, value: str, hint: str) -> None:
+    def enter_edit_mode(
+        self, field_name: str, value: str, hint: str, *, secret: bool = False
+    ) -> None:
+        # `secret` mirrors the real SmartBar: a secret field masks the bar
+        # while it is edited. Recorded so a test can assert on it; the
+        # keyword must exist here or the mock silently stops matching the
+        # collaborator it stands in for.
+        self.secret = secret
         self.value = value
         self.placeholder = f"Edit: {field_name}"
         self._readiness = BarReadiness.EDITING

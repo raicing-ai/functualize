@@ -1,7 +1,7 @@
 """Entry point for the weather-app CLI application.
 
 Wires job discovery and layered config (classic preset: CLI flags →
-env vars → config.base.ini + ENVIRONMENT overlay → model defaults).
+env vars → config.base.toml + ENVIRONMENT overlay → model defaults).
 The same jobs remain runnable with plain `func` from this directory.
 """
 

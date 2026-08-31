@@ -40,6 +40,7 @@ except ImportError as _exc:
     ) from _exc
 
 from functualize._cli.tui.panels.config_table import FieldDef
+from functualize.app.utils import display_value
 
 if TYPE_CHECKING:
     from textual.app import ComposeResult
@@ -88,6 +89,8 @@ class _DetailRow:
     type_hint: str
     choices: list[str] | None
     description: str
+    secret: bool = False
+    """When true, neither ``value`` nor ``effective`` is ever rendered."""
 
 
 class SourceChainDetailView(Widget):
@@ -231,6 +234,7 @@ class SourceChainDetailView(Widget):
                         type_hint=key.type_hint,
                         choices=key.choices,
                         description=key.description,
+                        secret=key.secret,
                     )
                 )
         else:
@@ -257,6 +261,7 @@ class SourceChainDetailView(Widget):
                             type_hint=scoped.type_hint,
                             choices=scoped.choices,
                             description=scoped.description,
+                            secret=scoped.secret,
                         )
                     )
 
@@ -277,18 +282,34 @@ class SourceChainDetailView(Widget):
     # ------------------------------------------------------------------
 
     def _display_value(self, row: _DetailRow) -> str:
-        """The value cell, including any staged-change marker."""
+        """The value cell, including any staged-change marker.
+
+        A secret's value is never rendered — not the winning source's, and not a
+        losing source's, which is exactly as sensitive. The status glyph still
+        distinguishes winning / overridden / not-set, so the screen keeps
+        answering "where does this come from?" while never answering "what is
+        it?". A staged edit shows its marker over the mask for the same reason.
+        """
         stage_key = (row.source_id, row.key_name)
         if stage_key in self._staged_removals:
-            return f"{row.value or '—'} {_MARK_DEL}"
+            return f"{self._mask_or(row, row.value)} {_MARK_DEL}"
         if stage_key in self._staged_edits:
-            return f"{self._staged_edits[stage_key]} {_MARK_EDIT}"
-        return row.value or "—"
+            staged = self._staged_edits[stage_key]
+            return f"{display_value(staged, secret=row.secret)} {_MARK_EDIT}"
+        return self._mask_or(row, row.value)
+
+    @staticmethod
+    def _mask_or(row: _DetailRow, raw: str) -> str:
+        """``MASK`` for a set secret, the raw text otherwise, em-dash if unset."""
+        if not raw:
+            return "—"
+        return display_value(raw, secret=row.secret)
 
     def _row_cells(self, row: _DetailRow) -> tuple[str, ...]:
         label = row.label if row.writable else f"{row.label} 🔒"
+        effective = self._mask_or(row, row.effective)
         if self._flavor == FILE_FLAVOR:
-            return (label, self._display_value(row), row.effective or "—", row.status)
+            return (label, self._display_value(row), effective, row.status)
         return (label, self._display_value(row), row.status)
 
     def _rebuild_table(self) -> None:

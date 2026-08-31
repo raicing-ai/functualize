@@ -9,6 +9,24 @@ This project uses a multi-tier test strategy. Follow these rules when running te
   2. `uv run ruff format src/ tests/ plugins/`
 - **Fast tests (unit only):** `uv run pytest -x -q --no-header`
 - **Full tests (including property-based):** `HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto -q --no-header` — the `ci` profile (200 examples) is what CI runs; without it you are verifying a weaker gate. Budget ~10 minutes.
+- **Example projects:** `uv run pytest examples/ -v` — `testpaths = ["tests"]`, so the
+  root invocation does **not** collect these. Requires `uv sync --all-packages` (the AI
+  and plugin examples import workspace packages). CI runs it in the `examples` job.
+- **Documented commands:** `PATH="$PWD/.venv/bin:$PATH" python
+  .agents/skills/doc-verify/scripts/run-scenario examples/docs/scenarios/ --engine shell`
+  — runs the commands the docs tell a reader to run and compares the output against
+  what the docs claim. Must be invoked **from the repository root**; a shell step's
+  `cwd` is process-relative. Without `.venv/bin` on `PATH` every step exits 127 and
+  reports as documentation drift, so **before believing a failure, run
+  `a-core-builtins`** to prove the harness works. CI runs the shell subset in the
+  `doc-verify` job; the release pass runs all engines.
+
+!!! note "The three sync flags prune each other"
+    `uv sync --all-packages`, `--all-extras` and `--group docs` each drop what the
+    others install. Each CI job has its own environment, so each flag is right there.
+    A local pass that runs all of the above needs
+    `uv sync --all-packages --all-extras --group docs`. Running one alone produces
+    failures that look like real defects.
 
 ## When to run tests
 
@@ -178,3 +196,11 @@ Marked `@pytest.mark.slow` — skipped by default, runs with `--run-slow`.
 Plugin-specific tests live in each plugin's own `tests/` directory (e.g. `plugins/functualize-state-sqlite/tests/`).
 Run them directly with `pytest plugins/<name>/tests/`; they are not collected
 by the root `pytest` invocation.
+
+## Documentation and examples as a tested surface
+
+The docs and `examples/` are a second product surface, and a claim about *runtime
+behaviour* — "this field is masked" — is invisible to a static doc scan while being
+false. See [`contributor/guides/docs-example-parity.md`](../contributor/guides/docs-example-parity.md)
+for the pass that catches it, the drift classes it found, and the detection method for
+each. Run it before a release.

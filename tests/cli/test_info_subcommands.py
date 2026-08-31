@@ -16,6 +16,11 @@ import json
 
 import pytest
 
+# Imported, not restated: the renderer has to respect this cap (it drops the
+# description column for a long program name rather than overflow), so the
+# number and the code that honours it must not be able to drift apart.
+from functualize._primitives.agent_epilog import MAX_EPILOG_COLUMNS
+
 JOBS = {
     "jobs.py": (
         '"""Demo jobs."""\n'
@@ -309,8 +314,12 @@ def test_help_epilog_names_the_schema_command(cli_run):
     """
     result = cli_run(["--help"])
     assert result.exit_code == 0
-    assert "func builtin info schema" in result.stdout
-    assert "func builtin skills list" in result.stdout
+    # Asserted without the program name: the block is spelled for whatever the
+    # CLI was invoked as, so a project's own `main.py` shows `main.py builtin
+    # …`. Pinning the literal `func ` here is what let the block go missing on
+    # that surface unnoticed — see `_primitives/agent_epilog.py`.
+    assert "builtin info schema" in result.stdout
+    assert "builtin skills list" in result.stdout
 
 
 def test_help_epilog_names_the_output_env_var(cli_run):
@@ -335,11 +344,7 @@ MAX_EPILOG_LINES = 6
 def test_help_epilog_stays_short(cli_run):
     """`--help` prints on every mistyped command — it is not a manual."""
     result = cli_run(["--help"])
-    epilog_lines = [
-        line
-        for line in result.stdout.splitlines()
-        if "func builtin" in line or "FUNCTUALIZE_CLI_OUTPUT" in line
-    ]
+    epilog_lines = _epilog_block(result.stdout)
     assert len(epilog_lines) <= MAX_EPILOG_LINES, (
         f"the --help epilog has grown to {len(epilog_lines)} lines:\n"
         + "\n".join(epilog_lines)
@@ -363,13 +368,6 @@ def test_help_epilog_names_both_schema_filters(cli_run):
     result = cli_run(["--help"])
     assert "--kind job" in result.stdout
     assert "--kind builtin" in result.stdout
-
-
-#: The epilog is emitted verbatim, never re-wrapped — wrapping a hand-aligned
-#: table destroys the columns. That makes source width the only thing standing
-#: between a narrow terminal and a mangled table, so it is pinned well inside
-#: 80 rather than at it.
-MAX_EPILOG_COLUMNS = 72
 
 
 def test_help_epilog_lines_stay_narrow(cli_run):

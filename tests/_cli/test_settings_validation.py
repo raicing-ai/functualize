@@ -18,7 +18,13 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from functualize._cli.tui.settings_validator import SETTING_SCHEMAS, validate_setting
+from functualize._cli.data.func_settings import FUNC_SETTINGS
+from functualize._cli.tui.settings_validator import (
+    SETTING_SCHEMAS,
+    SettingSchema,
+    validate_against,
+    validate_setting,
+)
 
 # =============================================================================
 # Strategies
@@ -96,8 +102,16 @@ _INVALID_BOOL_VALUES = st.text(
 
 # --- List strategies ---
 
+# List settings are drawn from the func-settings catalog, not from
+# ``SETTING_SCHEMAS``: `tui.sensitive_keywords` was the only list-typed *TUI*
+# setting and was removed (2026-08-27), leaving that dict with no list entries
+# at all. The list branch of the validator is still live — the catalog reaches
+# it through the schema-first ``validate_against``, which is what these tests
+# now call.
 _LIST_SETTINGS = {
-    name: schema for name, schema in SETTING_SCHEMAS.items() if schema.type == "list"
+    setting.name: setting.schema
+    for setting in FUNC_SETTINGS
+    if setting.schema.type == "list"
 }
 
 # Items for comma-separated lists (no commas within items)
@@ -108,9 +122,9 @@ _LIST_ITEM = st.text(
 )
 
 
-def _valid_list_value(setting_name: str) -> st.SearchStrategy[str]:
+def _valid_list_value(schema: SettingSchema) -> st.SearchStrategy[str]:
     """Strategy for a comma-separated list within the max_items limit."""
-    max_items = SETTING_SCHEMAS[setting_name].max_items or 50
+    max_items = schema.max_items or 50
     return st.lists(
         _LIST_ITEM,
         min_size=1,
@@ -118,9 +132,9 @@ def _valid_list_value(setting_name: str) -> st.SearchStrategy[str]:
     ).map(lambda items: ",".join(items))
 
 
-def _oversized_list_value(setting_name: str) -> st.SearchStrategy[str]:
+def _oversized_list_value(schema: SettingSchema) -> st.SearchStrategy[str]:
     """Strategy for a comma-separated list exceeding max_items."""
-    max_items = SETTING_SCHEMAS[setting_name].max_items or 50
+    max_items = schema.max_items or 50
     return st.lists(
         _LIST_ITEM,
         min_size=max_items + 1,
@@ -252,9 +266,9 @@ class TestSettingsValueValidation:
 
         **Validates: Requirements 12.7**
         """
-        setting_name = data.draw(st.sampled_from(list(_LIST_SETTINGS.keys())))
-        value = data.draw(_valid_list_value(setting_name))
-        result = validate_setting(setting_name, value)
+        schema = data.draw(st.sampled_from(list(_LIST_SETTINGS.values())))
+        value = data.draw(_valid_list_value(schema))
+        result = validate_against(schema, value)
         assert result.valid is True
 
     @given(data=st.data())
@@ -263,9 +277,9 @@ class TestSettingsValueValidation:
 
         **Validates: Requirements 12.7**
         """
-        setting_name = data.draw(st.sampled_from(list(_LIST_SETTINGS.keys())))
-        value = data.draw(_oversized_list_value(setting_name))
-        result = validate_setting(setting_name, value)
+        schema = data.draw(st.sampled_from(list(_LIST_SETTINGS.values())))
+        value = data.draw(_oversized_list_value(schema))
+        result = validate_against(schema, value)
         assert result.valid is False
         assert result.error is not None
 

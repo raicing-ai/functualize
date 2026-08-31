@@ -21,7 +21,13 @@ from typing import Any
 from pydantic import TypeAdapter, ValidationError
 
 from functualize._config.merge import merge_config_layers
+from functualize._primitives.agent_epilog import (
+    agent_epilog,
+    write_agent_epilog,
+)
 from functualize._primitives.cache_format import resolve_cache_path
+from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
+from functualize._primitives.config_class_detection import detect_config_class
 from functualize._primitives.di import DIValidationError
 from functualize._primitives.display_detection import (
     find_display_providers,
@@ -33,7 +39,10 @@ from functualize._primitives.job_schema import (
     job_input_schema,
 )
 from functualize._primitives.locator import ResourceLocator
-from functualize._primitives.state_format import resolve_state_path
+from functualize._primitives.state_format import (
+    resolve_state_location,
+    resolve_state_path,
+)
 from functualize._primitives.state_store import StateStore
 from functualize._types.annotations import resolved_hints
 from functualize._types.descriptors import FieldDescriptor, GroupOptionsSpec
@@ -50,12 +59,52 @@ from functualize._types.naming import (
     normalize_segment,
     resolve_name,
 )
-from functualize._types.redaction import MASK, is_secret_field, reveal
+from functualize._types.redaction import (
+    MASK,
+    display_value,
+    is_secret_field,
+    reveal,
+)
 from functualize.app._workflow_resume import deposit_gate_input, pending_gates
 from functualize.app.config import JobSources
 
+
+def job_config_fields(app: Any, job_name: str) -> list[Any]:
+    """A job's config as ``ResolvedField`` rows — the one resolution seam.
+
+    Re-exported here because ``_cli/`` may import only public API, and the
+    surfaces that report configuration (``builtin env``, the TUI panels) all
+    live there. They previously each re-derived values, knew different subsets
+    of the environment conventions, and disagreed with the executor.
+
+    Returns ``[]`` when the job declares no config model. Never raises for an
+    unresolved field: a caller asking "what is missing?" is answered, not
+    handed a ``ValidationError``.
+    """
+    from functualize._config.job_config import JobConfigView
+    from functualize._config.resolved_field import resolve_job_fields
+
+    try:
+        entry = app.execution_engine.materialize_job(job_name)
+    except Exception:
+        return []
+    config_class = getattr(entry, "config_class", None)
+    if config_class is None:
+        return []
+
+    return resolve_job_fields(
+        config_class,
+        job_name,
+        JobConfigView(
+            resolution_chain=app._resolution_chain,
+            default_section_prefix=job_name,
+        ),
+    )
+
+
 __all__ = [
     "auto_discover",
+    "job_config_fields",
     "is_secret_field",
     "MASK",
     "reveal",
@@ -69,6 +118,7 @@ __all__ = [
     "coerce_kwargs",
     "deposit_gate_input",
     "DiscoveryOverrides",
+    "display_value",
     "DiscoveryResult",
     "DIValidationError",
     "enumerate_group_names",
@@ -90,15 +140,20 @@ __all__ = [
     "resolve_cache_path",
     "TrieNode",
     "TrieResolution",
+    "resolve_state_location",
     "resolve_state_path",
     "StateStore",
     "resolved_hints",
+    "detect_config_class",
+    "INJECTED_PARAM_TYPE_NAMES",
+    "agent_epilog",
     "resolve_effective_directories",
     "resolve_project_config",
     "resolve_user_config_dir",
     "field_property",
     "input_schema",
     "job_input_schema",
+    "write_agent_epilog",
     "resolve_user_data_dir",
     "ResourceLocator",
     "merge_config_layers",
@@ -1220,7 +1275,10 @@ def build_job_filter(discovery_config: Any) -> Any:
     return build_job_filter_from_config(discovery_config)
 
 
-def build_discovery_cache_provider(cwd: Path | None = None) -> Any:
+def build_discovery_cache_provider(
+    cwd: Path | None = None,
+    discovery_config: Any = None,
+) -> Any:
     """Build the discovery cache provider over auto-discovered job directories.
 
     Public entry point for CLI tooling (`func cache` commands) that needs
@@ -1228,22 +1286,59 @@ def build_discovery_cache_provider(cwd: Path | None = None) -> Any:
 
     Args:
         cwd: Directory to discover from. Defaults to the current directory.
+        discovery_config: Resolved discovery configuration. When given, the
+            provider is built with the same pre-filter, job filter and
+            ``discovery_hash`` a booting app would build from it, so a command
+            that *writes* the cache writes it under the caller's filters and
+            under the fingerprint the next boot expects.
+
+            When ``None`` the provider is bare and skips the fingerprint check.
+            That is right for a pure reader; it is wrong for a writer, because a
+            bare provider persists ``discovery_hash: null`` and the next boot
+            reads that as a mismatch and rescans. See ADR-011.
 
     Returns:
         A CachedDirectoryScanProvider bound to the resolved cache location.
     """
     from functualize._app.impl import build_cached_provider
+    from functualize._discovery.filter_factory import (
+        build_job_filter_from_config,
+        build_pre_filter_from_config,
+        discovery_hash_from_config,
+    )
 
     if cwd is None:
         cwd = Path.cwd()
 
     discovery_result = auto_discover(cwd)
-    directories = (
-        discovery_result.job_sources.directories
-        if discovery_result.job_sources
-        else None
+    directories = list(
+        (
+            discovery_result.job_sources.directories
+            if discovery_result.job_sources
+            else []
+        )
+        or []
     )
-    return build_cached_provider(directories or [], project_root=cwd)
+
+    pre_filter = None
+    job_filter = None
+    discovery_hash = None
+    if discovery_config is not None:
+        discovery_hash = discovery_hash_from_config(discovery_config)
+        job_filter = build_job_filter_from_config(discovery_config)
+        if directories:
+            scan_roots = [Path(d) for d in directories]
+            pre_filter = build_pre_filter_from_config(
+                discovery_config, scan_roots[0], scan_roots
+            )
+
+    return build_cached_provider(
+        directories,
+        project_root=cwd,
+        pre_filter=pre_filter,
+        job_filter=job_filter,
+        discovery_hash=discovery_hash,
+    )
 
 
 def read_routing_names_from_cache(

@@ -534,7 +534,7 @@ class FileSource:
             filename_regex: Optional regex matched against basenames. When
                 set, discovery uses a broad glob and this regex filters the
                 candidates, so custom ``ConfigSources.file_pattern`` values
-                (e.g. ``^settings\\.(\\w+)\\.ini$``) are honored.
+                (e.g. ``^settings\\.(\\w+)\\.toml$``) are honored.
             registry: Alias for format_providers when passing a ProviderRegistry.
             event_bus: Optional EventBus for emitting parse events.
             environment: The active environment name, selecting which

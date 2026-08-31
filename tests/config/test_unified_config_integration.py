@@ -110,12 +110,12 @@ class TestCreateJobCommandConstructsJobConfigView:
         # Set up minimal state
         config_dir = tmp_path / "config"
         config_dir.mkdir()
-        (config_dir / "config.base.ini").write_text("[general]\napp_name = test\n")
+        (config_dir / "config.base.toml").write_text('[general]\napp_name = "test"\n')
 
         # Build a real resolution chain
         source = FakeSource(
             source_type="file",
-            source_id="config.base.ini",
+            source_id="config.base.toml",
             data={("general", "app_name"): "test", ("myjob", "timeout"): "30"},
         )
         chain = ResolutionChain([source])
@@ -158,11 +158,11 @@ class TestCreateJobCommandConstructsJobConfigView:
 
         config_dir = tmp_path / "config"
         config_dir.mkdir()
-        (config_dir / "config.base.ini").write_text("[general]\napp_name = test\n")
+        (config_dir / "config.base.toml").write_text('[general]\napp_name = "test"\n')
 
         source = FakeSource(
             source_type="file",
-            source_id="config.base.ini",
+            source_id="config.base.toml",
             data={("myjob", "key1"): "value_from_chain"},
         )
         chain = ResolutionChain([source])
@@ -233,7 +233,7 @@ class TestResolutionChainSharedInstance:
 
         config_dir = tmp_path / "config"
         config_dir.mkdir()
-        (config_dir / "config.base.ini").write_text("[general]\n")
+        (config_dir / "config.base.toml").write_text("[general]\n")
 
         source = FakeSource(data={("general", "key"): "val"})
         chain = ResolutionChain([source])
@@ -314,8 +314,8 @@ class TestEndToEndJobExecution:
 
         config_dir = tmp_path / "config"
         config_dir.mkdir()
-        (config_dir / "config.base.ini").write_text(
-            "[general]\napp_name = integration_test\n\n"
+        (config_dir / "config.base.toml").write_text(
+            '[general]\napp_name = "integration_test"\n\n'
             "[my_job]\ntimeout = 60\nretries = 3\n"
         )
 
@@ -367,7 +367,7 @@ class TestEndToEndJobExecution:
 
         config_dir = tmp_path / "config"
         config_dir.mkdir()
-        (config_dir / "config.base.ini").write_text("[general]\n")
+        (config_dir / "config.base.toml").write_text("[general]\n")
 
         source = FakeSource(data={("my_job", "timeout"): "60"})
         chain = ResolutionChain([source])
@@ -409,7 +409,7 @@ class TestEndToEndJobExecution:
 
         config_dir = tmp_path / "config"
         config_dir.mkdir()
-        (config_dir / "config.base.ini").write_text("[general]\n")
+        (config_dir / "config.base.toml").write_text("[general]\n")
 
         source = FakeSource(
             data={
@@ -460,7 +460,7 @@ class TestEndToEndJobExecution:
 
         config_dir = tmp_path / "config"
         config_dir.mkdir()
-        (config_dir / "config.base.ini").write_text("[general]\n")
+        (config_dir / "config.base.toml").write_text("[general]\n")
 
         # Set env var before building chain with EnvSource
         monkeypatch.setenv("MY_JOB_PORT", "9999")

@@ -5,7 +5,7 @@ Usage:
     python run-scenario [options] <scenario.toml|directory/>
 
 Options:
-    --timeout N      Global timeout override (seconds, default 120)
+    --timeout N      Default timeout for steps that declare none (seconds, default 120)
     --engine X       Force engine: shell, docker, pty
     --match GLOB     Only run scenarios matching glob pattern
     --keep-containers  Don't remove Docker containers after test
@@ -14,6 +14,16 @@ Options:
     --audit          Audit mode: scan docs for verifiable code blocks
     --dry-run        Print steps without executing
     --report MODE    Report mode: interim (YAML), final (markdown), json, none
+    --allow-skips    Accept scenarios that ran no steps at all (exit 3 otherwise)
+
+Exit codes:
+    0  every selected scenario ran and passed
+    1  a step failed — real documentation drift, or a stale scenario
+    2  a scenario could not be loaded (harness error, not a doc failure)
+    3  a scenario ran ZERO steps because every step was filtered out by
+       --engine or --skip-pty. Its doc page was NOT verified. Pass
+       --allow-skips to accept this deliberately; the report names each
+       unverified scenario and the tier that is supposed to cover it.
 """
 
 from __future__ import annotations
@@ -23,10 +33,13 @@ import fnmatch
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import tomllib
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -36,6 +49,46 @@ ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
 SCENARIOS_DIR = ROOT / "examples" / "docs" / "scenarios"
 SKILL_DIR = ROOT / ".agents" / "skills" / "doc-verify"
 TUI_PROBE = ROOT / ".claude" / "skills" / "observe-tui" / "scripts" / "tui_probe.py"
+
+# ── Per-run scratch ──────────────────────────────────────────────────
+# Every step is its own process, so a scenario needing to pass a value from one
+# step to the next has to write it somewhere. Scenarios used fixed `/tmp` names
+# for that, which makes two concurrent runs share one file: `h-workflow` minted
+# a scope id in step 1 and read a *different* run's id in step 2, then failed
+# because "a used one can never block again" — a red scenario with nothing wrong
+# in the docs it cites.
+#
+# One scratch directory per invocation, exported to every step's environment,
+# removes the sharing without scenarios having to coordinate. Scenarios address
+# it as `$DOC_VERIFY_SCRATCH`; `$DOC_VERIFY_RUN_ID` is the same uniqueness as a
+# bare token, for names that cannot be paths (a scope id, a container name).
+RUN_ID = f"{os.getpid()}-{uuid.uuid4().hex[:8]}"
+SCRATCH_ROOT = Path(tempfile.mkdtemp(prefix=f"doc-verify-{RUN_ID}-"))
+
+
+def scratch_env() -> dict[str, str]:
+    """Env vars every step gets, whatever its engine."""
+    return {
+        "DOC_VERIFY_RUN_ID": RUN_ID,
+        "DOC_VERIFY_SCRATCH": str(SCRATCH_ROOT),
+    }
+
+
+# ── Engine tiers ─────────────────────────────────────────────────────
+# Where each engine is supposed to actually run. A scenario filtered out of
+# one run is not "fine" — it is unverified until the tier named here runs it.
+# Printed next to every skipped scenario so the gap names its own owner
+# instead of vanishing into a skip count.
+# Name only owners that exist. An earlier draft of this table pointed the docker
+# tier at a "nightly job", and no scheduled workflow exists
+# (`grep -ln "schedule:\|cron" .github/workflows/*.yml` finds only security.yml)
+# — a forward reference to work nobody had written, in the very table meant to
+# stop exactly that.
+ENGINE_TIER = {
+    "shell": "per-PR CI (ci.yml `doc-verify` job)",
+    "docker": "release gate Phase 4 (release/SKILL.md) — no automated job yet",
+    "pty": "local / release gate only — never automated CI (CLAUDE.md:11)",
+}
 
 # ── Data structures ──────────────────────────────────────────────────
 
@@ -131,6 +184,7 @@ def run_shell_step(step: dict, g_env: dict, timeout: int, dry_run: bool) -> Step
     cmd = step.get("command", "")
     cwd = Path(step["cwd"]) if step.get("cwd") else None
     env = os.environ.copy()
+    env.update(scratch_env())
     env.update(g_env)
     env.update(step.get("env", {}))
 
@@ -223,7 +277,7 @@ def run_docker_step(step: dict, g_env: dict, timeout: int, dry_run: bool) -> Ste
         args.extend(["-v", f"{host_path}:{container_spec}"])
 
     # Env vars
-    env = {**g_env, **step.get("env", {})}
+    env = {**scratch_env(), **g_env, **step.get("env", {})}
     for k, v in env.items():
         args.extend(["-e", f"{k}={v}"])
 
@@ -345,7 +399,7 @@ def run_pty_step(step: dict, g_env: dict, timeout: int, dry_run: bool) -> StepRe
             text=True,
             timeout=timeout + 30,
             cwd=ROOT,
-            env={**os.environ, **g_env},
+            env={**os.environ, **scratch_env(), **g_env},
         )
     except subprocess.TimeoutExpired:
         return StepResult(
@@ -490,8 +544,21 @@ def run_substep(
 
 
 def run_step(step: dict, g_env: dict, timeout: int, dry_run: bool) -> StepResult:
-    """Dispatch a step to the correct engine."""
+    """Dispatch a step to the correct engine.
+
+    A step's own ``timeout`` wins; the global one is the default for steps that
+    declare none. Until 2026-08-29 the global was passed through unconditionally
+    and every declared per-step timeout was read by nobody — 64 of them across
+    12 scenario files, up to `timeout = 600`, all silently capped at 120s.
+
+    That is not a cosmetic bug. `j-dev-contrib` runs the fast test suite and
+    declares `timeout = 600`; it appeared to pass only while the suite was
+    failing fast under `-x`, and started timing out the moment the suite went
+    green — a scenario reporting the *documentation* as broken because the code
+    got better.
+    """
     engine = step.get("engine", "shell")
+    timeout = int(step.get("timeout", timeout))
 
     if engine == "shell":
         return run_shell_step(step, g_env, timeout, dry_run)
@@ -582,6 +649,26 @@ def run_scenario(data: dict, args: argparse.Namespace) -> ScenarioResult:
     return result
 
 
+def unverified(results: list[ScenarioResult]) -> list[ScenarioResult]:
+    """Scenarios that executed nothing — every step filtered out.
+
+    A ``skip`` rollup means the scenario's doc page was not verified at all.
+    That is materially different from a pass and must not be reported as one:
+    the whole point of the run is the claim "these docs still work", and a
+    scenario that never executed makes no such claim.
+    """
+    return [r for r in results if r.status == "skip"]
+
+
+def declared_engines(result: ScenarioResult) -> list[str]:
+    """Engines the scenario's steps declare, in first-seen order."""
+    seen: list[str] = []
+    for s in result.steps:
+        if s.engine not in seen:
+            seen.append(s.engine)
+    return seen
+
+
 # ── Reports ──────────────────────────────────────────────────────────
 
 
@@ -629,6 +716,7 @@ def format_final(results: list[ScenarioResult]) -> str:
         f"| Failed | {sum(1 for r in results if r.status == 'fail')} |",
         f"| Errors | {sum(1 for r in results if r.status == 'error')} |",
         f"| Skipped | {sum(1 for r in results if r.status == 'skip')} |",
+        f"| **Doc pages NOT verified** | **{len(unverified(results))}** |",
         f"| Duration | {sum(r.duration for r in results):.1f}s |",
         "",
         "## By doc page",
@@ -681,17 +769,33 @@ def format_final(results: list[ScenarioResult]) -> str:
         for r in errors:
             lines.append(f"- **{r.name}**: {r.error or 'Unknown error'}")
 
-    # Skipped section
-    skipped = [r for r in results if r.status == "skip"]
+    # Not-verified section. These scenarios ran nothing at all, so their doc
+    # pages carry no evidence from this run. Naming the owning tier is the
+    # point: a skip that names where it must run is a tracked gap, a bare
+    # skip count is an invisible one.
+    skipped = unverified(results)
     if skipped:
         lines.append("")
-        lines.append("## Skipped")
+        lines.append("## NOT VERIFIED by this run")
         lines.append("")
-        lines.append("| Scenario | Reason |")
-        lines.append("|---|---|")
+        lines.append(
+            f"{len(skipped)} scenario(s) executed **zero** steps. The doc pages "
+            "below were not checked. This is not a pass."
+        )
+        lines.append("")
+        lines.append("| Scenario | Doc page | Engine | Must be run by |")
+        lines.append("|---|---|---|---|")
         for r in skipped:
-            reason = r.steps[0].actual if r.steps else "Unknown"
-            lines.append(f"| `{r.name}` | {reason} |")
+            engines = declared_engines(r) or ["?"]
+            tiers = " / ".join(ENGINE_TIER.get(e, "unknown tier") for e in engines)
+            lines.append(
+                f"| `{r.name}` | `{r.source.file}:{r.source.lines}` "
+                f"| {'+'.join(engines)} | {tiers} |"
+            )
+        lines.append("")
+        lines.append(
+            "Reason: " + (skipped[0].steps[0].actual if skipped[0].steps else "unknown")
+        )
 
     return "\n".join(lines)
 
@@ -705,6 +809,16 @@ def format_json(results: list[ScenarioResult]) -> str:
                 "name": r.name,
                 "source": f"{r.source.file}:{r.source.lines}",
                 "status": r.status,
+                # Additive, so existing consumers keep working: `verified` is
+                # the question a reader actually has, and `status == "pass"`
+                # cannot answer it on its own — a scenario that ran nothing
+                # is not a pass and not a failure.
+                "verified": r.status == "pass",
+                "must_be_run_by": (
+                    [ENGINE_TIER.get(e, "unknown tier") for e in declared_engines(r)]
+                    if r.status == "skip"
+                    else None
+                ),
                 "duration": r.duration,
                 "steps": [
                     {
@@ -847,7 +961,10 @@ def main():
         help="Scenario file or directory (default: examples/docs/scenarios/)",
     )
     parser.add_argument(
-        "--timeout", type=int, default=120, help="Global timeout (seconds)"
+        "--timeout",
+        type=int,
+        default=120,
+        help="Default timeout for steps that declare none (seconds)",
     )
     parser.add_argument(
         "--engine", choices=["shell", "docker", "pty"], help="Force engine"
@@ -865,6 +982,15 @@ def main():
         "--dry-run", action="store_true", help="Print steps without executing"
     )
     parser.add_argument(
+        "--allow-skips",
+        action="store_true",
+        help=(
+            "Accept scenarios that executed zero steps. Without this, such a "
+            "run exits 3 — a filtered-out scenario verified nothing and must "
+            "not read as a pass."
+        ),
+    )
+    parser.add_argument(
         "--report",
         choices=["interim", "final", "json", "none"],
         default="final",
@@ -878,6 +1004,7 @@ def main():
             Path(args.target) if args.target != str(SCENARIOS_DIR) else ROOT / "docs"
         )
         print(audit_docs(docs_dir))
+        shutil.rmtree(SCRATCH_ROOT, ignore_errors=True)
         return 0
 
     # Discover scenarios
@@ -942,11 +1069,53 @@ def main():
         Path(args.json).write_text(format_json(results))
         print(f"JSON report written to {args.json}")
 
+    # Scratch cleanup. Kept when something went wrong: a scenario that hands a
+    # value between steps leaves it here, and that value is usually the first
+    # thing you want when the step that read it failed.
+    dirty = any(r.status in ("fail", "error") for r in results)
+    if dirty:
+        print(f"\nScratch kept for inspection: {SCRATCH_ROOT}", file=sys.stderr)
+    else:
+        shutil.rmtree(SCRATCH_ROOT, ignore_errors=True)
+
     # Exit code
     if any(r.status == "error" for r in results):
         return 2
     if any(r.status == "fail" for r in results):
         return 1
+
+    # A scenario that ran nothing verified nothing. Reporting that as success
+    # is how `--engine shell` turned 10 of 16 scenarios into invisible no-ops:
+    # the steps were marked `skip`, `skip` rolled up to a `skip` scenario, and
+    # the gate only ever looked for `fail`. Exit 3 unless the caller says, in
+    # the command line itself, that it meant to narrow the run.
+    not_run = unverified(results)
+    if not_run:
+        print(
+            f"\n{'=' * 60}\n"
+            f"{len(not_run)} of {len(results)} scenario(s) ran ZERO steps — "
+            f"their doc pages are UNVERIFIED:\n",
+            file=sys.stderr,
+        )
+        for r in not_run:
+            engines = "+".join(declared_engines(r) or ["?"])
+            tiers = " / ".join(
+                ENGINE_TIER.get(e, "unknown tier") for e in declared_engines(r)
+            )
+            print(
+                f"  - {r.name} [{engines}] {r.source.file} -> must be run by: {tiers}",
+                file=sys.stderr,
+            )
+        if not args.allow_skips:
+            print(
+                "\nThis run makes no claim about those pages. Re-run without "
+                "the engine filter, or pass --allow-skips to accept the "
+                "narrowing deliberately.",
+                file=sys.stderr,
+            )
+            return 3
+        print("\n(--allow-skips: accepted deliberately)", file=sys.stderr)
+
     return 0
 
 

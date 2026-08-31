@@ -24,36 +24,67 @@ import logging
 import sys
 import typing
 from collections.abc import Callable, Sequence
+from enum import Enum
 from typing import TYPE_CHECKING, Annotated, Any
 
 import click
 from click.types import convert_type
 from pydantic import BaseModel
 
-from functualize._primitives.group_options_detection import (
-    is_group_options_subclass,
-)
+from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
+from functualize._primitives.config_class_detection import detect_config_class
 from functualize._types.enums import RunStatus
-from functualize._types.exit_codes import ExitCode
+from functualize._types.exit_codes import ExitCode, exit_code_for_status
 
 if TYPE_CHECKING:
     from functualize.app.core import FunctualizeApp
 
 logger = logging.getLogger(__name__)
 
-# DI capability type names stripped from CLI signatures (mirror adapters/cli.py).
-_DI_TYPE_NAMES = frozenset(
-    {
-        "RunContext",
-        "Log",
-        "Invoke",
-        "Prompt",
-        "Perf",
-        "State",
-        "JobContext",
-        "JobConfigView",
-    }
-)
+# DI capability type names stripped from CLI signatures — the one list, not a
+# mirror of it. The mirrors drifted (see _primitives/capability_names).
+_DI_TYPE_NAMES = INJECTED_PARAM_TYPE_NAMES
+
+
+#: The kwarg a `--scope-id` command option binds to. A `@workflow` job command
+#: carries one; every other job does not, so it stays off their `--help` and
+#: cannot collide with a config field named `scope_id`.
+_SCOPE_ID_PARAM = "scope_id"
+
+
+def _scope_id_option() -> click.Option:
+    """The per-command `--scope-id`, for a job that declares a `@workflow`.
+
+    `func` has had a **pre-command** `--scope-id` since gates existed, and
+    `app/commands.py` never threaded it — so a `@workflow` with a `Gate` on a
+    `FunctualizeApp` blocked at exit 5 forever and the deposited input was never
+    read. There was no surface on an embedded app that could supply the scope.
+
+    Post-command, and on both surfaces, because that is where a reader looks:
+    the audit that found this got the pre-command position wrong twice before
+    reading `dispatch.py`. `func --scope-id X walk` still works.
+    """
+    return click.Option(
+        ["--scope-id", _SCOPE_ID_PARAM],
+        default=None,
+        required=False,
+        help="Resume the named workflow scope instead of starting a fresh one.",
+    )
+
+
+def _declares_workflow(function: Any) -> bool:
+    """True when a live function carries a ``@workflow`` declaration."""
+    return getattr(function, "__functualize_workflow__", None) is not None
+
+
+def _force_requested(app_ref: Any) -> bool:
+    """Did the caller ask to run anyway?
+
+    Deposited on the app by whichever CLI parsed it — both do, at the same
+    attribute — because the commands are built before the pre-command flags are
+    parsed. Same route `--output` takes.
+    """
+    return bool(getattr(app_ref, "_force", False))
 
 
 # ─── Small pure helpers (copies of the ones in adapters/cli.py) ──
@@ -184,9 +215,11 @@ def build_click_params_from_descriptor(descriptor: Any) -> list[click.Parameter]
 
     The warm/lazy-boot counterpart to :func:`build_click_params`: it renders
     the same CLI shape from cached ``FieldDescriptor`` records without importing
-    the job module. Reproduces the Click parameter construction
-    param (Arg→Argument, Option/Stdin/plain→Option, plain bool→--flag/--no-flag,
-    short-flag bool→single flag, required-plain→positional argument).
+    the job module.
+
+    "The same shape" is now a property that is *asserted* rather than described.
+    It used to be a prose claim next to a second copy of the rules, and the copy
+    had drifted — see the comment above :func:`_config_field_option`.
     """
     return build_click_params_from_fields(descriptor.config_fields)
 
@@ -203,6 +236,17 @@ def build_click_params_from_fields(
     section. A second copy of this loop is how the two would drift — a group
     flag rendering differently from the identical job flag is the bug that
     would follow.
+
+    **Two rules, and which one applies is carried by the field.** A field
+    marked ``from_config_model`` is rendered by the config rule
+    (:func:`_config_field_option`: always an option, always ``default=None``,
+    the ladder supplies the value). Everything else is a plain signature
+    parameter, which has no ladder, so its default is passed through and a
+    required one becomes a positional.
+
+    The distinction cannot be recovered here from the list alone — a
+    ``JobDescriptor`` holds one ``config_fields`` list for both kinds and does
+    not serialize ``parameters`` — which is why it travels on the field.
     """
     # Preserve declaration order (cached config fields need not follow Python's
     # no-default-first rule, so a required field may legitimately trail optional
@@ -212,6 +256,29 @@ def build_click_params_from_fields(
 
     for field in fields:
         click_type, is_flag, multiple = _field_click_type(field)
+
+        if getattr(field, "from_config_model", False):
+            # A config field is rendered by the config rule, not the signature
+            # rule — see `_config_field_option`. This branch is what makes the
+            # warm path agree with `_config_option_params`; without it the two
+            # builders of one boundary disagreed on the default *and* on the
+            # parameter class, which is defect D7's shape on the pair this
+            # branch's predecessor did not consolidate.
+            params.append(
+                _config_field_option(
+                    field.name,
+                    click_type=click_type,
+                    is_flag=is_flag,
+                    multiple=multiple,
+                    help_text=_config_field_help(
+                        field.description,
+                        required=field.required,
+                        default=field.default,
+                    ),
+                    short_flag=field.short_flag,
+                )
+            )
+            continue
 
         if field.positional:
             if field.type_annotation.strip().startswith("list"):
@@ -299,14 +366,93 @@ def build_click_params_from_fields(
 
 
 # ─── Config model → click options ─────────
+#
+# One rule, two builders. `_config_option_params` reads a live pydantic model
+# (cold boot); `build_click_params_from_fields` reads cached `FieldDescriptor`
+# records (warm boot). They read different inputs and cannot be one function
+# without unifying those two representations — but what they *emit* is one
+# decision, and it lives here so it cannot be made twice.
+#
+# It was made twice, and the two copies disagreed. The warm copy passed the
+# model's default explicitly, which `_resolve_config_model` pops into
+# `cli_values` — the top tier of the ladder — so the pydantic default outranked
+# the config file, the environment, and everything else from the second run
+# onward. And it rendered a *required* field as a positional argument where the
+# cold copy renders a non-required option, so an app whose job took a required
+# config field from `config.base.toml` became uninvocable warm:
+# `Error: Missing argument 'TOKEN'`.
+#
+# `tests/config/test_click_builder_agreement.py` asserts they agree, which is
+# the same "prove the registry" discipline `contributor/reference/pitfalls.md`
+# #6 demands and that `app/adapters/surface_gate.py` already applies to one
+# attribute.
+
+
+def _config_field_option(
+    name: str,
+    *,
+    click_type: Any,
+    is_flag: bool,
+    multiple: bool,
+    help_text: str,
+    short_flag: str | None = None,
+) -> click.Option:
+    """The one rule for rendering a config-model field as a click parameter.
+
+    Always an ``Option``, never an ``Argument``, and always ``default=None``.
+
+    A config field is never a positional, because the config file, the
+    environment, a `.env`, a prompt and the CLI can each supply it — click
+    cannot know which, so it must report only what the *user typed*. ``None``
+    is how it says "not provided"; the resolution ladder supplies the rest.
+    Passing the model's default here would mean click reporting a value nobody
+    entered, at the highest precedence there is.
+
+    The rule covers the *decision* — parameter class, ``required``, ``default``
+    — not the spelling. ``short_flag`` stays a per-builder input because only
+    the cached descriptor records it: a ``GroupOptions`` field declared
+    ``Option("-e")`` reaches the CLI through this builder alone, and dropping
+    its short form here removed ``-e`` from completion.
+    """
+    decls = [f"--{name.replace('_', '-')}"]
+    if short_flag:
+        decls.append(short_flag if short_flag.startswith("-") else f"-{short_flag}")
+    return click.Option(
+        decls,
+        type=click_type,
+        default=None,
+        required=False,
+        is_flag=is_flag,
+        multiple=multiple,
+        help=help_text or None,
+        show_default=False,
+    )
+
+
+def _config_field_help(description: str, *, required: bool, default: Any) -> str:
+    """Annotate a config field's help with ``[required]`` / ``[default: X]``.
+
+    Click's own ``show_default`` cannot do this: the option carries
+    ``default=None`` on purpose, so the real default has to be rendered as
+    text or the user never sees it.
+    """
+    if required:
+        return f"{description} \\[required]" if description else "\\[required]"
+    if default is None or default is False:
+        return description
+    rendered = default.value if isinstance(default, Enum) else default
+    return (
+        f"{description} \\[default: {rendered}]"
+        if description
+        else f"\\[default: {rendered}]"
+    )
 
 
 def _config_option_params(job_config_class: type[BaseModel]) -> list[click.Parameter]:
     """Build a ``click.Option`` for every field of a Pydantic config model.
 
-    Each option defaults to ``None`` (to distinguish "not provided" from an
-    explicit value — the engine reads ``None`` as absence) with the help text
-    annotated ``[required]`` / ``[default: X]`` as Click convention expects.
+    The cold-boot half of the pair described above. Emits through
+    :func:`_config_field_option`, so the rule is stated once.
     """
     from pydantic_core import PydanticUndefined
 
@@ -314,7 +460,6 @@ def _config_option_params(job_config_class: type[BaseModel]) -> list[click.Param
 
     params: list[click.Parameter] = []
     for field_name, field_info in job_config_class.model_fields.items():
-        option_name = f"--{field_name.replace('_', '-')}"
         help_text = field_info.description or ""
 
         has_default = field_info.default is not PydanticUndefined or (
@@ -343,15 +488,12 @@ def _config_option_params(job_config_class: type[BaseModel]) -> list[click.Param
 
         click_type, is_flag, multiple = _click_type_for(_get_field_type(field_info))
         params.append(
-            click.Option(
-                [option_name],
-                type=click_type,
-                default=None,
-                required=False,
+            _config_field_option(
+                field_name,
+                click_type=click_type,
                 is_flag=is_flag,
                 multiple=multiple,
-                help=help_text or None,
-                show_default=False,
+                help_text=help_text,
             )
         )
     return params
@@ -464,25 +606,19 @@ def build_click_params(
             for p in params
         ]
 
-    # Auto-detect config class from signature if not provided.
+    # Auto-detect config class from signature if not provided — through the
+    # one shared rule, not a local copy of it.
+    #
+    # The local copy this replaced used `_parse(...).base_type`, which
+    # deliberately unwraps `Annotated[...]` so that `Annotated[int, Option()]`
+    # yields `int`. Applied to the detection question that unwrapping is wrong:
+    # `Annotated[Findings, FromJob("audit.check")]` yielded `Findings`, a
+    # BaseModel subclass, so an upstream envelope became the job's config class
+    # and the job died in config resolution before its body ran. The filter
+    # loop 30 lines below already skipped `FromJob` params; the detection loop
+    # above it did not.
     if job_config_class is None and apply_job_filter:
-        for param in params:
-            annotation = param.annotation
-            if isinstance(annotation, str):
-                continue
-            info = _parse(annotation)
-            if (
-                info.base_type is not None
-                and isinstance(info.base_type, type)
-                and issubclass(info.base_type, BaseModel)
-                and info.base_type is not BaseModel
-                # A GroupOptions parameter carries the *group's* flags, which
-                # are parsed mid-path during the trie walk. Expanding them here
-                # would publish the same field as a second, job-level flag.
-                and not is_group_options_subclass(info.base_type)
-            ):
-                job_config_class = info.base_type
-                break
+        job_config_class = detect_config_class(function)
 
     # ── Filter to CLI-facing params (identical policy to create_job_command) ─
     kept: list[inspect.Parameter] = []
@@ -706,39 +842,63 @@ def _report_blocked(result: Any) -> None:
     metadata = dict(getattr(result, "metadata", None) or {})
     gate = str(metadata.get("blocked_on") or metadata.get("blocked_reason") or "")
     scope = str(metadata.get("workflow_scope") or "")
+    job_name = str(metadata.get("job_name") or getattr(result, "job_name", "") or "")
 
     where = f"gate {gate!r}" if gate else "a gate"
     in_scope = f" in scope {scope!r}" if scope else ""
-    print(
-        f"Blocked: {where}{in_scope} awaits input. "
-        f"Re-run with --log-level DEBUG for the exact resume command.",
-        file=sys.stderr,
-    )
+    print(f"Blocked: {where}{in_scope} awaits input.", file=sys.stderr)
 
-    if not logger.isEnabledFor(logging.DEBUG):
-        return
-
-    resume = "func builtin workflow resume"
+    # The resume commands are printed at **default** level, not behind
+    # `--log-level DEBUG`. A blocked run is the one outcome a script most needs
+    # to act on, and "re-run with a different flag to find out what to do" is
+    # one indirection too many for the line a CI log carries.
+    #
+    # `argv[0]` rather than a literal `func`: on a `FunctualizeApp` entry point
+    # the command is `./main.py`, and printing `func` sent readers to a CLI that
+    # does not know about their project. The flag is spelled post-command for
+    # the same reason — that is where a reader looks, and the pre-command form
+    # is what the audit that found this got wrong twice.
+    program = _program_name()
+    resume = f"{program} builtin workflow resume"
     if scope and gate:
-        print(
-            f"  {resume} {scope} {gate} --input '{{…}}'",
-            file=sys.stderr,
-        )
+        print(f"  {resume} {scope} {gate} --input '{{…}}'", file=sys.stderr)
     else:
         print(
             f"  {resume} <scope> <gate> --input '{{…}}'  "
-            f"(run `func builtin workflow list` to find the scope)",
+            f"(run `{program} builtin workflow list` to find the scope)",
             file=sys.stderr,
         )
-    job_name = str(metadata.get("job_name") or "")
-    if scope and gate and job_name:
-        print(
-            f"  func --scope-id {scope} {job_name}",
-            file=sys.stderr,
-        )
+    if scope and job_name:
+        # The *command path*, not the job name. A job is addressed as
+        # `audit.audit-run` and invoked as `audit audit-run` — its group is a
+        # command group, and neither surface has a top-level command with a dot
+        # in it. Printing the dotted form gives the reader
+        # `No such command 'audit.audit-run'`, which is worse than printing
+        # nothing: it looks like the resume feature is the thing that is broken.
+        command_path = job_name.replace(".", " ")
+        print(f"  {program} {command_path} --scope-id {scope}", file=sys.stderr)
+
+    if not logger.isEnabledFor(logging.DEBUG):
+        return
     schema = metadata.get("gate_input_schema")
     if schema:
         print(f"  input schema: {schema}", file=sys.stderr)
+
+
+def _program_name() -> str:
+    """How the user actually invoked this process.
+
+    A `FunctualizeApp` entry point is `./main.py`, not `func`, and telling its
+    operator to run `func …` sends them to a CLI that does not know about their
+    project at all.
+    """
+    import os
+
+    argv0 = sys.argv[0] if sys.argv else ""
+    if not argv0:
+        return "func"
+    base = os.path.basename(argv0)
+    return base or "func"
 
 
 # ─── Engine callback (shared with adapters/cli.py's create_job_command) ─────
@@ -794,6 +954,13 @@ def build_job_engine_callback(
                 "Ensure the app has been booted with an execution engine."
             )
 
+        # `--scope-id` is a command option on a `@workflow` job (see
+        # `_scope_id_option`), so it arrives as a kwarg and must not reach the
+        # job body. A per-command value wins over the pre-command global.
+        scope_id = kwargs.pop(_SCOPE_ID_PARAM, None) or workflow_scope_id
+        if scope_id is None:
+            scope_id = getattr(app_ref, "_workflow_scope_id", None)
+
         cli_values: dict[str, Any] = {}
         if job_config_class is not None:
             config_field_names = set(job_config_class.model_fields.keys())
@@ -842,50 +1009,116 @@ def build_job_engine_callback(
                 config_class=job_config_class,
                 kwargs={**direct_kwargs, **cli_values},
                 group_option_values=group_option_values,
-                workflow_scope_id=workflow_scope_id,
+                workflow_scope_id=scope_id,
+                force=_force_requested(app_ref),
             )
 
-        if result.exception is not None:
-            # A downstream reader closing the pipe is not a job failure: the
-            # engine catches *every* exception into JobResult, so a
-            # BrokenPipeError raised inside the job would otherwise surface as
-            # exit 1 rather than the quiet 0 a `| head -5` deserves (T39).
-            if isinstance(result.exception, BrokenPipeError):
-                _exit_quietly_on_broken_pipe()
-
-            from pydantic import ValidationError as PydanticValidationError
-
-            from functualize._engine.missing_value import MissingValueError
-
-            if isinstance(result.exception, PydanticValidationError):
-                from functualize.app.adapters.cli import _print_validation_error
-
-                _print_validation_error(name, result.exception, app_ref)
-                # A config/usage error, not the job raising (T39 exit table).
-                raise SystemExit(ExitCode.USAGE) from result.exception
-
-            # A value was missing and nothing could be asked (T45 / T-S6b-4).
-            # Same class of failure as the ValidationError above — config, not
-            # the job raising — so it takes the same code. Its message already
-            # names the field and the environment variable that sets it, which
-            # is the whole point of the typed error; printing it plainly beats a
-            # traceback for the CI reader who has to act on it.
-            if isinstance(result.exception, MissingValueError):
-                click.echo(f"Error: {result.exception}", err=True)
-                raise SystemExit(ExitCode.USAGE) from result.exception
-
-            raise result.exception
-
-        # A gate pause ran *successfully* and is resumable, so it gets its own
-        # code rather than sharing one with a refusal (D-a). Without this the
-        # run would look like a plain success to any caller.
-        if result.status is RunStatus.BLOCKED:
-            _report_blocked(result)
-            raise SystemExit(ExitCode.BLOCKED)
-
-        return result.return_value
+        return deliver_job_result(result, name, app_ref)
 
     return wrapper
+
+
+def deliver_job_result(result: Any, name: str, app_ref: Any = None) -> Any:
+    """Turn a ``JobResult`` into stdout, an exit code, or a return value.
+
+    **The single place a run reaches the process boundary.** Both command
+    constructors route here — the eager one built from a live signature and
+    the lazy one built from a cached descriptor.
+
+    That is not tidiness. The lazy (warm-boot) wrapper used to return its
+    ``JobResult`` and inspect nothing, so on any second invocation of any job:
+
+    - a job that raised exited **0**, silently, with the traceback swallowed;
+    - a workflow blocked at a gate exited 0 instead of 5;
+    - a refusal exited 0 instead of 3.
+
+    Cold boot exited 1, warm boot exited 0, for the same job and the same
+    failure. Every guarantee in the exit-code table — which exists to be
+    scripted against — was true only on a project's first run.
+
+    Args:
+        result: The JobResult the engine returned.
+        name: Job name, for the validation-error panel.
+        app_ref: The app, for the same panel's config-source hints.
+
+    Returns:
+        ``result.return_value`` when the run finished normally.
+    """
+    if result.exception is not None:
+        # A downstream reader closing the pipe is not a job failure: the
+        # engine catches *every* exception into JobResult, so a
+        # BrokenPipeError raised inside the job would otherwise surface as
+        # exit 1 rather than the quiet 0 a `| head -5` deserves (T39).
+        if isinstance(result.exception, BrokenPipeError):
+            _exit_quietly_on_broken_pipe()
+
+        from pydantic import ValidationError as PydanticValidationError
+
+        from functualize._engine.missing_value import MissingValueError
+
+        if isinstance(result.exception, PydanticValidationError):
+            from functualize.app.adapters.cli import _print_validation_error
+
+            _print_validation_error(name, result.exception, app_ref)
+            # A config/usage error, not the job raising (T39 exit table).
+            raise SystemExit(ExitCode.USAGE) from result.exception
+
+        # A value was missing and nothing could be asked (T45 / T-S6b-4).
+        # Same class of failure as the ValidationError above — config, not
+        # the job raising — so it takes the same code. Its message already
+        # names the field and the environment variable that sets it, which
+        # is the whole point of the typed error; printing it plainly beats a
+        # traceback for the CI reader who has to act on it.
+        if isinstance(result.exception, MissingValueError):
+            click.echo(f"Error: {result.exception}", err=True)
+            raise SystemExit(ExitCode.USAGE) from result.exception
+
+        raise result.exception
+
+    # Every terminal status takes its code from the one table (D-6). Two of
+    # them also have something to say first:
+    #
+    #  - a gate pause ran *successfully* and is resumable, so it gets its own
+    #    code rather than sharing one with a refusal (D-a); without the message
+    #    the run would look like a plain success to any caller;
+    #  - a refusal must reach the boundary or the whole point is lost — a stage
+    #    that declined to run because its declared inputs are not there would
+    #    exit 0, and the pipeline after it would read that as "verified,
+    #    nothing wrong". Silence plus exit 0 is precisely the false clean.
+    #
+    # The codes used to be hand-written next to those two messages, and every
+    # other status fell through to `return result.return_value` — exit 0.
+    # Nothing reaches that fall-through today (TIMEOUT and CANCELLED come only
+    # from `Invoke.parallel`, never from a top-level run), so this changes no
+    # observable exit code. What it removes is the trap: `_types/exit_codes.py`
+    # describes itself as "the single RunStatus -> process exit-code mapping"
+    # and warns that scattering SystemExit "is how that contract silently
+    # drifts", and this was the scattering. It is the same shape as D7 — a rule
+    # stated in two places, one of which quietly answered 0.
+    if result.status is RunStatus.BLOCKED:
+        _report_blocked(result)
+    elif result.status is RunStatus.REFUSED:
+        _report_refused(result)
+
+    code = exit_code_for_status(result.status)
+    if code == ExitCode.OK:
+        return result.return_value
+    raise SystemExit(code)
+
+
+def _report_refused(result: Any) -> None:
+    """Explain a pre-flight refusal on stderr.
+
+    Split from its exit code so the message and the number are separable, the
+    way :func:`_report_blocked` already is — the code now comes from the table.
+    """
+    reason = str((getattr(result, "metadata", None) or {}).get("skip_reason") or "")
+    message = (
+        f"Refused: {reason}"
+        if reason
+        else "Refused: a declared precondition for running this job was not met."
+    )
+    print(message, file=sys.stderr)
 
 
 def create_job_click_command(
@@ -915,6 +1148,10 @@ def create_job_click_command(
     params, resolved_config, stdin_markers = build_click_params(
         function, job_config_class
     )
+    if _declares_workflow(function):
+        # A `@workflow` job can be resumed; every other job has nothing
+        # to resume, so the flag stays off its --help.
+        params = [*params, _scope_id_option()]
     markers = extract_capability_markers(function)
     callback = build_job_engine_callback(
         name,

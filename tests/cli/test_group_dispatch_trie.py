@@ -17,6 +17,19 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import surfaces
+
+# `func`-only: this exercises the **pre-boot dispatch layer**
+# (`_cli/dispatch.py` + `_cli/main.py`), which resolves the command, renders
+# listings and errors, and handles pre-command global flags before an app is
+# ever built. An app entry point has no such layer — click owns its tree — so
+# there is no second surface for these to run on.
+#
+# The underlying divergence is real and recorded in `.spec/STATE.md`: the two
+# surfaces disagree about listings, unknown commands and their exit codes.
+# Nothing in this cycle decided to close it.
+pytestmark = surfaces("func")
+
 JOBS = {
     # A top-level job whose name is also a group -> the duality case.
     "top.py": "def deploy():\n    '''Top-level deploy.'''\n    print('TOP-DEPLOY')\n",

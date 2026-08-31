@@ -29,6 +29,7 @@ All are exported from `functualize.job`.
 | `Perf` | Timing | `.mark(name)`, `.mark_start(name)`, `.mark_end(name)`, `.phases()` |
 | `Live` | Live-updating display | `.add(construct)` / `.panel(construct)` → a handle with `.update()`, `.push()`, `.remove()`; `.suppress(name)` |
 | `TTY` | Direct terminal control | `.run(app)`, `.ctx()` |
+| `Sources` | The files this job's own `Fingerprint(sources=...)` resolved to | mapping of project-relative path → `{mtime, size, sha256}`: `.keys()`, `.items()`, `.get(path)`, `in`, `len()`; plus `.declared`, `.generates` |
 | `JobContext` | Metadata about this invocation | `.name`, `.trace_id`, `.deadline`, `.cwd`, `.job_directory`, `.invoke_depth`, `.scope_id`, `.metadata` |
 | `JobConfigView` | Raw resolved config | key access with source tracking |
 
@@ -164,6 +165,33 @@ For a value that must outlive the run, write a file you own, or use the runtime
 store — never `State`. `func builtin state show` prints where the runtime store
 lives; see [config-and-secrets.md](config-and-secrets.md) for the two modes it
 resolves between.
+
+## Sources — `declared` is not "non-empty"
+
+A job that declares `Fingerprint(sources=...)` has already expanded that glob
+before the body runs, to decide freshness. `Sources` hands the body the result
+instead of making it restate the glob — two statements of one intent, free to
+drift.
+
+```python
+@job(cache=Fingerprint(sources=["src/**/*.yaml"]))
+def parse(sources: Sources) -> Parsed:
+    for path in sources.keys():
+        ...
+```
+
+Empty and undeclared are different questions, and conflating them is the bug
+this sits next to:
+
+| Declaration | `.declared` | `len()` |
+| --- | --- | --- |
+| `sources=["src/*.yaml"]`, files present | **yes** | populated |
+| `sources=["absent/*.yaml"]`, no match | **yes** | **0** |
+| no `Fingerprint`, or no `sources` | **no** | 0 |
+
+So test `.declared` to ask "did this job declare inputs?" and `len()` /
+truthiness to ask "did any file match?". A bare `if not sources:` treats a glob
+that matched nothing as a job that never declared one.
 
 ## `Stdin` is not a capability
 

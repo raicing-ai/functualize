@@ -26,7 +26,12 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from functualize._engine.capabilities.prompt import Prompt
 
-__all__ = ["MissingValueError", "env_var_for", "resolve_missing_value"]
+__all__ = [
+    "MissingValueError",
+    "env_var_for",
+    "group_env_var_for",
+    "resolve_missing_value",
+]
 
 
 class MissingValueError(Exception):
@@ -57,6 +62,19 @@ def env_var_for(section: str, field: str) -> str:
     """
     token = f"{section}_{field}" if section else field
     return token.upper().replace("-", "_").replace(".", "_")
+
+
+def group_env_var_for(group_scope: str, field: str) -> str:
+    """The environment variable that sets a **group option** — ``SCOPE__FIELD``.
+
+    Group options keep a double underscore (``DEPLOY__ENV``, ``DEPLOY_WEB__ENV``)
+    because a nested group path is flattened with single underscores, so
+    ``DEPLOY_WEB_ENV`` cannot be told apart from group ``deploy`` with a field
+    named ``web_env``. Mirrors ``_config.resolved_field.group_env_name_for``
+    by matching its rule, not by importing it: ``_config`` and ``_engine`` are
+    independent peers.
+    """
+    return f"{group_scope}__{field}".upper().replace("-", "_").replace(".", "_")
 
 
 def resolve_missing_value(

@@ -11,13 +11,17 @@ build/
 
 # Agents
 .spec/archive/
-.spec/features/
 .spec/scrutiny-reports/
+.spec/proposals/
+.spec/plans/
 .spec/.agentic-coding
 .spec/STATE.md
-.spec/PROJECT.md
-.spec/REQUIREMENTS.md
-.spec/ROADMAP.md
+# A one-hour spec-gate bypass token, not a repository artifact. The *ledger* of
+# uses (.spec/exemptions.log) is committed and is the real mitigation; the token
+# itself is per-session, and committing it would hand everyone else a live
+# bypass. Ignored because the documented escape hatch otherwise sits in
+# `git status` waiting to be added by accident.
+.spec/EXEMPT
 .opencode/
 
 
@@ -86,6 +90,15 @@ site/
 .sidecar-base
 .td-root
 .functualize/
+# ...except the committed example plugin, which the blanket rule above swallowed.
+# Git will not descend into an excluded directory, so every level must be un-excluded
+# in turn, and each level re-ignores its own contents so that only the plugin sources
+# become trackable — never the cache, state or lock files a run drops beside them.
+!examples/plugins/file_based_plugin/.functualize/
+examples/plugins/file_based_plugin/.functualize/*
+!examples/plugins/file_based_plugin/.functualize/plugins/
+examples/plugins/file_based_plugin/.functualize/plugins/*
+!examples/plugins/file_based_plugin/.functualize/plugins/*.py
 .import_linter_cache/
 .mypy_cache/
 .pytest_cache/

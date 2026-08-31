@@ -81,11 +81,14 @@ Message Convention, Pull Request Guidelines.
 | Developing plugins in `plugins/` | `contributor/guides/plugin-development.md` (plugins are tested via `pytest plugins/<name>/tests/`, not collected by root pytest) |
 | Wiring a new component in, or closing any task that added one | `contributor/guides/wiring-discipline.md` — name *every* production path (cold **and** warm-cache) that reaches your code, and break each once to prove a test notices. Three capabilities shipped built, unit-tested and unreachable before this existed; a fourth worked cold and silently did nothing warm |
 | Verifying a change by breaking it on purpose (sabotage) | `contributor/guides/wiring-discipline.md` §3 — **commit first**, then sabotage, then `git checkout --`. That restore reverts everything uncommitted in the file, and has silently discarded finished work. Sabotage also catches vacuous *tests*, which running them cannot |
+| Adding a CLI flag, a dispatch behaviour, or anything a job author declares — or wondering whether it must work on **both** `func` and a `FunctualizeApp` | `contributor/architecture/surface-boundary.md` — there are two entry points and `func` has a pre-boot layer the other does not. The rule is one question: is the feature about *the program* (must align) or about *how you reach the program* (may be `func`-only). A `@workflow` `Gate` was unresumable on an app for exactly this reason — the resume flag was `func`-only |
+| Asking whether X happens before Y in a job run — or adding a step to `_execute_lifecycle` | `contributor/reference/execution-lifecycle.md` — the twenty steps and the constraint that fixes each one's position. Ordering constraints used to live only as comments inside a 323-line method; four of them are load-bearing, and `tests/engine/test_lifecycle_order.py` fails if the sequence moves |
 | Writing tests | `contributor/reference/testing-strategy.md` (domain-mirrored dirs + `tests/_support/` fixtures; no `tests/unit/` or `tests/properties/` dirs) |
 | Proposing a new layer, public API surface, or dependency-rule change | ADR is mandatory: record the decision in `contributor/adr/` (template: `contributor/adr/000-template.md`) |
 | Opening a PR, writing a release commit, or unsure how to name a branch | `CONTRIBUTING.md` §§ Branching Strategy / Commit Message Convention / Pull Request Guidelines — the summary in **Git discipline** above covers the common case; read these for breaking changes, the release commit, and why the changelog is hand-written |
 | Adding or changing a job-facing surface (CLI flags, MCP tools, a TUI argument form) | `contributor/adr/010-job-schema-in-core.md` — every such surface must publish the *same* inputs, built by `functualize.app.utils.job_input_schema`. Two renderers is how `Stdout` and `Shell` shipped as required MCP arguments |
 | Editing anything under `skills/` or `.agents/skills/` | The two-directory rule below — they have different audiences, different lifecycles, and only one of them ships |
+| Cutting a release, or bumping the version | `contributor/guides/docs-example-parity.md` — run the executable docs/examples parity pass. The release audit's doc scan is *static*: it checks that paths, symbols and syntax exist. A behavioural claim like "this field is masked" passes it while being false, which is how a breaking change reached ~50 doc pages and 20 example projects unnoticed |
 | Understanding overall architecture | `contributor/architecture/overview.md` + `contributor/architecture/codemaps/` (module catalog, measured fan-in, entry points, data flow) |
 | About to add a setting, filter, cache, registry, or TUI panel — or to debug one that "resolves but does nothing" | `contributor/reference/pitfalls.md` — 18 defects that already shipped here, each with the shape of the trap named. Several passed review *and* a test; four were only visible on the warm-cache or lazy-boot path |
 
@@ -205,7 +208,7 @@ def deploy(log: Log, invoke: Invoke, config: DeployConfig):
 
 ### Config system
 
-Layered resolution: **CLI → Env → Files → Remote → Defaults**. Built once at boot via `ResolutionChain` — zero per-invocation file I/O.
+Layered resolution: **Override → CLI → Env → Files → Defaults**. Built once at boot via `ResolutionChain` (`boot.py:781-797`) — zero per-invocation file I/O. There is no remote tier: nothing in the shipped package constructs a `RemoteSource`, `remote_first()` notwithstanding. `Override` is a value `config.set()` deposits during a run, and it outranks CLI.
 
 Presets are factory functions: `classic()`, `twelve_factor()`, `env_only()`, `remote_first()`. Any `(**kwargs) -> ConfigSources` function is a valid preset.
 
@@ -239,23 +242,41 @@ Presets are factory functions: `classic()`, `twelve_factor()`, `env_only()`, `re
 
 ## Workflow
 
-This project uses spec-driven development.
+This project uses spec-driven development. The contract is in
+`.claude/rules/spec-workflow.md` — phases, what is enforced, the exemption, and
+the version-control lifecycle. This section covers only what is specific to
+running it.
 
 - **Claude Code**: invoke via `--agent spec-driven-developer` or `/agentic-*` commands
 - **Other agents**: see `.claude/agents/spec-driven-developer.md` for the full workflow reference
 
+### Plan mode in VS Code
+
+`.claude/settings.json` sets `permissions.defaultMode: "plan"`, but **the VS Code
+extension ignores it** — conversations it starts do not read project settings for
+the starting permission mode. If you drive this repo from VS Code, set
+
+```
+claudeCode.initialPermissionMode: "plan"
+```
+
+in your **VS Code user settings**. No file in this repository can set it for you.
+
+This is a convenience only. The workflow enforcement does not depend on plan
+mode, and plan mode is read-only, so the Specify and Plan phases cannot run
+inside it.
+
 ### .spec/ directory
 
-Stable reference docs (committed): `ARCHITECTURE.md`, `CONSTITUTION.md`, `TESTING.md`.
+Committed reference: `ARCHITECTURE.md`, `CONSTITUTION.md`, `TESTING.md`,
+`STATUS.md`, `exemptions.log`.
 
-Runtime state files (gitignored, auto-generated on first session):
-- `STATE.md` — current work-in-progress, read first if present (generated per-session, gitignored)
-- `PROJECT.md` — tech stack, repo structure, goals
-- `REQUIREMENTS.md` — functional + non-functional requirements
-- `ROADMAP.md` — feature backlog
-- `.agentic-coding` — version marker
+Committed **on the branch only**, cleared before merge: `features/<name>/` —
+`spec.md`, `contracts.md`, `plan.md`, `schema.md`, `research.md`, `tasks.md`.
+The required `spec-artifacts-cleared` CI check blocks merging while any remain.
 
-If these are missing after a fresh clone, the spec-driven workflow (Phase 0: Init) regenerates them automatically.
+Gitignored: `STATE.md` (per-session; if absent, treat as no work in flight),
+`plans/`, `proposals/`, `scrutiny-reports/`, `archive/`.
 
 ## Plugin tests
 

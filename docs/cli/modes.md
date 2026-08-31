@@ -31,7 +31,7 @@ Mode A activates when the first argument is a path to an existing `.py` file.
 - Testing a job file in isolation
 - Running a file that lives outside the configured jobs directory
 
-> **See also:** [`examples/standalone/showcase/scripts/`](../../examples/standalone/showcase/scripts/) for working examples.
+> **See also:** [`examples/standalone/showcase/scripts/`](https://github.com/raicing-ai/functualize/tree/master/examples/standalone/showcase/scripts/) for working examples.
 
 ---
 
@@ -63,7 +63,7 @@ Mode B activates when the first argument is not a `.py` file path and matches a 
 - Running named jobs defined in your project's `jobs/` directory
 - Working with team-standard job collections
 
-> **See also:** [`examples/standalone/showcase/`](../../examples/standalone/showcase/) for a working example.
+> **See also:** [`examples/standalone/showcase/`](https://github.com/raicing-ai/functualize/tree/master/examples/standalone/showcase/) for a working example.
 
 ---
 
@@ -103,7 +103,7 @@ Mode C activates when:
 - Checking configuration and debugging discovery
 - Project scaffolding and cache management
 
-> **See also:** [`examples/standalone/showcase/`](../../examples/standalone/showcase/) for a working example.
+> **See also:** [`examples/standalone/showcase/`](https://github.com/raicing-ai/functualize/tree/master/examples/standalone/showcase/) for a working example.
 
 ---
 

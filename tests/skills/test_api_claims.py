@@ -21,7 +21,7 @@ from functualize._cli.builtins import BUILTIN_COMMANDS, BUILTIN_ROOT
 from functualize._cli.dispatch import _OPTIONAL_VALUE_VALID_SET
 from functualize._cli.scaffold.registry import TEMPLATES
 
-from .conftest import REPO_ROOT, SKILLS_ROOT, backticked, markdown_files
+from .conftest import SKILLS_ROOT, backticked, markdown_files
 
 CAPABILITIES_TABLE = SKILLS_ROOT / "functualize" / "references" / "capabilities.md"
 
@@ -76,20 +76,17 @@ def _public_names() -> set[str]:
 
 
 def _capability_types_from_engine() -> set[str]:
-    """The types the executor actually injects, read from its dispatch.
+    """The types the engine injects.
 
-    Regex over source rather than a hand-kept list: if the dispatch is
-    restructured this test fails, which is precisely when the documented table
-    needs a human to look at it again.
+    Read from `_primitives/capability_names.py`, which is not a hand-kept list
+    in the drifting sense: `_engine/capabilities/registry.py` refuses to import
+    when the declared `CapabilitySpec` names disagree with it (ADR-014). So
+    adding a capability moves this set whether or not anyone remembers the
+    documentation — which is what makes the comparison below worth making.
     """
-    executor = (
-        REPO_ROOT / "src" / "functualize" / "_engine" / "executor.py"
-    ).read_text(encoding="utf-8")
-    found = set(re.findall(r"(?:if|elif) type_ is (\w+):", executor))
-    # RunContext is injected on a separate path (it is the context itself, not
-    # a capability built from it), and JobConfigView arrives via the app's
-    # configured view type rather than a literal `type_ is` branch.
-    return found | {"RunContext", "JobConfigView"}
+    from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
+
+    return set(INJECTED_PARAM_TYPE_NAMES)
 
 
 #: Heading whose table is *the* capability table. Scoped deliberately: the

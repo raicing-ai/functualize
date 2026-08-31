@@ -1,0 +1,4 @@
+# Production overlay — merged on top of config.base.toml when ENVIRONMENT=prod.
+[forecast]
+api_url = "https://api.prod.example.com"
+days = 7

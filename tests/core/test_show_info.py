@@ -23,6 +23,16 @@ def _invoke(app, args):
     return runner.invoke(app.cli_command, args)
 
 
+def _packed(output: str) -> str:
+    """Rich output with wrapping removed, for asserting on long strings.
+
+    A panel wraps a temp path across lines and pads each with box-drawing
+    characters, so a plain substring check for a path fails on layout rather
+    than on behaviour.
+    """
+    return "".join(ch for ch in output if not ch.isspace() and ch not in "│─╭╮╰╯┃━┏┓┗┛")
+
+
 @pytest.fixture(autouse=True)
 def _reset_state():
     """Ensure AppState is clean before and after each test."""
@@ -33,18 +43,24 @@ def _reset_state():
 
 @pytest.fixture
 def config_dir(tmp_path):
-    """Create a temporary config directory with base and dev config files."""
-    base_config = tmp_path / "config.base.ini"
+    """Create a temporary config directory with base and dev config files.
+
+    TOML, because TOML is what the framework reads (ADR-007). These were `.ini`
+    until 2026-08-28 and the tests still passed, because `builtin info` parsed
+    config files itself with `configparser` instead of asking the registered
+    providers — so it displayed the contents of files the resolver ignored.
+    """
+    base_config = tmp_path / "config.base.toml"
     base_config.write_text(
         "[general]\n"
-        "app_name = testapp\n"
+        'app_name = "testapp"\n'
         "debug = false\n\n"
         "[server]\n"
-        "host = localhost\n"
+        'host = "localhost"\n'
         "port = 8080\n"
     )
-    dev_config = tmp_path / "config.dev.ini"
-    dev_config.write_text("[server]\nhost = 0.0.0.0\nport = 9090\n")
+    dev_config = tmp_path / "config.dev.toml"
+    dev_config.write_text('[server]\nhost = "0.0.0.0"\nport = 9090\n')
     return tmp_path
 
 
@@ -178,16 +194,43 @@ class TestShowInfoConfigFiles:
         assert "host" in result.output
         assert "port" in result.output
 
-    def test_displays_interpolated_values(self, config_dir):
+    def test_displays_section_headers_and_values(self, config_dir):
+        """The panel shows what the providers parsed, section by section.
+
+        This was `test_displays_interpolated_values`: the panel ran every value
+        through `configparser.ExtendedInterpolation` over `os.environ`, so
+        `${VAR}` in a config file was expanded *and printed*. That was removed
+        rather than kept — a display surface that reads the environment and
+        echoes the result is a leak, and nothing in the resolver interpolates,
+        so the panel was showing values no run would ever use.
+        """
         app = FunctualizeApp(name="testapp")
         result = _invoke(
             app, ["--config-directory", str(config_dir), "builtin", "info"]
         )
         assert result.exit_code == 0
-        # The panel title contains the full path but may be truncated by Rich.
-        # Check that config content is displayed (section headers and values).
         assert "general" in result.output
         assert "app_name" in result.output
+        assert "localhost" in result.output
+
+    def test_reports_a_file_no_provider_can_read(self, tmp_path):
+        """A config-shaped file the framework cannot parse must still be named.
+
+        Asserted against the output with whitespace stripped: Rich wraps a long
+        path across lines, and a temp path is always long.
+        """
+        (tmp_path / "config.base.ini").write_text("[general]\napp_name = legacy\n")
+
+        app = FunctualizeApp(name="testapp")
+        result = _invoke(app, ["--config-directory", str(tmp_path), "builtin", "info"])
+
+        assert result.exit_code == 0
+        packed = _packed(result.output)
+        assert "config.base.ini" in packed, (
+            f"the unreadable config file was not reported:\n{result.output}"
+        )
+        assert "ConvertittoTOML" in packed, "the report does not name the way out"
+        assert "No config files found" not in result.output
 
 
 class TestShowInfoJobs:

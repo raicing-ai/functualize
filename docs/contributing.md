@@ -185,7 +185,7 @@ The dependency rules flow strictly downward. Each layer may only import from lay
 | `_primitives/` | Foundation utilities with zero third-party deps | `di.py` (DIRegistry), `locator.py` (ResourceLocator), `middleware.py` (MiddlewareChain), `lazy.py` (lazy_cached descriptor), `resilient.py` (resilient generator wrapper), `modules.py` (iter_module_files) |
 | `_events/` | Cross-cutting event system | `bus.py` (EventBus — trie-based topic router), `hooks.py` (HookRegistry), `tracing.py` (PropagationContext), `perf.py` (PerfTimeline) |
 | `_discovery/` | Job finding + caching | `providers.py` (DirectoryScan, Cached, Static, EntryPoint), `transforms.py` (Namespace, GroupByModule), `cache.py` (persistence + sync), `hierarchy.py` (child projects), `pipeline.py` (ResolutionPipeline) |
-| `_config/` | Configuration resolution | `chain.py` (ResolutionChain), `sources.py` (Cli/Env/File/Remote/Default), `job_config.py` (JobConfigView), `providers/` (TOML, INI format providers) |
+| `_config/` | Configuration resolution | `chain.py` (ResolutionChain), `sources.py` (Cli/Env/File/Remote/Default), `job_config.py` (JobConfigView), `providers/` (`TomlFormatProvider` registered by default; `IniFormatProvider` in-tree, plugin-registered only — ADR-007) |
 | `_engine/` | Execution lifecycle | `executor.py` (JobExecutionEngine), `middleware.py` (execution middleware), `context.py` (ExecutionContext), `capabilities/invoke.py` (Invoke), `capabilities/workflow.py` (WorkflowTracker) |
 | `_plugins/` | Plugin loading machinery | `loader.py` (discovery + dependency sort + loading), `config.py` (PluginConfigRegistry) |
 | `_app/` | Composition root — boot orchestration | `boot.py` (provider wiring, config chain, plugin loading), `impl.py` (FunctualizeApp internals), `state.py` (AppState) |
@@ -639,7 +639,7 @@ Examples of *using* a specific first-party plugin belong in that plugin's own fo
 1. **Include a test file** (`test_*.py`) proving the example works (interactive TUI scenarios document manual steps instead)
 2. **Include a `README.md`** explaining the use case and how to run
 3. **Keep dependencies minimal** — Use testing doubles (MockAI, InMemoryState) instead of real backends
-4. **Keep tests green** — Run `uv run pytest examples/ -v` before submitting (requires `uv sync --all-packages`; example tests are not part of the CI suite)
+4. **Keep tests green** — Run `uv run pytest examples/ -v` before submitting (requires `uv sync --all-packages`). CI runs this too, in the `examples` job, so a broken example fails the pull request.
 
 ### Running Example Tests
 

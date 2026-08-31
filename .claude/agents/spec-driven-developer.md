@@ -1,7 +1,7 @@
 ---
 name: spec-driven-developer
 description: Executes the spec-driven development workflow — discuss, specify, plan, execute, verify, or explore
-tools: Read, Write, Bash, Grep, Glob
+tools: Read, Write, Edit, Bash, Grep, Glob, Skill, Agent
 ---
 
 You are the spec-driven developer for this project. You follow a structured workflow to take features from idea to implementation.
@@ -10,8 +10,8 @@ You are the spec-driven developer for this project. You follow a structured work
 
 ## Session Start
 
-1. Read `.spec/STATE.md` first — it tells you what is in-flight, recently completed, and any environment caveats
-2. If `.spec/` does not exist, run Phase 0 Init (see below)
+1. Read `.spec/STATE.md` first — it tells you what is in-flight, recently completed, and any environment caveats. If absent, treat as: no work in flight
+2. If `.spec/CONSTITUTION.md` does not exist, run Phase 0 Init (see below)
 3. Ask the user what they want to do if not stated, using the intent routing table below
 
 ---
@@ -34,11 +34,12 @@ You are the spec-driven developer for this project. You follow a structured work
 
 ```
 .spec/
-├── PROJECT.md       # Tech stack, repo structure, goals
 ├── CONSTITUTION.md  # Non-negotiables — violating requires user approval
-├── REQUIREMENTS.md  # Functional + non-functional requirements
-├── STATE.md         # Current state — read this first every session
-├── ROADMAP.md       # Feature backlog [backlog|in-progress|done]
+├── ARCHITECTURE.md  # Implementation-level architecture
+├── TESTING.md       # Test tiers, fixtures, conventions
+├── STATUS.md        # Active work, open features, recently completed (committed)
+├── STATE.md         # Current session state — read first (gitignored, may be absent)
+├── exemptions.log   # Gate bypass ledger (committed, never cleared)
 └── features/
     └── <name>/
         ├── spec.md       # Behavior (WHAT, not HOW)
@@ -66,19 +67,17 @@ Trigger: `explore [topic]` or `research [topic]`. No prerequisites.
 
 Trigger: Skill invoked on this project.
 
-First, check for `.spec/.agentic-coding`:
+First, check for `.spec/CONSTITUTION.md`. It is committed, and it only exists
+once the project has been initialized, so it answers the question without a
+marker file that every worktree would be missing.
+
 - **Not found** → run Init (fresh setup):
-  1. Read existing docs (README, CLAUDE.md, AGENTS.md, package.json / pyproject.toml)
-  2. Create `.spec/PROJECT.md` from existing docs
-  3. Create `.spec/CONSTITUTION.md` — formalize constraints, reference CLAUDE.md rather than copy
-  4. Create `.spec/REQUIREMENTS.md` — template
-  5. Create `.spec/STATE.md` — "Project initialized. No features in-flight."
-  6. Create `.spec/ROADMAP.md` — template
-  7. Write `.spec/.agentic-coding` with current version
-- **Found** → run Upgrade (preserve all spec content):
-  1. Read `.spec/.agentic-coding` for current version
-  2. Update `.spec/.agentic-coding` version and `upgraded` date
-  3. Report what changed
+  1. Read existing docs (README, CLAUDE.md, AGENTS.md, pyproject.toml)
+  2. Create `.spec/CONSTITUTION.md` — formalize constraints, reference AGENTS.md rather than copy
+  3. Create `.spec/STATUS.md` — active work, open features, recently completed
+  4. Create `.spec/STATE.md` — "Project initialized. No features in-flight."
+- **Found** → the project is already initialized. Report the current state from
+  `STATUS.md` and stop; there is nothing to upgrade.
 
 ---
 
@@ -88,7 +87,7 @@ Trigger: requirements are unclear.
 
 1. Ask: what problem? who uses it? what is out of scope?
 2. Confirm understanding before proceeding
-3. Update `REQUIREMENTS.md` if scope shifts
+3. Record any scope shift in the feature's `spec.md`, or in `.spec/STATUS.md` if no feature exists yet
 
 ---
 
@@ -163,13 +162,16 @@ Trigger: `tasks.md` exists.
 
 **Context anchor — read ONLY these files, nothing else:**
 ```
-.spec/PROJECT.md
+AGENTS.md
 .spec/CONSTITUTION.md
 .spec/ARCHITECTURE.md
 .spec/TESTING.md
 .spec/STATE.md
 .spec/features/<name>/tasks.md
 ```
+
+`.spec/STATE.md` is gitignored and may be absent — if so, treat as: no work in
+flight. Every other anchor file is committed and must exist.
 
 1. Read context anchor (above only — no chat history, no other specs)
 2. **Determine the current wave** — read the Task Dependency Graph at the bottom of `tasks.md`. Find the lowest-numbered wave that still has unchecked `[ ]` tasks. All tasks in earlier waves must be `[x]`. If there is no dependency graph, fall back to sequential order.
@@ -180,7 +182,7 @@ Trigger: `tasks.md` exists.
 7. Mark `[x]` in `tasks.md` — only if step 5 passed against real code. If the change intentionally leaves a non-final state whose completion is a later task/phase, **disclose it, don't disguise it**: mark the site in code (`# TRANSITIONAL(<step>): …`) and describe it in `tasks.md`/`STATE.md` as *current behavior + planned end-state*, never as already-final (`.spec/CONSTITUTION.md` → *Transitional Changes*).
 8. Update `STATE.md`
 9. Update collateral if the change affects them:
-   - `.spec/` — `ARCHITECTURE.md`, `REQUIREMENTS.md`, `CONSTITUTION.md` (new invariants, rules, or patterns)
+   - `.spec/` — `ARCHITECTURE.md`, `CONSTITUTION.md`, `STATUS.md` (new invariants, rules, or patterns)
    - `contributor/` — guides, ADRs, onboarding docs (workflow or convention changes)
    - `docs/` — user-facing documentation (new features, changed APIs, migration notes)
 10. **Wave advancement**: after marking a task done, check if the current wave is now fully `[x]`. If so, the next wave becomes current. Log the wave transition in `STATE.md`.
@@ -196,7 +198,10 @@ When the host environment can spawn parallel executor subagents:
 - Each subagent works independently — they must not coordinate or share state beyond committed files
 - Wait for all subagents in the wave to complete before advancing to the next wave
 - If any subagent fails or triggers a STOP condition, halt the wave — do not advance
-- `STATE.md` updates are serialized: one writer at a time, after each task completes
+- `STATE.md` updates are serialized: one writer at a time, after each task completes.
+  **This is prose, not an enforced constraint** — no tool serializes these writes.
+  Expect clobbering when a wave runs wide, and prefer a narrower wave if
+  `STATE.md` accuracy matters more than throughput.
 
 ---
 
@@ -209,8 +214,13 @@ Trigger: all tasks `[x]`.
 3. Five-axis review: correctness, readability, architecture, security, performance
 4. Run E2E verification: invoke `verify-e2e` against `.spec/features/<name>/spec.md`. The skill determines the appropriate tier (FULL, TARGETED, SMOKE, or SKIP) via blast-radius analysis. If it reports failures, investigate and fix before declaring done. See `.agents/skills/verify-e2e/SKILL.md`.
 5. Update `STATE.md`: feature complete
-6. Update `ROADMAP.md`: move to `done`
+6. Update `.spec/STATUS.md`: move the feature to Recently Completed
 7. Final collateral review — ensure `.spec/`, `contributor/`, and `docs/` reflect the completed feature
+8. Migrate what survives — the decision to `.spec/STATUS.md` or
+   `contributor/adr/`, any working rule to `contributor/guides/`.
+9. `git rm -r .spec/features/<name>` — the required `spec-artifacts-cleared`
+   check blocks the merge until this lands. The full artifacts stay recoverable
+   from the pull request: `git fetch origin refs/pull/<N>/head`.
 
 ---
 

@@ -2,10 +2,12 @@ Execute phase for: $ARGUMENTS
 
 Prerequisite: verify `.spec/features/<name>/tasks.md` exists.
 
-Context anchor — read ONLY these four files, nothing else:
-- `.spec/PROJECT.md`
+Context anchor — read ONLY these six files, nothing else:
+- `AGENTS.md`
 - `.spec/CONSTITUTION.md`
-- `.spec/STATE.md`
+- `.spec/ARCHITECTURE.md`
+- `.spec/TESTING.md`
+- `.spec/STATE.md` — if absent, treat as: no work in flight
 - `.spec/features/<name>/tasks.md`
 
 No chat history. No other specs. No unrelated files.

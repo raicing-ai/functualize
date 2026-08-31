@@ -95,11 +95,28 @@ class CachedDirectoryScanProvider:
         pre_filter: ModulePreFilter | None = None,
         job_filter: JobFilter | None = None,
         project_root: Path | None = None,
+        discovery_hash: str | None = None,
     ) -> None:
         self._directories = directories
         self._locator = locator
         self._pre_filter = pre_filter
         self._job_filter = job_filter
+        # Fingerprint of the discovery config the above filters were built from.
+        # A cache written under one filter set and replayed under another is
+        # wrong in both directions, so a mismatch discards the whole file.
+        #
+        # None means "this provider does not know the discovery config" — not
+        # "there is no config" — so such a provider skips the check rather than
+        # asserting the empty config. Without the skip, a bare provider built
+        # over a directory with no config in hand would fail the comparison
+        # against any cache written under an active filter and delete it.
+        #
+        # In practice the skip only ever decides the *matching-cache* case:
+        # every `func builtin` command boots a full app first (`_cli/main.py`
+        # builds a FunctualizeApp in the `cli_app` callback), so a genuinely
+        # stale cache has already been invalidated and rebuilt by a
+        # config-aware provider before a bare one gets to read it.
+        self._discovery_hash = discovery_hash
         if project_root is not None:
             self._project_root = Path(project_root)
         elif directories:
@@ -332,6 +349,7 @@ class CachedDirectoryScanProvider:
                 "functualize_version": get_functualize_version(),
                 "python_version": platform.python_version(),
                 "deps_hash": compute_deps_hash(self._project_root),
+                "discovery_hash": self._discovery_hash,
                 "generated_at": datetime.now(UTC).isoformat(),
                 "entries": {
                     key: descriptor.to_dict()
@@ -392,6 +410,19 @@ class CachedDirectoryScanProvider:
                 current_deps_hash,
             )
             return True
+
+        # A provider that does not know its discovery config cannot judge the
+        # cached fingerprint; skip rather than assert the empty config.
+        if self._discovery_hash is not None:
+            cached_discovery_hash = data.get("discovery_hash")
+            if cached_discovery_hash != self._discovery_hash:
+                logger.warning(
+                    "Cache invalidated: discovery config changed "
+                    "(cached=%r, current=%r)",
+                    cached_discovery_hash,
+                    self._discovery_hash,
+                )
+                return True
 
         return False
 

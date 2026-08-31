@@ -86,12 +86,22 @@ def deposit_gate_input(
         }
 
     store.deposit_gate_payload(scope_id, gate, payload)
+    # Name the command, not the concept. "Run the workflow job with scope_id
+    # 'X'" named neither the flag nor its position, and the audit that found
+    # this got both wrong twice before reading `dispatch.py`. The job address
+    # is dotted (`audit.audit-run`) and the command path is not
+    # (`audit audit-run`), so the dotted form would print something that
+    # answers `No such command`.
+    workflow_name = str(scope.get("workflow") or "")
+    resume_hint = (
+        f" Continue with: <your entry point> {workflow_name.replace('.', ' ')} "
+        f"--scope-id {scope_id}"
+        if workflow_name
+        else f" Re-run the workflow job with --scope-id {scope_id}."
+    )
     return {
         "status": "input_accepted",
         "gate": gate,
         "workflow_id": scope_id,
-        "message": (
-            f"Input accepted for gate '{gate}'. Run the workflow job with "
-            f"scope_id '{scope_id}' to continue past it."
-        ),
+        "message": f"Input accepted for gate '{gate}'.{resume_hint}",
     }

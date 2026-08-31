@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/raicing-ai/functualize/actions/workflows/ci.yml/badge.svg)](https://github.com/raicing-ai/functualize/actions/workflows/ci.yml)
 [![Docs](https://github.com/raicing-ai/functualize/actions/workflows/docs.yml/badge.svg)](https://github.com/raicing-ai/functualize/actions/workflows/docs.yml)
+[![Documentation](https://img.shields.io/badge/docs-live_site-blue)](https://raicing-ai.github.io/functualize/)
 [![Python Versions](https://img.shields.io/pypi/pyversions/functualize)](https://pypi.org/project/functualize/)
 [![PyPI version](https://badge.fury.io/py/functualize.svg)](https://pypi.org/project/functualize/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/raicing-ai/functualize/blob/master/LICENSE)
@@ -28,7 +29,7 @@ If you're building internal tooling, deployment pipelines, or any multi-step aut
 
 - **Auto-discovery** — Drop job files into a directory and they're automatically registered as CLI commands. Six configurable filters control what qualifies.
 - **Job Groups** — `JOB_GROUP` organizes commands into hierarchies (`func infra deploy`). `GroupOptions` declare flags shared by every job under a group.
-- **`@job` decorator** — Declare metadata, visibility, dependencies, caching, and matrix parameterization on any job function.
+- **`@job` decorator** — Declare metadata, visibility, dependencies, caching, guards, and execution policy on any job function.
 - **Structured RunContext** — Capability-based execution: `Log`, `Invoke`, `Prompt`, `Perf`, `State`, plus `FromJob` for declarative dependency injection and `FromStep` for binding a gate tool to an earlier step's result.
 - **Layered Configuration** — Resolution chain with preset strategies (classic, twelve-factor, env-only, remote-first) and `.env` file support.
 - **Declarative Job Config** — Pydantic models drive CLI options, config resolution, and TUI form fields.
@@ -205,7 +206,7 @@ func weather.py forecast --city Tokyo --days 5 --api-url https://api.prod.exampl
 export FORECAST_API_URL=https://api.staging.example.com
 func weather.py forecast --city Tokyo
 
-# 3. Config file (if a config.base.ini exists in the directory)
+# 3. Config file (if a config.base.toml exists in the directory)
 # [forecast]
 # api_url = https://weather.example.com
 # days = 3
@@ -585,33 +586,33 @@ export DATA_SYNC_BATCH_SIZE=500
 export DATA_SYNC_API_URL=https://api.prod.example.com
 
 # 3. Config files (base + environment overlay)
-# config.base.ini
+# config.base.toml
 # [data_sync]
-# api_url = https://api.example.com
+# api_url = "https://api.example.com"
 # batch_size = 100
 ```
 
-Resolution order: **CLI → Env vars → Config file → Model defaults**. The same job works locally, in Docker, and in production without any code changes — just swap the config source.
+Resolution order: **Runtime override → CLI → Env vars → Config file → Model defaults** (an override is a value `rc.config.set()` deposits mid-run). The same job works locally, in Docker, and in production without any code changes — just swap the config source.
 
 Config files use a **base + environment overlay** pattern. The active environment — `FUNCTUALIZE_ENV`, else `ENVIRONMENT`, else `ENV`, defaulting to `dev` — determines which overlay is merged on top of the base (matched case-insensitively):
 
-```bash
-# config.base.ini — always loaded
+```toml
+# config.base.toml — always loaded
 [data_sync]
-api_url = https://api.example.com
+api_url = "https://api.example.com"
 batch_size = 100
 
-# config.prod.ini — merged on top when ENVIRONMENT=prod
+# config.prod.toml — merged on top when ENVIRONMENT=prod
 [data_sync]
-api_url = https://api.prod.example.com
+api_url = "https://api.prod.example.com"
 batch_size = 500
 ```
 
 ```bash
-# Local dev (default) — uses config.base.ini + config.dev.ini
+# Local dev (default) — uses config.base.toml + config.dev.toml
 func data-sync
 
-# Production — uses config.base.ini + config.prod.ini overlay
+# Production — uses config.base.toml + config.prod.toml overlay
 ENVIRONMENT=prod func data-sync
 ```
 
@@ -620,7 +621,15 @@ ENVIRONMENT=prod func data-sync
 | `classic()` | CLI → Env → Config files → Defaults | Local dev, desktop tools |
 | `twelve_factor()` | CLI → Env → Defaults | Docker, Kubernetes |
 | `env_only(dotenv=True)` | CLI → Env → Defaults | Serverless, minimal setups |
-| `remote_first()` | CLI → Remote → Env → Files → Defaults | Vault, AWS Secrets Manager |
+| `remote_first()` | CLI → Env → Files → Defaults — **remote resolution is not wired**; see below | — |
+
+> **`remote_first()` does not resolve anything remotely.** The preset exists and is
+> exported, but nothing in the shipped package constructs a `RemoteSource`, and
+> `remote_first()` returns `config_resolution_chain=None` — which boot turns into the
+> classic chain `[CliSource, EnvSource, FileSource, DefaultSource]`. It is `classic()`
+> with a different file pattern and `dotenv=False`. Pick it for Vault or AWS Secrets
+> Manager and your credentials come from a local file or the environment instead, with
+> nothing to say so.
 
 Presets are selected in your project's `main.py` when constructing `FunctualizeApp`:
 
@@ -652,7 +661,7 @@ myapp data_sync
 
 **Key points:**
 
-- The `ENVIRONMENT` variable (from shell or `.env`) controls which config overlay file is selected. If your `.env` sets `ENVIRONMENT=prod`, the app loads `config.prod.ini` on top of `config.base.ini`
+- The `ENVIRONMENT` variable (from shell or `.env`) controls which config overlay file is selected. If your `.env` sets `ENVIRONMENT=prod`, the app loads `config.prod.toml` on top of `config.base.toml`
 - Shell environment variables always take precedence over `.env` file values (python-dotenv does not override existing vars by default)
 - The effective resolution priority: **CLI flags > Shell env vars > `.env` file values > Config files > Model defaults**
 - Only the current working directory's `.env` (or an explicit `dotenv_path`) is considered — there is no upward directory scan, so a `.env` in a parent directory is never silently picked up
@@ -830,15 +839,16 @@ Set the renderer once instead of passing a flag every time:
 export FUNCTUALIZE_CLI_OUTPUT=json     # or "plain" for no box-drawing
 ```
 
-`func --help` names all of this at the bottom, so nothing above needs to be
-memorised:
+`--help` names all of this at the bottom, so nothing above needs to be
+memorised — on `func` and on your project's own entry point alike, spelled for
+whichever one you invoked:
 
 ```
 For AI agents:
-  func builtin info schema                 all commands + args, as JSON
+  func builtin info schema                 all commands, as JSON
   func builtin info schema --kind job      jobs only
   func builtin info schema --kind builtin  builtin commands only
-  func builtin skills list                 agent skills for this version
+  func builtin skills list                 skills for this version
   export FUNCTUALIZE_CLI_OUTPUT=json       make JSON the default
 ```
 
@@ -931,7 +941,9 @@ uv run mkdocs serve
 uv run mkdocs build --strict
 ```
 
-Docs deploy automatically to GitHub Pages on push to `main`.
+The full documentation is published at [https://raicing-ai.github.io/functualize/](https://raicing-ai.github.io/functualize/).
+
+Docs deploy automatically to GitHub Pages on push to `master`.
 
 ## Contributing
 

@@ -54,6 +54,13 @@ _STATUS_EXIT_CODES: dict[RunStatus, ExitCode] = {
     # not stop because `build` was already up to date.
     RunStatus.SKIPPED: ExitCode.OK,
     RunStatus.BLOCKED: ExitCode.BLOCKED,
+    # A refusal is not a skip and not a raise: the job declined to start
+    # because a declared precondition for running it was not met. Without this
+    # entry it would fall back to JOB_RAISED and be indistinguishable from a
+    # job that ran and threw — and REFUSED (3) has been in this table's
+    # docstring, reachable only from `requires_tty`, since the table was
+    # pinned.
+    RunStatus.REFUSED: ExitCode.REFUSED,
     RunStatus.FAILURE: ExitCode.JOB_RAISED,
     RunStatus.TIMEOUT: ExitCode.JOB_RAISED,
     RunStatus.CANCELLED: ExitCode.JOB_RAISED,

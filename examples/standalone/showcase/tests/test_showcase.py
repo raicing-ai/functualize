@@ -3,12 +3,24 @@
 TUI behavior (SmartBar flows, config panels, surfaces, displays) is verified
 manually via the README checklist; these tests prove the job functions and
 Mode A scripts are runnable code.
+
+One exception, at the bottom: the README claims `api_key`, `db_password` and
+`output_token` render **masked**. That is a claim about runtime behaviour, and
+for a while it was false while every test here stayed green — the job bodies
+faked it with `'*' * 8` and nothing asked the framework. Those tests start at
+the declared model and follow the seam the real surfaces read, so the claim
+cannot go quietly false again.
 """
 
 import importlib.util
+import os
+import re
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
+
+import pytest
 
 _ROOT = Path(__file__).parent.parent
 
@@ -103,13 +115,24 @@ def test_inspect():
 
 
 def test_release_defaults():
-    result = _configcheck.release(_configcheck.ReleaseConfig(), _rc())
+    config = _configcheck.ReleaseConfig()
+    result = _configcheck.release(config, _rc())
     assert result == "Released to production/us-east-1 x3"
+
+    # The real values still resolve — asserting only on the mask would let a
+    # field that stopped carrying a value at all pass as "masked".
+    assert config.api_key.get_secret_value() == "sk-default-key-12345"
+    assert config.db_password.get_secret_value() == "super-secret-pass"
+    assert "super-secret-pass" not in str(config.db_password)
 
 
 def test_analyze():
-    result = _configcheck.analyze(_configcheck.AnalyzeConfig(depth=7), _rc())
+    config = _configcheck.AnalyzeConfig(depth=7)
+    result = _configcheck.analyze(config, _rc())
     assert result == "Analysis complete (depth=7)"
+
+    assert config.output_token.get_secret_value() == "tok-abc123"
+    assert "tok-abc123" not in str(config.output_token)
 
 
 def test_healthcheck():
@@ -205,3 +228,114 @@ def test_data_processor_process_and_summarize():
     )
     assert summary["previous_runs"] >= 1
     assert summary["last_format"] == "csv"
+
+
+# --- masking, from the declaration to the rendered surface -----------------
+#
+# `wiring-discipline.md` §8: a masking test must start where the declaration
+# starts. Never a hand-made `SimpleNamespace(secret=True)` — that stand-in left
+# 2181 tests green while every surface leaked, because a missing attribute on a
+# stub is indistinguishable from a wire that was never connected.
+#
+# These start at the declared `ReleaseConfig` / `AnalyzeConfig` and read what a
+# real surface prints:
+#
+#     Secret[str] in the model
+#       -> discovery + the cached descriptor
+#       -> resolution (FieldDescriptor.secret -> ResolvedField.secret)
+#       -> `func builtin env <job>`, rendered
+#
+# Run as a subprocess rather than by building a second `FunctualizeApp` in this
+# process: two apps over different directories in one interpreter leave the
+# second discovering **no jobs at all**, so an in-process version passes alone
+# and fails whenever another example's app is built first.
+
+MASK = "\u2022\u2022\u2022"
+
+_SECRET_FIELDS = {"release": ("api_key", "db_password"), "analyze": ("output_token",)}
+_PLAIN_FIELDS = {"release": ("region", "replicas", "timeout"), "analyze": ("depth",)}
+
+
+def _builtin_env(job_name: str, *extra: str) -> dict[str, tuple[str, str]]:
+    """`{field: (rendered value, source)}` as `func builtin env <job>` prints it."""
+    proc = subprocess.run(
+        [sys.executable, "-m", "functualize", "builtin", "env", job_name, *extra],
+        cwd=_ROOT,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+    )
+    assert proc.returncode == 0, f"builtin env {job_name} failed:\n{proc.stderr}"
+
+    prefix = f"{job_name.upper()}_"
+    parsed: dict[str, tuple[str, str]] = {}
+    for line in proc.stdout.splitlines():
+        match = re.match(r"export (\w+)=(.*?)\s+# source: (\w+)$", line.strip())
+        if not match:
+            continue
+        name, raw, source = match.groups()
+        if not name.startswith(prefix):
+            continue
+        parsed[name[len(prefix) :].lower()] = (raw.strip("'"), source)
+    assert parsed, f"no fields parsed from:\n{proc.stdout}"
+    return parsed
+
+
+@pytest.fixture(scope="module")
+def rendered():
+    """One subprocess per job, shared across the assertions below."""
+    return {job: _builtin_env(job) for job in ("release", "analyze")}
+
+
+@pytest.mark.parametrize(
+    ("job_name", "field_name"),
+    [(j, f) for j, fields in _SECRET_FIELDS.items() for f in fields],
+)
+def test_a_declared_secret_renders_masked(rendered, job_name, field_name):
+    value, source = rendered[job_name][field_name]
+
+    assert value == MASK, (
+        f"{field_name!r} is declared Secret[str] but the surface rendered "
+        f"{value!r} — a credential in cleartext"
+    )
+    assert source != "unset", "nothing resolved this field, so masking proves nothing"
+
+
+@pytest.mark.parametrize(
+    ("job_name", "field_name"),
+    [(j, f) for j, fields in _PLAIN_FIELDS.items() for f in fields],
+)
+def test_a_plain_field_shows_its_value(rendered, job_name, field_name):
+    """Guard the guard: without this, "mask everything" would pass above."""
+    value, _ = rendered[job_name][field_name]
+
+    assert value not in ("", MASK)
+
+
+def test_the_mask_hides_a_value_that_is_really_there(rendered):
+    """Masking must not be indistinguishable from an empty field.
+
+    `--include-secrets` is the deliberate reveal, so it is also the only way to
+    prove the masked cell had something behind it.
+    """
+    assert rendered["release"]["api_key"][0] == MASK
+
+    revealed = _builtin_env("release", "--include-secrets")
+    assert revealed["api_key"][0] == "sk-from-base-config-77777"
+
+
+def test_the_api_key_still_comes_from_the_file(rendered):
+    """Masking must not cost provenance.
+
+    A secret's declared default is dropped from the discovery cache (ADR-009
+    decision 3); the *file* value is not. If this flips to `default`, the
+    README's config-chain walkthrough is wrong and something real regressed.
+    """
+    assert rendered["release"]["api_key"][1] == "file"
+
+
+def test_the_job_body_does_not_hand_roll_a_mask():
+    """The framework masks. A hand-rolled `'*' * 8` beside a real Secret taught
+    the reader that it cannot be trusted to."""
+    body = (_ROOT / "jobs" / "configcheck.py").read_text()
+    assert "'*' * 8" not in body

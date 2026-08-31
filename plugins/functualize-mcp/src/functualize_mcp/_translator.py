@@ -288,8 +288,8 @@ class JobToolTranslator:
             # trie namespace — the path segments as an array, plus the node
             # kind — rather than a dotted string an agent has to re-split.
             # `"job"` mirrors `JobCommandProvider`, which labels every job row
-            # `NodeKind.JOB.value` when it builds the same trie; matrix/plugin
-            # kinds are not distinguished at this (job-descriptor) layer.
+            # `NodeKind.JOB.value` when it builds the same trie; the plugin and
+            # builtin kinds are not distinguished at this (job-descriptor) layer.
             annotations["group"] = {
                 "namespace": descriptor.group.split("."),
                 "kind": "job",

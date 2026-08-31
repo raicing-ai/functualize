@@ -80,13 +80,55 @@ def find_functualize_dir(start: Path) -> Path | None:
         current = parent
 
 
-def resolve_state_path(start: Path) -> Path:
-    """Resolve the runtime state file path for a project.
+#: The two places a freshness ledger can live. Pinned as exactly two strings so
+#: a script can match on them.
+STATE_MODES = ("project", "standalone")
+
+
+def resolve_state_location(start: Path) -> tuple[Path, str, Path | None]:
+    """Where the runtime state lives, and **which of the two modes** that is.
 
     Mirrors ``cache_format.resolve_cache_path`` so state lands beside the
     discovery cache in both modes:
-    - Declared-project mode (``.functualize/`` found upward): that directory.
-    - Standalone mode: XDG platform cache keyed by ``project_id`` of ``start``.
+
+    - ``project`` — a ``.functualize/`` directory was found walking upward, and
+      the ledger lives inside it, versioned with the code it describes.
+    - ``standalone`` — no such directory, so the ledger goes to the XDG cache
+      keyed by ``project_id`` of ``start``.
+
+    Standalone is the fallback rather than the failure: ``func`` is meant to run
+    over loose scripts anywhere on the filesystem, and littering a
+    ``.functualize/`` beside every one of them would be worse than a keyed cache
+    directory. ``mkdir .functualize`` is the switch between the two.
+
+    The mode is returned rather than re-derived by each caller because deriving
+    it means repeating the upward walk, and two walks can disagree. Nothing
+    reported which mode you were in, so a project could spend its whole life in
+    standalone without noticing and then go looking for a ``state.json`` that
+    was under a hashed directory in the home cache.
+
+    Args:
+        start: Project root (or cwd) to resolve from.
+
+    Returns:
+        ``(state_path, mode, functualize_dir)`` — the path (which may not exist
+        yet), one of :data:`STATE_MODES`, and the directory that decided it, or
+        None in standalone mode.
+    """
+    start = Path(start).resolve()
+    functualize_dir = find_functualize_dir(start)
+    if functualize_dir is not None:
+        return functualize_dir / STATE_FILENAME, "project", functualize_dir
+    project_id = compute_project_id(str(start))
+    path = _xdg_cache_dir() / "functualize" / project_id / STATE_FILENAME
+    return path, "standalone", None
+
+
+def resolve_state_path(start: Path) -> Path:
+    """Resolve the runtime state file path for a project.
+
+    The path half of :func:`resolve_state_location`, which is where the rule
+    lives — one upward walk, one answer.
 
     Args:
         start: Project root (or cwd) to resolve from.
@@ -94,12 +136,7 @@ def resolve_state_path(start: Path) -> Path:
     Returns:
         Absolute path where the state file lives (may not exist yet).
     """
-    start = Path(start).resolve()
-    functualize_dir = find_functualize_dir(start)
-    if functualize_dir is not None:
-        return functualize_dir / STATE_FILENAME
-    project_id = compute_project_id(str(start))
-    return _xdg_cache_dir() / "functualize" / project_id / STATE_FILENAME
+    return resolve_state_location(start)[0]
 
 
 def normalize_state(data: Any) -> dict[str, Any]:

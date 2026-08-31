@@ -25,6 +25,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from functualize._engine.capabilities.spec import CapabilitySpec
+
 if TYPE_CHECKING:
     from functualize._types.interactivity import LiveConstruct
 
@@ -117,3 +119,24 @@ class Live:
         if self._zone is not None:
             return self._zone.panel(construct)  # type: ignore[no-any-return]
         return LiveHandle(construct)
+
+
+# ── Registry entry (ADR-014) ───────────────────────────────────────────────
+
+
+def _make_live(ctx: Any) -> Live:
+    """Bind to the active live-capable surface.
+
+    The CLI's StdoutSurface, or a job app's own live zone. None → a degrading
+    no-op Live.
+    """
+    from functualize._engine.surface_routing import active_live_zone
+
+    return Live(_zone=active_live_zone(getattr(ctx.engine, "_app", None)))
+
+
+CAPABILITY = CapabilitySpec(
+    name="Live",
+    type=Live,
+    factory=_make_live,
+)

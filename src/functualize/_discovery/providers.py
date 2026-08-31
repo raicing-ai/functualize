@@ -27,15 +27,17 @@ from pathlib import Path
 from typing import Annotated, Any, get_args, get_origin
 
 from functualize._primitives import JobFilter, ModulePreFilter, iter_module_files
+from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
+from functualize._primitives.config_class_detection import detect_config_class
 from functualize._primitives.entry_points import entry_points
 from functualize._primitives.group_options_detection import (
     is_group_options_subclass,
 )
 from functualize._types import FieldDescriptor, JobDescriptor
 from functualize._types.annotations import resolved_hints
-from functualize._types.capabilities import INJECTED_CAPABILITY_TYPE_NAMES
 from functualize._types.from_job import from_job_names
 from functualize._types.naming import normalize_name, normalize_segment
+from functualize._types.redaction import is_secret_annotation
 from functualize._types.workflow import workflow_shape_of
 
 logger = logging.getLogger(__name__)
@@ -44,10 +46,14 @@ logger = logging.getLogger(__name__)
 # Names of types that should be excluded from parameter extraction
 # (framework-injected parameters, not user-facing CLI parameters).
 #
-# Sourced from `_types.capabilities` rather than restated here: this list was
-# maintained by hand and drifted, publishing `Stdout` and `Shell` as required
-# arguments on every descriptor-driven surface. See that module for the why.
-_EXCLUDED_PARAM_TYPE_NAMES = INJECTED_CAPABILITY_TYPE_NAMES
+# This copy was missing `Shell` and `Stdout`. `sync.py` falls back to these
+# parameters as a job's `config_fields` when it has no config class, and the
+# warm-boot command builder renders those as CLI params — so `sh: Shell` became
+# a required positional `SH` on every run after the first, and `out: Stdout` on
+# every run. The same drift published both as required arguments on the MCP
+# `inputSchema`, the surface `_primitives/job_schema.py` now renders.
+# One list now, in `_primitives`.
+_EXCLUDED_PARAM_TYPE_NAMES = INJECTED_PARAM_TYPE_NAMES
 
 # Capability marker type names harvested into job-level JobDescriptor flags
 # (routing hints), distinct from user-facing CLI parameters.
@@ -181,6 +187,12 @@ def extract_parameters_from_signature(
                 short_flag=short_flag,
                 is_stdin=is_stdin,
                 stdin_flag=stdin_flag,
+                # A convention job with no config class falls back to these
+                # parameters for `config_fields`, so a bare `token: Secret[str]`
+                # parameter has to carry the marker too — otherwise the same
+                # declaration masks in a Pydantic model and leaks in a plain
+                # signature.
+                secret=is_secret_annotation(base_annotation),
             )
         )
 
@@ -553,7 +565,6 @@ class DirectoryScanProvider:
         self, module: Any, source_file: Path
     ) -> list[JobDescriptor]:
         """Extract JobDescriptors from all public functions in a module."""
-        from pydantic import BaseModel
 
         from functualize._discovery.schema_extractor import extract_field_descriptors
         from functualize._primitives.pre_filter import extract_function_decorators
@@ -588,26 +599,14 @@ class DirectoryScanProvider:
             # Extract parameters from function signature
             parameters = self._extract_parameters(attr)
 
-            # Detect and extract config_fields from BaseModel parameter
+            # Config fields come from the job's config class, resolved through
+            # the one shared rule (_primitives/config_class_detection) rather
+            # than a local copy of it.
             config_fields: list[FieldDescriptor] = []
-            try:
-                sig = inspect.signature(attr)
-                hints = resolved_hints(attr)
-                for name, param in sig.parameters.items():
-                    annotation = hints.get(name, param.annotation)
-                    if (
-                        isinstance(annotation, type)
-                        and issubclass(annotation, BaseModel)
-                        and annotation is not BaseModel
-                        # A GroupOptions parameter carries the *group's* flags,
-                        # not this job's config fields (see sync.py).
-                        and not is_group_options_subclass(annotation)
-                    ):
-                        with contextlib.suppress(Exception):
-                            config_fields = extract_field_descriptors(annotation)
-                        break
-            except (ValueError, TypeError):
-                pass
+            config_class = detect_config_class(attr)
+            if config_class is not None:
+                with contextlib.suppress(Exception):
+                    config_fields = extract_field_descriptors(config_class)
 
             declaration = getattr(attr, "__functualize_job__", None)
             workflow_shape = workflow_shape_of(attr)

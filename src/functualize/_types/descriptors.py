@@ -42,6 +42,29 @@ class FieldDescriptor:
         is_stdin: True if marked with Stdin() — reads from a pipe when available.
         stdin_flag: Explicit flag name from Stdin(flag=...), or None to derive
             from the field name.
+        secret: True when the field is marked secret by the model — either the
+            ``Secret`` annotation or ``Field(json_schema_extra={"secret": True})``.
+            Carried here, rather than re-derived, because the surfaces that must
+            mask (the TUI panels, completion) read the *cached* descriptor on a
+            warm boot and never import the config model. Deriving it at render
+            time would forfeit that; see ``contributor/guides/wiring-discipline.md``
+            and ADR-008.
+        from_config_model: True when this field came from a job's **config
+            model** rather than from its plain signature.
+
+            The two are rendered by different rules, and a ``JobDescriptor``
+            carries one list for both (``config_fields`` falls back to
+            ``parameters``), so the distinction has to travel with the field:
+            ``parameters`` is not serialized, and a warm boot therefore sees
+            only ``config_fields`` with no way to tell which kind it holds.
+
+            The rule that needs it: a config field's click option defaults to
+            ``None``, because the resolution ladder supplies the real value and
+            an explicit default would arrive as though the user had typed it —
+            outranking the config file, the environment, and everything else. A
+            plain signature parameter has no ladder, so its default must be
+            passed through. Rendering both alike is what made an app resolve a
+            config field to its pydantic default from its second run onward.
     """
 
     name: str
@@ -54,6 +77,8 @@ class FieldDescriptor:
     short_flag: str | None = None
     is_stdin: bool = False
     stdin_flag: str | None = None
+    secret: bool = False
+    from_config_model: bool = False
 
     @property
     def type(self) -> str:
@@ -216,7 +241,7 @@ class JobDescriptor:
     #: None means no preference (setting / framework default apply).
     surface_hint: str | None = None
     #: The frozen ``JobDeclaration`` from ``@job(...)`` (proposal §A.3), or None
-    #: for convention-discovered jobs. Carries deps/cache/guards/exec/matrix and
+    #: for convention-discovered jobs. Carries deps/cache/guards/exec and
     #: identity overrides. Read off ``func.__functualize_job__`` at extraction
     #: time and cached, so warm/lazy boot has it without importing the module.
     declaration: JobDeclaration | None = None
@@ -579,7 +604,7 @@ class RegisteredJob:
 
 def _field_to_dict(fd: FieldDescriptor) -> dict[str, Any]:
     """Serialize a FieldDescriptor to a JSON-compatible dict."""
-    default = _serialize_default(fd.default, fd.required)
+    default = _serialize_default(fd.default, fd.required, secret=fd.secret)
     return {
         "name": fd.name,
         "type_annotation": fd.type_annotation,
@@ -591,15 +616,35 @@ def _field_to_dict(fd: FieldDescriptor) -> dict[str, Any]:
         "short_flag": fd.short_flag,
         "is_stdin": fd.is_stdin,
         "stdin_flag": fd.stdin_flag,
+        "secret": fd.secret,
+        "from_config_model": fd.from_config_model,
     }
 
 
-def _serialize_default(default: Any, required: bool) -> Any:
-    """Convert a default value to a JSON-serializable form."""
+def _serialize_default(default: Any, required: bool, *, secret: bool = False) -> Any:
+    """Convert a default value to a JSON-serializable form.
+
+    A secret field's default is dropped. The cache is a file on disk, in a
+    predictable XDG location, and
+
+        credential: str = Field(default="dev-key", json_schema_extra={"secret": True})
+
+    would otherwise write that credential into it in cleartext — a surface the
+    masking work never looked at, because nothing renders it. `Secret[str]`
+    defaults were already dropped here, but only by accident: `json.dumps`
+    cannot serialize a `Secret`, so they fell into the `except` below. Doing it
+    on the declaration instead makes the two markers agree, and makes it a
+    decision rather than a side effect.
+
+    Dropping loses the ability to *display* a secret default, which is no loss:
+    every surface masks it anyway.
+    """
     if required and default is None:
         return _REQUIRED_SENTINEL
     if default == _REQUIRED_SENTINEL:
         return _REQUIRED_SENTINEL
+    if secret:
+        return None
     if isinstance(default, Enum):
         return default.value
     if default is None:
@@ -673,4 +718,9 @@ def _field_from_dict(data: Any) -> FieldDescriptor:
         short_flag=data.get("short_flag"),
         is_stdin=data.get("is_stdin", False),
         stdin_flag=data.get("stdin_flag"),
+        secret=bool(data.get("secret", False)),
+        # v19 — absent in pre-v19 entries. False is the safe default: it means
+        # "render this the way a plain signature parameter is rendered", which
+        # is what every pre-v19 entry was rendered as anyway.
+        from_config_model=bool(data.get("from_config_model", False)),
     )

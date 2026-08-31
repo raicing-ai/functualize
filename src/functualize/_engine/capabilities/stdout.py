@@ -17,10 +17,13 @@ author asked for it.
 from __future__ import annotations
 
 import sys
+from collections.abc import Iterable
 from typing import IO, Any
 
+from functualize._engine.capabilities.spec import CapabilitySpec
 from functualize._primitives.stdout_emitter import StdoutEmitter
 from functualize._types.redaction import redact
+from functualize._types.stdout import Stdout
 
 __all__ = ["WiredStdout"]
 
@@ -35,7 +38,10 @@ class WiredStdout:
         secrets: Secret string values to mask (``•••``) in anything written.
             Sourced from the job's ``secret=True`` config fields / ``Secret[str]``
             values, per schema §5 — secrets must not leak through the data
-            channel any more than through a command echo.
+            channel any more than through a command echo. Callers that already
+            hold the resolved values pass them here; the engine instead builds
+            this capability *before* config resolution and fills it in later
+            via :meth:`add_secrets`.
         stream: Destination stream. Defaults to ``sys.stdout``, bound lazily so
             a redirect installed after construction is still honored.
     """
@@ -48,8 +54,23 @@ class WiredStdout:
         stream: IO[Any] | None = None,
     ) -> None:
         self._format = output_format or "auto"
-        self._secrets = frozenset(secrets or ())
+        # Mutable, and read fresh on every write. DI wiring runs before config
+        # resolution, so the engine cannot know a job's secrets at construction
+        # time; it calls `add_secrets` once the model it will actually pass to
+        # the job exists. A frozenset here forced the engine to re-resolve the
+        # config instead — a second resolution that dropped CLI values and so
+        # redacted the wrong string.
+        self._secrets: set[str] = set(secrets or ())
         self._stream = stream
+
+    def add_secrets(self, values: Iterable[str]) -> None:
+        """Add values to mask in anything written from now on.
+
+        Called by the engine after it resolves the config model the job will
+        receive — which is the only object that has seen every precedence tier,
+        the command line included.
+        """
+        self._secrets.update(v for v in values if v)
 
     def _out(self) -> IO[Any]:
         return self._stream if self._stream is not None else sys.stdout
@@ -111,3 +132,33 @@ class WiredStdout:
         out = self._out()
         out.write(text)
         out.flush()
+
+
+# ── Registry entry (ADR-014) ───────────────────────────────────────────────
+#
+# Declared here rather than in `_types/stdout.py`, where the `Stdout` type
+# lives: `_types` may import nothing internal, so it cannot hold a factory that
+# constructs `WiredStdout`. The engine-side implementation module is the
+# nearest legal home, and it is still one place rather than four.
+
+
+def _make_stdout(ctx: Any) -> WiredStdout:
+    """Build the wired stdout channel for this invocation."""
+    # `--output` is a per-invocation CLI flag, not config: the CLI boundary
+    # deposits the resolved value on the app before dispatch. Absent
+    # (library/embedded use) it defaults to "auto" — dispatch by the emitted
+    # value's type — so `out.emit()` still works outside the CLI.
+    app = getattr(ctx.engine, "_app", None)
+    # No `secrets=` here: config is resolved *after* DI wiring, so the values
+    # are not known yet. `_arm_output_redaction` fills them in from the model
+    # the job actually receives.
+    return WiredStdout(
+        output_format=getattr(app, "_output_format", "auto") or "auto",
+    )
+
+
+CAPABILITY = CapabilitySpec(
+    name="Stdout",
+    type=Stdout,
+    factory=_make_stdout,
+)
