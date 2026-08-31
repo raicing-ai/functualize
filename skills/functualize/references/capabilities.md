@@ -25,9 +25,9 @@ All are exported from `functualize.job`.
 | `Shell` | Subprocesses | callable; `.cd(path)`, `.prefix(cmd)`, `.defer(cmd)`, `.run_deferred()`, `.sudo(...)` |
 | `Invoke` | Calling other jobs | callable: `invoke("other-job", ...)`; `.parallel(...)`, `.schema(name)` |
 | `Prompt` | Asking the user | `.confirm()`, `.choice()`, `.text()`, `.ask(request)` |
-| `State` | Persistence across runs | `.get(key, default)`, `.set(key, value)`, `.delete(key)`, `.keys(prefix)` |
+| `State` | Scratch space for **this invocation** | `.get(key, default)`, `.set(key, value)`, `.delete(key)`, `.keys(prefix)` |
 | `Perf` | Timing | `.mark(name)`, `.mark_start(name)`, `.mark_end(name)`, `.phases()` |
-| `Live` | Live-updating display | `.suppress(name)`, handles with `.update()`, `.push()`, `.remove()` |
+| `Live` | Live-updating display | `.add(construct)` / `.panel(construct)` → a handle with `.update()`, `.push()`, `.remove()`; `.suppress(name)` |
 | `TTY` | Direct terminal control | `.run(app)`, `.ctx()` |
 | `JobContext` | Metadata about this invocation | `.name`, `.trace_id`, `.deadline`, `.cwd`, `.job_directory`, `.invoke_depth`, `.scope_id`, `.metadata` |
 | `JobConfigView` | Raw resolved config | key access with source tracking |
@@ -37,6 +37,50 @@ Confirm against the installed version rather than this table:
 ```python
 import functualize.job as j; print(j.__all__)
 ```
+
+## Not capabilities: `Exec`, `Retry`, `Fingerprint`, `Deps`
+
+These are exported from `functualize.job` alongside the capabilities and read
+like more of them, so the mistake is to look for `Retry` in the signature, not
+find it, and conclude functualize cannot retry.
+
+**They are job *declaration* options, passed to `@job`, not injected
+parameters.** The keyword is not always the type's name — `Fingerprint` goes to
+`cache=`, which is the one that costs turns to guess:
+
+| Type | `@job` keyword |
+| --- | --- |
+| `Deps` | `deps=` |
+| `Fingerprint` | `cache=` |
+| `Guards` | `guards=` |
+| `Exec` (holds `Retry`) | `exec=` |
+
+Retry in particular is real and implemented — reach for it rather than
+hand-rolling a loop:
+
+```python
+from functualize.job import Exec, Retry, job
+
+@job(exec=Exec(retry=Retry(attempts=3, backoff="exponential")))
+def flaky() -> str:
+    ...
+```
+
+```python
+Exec(retry=None, platforms=None, run="always", silent=False)
+Retry(attempts, backoff="exponential", on=(), on_exit_codes=())
+#     backoff: "exponential" | "linear" | "constant"
+#     run:     "always" | "once" | "when_changed"   (session-scoped dedup)
+```
+
+There is **no job-level timeout**, deliberately: Python cannot preempt a
+running function, so a reported timeout would leave the work running. Bound
+work where the OS can enforce it — `sh(..., timeout=N)`.
+
+If you are asked for something that is not in either list, check `j.__all__`
+before concluding it does not exist. If it genuinely does not, **say so** —
+implementing a lookalike under the requested name is the worse answer, because
+the caller has no way to tell it apart from the real thing.
 
 ## Log
 
@@ -95,15 +139,52 @@ This is the path where a job's **return value** matters — the thing `Stdout`
 does not print. `invoke.schema()` is the programmatic mirror of
 `func builtin info`.
 
-## State
+## State — per-invocation, and the name misleads
 
-Persists across runs through the configured state backend.
+`State` is a dict-backed store scoped to **one job invocation**. It is shared
+down an `Invoke` chain within that invocation, and it is gone when the process
+exits.
 
 ```python
-state.set("last_run", "2026-08-27")
-state.get("last_run", default=None)
+state.set("parsed_count", 42)
+state.get("parsed_count", default=0)
 state.keys(prefix="cache:")
 ```
+
+Three different things in this project are called "state", and only one of them
+survives a process:
+
+| Name | Reached by | Scope | Survives the process? |
+| --- | --- | --- | --- |
+| `State` (capability) | a job parameter | one invocation | **no** |
+| `StateStore` (runtime) | `functualize.app.utils` | the project | **yes** — `.functualize/state.json` |
+| The discovery cache | `func builtin cache` | the project | yes, but it is not yours |
+
+For a value that must outlive the run, write a file you own, or use the runtime
+store — never `State`. `func builtin state show` prints where the runtime store
+lives; see [config-and-secrets.md](config-and-secrets.md) for the two modes it
+resolves between.
+
+## `Stdin` is not a capability
+
+`functualize.job` also exports `Stdin`, which is an **annotation marker**, not
+an injected type. It makes one parameter fall back to piped stdin when no flag
+was given:
+
+```python
+from typing import Annotated
+from functualize.job import Stdin
+
+def transform(data: Annotated[str, Stdin(flag="--data")]) -> None: ...
+```
+
+```bash
+echo "hello" | func transform          # reads stdin
+func transform --data hello            # explicit flag wins
+```
+
+Declaring it as a bare parameter type (`def transform(stdin: Stdin)`) does not
+work — it is `Annotated[...]` or nothing.
 
 ## Choosing
 

@@ -120,7 +120,9 @@ def fetch(rc: RunContext, log: Log, out: Stdout) -> None:
 What each part buys:
 
 - **`# /// script` dependencies** — `uv` builds an ephemeral environment on
-  first run. The skill is self-contained; nothing needs installing first.
+  first run. The skill is self-contained; nothing needs installing first. The
+  `[cli]` extra is required: `click` and `rich` live there, so a bare
+  `functualize` dependency produces a script that cannot run.
 - **`[tool.functualize] job = "fetch"`** — declares that this file *is* that
   job, so the command line belongs to the job. Without it, `func file.py --url x`
   reads `--url` as a function name and fails.
@@ -142,7 +144,20 @@ Tell the agent to ask the script:
 Run `uv run --script scripts/jobs.py --help` to see the available flags.
 ```
 
-That never goes stale. A flag list transcribed into SKILL.md does.
+That never goes stale. A flag list transcribed into SKILL.md does. When the
+script file grows past one job, point at the structured form instead — one call
+returns every job's arguments as JSON Schema:
+
+```markdown
+Run `func builtin info schema` in the script's directory to see every job and
+the arguments it accepts.
+```
+
+The single-file mechanics — shebang choices, why global flags must precede the
+script path, where a loose script keeps its state, how to test it — are the
+`functualize-app` skill's
+[standalone-scripts reference](../functualize-app/references/standalone-scripts.md).
+Read it once; this skill assumes it.
 
 ---
 
@@ -170,12 +185,16 @@ elsewhere. For a portable skill, keep the body working without the grant.
 Skill scripts almost never have tests. These can:
 
 ```python
-from functualize.testing import TestRunContext, CapturingLog
+from functualize.testing import CapturingLog, FakeStdout
 
 def test_fetch_emits_status():
-    log = CapturingLog()
-    fetch(rc=TestRunContext(), log=log, out=...)
+    log, out = CapturingLog(), FakeStdout()
+    fetch(log=log, out=out)
+    assert out.emitted == [{"status": "ok"}]
 ```
+
+A job only needs doubles for the capabilities its own signature declares — this
+one never asked for `RunContext`, so the test does not build one.
 
 Worth doing whenever the skill leaves your own machine.
 

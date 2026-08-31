@@ -11,19 +11,24 @@ from functualize.workflow import workflow, Step, Edge, END
 
 @workflow(
     steps=[
-        Step("fetch", job=fetch_data),
-        Step("transform", job=transform_data),
-        Step("load", job=load_data),
+        Step(fetch_data),
+        Step(transform_data),
+        Step(load_data),
     ],
     edges=[
-        Edge(source="fetch", target="transform"),
-        Edge(source="transform", target="load"),
-        Edge(source="load", target=END),
+        Edge("fetch-data", "transform-data"),
+        Edge("transform-data", "load-data"),
+        Edge("load-data", END),
     ],
 )
 def etl_pipeline():
     """Extract, transform, and load data."""
 ```
+
+`Step` takes the job itself — a callable or its registered name — and nothing
+else; there is no separate node name to invent. Edges then reference the job's
+**canonical name** (lowercase, hyphenated), which is what `func builtin info`
+lists.
 
 ## The governing rule
 
@@ -54,8 +59,11 @@ Exported from `functualize.workflow`:
 Confirm against the installed version:
 
 ```python
-import functualize.workflow as w; print(w.__all__)
+import importlib; print(importlib.import_module("functualize.workflow").__all__)
 ```
+
+(`import functualize.workflow as w` binds the **decorator function**, not the
+module — the package re-exports the name. Use `importlib` to reach the module.)
 
 ## Gates
 
@@ -68,7 +76,10 @@ Gate resolution lives in `_gate/`. A paused workflow persists as a scope.
 ## Inspecting and resuming
 
 ```bash
-func builtin workflow      # inspect and resume persisted workflow scopes
+func builtin workflow list                        # active scopes
+func builtin workflow state <scope>               # status and pending gates
+func builtin workflow resume <scope> <gate> --input '{…}'
+func builtin workflow cancel <scope>
 ```
 
 A workflow that paused at a gate is resumable — the scope carries the recorded

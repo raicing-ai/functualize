@@ -48,7 +48,8 @@ Discovery results are cached. A stale cache can hide a change, and the warm-cach
 path is historically where "it works cold, does nothing warm" bugs live:
 
 ```bash
-func builtin cache        # inspect / clear
+func builtin cache show     # entry count, stale count, path
+func builtin cache clear    # force the cold path
 ```
 
 If a change to filters or job files does not show up, clear the cache before

@@ -36,16 +36,29 @@ def test_deploy_emits_status():
     out = FakeStdout()
     sh = FakeShell()
 
-    deploy(DeployConfig(region="us-west-2"), TestRunContext(), log, sh, out)
+    deploy(DeployConfig(region="us-west-2"), TestRunContext.create(), log, sh, out)
 
-    assert any("deploying" in str(m) for m in log.messages)
+    assert ("info", "deploying") in log.calls
     assert sh.calls[0].command.startswith("kubectl")
     assert out.emitted == [{"status": "ok"}]
 ```
 
-Check the exact attribute names on each double before asserting — they are the
-API surface of the test, and guessing them is the usual source of a failing test
-that looks correct.
+`TestRunContext` is a **builder**, not a constructor: use
+`TestRunContext.create()`, optionally passing `log=`, `invoke=`, `prompt=`,
+`perf=`, `state=` or `job_context=` to override a default.
+
+The record attributes, since guessing them is the usual source of a failing test
+that looks correct:
+
+| Double | Records into | Shape |
+| --- | --- | --- |
+| `CapturingLog` | `.calls` | `(level, message)` tuples, in order |
+| `FakeStdout` | `.emitted`, `.writes`, `.text` | objects passed to `emit()`; raw `write()` payloads; the serialized stream |
+| `FakeShell` | `.calls` | `FakeShellCall(argv, command, kwargs)` |
+
+`FakeShell(mapping)` also scripts return values: map an exact command string or
+a compiled regex to the `ShellResult` it should return. `FakeStdout("json")`
+pins the serialization a caller would receive.
 
 ## What to assert
 
