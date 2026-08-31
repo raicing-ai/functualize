@@ -10,7 +10,7 @@ description: >
   real work, or when asked how to share or publish a skill.
 license: MIT
 metadata:
-  version: "0.1.1"
+  version: "0.1.2"
   project: functualize
 ---
 
