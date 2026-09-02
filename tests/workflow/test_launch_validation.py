@@ -140,6 +140,29 @@ class TestParityWithAPlainJob:
         for result in (from_workflow, from_plain):
             assert "zzz_nonsense" in str(result.exception)
 
+    def test_the_message_survives_a_warm_boot(
+        self, project: tuple[object, Path]
+    ) -> None:
+        """RK3 — the function name is right on both the cold and warm paths.
+
+        The message is built from `function.__name__`, and the engine reaches
+        the function two ways: directly from the registry, or by materializing
+        a lazy entry at invoke. A second app over the now-warm discovery cache
+        takes the path the first did not.
+        """
+        _, root = project
+        from functualize.app import FunctualizeApp, JobSources
+
+        cold = FunctualizeApp("w", job_sources=JobSources(directories=["jobs"]))
+        cold_error = cold.execute("walk", zzz_nonsense=1).exception
+
+        warm = FunctualizeApp("w", job_sources=JobSources(directories=["jobs"]))
+        warm_error = warm.execute("walk", zzz_nonsense=1).exception
+
+        assert str(cold_error) == str(warm_error)
+        assert "walk()" in str(warm_error)
+        assert not _scope(root, "unused")
+
     def test_neither_raises(self, project: tuple[object, Path]) -> None:
         """The invariant the refusal shape exists to preserve.
 
@@ -152,3 +175,152 @@ class TestParityWithAPlainJob:
         for job_name in ("walk", "alpha"):
             result = app.execute(job_name, zzz_nonsense=1)  # type: ignore[attr-defined]
             assert result.exception is not None
+
+
+class TestARefusedResumeDisturbsNothing:
+    """A4 — the case where a human approval has already been spent."""
+
+    def test_a_bad_kwarg_leaves_a_blocked_scope_byte_identical(
+        self, project: tuple[object, Path]
+    ) -> None:
+        app, root = project
+        store = StateStore.for_project(root)
+
+        assert app.execute("walk", scope_id="a4").status is RunStatus.BLOCKED  # type: ignore[attr-defined]
+        assert store.deposit_gate_payload("a4", "pause", {"note": "approved"})
+
+        before = _scope(root, "a4")
+        result = app.execute("walk", scope_id="a4", zzz_nonsense=1)  # type: ignore[attr-defined]
+        after = _scope(root, "a4")
+
+        assert result.status is RunStatus.FAILURE
+        assert after == before, "a refused resume advanced the run"
+
+    def test_the_scope_is_still_resumable_afterwards(
+        self, project: tuple[object, Path]
+    ) -> None:
+        """The refusal must not have consumed the approval it declined to use."""
+        app, root = project
+        store = StateStore.for_project(root)
+
+        app.execute("walk", scope_id="a4b")  # type: ignore[attr-defined]
+        store.deposit_gate_payload("a4b", "pause", {"note": "approved"})
+        app.execute("walk", scope_id="a4b", zzz_nonsense=1)  # type: ignore[attr-defined]
+
+        resumed = app.execute("walk", scope_id="a4b")  # type: ignore[attr-defined]
+
+        assert resumed.status is RunStatus.SUCCESS
+        assert resumed.return_value == "done"
+
+
+class TestVarKeywordIsHonoured:
+    """A5 — Python's rule is the rule; only its timing changed."""
+
+    def test_a_workflow_declaring_kwargs_accepts_anything(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        jobs = tmp_path / "jobs"
+        jobs.mkdir()
+        (jobs / "w.py").write_text(
+            _JOBS.replace("def walk(log: Log)", "def walk(log: Log, **extra)")
+        )
+        monkeypatch.chdir(tmp_path)
+
+        from functualize.app import FunctualizeApp, JobSources
+
+        app = FunctualizeApp("w", job_sources=JobSources(directories=["jobs"]))
+        result = app.execute("walk", scope_id="a5", anything_at_all=1)
+
+        assert result.status is RunStatus.BLOCKED
+        assert _scope(tmp_path, "a5").get("position") == "pause"
+
+
+_NESTED = (
+    _JOBS
+    + '''
+
+@workflow(
+    steps=[Step("walk")],
+    edges=[Edge("walk", END)],
+)
+def outer(log: Log) -> str:
+    """A workflow whose only step is another workflow."""
+    log("outer complete")
+    return "outer done"
+'''
+)
+
+
+class TestANestedWorkflowIsUnaffected:
+    """RK4 — the check is a no-op for a workflow reached as a `Step`.
+
+    `run_step` invokes a step with `kwargs={}`, so an inner workflow can never
+    see a launch argument and can never be refused for one. Proven rather than
+    reasoned: the risk was that refusing the outer launch would also break the
+    inner walk's ability to block and resume.
+    """
+
+    @pytest.fixture
+    def nested(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        jobs = tmp_path / "jobs"
+        jobs.mkdir()
+        (jobs / "w.py").write_text(_NESTED)
+        monkeypatch.chdir(tmp_path)
+
+        from functualize.app import FunctualizeApp, JobSources
+
+        return FunctualizeApp(
+            "w", job_sources=JobSources(directories=["jobs"])
+        ), tmp_path
+
+    def test_the_outer_launch_is_still_refused(
+        self, nested: tuple[object, Path]
+    ) -> None:
+        app, root = nested
+
+        result = app.execute("outer", scope_id="rk4", zzz_nonsense=1)  # type: ignore[attr-defined]
+
+        assert result.status is RunStatus.FAILURE
+        assert not _scope(root, "rk4").get("steps")
+
+    def test_a_clean_nested_walk_still_blocks_and_resumes(
+        self, nested: tuple[object, Path]
+    ) -> None:
+        app, root = nested
+        store = StateStore.for_project(root)
+
+        assert app.execute("outer", scope_id="rk4b").status is RunStatus.BLOCKED  # type: ignore[attr-defined]
+
+        # The inner workflow owns a derived scope, not the parent's (§A.7).
+        inner = "rk4b::walk"
+        assert store.deposit_gate_payload(inner, "pause", {"note": "ok"})
+
+        resumed = app.execute("outer", scope_id="rk4b")  # type: ignore[attr-defined]
+
+        assert resumed.status is RunStatus.SUCCESS
+        assert resumed.return_value == "outer done"
+
+
+class TestTheInMemoryScopeRegistry:
+    """RK5 — what a refused launch leaves on the app object.
+
+    `FunctualizeApp.execute` mints a `WorkflowScope` in its own registry
+    *before* delegating to the engine, so a refusal cannot prevent that entry
+    existing. The durable half — the state store — is untouched, which is what
+    the contract promises and what A1 asserts. This cell pins the in-memory
+    half so the asymmetry is documented rather than discovered.
+    """
+
+    def test_a_refused_launch_still_mints_an_in_memory_scope(
+        self, project: tuple[object, Path]
+    ) -> None:
+        app, root = project
+
+        app.execute("walk", scope_id="rk5", zzz_nonsense=1)  # type: ignore[attr-defined]
+
+        registry = app._scope_registry  # type: ignore[attr-defined]
+        assert "rk5" in registry, (
+            "app.execute mints the scope before the engine is reached; "
+            "if this ever stops being true, the contract note can be dropped"
+        )
+        assert not _scope(root, "rk5"), "the durable half must stay untouched"
