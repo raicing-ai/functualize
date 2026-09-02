@@ -86,9 +86,49 @@ Message Convention, Pull Request Guidelines.
 | Writing tests | `contributor/reference/testing-strategy.md` (domain-mirrored dirs + `tests/_support/` fixtures; no `tests/unit/` or `tests/properties/` dirs) |
 | Proposing a new layer, public API surface, or dependency-rule change | ADR is mandatory: record the decision in `contributor/adr/` (template: `contributor/adr/000-template.md`) |
 | Opening a PR, writing a release commit, or unsure how to name a branch | `CONTRIBUTING.md` §§ Branching Strategy / Commit Message Convention / Pull Request Guidelines — the summary in **Git discipline** above covers the common case; read these for breaking changes, the release commit, and why the changelog is hand-written |
+| Adding or changing a job-facing surface (CLI flags, MCP tools, a TUI argument form) | `contributor/adr/010-job-schema-in-core.md` — every such surface must publish the *same* inputs, built by `functualize.app.utils.job_input_schema`. Two renderers is how `Stdout` and `Shell` shipped as required MCP arguments |
+| Editing anything under `skills/` or `.agents/skills/` | The two-directory rule below — they have different audiences, different lifecycles, and only one of them ships |
 | Cutting a release, or bumping the version | `contributor/guides/docs-example-parity.md` — run the executable docs/examples parity pass. The release audit's doc scan is *static*: it checks that paths, symbols and syntax exist. A behavioural claim like "this field is masked" passes it while being false, which is how a breaking change reached ~50 doc pages and 20 example projects unnoticed |
 | Understanding overall architecture | `contributor/architecture/overview.md` + `contributor/architecture/codemaps/` (module catalog, measured fan-in, entry points, data flow) |
 | About to add a setting, filter, cache, registry, or TUI panel — or to debug one that "resolves but does nothing" | `contributor/reference/pitfalls.md` — 18 defects that already shipped here, each with the shape of the trap named. Several passed review *and* a test; four were only visible on the warm-cache or lazy-boot path |
+
+### Two skill directories, one rule
+
+| Directory | Audience | Ships? | Synced into |
+|---|---|---|---|
+| `.agents/skills/` | People working **on** functualize | No | `.claude/skills/` by symlink |
+| `skills/` | People **using** functualize | **Yes** — force-included into the wheel as `functualize/_skills` | A user's project, via `func builtin skills install` |
+
+`skills/` is the source of truth for what an installed functualize hands to a
+coding agent. It is carried into the distribution by
+`[tool.hatch.build.targets.wheel.force-include]`, located at runtime by
+`_cli/skills.py`, and surfaced by `func builtin skills` and `func builtin info`.
+
+Editing it has consequences an ordinary doc edit does not:
+
+- **Every API name in that prose is a claim about the code.** `tests/skills/`
+  checks them against the running framework — capability table against the
+  executor's injection dispatch, `func builtin …` strings against
+  `BUILTIN_COMMANDS`, exit codes against `ExitCode`, template names against the
+  scaffold registry. Run `uv run pytest tests/skills/ -q` after touching either
+  the skills or the surfaces they describe.
+- **Frontmatter stays on the portable six** (`name`, `description`, `license`,
+  `compatibility`, `metadata`, `allowed-tools`). Claude Code's extra fields are
+  rejected by claude.ai upload and the Skills API. `name` must equal the
+  directory name or the skill silently never activates.
+- **Prefer deferring to introspection over freezing API prose.** A line that
+  says "run `func builtin info`" cannot go stale; a transcribed flag list can.
+
+Decisions: `contributor/adr/006-end-user-agent-skills.md` (authoring and
+distribution), `contributor/adr/009-shipping-skills-in-the-distribution.md`
+(packaging, the `skills` builtin, and the conformance suite), and
+`contributor/adr/010-job-schema-in-core.md` (`builtin info` subcommands, the
+single schema renderer, and `[cli] output`).
+
+Model-graded skill evals live in `evals/` (promptfoo). Rules that can be settled
+without a model belong in `tests/skills/`; `evals/` covers what only a real
+agent run can show — which skill a prompt routes to, and whether the guidance
+actually changes what the agent does.
 
 ## Architecture
 

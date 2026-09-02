@@ -1,0 +1,133 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+#
+# Axis 3 for `functualize-skill`: the meta skill. Its output is *another
+# skill*, so grading is two-stage — does the bundled script run, and is the
+# produced SKILL.md well formed.
+#
+#   npx promptfoo eval -c suites/functualize-skill.yaml --no-cache
+
+description: functualize-skill — is the skill it authors actually well formed?
+
+prompts:
+  - '{{task}}'
+
+providers:
+  - id: file://../providers/claude_agent.py
+    label: with-skills
+    config:
+      # Pinned: routing and task quality differ per model, so an
+      # unpinned default makes runs non-comparable. FZ_EVAL_MODEL overrides.
+      model: claude-sonnet-5
+      with_skills: true
+      sandbox: docker
+      max_turns: 50
+      # promptfoo's OWN worker timeout, in MILLISECONDS. Unset, it kills the
+      # worker at 300s regardless of `timeout_s` below — which is a harness key
+      # this provider reads, invisible to promptfoo. Two cases in the first real
+      # run died as "Python worker timed out after 300000ms" while the suite
+      # believed it had allowed 1200s. Keep it above timeout_s * 1000 so the
+      # harness's own timeout (which reports *which* case and why) fires first.
+      timeout: 1620000
+      timeout_s: 1500
+
+defaultTest:
+  options:
+    # A list-valued var is a promptfoo *var-expansion axis*, not a list value:
+    # without this, `setup` and `checks` arrive as bare strings (so the provider
+    # iterates them one CHARACTER per container) and a 2-element `checks` fans
+    # the case out into 2 rows that each verify only half the contract.
+    disableVarExpansion: true
+  vars:
+    setup:
+      - 'uv sync --quiet 2>/dev/null || true'
+
+tests:
+  # -- Two-stage: the bundled script must run, and the frontmatter must stay
+  #    on the portable six fields the spec defines (SKILL.md §2).
+  - description: authors a skill whose script runs and whose frontmatter is legal
+    vars:
+      fixture: bootstrap
+      task: >-
+        Write an agent skill called `changelog-check` that verifies a repo's
+        CHANGELOG.md has an entry for the current version in pyproject.toml. The
+        script should do real work — structured output, a proper --help, and it
+        should be testable. Put it somewhere sensible in this repo.
+      checks:
+        - 'test -f "$(find . -name SKILL.md -path "*changelog-check*" | head -1)"'
+        - 'cd "$(dirname "$(find . -name SKILL.md -path "*changelog-check*" | head -1)")" 2>/dev/null || exit 1; uv run func --help'
+    assert:
+      - type: python
+        value: file://../asserts/checks_pass.py
+      - type: python
+        value: file://../asserts/frontmatter_legal.py
+
+  # -- Claim (SKILL.md §1): where a skill lives determines what it may assume.
+  #    A shared team repo is the case where "assume nothing about the host" is
+  #    wrong in the other direction — it should be committed, not personal.
+  - description: places a team skill in the committed project path, not a personal one
+    vars:
+      fixture: team-repo
+      task: >-
+        Our team keeps hitting the same problem: nobody remembers the release
+        steps. Turn the steps in RELEASE.md into an agent skill so everyone gets
+        it automatically.
+      checks:
+        - 'test -d .claude/skills'
+    assert:
+      - type: python
+        value: file://../asserts/checks_pass.py
+      - type: python
+        value: file://../asserts/frontmatter_legal.py
+      - type: llm-rubric
+        value: >-
+          The response places the new skill under the repo's committed
+          `.claude/skills/` directory so the whole team gets it. It FAILS if it
+          puts the skill in the user's personal `~/.claude/skills/`, or if it
+          builds a plugin marketplace for what is a single-repo team skill.
+
+  # -- Claim (SKILL.md §"Scripts that do real work", which forwards to the
+  #    [standalone-scripts reference](../../skills/functualize-app/references/standalone-scripts.md)):
+  #    a skill's bundled script is a single PEP 723 file, so it runs on a machine
+  #    that has only uv — the skill cannot assume a project around it.
+  #
+  #    The `bootstrap` fixture cannot prove this. `uv run` walks *up* to the
+  #    nearest project, so `uv run func --help` inside a skill directory there
+  #    resolves against bootstrap's own `workbench` project and succeeds whether
+  #    or not the bundled script is self-contained. This case therefore uses a
+  #    fixture with no project at all, and invokes the script the agent actually
+  #    wrote rather than a bare `func`.
+  - description: bundles a standalone PEP 723 script in the skill it authors
+    vars:
+      fixture: loose-script
+      task: >-
+        Write an agent skill called `disk-audit` that reports which
+        subdirectories under a path are using the most disk. The skill needs a
+        bundled script that does the real work — structured output, a proper
+        --help, and it must run on a machine that has uv installed and nothing
+        else.
+      checks:
+        - 'test -f "$(find . -name SKILL.md -path "*disk-audit*" | head -1)"'
+        # Invoke the bundled script itself. `uv run --script` would exit 0 on a
+        # file that merely defines a function, so it cannot be used here.
+        - 'S=$(find . -path "*disk-audit*" -name "*.py" ! -name "test_*" ! -name "*_test.py" | head -1); test -n "$S" && uv tool run --from "functualize[cli] @ file://$(cat functualize-path.txt)" func "$S" --help'
+        # No project was invented around the skill.
+        - 'test ! -f pyproject.toml'
+    assert:
+      - type: python
+        value: file://../asserts/checks_pass.py
+      - type: python
+        value: file://../asserts/frontmatter_legal.py
+      - type: python
+        value: file://../asserts/source_contract.py
+        config:
+          require:
+            - pattern: '#\s*///\s*script'
+              label: bundled script carries PEP 723 inline metadata
+            - pattern: '(?m)^#\s*job\s*='
+              label: 'job = declares the entry point'
+            - pattern: 'functualize\[cli\]'
+              label: '[cli] extra in the script dependencies'
+            # "Structured output" has one right answer: the explicit Stdout
+            # capability, which `--output json` then makes machine-readable.
+            - pattern: '\bStdout\b'
+              label: structured output through the Stdout capability

@@ -1,0 +1,175 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+#
+# Axis 3 for `functualize-app`: the procedural skill. Cases here are graded
+# almost entirely on execution, because "build me a working CLI" has an
+# unambiguous pass condition.
+#
+#   npx promptfoo eval -c suites/functualize-app.yaml --no-cache
+
+description: functualize-app skill — does the program it builds actually run?
+
+prompts:
+  - '{{task}}'
+
+providers:
+  - id: file://../providers/claude_agent.py
+    label: with-skills
+    config:
+      # Pinned: routing and task quality differ per model, so an
+      # unpinned default makes runs non-comparable. FZ_EVAL_MODEL overrides.
+      model: claude-sonnet-5
+      with_skills: true
+      sandbox: docker
+      max_turns: 60
+      # promptfoo's OWN worker timeout, in MILLISECONDS. Unset, it kills the
+      # worker at 300s regardless of `timeout_s` below — which is a harness key
+      # this provider reads, invisible to promptfoo. Two cases in the first real
+      # run died as "Python worker timed out after 300000ms" while the suite
+      # believed it had allowed 1200s. Keep it above timeout_s * 1000 so the
+      # harness's own timeout (which reports *which* case and why) fires first.
+      timeout: 1920000
+      timeout_s: 1800
+
+defaultTest:
+  options:
+    # A list-valued var is a promptfoo *var-expansion axis*, not a list value:
+    # without this, `setup` and `checks` arrive as bare strings (so the provider
+    # iterates them one CHARACTER per container) and a 2-element `checks` fans
+    # the case out into 2 rows that each verify only half the contract.
+    disableVarExpansion: true
+  vars:
+    setup:
+      - 'uv sync --quiet 2>/dev/null || true'
+
+tests:
+  # -- Claim: "Scaffold rather than hand-roll." An agent that hand-rolls a
+  #    pyproject and a main.py may still produce something that runs, so this
+  #    is graded on both the trace and the result.
+  - description: greenfield — scaffolds, then ships something that runs and tests green
+    vars:
+      fixture: bootstrap
+      task: >-
+        Build me a command-line tool called `backupctl` for managing homelab
+        backup jobs. It should have a job to list configured backup targets and
+        a job to run a backup against one target (just simulate the backup, do
+        not touch any real files). Use functualize — it is already installed
+        here. Set it up properly with tests.
+      # The scaffold puts the program in ./backupctl/; tolerate either layout
+      # rather than dictating one, since the skill does not mandate a location.
+      checks:
+        - 'cd "$(dirname "$(find . -name pyproject.toml -path "*backupctl*" | head -1)")" 2>/dev/null || true; uv run func --help'
+        - 'cd "$(dirname "$(find . -name pyproject.toml -path "*backupctl*" | head -1)")" 2>/dev/null || true; uv run pytest -q'
+    assert:
+      - type: python
+        value: file://../asserts/trace_contract.py
+        config:
+          require_bash:
+            - pattern: 'func\s+builtin\s+scaffold\s+init'
+              label: used the scaffold instead of hand-rolling
+      - type: python
+        value: file://../asserts/checks_pass.py
+
+  # -- Claim (SKILL.md §1): "Scaffold output is yours... do not re-run `add`
+  #    over a file you have edited." This is the one destructive failure mode
+  #    in the skill, and it is directly observable in the trace.
+  - description: brownfield — does not re-scaffold over hand-edited files
+    vars:
+      fixture: uv-mise-repo
+      task: >-
+        The `ping` job in src/acme/jobs.py is ours and has been edited by hand —
+        leave its behaviour alone. Add a second job called `status` that reports
+        how many jobs this app exposes.
+      checks:
+        # Return values are not auto-emitted (Stdout is an explicit
+        # capability), so exit 0 is the signal that ping still works.
+        - 'uv run func ping'
+        - 'uv run func status'
+    assert:
+      - type: python
+        value: file://../asserts/trace_contract.py
+        config:
+          forbid_bash:
+            - pattern: 'scaffold\s+add\s+job\s+ping'
+              label: re-scaffolded over the hand-edited job
+      - type: python
+        value: file://../asserts/checks_pass.py
+
+  # -- Claim: config belongs in a JobConfig pydantic model, not in bare
+  #    Arg/Option markers, when it is genuinely configuration.
+  - description: reaches for JobConfig rather than a pile of flags
+    vars:
+      fixture: uv-mise-repo
+      task: >-
+        Add a job called `deploy` that needs: a target environment, a region, a
+        timeout in seconds, and a dry-run switch. These come from our deployment
+        config and are the same on most runs — only dry-run really varies per
+        invocation.
+      checks:
+        - 'uv run func deploy --help'
+    assert:
+      - type: python
+        value: file://../asserts/source_contract.py
+        config:
+          require:
+            - pattern: 'BaseModel|JobConfig'
+              label: config modelled with pydantic
+      - type: python
+        value: file://../asserts/checks_pass.py
+
+  # -- Claim (SKILL.md §1, first row of the decision table): "One command, no
+  #    project, must run anywhere ⇒ a single file with a PEP 723 header."
+  #
+  #    Every other case in this suite wants a project, and the greenfield case
+  #    *requires* `scaffold init` in the trace — so an agent that scaffolds
+  #    unconditionally scores full marks on all of them. This is the row that
+  #    catches it, and the only case in the directory where creating a project
+  #    is the wrong answer.
+  #
+  #    The `loose-script` fixture has no pyproject.toml on purpose. Checks
+  #    invoke through `func <script>` with functualize supplied from the local
+  #    checkout, which is verified to work and does not depend on which shebang
+  #    the agent chose: `uv run --script script.py` executes the module body and
+  #    exits 0 having run nothing, so a check written that way passes on a file
+  #    that is not a program at all.
+  - description: standalone — one file with a PEP 723 header, not a scaffolded project
+    vars:
+      fixture: loose-script
+      task: >-
+        I need a single command that reports how much disk each subdirectory
+        under a given path is using. I want to hand it to a colleague who has uv
+        installed and nothing else — no project, no package, one file they can
+        run. Call the file `disk_report.py` and let it take the directory as
+        `--path`.
+      checks:
+        # `uv tool run`, not `uvx`: the sandbox image copies only `/uv` from
+        # the upstream uv image, so `uvx` is not on PATH in the container.
+        - 'uv tool run --from "functualize[cli] @ file://$(cat functualize-path.txt)" func disk_report.py --help'
+        - 'uv tool run --from "functualize[cli] @ file://$(cat functualize-path.txt)" func disk_report.py --path .'
+        # The shape itself: a project here would mean the decision table was
+        # read the wrong way round.
+        - 'test ! -f pyproject.toml'
+    assert:
+      - type: python
+        value: file://../asserts/trace_contract.py
+        config:
+          forbid_bash:
+            - pattern: 'scaffold\s+init'
+              label: scaffolded a project for a one-file program
+      - type: python
+        value: file://../asserts/source_contract.py
+        config:
+          require:
+            - pattern: '#\s*///\s*script'
+              label: PEP 723 inline metadata block
+            # Without this table `func file.py --path x` reads `--path` as a
+            # *function name* and fails with "Function '--path' not found".
+            - pattern: '(?m)^#\s*\[tool\.functualize\]'
+              label: '[tool.functualize] table present'
+            - pattern: '(?m)^#\s*job\s*='
+              label: 'job = declares which job the file is'
+            # click/rich/textual are optional extras: a bare `functualize`
+            # dependency produces a program that cannot run.
+            - pattern: 'functualize\[cli\]'
+              label: '[cli] extra in dependencies'
+      - type: python
+        value: file://../asserts/checks_pass.py

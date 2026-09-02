@@ -73,7 +73,41 @@ def _make_pure_group(name: str) -> NormalizingGroup:
 # ─── Groups ──────────────────────────────────────────────────────────────
 
 
-class NormalizingGroup(click.Group):
+class AgentEpilogGroup(click.Group):
+    """A root ``click.Group`` that renders the agent block at the left margin.
+
+    Click renders ``epilog`` inside ``formatter.indentation()`` and puts it
+    through ``wrap_text``. Both hurt: the heading ends up two columns *under*
+    "Commands:", reading as another command rather than a new section, and the
+    extra indent pushes the widest line past a narrow terminal so it wraps
+    mid-word through a hand-aligned table.
+
+    Written verbatim instead, and **built at render time from the name click
+    was actually invoked as** — a project's own ``main.py`` must not be told to
+    run ``func``. See ``_primitives/agent_epilog.py``.
+
+    Mixed into ``NormalizingGroup`` so both root groups an app can end up with
+    (``NormalizingGroup`` and ``FallbackGroup``) inherit it, and used by
+    ``func``'s own group in ``_cli/main.py``. One definition: a second copy of
+    this is how the block came to exist on one entry point only.
+    """
+
+    #: Off by default, because ``NormalizingGroup`` is also every *sub*group in
+    #: the trie — a default of True repeats the block on `builtin --help`, on
+    #: each job group, and on down. Only whoever builds the root turns it on.
+    emit_agent_epilog: bool = False
+
+    def format_epilog(self, ctx: click.Context, formatter: Any) -> None:
+        if not self.emit_agent_epilog:
+            super().format_epilog(ctx, formatter)
+            return
+
+        from functualize._primitives.agent_epilog import write_agent_epilog
+
+        write_agent_epilog(ctx.find_root().info_name or "func", formatter)
+
+
+class NormalizingGroup(AgentEpilogGroup):
     """click.Group that resolves a command name through the naming policy.
 
     Jobs register under their canonical name (``build-wheel``), so this is what
@@ -751,6 +785,10 @@ class CliAdapter:
             # must not depend on whether a fallback chain happens to be wired.
             group_cls = FallbackGroup if self._fallbacks else NormalizingGroup
             self._cli_group = group_cls(name=app.name, invoke_without_command=True)
+            # This is the root, so it is the one group that carries the agent
+            # block. A caller who brings their own group keeps their own help
+            # text — turning it on there would edit output they own.
+            self._cli_group.emit_agent_epilog = True
 
         should_register_callback = (
             register_callback

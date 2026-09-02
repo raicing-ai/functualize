@@ -50,7 +50,9 @@ logger = logging.getLogger(__name__)
 # parameters as a job's `config_fields` when it has no config class, and the
 # warm-boot command builder renders those as CLI params — so `sh: Shell` became
 # a required positional `SH` on every run after the first, and `out: Stdout` on
-# every run. One list now, in `_primitives`.
+# every run. The same drift published both as required arguments on the MCP
+# `inputSchema`, the surface `_primitives/job_schema.py` now renders.
+# One list now, in `_primitives`.
 _EXCLUDED_PARAM_TYPE_NAMES = INJECTED_PARAM_TYPE_NAMES
 
 # Capability marker type names harvested into job-level JobDescriptor flags

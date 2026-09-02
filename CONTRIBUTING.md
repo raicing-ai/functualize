@@ -298,21 +298,33 @@ in the commit footer instead.
 ## Release Process
 
 ```bash
-# 1. Bump the version in all THIRTEEN places it is declared:
+# 1. Bump the version in all SEVENTEEN places it is declared:
 #    - pyproject.toml               version = "X.Y.Z"
 #    - src/functualize/__init__.py  __version__ = "X.Y.Z"
 #    - plugins/*/pyproject.toml     version = "X.Y.Z"   (11 packages)
+#    - skills/*/SKILL.md            metadata.version    (4 skills)
 #
-#    Then verify none was missed. This must print exactly one line, "13":
-grep -h -e '^version = ' -e '^__version__ = ' \
-  pyproject.toml src/functualize/__init__.py plugins/*/pyproject.toml \
+#    Then verify none was missed. This must print exactly one line, "17":
+{ grep -h -e '^version = ' -e '^__version__ = ' \
+    pyproject.toml src/functualize/__init__.py plugins/*/pyproject.toml
+  grep -h -m1 '^  version:' skills/*/SKILL.md; } \
   | grep -o '"[^"]*"' | sort | uniq -c
 
-#    Thirteen is the whole list. `tests/test_packaging.py` asserts that
+#    Seventeen is the whole list. `tests/test_packaging.py` asserts that
 #    `__version__`, the installed dist metadata and `pyproject.toml` all agree,
 #    deriving the expected value rather than hardcoding it -- so it catches a
-#    missed site without being a fourteenth one. It used to hardcode `0.1.0`,
+#    missed site without being an eighteenth one. It used to hardcode `0.1.0`,
 #    which meant following this checklist exactly still landed a red suite.
+#
+#    The four skills are checked the same way, by
+#    `tests/skills/test_frontmatter.py::test_metadata_version_tracks_the_package`
+#    against `__version__`. `metadata.version` is inert to every skills client
+#    (there is no `version` field in the spec), but it is what an installed
+#    skill self-identifies with, and a stale value is worse than none. Note the
+#    `-m1`: `functualize-skill/SKILL.md` also contains an *example* frontmatter
+#    block teaching skill authoring, at the same indentation and with its own
+#    version. It is not a release site and must not be bumped, so only the
+#    first match in each file counts.
 
 # 2. Update CHANGELOG.md
 #    - Move items from [Unreleased] to new [X.Y.Z] section

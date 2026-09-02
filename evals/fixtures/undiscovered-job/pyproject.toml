@@ -1,0 +1,13 @@
+[project]
+name = "warehouse"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["functualize[cli]"]
+
+[tool.uv.sources]
+functualize = { path = "{{REPO_ROOT}}" }
+
+# A bare jobs directory with no FunctualizeApp — the `job-folder` shape. There
+# is nothing to build, so uv must not try to install this project itself.
+[tool.uv]
+package = false

@@ -176,6 +176,13 @@ class ScaffoldGenerator:
                 if not init_file.exists():
                     init_file.write_text("")
 
+        # A .gitignore is emitted for every template, not just those with config
+        # layers: without one, a scaffolded project has nothing keeping .env and
+        # the per-environment config overlays out of version control.
+        gitignore_path = target_dir / ".gitignore"
+        if not gitignore_path.exists():
+            self._render_template("_shared/gitignore.j2", gitignore_path, context)
+
         # Render shared config layer files if the template declares has_config_layers
         if manifest.has_config_layers:
             shared_configs = {

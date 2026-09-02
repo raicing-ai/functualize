@@ -16,6 +16,12 @@ build/
 .spec/plans/
 .spec/.agentic-coding
 .spec/STATE.md
+# A one-hour spec-gate bypass token, not a repository artifact. The *ledger* of
+# uses (.spec/exemptions.log) is committed and is the real mitigation; the token
+# itself is per-session, and committing it would hand everyone else a live
+# bypass. Ignored because the documented escape hatch otherwise sits in
+# `git status` waiting to be added by accident.
+.spec/EXEMPT
 .opencode/
 
 
