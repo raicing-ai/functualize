@@ -101,9 +101,28 @@ reshape the prelude to accommodate the move.
 
 ## Wave 1 — the wiring
 
-### T2.1 — Refuse an unbindable launch before the prelude walks
+### [x] T2.1 — Refuse an unbindable launch before the prelude walks
 
-**[F]** `src/functualize/_engine/executor.py`
+**[F]** `src/functualize/_engine/executor.py`,
+`tests/workflow/test_launch_validation.py`,
+`tests/engine/test_unexpected_keyword.py` *(rename only)*
+
+> **`[F]` widened, disclosed.** As authored it named `executor.py` alone while
+> its gate was A1 and A2 — criteria that cannot be met without a test file. The
+> same authoring error as T1.2's: scope derived from prose, gate derived from a
+> separate reading.
+>
+> The rename is incidental and real: `tests/engine/test_launch_validation.py`
+> (T1.1) collided on basename with the new `tests/workflow/` file, and neither
+> directory carries an `__init__.py`, so pytest refused to collect both. T1.1's
+> isolated run could not have seen it. Renamed to `test_unexpected_keyword.py`.
+>
+> One departure from the plan, deliberate: `_failure_before_execution` was
+> **extracted and shared** with the existing `ValidationError` handler rather
+> than duplicated. The plan said "return through the established refusal shape";
+> copying ~28 lines to do that would have created the second implementation this
+> codebase keeps writing ADRs about. The config-integration tests observe that
+> handler (they go red under T1.2's sabotage), so the extraction is covered.
 
 Between the moved `ExecutionContext` and the prelude block, when
 `getattr(function, "__functualize_workflow__", None)` is not `None`, call
@@ -126,10 +145,16 @@ arrives correctly and re-checking it here would change its hook sequence.
   argument. Assert the two against **each other**, never against a hardcoded
   string (RK2).
 
-**Reachability:** the production call path is
-`FunctualizeApp.execute` → `JobExecutionEngine.execute` → this branch. Verify by
-breaking the branch and watching the `StateStore` assertion fail — not by
-observing that a test calls the helper.
+**Reachability — verified.** The production call path is
+`FunctualizeApp.execute` → `JobExecutionEngine.execute` → `_execute_lifecycle` →
+the `declaration is not None` branch → `unexpected_keyword_error` →
+`_failure_before_execution`.
+
+**Sabotage** (`if False:` on the branch): **3 failed, 9 passed** — A1 and both
+A2 cells. The control cell (a clean launch reaching the gate) correctly stayed
+green, and so did T1.1's eight rule tests, which do not depend on the wiring.
+That split is the evidence the gate observes the *integration* and not just the
+component. Restored clean.
 
 ---
 
