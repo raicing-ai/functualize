@@ -1,6 +1,8 @@
 """Delivery-agnostic argument validation for job functions.
 
 Provides:
+- unexpected_keyword_error(): decides whether a callable can accept a set of
+  keyword arguments, without requiring the ones it is still missing
 - ArgValidator: validates function kwargs against Pydantic Field() constraints
 - _build_validation_model(): introspects a function signature, extracts
   Field()-annotated params via Annotated unwrapping, and builds a dynamic
@@ -15,13 +17,53 @@ Only imports from `_types/`, `_primitives/`, and stdlib (plus pydantic for model
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Annotated, Any, get_args, get_origin
 
 from pydantic import BaseModel, create_model
 from pydantic.fields import FieldInfo
 
 from functualize._types.annotations import resolved_hints
+
+
+def unexpected_keyword_error(
+    function: Callable[..., Any], kwargs: Mapping[str, Any]
+) -> TypeError | None:
+    """The ``TypeError`` calling ``function(**kwargs)`` would raise, or ``None``.
+
+    Answers one question — *may the caller supply these keywords?* — and
+    deliberately not the other one, *are all required arguments present?*
+    ``Signature.bind_partial`` is exactly that split: it rejects a keyword the
+    signature cannot accept, tolerates a parameter nothing has filled yet, and
+    honours ``**kwargs`` by accepting anything.
+
+    That split is what makes this usable *before* dependency injection has run.
+    A job function's parameters are mostly capabilities the engine fills
+    (``Log``, ``Stdout``) and ``FromJob`` results recorded by upstream steps;
+    none of them exist at launch, so a completeness check there would reject
+    every valid call. Note this does **not** mean DI parameters are excluded —
+    they are ordinary declared parameters, and a caller has always been able to
+    supply one explicitly (the engine injects only names the caller did not
+    provide). Membership in the signature is the whole question.
+
+    ``bind_partial`` omits the ``fn()`` prefix that a real call's message
+    carries, so it is added back here. Python owns the rule; this function owns
+    only the wording, and the caller owns the timing.
+
+    Args:
+        function: The callable the keywords would be passed to.
+        kwargs: The keyword arguments a caller supplied.
+
+    Returns:
+        A ``TypeError`` worded as the real call would word it, or ``None`` when
+        every keyword is acceptable.
+    """
+    try:
+        inspect.signature(function).bind_partial(**kwargs)
+    except TypeError as exc:
+        name = getattr(function, "__name__", None) or repr(function)
+        return TypeError(f"{name}() {exc}")
+    return None
 
 
 class ArgValidator:
