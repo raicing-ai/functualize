@@ -1094,6 +1094,41 @@ Items identified during development that are worth doing but not yet designed:
     rush. But it is the failure class `AGENTS.md:82` names: shipped, unit-tested,
     and unreachable on the path that matters.
 
+21. **`functualize-lambda` reports every failure as HTTP 200 with a null body.**
+    The generated handler
+    (`plugins/functualize-lambda/src/functualize_lambda/__init__.py:126`) does
+
+    ```python
+    result = app.execute(job_name, **job_kwargs)
+    return {"statusCode": 200, "body": result.return_value}
+    ```
+
+    `result.status` is never read. A job that fails validation, fails its guards,
+    or raises — anything that comes back as a `JobResult` rather than an escaping
+    exception — returns `{"statusCode": 200, "body": None}`, which is
+    indistinguishable from a job that succeeded and returned nothing. Only an
+    exception that escapes `execute()` reaches the `except` branch and becomes a
+    500, and the engine's whole design is that failures *do not* escape: they are
+    returned so the CLI can render them instead of a traceback. So the branch that
+    reports failure is the one the engine tries hardest never to take.
+
+    Contrast `functualize-http`, which surfaces `result.status` in its response
+    body (`__init__.py:175-181`) and is correct today. Two trigger plugins,
+    one `JobResult`, two answers.
+
+    Surfaced 2026-09-02 while writing contracts for
+    `.spec/features/workflow-launch-validation/` — a refused workflow launch is a
+    `FAILURE` result, and tracing where each surface would show it found this. It
+    is **pre-existing and unrelated to that feature**, which is why it was
+    recorded rather than folded in; the launch-validation contracts note it so a
+    reviewer comparing surfaces does not read it as newly introduced.
+
+    **Fix**: map `RunStatus` to a status code the way the HTTP plugin does, or at
+    minimum carry `status` in the body. Wants a decision on what a Lambda caller
+    should see for `BLOCKED` — a gated workflow reached through Lambda is neither
+    a success nor an error, and that is the case the mapping has to name rather
+    than round off.
+
 ## Recently Completed (2026-08)
 
 | Feature | Description |
