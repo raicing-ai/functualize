@@ -12,7 +12,7 @@ Reproduction fixture throughout: `examples/standalone/composition_lab/`, whose
 
 ## Wave 0 — the rule, and the move that makes room for it
 
-### T1.1 — `unexpected_keyword_error` in `_engine/validation.py`
+### [x] T1.1 — `unexpected_keyword_error` in `_engine/validation.py`
 
 **[F]** `src/functualize/_engine/validation.py`,
 `tests/engine/test_launch_validation.py`
@@ -40,9 +40,31 @@ message carries the `fn()` prefix.
 **Sabotage:** replace the body with `return None`; the rejection rows must fail.
 Commit before sabotaging.
 
-### T1.2 — Construct `ExecutionContext` above the workflow prelude
+### [x] T1.2 — Construct `ExecutionContext` above the workflow prelude
 
-**[F]** `src/functualize/_engine/executor.py`
+**[F]** `src/functualize/_engine/executor.py`,
+`tests/engine/test_lifecycle_order.py`,
+`contributor/reference/execution-lifecycle.md`
+
+> **The gate below was wrong as authored, and its own escape hatch caught it.**
+> The original `[F]` was `executor.py` alone and the original gate was
+> `-k workflow` + the combination matrix + `tests/workflow/`. Under sabotage
+> (a corrupted `job_name` on the moved constructor) that selection stayed
+> **70 passed** — it does not observe the moved line at all.
+>
+> Widening the sabotage to `tests/engine/ tests/config/ tests/execution/`
+> turned **7 red**, one of them
+> `test_lifecycle_order.py::test_the_method_follows_the_documented_sequence` —
+> the test `AGENTS.md` names as failing "if the sequence moves", which is
+> precisely this move. Run against the *unsabotaged* move it was **already
+> red**: the move reorders steps 2 and 3 of a pinned twenty-step contract.
+>
+> So the move needs `execution-lifecycle.md` and the test's `_DOCUMENTED_ORDER`
+> updated with it — the page states *why* each step sits where it does, and the
+> test's failure message asks for that page in the same commit. Both are now in
+> the `[F]` above. Recorded rather than silently corrected, per
+> *Acceptance Gates*: the file scope must equal the gate's hit set, and deriving
+> it from prose is exactly how it came out wrong.
 
 Move the `ExecutionContext(...)` construction (`:808`) to immediately before the
 workflow-prelude block (`:789`). **No other change** — no check wired, no
@@ -52,13 +74,24 @@ This lands alone precisely because it is the feature's one risky move (RK1). A
 diff that also introduces the check cannot tell a regression from the move apart
 from a regression from the check.
 
-**Gate:** `uv run pytest -k workflow` and
-`tests/group_options/test_combination_matrix.py` green, and
-`tests/workflow/test_gate_resume_surfaces.py` green.
+**Gate (corrected):** `uv run pytest tests/engine/ tests/config/
+tests/execution/ tests/group_options/test_combination_matrix.py tests/workflow/`
+green. `tests/engine/test_lifecycle_order.py` is the load-bearing member — it is
+the only one that observes a *reorder* rather than merely a behaviour.
 
-**Sabotage:** pass a wrong `job_name` to the moved constructor; the workflow
-suite must go red. If it does not, those tests do not cover the move and the
-gate is wrong — say so rather than proceeding.
+**Sabotage:** pass a wrong `job_name` to the moved constructor; the gate must go
+red. Against the corrected selection it turns **6 red** (4 in
+`test_unified_config_integration.py`, 2 in `test_runcontext_log_sink.py`) — the
+moved line feeds the config-view section, the `RunContext` name and the job
+logger, and all three are observed. Against the *original* selection it stayed
+**70 passed**, which is what exposed the gate rather than the code.
+
+The count was 7 before `_DOCUMENTED_ORDER` was corrected;
+`test_lifecycle_order.py` now passes under this sabotage because corrupting a
+*value* is not reordering a *step*. Both numbers are recorded because the
+difference between them is the point: one test in that selection watches the
+order and six watch the value, and only the order test bears on the move
+itself.
 
 **If the move is not inert:** stop and take RK1-B (leave construction in place,
 refuse without `AFTER_FAILURE`), and record the retreat in `STATUS.md`. Do not

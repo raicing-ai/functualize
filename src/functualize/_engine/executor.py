@@ -787,6 +787,23 @@ class JobExecutionEngine:
 
         start_time = time.perf_counter()
 
+        # Build execution context. Constructed *above* the workflow prelude, not
+        # below it, because a `@workflow` job can be refused before the prelude
+        # walks — and that refusal fires AFTER_FAILURE, which needs a context to
+        # hand the hook. The prelude itself does not read `context`, so its
+        # position here is inert for every path that reaches the walk.
+        context = ExecutionContext(
+            job_name=job_name,
+            function=function,
+            call_kwargs=dict(kwargs),
+            invoke_depth=invoke_depth,
+            cwd=cwd,
+            job_directory=job_directory,
+            start_time=start_time,
+            config_class=config_class,
+            parent_scope=parent_scope,
+        )
+
         # The @workflow prelude (§A.7): walk the declared graph first, and run
         # the body only if it reached END. A blocked or failed walk returns
         # here, before DI resolution and before any hook fires — the body is
@@ -803,19 +820,6 @@ class JobExecutionEngine:
             )
             if early is not None:
                 return early
-
-        # Build execution context
-        context = ExecutionContext(
-            job_name=job_name,
-            function=function,
-            call_kwargs=dict(kwargs),
-            invoke_depth=invoke_depth,
-            cwd=cwd,
-            job_directory=job_directory,
-            start_time=start_time,
-            config_class=config_class,
-            parent_scope=parent_scope,
-        )
 
         # Resolve DI parameters
         try:
