@@ -10,6 +10,7 @@ rather than a green one.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -33,16 +34,33 @@ class TestTheReportIsProducedAtAll:
     def test_a_recognised_installation_reports_ok(
         self, tmp_path: Path, monkeypatch
     ) -> None:
-        """Pinned, because the suite's own environment is not a recognised one.
+        """Pinned on **both** axes, because the suite's own environment is not a
+        recognised installation on either of them.
 
-        `_isolate_home` strips `XDG_*`, and `tmp_path` declares no project, so
-        an unpinned run here legitimately detects `unknown` — a degraded mode,
-        which doctor is right to warn about. Asserting OK without pinning would
-        have been asserting that the degraded check does not work.
+        *Mode*: `_isolate_home` strips `XDG_*` and `tmp_path` declares no
+        project, so an unpinned run legitimately detects `unknown` — a degraded
+        mode doctor is right to warn about.
+
+        *Owner*: resolved by reverse-mapping `argv[0]` through installed console
+        scripts. Under plain pytest that is `.../bin/pytest`, which resolves to
+        the `pytest` distribution and quietly satisfies the check — but under
+        `pytest -n auto` a worker's `argv[0]` is execnet's bootstrap, which maps
+        to nothing, and doctor correctly warns that self-management is
+        unavailable. **CI caught this and a local run could not**, which is the
+        same environment-dependence `runtime.detect` takes its inputs as
+        parameters to avoid; this test had inherited it through `argv[0]`.
+
+        Pinning `argv[0]` to a real console script keeps the actual resolver in
+        the loop rather than stubbing detection out.
         """
         monkeypatch.setenv("FUNCTUALIZE_RUNTIME", "tool_uv")
+        monkeypatch.setattr(sys, "argv", ["func"])
         report = build_report(cwd=tmp_path)
-        assert report.worst is CheckStatus.OK
+        assert report.worst is CheckStatus.OK, "unexpected non-OK checks: " + "; ".join(
+            f"{c.name}={c.status.value} ({c.detail})"
+            for c in report.checks
+            if c.status in (CheckStatus.WARNING, CheckStatus.CRITICAL)
+        )
 
     def test_a_degraded_mode_is_reported_as_a_warning(
         self, tmp_path: Path, monkeypatch
