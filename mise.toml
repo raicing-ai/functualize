@@ -1,6 +1,31 @@
+[settings]
+experimental = true   # required for [hooks]
+
 [env]
 _.path = ["./.venv/bin"]
 
 [tools]
 python = "3.11"
 uv = "latest"
+
+# A venv is built for one absolute path: every console script in .venv/bin has the
+# interpreter baked into its shebang. Move or copy a worktree and all of them break,
+# with a confusing symptom — `uv run pytest` reports "Failed to spawn: pytest" because
+# the kernel cannot find the interpreter the shebang names, while `python -m pytest`
+# still works. `uv sync` does not repair it; the venv has to be rebuilt.
+#
+# `git worktree add` never copies .venv (it is gitignored), so this only happens when a
+# worktree directory is moved or copied by something other than git.
+[hooks]
+enter = '''
+for f in .venv/bin/pytest .venv/bin/ruff .venv/bin/func; do
+  if [ -f "$f" ]; then
+    read -r line < "$f"
+    case "$line" in
+      "#!$PWD/.venv/"*) ;;
+      "#!"*) printf 'mise: .venv was built elsewhere (%s)\n      fix: rm -rf .venv && uv sync --all-extras\n' "${line#\#!}" >&2 ;;
+    esac
+    break
+  fi
+done
+'''
