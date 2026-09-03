@@ -35,6 +35,7 @@ from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
 from functualize._primitives.config_class_detection import detect_config_class
 from functualize._types.enums import RunStatus
 from functualize._types.exit_codes import ExitCode, exit_code_for_status
+from functualize._types.naming import negative_flag_for
 
 if TYPE_CHECKING:
     from functualize.app.core import FunctualizeApp
@@ -254,8 +255,16 @@ def build_click_params_from_fields(
     # by their order among Arguments in this list regardless of interleaving).
     params: list[click.Parameter] = []
 
+    # Every name on this command, so the negative-form rule sees the whole
+    # collision surface rather than one model's slice of it. Click resolves
+    # `--no-x` across all parameters regardless of which builder emitted them.
+    sibling_names = {field.name for field in fields}
+
     for field in fields:
         click_type, is_flag, multiple = _field_click_type(field)
+        negative_flag = (
+            negative_flag_for(field.name, sibling_names) if is_flag else None
+        )
 
         if getattr(field, "from_config_model", False):
             # A config field is rendered by the config rule, not the signature
@@ -276,6 +285,7 @@ def build_click_params_from_fields(
                         default=field.default,
                     ),
                     short_flag=field.short_flag,
+                    negative_flag=negative_flag,
                 )
             )
             continue
@@ -317,9 +327,16 @@ def build_click_params_from_fields(
                 else f"-{field.short_flag}"
             )
             if is_flag:
+                # A short flag no longer costs the negative form: click binds
+                # the short spelling to the positive half of the pair.
                 params.append(
                     click.Option(
-                        [long_flag, short_flag],
+                        [
+                            f"{long_flag}/{negative_flag}"
+                            if negative_flag
+                            else long_flag,
+                            short_flag,
+                        ],
                         is_flag=True,
                         default=field.default if not field.required else False,
                         help=field.description or None,
@@ -343,7 +360,7 @@ def build_click_params_from_fields(
         if is_flag:
             params.append(
                 click.Option(
-                    [f"--{hyphen}/--no-{hyphen}"],
+                    [f"--{hyphen}/{negative_flag}" if negative_flag else f"--{hyphen}"],
                     default=field.default if not field.required else False,
                     help=field.description or None,
                 )
@@ -396,6 +413,7 @@ def _config_field_option(
     multiple: bool,
     help_text: str,
     short_flag: str | None = None,
+    negative_flag: str | None = None,
 ) -> click.Option:
     """The one rule for rendering a config-model field as a click parameter.
 
@@ -409,12 +427,21 @@ def _config_field_option(
     entered, at the highest precedence there is.
 
     The rule covers the *decision* — parameter class, ``required``, ``default``
-    — not the spelling. ``short_flag`` stays a per-builder input because only
-    the cached descriptor records it: a ``GroupOptions`` field declared
-    ``Option("-e")`` reaches the CLI through this builder alone, and dropping
-    its short form here removed ``-e`` from completion.
+    — not the spelling. ``short_flag`` and ``negative_flag`` stay per-builder
+    inputs because each builder holds context this function does not: the short
+    form comes from an ``Option`` marker, and the negative form depends on
+    every *other* field on the command (a sibling literally named ``no_x``
+    owns ``--no-x``). Both callers must supply them or the two boot paths
+    diverge — the defect that shipped once for ``short_flag`` alone.
+
+    **A boolean renders as a pair**, ``--x/--no-x``, so a value set ``true`` in
+    a config file can be overridden from the command line like every other
+    field type. ``default=None`` survives the pair: absent still yields ``None``,
+    the positive yields ``True`` and the negative ``False``, so the contract
+    above is unchanged.
     """
-    decls = [f"--{name.replace('_', '-')}"]
+    long_flag = f"--{name.replace('_', '-')}"
+    decls = [f"{long_flag}/{negative_flag}" if negative_flag else long_flag]
     if short_flag:
         decls.append(short_flag if short_flag.startswith("-") else f"-{short_flag}")
     return click.Option(
@@ -468,7 +495,9 @@ def _config_field_help(description: str, *, required: bool, default: Any) -> str
     )
 
 
-def _config_option_params(job_config_class: type[BaseModel]) -> list[click.Parameter]:
+def _config_option_params(
+    job_config_class: type[BaseModel], sibling_names: set[str] | None = None
+) -> list[click.Parameter]:
     """Build a ``click.Option`` for every field of a Pydantic config model.
 
     The cold-boot half of the pair described above. Emits through
@@ -477,6 +506,10 @@ def _config_option_params(job_config_class: type[BaseModel]) -> list[click.Param
     from pydantic_core import PydanticUndefined
 
     from functualize._config.job_config import _get_field_type, _is_enum_subclass
+
+    # The whole command's names, not just this model's: click resolves
+    # `--no-x` across every parameter regardless of which builder emitted it.
+    names = set(job_config_class.model_fields) | (sibling_names or set())
 
     params: list[click.Parameter] = []
     for field_name, field_info in job_config_class.model_fields.items():
@@ -515,6 +548,9 @@ def _config_option_params(job_config_class: type[BaseModel]) -> list[click.Param
                 multiple=multiple,
                 help_text=help_text,
                 short_flag=_short_flag_from_metadata(field_info),
+                negative_flag=(
+                    negative_flag_for(field_name, names) if is_flag else None
+                ),
             )
         )
     return params
@@ -551,9 +587,18 @@ def _make_argument(
 
 
 def _option_from_marker(
-    param: inspect.Parameter, marker: Any, base_type: Any
+    param: inspect.Parameter,
+    marker: Any,
+    base_type: Any,
+    sibling_names: set[str] | None = None,
 ) -> click.Option:
-    """Build a ``click.Option`` from an ``Option()`` marker (short/long flags)."""
+    """Build a ``click.Option`` from an ``Option()`` marker (short/long flags).
+
+    A boolean marked this way gets the same ``--x/--no-x`` pair every other
+    boolean gets. It is the fifth site that renders a flag, and the one most
+    easily missed: declaring a short form used to route a bool down here and
+    silently cost it the negative spelling.
+    """
     short_flag: str | None = marker.short
     long_flag: str | None = marker.long
 
@@ -568,7 +613,12 @@ def _option_from_marker(
     if long_flag is None:
         long_flag = f"--{param.name.replace('_', '-')}"
 
-    decls = [long_flag]
+    click_type, is_flag, multiple = _click_type_for(base_type)
+
+    negative = (
+        negative_flag_for(param.name, sibling_names or set()) if is_flag else None
+    )
+    decls = [f"{long_flag}/{negative}" if negative else long_flag]
     if short_flag is not None:
         decls.append(short_flag)
     # Bind the click param name to the function parameter name — a malformed or
@@ -576,7 +626,6 @@ def _option_from_marker(
     # engine callback would receive the wrong keyword.
     decls.append(param.name)
 
-    click_type, is_flag, multiple = _click_type_for(base_type)
     has_default = param.default is not inspect.Parameter.empty
     default = param.default if has_default else None
 
@@ -675,6 +724,11 @@ def build_click_params(
     options: list[click.Parameter] = []
     stdin_markers: dict[str, _StdinMarker] = {}
 
+    # Names visible on this command, for the negative-flag collision rule. The
+    # config builder unions its own model's fields onto this, so a signature
+    # param named `no_cache` still suppresses a config field `cache`.
+    _signature_names = {param.name for param in kept}
+
     for param in kept:
         annotation = param.annotation
         if isinstance(annotation, str) or annotation is inspect.Parameter.empty:
@@ -751,7 +805,9 @@ def build_click_params(
             (m for m in info.cli_markers if isinstance(m, _OptionMarker)), None
         )
         if option_marker is not None:
-            options.append(_option_from_marker(param, option_marker, base_type))
+            options.append(
+                _option_from_marker(param, option_marker, base_type, _signature_names)
+            )
             continue
 
         # ── Plain CLI param (no marker): default rules ──────────────
@@ -759,10 +815,12 @@ def build_click_params(
         click_type, is_flag, multiple = _click_type_for(base_type)
         has_default = param.default is not inspect.Parameter.empty
         if is_flag:
-            # A plain bool param renders as a --flag/--no-flag pair.
+            # A plain bool param renders as a --flag/--no-flag pair, unless a
+            # sibling is literally named `no_<x>` and owns that spelling.
+            negative = negative_flag_for(param.name, _signature_names)
             options.append(
                 click.Option(
-                    [f"--{hyphen}/--no-{hyphen}"],
+                    [f"--{hyphen}/{negative}" if negative else f"--{hyphen}"],
                     default=param.default if has_default else False,
                 )
             )
@@ -781,7 +839,7 @@ def build_click_params(
             )
 
     if job_config_class is not None:
-        options.extend(_config_option_params(job_config_class))
+        options.extend(_config_option_params(job_config_class, _signature_names))
 
     return arguments + options, job_config_class, stdin_markers
 

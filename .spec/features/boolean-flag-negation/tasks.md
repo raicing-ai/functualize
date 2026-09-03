@@ -76,7 +76,7 @@ flag** — so D4 needs no click-side work at all; only `func`'s pre-boot parser
 
 ## Wave 1 — the one rule
 
-### T2.1 — `negative_flag_for`, and the pair in `click_params` (B1, B3, B4; A3, A5)
+### [x] T2.1 — `negative_flag_for`, and the pair in `click_params` (B1, B3, B4; A3, A5)
 
 **[F]** `src/functualize/_types/naming.py`, `src/functualize/app/utils.py`,
 `src/functualize/app/adapters/click_params.py`,
@@ -103,8 +103,33 @@ signature-bool-with-short-flag branch (`:319-330`) gains a pair (B3).
 - a boolean neither set nor negated still resolves `None` from the builder, so
   the ladder is untouched.
 
-**Sabotage:** make `negative_flag_for` return `None` always; the shape test must
-fail. Then make it ignore siblings; the collision test must fail.
+**Result: 11 passed.** Wider check (adapters + group_options + cli + config +
+tui_group_options) → **2121 passed, 453 skipped**.
+
+**Sabotage, both variants:**
+- `negative_flag_for` always `None` → **6 failed / 3 passed** (all four shape
+  cells, the short-flag cell, the rule cell). The survivors are the
+  absence-means-absence cell and the two order cells, which a
+  nothing-has-a-negative world satisfies trivially.
+- `negative_flag_for` ignores siblings → **3 failed / 6 passed**, exactly the
+  collision cells. Restored clean.
+
+#### Two findings this task produced
+
+1. **There are five flag-rendering sites, not four.** `_option_from_marker`
+   (`click_params.py:589`) was missed by the plan and found by the test: a bool
+   declaring a short form routed down that path and silently lost its pair.
+2. **The TUI readiness evaluator had the same bug shape** — `bar.py:290` added
+   `no_<name>` only for a bool *without* a short flag, mirroring the builder
+   defect. `TestReadinessAgreesWithClick` caught it immediately because it
+   derives its expected set from the param builder rather than a table. Fixed
+   here rather than deferred to T3.2, since T2.1 is what turned it red.
+
+**T4.2 was pulled forward from wave 3** for the same reason — the frozen typer
+snapshot goes red the moment the builder changes, and leaving the branch red
+across two waves would hide a real regression behind an expected one. Its stated
+reason for landing late (update from *observed* output) was satisfied: the
+observed rows were in hand before it was touched.
 
 ### T2.2 — The config boolean, end to end (A1, A7)
 
