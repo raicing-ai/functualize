@@ -58,6 +58,25 @@ pipx install "functualize[cli]"
 pip install "functualize[cli]"
 ```
 
+**No Python on the machine?** Download the standalone binary — one executable with Python
+and every first-party plugin already inside it. Its first run needs no network:
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/raicing-ai/functualize/master/install.sh | sh
+```
+
+```powershell
+# Windows
+irm https://raw.githubusercontent.com/raicing-ai/functualize/master/install.ps1 | iex
+```
+
+The script picks the archive for your platform — including the **musl** build on Alpine and
+distroless images — and verifies it against the release checksums before installing. Or take
+the archive from the [releases page](https://github.com/raicing-ai/functualize/releases)
+yourself: extract, `chmod +x func`, run. See
+[Installation](https://raicing-ai.github.io/functualize/getting-started/installation/) for
+the full list of targets.
+
 Verify:
 
 ```bash
@@ -69,6 +88,25 @@ functualize builtin version
 Both `func` and `functualize` are the same command — use whichever you prefer.
 
 > **Adding to a project** (as a library dependency): use `uv add functualize` or `pip install functualize` inside your project instead. The core library has no CLI dependencies — add `functualize[cli]` only if your project uses the `func` CLI or TUI.
+
+### Managing the installation
+
+```bash
+func builtin self doctor              # how was this installed, and what is wrong with it?
+func builtin self update              # upgrade in place, restoring what you added
+func builtin self install <package>   # a dependency your jobs import
+func builtin plugin list              # what extends this installation
+func builtin plugin install <package> # add an extension
+```
+
+Every mutating command prints the exact command it will run before running it. `func builtin
+self update` then restores anything you had added — including packages installed through the
+`func builtin self python -- ...` escape hatch, which it never recorded.
+
+> **Install method decides whether self-update works.** `self update` manages the standalone
+> binary, a `uv tool` install, a `pipx` install, or a project checkout. A bare `pip install`
+> into a system interpreter is not self-managing: the command prints guidance, changes
+> nothing, and exits `3`. `func builtin self doctor` tells you which kind you have.
 
 ### How `func` finds jobs
 

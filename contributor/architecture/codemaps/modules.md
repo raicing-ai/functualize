@@ -103,7 +103,18 @@ Only frozen dataclasses, Enums, Protocol definitions. `descriptors.py` (`JobDesc
 
 ### `_cli/` — CLI + TUI Delivery
 
-`main.py` (entry point — arg routing → `JobSources` → adapter `.run()`), `builtins.py` (`cache`, `version` commands), `scaffold/` (Click + Jinja2 project scaffolding), `dispatch.py` (`detect_mode` — `Mode.SINGLE_FILE|BUILTIN|JOB|GROUP|BARE|UNKNOWN`), `data/pending_execution.py` (10 importers).
+`main.py` (entry point — arg routing → `JobSources` → adapter `.run()`; also the pre-boot intercepts and first-run registration), `builtins.py` (the `builtin` registry and every family's mount point), `scaffold/` (Click + Jinja2 project scaffolding), `dispatch.py` (`detect_mode` — `Mode.SINGLE_FILE|BUILTIN|JOB|GROUP|BARE|UNKNOWN`), `data/pending_execution.py` (10 importers).
+
+##### Self-management (`runtime.py`, `manifest.py`, `package_ops.py`, `self_cmd.py`, `plugin_cmd.py`)
+
+An installation that can report on and change itself. Four notes that are not obvious from the file names:
+
+- **`runtime.py` takes every input as a parameter** — `sys.prefix` cannot be set by an environment variable, so a version reading it directly could only ever be exercised in the one mode the test suite happens to run under. `InstallMode` is named that and never `Mode`: `_cli.dispatch` already exports a live `Mode`, one import away.
+- **`manifest.py` discovers nothing.** Installations appear in `install.json` because they ran and registered themselves. No `PATH` scan, no directory walk, no interrogating another binary — discovery was measured (~2.1 s for five installations) and rejected against a ~39 µs file read. Writes are serialised with an `os.mkdir` lock: atomic replacement prevents a torn file, not a lost update.
+- **`package_ops.py` is the only module here that executes anything**, through `_call`. That is the seam that lets every mutating command be tested end to end without touching the developer's own installation.
+- **Neither `manifest` nor `package_ops` is imported at module scope by `self_cmd`/`plugin_cmd`.** `builtins._mount` imports both command modules while building the `builtin` group, so a module-level import would put the registry on every warm path.
+
+`self_cmd.py`'s `doctor` is intercepted **pre-boot** in `main.py`, beside `--version`: `cli_app` boots a full `FunctualizeApp` before any builtin is reached, so a doctor mounted normally could only ever report success for anything boot-shaped — and would never be reached at all when boot fails.
 
 #### `_cli/tui/` — Full-Screen TUI Subsystem (largest single subsystem)
 

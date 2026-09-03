@@ -60,7 +60,21 @@ _PENDING_NAME = "pending-update.json"
 #: Receipt keys this module knows how to render back into a PEP 508 string.
 #: A key outside this set is a *refusal*, never a silent drop — see
 #: :class:`LossyReceiptError`.
-_KNOWN_REQUIREMENT_KEYS = frozenset({"name", "extras", "specifier", "url", "marker"})
+_KNOWN_REQUIREMENT_KEYS = frozenset(
+    {
+        "name",
+        "extras",
+        "specifier",
+        "url",
+        "marker",
+        # A path install: `uv tool install "/src[cli]"` writes
+        # `{name = "functualize", extras = ["cli"], directory = "/src"}`. Found
+        # by running `plugin install` in a real container, where the merge
+        # correctly refused rather than silently reinstalling from the index.
+        "directory",
+        "editable",
+    }
+)
 
 
 class MissingToolError(RuntimeError):
@@ -253,22 +267,49 @@ class Requirement:
     def unknown_keys(self) -> tuple[str, ...]:
         return tuple(sorted(set(self.fields) - _KNOWN_REQUIREMENT_KEYS))
 
-    def to_pep508(self) -> str:
-        """Reconstruct the requirement string uv was originally given.
+    @property
+    def editable(self) -> bool:
+        return bool(self.fields.get("editable"))
 
-        Raises:
-            LossyReceiptError: the entry carries a key this cannot render.
-        """
+    def _check_renderable(self) -> None:
         if self.unknown_keys:
             raise LossyReceiptError(
                 f"the uv receipt entry for {self.name!r} carries "
                 f"{', '.join(self.unknown_keys)}, which this version cannot "
                 f"reproduce."
             )
-        text = self.name
+
+    def _extras_suffix(self) -> str:
         extras = self.fields.get("extras")
         if isinstance(extras, list) and extras:
-            text += "[" + ",".join(str(e) for e in extras) + "]"
+            return "[" + ",".join(str(e) for e in extras) + "]"
+        return ""
+
+    def to_pep508(self) -> str:
+        """Reconstruct the requirement string uv was originally given.
+
+        A ``directory`` entry renders as **the path itself**, with its extras —
+        ``/src[cli]`` — rather than as a ``name @ file://`` reference. That is
+        literally what the user typed, uv accepts it, and it is the form that
+        survives a re-resolve; a synthesised ``file://`` URL is a second
+        spelling with its own edge cases and buys nothing.
+
+        Raises:
+            LossyReceiptError: the entry carries a key this cannot render, or
+                is editable — see :meth:`install_args`.
+        """
+        self._check_renderable()
+        if self.editable:
+            raise LossyReceiptError(
+                f"the uv receipt entry for {self.name!r} is an editable "
+                f"install, which has no requirement-string form."
+            )
+
+        directory = self.fields.get("directory")
+        if isinstance(directory, str) and directory:
+            return f"{directory}{self._extras_suffix()}"
+
+        text = self.name + self._extras_suffix()
         url = self.fields.get("url")
         specifier = self.fields.get("specifier")
         if isinstance(url, str) and url:
@@ -279,6 +320,33 @@ class Requirement:
         if isinstance(marker, str) and marker:
             text += f" ; {marker}"
         return text
+
+    def install_args(self, *, primary: bool) -> list[str]:
+        """How this requirement is restated to ``uv tool install``.
+
+        Editability is a **flag, not part of a requirement string**, so it
+        cannot go through :meth:`to_pep508` at all: uv spells it ``--editable``
+        for the tool itself and ``--with-editable`` for anything else. Rendering
+        an editable entry as a plain path would reinstall it non-editably, which
+        silently changes what is installed — the failure this whole
+        reconstruction exists to avoid.
+
+        Raises:
+            LossyReceiptError: the entry carries a key this cannot render.
+        """
+        if self.editable:
+            self._check_renderable()
+            directory = self.fields.get("directory")
+            if not isinstance(directory, str) or not directory:
+                raise LossyReceiptError(
+                    f"the uv receipt entry for {self.name!r} is editable but "
+                    f"names no directory, so it cannot be reinstalled."
+                )
+            spec = f"{directory}{self._extras_suffix()}"
+            return ["--editable", spec] if primary else ["--with-editable", spec]
+
+        rendered = self.to_pep508()
+        return [rendered] if primary else ["--with", rendered]
 
 
 @dataclass(frozen=True)
@@ -326,29 +394,56 @@ def merge_receipt(
     Raises:
         LossyReceiptError: some entry cannot be reproduced faithfully.
     """
-    primary = distribution
-    extra_requirements: list[str] = []
+    return _rebuild(receipt, distribution, add=package, drop=None)
+
+
+def _requirement_identity(requirement: Requirement) -> str:
+    """What "the same package" means when deciding whether to add or drop one.
+
+    The receipt's ``name`` field, never the rendered string: a path install
+    renders as ``/src[cli]`` and matching on that would never recognise it as
+    ``functualize``.
+    """
+    return normalize(requirement.name)
+
+
+def _rebuild(
+    receipt: Receipt | None,
+    distribution: str,
+    *,
+    add: str | None,
+    drop: str | None,
+) -> tuple[str, ...]:
+    """Restate a whole tool environment, with one package added or removed.
+
+    One function for both directions because the hard part — reproducing every
+    *other* requirement exactly — is identical, and two copies of it would
+    drift.
+    """
+    owner = normalize(distribution)
+    dropped = normalize(drop) if drop else None
+
+    primary_args: list[str] = [distribution]
+    rest_args: list[str] = []
     python: str | None = None
+    present: set[str] = set()
 
     if receipt is not None:
         python = receipt.python
-        target = normalize(distribution)
         for requirement in receipt.requirements:
-            rendered = requirement.to_pep508()
-            if normalize(requirement.name) == target:
-                primary = rendered
+            identity = _requirement_identity(requirement)
+            if dropped is not None and identity == dropped:
+                continue
+            present.add(identity)
+            if identity == owner:
+                primary_args = requirement.install_args(primary=True)
             else:
-                extra_requirements.append(rendered)
+                rest_args += requirement.install_args(primary=False)
 
-    if normalize(package) != normalize(primary.split("[")[0].split(" ")[0]) and not any(
-        normalize(package) == normalize(r.split("[")[0].split(" ")[0])
-        for r in extra_requirements
-    ):
-        extra_requirements.append(package)
+    if add is not None and normalize(add) not in present:
+        rest_args += ["--with", add]
 
-    args: list[str] = ["tool", "install", primary]
-    for requirement in extra_requirements:
-        args += ["--with", requirement]
+    args = ["tool", "install", *primary_args, *rest_args]
     if python:
         args += ["--python", python]
     return tuple(args)
@@ -527,29 +622,7 @@ def drop_from_receipt(
     receipt: Receipt | None, distribution: str, package: str
 ) -> tuple[str, ...]:
     """:func:`merge_receipt`'s inverse — restate everything *except* ``package``."""
-    primary = distribution
-    extra_requirements: list[str] = []
-    python: str | None = None
-    target = normalize(package)
-
-    if receipt is not None:
-        python = receipt.python
-        owner = normalize(distribution)
-        for requirement in receipt.requirements:
-            if normalize(requirement.name) == target:
-                continue
-            rendered = requirement.to_pep508()
-            if normalize(requirement.name) == owner:
-                primary = rendered
-            else:
-                extra_requirements.append(rendered)
-
-    args: list[str] = ["tool", "install", primary]
-    for requirement in extra_requirements:
-        args += ["--with", requirement]
-    if python:
-        args += ["--python", python]
-    return tuple(args)
+    return _rebuild(receipt, distribution, add=None, drop=package)
 
 
 # ---------------------------------------------------------------------------

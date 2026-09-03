@@ -494,3 +494,144 @@ class TestExecution:
 
     def test_rendering_quotes_paths_with_spaces(self) -> None:
         assert package_ops.render(["/a b/uv", "sync"]) == '"/a b/uv" sync'
+
+
+class TestPathInstalls:
+    """The shapes a *local path* install writes — found by running it.
+
+    `uv tool install "/src[cli]"` writes
+    `{name = "functualize", extras = ["cli"], directory = "/src"}`. Nothing in
+    the unit tests had that shape, so the merge refused every `plugin install`
+    in a container built that way. The refusal was correct; the gap was that
+    `directory` is perfectly renderable and was not being rendered.
+    """
+
+    def test_a_directory_renders_as_the_path_the_user_typed(self) -> None:
+        entry = {"name": "functualize", "extras": ["cli"], "directory": "/src"}
+        assert Requirement("functualize", entry).to_pep508() == "/src[cli]"
+
+    def test_a_directory_without_extras(self) -> None:
+        entry = {"name": "functualize-http", "directory": "/src/plugins/http"}
+        assert Requirement("functualize-http", entry).to_pep508() == "/src/plugins/http"
+
+    def test_a_path_install_merges_without_refusing(self) -> None:
+        receipt = Receipt(
+            requirements=(
+                Requirement(
+                    "functualize",
+                    {"name": "functualize", "extras": ["cli"], "directory": "/src"},
+                ),
+            )
+        )
+        args = package_ops.merge_receipt(receipt, "functualize", "functualize-http")
+        assert args == (
+            "tool",
+            "install",
+            "/src[cli]",
+            "--with",
+            "functualize-http",
+        )
+
+    def test_the_owner_is_matched_by_name_not_by_rendered_string(self) -> None:
+        """A path install renders as `/src[cli]`; matching on that would never
+        recognise it as the owning distribution, and it would be restated as a
+        `--with` while a bare `functualize` took the positional -- reinstalling
+        the published version over the local one."""
+        receipt = Receipt(
+            requirements=(
+                Requirement(
+                    "functualize",
+                    {"name": "functualize", "extras": ["cli"], "directory": "/src"},
+                ),
+                Requirement("requests", {"name": "requests"}),
+            )
+        )
+        args = package_ops.merge_receipt(receipt, "functualize", "new-thing")
+        assert args[2] == "/src[cli]"
+        assert "functualize" not in args
+
+
+class TestEditableInstalls:
+    """Editability is a flag, not part of a requirement string."""
+
+    def test_it_has_no_requirement_string_form(self) -> None:
+        entry = {"name": "functualize", "directory": "/src", "editable": True}
+        with pytest.raises(LossyReceiptError, match="editable"):
+            Requirement("functualize", entry).to_pep508()
+
+    def test_the_owner_is_restated_with_the_editable_flag(self) -> None:
+        """Rendering it as a plain path would reinstall it non-editably --
+        silently changing what is installed, which is the failure the whole
+        reconstruction exists to prevent."""
+        receipt = Receipt(
+            requirements=(
+                Requirement(
+                    "functualize",
+                    {
+                        "name": "functualize",
+                        "extras": ["cli"],
+                        "directory": "/src",
+                        "editable": True,
+                    },
+                ),
+            )
+        )
+        args = package_ops.merge_receipt(receipt, "functualize", "requests")
+        assert args[:4] == ("tool", "install", "--editable", "/src[cli]")
+
+    def test_a_non_owner_editable_uses_with_editable(self) -> None:
+        receipt = Receipt(
+            requirements=(
+                Requirement("functualize", {"name": "functualize"}),
+                Requirement(
+                    "functualize-http",
+                    {
+                        "name": "functualize-http",
+                        "directory": "/src/plugins/http",
+                        "editable": True,
+                    },
+                ),
+            )
+        )
+        args = package_ops.merge_receipt(receipt, "functualize", "requests")
+        assert "--with-editable" in args
+        assert "/src/plugins/http" in args
+
+    def test_editable_false_is_not_treated_as_editable(self) -> None:
+        entry = {"name": "x", "directory": "/d", "editable": False}
+        assert Requirement("x", entry).to_pep508() == "/d"
+
+    def test_an_editable_entry_naming_no_directory_refuses(self) -> None:
+        """There is nothing to point `--editable` at."""
+        entry = {"name": "x", "editable": True}
+        with pytest.raises(LossyReceiptError, match="directory"):
+            Requirement("x", entry).install_args(primary=True)
+
+
+class TestDropAndMergeShareOneRebuild:
+    def test_dropping_a_path_install_keeps_the_path_form(self) -> None:
+        receipt = Receipt(
+            requirements=(
+                Requirement(
+                    "functualize",
+                    {"name": "functualize", "extras": ["cli"], "directory": "/src"},
+                ),
+                Requirement("functualize-http", {"name": "functualize-http"}),
+                Requirement("requests", {"name": "requests"}),
+            )
+        )
+        args = package_ops.drop_from_receipt(receipt, "functualize", "functualize-http")
+        assert args[2] == "/src[cli]"
+        assert "functualize-http" not in args
+        assert "requests" in args
+
+    def test_dropping_the_python_pin_is_never_silent(self) -> None:
+        receipt = Receipt(
+            requirements=(Requirement("functualize", {"name": "functualize"}),),
+            python="3.11",
+        )
+        for args in (
+            package_ops.merge_receipt(receipt, "functualize", "x"),
+            package_ops.drop_from_receipt(receipt, "functualize", "x"),
+        ):
+            assert args[-2:] == ("--python", "3.11")

@@ -1,0 +1,98 @@
+[scenario]
+name = "k-plugin-lifecycle"
+version = 1
+description = "Installing a second plugin must not uninstall the first (AC17)"
+
+# Why this cannot be a pytest test: `uv tool install` is declarative -- it
+# rewrites the tool environment from the arguments it is given, dropping any
+# prior `--with` entries, and `uv tool` offers no `add`/`inject` to delegate to.
+# The receipt merge that compensates is unit-tested in
+# `tests/_cli/test_package_ops.py`, but whether uv *actually* keeps the first
+# plugin can only be observed by running uv against a real tool environment.
+# Doing that in pytest would rewrite the developer's own installation.
+
+[source]
+file = "docs/getting-started/installation.md"
+lines = "104-112"
+description = "Managing a standalone install: plugin list, install and the update that restores them"
+
+requires = []
+
+[[steps]]
+engine = "docker"
+description = "Install as a uv tool, then add two plugins in sequence; both survive"
+image = "python:3.12-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/tmp"
+command = """
+set -e
+pip install uv >/dev/null 2>&1
+export PATH="$HOME/.local/bin:$PATH"
+
+uv tool install '/src[cli]' >/dev/null 2>&1
+func builtin self doctor | grep -E 'install-mode|owning-distribution'
+
+echo '--- plugin A ---'
+func builtin plugin install /src/plugins/functualize-http --yes
+echo '--- plugin B ---'
+func builtin plugin install /src/plugins/functualize-mcp --yes
+
+echo '--- both present? ---'
+func builtin plugin list | grep -E 'functualize-http|functualize-mcp'
+python - <<'PY'
+import subprocess, sys
+out = subprocess.run(
+    ["func", "builtin", "plugin", "list", "--format", "json"],
+    capture_output=True, text=True, check=True,
+).stdout
+names = {e["distribution"] for e in __import__("json").loads(out)}
+missing = {"functualize-http", "functualize-mcp"} - names
+print("SURVIVED-BOTH" if not missing else f"LOST {missing}")
+PY
+"""
+expected = { stdout_contains = "SURVIVED-BOTH", exit_code = 0 }
+timeout = 900
+
+[[steps]]
+engine = "docker"
+description = "The receipt records both, so a later upgrade rebuilds with both"
+image = "python:3.12-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/tmp"
+command = """
+set -e
+pip install uv >/dev/null 2>&1
+export PATH="$HOME/.local/bin:$PATH"
+uv tool install '/src[cli]' >/dev/null 2>&1
+func builtin plugin install /src/plugins/functualize-http --yes >/dev/null
+func builtin plugin install /src/plugins/functualize-mcp --yes >/dev/null
+cat "$(uv tool dir)/functualize/uv-receipt.toml"
+"""
+expected = { stdout_contains = "functualize-http", exit_code = 0 }
+timeout = 900
+
+[[steps]]
+engine = "docker"
+description = "An uninstall is not undone by the next update -- the record is dropped too"
+image = "python:3.12-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/tmp"
+command = """
+set -e
+pip install uv >/dev/null 2>&1
+export PATH="$HOME/.local/bin:$PATH"
+uv tool install '/src[cli]' >/dev/null 2>&1
+func builtin plugin install /src/plugins/functualize-http --yes >/dev/null
+func builtin plugin uninstall functualize-http --yes >/dev/null
+python - <<'PY'
+import json, os, pathlib
+config = pathlib.Path(
+    os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
+) / "functualize" / "install.json"
+data = json.loads(config.read_text())
+recorded = [p for r in data["installations"] for p in r["plugins"]]
+print("FORGOTTEN" if "functualize-http" not in recorded else f"STILL-RECORDED {recorded}")
+PY
+"""
+expected = { stdout_contains = "FORGOTTEN", exit_code = 0 }
+timeout = 900
