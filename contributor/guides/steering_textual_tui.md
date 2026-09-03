@@ -353,3 +353,42 @@ cleanup), then keep growing 10/11 coverage as new keys/panels are added.
   get proven in `tests/experiments/<topic>/` with a README + pytest file
   first — the existing `tests/experiments/input_handling/` and
   `tests/experiments/offscreen_textual/` folders show the convention.
+
+## The pyte probe cannot see readiness — use Pilot for that
+
+Measured 2026-09-03 while verifying boolean flag negation, and worth knowing
+before you reach for `observe-tui` to check a bar state.
+
+A probe typing a **valid** command and a probe typing one with an **undeclared
+flag** produced *byte-identical* screen dumps at 100 columns:
+
+```
+tui_probe.py --step "send:deploy --no-dry-run web run v1.2"     # valid
+tui_probe.py --step "send:deploy --no-nonexistent web run v1.2" # undeclared
+```
+
+`BarReadiness` is surfaced through styling and a placeholder, and neither
+survives into a pyte snapshot at ordinary widths. So a probe that "passed"
+proves the TUI **booted, accepted the text, and did not crash** — a real claim,
+and the one worth probing — but it says nothing about whether the bar accepted
+or greyed out what you typed.
+
+**Assert readiness at Pilot level instead**, where it is a property you can read
+directly:
+
+```python
+async with app.run_test(size=(120, 40)) as pilot:
+    app._smart_bar.value = "deploy --no-dry-run web run v1"
+    await pilot.pause()
+    assert app._smart_bar.readiness is BarReadiness.READY
+```
+
+`tests/tui_group_options/test_smartbar_roundtrip.py` and
+`test_write_back_contract.py` already do this. The second derives its expected
+flag set from the param builder rather than a hand-written table, which is why
+it caught a readiness defect the moment the builder changed — the shape ADR-009
+recommends and the reason a table is the wrong pin.
+
+This is not a reason to make the probe smarter. `CLAUDE.md` scopes `observe-tui`
+to manual and agent verification, never to assertions; the limitation is a
+consequence of that boundary, not a gap in it.

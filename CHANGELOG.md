@@ -7,6 +7,129 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — a standalone binary, and installations that manage themselves
+
+- **A single executable with Python and every first-party plugin inside it.**
+  No prerequisites, and **the first run needs no network** — the distribution is
+  baked into the binary rather than downloaded on first launch.
+
+  ```bash
+  curl -LsSf https://raw.githubusercontent.com/raicing-ai/functualize/master/install.sh | sh
+  # Windows: irm .../install.ps1 | iex
+  ```
+
+  Seven targets, named by Rust target triple, with a checksum file covering all
+  of them. **musl is included**, because the audience for a Python-free install
+  is disproportionately on Alpine or in a container where glibc is absent, and
+  the install script picks it by reading which dynamic loader is present rather
+  than by guessing from the distribution name.
+
+- **`func builtin self doctor`** reports how this `func` was installed, which
+  distribution owns it, whether the CLI can actually boot here, and every other
+  `func` that has run on this machine. It is intercepted **before the app
+  boots**, so it still answers when the thing you are diagnosing is boot itself.
+
+- **`func builtin self update`** upgrades in place and then restores what you
+  had added — including packages installed through the escape hatch that were
+  never recorded anywhere. It works out which of `uv tool upgrade`,
+  `pipx upgrade`, `uv lock && uv sync` or the binary's own updater applies.
+
+- **`func builtin self install <package>`** for a dependency your jobs import,
+  and **`func builtin plugin list|install|uninstall`** for extensions. The two
+  are recorded separately: `plugin list` never shows a plain dependency.
+
+- **`func builtin self python -- <args>`** and **`self uv -- <args>`** run the
+  owned environment directly, for anything these commands decline to do. Bare,
+  each prints exactly one absolute path and nothing else, so it stays capturable.
+
+- **`func builtin info`** gains the install mode and owning distribution.
+
+### Changed
+
+- **Every mutating self-management command prints the exact command it will run
+  before running it**, and does nothing without confirmation. `--yes` skips the
+  prompt, never the printing.
+
+- **An installation functualize does not own refuses to be managed.** A bare
+  `pip install` into a system interpreter prints guidance naming the tool that
+  *does* own it, changes nothing, and exits `3`. A script can tell that apart
+  from "the action ran and failed".
+
+- **`func builtin skills install` now takes the terminal in the inline shell.**
+  It shells out to `npx skills add`, which prompts; on the TUI's worker path the
+  child was drawing onto the terminal underneath the interface.
+
+### Fixed
+
+- **A builtin subcommand name declared terminal-owning by one command family no
+  longer matches in every other family.** `config edit` owning the terminal did
+  not imply `skills edit` would, but the check was flat and could not tell them
+  apart.
+
+## [0.1.3] - 2026-09-03
+
+### Changed — the config ladder is now whole for booleans
+
+- **A boolean set `true` in a config file can be turned off from the command
+  line.** The ladder has always promised `CLI > env > file`. For booleans it was
+  three-quarters true and nothing said so: no spelling could override a
+  configured `true`, on either surface.
+
+  ```bash
+  func deploy run --no-verbose     # a job's config-model boolean
+  func deploy --no-strict run      # a GroupOptions boolean, mid-path
+  ```
+
+  Every boolean now renders as a `--x / --no-x` pair. Absence is still absence —
+  the option carries `default=None`, so a flag nobody typed resolves from env,
+  file and default exactly as before.
+
+  There were previously **four boolean shapes rendering three different ways**,
+  with no rule a reader could infer: a plain signature bool got a pair, the same
+  bool carrying a short flag did not, and neither config-model nor `GroupOptions`
+  booleans did. One rule now decides for all of them, and both CLI surfaces ask
+  the same function — otherwise `--no-cache` could mean different things
+  depending on how the program was invoked.
+
+  **When a field is literally named `no_x`,** it owns `--no-x`, and `x` renders
+  with no negative form. Click enforces nothing here and binds by declaration
+  order, so the same two fields used to give opposite results depending on which
+  was written first. The guarantee is determinism, not detection.
+
+### Fixed
+
+- **A `@workflow` job no longer walks its graph before rejecting a bad launch
+  argument.** `app.execute("release", verison="1.4")` used to run every step,
+  block at the gate, wait for a person to approve the release, and only then
+  fail at the epilogue — spending the approval on a run that could never have
+  succeeded. A plain job rejected the same typo immediately.
+
+  Arguments are bound and validated before the graph walks. Nothing is written
+  to the run state store, so a refused resume leaves an approved, blocked scope
+  untouched and still resumable. This matters most through the trigger plugins,
+  whose whole job is turning an external event into a run.
+
+- **A config field's short flag now works on a cold boot.** `Option("-s")` was
+  recovered only from the cached descriptor, so `-s` worked on a warm boot and
+  was unknown on the first run of a project.
+
+### Removed
+
+- **`--flag=value` is no longer accepted for a boolean.** It worked on exactly
+  one of four combinations — a `GroupOptions` boolean on the `func` surface —
+  because that parser never asked whether the flag was a boolean, while click
+  always refuses a value on a flag. The identical command therefore succeeded
+  on one surface and failed on the other. Both refuse now, and `func` names
+  `--no-<flag>` as the replacement.
+
+### Migration
+
+Help output changes for every boolean config field (`--dry-run` becomes
+`--dry-run / --no-dry-run`); update any assertion on exact help text. Replace
+`--flag=false` with `--no-flag`. No other command line stops working — adding a
+spelling is additive.
+
+
 ## [0.1.2] - 2026-08-31
 
 ### Added — the agent-facing surface
@@ -940,7 +1063,8 @@ function knowing which.
   through the injected `Log` is deferred to a later release.
   *(Fixed in 0.1.1.)*
 
-[Unreleased]: https://github.com/raicing-ai/functualize/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/raicing-ai/functualize/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/raicing-ai/functualize/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/raicing-ai/functualize/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/raicing-ai/functualize/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/raicing-ai/functualize/releases/tag/v0.1.0

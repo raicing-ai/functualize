@@ -225,9 +225,35 @@ Determine the target version, then:
    bump silently.
 2. **Land everything else first.** Phase 0 runs against the exact `master` the tag will
    point at. If a feature PR is still open, wait for it to merge and fast-forward.
-3. **Bump the version** in root `pyproject.toml` and in *every* `plugins/*/pyproject.toml`
-   — they release in lockstep. Grep the old version across all of them first to catch
-   cross-pins, not just the `version` field.
+3. **Bump the version at every declaration site — there are seventeen**, and
+   `grep` is what enumerates them, not this list:
+
+   | Count | Site |
+   |---|---|
+   | 1 | root `pyproject.toml` |
+   | 11 | every `plugins/*/pyproject.toml` — they release in lockstep |
+   | 1 | `src/functualize/__init__.py` (`__version__`) |
+   | 4 | `skills/*/SKILL.md` frontmatter `version:` — these ship **inside the wheel** |
+
+   Verify afterwards, and treat a non-empty result as unfinished:
+
+   ```bash
+   grep -rln '<old-version>' --include='pyproject.toml' --include='*.py' \
+        --include='SKILL.md' . | grep -vE '\.venv|/\.git/'
+   ```
+
+   **Do not trust a count written in prose.** `.spec/STATUS.md` says "13/13
+   sites", which was true for 0.1.1 and predates the shipped skills; the 0.1.3
+   prep started from that number and had to be corrected by grep. The
+   authoritative answer is always the previous release commit —
+   `git show --stat $(git log --format=%H --grep='chore(release)' -1)` — plus
+   the grep above. A version left behind in a shipped `SKILL.md` is a wheel that
+   tells an agent the wrong version of itself.
+
+   **`src/functualize/__init__.py` is spec-gated.** Write it with the `Edit`
+   tool and a `.spec/EXEMPT` in place, so the `PreToolUse` hook records the
+   exemption in the committed ledger. A shell write (`sed -i`, a heredoc, a
+   Python script) raises no `Edit` call and is audited separately.
 4. **Date the changelog.** Insert `## [X.Y.Z] - YYYY-MM-DD` below `## [Unreleased]`,
    leaving `[Unreleased]` in place and empty. Update the link-reference block at the
    bottom: repoint `[Unreleased]` to `compare/vX.Y.Z...HEAD` and add the `[X.Y.Z]` row.

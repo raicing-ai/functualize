@@ -325,7 +325,10 @@ class SmartBarAutoComplete:
         items: list[object] = []
         for spec in specs:
             for param in build_click_params_from_fields(spec.fields):
-                for opt in param.opts:
+                # `secondary_opts` is where a boolean's `--no-` half lives.
+                # Reading `opts` alone offered a flag set that omitted every
+                # negative spelling the builder had just rendered.
+                for opt in [*param.opts, *param.secondary_opts]:
                     if not opt.startswith("--"):
                         continue
                     if partial_lower and partial_lower not in opt.lower():

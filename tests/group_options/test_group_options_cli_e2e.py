@@ -172,20 +172,25 @@ class TestGroupOptionsEndToEnd:
         """T-GO-5: the listing is where a user learns `--env` exists at all.
         Without it the flag is parseable but undiscoverable.
 
-        A bool is listed by its **positive form only**, because that is the only
-        form that parses. This assertion used to require
-        `--dry-run, --no-dry-run`: the warm builder rendered the pair, so the
-        listing advertised a negative form that the mid-path parser
-        (`_flag_aliases` in `_cli/dispatch.py`) has never recognised —
-        `func deploy --no-dry-run run` answered `unknown option` on master and
-        answers it still. Routing config-model fields through one rule made the
-        listing agree with the parser, which is the direction of the fix; the
-        old expectation was pinning a documented lie.
+        A bool is listed as **`--dry-run, --no-dry-run`**, and this assertion
+        has now moved twice, in opposite directions, for the same reason each
+        time: *the listing must say what the parser accepts.*
 
-        The underlying gap is real and unchanged: a bool group option set `true`
-        in config cannot be overridden from the command line. That predates this
-        suite and is not what this test is about — it is only asserted here that
-        the listing no longer claims otherwise."""
+        It first required the pair. #13 inverted it to the positive form only,
+        because the warm builder rendered a negative the mid-path parser had
+        never recognised — `func deploy --no-dry-run run` answered
+        `unknown option`, so the listing was "pinning a documented lie".
+
+        That inversion recorded the gap it could not close: *"a bool group
+        option set `true` in config cannot be overridden from the command
+        line."* The boolean-flag-negation feature closed exactly that gap —
+        `_flag_aliases` now matches the negative spelling through the same
+        `negative_flag_for` rule the builder renders from — so the listing
+        advertises it again, and this time it is true.
+
+        The invariant that survived both moves is the one worth keeping: this
+        test does not assert a *spelling*, it asserts that the listing and the
+        parser agree."""
         proj = _write_project(tmp_path)
 
         result = _run_func("deploy", cwd=proj)
@@ -195,7 +200,7 @@ class TestGroupOptionsEndToEnd:
         assert "--env, -e TEXT" in result.stdout
         assert "Target environment" in result.stdout
         assert "--dry-run" in result.stdout
-        assert "--no-dry-run" not in result.stdout
+        assert "--no-dry-run" in result.stdout
 
     def test_a_nested_group_lists_inherited_options(self, tmp_path: Path) -> None:
         """`deploy web` accepts `--env` (an ancestor declared it), so its

@@ -557,6 +557,7 @@ Committed design documents with per-assertion PASS/GAP verification against the 
 | Shape intent | Scope |
 |---|---|
 | [`remote-config-source.md`](shape-intents/remote-config-source.md) | `RemoteSource` is defined, exported and documented with **zero construction sites in `src/`**, and the `remote_first` preset's docstring promises a chain the boot path does not build. Wire it or remove it — correcting only the docstrings is explicitly not an option. Carries the finding that the original gate passed *because of* its `--include="*.md"` scoping. |
+| [`workflow-run-parameters.md`](shape-intents/workflow-run-parameters.md) | A `@workflow` job **silently discards** the arguments `app.execute()` is given, then fails at the epilogue after the gate has been approved — while a plain job rejects the same argument at launch. Underneath it: no run-scoped parameter layer exists at all, so a value set for a walk does **not survive a gate** (one `scope_id`, two answers, selected by the resuming shell). The three trigger plugins can parameterize a single job and not a walk. Implement a run-scoped layer or declare walks unparameterizable and enforce it; the silent-drop fix is separable and lands first either way. |
 
 ## Open Features
 
@@ -699,6 +700,218 @@ against a real install of that kind (settling the `tool_pipx` signal no earlier
 audit host could check), a second plugin install leaving the first present, and
 the install script picking musl and refusing a tampered archive before
 unpacking it.
+### Boolean flag negation (2026-09-03, `feat/workflow-run-params`)
+
+`shape-intents/boolean-flag-negation.md` is **implemented**. A boolean set
+`true` in a config file can now be turned off from the command line, on both
+surfaces. The config ladder promised CLI > env > file; for booleans it was
+three-quarters true and nothing said so.
+
+**Four decisions were taken by the maintainer before specifying**, which is why
+the shape intent sat unimplemented:
+
+| | Question | Decision |
+|---|---|---|
+| D1 | Do config booleans gain a negative form? | **Yes** — `--x/--no-x` |
+| D2 | What wins when `--no-foo` is ambiguous? | **The literal field `no_foo`.** `foo` then renders with no negative form |
+| D3 | May the frozen typer snapshot change? | **Yes**, recorded as deliberate |
+| D4 | `--flag=value` for a boolean? | **Refused on both surfaces** |
+
+**One rule, two surfaces.** `negative_flag_for` (`_types/naming.py`, re-exported
+through `app.utils`) decides the spelling for both the click builders and
+`func`'s pre-boot parser. If they decided independently, `--no-cache` would mean
+different things depending on how the program was invoked — the divergence class
+that already produced three disagreeing dependency resolvers here.
+
+D2's guarantee is **determinism, not detection**: click raises nothing for a
+`cache`/`no_cache` collision and binds by declaration order, so the same two
+fields gave opposite results depending on which was written first. Asserted with
+the fields declared in **both orders**.
+
+Before / after, on a project whose config sets both booleans `true`:
+
+| | Before | After |
+|---|---|---|
+| `func deploy run --no-verbose` | `No such option` | `verbose=False` |
+| `func deploy --no-strict run` | `unknown option` | `strict=False` |
+| `func deploy --strict=false run` | **worked** (only here) | error naming `--no-strict` |
+| `python main.py deploy --strict=false run` | error | error (click's own) |
+| neither flag | from the file | **unchanged** |
+
+The third row is the only invocation that stops working. It worked on exactly
+one of four combinations and was the parity defect, not a feature: `func`'s
+parser never asked whether the flag was a boolean, while click always refuses an
+inline value on a flag.
+
+#### Five findings, all from running rather than reading
+
+1. **There are five flag-rendering sites, not the four the plan named.**
+   `_option_from_marker` was missed: a bool declaring a short form routed down
+   it and silently lost its pair. Found by the test.
+2. **The TUI readiness evaluator had the same bug shape** — `bar.py` added
+   `no_<name>` only for a bool *without* a short flag, mirroring the builder
+   defect. `TestReadinessAgreesWithClick` caught it immediately because it
+   derives its expected set from the param builder rather than a table. That is
+   the design from ADR-009 working exactly as intended.
+3. **The surface-parity harness read `--no-dry-run` as an extra *field***. It
+   now folds a negative onto its positive only when the positive is also
+   present — precisely right under D2, since a field literally named `no_cache`
+   appears alone and must survive as itself.
+4. **`_group_flag_tokens` had no sibling list**, so the emitter could not reach
+   the verdict dispatch would on the way back in. Threaded through, or
+   `emit(resolve(text)) == text` breaks in the one case D2 exists for.
+5. **A wave gate was weaker than CI's.** `tests/group_options/` was run without
+   `--run-slow`, so a second pinned test sat in the skip count and only
+   surfaced in the full suite. **`--run-slow` belongs in any gate that claims a
+   directory is green** — the same lesson `Potential Follow-ups` #7 records
+   ("green at `default` is not green at `ci`"), reached from a different angle.
+
+#### Two tripwires fired, and both were inverted rather than deleted
+
+- `test_a_groups_negative_boolean_spelling_is_not` ended with *"Whether group
+  booleans should gain the pair is a dispatch-level question this feature does
+  not answer. **If they ever do, this test is the one that will say so.**"* It
+  was the single failure across the group-options and TUI suites when dispatch
+  learned the spelling.
+- `test_the_group_listing_documents_its_options` has now moved **twice, in
+  opposite directions, for the same reason each time**: the listing must say
+  what the parser accepts. #13 inverted it to the positive form only, because
+  the builder advertised a negative the parser never recognised — and recorded
+  the gap it could not close. This feature closed that gap, so the listing
+  advertises the pair again, and this time it is true. Its docstring now names
+  the invariant that survived both moves rather than the spelling.
+
+#### Gates
+
+| Gate | Result |
+|---|---|
+| Full suite `HYPOTHESIS_PROFILE=ci --run-slow -n auto` | **9351 passed, 102 skipped, 1 failed** |
+| That one failure | `test_a_closed_pipe_exits_zero_and_quietly` — the known load flake, *Potential Follow-ups* **#12**. **12 passed serially**; a doc-verify run was concurrent |
+| `pytest examples/` | 187 passed |
+| All 11 plugin suites | 245 passed |
+| doc-verify shell tier | 9 passed, 0 failed, 10 skipped (docker/pty, as CI) — 95 steps |
+| `ruff check` + `format --check` | clean, 1226 files |
+| `mypy src/` | 0 errors, 305 files |
+| `lint-imports` | 5 kept, 0 broken |
+
+#### Known cost, accepted
+
+Help output changed for every boolean config field (`--dry-run` becomes
+`--dry-run / --no-dry-run`). Eleven such fields ship in `examples/`. Measured
+rather than estimated: of 74 `-k help` candidates and 23 tests naming a boolean
+flag, **three** actually moved, and all three were pinned tests that moved
+deliberately.
+
+### Workflow launch validation (2026-09-03, `feat/workflow-run-params`)
+
+The first acceptance item of
+[`shape-intents/workflow-run-parameters.md`](shape-intents/workflow-run-parameters.md)
+is **implemented**. A `@workflow` job now refuses a launch argument its
+signature cannot accept **before the graph walks**, instead of running every
+step, blocking at a gate, waiting for a person to approve, and failing at the
+epilogue — spending the approval on a run that was never going to succeed.
+
+The shape intent's Assertion 3 called this "not an option: leaving it as it
+stands", and its fix is the same under either design option, so it lands ahead
+of the run-scoped parameter decision rather than waiting on it. **No run-scoped
+parameter layer was built**: no `Param` marker, no `RunParamSource`, no
+`scope["params"]`, and `step_key`'s empty `args_hash` is untouched.
+
+**The rule is Python's.** `Signature.bind_partial` already splits exactly the
+right way — it rejects a keyword the signature cannot accept, tolerates the
+parameters DI has yet to fill, and honours `**kwargs`. `unexpected_keyword_error`
+(`_engine/validation.py`) adds only the `fn()` prefix `bind_partial` omits, so
+the message is byte-identical to a real call's. The parity test compares against
+an actual call rather than a frozen literal.
+
+**Reproductions**, from `tests/workflow/test_launch_validation.py`:
+
+| | Before | After |
+|---|---|---|
+| `execute('walk', zzz=1)` | `BLOCKED`; 4 step records + a published gate | `FAILURE`; state store untouched |
+| the same on an approved, blocked scope | advanced the run | scope record byte-identical, still resumable to `SUCCESS` |
+| `execute('lab.parse', zzz=1)` (plain job) | `FAILURE` | unchanged |
+
+A1 asserts the **state store**, not the status: both behaviours return a status,
+so a status assertion would pass against an implementation that walked the whole
+graph and failed afterwards.
+
+#### Four defects this work found in its own gates
+
+Worth recording because three of the four were invisible to gates written during
+the Plan phase, and all four are the same class: **a gate derived from prose
+rather than run at authoring time is not a gate** (`CONSTITUTION.md` →
+*Acceptance Gates*).
+
+1. **A gate that did not observe the line its task changed.** The context-move
+   task's gate (`-k workflow` + the combination matrix) stayed **70 passed**
+   under sabotage. Widening to `tests/engine/ tests/config/ tests/execution/`
+   turned 7 red — one being `test_lifecycle_order.py`, which was **already red
+   against the unsabotaged change**: moving `ExecutionContext` above the
+   `@workflow` prelude reorders steps 2 and 3 of a pinned twenty-step contract.
+   The move is correct and stands; `contributor/reference/execution-lifecycle.md`
+   and the test's `_DOCUMENTED_ORDER` moved with it, as that test's own failure
+   message demands. **Step 2's constraint column was `—` and now states one.**
+
+2. **A task whose `[F]` named no test file** while its acceptance criteria could
+   not be met without one.
+
+3. **Two test files with the same basename** (`test_launch_validation.py`) in
+   `tests/engine/` and `tests/workflow/`, neither carrying an `__init__.py`, so
+   pytest refused to collect both. The first task's isolated run could not see
+   it; renamed to `tests/engine/test_unexpected_keyword.py`.
+
+4. **Config-model fields were refused as unknown launch arguments** — caught by
+   the full suite, not by the feature's own tests. `func trip-planner --city
+   Tokyo` failed with `trip_planner() got an unexpected keyword argument
+   'city'`, because `city` is a field of the job's config model and
+   `_resolve_config_model` pops those names out of `call_kwargs` *later*.
+
+   The research note asserting "membership in the signature is the whole
+   question" was **wrong**, and is corrected in the feature's `research.md`
+   rather than left standing. The acceptable set is the signature **plus what
+   later stages consume**; `also_accepts` carries it and both sides read
+   `model_fields`, so it stays one decision. Group options are genuinely not in
+   that set — `_resolve_group_options` reads the dedicated `group_option_values`
+   parameter, never `call_kwargs` — and that was checked after the failure
+   rather than assumed before it.
+
+   **The reasoning error is the reusable part:** the note correctly ruled out
+   reusing the engine's own `ResolutionPlan` classifier, then read that as "no
+   other stage matters". Ruling one candidate out is not an enumeration.
+
+   Every A1–A5 fixture declared a DI-only workflow with no config model, so the
+   one shape that mattered was the one shape absent.
+
+#### One design departure, and one risk that did not materialise
+
+- **`_failure_before_execution` is extracted and shared** by the launch refusal
+  and the existing `ValidationError` handler. The plan said only "return through
+  the established refusal shape"; copying ~28 lines to do that would have made a
+  second implementation of an invariant that matters — the exception is
+  *returned*, never raised, which is what lets the CLI render a failure panel
+  instead of a traceback.
+- **RK1-B was not needed.** The fallback (refuse without firing `AFTER_FAILURE`,
+  avoiding the context move) stayed unused: the move landed, and hook parity
+  with a plain job's `TypeError` — which reaches `AFTER_FAILURE` through
+  `_execute_with_lifecycle` — is intact.
+
+#### Gates
+
+| Gate | Result |
+|---|---|
+| Full suite `HYPOTHESIS_PROFILE=ci --run-slow -n auto` | **9326 passed, 101 skipped, 0 failed** |
+| `pytest examples/` | 187 passed |
+| All 11 plugin suites | 245 passed |
+| `ruff check` + `format --check` (src, tests, examples, plugins) | clean, 1222 files |
+| `mypy src/` | 0 errors, 305 files |
+| `lint-imports` | 5 kept, 0 broken |
+
+Still open from the shape intent, and untouched here: Assertion 2 (a value set
+for a walk does not survive a gate), Assertion 5 (no per-run channel that is not
+process-global), Assertion 6 (the trigger plugins cannot parameterize a walk),
+and Assertion 7 (step replay identity). The design question — a run-scoped
+parameter layer, or declaring walks unparameterizable — is still open.
 
 ### TUI panel support for GroupOptions (2026-08-28, `feat/tui-group-options-panels`)
 
@@ -1171,6 +1384,120 @@ Items identified during development that are worth doing but not yet designed:
     the docs promise elsewhere, so this is a defect to schedule, not a drift fix to
     rush. But it is the failure class `AGENTS.md:82` names: shipped, unit-tested,
     and unreachable on the path that matters.
+
+21. **`functualize-lambda` reports every failure as HTTP 200 with a null body.**
+    The generated handler
+    (`plugins/functualize-lambda/src/functualize_lambda/__init__.py:126`) does
+
+    ```python
+    result = app.execute(job_name, **job_kwargs)
+    return {"statusCode": 200, "body": result.return_value}
+    ```
+
+    `result.status` is never read. A job that fails validation, fails its guards,
+    or raises — anything that comes back as a `JobResult` rather than an escaping
+    exception — returns `{"statusCode": 200, "body": None}`, which is
+    indistinguishable from a job that succeeded and returned nothing. Only an
+    exception that escapes `execute()` reaches the `except` branch and becomes a
+    500, and the engine's whole design is that failures *do not* escape: they are
+    returned so the CLI can render them instead of a traceback. So the branch that
+    reports failure is the one the engine tries hardest never to take.
+
+    Contrast `functualize-http`, which surfaces `result.status` in its response
+    body (`__init__.py:175-181`) and is correct today. Two trigger plugins,
+    one `JobResult`, two answers.
+
+    Surfaced 2026-09-02 while writing contracts for
+    `.spec/features/workflow-launch-validation/` — a refused workflow launch is a
+    `FAILURE` result, and tracing where each surface would show it found this. It
+    is **pre-existing and unrelated to that feature**, which is why it was
+    recorded rather than folded in; the launch-validation contracts note it so a
+    reviewer comparing surfaces does not read it as newly introduced.
+
+    **Fix**: map `RunStatus` to a status code the way the HTTP plugin does, or at
+    minimum carry `status` in the body. Wants a decision on what a Lambda caller
+    should see for `BLOCKED` — a gated workflow reached through Lambda is neither
+    a success nor an error, and that is the case the mapping has to name rather
+    than round off.
+
+22. **`test_env_override_opens_the_gate` passes only under xdist sharding.**
+    `tests/adapters/test_surface_gate.py::TestWantsStdoutSurface::test_env_override_opens_the_gate`
+    **fails when `tests/adapters/` is run on its own** and passes in the full
+    suite under `-n auto`. Verified against `f9fe1ba` in a throwaway worktree,
+    so it predates the workflow-launch-validation and boolean-flag-negation
+    work; found while chasing an unrelated red.
+
+    It sets `FUNCTUALIZE_TUI_DEFAULT_SURFACE=stdout` with `monkeypatch` and
+    asserts `wants_stdout_surface(...)` is true, so the likely cause is
+    settings-store state that another test in the wider run happens to
+    establish — meaning the test passes for a reason it does not state.
+
+    Same family as #10 and as the F10 finding in the 0.1.1 review: a test whose
+    result depends on something outside its own body. **Consequence:** anyone
+    running `pytest tests/adapters/` while working on the adapters sees a red
+    that is not theirs, which is exactly how a real regression gets waved
+    through. **Fix:** make the fixture establish whatever the wider run
+    supplies, or assert against an explicitly constructed settings store.
+
+23. **`test_reentry_guard_ignores_second_trigger_while_running` flakes on
+    Python 3.11.** `tests/_cli/test_job_execution_thread_worker.py:121` triggers
+    `action_execute()` twice with an `await pilot.pause()` between them and
+    asserts the re-entry guard swallowed the second
+    (`_snapshot_store.record.call_count == 1`). It failed once on CI with
+    `assert 2 == 1` on the **3.11** matrix leg while 3.12 and 3.13 passed in the
+    same run; a rerun of the identical commit passed in 14m44s.
+
+    Same family as #10 and #12: **the assertion times the machine, not the
+    code.** If the first worker finishes before the second trigger lands, the
+    guard legitimately never fires and `record` is called twice — a correct
+    system failing a test that assumed a scheduling order. Python 3.11's asyncio
+    differs enough from 3.12/3.13 for the race to land differently there.
+
+    Ruled out as a cause, during PR #17: the test predates that branch
+    (`84ed555`), the only change to `job_execution.py` was inside the
+    `bad_flag is not None` early-return branch, which a bare `slowjob` never
+    enters; the `bar.py` readiness change only alters the `known` flag-set for
+    boolean fields, and its loop does not run for input with no `-` tokens; and
+    the function-local `app.utils` import is a `sys.modules` hit, since
+    `display_affinity.py` already imports that module at module scope. Locally
+    on 3.13 it passed 3x serially and 6x under concurrent load.
+
+    **Fix:** assert the guard's *state* rather than a post-hoc call count — hold
+    the first worker open until the second trigger has been observed, instead of
+    racing it. Lowering nothing and rerunning is what makes a flake permanent.
+
+24. **An exemption used to silence the shell-write auditor instead of being
+    recorded by it — FIXED.** `bash_audit.py` folded two questions into one
+    predicate (*is there a task list?* / *is there an exemption?*) and returned
+    early on either. So a shell write to gated code under an active
+    `.spec/EXEMPT` was recorded **nowhere**: the `PreToolUse` gate never fires
+    for a shell write, and the auditor stayed quiet because the exemption
+    existed.
+
+    **Declaring an exemption made a write less audited than not declaring one.**
+    Reproduced before fixing — 0 ledger lines with an exemption, 1 without.
+    `CONSTITUTION.md` calls that ledger "the entire mitigation for the fact that
+    an agent can exempt itself"; a mitigation that skips the case it was built
+    for is not one.
+
+    Found during the 0.1.3 release prep: the bump to
+    `src/functualize/__init__.py` went in by script under an exemption and left
+    no trace, while the 0.1.2 release — which used the `Edit` tool — has its
+    ledger entry. That asymmetry between two releases is what exposed it.
+
+    `tests/harness/test_bash_audit_ledger.py` is the fix's gate and the **first
+    committed test for `.claude/hooks/`**, so #19 is now partly discharged: one
+    of the four validators has a test. The other three still have none.
+
+25. **The release version count in this file is stale, and the release skill now
+    says so.** Item #148 above records "13/13 sites at `0.1.1`" — true then, and
+    it predates the four `skills/*/SKILL.md` frontmatter versions that ship
+    inside the wheel. The real count at 0.1.3 is **seventeen**.
+
+    The historical line is left as written rather than back-dated. The durable
+    fix is in `.agents/skills/release/SKILL.md` Phase 0, which now enumerates
+    the sites, gives the verification grep, and says plainly not to trust a
+    count written in prose — including this file's.
 
 ## Recently Completed (2026-08)
 

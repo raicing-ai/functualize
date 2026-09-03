@@ -34,7 +34,7 @@ from pydantic import ValidationError
 from functualize._engine.context import ExecutionContext
 from functualize._engine.missing_value import MissingValueError
 from functualize._engine.resolution import ResolutionPlan, build_resolution_plan
-from functualize._engine.validation import ArgValidator
+from functualize._engine.validation import ArgValidator, unexpected_keyword_error
 from functualize._events import EventBus, HookEvent, HookRegistry
 from functualize._primitives import DIRegistry, MissingProviderError
 from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
@@ -787,24 +787,11 @@ class JobExecutionEngine:
 
         start_time = time.perf_counter()
 
-        # The @workflow prelude (§A.7): walk the declared graph first, and run
-        # the body only if it reached END. A blocked or failed walk returns
-        # here, before DI resolution and before any hook fires — the body is
-        # the job, and the job has not been reached yet.
-        workflow_runner = None
-        declaration = getattr(function, "__functualize_workflow__", None)
-        if declaration is not None:
-            workflow_runner, early = self._run_workflow_prelude(
-                job_name,
-                declaration,
-                scope_id=workflow_scope_id,
-                invoke_depth=invoke_depth,
-                start_time=start_time,
-            )
-            if early is not None:
-                return early
-
-        # Build execution context
+        # Build execution context. Constructed *above* the workflow prelude, not
+        # below it, because a `@workflow` job can be refused before the prelude
+        # walks — and that refusal fires AFTER_FAILURE, which needs a context to
+        # hand the hook. The prelude itself does not read `context`, so its
+        # position here is inert for every path that reaches the walk.
         context = ExecutionContext(
             job_name=job_name,
             function=function,
@@ -816,6 +803,48 @@ class JobExecutionEngine:
             config_class=config_class,
             parent_scope=parent_scope,
         )
+
+        declaration = getattr(function, "__functualize_workflow__", None)
+
+        # A `@workflow` job's arguments are bound to its *epilogue*, which runs
+        # after the walk — so a keyword the function cannot accept would
+        # otherwise run the whole graph, block at a gate, wait for a person to
+        # approve it, and only then fail, spending the approval on a run that
+        # was never going to succeed. Refuse it here instead, before the prelude
+        # walks and before any scope record is written.
+        #
+        # Only a workflow needs this. A plain job's TypeError already arrives
+        # from the real call, at the right moment and with hooks fired; checking
+        # it again here would be a second place deciding the same thing.
+        if declaration is not None:
+            # A config model's field names are legitimate launch arguments even
+            # though no parameter is called that: `--city Tokyo` for a job
+            # declaring `config: Cfg` arrives as `city=...`, and
+            # `_resolve_config_model` pops it out of `call_kwargs` later. The
+            # acceptable set and the set that stage consumes are one decision,
+            # and both read `model_fields`.
+            consumed_by_config = getattr(config_class, "model_fields", None) or {}
+            launch_error = unexpected_keyword_error(
+                function, kwargs, also_accepts=set(consumed_by_config)
+            )
+            if launch_error is not None:
+                return self._failure_before_execution(context, job_name, launch_error)
+
+        # The @workflow prelude (§A.7): walk the declared graph first, and run
+        # the body only if it reached END. A blocked or failed walk returns
+        # here, before DI resolution and before any hook fires — the body is
+        # the job, and the job has not been reached yet.
+        workflow_runner = None
+        if declaration is not None:
+            workflow_runner, early = self._run_workflow_prelude(
+                job_name,
+                declaration,
+                scope_id=workflow_scope_id,
+                invoke_depth=invoke_depth,
+                start_time=start_time,
+            )
+            if early is not None:
+                return early
 
         # Resolve DI parameters
         try:
@@ -894,41 +923,7 @@ class JobExecutionEngine:
             # JobResult the CLI can render, never a raw traceback.
             # On validation failure: fire AFTER_FAILURE hook, return FAILURE
             # without invoking PRE_EXECUTE hooks or executing the function
-            duration_ms = context.elapsed_ms
-
-            # Build RunContext for hooks (same pattern as _execute_with_lifecycle)
-            from functualize._engine.capabilities.runcontext import (
-                RunContext as _RunContext,
-            )
-
-            _rc_for_hooks = (
-                context.capabilities.get(_RunContext, context)
-                if context.capabilities
-                else context
-            )
-            self._hook_registry.invoke(
-                HookEvent.AFTER_FAILURE,
-                job_name,
-                _rc_for_hooks,
-                exception=validation_error,
-            )
-
-            self._event_bus.emit(
-                "job.execute.end",
-                resource=job_name,
-                job_name=job_name,
-                duration_ms=duration_ms,
-                status="failure",
-            )
-
-            return JobResult(
-                status=RunStatus.FAILURE,
-                return_value=None,
-                duration_ms=duration_ms,
-                metadata=dict(context.metadata),
-                exception=validation_error,
-                job_name=job_name,
-            )
+            return self._failure_before_execution(context, job_name, validation_error)
 
         # Dependencies (§D.1) run before pre-flight, not after: a dep may
         # regenerate a file that this job fingerprints, so checking staleness
@@ -1068,6 +1063,73 @@ class JobExecutionEngine:
 
             self._workflow_state_store = StateStore.for_project(Path.cwd())
         return self._workflow_state_store
+
+    def _failure_before_execution(
+        self,
+        context: ExecutionContext,
+        job_name: str,
+        error: BaseException,
+    ) -> JobResult:
+        """A `FAILURE` result for a job refused before its body was entered.
+
+        Fires `AFTER_FAILURE` and emits `job.execute.end`, and deliberately
+        **not** `PRE_EXECUTE`: those hooks mean "the job is committed to
+        running", and it is not.
+
+        Two callers reach this, and they must not drift. A `@workflow` job
+        refused at launch for an unbindable keyword, and any job whose config
+        model or arguments failed to validate. Both are refusals that happen
+        after a context exists and before the body runs, so both owe the caller
+        the same shape — and, above all, neither may let the exception *escape*.
+        That invariant is what lets the CLI render a field-level failure panel
+        instead of a raw traceback, and it is why config resolution was moved
+        inside the handler that calls this in the first place.
+
+        Args:
+            context: The execution context. Its `capabilities` may be `None` —
+                a launch refusal happens before DI has run — in which case the
+                context itself stands in as the hook's receiver.
+            job_name: The registered name, for hooks and the event payload.
+            error: What refused the job; returned on the result, never raised.
+
+        Returns:
+            The `FAILURE` result the caller should return unchanged.
+        """
+        duration_ms = context.elapsed_ms
+
+        # Build RunContext for hooks (same pattern as _execute_with_lifecycle)
+        from functualize._engine.capabilities.runcontext import (
+            RunContext as _RunContext,
+        )
+
+        rc_for_hooks = (
+            context.capabilities.get(_RunContext, context)
+            if context.capabilities
+            else context
+        )
+        self._hook_registry.invoke(
+            HookEvent.AFTER_FAILURE,
+            job_name,
+            rc_for_hooks,
+            exception=error,
+        )
+
+        self._event_bus.emit(
+            "job.execute.end",
+            resource=job_name,
+            job_name=job_name,
+            duration_ms=duration_ms,
+            status="failure",
+        )
+
+        return JobResult(
+            status=RunStatus.FAILURE,
+            return_value=None,
+            duration_ms=duration_ms,
+            metadata=dict(context.metadata),
+            exception=error,
+            job_name=job_name,
+        )
 
     def _validate_workflows_once(self) -> None:
         """Run workflow validation once per registry generation.

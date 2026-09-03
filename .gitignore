@@ -12,6 +12,7 @@ build/
 # Agents
 .spec/archive/
 .spec/scrutiny-reports/
+.spec/verification-reports/
 .spec/proposals/
 .spec/plans/
 .spec/.agentic-coding

@@ -20,6 +20,9 @@ The files committed here are the canonical design reference. Additional working 
 | [Builtins as Jobs](shape-intents/builtins-as-jobs.md) | 19 (9 pass, 10 gaps) — **undecided**, see B1 |
 | [Output-Flag Normalization](shape-intents/output-flag-normalization.md) | 16 (6 confirmed, 10 gaps) — **D1 open** |
 | [A GitHub Action for functualize](shape-intents/github-action.md) | 16 (1 pass, 15 gaps) — **B1 open: ship it at all?** |
+| [Workflow Run Parameters](shape-intents/workflow-run-parameters.md) | 7 (2 pass, 5 gaps) |
+| [Remote Config Source](shape-intents/remote-config-source.md) | 4 (1 pass, 3 gaps) |
+| [Boolean Flag Negation](shape-intents/boolean-flag-negation.md) | 6 (1 pass, 5 gaps) — counts predate #17, which shipped the feature; needs re-verification or retirement |
 
 When a shape intent graduates to implementation, it is atomized into a task list under `.spec/features/<name>/` and executed via the spec-driven-developer workflow. Before the branch merges, both are cleared: the durable half moves to `STATUS.md` and an ADR, and the artifacts are removed. Standalone Distribution & Self-Management shipped that way on 2026-09-04 — see [ADR-015](../contributor/adr/015-standalone-distribution-and-self-management.md).
 

@@ -56,6 +56,7 @@ from functualize._types.naming import (
     TrieNode,
     TrieResolution,
     group_ancestors,
+    negative_flag_for,
     normalize_segment,
     resolve_name,
 )
@@ -158,6 +159,7 @@ __all__ = [
     "ResourceLocator",
     "merge_config_layers",
     "group_ancestors",
+    "negative_flag_for",
     "normalize_segment",
     "resolve_name",
 ]
