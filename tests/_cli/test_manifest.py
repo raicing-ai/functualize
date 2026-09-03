@@ -354,3 +354,37 @@ class TestFirstRun:
         cli_run(["builtin", "version"], cwd=tmp_path)
         recorded = m.load(m.manifest_path(xdg_dirs.functualize_config))
         assert len(recorded.installations) == 1
+
+
+class TestAConsumerAppDoesNotRegisterItself:
+    """AC9g, decided 2026-09-03 — and pinned so it is not "fixed" later.
+
+    The registry means *functualize installations*, not every application built
+    on functualize that has run. An app embedding functualize is not an
+    installation of it: it has its own name, release cycle and owner, which is
+    what detection already reports for it.
+
+    Registration lives in `_run_cli`, which an app's own `main.py` never
+    reaches. That is the mechanism, but the *decision* is what this guards —
+    adding a call in `CliAdapter` would look like an obvious omission fixed.
+    """
+
+    @pytest.mark.surfaces("app")
+    def test_running_on_the_app_surface_writes_no_record(
+        self, cli_run, tmp_path: Path, xdg_dirs
+    ) -> None:
+        result = cli_run(["builtin", "version"], cwd=tmp_path)
+        assert result.exit_code == 0
+
+        recorded = m.load(m.manifest_path(xdg_dirs.functualize_config))
+        assert recorded.installations == (), (
+            "a consumer application registered itself; the registry is for "
+            "functualize installations, not for apps built on it (AC9g)"
+        )
+
+    @pytest.mark.surfaces("app")
+    def test_no_manifest_file_is_created_at_all(
+        self, cli_run, tmp_path: Path, xdg_dirs
+    ) -> None:
+        cli_run(["builtin", "version"], cwd=tmp_path)
+        assert not m.manifest_path(xdg_dirs.functualize_config).exists()

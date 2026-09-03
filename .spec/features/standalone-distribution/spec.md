@@ -331,20 +331,18 @@ Each is a behavior, checkable without reference to implementation. Per
 - **AC9b** — Two registrations racing each other both survive; neither overwrites the other.
 - **AC9c** — Any installation can enumerate every registered installation, with the running
   one distinguishable from the rest.
-- **AC9g** — **Open, found while implementing 4.1.** Registration happens in `_run_cli`, so a
-  consumer application built on functualize never registers itself: the registry cannot see
-  it, even though detection correctly names it as its own owning distribution. Unlike
-  doctor's pre-boot interception this is not inherent — nothing about registration requires a
-  pre-boot layer, and `CliAdapter` could do it. **Whether a consumer app should appear in the
-  user-global registry is a decision, not a mechanical fix**, and it is deliberately not
-  guessed at: it determines whether the registry means "functualize installations" or "every
-  application built on functualize that has run".
-- **AC9d** — After an in-place version upgrade, the registry reports the new version, and the
-  binary still has exactly one record.
-- **AC9e** — When the registry cannot be written, the invoked command still succeeds, prints
-  no warning about it, and exits with the code it would otherwise have used.
-- **AC9f** — No command performs a `PATH` scan, a directory walk, or a subprocess in order to
-  learn about other installations.
+- **AC9g** — **A consumer application never registers itself implicitly** (decided
+  2026-09-03). Registration happens in `_run_cli`, which an application's own `main.py` does
+  not reach, and `CliAdapter` deliberately does not add it.
+
+  This settles what the registry *means*: **functualize installations**, not every
+  application built on functualize that has run. An app that embeds functualize is not an
+  installation of it — it has its own name, its own release cycle, and its own owner, which
+  is exactly what detection reports for it.
+
+  "Implicitly" is the operative word: an explicit opt-in remains open, and nothing here
+  forecloses it. What is closed is registration happening as a side effect of an app simply
+  running.
 
 ### Self
 
