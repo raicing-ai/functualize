@@ -423,3 +423,56 @@ def _output_text(tui: FunctualizeInlineTUI) -> str:
 
     log = tui.query_one("#output-log", RichLog)
     return "\n".join(strip.text for strip in log.lines)
+
+
+class TestSelfManagementFromTheInlineShell:
+    """AC32's third surface, with real keys against a real running TUI.
+
+    The read-only commands must actually *run* here. The mutating ones must
+    not: they hand the terminal over instead, which the shell reports rather
+    than executing on a worker with redirected stdout.
+    """
+
+    @pytest.mark.asyncio
+    async def test_self_doctor_runs_and_reports(self, project: Path) -> None:
+        tui = _make_tui(project)
+        async with tui.run_test() as pilot:
+            await _execute(pilot, tui, "builtin self doctor")
+
+            output = _output_text(tui)
+            assert "install-mode" in output
+            assert "Error" not in output
+
+    @pytest.mark.asyncio
+    async def test_plugin_list_runs_and_reports(self, project: Path) -> None:
+        tui = _make_tui(project)
+        async with tui.run_test() as pilot:
+            await _execute(pilot, tui, "builtin plugin list")
+
+            assert "functualize-inline" in _output_text(tui)
+
+    @pytest.mark.asyncio
+    async def test_doctor_output_is_escaped_not_interpreted(
+        self, project: Path
+    ) -> None:
+        """The report's status column is `ok` / `!!` / `XX` and its detail can
+        hold a bracketed `[stale]` marker, which markup would swallow."""
+        tui = _make_tui(project)
+        async with tui.run_test() as pilot:
+            await _execute(pilot, tui, "builtin self doctor")
+
+            assert "python" in _output_text(tui)
+
+    @pytest.mark.asyncio
+    async def test_a_mutating_command_hands_the_terminal_over(
+        self, project: Path
+    ) -> None:
+        """`self update` must not run on a worker. `uv` and `pipx` write
+        progress straight to fd 1, which the worker path does not redirect --
+        the child would draw over the interface."""
+        tui = _make_tui(project)
+        async with tui.run_test() as pilot:
+            await _execute(pilot, tui, "builtin self update")
+
+            # A handoff exits the app rather than writing a result to the log.
+            assert "Done" not in _output_text(tui)
