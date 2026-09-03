@@ -160,9 +160,20 @@ component. Restored clean.
 
 ## Wave 2 — the rest of the acceptance surface
 
-### T3.1 — Live acceptance tests against a gated walk
+### [x] T3.1 — Live acceptance tests against a gated walk
 
 **[F]** `tests/workflow/test_launch_validation.py`
+
+> **A3 landed early**, in T2.1, as the clean-launch control beside A1 — an A1
+> that only asserted "no steps ran" would be satisfied by an implementation
+> refusing *every* launch, so the control had to ship with it rather than a
+> wave later. Not a scope slip; recorded so the mapping table stays honest.
+>
+> **Result: 11 cells, all green.** Sabotage (`if False:` on the engine branch):
+> **8 failed, 3 passed**. The three survivors are exactly the cells asserting
+> normal operation — the clean-launch control, `**kwargs`, and the clean nested
+> resume — and every cell asserting a refusal failed. That split is the
+> evidence that none of them is vacuous.
 
 - **A3** — `app.execute('lab.release')` with no arguments reaches
   `approval-gate` and returns `BLOCKED`. Proves the launch check did not become
@@ -189,7 +200,49 @@ human approval has already been spent.
 
 ---
 
-## Wave 3 — verification and disclosure
+## Wave 3 — the correction the full suite forced
+
+### [x] T4.2 — A config model's field names are legitimate launch arguments
+
+**[F]** `src/functualize/_engine/validation.py`,
+`src/functualize/_engine/executor.py`,
+`tests/workflow/test_launch_validation.py`
+
+**Not in the original plan.** T4.1's full-suite run failed two cells of
+`tests/cli/test_unknown_mode_gate_flags_e2e.py` with
+
+```
+TypeError: trip_planner() got an unexpected keyword argument 'city'
+```
+
+`--city` is a **config-model field**, not a signature parameter.
+`_resolve_config_model` (`executor.py:2317-2322`) pops every name in
+`config_class.model_fields` out of `call_kwargs` and replaces them with the
+built model — so those names are legitimate at launch and are consumed later.
+
+This refutes `research.md` R2's conclusion that "membership in the signature is
+the whole question". It is not: the acceptable set is the signature **plus what
+later stages consume**. Today exactly one stage consumes anything, and both
+sides now read `model_fields`, so they are one decision rather than two
+opinions. `also_accepts` carries it.
+
+Group options are unaffected and were checked rather than assumed:
+`_resolve_group_options` reads the dedicated `group_option_values` parameter
+(`executor.py:2122`), never `call_kwargs`.
+
+**Why the feature's own tests could not catch it:** every A1–A5 fixture declares
+a DI-only workflow (`walk(log: Log)`) with no config model. The one shape that
+mattered was the one shape absent. Three cells added — a config field accepted
+and reaching the walk, an unknown name still refused, and the plain job beneath
+it answering identically.
+
+**Gate:** `tests/workflow/test_launch_validation.py` +
+`tests/engine/test_unexpected_keyword.py` +
+`tests/cli/test_unknown_mode_gate_flags_e2e.py` → **24 passed**.
+
+---
+
+## Wave 4 — verification and disclosure
 
 ### T4.1 — Full regression and STATUS entry
 
@@ -224,7 +277,8 @@ exists to surface.
     { "id": 0, "tasks": ["1.1", "1.2"] },
     { "id": 1, "tasks": ["2.1"] },
     { "id": 2, "tasks": ["3.1"] },
-    { "id": 3, "tasks": ["4.1"] }
+    { "id": 3, "tasks": ["4.2"] },
+    { "id": 4, "tasks": ["4.1"] }
   ]
 }
 ```

@@ -324,3 +324,100 @@ class TestTheInMemoryScopeRegistry:
             "if this ever stops being true, the contract note can be dropped"
         )
         assert not _scope(root, "rk5"), "the durable half must stay untouched"
+
+
+_CONFIG_WORKFLOW = '''
+from pydantic import BaseModel, Field
+
+from functualize import workflow
+from functualize.job import Log, job
+from functualize.workflow import END, Edge, Gate, Step
+
+
+class Cfg(BaseModel):
+    city: str = Field(default="Tokyo", description="City to check")
+
+
+class Approval(BaseModel):
+    note: str = Field(description="why this is approved")
+
+
+@job
+def forecast(config: Cfg, log: Log) -> str:
+    return f"{config.city}: sunny"
+
+
+@workflow(
+    steps=[Step(forecast), Gate(name="pause", awaits=Approval)],
+    edges=[Edge("forecast", "pause"), Edge("pause", END)],
+)
+def trip(config: Cfg, log: Log) -> str:
+    """A workflow whose launch arguments are config fields, not parameters."""
+    return f"done: {config.city}"
+'''
+
+
+class TestConfigModelFieldsAreLegitimate:
+    """The regression the full suite caught, and the feature's own gap.
+
+    `--city Tokyo` reaches `execute()` as `city="Tokyo"`, and `city` is a
+    parameter of *nothing*: `_resolve_config_model` pops each config field out
+    of `call_kwargs` and replaces them with the built model. The first
+    implementation of the launch check saw only the signature and refused the
+    CLI's own spelling of a documented flag.
+
+    Every A1-A5 fixture above declares a DI-only workflow with no config model,
+    which is exactly why none of them could see this. The cells here are the
+    shape those were missing.
+    """
+
+    @pytest.fixture
+    def configured(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        jobs = tmp_path / "jobs"
+        jobs.mkdir()
+        (jobs / "w.py").write_text(_CONFIG_WORKFLOW)
+        monkeypatch.chdir(tmp_path)
+
+        from functualize.app import FunctualizeApp, JobSources
+
+        return (
+            FunctualizeApp("w", job_sources=JobSources(directories=["jobs"])),
+            tmp_path,
+        )
+
+    def test_a_config_field_is_accepted_and_reaches_the_walk(
+        self, configured: tuple[object, Path]
+    ) -> None:
+        app, root = configured
+
+        result = app.execute("trip", scope_id="cfg", city="Kyoto")  # type: ignore[attr-defined]
+
+        assert result.status is RunStatus.BLOCKED, (
+            "a config field was refused as an unknown launch argument"
+        )
+        assert _scope(root, "cfg").get("position") == "pause"
+
+    def test_an_unknown_name_is_still_refused(
+        self, configured: tuple[object, Path]
+    ) -> None:
+        """The control: accepting config fields must not accept everything."""
+        app, root = configured
+
+        result = app.execute("trip", scope_id="cfg2", nonsense=1)  # type: ignore[attr-defined]
+
+        assert result.status is RunStatus.FAILURE
+        assert "nonsense" in str(result.exception)
+        assert not _scope(root, "cfg2").get("steps")
+
+    def test_the_plain_job_beneath_it_agrees(
+        self, configured: tuple[object, Path]
+    ) -> None:
+        """A plain job sharing the config model answers the same way.
+
+        Parity here is what says the launch check reproduced the existing rule
+        rather than inventing a stricter one for workflows only.
+        """
+        app, _ = configured
+
+        assert app.execute("forecast", city="Osaka").status is RunStatus.SUCCESS  # type: ignore[attr-defined]
+        assert app.execute("forecast", nonsense=1).status is RunStatus.FAILURE  # type: ignore[attr-defined]

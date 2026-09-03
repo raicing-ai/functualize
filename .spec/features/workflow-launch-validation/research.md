@@ -35,6 +35,26 @@ job) an equality rather than an approximation.
 
 ## R2 — No DI classifier is needed, and building one would be wrong
 
+> **CORRECTED 2026-09-03 (T4.2).** R2's *conclusion about DI* stands — DI
+> parameters must not be excluded, for the reason below. Its closing sentence,
+> "**Membership in the signature is the whole question**", is **wrong** and cost
+> two full-suite failures.
+>
+> A job declaring `config: Cfg` is invoked as `--city Tokyo`, and `city` is a
+> parameter of nothing. `_resolve_config_model` (`executor.py:2317-2322`) pops
+> every name in `config_class.model_fields` out of `call_kwargs` and replaces
+> them with the built model. So the acceptable set is the signature **plus what
+> later stages consume**, and the check takes those names via `also_accepts`.
+>
+> Group options genuinely are not in that set — `_resolve_group_options` reads
+> the dedicated `group_option_values` parameter (`executor.py:2122`), never
+> `call_kwargs`. That was checked after the failure, not assumed before it.
+>
+> The reasoning error is worth keeping: R2 established that the *engine's own
+> classifier* (`ResolutionPlan`) was the wrong thing to reuse, and then read
+> that as "no other stage matters". Ruling one candidate out is not an
+> enumeration.
+
 The spec's note asked how to exclude DI parameters. The answer is that we must
 **not** exclude them.
 

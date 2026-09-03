@@ -17,7 +17,7 @@ Only imports from `_types/`, `_primitives/`, and stdlib (plus pydantic for model
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from typing import Annotated, Any, get_args, get_origin
 
 from pydantic import BaseModel, create_model
@@ -27,7 +27,10 @@ from functualize._types.annotations import resolved_hints
 
 
 def unexpected_keyword_error(
-    function: Callable[..., Any], kwargs: Mapping[str, Any]
+    function: Callable[..., Any],
+    kwargs: Mapping[str, Any],
+    *,
+    also_accepts: Collection[str] = (),
 ) -> TypeError | None:
     """The ``TypeError`` calling ``function(**kwargs)`` would raise, or ``None``.
 
@@ -40,26 +43,43 @@ def unexpected_keyword_error(
     That split is what makes this usable *before* dependency injection has run.
     A job function's parameters are mostly capabilities the engine fills
     (``Log``, ``Stdout``) and ``FromJob`` results recorded by upstream steps;
-    none of them exist at launch, so a completeness check there would reject
-    every valid call. Note this does **not** mean DI parameters are excluded —
-    they are ordinary declared parameters, and a caller has always been able to
-    supply one explicitly (the engine injects only names the caller did not
-    provide). Membership in the signature is the whole question.
+    none exist at launch, so a completeness check there would reject every valid
+    call. This is not an *exclusion* of DI parameters — they are ordinary
+    declared parameters, and a caller has always been able to supply one
+    explicitly, since the engine injects only names the caller did not provide.
+
+    **The signature alone is not the acceptable set**, which is what
+    ``also_accepts`` exists for. A job declaring ``config: Cfg`` is invoked as
+    ``--city Tokyo``, and ``city`` is not a parameter of anything —
+    ``_resolve_config_model`` *pops* each of the config model's field names out
+    of ``call_kwargs`` and replaces them with the built model. A check that saw
+    only the signature would refuse the CLI's own spelling of a documented flag.
+    So the caller passes the names later stages will consume, and this stays the
+    one place that decides, rather than growing a second opinion about it.
 
     ``bind_partial`` omits the ``fn()`` prefix that a real call's message
     carries, so it is added back here. Python owns the rule; this function owns
-    only the wording, and the caller owns the timing.
+    the wording and the extra names, and its caller owns the timing.
 
     Args:
         function: The callable the keywords would be passed to.
         kwargs: The keyword arguments a caller supplied.
+        also_accepts: Names that are legitimate even though the signature does
+            not declare them, because a later stage consumes them — in practice
+            the job's config-model field names. Must stay in step with what
+            ``_resolve_config_model`` pops; the two are one decision.
 
     Returns:
         A ``TypeError`` worded as the real call would word it, or ``None`` when
         every keyword is acceptable.
     """
+    candidates = (
+        {name: value for name, value in kwargs.items() if name not in also_accepts}
+        if also_accepts
+        else kwargs
+    )
     try:
-        inspect.signature(function).bind_partial(**kwargs)
+        inspect.signature(function).bind_partial(**candidates)
     except TypeError as exc:
         name = getattr(function, "__name__", None) or repr(function)
         return TypeError(f"{name}() {exc}")

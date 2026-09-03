@@ -817,7 +817,16 @@ class JobExecutionEngine:
         # from the real call, at the right moment and with hooks fired; checking
         # it again here would be a second place deciding the same thing.
         if declaration is not None:
-            launch_error = unexpected_keyword_error(function, kwargs)
+            # A config model's field names are legitimate launch arguments even
+            # though no parameter is called that: `--city Tokyo` for a job
+            # declaring `config: Cfg` arrives as `city=...`, and
+            # `_resolve_config_model` pops it out of `call_kwargs` later. The
+            # acceptable set and the set that stage consumes are one decision,
+            # and both read `model_fields`.
+            consumed_by_config = getattr(config_class, "model_fields", None) or {}
+            launch_error = unexpected_keyword_error(
+                function, kwargs, also_accepts=set(consumed_by_config)
+            )
             if launch_error is not None:
                 return self._failure_before_execution(context, job_name, launch_error)
 
