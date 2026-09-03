@@ -1691,6 +1691,100 @@ def main() -> None:
         _run_cli()
 
 
+#: The one-time nudge after an installation first registers.
+FIRST_RUN_HINT = (
+    "Note: first run — 'func builtin self doctor' gives you a health check."
+)
+
+
+def _emit_first_run_hint(stream: Any) -> bool:
+    """Print the hint, but only to a terminal. Returns whether it printed.
+
+    **stderr is not a free channel.** `--perf-report json` writes its document
+    there, and an unconditional hint corrupted it — two integration tests
+    failed on a `JSONDecodeError` at char 0. stdout is worse still, since
+    piping job output is the documented way to consume it.
+
+    So the hint is gated on stderr being a terminal, which is the only case
+    where a human is reading it. Everywhere else it is silently skipped: a
+    convenience must never damage output somebody is parsing.
+    """
+    try:
+        if not stream.isatty():
+            return False
+    except (AttributeError, ValueError):
+        return False
+    print(FIRST_RUN_HINT, file=stream)
+    return True
+
+
+def _register_this_installation() -> None:
+    """Record this installation in the user-global registry, once.
+
+    **The warm path is one `stat()` and imports nothing.** `_cli.manifest`
+    defines dataclasses, and creating a frozen dataclass costs ~0.9ms of
+    codegen at import — far more than reading the registry it manages (~39us
+    for ten installations). So the fast path computes the marker path with
+    stdlib and stats it; the module is imported only on the miss.
+
+    The marker key covers `(binary_path, version)`, so an in-place upgrade
+    misses it and refreshes its record instead of being masked forever.
+
+    **Every failure here is silent.** A read-only config directory, a
+    container, a sandbox — registration becomes impossible and the command the
+    user typed must not care. Bookkeeping never interferes.
+    """
+    try:
+        from pathlib import Path
+
+        import functualize
+        from functualize.app.utils import resolve_user_config_dir
+
+        version = functualize.__version__
+        config_dir = resolve_user_config_dir()
+
+        # Mirrors `_cli.manifest.resolve_binary_path`, recomputed here rather
+        # than imported so the warm path stays free of that module's dataclass
+        # codegen. `tests/_cli/test_manifest.py` asserts the two agree.
+        argv0 = sys.argv[0] if sys.argv else ""
+        if not argv0:
+            binary_path = ""
+        elif "/" in argv0 or "\\" in argv0:
+            binary_path = str(Path(argv0).resolve())
+        else:
+            binary_path = str(Path(sys.executable).parent / argv0)
+
+        import hashlib
+
+        digest = hashlib.sha256(f"{binary_path}\0{version}".encode()).hexdigest()[:16]
+        if (config_dir / "installs" / digest).exists():
+            return  # already recorded — nothing imported, nothing parsed
+
+        from functualize._cli import manifest as _manifest
+        from functualize._cli.runtime import detect_from_process
+
+        # Nothing recorded yet at all means this is the very first run of any
+        # functualize on this machine — the one moment the hint is useful.
+        first_ever = not _manifest.manifest_path(config_dir).exists()
+
+        detection = detect_from_process()
+        _manifest.register(
+            config_dir,
+            binary_path=binary_path,
+            runtime_mode=detection.mode.value,
+            owning_distribution=detection.owning_distribution,
+            python_version=(
+                f"{sys.version_info.major}.{sys.version_info.minor}"
+                f".{sys.version_info.micro}"
+            ),
+            functualize_version=version,
+        )
+        if first_ever:
+            _emit_first_run_hint(sys.stderr)
+    except Exception:  # noqa: BLE001 - see the docstring: never interfere
+        return
+
+
 def _run_cli() -> None:
     """Entry point — deterministic routing, no exception-based dispatch.
 
@@ -1766,6 +1860,8 @@ def _run_cli() -> None:
 
         doctor.main(_argv_tail[3:], prog_name="func builtin self doctor")
         return
+
+    _register_this_installation()
 
     # Settings declaring `phase="early"` are read here, beside `--version`,
     # because "early" means *before the app exists* — a flag that changes

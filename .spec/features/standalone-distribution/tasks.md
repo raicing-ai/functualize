@@ -174,8 +174,12 @@ Acceptance:
   an unrelated command (AC9) — structural, not timed
 - Doctor reports an entry whose `binary_path` no longer resolves as stale (AC7)
 - A corrupt file yields an empty manifest and does not raise
-- **Negative gate (AC9f)**: `grep -rn "shutil.which\|os.walk\|iterdir\|subprocess" src/functualize/_cli/manifest.py`
-  must be empty. The registry is written and read; it is never derived
+- **Negative gate (AC9f)**, narrowed at authoring time and stated per
+  `.spec/CONSTITUTION.md` -> *Acceptance Gates*: the original bare-word grep matched the
+  module's own docstring, which explains that it does not discover. It now matches call and
+  import syntax only —
+  `grep -nE "^\s*(import|from) (subprocess|shutil)|\.iterdir\(|os\.walk\(|shutil\.which\(|subprocess\." src/functualize/_cli/manifest.py`
+  must be empty. Verified empty. The registry is written and read; it is never derived
 - Sabotage the first-run registration call; confirm AC8's test fails
 
 ---

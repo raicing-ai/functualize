@@ -318,6 +318,58 @@ def _check_boot(cwd: Path) -> list[Check]:
     return checks
 
 
+def _check_registry() -> list[Check]:
+    """What else has run on this machine, and is any of it gone?
+
+    Read only — the registry is never derived. An installation appears here
+    because it registered itself when it ran, so a `func` that has never
+    executed is legitimately absent.
+
+    A record whose `binary_path` no longer resolves is *reported*, never
+    removed: the file is append-only, because two installations coexisting is
+    a real state and `PATH` decides which one runs.
+    """
+    try:
+        from functualize._cli import manifest as _manifest
+        from functualize.app.utils import resolve_user_config_dir
+
+        config_dir = resolve_user_config_dir()
+        registry = _manifest.load(_manifest.manifest_path(config_dir))
+    except Exception:  # noqa: BLE001 - an unreadable registry is not an error
+        return []
+
+    if not registry.installations:
+        return [Check("installations", CheckStatus.INFO, "none registered yet")]
+
+    running = sys.argv[0] if sys.argv else ""
+    stale = [r for r in registry.installations if not Path(r.binary_path).exists()]
+
+    checks = [
+        Check(
+            "installations",
+            CheckStatus.INFO,
+            f"{len(registry.installations)} registered, {len(stale)} stale",
+        )
+    ]
+    for record in registry.installations:
+        marker = " (running)" if record.binary_path == running else ""
+        gone = " [stale]" if record in stale else ""
+        checks.append(
+            Check(
+                f"  {record.binary_path}",
+                CheckStatus.WARNING if gone else CheckStatus.INFO,
+                f"{record.functualize_version}  {record.runtime_mode}{marker}{gone}",
+                remedy=(
+                    "This binary no longer exists. The record is kept because "
+                    "the registry is append-only."
+                )
+                if gone
+                else None,
+            )
+        )
+    return checks
+
+
 def _check_terminal() -> Check:
     tty = sys.stdout.isatty()
     return Check(
@@ -338,6 +390,7 @@ def build_report(cwd: Path | None = None) -> DoctorReport:
     detection = detect_from_process(cwd=where)
     checks: list[Check] = [_check_python(), _check_cli_extras()]
     checks.extend(_check_install(detection))
+    checks.extend(_check_registry())
     checks.extend(_check_boot(where))
     checks.append(_check_terminal())
     return DoctorReport(tuple(checks))
@@ -351,8 +404,14 @@ _GLYPH = {
 }
 
 
+#: Names longer than this stop widening the column and simply overflow. One
+#: registry entry is an absolute path, and letting it set the width pushes
+#: every other line off the right of an 80-column terminal.
+_NAME_COLUMN_MAX = 22
+
+
 def render_report_text(report: DoctorReport) -> list[str]:
-    width = max((len(c.name) for c in report.checks), default=0)
+    width = min(max((len(c.name) for c in report.checks), default=0), _NAME_COLUMN_MAX)
     lines: list[str] = []
     for check in report.checks:
         lines.append(f"  {_GLYPH[check.status]}  {check.name:<{width}}  {check.detail}")

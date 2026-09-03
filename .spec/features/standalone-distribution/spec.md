@@ -319,7 +319,11 @@ Each is a behavior, checkable without reference to implementation. Per
   the CLI, never a hard-coded home path.
 - **AC6** — A second installation adds a record; no existing record is removed.
 - **AC7** — An entry whose binary path no longer exists is reported by doctor as stale.
-- **AC8** — The first-run hint appears on the first invocation and not on the second.
+- **AC8** — The first-run hint appears on the first invocation and not on the second, **and
+  only when stderr is a terminal**. Narrowed while implementing 4.1: an unconditional hint on
+  stderr corrupted `--perf-report json`, which writes its document there; stdout is worse,
+  since piping job output is the documented way to consume it. Registration itself is not
+  gated — only the hint.
 - **AC9** — A warm second invocation of an unrelated command does not load the manifest
   machinery at all.
 - **AC9a** — An installation registers itself once. A second run of the same installation
@@ -327,6 +331,14 @@ Each is a behavior, checkable without reference to implementation. Per
 - **AC9b** — Two registrations racing each other both survive; neither overwrites the other.
 - **AC9c** — Any installation can enumerate every registered installation, with the running
   one distinguishable from the rest.
+- **AC9g** — **Open, found while implementing 4.1.** Registration happens in `_run_cli`, so a
+  consumer application built on functualize never registers itself: the registry cannot see
+  it, even though detection correctly names it as its own owning distribution. Unlike
+  doctor's pre-boot interception this is not inherent — nothing about registration requires a
+  pre-boot layer, and `CliAdapter` could do it. **Whether a consumer app should appear in the
+  user-global registry is a decision, not a mechanical fix**, and it is deliberately not
+  guessed at: it determines whether the registry means "functualize installations" or "every
+  application built on functualize that has run".
 - **AC9d** — After an in-place version upgrade, the registry reports the new version, and the
   binary still has exactly one record.
 - **AC9e** — When the registry cannot be written, the invoked command still succeeds, prints
