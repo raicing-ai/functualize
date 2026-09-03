@@ -1361,6 +1361,33 @@ Items identified during development that are worth doing but not yet designed:
     through. **Fix:** make the fixture establish whatever the wider run
     supplies, or assert against an explicitly constructed settings store.
 
+23. **`test_reentry_guard_ignores_second_trigger_while_running` flakes on
+    Python 3.11.** `tests/_cli/test_job_execution_thread_worker.py:121` triggers
+    `action_execute()` twice with an `await pilot.pause()` between them and
+    asserts the re-entry guard swallowed the second
+    (`_snapshot_store.record.call_count == 1`). It failed once on CI with
+    `assert 2 == 1` on the **3.11** matrix leg while 3.12 and 3.13 passed in the
+    same run; a rerun of the identical commit passed in 14m44s.
+
+    Same family as #10 and #12: **the assertion times the machine, not the
+    code.** If the first worker finishes before the second trigger lands, the
+    guard legitimately never fires and `record` is called twice — a correct
+    system failing a test that assumed a scheduling order. Python 3.11's asyncio
+    differs enough from 3.12/3.13 for the race to land differently there.
+
+    Ruled out as a cause, during PR #17: the test predates that branch
+    (`84ed555`), the only change to `job_execution.py` was inside the
+    `bad_flag is not None` early-return branch, which a bare `slowjob` never
+    enters; the `bar.py` readiness change only alters the `known` flag-set for
+    boolean fields, and its loop does not run for input with no `-` tokens; and
+    the function-local `app.utils` import is a `sys.modules` hit, since
+    `display_affinity.py` already imports that module at module scope. Locally
+    on 3.13 it passed 3x serially and 6x under concurrent load.
+
+    **Fix:** assert the guard's *state* rather than a post-hoc call count — hold
+    the first worker open until the second trigger has been observed, instead of
+    racing it. Lowering nothing and rerunning is what makes a flake permanent.
+
 ## Recently Completed (2026-08)
 
 | Feature | Description |
