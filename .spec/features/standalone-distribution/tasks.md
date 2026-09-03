@@ -216,7 +216,7 @@ Acceptance:
 
 ## Wave 5 — self-management
 
-### [ ] 6.1 — `self update`, `self install`, `self python`, `self uv`
+### [x] 6.1 — `self update`, `self install`, `self python`, `self uv`
 
 `[F]` `src/functualize/_cli/self_cmd.py`, `src/functualize/_cli/manifest.py`,
 `src/functualize/_cli/builtins.py`
