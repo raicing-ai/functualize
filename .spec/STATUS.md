@@ -557,7 +557,6 @@ Committed design documents with per-assertion PASS/GAP verification against the 
 | Shape intent | Scope |
 |---|---|
 | [`remote-config-source.md`](shape-intents/remote-config-source.md) | `RemoteSource` is defined, exported and documented with **zero construction sites in `src/`**, and the `remote_first` preset's docstring promises a chain the boot path does not build. Wire it or remove it — correcting only the docstrings is explicitly not an option. Carries the finding that the original gate passed *because of* its `--include="*.md"` scoping. |
-| [`standalone-distribution.md`](shape-intents/standalone-distribution.md) | Detect how the running `func` was installed (PyApp binary / uv tool / pipx / project venv / consumer app / degraded), expose it through `func builtin self doctor\|update`, and manage plugin packages with the owning installation's own tool via `func builtin plugin`. Four new `_cli/` modules plus a release-time PyApp build pipeline; no kernel changes. **All decisions resolved 2026-09-03**: pre-baked offline binary (recipe B), `PYAPP_PROJECT_FEATURES=all` (~104 MB payload), `self paths`/`self config-info` folded into `builtin info`, and `needs_terminal` made path-aware (prerequisite P1). Nothing blocks any section; a distribution-baking CI step is the largest new work. |
 
 ## Open Features
 
@@ -593,11 +592,12 @@ proposal" and recommended marking those lines contingent — that adjudication
 never happened. Until a daemon spec exists, this deferral has no unblocking
 event: nothing can be observed to land.
 
-The 2026-08-27 revision of that document (now
-[shape-intents/standalone-distribution.md](shape-intents/standalone-distribution.md))
-resolved its half by **removing** the `func self daemon *` subcommands rather than
-carrying them as contingent lines. So the standalone-distribution work no longer
-depends on a daemon, and shipping it will not unblock `func watch` either.
+The 2026-08-27 revision of that document resolved its half by **removing** the
+`func self daemon *` subcommands rather than carrying them as contingent lines,
+and the work shipped without them (see Completed, and
+[ADR-015](../contributor/adr/015-standalone-distribution-and-self-management.md)).
+So standalone distribution never depended on a daemon, and its shipping did not
+unblock `func watch` either.
 
 
 ## Dropped
@@ -627,6 +627,78 @@ validated and read by nothing — the worst of the three states, because a user
 who wrote it got neither an error nor an expansion.
 
 ## Completed
+
+### Standalone distribution and self-management (2026-09-04, `feat/standalone-distribution`)
+
+The `standalone-distribution` shape intent is **implemented**, and its artifacts
+have been cleared from `.spec/`. The durable
+design decisions are in
+[ADR-015](../contributor/adr/015-standalone-distribution-and-self-management.md);
+this entry records what shipped and what the work turned up.
+
+**What shipped.** A pre-baked standalone binary for seven targets, built in
+`release.yml` with checksums attached to the release, plus `install.sh` /
+`install.ps1`. Five new `_cli/` modules — `runtime.py` (detection),
+`manifest.py` (the voluntary registry), `package_ops.py` (command planning,
+reconciliation, the uv receipt merge, and the single execution seam),
+`self_cmd.py`, `plugin_cmd.py` — giving `func builtin self
+doctor|update|install|python|uv` and `func builtin plugin
+list|install|uninstall`. `builtin info` gained install mode and owner. Suite
+7893 → **8298 passed**.
+
+**Seven defects the tests found, none of which code review had.**
+
+1. **Atomic writes do not prevent lost updates.** Twelve concurrent
+   registrations produced a file containing three. `os.replace` prevents a
+   *torn* file, not a lost one, and verify-and-retry does not close it either —
+   the verification is itself racy. Serialised with an `os.mkdir` lock
+   directory, chosen over `flock` because the binary targets Windows.
+2. **`sys.argv[0]` is not a stable identity.** `uv run func` gives the bare
+   name, a direct call gives an absolute path; one installation registered
+   twice, and the bare-name copy then reported as stale.
+3. **The first-run hint corrupted `--perf-report json`** on stderr. Now
+   TTY-gated.
+4. **`self doctor`'s own boot probe registered a phantom installation**, so the
+   registry grew every time doctor reported on it.
+5. **Doctor's boot probe answered a question nobody asked.** It built a bare
+   `FunctualizeApp`, which boots with none of the CLI's discovery config, and
+   so reported "the app starts" in a project where `func builtin version` in
+   fact died. It now drives the real entry point.
+6. **`owned_python()` followed the venv symlink** out to the base interpreter,
+   handing back a Python that sees none of the environment's packages. Found by
+   running the command, not by a test. The symlink *is* the environment.
+7. **The uv receipt merge refused every path install.** `uv tool install
+   "/src[cli]"` writes a `directory` key nothing in the unit tests had. Found by
+   running `plugin install` in a real container. The refusal was correct
+   behaviour — which is why it surfaced as a clear message rather than a silent
+   reinstall from the index — but `directory` is renderable and was not being
+   rendered. Fixing it exposed a second latent bug: the owning distribution was
+   matched against the *rendered* string, so a path install would never have
+   been recognised as the owner.
+
+**Four vacuous tests, all found by sabotage rather than by review.** Two
+asserted a name was *absent* from a list, which holds trivially when nothing is
+recorded at all — deleting the entire bookkeeping call left them green. One
+asserted terminal ownership against the root command object, which is not the
+production path (`app/commands.py` resolves per family). One asserted a
+handoff by the *absence* of a success line, which a command running on the
+worker also produces.
+
+**Two tests could not fail against the live environment**, and were fixed by
+making the code take its input as an argument — the same constraint `detect()`
+already carried. Nothing in this checkout publishes under `functualize.jobs`, so
+the test asserting that group is filtered out passed with the filter deleted.
+
+**Process note, recorded because it happened three times.** `git checkout --`
+during a sabotage cycle discarded uncommitted work — twice in task 6.1, once in
+7.1. The rule that actually works is *commit, then sabotage, then restore*,
+after every change to the file rather than before the first.
+
+**Verified in containers**, not only in pytest: every install mode detected
+against a real install of that kind (settling the `tool_pipx` signal no earlier
+audit host could check), a second plugin install leaving the first present, and
+the install script picking musl and refusing a tampered archive before
+unpacking it.
 
 ### TUI panel support for GroupOptions (2026-08-28, `feat/tui-group-options-panels`)
 

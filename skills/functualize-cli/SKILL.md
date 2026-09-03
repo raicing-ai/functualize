@@ -43,6 +43,22 @@ Always install the `cli` extra:
 | A standalone tool, isolated | `uv tool install "functualize[cli]"` |
 | A PEP 723 single-file script | `dependencies = ["functualize[cli]"]` in the header |
 | Everything, including first-party plugins | `functualize[all]` |
+| **A machine with no Python at all** | the standalone binary — see below |
+
+**The standalone binary** is one executable with Python and every first-party
+plugin already inside it; its first run needs no network. Reach for it only when
+installing Python is not an option — a locked-down server, a container, a CI
+image. If Python is available, `uv tool install` is smaller and updates faster.
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/raicing-ai/functualize/master/install.sh | sh
+# Windows:
+irm https://raw.githubusercontent.com/raicing-ai/functualize/master/install.ps1 | iex
+```
+
+The script reads which dynamic loader is present — not the distribution name —
+so it picks the musl archive on Alpine and distroless images, and verifies the
+download against the release checksums before installing it.
 
 Two console scripts are installed and they are the same program: `func` and
 `functualize`.
@@ -78,12 +94,60 @@ cheapest reachability check. The long tail — conda, pipx, pyenv without a venv
 Docker, mise+poetry — is in the `functualize` skill's
 [environment reference](../functualize/references/environment.md).
 
+**Ask the tool rather than deducing it.** `func builtin self doctor` reports how
+this `func` was installed, which distribution owns it, whether the CLI can
+actually boot here, and every other `func` that has run on the machine:
+
+```bash
+func builtin self doctor              # a report, human-readable
+func builtin self doctor --format json
+```
+
+It runs **before the app boots**, so it still answers when `func` itself is
+broken — which is the one moment the question matters most. `func builtin info`
+carries the same install mode and owner in its overview.
+
 ## 3. Upgrade and uninstall
+
+**Prefer `func builtin self update`.** It works out which of the commands below
+applies to *this* installation, prints the exact command before running it, and
+afterwards restores anything you had added to the environment — including
+packages the upgrade removed that were never recorded anywhere.
+
+```bash
+func builtin self update          # prints the command, asks, then runs it
+func builtin self update --yes    # for scripts; still prints what it ran
+```
+
+It manages the standalone binary, a `uv tool` install, a `pipx` install and a
+project checkout. A bare `pip install` into a system interpreter is **not**
+self-managing: the command prints guidance, changes nothing, and exits `3`. That
+refusal is deliberate — see §1 on why that install shape is a trap.
+
+The manual equivalents, for when you want to drive it yourself:
 
 ```bash
 uv add "functualize[cli]" --upgrade      # in a project
 uv tool upgrade functualize              # a uv-managed tool install
 uv tool uninstall functualize
+```
+
+Adding to the installation, rather than upgrading it:
+
+```bash
+func builtin self install <package>     # a dependency your jobs import
+func builtin plugin list                # what extends this installation
+func builtin plugin install <package>   # an extension
+func builtin plugin uninstall <package>
+```
+
+Both record what they added, so `self update` puts it back after an upgrade.
+`self install` stays out of `plugin list`; a plain dependency is not an
+extension. For anything these decline to do, drive the tools directly:
+
+```bash
+func builtin self uv -- pip install --index-url ... some-package
+func builtin self python -- -m pip debug
 ```
 
 Two things do **not** move with the package and are worth knowing about after an
@@ -281,4 +345,4 @@ tree wholesale; `--prune` also removes other versions' trees.
 | A config value has no effect | `func builtin config show` | A higher layer wins; read the source column |
 | "It will not re-run" | `func builtin why <job>`, then `func builtin state show` | Fingerprint fresh, or standalone mode pointing at a different ledger |
 | A credential leaked into output | check for `Secret[str]` on the field | Marker-only declaration does not mask |
-| Wrong functualize version runs | `func builtin version` and `which -a func` | A second install, usually from a bare `pip install` |
+| Wrong functualize version runs | `func builtin self doctor` — it lists every `func` that has run on this machine, with its version and install mode | A second install, usually from a bare `pip install` |
