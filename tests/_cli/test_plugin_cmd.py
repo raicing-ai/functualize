@@ -22,6 +22,7 @@ from functualize._cli import manifest, package_ops
 from functualize._cli.plugin_cmd import (
     ExtensionEntry,
     discover_extensions,
+    extensions_from,
     render_extensions,
 )
 
@@ -411,3 +412,96 @@ class TestTheMergeRoundTrips:
         self, requirement
     ) -> None:
         assert requirement.to_pep508().startswith(requirement.name)
+
+
+class _FakeEntryPoint:
+    def __init__(self, name: str, group: str) -> None:
+        self.name = name
+        self.group = group
+
+
+class _FakeDistribution:
+    """The shape `importlib.metadata.distributions()` yields, minus everything
+    this module does not read."""
+
+    def __init__(self, name: str | None, entry_points: list[_FakeEntryPoint]) -> None:
+        self.metadata = {"Name": name}
+        self.entry_points = entry_points
+
+
+class TestFilteringAgainstASuppliedEnvironment:
+    """The exclusions, exercised where they can actually fail.
+
+    Asserting them against the live environment is vacuous: nothing in this
+    checkout publishes under `functualize.jobs`, so deleting the exclusion left
+    the corresponding test green. Sabotage found it; these supply the input.
+    """
+
+    def test_a_job_source_is_excluded(self) -> None:
+        dists = [
+            _FakeDistribution(
+                "somebodys-jobs", [_FakeEntryPoint("etl", "functualize.jobs")]
+            )
+        ]
+        assert extensions_from(dists) == ()
+
+    def test_a_real_extension_alongside_it_still_appears(self) -> None:
+        """Paired, so "returns nothing" cannot pass for "filters correctly"."""
+        dists = [
+            _FakeDistribution(
+                "mixed",
+                [
+                    _FakeEntryPoint("etl", "functualize.jobs"),
+                    _FakeEntryPoint("http", "functualize.plugins"),
+                ],
+            )
+        ]
+        entries = extensions_from(dists)
+        assert [e.registered_name for e in entries] == ["http"]
+
+    def test_an_unrelated_group_is_ignored(self) -> None:
+        dists = [
+            _FakeDistribution("pytest", [_FakeEntryPoint("cov", "pytest11")]),
+            _FakeDistribution(
+                "functualize-http", [_FakeEntryPoint("http", "functualize.plugins")]
+            ),
+        ]
+        assert [e.distribution for e in extensions_from(dists)] == ["functualize-http"]
+
+    def test_a_group_merely_containing_the_prefix_is_not_matched(self) -> None:
+        """`myapp.functualize.plugins` is somebody else's namespace."""
+        dists = [
+            _FakeDistribution(
+                "other", [_FakeEntryPoint("x", "myapp.functualize.plugins")]
+            )
+        ]
+        assert extensions_from(dists) == ()
+
+    def test_the_same_distribution_seen_twice_yields_one_row(self) -> None:
+        dist = _FakeDistribution(
+            "functualize-http", [_FakeEntryPoint("http", "functualize.plugins")]
+        )
+        assert len(extensions_from([dist, dist])) == 1
+
+    def test_unreadable_metadata_is_skipped_rather_than_fatal(self) -> None:
+        class _Broken:
+            @property
+            def entry_points(self):
+                raise RuntimeError("this METADATA is corrupt")
+
+        dists = [
+            _Broken(),
+            _FakeDistribution(
+                "functualize-http", [_FakeEntryPoint("http", "functualize.plugins")]
+            ),
+        ]
+        assert len(extensions_from(dists)) == 1
+
+    def test_a_nameless_distribution_still_lists_its_entry_point(self) -> None:
+        """The registered name is knowable even when the distribution is not,
+        and dropping the row would hide an extension that is genuinely loaded."""
+        entries = extensions_from(
+            [_FakeDistribution(None, [_FakeEntryPoint("x", "functualize.plugins")])]
+        )
+        assert len(entries) == 1
+        assert entries[0].distribution is None

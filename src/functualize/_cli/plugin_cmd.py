@@ -32,7 +32,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import click
 
@@ -41,7 +41,12 @@ from functualize._cli.runtime import detect_from_process
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-__all__ = ["ExtensionEntry", "discover_extensions", "plugin_app"]
+__all__ = [
+    "ExtensionEntry",
+    "discover_extensions",
+    "extensions_from",
+    "plugin_app",
+]
 
 #: Every group functualize itself extends through carries this prefix.
 _PREFIX = "functualize."
@@ -86,14 +91,26 @@ def discover_extensions() -> tuple[ExtensionEntry, ...]:
     ``_primitives.entry_points``: ``_cli`` may not import internal packages,
     and this needs the *distribution* behind each entry point, which the
     internal helper does not carry.
+    """
+    from importlib.metadata import distributions
+
+    return extensions_from(distributions())
+
+
+def extensions_from(dists: Iterable[Any]) -> tuple[ExtensionEntry, ...]:
+    """:func:`discover_extensions` over a supplied set of distributions.
+
+    **Takes its input as an argument, for the same reason ``detect`` does.**
+    A filtering rule that can only be exercised against whatever happens to be
+    installed is untestable in the cases that matter: nothing in this checkout
+    publishes under ``functualize.jobs``, so a test of that exclusion written
+    against the live environment passed with the exclusion deleted.
 
     Deduplicated, because a path appearing twice in ``sys.path`` yields the same
     distribution twice and would double every row.
     """
-    from importlib.metadata import distributions
-
     found: set[ExtensionEntry] = set()
-    for dist in distributions():
+    for dist in dists:
         try:
             entries = list(dist.entry_points)
         except Exception:  # noqa: BLE001 - unreadable metadata is not an error
