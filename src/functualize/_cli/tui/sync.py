@@ -22,6 +22,7 @@ Integration wiring:
 from __future__ import annotations
 
 import shlex
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from functualize._cli.tui.cli_arg_parser import (
@@ -96,7 +97,9 @@ def _quoted(value: str) -> str:
     return f'"{value}"' if any(c.isspace() for c in value) else value
 
 
-def _group_flag_tokens(field: Any, value: Any) -> list[str]:
+def _group_flag_tokens(
+    field: Any, value: Any, siblings: Sequence[str] = ()
+) -> list[str]:
     """The tokens that spell one group option on the command line.
 
     The long form is used even where the declaration also offers a short flag:
@@ -107,10 +110,30 @@ def _group_flag_tokens(field: Any, value: Any) -> list[str]:
     A boolean is a **presence flag**. Writing `--dry-run true` would put a bare
     `true` where the next path segment belongs, and the walk would try to step
     into a group by that name.
+
+    An **explicit False** emits the `--no-` half rather than nothing. Dropping
+    it would break the fixed point `emit(resolve(text)) == text`: a user who
+    toggled a group boolean off in the panel would watch the flag vanish from
+    the bar and the value revert to whatever the config file said. `None` still
+    emits nothing, because "not provided" is a different statement from
+    "provided as false" — that distinction is the whole reason the click option
+    carries `default=None`.
     """
     flag = f"--{field.name.replace('_', '-')}"
     if getattr(field, "type_annotation", "") == "bool":
-        return [flag] if value not in (False, None, "", "false", "False") else []
+        if value in (None, ""):
+            return []
+        if value in (False, "false", "False"):
+            from functualize.app.utils import negative_flag_for
+
+            # The emitter must reach the same verdict dispatch will when it
+            # re-parses this text, so it asks the shared rule with the *same*
+            # sibling set — a group declaring both `x` and `no_x` gives `x` no
+            # negative spelling, and emitting one anyway would bind the value
+            # to the wrong field on the way back in.
+            negative = negative_flag_for(field.name, siblings)
+            return [negative] if negative else []
+        return [flag]
     if value in (None, ""):
         return []
     return [flag, _quoted(str(value))]
@@ -186,7 +209,9 @@ def build_command_line(
             value = group_values[name]
             if omit_defaults and value == getattr(field_desc, "default", None):
                 continue
-            path_tokens.extend(_group_flag_tokens(field_desc, value))
+            path_tokens.extend(
+                _group_flag_tokens(field_desc, value, [f.name for f in spec.fields])
+            )
     path_tokens.append(segments[-1])
 
     return _emit_positional_then_named(path_tokens, job_overrides)

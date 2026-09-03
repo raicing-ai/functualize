@@ -269,12 +269,16 @@ class SmartBar(Input):
         #   * A **positional** field becomes a `click.Argument`, which has no
         #     flag spelling at all — `deploy web run --image v1.2` is refused
         #     by click even though `image` is a real field.
-        #   * A boolean's negative half exists only for a **plain** bool. With
-        #     a short flag click builds `["--verbose", "-v"], is_flag=True` and
-        #     no `--no-verbose`, so allowing the negative unconditionally
-        #     greenlights a line dispatch will reject.
+        #   * A boolean's negative half is decided by `negative_flag_for`, the
+        #     same rule the click builders render from. It used to be allowed
+        #     only for a bool *without* a short flag, mirroring a builder that
+        #     dropped the pair in that case; both now emit it, and a sibling
+        #     literally named `no_x` still suppresses it.
+        from functualize.app.utils import negative_flag_for
+
         known: set[str] = set()
         known_short: set[str] = set()
+        field_names = {f.name for f in fields}
         for f in fields:
             if getattr(f, "positional", False):
                 # Argument, not Option: given by being typed, never by name.
@@ -287,8 +291,10 @@ class SmartBar(Input):
             short = getattr(f, "short_flag", None)
             if short:
                 known_short.add(short.lstrip("-"))
-            elif (getattr(f, "type_annotation", "") or "") == "bool":
-                known.add(f"no_{f.name}")
+            if (getattr(f, "type_annotation", "") or "") == "bool":
+                negative = negative_flag_for(f.name, field_names)
+                if negative:
+                    known.add(negative[2:].replace("-", "_"))
 
         # `fields` empty means "nothing known about this command" (a builtin,
         # or a get_fields callback that was not supplied) — not "no flag is

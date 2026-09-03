@@ -121,6 +121,27 @@ def run(
 JOB_PATH = ["deploy", "web", "run"]
 JOB_ARGUMENTS = {"image"}
 GROUP_OPTIONS = {"env", "dry_run", "replicas"}  # deploy's two + web's one
+
+
+def _collapse_negatives(names: set[str]) -> set[str]:
+    """Fold a boolean's `--no-` spelling back onto the field it negates.
+
+    Every boolean renders as a `--x/--no-x` pair, so a surface that lists its
+    long forms lists two tokens for one field. `no_dry_run` is not a field.
+
+    Collapsed **only when the positive is also present**, which is precisely
+    right under the collision rule: a field literally named `no_cache`
+    suppresses `cache`'s negative form, so `no_cache` appears alone and must
+    survive as itself. Stripping the prefix unconditionally would erase a real
+    field — in a harness whose entire job is telling one kind of name from
+    another.
+    """
+    return {
+        name[3:] if name.startswith("no_") and name[3:] in names else name
+        for name in names
+    }
+
+
 INJECTION_PARAMS = {"opts", "web"}  # the GroupOptions parameters themselves
 
 
@@ -345,7 +366,7 @@ def _completion_settable(project: Path, monkeypatch) -> tuple[set[str], set[str]
             token = str(main).split()[0] if str(main).split() else ""
             if token.startswith("--"):
                 names.add(token.lstrip("-").replace("-", "_"))
-        return names
+        return _collapse_negatives(names)
 
     # Job flags are offered after the command; group flags mid-path, each after
     # the group that declares it (`replicas` belongs to `deploy.web`).
@@ -385,7 +406,7 @@ def _shell_init_settable(project: Path, monkeypatch) -> set[str]:
     for flag in data.command_tree.get(leaf, []):
         if flag.startswith("--"):  # long form only, like the other probes
             names.add(flag.lstrip("-").replace("-", "_"))
-    return names
+    return _collapse_negatives(names)
 
 
 def _mcp_tool(cli_run, project: Path) -> dict:

@@ -20,8 +20,8 @@ between a document and a contract.
 | # | Step | Why here |
 |---|---|---|
 | 1 | Materialize a lazy function | **Before any signature introspection**, so the resolution-plan and validator caches key on the real function and the `ExecutionContext` carries it |
-| 2 | `@workflow` prelude — walk the declared graph | A blocked or failed walk returns **before DI and before any hook fires**: the body is the job, and the job has not been reached yet |
-| 3 | Build the `ExecutionContext` | — |
+| 2 | Build the `ExecutionContext` | **Before the prelude, not after.** A `@workflow` job is refused here when a launch argument its signature cannot accept was supplied, and that refusal fires `AFTER_FAILURE` — which needs a context to hand the hook. The prelude never reads the context, so the position is inert for every run that reaches the walk |
+| 3 | `@workflow` prelude — walk the declared graph | A blocked or failed walk returns **before DI and before any hook fires**: the body is the job, and the job has not been reached yet |
 | 4 | **DI resolution** → writes `context.injected` | Must precede the pre-flight: the pre-flight's args hash reads `context.injected` |
 | 5 | Ensure a `RunContext` exists in `context.capabilities` | Middleware needs one whether or not the job asked for it |
 | 6 | Resolve the config model → writes `context.injected` | **Before PRE_EXECUTE hooks**, and in the same `try` as steps 7–8: all three raise `ValidationError`, and the handler is what turns a config failure into a `FAILURE` `JobResult` the CLI can render instead of a raw traceback |

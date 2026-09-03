@@ -694,10 +694,14 @@ class GroupWalk:
     remaining: tuple[str, ...]
     options: dict[str, Any]
     bad_flag: str | None = None
+    #: A more specific reason than "unknown option", when one is known — a
+    #: boolean given an inline value is a *known* flag used wrongly, and
+    #: saying "unknown option" would send the reader looking for a typo.
+    bad_flag_hint: str | None = None
 
 
 def _flag_aliases(field: FieldDescriptor) -> tuple[str, ...]:
-    """Every spelling that selects ``field`` on the command line.
+    """Every spelling that selects ``field`` **positively**.
 
     The long form is derived from the field name with underscores hyphenated
     (``dry_run`` -> ``--dry-run``), matching what the click param builder
@@ -712,20 +716,54 @@ def _flag_aliases(field: FieldDescriptor) -> tuple[str, ...]:
     return tuple(names)
 
 
+def _negative_aliases(
+    field: FieldDescriptor, siblings: Sequence[str]
+) -> tuple[str, ...]:
+    """Every spelling that selects ``field`` **negatively**, for a bool.
+
+    Empty for a non-boolean, and empty when a sibling literally named
+    ``no_<name>`` owns the spelling — the same rule the click builders render
+    from, reached through ``app.utils`` because ``_cli`` may not import
+    ``_``-prefixed packages. Two surfaces asking one function is the point: if
+    they decided independently, ``--no-cache`` would mean different things
+    depending on how the program was invoked.
+    """
+    if (field.type_annotation or "") != "bool":
+        return ()
+
+    from functualize.app.utils import negative_flag_for
+
+    negative = negative_flag_for(field.name, siblings)
+    if negative is None:
+        return ()
+    names = [negative]
+    if "_" in field.name:
+        names.append(f"--no_{field.name}")
+    return tuple(names)
+
+
 def _match_group_flag(
     token: str, specs: Sequence[GroupOptionsSpec]
-) -> tuple[FieldDescriptor, str | None] | None:
+) -> tuple[FieldDescriptor, str | None, bool] | None:
     """Find the field a mid-path ``token`` selects, if any declares it.
 
     Searched nearest-declaration-first so a nested group may shadow an
-    ancestor's flag. Returns ``(field, inline_value)`` where ``inline_value``
-    is the right-hand side of a ``--flag=value`` spelling, else ``None``.
+    ancestor's flag. Returns ``(field, inline_value, negated)`` where
+    ``inline_value`` is the right-hand side of a ``--flag=value`` spelling and
+    ``negated`` says the ``--no-`` spelling was used.
+
+    ``negated`` is a third element rather than a synthesised ``inline="false"``
+    because the caller must tell ``--no-strict`` from ``--strict=false``: the
+    first is the supported spelling and the second is refused.
     """
     name, separator, inline = token.partition("=")
     for spec in reversed(specs):
+        siblings = [f.name for f in spec.fields]
         for spec_field in spec.fields:
             if name in _flag_aliases(spec_field):
-                return spec_field, (inline if separator else None)
+                return spec_field, (inline if separator else None), False
+            if name in _negative_aliases(spec_field, siblings):
+                return spec_field, (inline if separator else None), True
     return None
 
 
@@ -764,13 +802,30 @@ def walk_group_path(trie: GroupTrie, args: Sequence[str]) -> GroupWalk:
                     options=options,
                     bad_flag=token,
                 )
-            field, inline = matched
+            field, inline, negated = matched
             if field.type_annotation == "bool":
                 # A boolean is a presence flag: it never eats the next token,
                 # which would otherwise swallow the following path segment.
-                options[field.name] = (
-                    _coerce_bool(inline) if inline is not None else True
-                )
+                #
+                # An inline value is refused, on this surface as on the other.
+                # `func` used to accept `--strict=false` here while click
+                # refused the identical command on an app's own entry point —
+                # one spelling working on exactly one of the two surfaces. The
+                # `--no-` form is the replacement, and the hint names it.
+                if inline is not None:
+                    return GroupWalk(
+                        node=node,
+                        consumed=tuple(consumed),
+                        remaining=tuple(args[index:]),
+                        options=options,
+                        bad_flag=token,
+                        bad_flag_hint=(
+                            f"'{token.split('=', 1)[0]}' is a flag and takes no "
+                            f"value. Use '--no-{field.name.replace('_', '-')}' "
+                            f"to turn it off."
+                        ),
+                    )
+                options[field.name] = not negated
                 index += 1
             elif inline is not None:
                 options[field.name] = inline
@@ -812,11 +867,6 @@ def walk_group_path(trie: GroupTrie, args: Sequence[str]) -> GroupWalk:
         remaining=tuple(args[index:]),
         options=options,
     )
-
-
-def _coerce_bool(value: str) -> bool:
-    """Read an explicit ``--flag=true|false`` right-hand side."""
-    return value.strip().lower() not in {"0", "false", "no", "off", ""}
 
 
 def is_known_global_flag(token: str) -> bool:

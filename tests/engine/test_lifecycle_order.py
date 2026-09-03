@@ -39,8 +39,10 @@ _EXECUTOR = PROJECT_ROOT / "src" / "functualize" / "_engine" / "executor.py"
 # with no distinctive call of their own (the force branch, the pre-flight
 # result's own branch) are omitted rather than pinned to an incidental helper.
 _DOCUMENTED_ORDER = [
-    "_run_workflow_prelude",  # 2  workflow prelude
-    "ExecutionContext",  # 3  build the context
+    "ExecutionContext",  # 2  build the context (before the prelude: a refused
+    #                            workflow launch fires AFTER_FAILURE and the
+    #                            hook needs a context to receive)
+    "_run_workflow_prelude",  # 3  workflow prelude
     "_resolve_di_parameters",  # 4  DI          -> context.injected
     "RunContext",  # 5  ensure a RunContext
     "_resolve_config_model",  # 6  config      -> context.injected

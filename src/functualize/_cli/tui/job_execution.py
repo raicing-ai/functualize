@@ -537,10 +537,12 @@ def run_job(app: FunctualizeInlineTUI, tokens: list[str]) -> None:
         return
     if resolution.bad_flag is not None:
         output_log.add_class("visible")
-        output_log.write(
-            f"[bold red]Error:[/bold red] unknown option "
-            f"'{resolution.bad_flag}' before a command."
+        # A known flag used wrongly carries a hint; "unknown option" would
+        # send the reader hunting for a typo that is not there.
+        detail = resolution.bad_flag_hint or (
+            f"unknown option '{resolution.bad_flag}' before a command."
         )
+        output_log.write(f"[bold red]Error:[/bold red] {detail}")
         return
     job_name = resolution.job_name
     if job_name is None:

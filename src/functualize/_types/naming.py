@@ -37,6 +37,7 @@ __all__ = [
     "TrieNode",
     "TrieResolution",
     "normalize_name",
+    "negative_flag_for",
     "normalize_segment",
     "resolve_name",
 ]
@@ -94,6 +95,40 @@ def normalize_name(name: str | None) -> str | None:
     if name is None:
         return None
     return ".".join(normalize_segment(part) for part in name.split("."))
+
+
+def negative_flag_for(name: str, siblings: Iterable[str] = ()) -> str | None:
+    """The ``--no-`` spelling that turns boolean field ``name`` off.
+
+    Returns ``None`` when a **sibling field is literally called** ``no_<name>``.
+    That field owns the spelling, and ``name`` renders with no negative form.
+
+    The rule exists because click will not enforce one. Declaring both ``cache``
+    and ``no_cache`` gives two parameters contending for ``--no-cache``, and
+    click raises nothing — it binds whichever was declared first, so the same
+    two fields produce opposite results depending on the order they were
+    written in. That silent, order-dependent shadowing is the defect; this
+    function's guarantee is **determinism**, not detection. A user gets a
+    working CLI in which one field simply has no negative spelling.
+
+    Lives here, and is re-exported through ``functualize.app.utils``, because
+    two surfaces must agree on it: the click param builders render the flag,
+    and ``func``'s pre-boot dispatch parser matches it mid-path. If they decided
+    this independently, ``--no-cache`` would come to mean different things
+    depending on how the program was invoked — the divergence class that
+    already produced three disagreeing dependency resolvers here.
+
+    Args:
+        name: The boolean field's Python name (``dry_run``, not ``--dry-run``).
+        siblings: Every field name visible on the same command, this one
+            included. Passing only some of them re-opens the collision.
+
+    Returns:
+        ``--no-<hyphenated-name>``, or ``None`` when a sibling owns it.
+    """
+    if f"no_{name}" in siblings:
+        return None
+    return f"--no-{name.replace('_', '-')}"
 
 
 def resolve_name(candidate: str, known: Iterable[str]) -> str:

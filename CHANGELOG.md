@@ -7,6 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — the config ladder is now whole for booleans
+
+- **A boolean set `true` in a config file can be turned off from the command
+  line.** The ladder has always promised `CLI > env > file`. For booleans it was
+  three-quarters true and nothing said so: no spelling could override a
+  configured `true`, on either surface.
+
+  ```bash
+  func deploy run --no-verbose     # a job's config-model boolean
+  func deploy --no-strict run      # a GroupOptions boolean, mid-path
+  ```
+
+  Every boolean now renders as a `--x / --no-x` pair. Absence is still absence —
+  the option carries `default=None`, so a flag nobody typed resolves from env,
+  file and default exactly as before.
+
+  There were previously **four boolean shapes rendering three different ways**,
+  with no rule a reader could infer: a plain signature bool got a pair, the same
+  bool carrying a short flag did not, and neither config-model nor `GroupOptions`
+  booleans did. One rule now decides for all of them, and both CLI surfaces ask
+  the same function — otherwise `--no-cache` could mean different things
+  depending on how the program was invoked.
+
+  **When a field is literally named `no_x`,** it owns `--no-x`, and `x` renders
+  with no negative form. Click enforces nothing here and binds by declaration
+  order, so the same two fields used to give opposite results depending on which
+  was written first. The guarantee is determinism, not detection.
+
+### Fixed
+
+- **A `@workflow` job no longer walks its graph before rejecting a bad launch
+  argument.** `app.execute("release", verison="1.4")` used to run every step,
+  block at the gate, wait for a person to approve the release, and only then
+  fail at the epilogue — spending the approval on a run that could never have
+  succeeded. A plain job rejected the same typo immediately.
+
+  Arguments are bound and validated before the graph walks. Nothing is written
+  to the run state store, so a refused resume leaves an approved, blocked scope
+  untouched and still resumable. This matters most through the trigger plugins,
+  whose whole job is turning an external event into a run.
+
+- **A config field's short flag now works on a cold boot.** `Option("-s")` was
+  recovered only from the cached descriptor, so `-s` worked on a warm boot and
+  was unknown on the first run of a project.
+
+### Removed
+
+- **`--flag=value` is no longer accepted for a boolean.** It worked on exactly
+  one of four combinations — a `GroupOptions` boolean on the `func` surface —
+  because that parser never asked whether the flag was a boolean, while click
+  always refuses a value on a flag. The identical command therefore succeeded
+  on one surface and failed on the other. Both refuse now, and `func` names
+  `--no-<flag>` as the replacement.
+
+### Migration
+
+Help output changes for every boolean config field (`--dry-run` becomes
+`--dry-run / --no-dry-run`); update any assertion on exact help text. Replace
+`--flag=false` with `--no-flag`. No other command line stops working — adding a
+spelling is additive.
+
+
 ## [0.1.2] - 2026-08-31
 
 ### Added — the agent-facing surface

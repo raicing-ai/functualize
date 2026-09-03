@@ -9,6 +9,20 @@ whole-suite CLI behavior tests remain the broader guard.
 Snapshot tuple layout:
     (name, param_cls, opts, secondary_opts, type_repr,
      required, default_repr, nargs, is_flag, multiple)
+
+**Booleans deliberately diverge from typer as of the boolean-flag-negation
+feature.** Typer rendered a single flag for a bool carrying an ``Option``
+marker or a config-model default, so ``verbose``, ``enabled`` and ``opt_flag``
+were captured here with empty ``secondary_opts``. They now carry a ``--no-``
+half, because a boolean set ``true`` in a config file could not otherwise be
+overridden from the command line — the config ladder promises CLI > env > file
+and for booleans it was three-quarters true.
+
+That is a decision, not drift: recorded in
+``.spec/features/boolean-flag-negation/spec.md`` as D3 and taken by the
+maintainer before the work began. ``flag`` and ``http`` are unchanged; they are
+plain signature bools, which always had the pair, and the asymmetry between
+them and the three above is precisely what the feature removed.
 """
 
 from __future__ import annotations
@@ -129,7 +143,7 @@ EXPECTED: dict[str, list[tuple]] = {
             "verbose",
             "Option",
             ("--verbose", "-v"),
-            (),
+            ("--no-verbose",),
             "BOOL",
             False,
             "False",
@@ -202,7 +216,7 @@ EXPECTED: dict[str, list[tuple]] = {
             "enabled",
             "Option",
             ("--enabled",),
-            (),
+            ("--no-enabled",),
             "BOOL",
             False,
             "None",
@@ -214,7 +228,7 @@ EXPECTED: dict[str, list[tuple]] = {
             "opt_flag",
             "Option",
             ("--opt-flag",),
-            (),
+            ("--no-opt-flag",),
             "BOOL",
             False,
             "None",

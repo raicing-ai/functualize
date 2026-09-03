@@ -1040,6 +1040,10 @@ def _dispatch_group(
                         f"job options follow the job name.",
                         file=sys.stderr,
                     )
+                elif walk.bad_flag_hint:
+                    # A known flag used wrongly — saying "unknown option" would
+                    # send the reader hunting for a typo that is not there.
+                    print(f"Error: {walk.bad_flag_hint}", file=sys.stderr)
                 else:
                     print(
                         f"Error: unknown option '{token}' before a command.\n"
