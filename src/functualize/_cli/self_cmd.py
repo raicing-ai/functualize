@@ -174,73 +174,148 @@ def _check_install(detection: Detection) -> list[Check]:
 
 #: Run in a *child* interpreter, so a boot that dies is data rather than a
 #: traceback out of doctor. Prints one JSON line and nothing else.
+#:
+#: **It drives the real CLI entry point, not a bare `FunctualizeApp`.** An
+#: earlier version constructed the app directly, which answered a question
+#: nobody asked: a bare app boots with none of the CLI's discovery config, so
+#: it reported "the app starts" in a project where `func builtin version` in
+#: fact died on a reserved group name. `cli_app` is the boot that matters,
+#: because it is the one every other command pays for.
+#:
+#: `builtin version` is the cheapest command that still traverses the whole
+#: chain — `resolve_cli_config` -> `_load_dotenv` -> `_apply_import_libs` ->
+#: `auto_discover` -> `FunctualizeApp(...)` -> `refresh()` — and it cannot
+#: recurse into doctor.
 _BOOT_PROBE = """
-import json, sys
+import io, json, sys
+from contextlib import redirect_stderr, redirect_stdout
+sys.argv = ["func", "builtin", "version"]
+buf, err = io.StringIO(), io.StringIO()
+try:
+    from functualize._cli.main import _run_cli
+    with redirect_stdout(buf), redirect_stderr(err):
+        _run_cli()
+except SystemExit as exc:
+    code = exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 1)
+    if code:
+        detail = (err.getvalue() or buf.getvalue()).strip().splitlines()
+        print(json.dumps({
+            "ok": False,
+            "error": detail[-1] if detail else f"exit code {code}",
+        }))
+    else:
+        print(json.dumps({"ok": True}))
+except BaseException as exc:
+    print(json.dumps({"ok": False, "error": f"{type(exc).__name__}: {exc}"}))
+else:
+    print(json.dumps({"ok": True}))
+"""
+
+#: Counts jobs, separately, so a discovery failure cannot masquerade as a boot
+#: failure. Run only once the boot probe has come back clean.
+_JOBS_PROBE = """
+import json, pathlib
 try:
     from functualize.app import FunctualizeApp
-    app = FunctualizeApp(name="doctor-probe")
+    from functualize.app.utils import auto_discover
+    result = auto_discover(pathlib.Path.cwd())
+    app = FunctualizeApp(name="doctor-probe", job_sources=result.job_sources)
     app.refresh()
-    n = len(app.get_jobs())
-    print(json.dumps({"ok": True, "jobs": n}))
+    print(json.dumps({"ok": True, "jobs": len(app.get_jobs())}))
 except BaseException as exc:
     print(json.dumps({"ok": False, "error": f"{type(exc).__name__}: {exc}"}))
 """
 
 
-def _check_boot(cwd: Path) -> list[Check]:
-    """Can the application actually start here, and does it find jobs?
+def _run_probe(script: str, cwd: Path) -> dict[str, object] | Check:
+    """Run one probe in a child and parse its JSON verdict.
 
-    Observed, not assumed. Running it in-process would mean a failure took
-    doctor down with it — the report would be a traceback, at exactly the
-    moment a report is most useful.
+    Returns a ``Check`` instead when the child could not be run or did not
+    answer at all — those are findings too, not exceptions.
     """
     try:
         completed = subprocess.run(  # noqa: S603
-            [sys.executable, "-c", _BOOT_PROBE],
+            [sys.executable, "-c", script],
             capture_output=True,
             text=True,
             timeout=_BOOT_PROBE_TIMEOUT_S,
             cwd=cwd,
         )
     except subprocess.TimeoutExpired:
-        return [
-            Check(
-                "boot",
-                CheckStatus.CRITICAL,
-                f"did not finish within {_BOOT_PROBE_TIMEOUT_S:.0f}s",
-                remedy="A job module may block at import time.",
-            )
-        ]
+        return Check(
+            "boot",
+            CheckStatus.CRITICAL,
+            f"did not finish within {_BOOT_PROBE_TIMEOUT_S:.0f}s",
+            remedy="A job module may block at import time.",
+        )
     except OSError as exc:  # pragma: no cover - no interpreter to spawn
-        return [Check("boot", CheckStatus.CRITICAL, f"could not run a probe: {exc}")]
+        return Check("boot", CheckStatus.CRITICAL, f"could not run a probe: {exc}")
 
-    payload: dict[str, object] = {}
     for line in reversed(completed.stdout.splitlines()):
         try:
-            payload = json.loads(line)
+            parsed = json.loads(line)
         except ValueError:
             continue
-        break
+        if isinstance(parsed, dict):
+            return parsed
+    stderr = completed.stderr.strip().splitlines()
+    return Check(
+        "boot",
+        CheckStatus.CRITICAL,
+        stderr[-1] if stderr else f"the probe exited {completed.returncode} in silence",
+        remedy="Run the failing command directly to see the traceback.",
+    )
 
-    if not payload.get("ok"):
-        detail = str(payload.get("error") or "").strip()
-        if not detail:
-            stderr = completed.stderr.strip().splitlines()
-            detail = stderr[-1] if stderr else f"exit code {completed.returncode}"
+
+def _check_boot(cwd: Path) -> list[Check]:
+    """Can the CLI actually start here, and how many jobs does it find?
+
+    Observed, not assumed. Running either probe in-process would mean a failure
+    took doctor down with it — the report would be a traceback, at exactly the
+    moment a report is most useful.
+
+    Job counting is a **separate** probe, run only after boot comes back clean,
+    so a discovery problem is never reported as a boot failure and vice versa.
+    """
+    boot = _run_probe(_BOOT_PROBE, cwd)
+    if isinstance(boot, Check):
+        return [boot]
+    if not boot.get("ok"):
         return [
             Check(
                 "boot",
                 CheckStatus.CRITICAL,
-                detail,
-                remedy="Run the failing command directly to see the traceback.",
+                str(boot.get("error") or "").strip() or "the CLI did not start",
+                remedy="Run `func builtin version` here to see the failure.",
             )
         ]
 
-    jobs = payload.get("jobs", 0)
-    return [
-        Check("boot", CheckStatus.OK, "the app starts"),
-        Check("job-discovery", CheckStatus.INFO, f"{jobs} discovered from {cwd}"),
-    ]
+    checks = [Check("boot", CheckStatus.OK, "the CLI starts")]
+
+    jobs = _run_probe(_JOBS_PROBE, cwd)
+    if isinstance(jobs, Check) or not jobs.get("ok"):
+        detail = (
+            jobs.detail
+            if isinstance(jobs, Check)
+            else str(jobs.get("error") or "").strip()
+        )
+        checks.append(
+            Check(
+                "job-discovery",
+                CheckStatus.WARNING,
+                detail or "discovery failed",
+                remedy="The CLI starts, but jobs cannot be enumerated here.",
+            )
+        )
+    else:
+        checks.append(
+            Check(
+                "job-discovery",
+                CheckStatus.INFO,
+                f"{jobs.get('jobs', 0)} discovered from {cwd}",
+            )
+        )
+    return checks
 
 
 def _check_terminal() -> Check:

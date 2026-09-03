@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from functualize._cli.self_cmd import (
     CheckStatus,
     build_report,
@@ -197,3 +199,67 @@ class TestItIsReachableThroughTheCli:
         (tmp_path / "doctor.py").write_text("def doctor():\n    print('the job ran')\n")
         result = cli_run(["doctor"], cwd=tmp_path)
         assert "the job ran" in result.stdout
+
+    @pytest.mark.surfaces("func")
+    def test_doctor_answers_where_every_other_builtin_cannot(
+        self, cli_run, tmp_path: Path
+    ) -> None:
+        """The one test that distinguishes the two doors — and the point of both.
+
+        **`func`-only, and that is a real limitation rather than a test
+        convenience.** `contributor/architecture/surface-boundary.md` records
+        that a consumer application's own `main.py` has *no pre-boot layer at
+        all*: it reaches `self doctor` through the mounted group, which boots
+        first. So on that surface a boot failure makes doctor unreachable in
+        exactly the way it does for every other builtin. Answering under a
+        broken boot is a property of *how you reach the program*, which the
+        boundary doc allows to be `func`-only.
+
+        Sabotaging the pre-boot intercept left all the other tests here green,
+        because they reach doctor through the mounted group instead and get the
+        same output. Only a project whose boot *fails* can tell them apart.
+
+        A group claiming the reserved `builtin` name is rejected during boot, so
+        `builtin version` dies. Doctor is intercepted before that happens and
+        must still report. Without the intercept it dies identically, which is
+        exactly the case doctor exists for.
+        """
+        (tmp_path / "reserved.py").write_text(
+            'JOB_GROUP = "builtin"\n\n\ndef hello():\n    """Doc."""\n    pass\n'
+        )
+
+        blocked = cli_run(["builtin", "version"], cwd=tmp_path)
+        assert blocked.exit_code != 0, (
+            "premise broken: this project is supposed to fail at boot, so if "
+            "`builtin version` now succeeds this test proves nothing"
+        )
+
+        report = cli_run(["builtin", "self", "doctor"], cwd=tmp_path)
+        assert report.exit_code == 0
+        assert "install-mode" in report.stdout
+
+    @pytest.mark.surfaces("func")
+    def test_the_boot_check_reports_a_cli_that_cannot_start(
+        self, cli_run, tmp_path: Path
+    ) -> None:
+        """The probe drives the real entry point, not a bare app.
+
+        `func`-only for the same reason as the test above: on the app surface
+        doctor is not reached at all here.
+
+        Constructing `FunctualizeApp` directly answers a different question: it
+        boots with none of the CLI's discovery config, and reported "the app
+        starts" in this very project while `func builtin version` was failing.
+        """
+        (tmp_path / "reserved.py").write_text(
+            'JOB_GROUP = "builtin"\n\n\ndef hello():\n    """Doc."""\n    pass\n'
+        )
+        result = cli_run(
+            ["builtin", "self", "doctor", "--format", "json"], cwd=tmp_path
+        )
+        payload = json.loads(result.stdout)
+        boot = next(c for c in payload["checks"] if c["name"] == "boot")
+        assert boot["status"] == "critical", (
+            f"doctor reported boot as {boot['status']!r} in a project where the "
+            "CLI cannot start"
+        )

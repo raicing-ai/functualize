@@ -124,7 +124,10 @@ Acceptance:
 - A scaffolded app's `argv0` yields that app's distribution (AC3)
 - An unrecognised `FUNCTUALIZE_RUNTIME` raises rather than falling back
 - `grep -n "^import\|^from" src/functualize/_cli/runtime.py` shows stdlib only
-- Doctor produces a report when the app cannot boot (AC11)
+- Doctor produces a report when the app cannot boot (AC11) — `@surfaces("func")`; the app
+  surface has no pre-boot layer
+- The boot check drives the real CLI entry point, so it reports critical where
+  `func builtin version` fails (AC11a)
 - Doctor produces a report on a project whose plugin raises at import, and **does not claim
   plugin health** — the check is absent, not green (AC10, AC12)
 - Report renders from one structure to both text and `--format json` (AC30a)

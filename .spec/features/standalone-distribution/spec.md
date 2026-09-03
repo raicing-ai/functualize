@@ -340,6 +340,17 @@ Each is a behavior, checkable without reference to implementation. Per
   and the report does not claim plugin health.
 - **AC11** — `self doctor` produces a report even when the application cannot boot. It does
   not fail with a traceback of its own.
+
+  **On the `func` entry point only** — found while implementing 3.1. A consumer application's
+  own `main.py` has no pre-boot layer at all (`contributor/architecture/surface-boundary.md`),
+  so it reaches `self doctor` through the mounted group, which boots first; a boot failure
+  makes doctor unreachable there exactly as it does every other builtin. Answering under a
+  broken boot is a property of *how you reach the program*, which that document allows to be
+  `func`-only. Closing the gap would mean giving `CliAdapter` a pre-boot layer, which is a
+  larger decision than this feature.
+- **AC11a** — The boot check drives the **real CLI entry point**, not a bare `FunctualizeApp`.
+  A bare app boots with none of the CLI's discovery config and reports success in projects
+  where `func builtin version` in fact fails.
 - **AC12** — No check in doctor's output can only ever report success.
 - **AC13** — `self update` in a degraded mode prints guidance, performs no action, and exits
   with the refusal code.
