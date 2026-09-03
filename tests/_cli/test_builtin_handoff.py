@@ -99,6 +99,44 @@ class TestTerminalOwningBuiltins:
         assert root is not None
         assert root.needs_terminal(["config", "edit"]) is True
 
+    def test_a_subcommand_name_is_matched_only_inside_its_own_family(self) -> None:
+        """The root resolves the family before matching the subcommand.
+
+        `skills` and the incoming `plugin` family both spell their installer
+        `install`. Matched against a flattened set of every family's terminal
+        subcommands, declaring `plugin install` terminal-owning would make
+        `skills install` answer True too — a command the TUI would then hand
+        the terminal to for no reason. Names cannot be picked around this:
+        `install`/`uninstall` were chosen in the first place *because* nothing
+        else used them, and `skills` shipped an `install` afterwards.
+
+        Simulated rather than waiting for the real `plugin` family, so the
+        guarantee is pinned before the family that would violate it exists.
+        """
+        from dataclasses import replace
+
+        from functualize._cli.builtins import BUILTIN_COMMANDS, BuiltinCommand
+
+        plugin = BuiltinCommand(
+            "plugin",
+            "Manage plugin packages",
+            (("install", "Install"), ("uninstall", "Uninstall")),
+            requires_subcommand=True,
+            terminal_subcommands=("install", "uninstall"),
+        )
+        root = get_builtin(BUILTIN_ROOT)
+        assert root is not None
+        root = replace(root, children=(*BUILTIN_COMMANDS, plugin))
+
+        # The family that declared it.
+        assert root.needs_terminal(["plugin", "install"]) is True
+        assert root.needs_terminal(["plugin", "uninstall"]) is True
+        # The family that merely shares the word.
+        assert root.needs_terminal(["skills", "install"]) is False
+        # Still correct for the one true case, and for a near-miss.
+        assert root.needs_terminal(["config", "edit"]) is True
+        assert root.needs_terminal(["scaffold", "add"]) is False
+
     def test_the_decision_comes_from_the_command_node(self, app: _FakeApp) -> None:
         """One notion of "owns the terminal", shared with jobs.
 

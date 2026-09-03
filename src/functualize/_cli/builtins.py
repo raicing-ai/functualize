@@ -38,6 +38,11 @@ class BuiltinCommand:
     #: an editor). A TUI front-end must suspend itself around these rather
     #: than capturing their output.
     terminal_subcommands: tuple[str, ...] = ()
+    #: Populated on the ``builtin`` root only, with the families beneath it.
+    #: Its presence is what makes :meth:`needs_terminal` resolve a family
+    #: before matching, rather than matching a bare name against every
+    #: family's declarations at once.
+    children: tuple[BuiltinCommand, ...] = ()
 
     @property
     def subcommand_map(self) -> dict[str, str]:
@@ -45,7 +50,23 @@ class BuiltinCommand:
         return dict(self.subcommands)
 
     def needs_terminal(self, args: list[str]) -> bool:
-        """Return True if invoking this command with ``args`` needs the terminal."""
+        """Return True if invoking this command with ``args`` needs the terminal.
+
+        On a **family** (``config``, ``skills``, …) ``args`` is that family's
+        own subcommand path, and a plain membership test is the whole answer.
+
+        On the **root**, ``args`` starts with a family name, so the family is
+        resolved first and asked about the rest. Matching the flattened set
+        instead would make any name declared by one family match inside every
+        other: with ``plugin install`` terminal-owning, ``skills install``
+        would answer True as well. Names cannot be chosen to avoid that —
+        ``skills`` shipped an ``install`` after ``install``/``uninstall`` were
+        picked precisely because nothing else used them.
+        """
+        if self.children and args:
+            for child in self.children:
+                if child.name == args[0]:
+                    return child.needs_terminal(list(args[1:]))
         return any(arg in self.terminal_subcommands for arg in args)
 
 
@@ -160,13 +181,13 @@ BUILTIN_ROOT_COMMAND: BuiltinCommand = BuiltinCommand(
     "First-party commands, kept out of the job namespace",
     tuple((c.name, c.description) for c in BUILTIN_COMMANDS),
     requires_subcommand=True,
-    # Inherited from the children: `builtin config edit` still spawns $EDITOR
-    # on the controlling terminal, and a TUI front-end must still suspend
-    # itself around it. Dropping this on the way under the subtree would have
-    # let the TUI capture an interactive editor.
-    terminal_subcommands=tuple(
-        sub for c in BUILTIN_COMMANDS for sub in c.terminal_subcommands
-    ),
+    # The children themselves, not a flattened set of their subcommand names.
+    # `builtin config edit` still spawns $EDITOR on the controlling terminal
+    # and a TUI front-end must still suspend itself around it, but the answer
+    # now comes from `config` rather than from every family at once — see
+    # `needs_terminal`. The root declares no `terminal_subcommands` of its
+    # own: it owns no subcommands, only families.
+    children=BUILTIN_COMMANDS,
 )
 
 
