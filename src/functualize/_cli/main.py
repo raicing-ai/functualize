@@ -1750,6 +1750,23 @@ def _run_cli() -> None:
             break
         continue
 
+    # `self doctor` answers here for the same reason `--version` does, plus a
+    # sharper one: `cli_app` boots a full `FunctualizeApp` before any builtin
+    # subcommand runs, so a doctor mounted only under the click group would be
+    # unreachable in exactly the case it exists for — an installation too
+    # broken to boot. Intercepting pre-boot is what lets it report that instead
+    # of dying with it.
+    #
+    # Matched positionally rather than with `in`, so a job named `doctor` or an
+    # argument spelled `self` cannot trigger it. The command stays mounted on
+    # the group as well (see `builtins.register_builtin_commands`); this is the
+    # earlier of two doors to the same code, not a second implementation.
+    if _argv_tail[:3] == ["builtin", "self", "doctor"]:
+        from functualize._cli.self_cmd import doctor
+
+        doctor.main(_argv_tail[3:], prog_name="func builtin self doctor")
+        return
+
     # Settings declaring `phase="early"` are read here, beside `--version`,
     # because "early" means *before the app exists* — a flag that changes
     # discovery or config resolution cannot wait for the click callback, which

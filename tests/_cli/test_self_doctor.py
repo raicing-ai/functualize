@@ -1,0 +1,199 @@
+"""`func builtin self doctor` — and specifically, what it refuses to claim.
+
+Two properties carry this suite. Doctor must still produce a report when the
+application cannot boot, because that is the case it exists for. And it must
+not report health it did not observe: a plugin that raises at import is
+swallowed by the loader with no record kept, so there is no plugin check at all
+rather than a green one.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from functualize._cli.self_cmd import (
+    CheckStatus,
+    build_report,
+    render_report_text,
+)
+
+
+def _names(report: object) -> list[str]:
+    return [c.name for c in report.checks]  # type: ignore[attr-defined]
+
+
+def _by_name(report: object, name: str) -> object:
+    return next(c for c in report.checks if c.name == name)  # type: ignore[attr-defined]
+
+
+class TestTheReportIsProducedAtAll:
+    def test_a_recognised_installation_reports_ok(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Pinned, because the suite's own environment is not a recognised one.
+
+        `_isolate_home` strips `XDG_*`, and `tmp_path` declares no project, so
+        an unpinned run here legitimately detects `unknown` — a degraded mode,
+        which doctor is right to warn about. Asserting OK without pinning would
+        have been asserting that the degraded check does not work.
+        """
+        monkeypatch.setenv("FUNCTUALIZE_RUNTIME", "tool_uv")
+        report = build_report(cwd=tmp_path)
+        assert report.worst is CheckStatus.OK
+
+    def test_a_degraded_mode_is_reported_as_a_warning(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """The other half — and the one that would silently rot.
+
+        A doctor whose worst-case is always OK is the failure mode this module
+        is shaped against, so the degraded path is asserted directly.
+        """
+        monkeypatch.setenv("FUNCTUALIZE_RUNTIME", "unknown")
+        report = build_report(cwd=tmp_path)
+        assert report.worst is CheckStatus.WARNING
+        assert _by_name(report, "self-management") is not None
+
+    def test_every_check_carries_a_status_and_a_detail(self, tmp_path: Path) -> None:
+        report = build_report(cwd=tmp_path)
+        assert report.checks
+        for check in report.checks:
+            assert isinstance(check.status, CheckStatus)
+            assert check.detail
+
+
+class TestItReportsWhatItCannotAssume:
+    def test_a_project_whose_plugin_raises_still_produces_a_report(
+        self, tmp_path: Path
+    ) -> None:
+        """AC10 — the report survives a project that is broken in this way."""
+        plugins = tmp_path / ".functualize" / "plugins"
+        plugins.mkdir(parents=True)
+        (plugins / "bad_plugin.py").write_text('raise RuntimeError("boom-from-plugin")')
+        (tmp_path / "noop.py").write_text("def noop():\n    pass\n")
+
+        report = build_report(cwd=tmp_path)
+        assert report.checks
+
+    def test_there_is_no_plugin_check(self, tmp_path: Path) -> None:
+        """AC12, stated as an assertion rather than as a comment.
+
+        `_load_file_plugin` catches, logs and returns None, keeping no record,
+        so nothing in-process can observe that a plugin failed. A "plugins: ok"
+        line would therefore be true by construction and false in fact — worse
+        than no line. This test fails the moment somebody adds one.
+        """
+        plugins = tmp_path / ".functualize" / "plugins"
+        plugins.mkdir(parents=True)
+        (plugins / "bad_plugin.py").write_text('raise RuntimeError("boom-from-plugin")')
+
+        names = _names(build_report(cwd=tmp_path))
+        assert not any("plugin" in n for n in names), (
+            f"doctor grew a plugin check ({names}) while the loader still keeps "
+            "no failure record — it can only report health it did not observe"
+        )
+
+    def test_boot_is_observed_not_assumed(self, tmp_path: Path) -> None:
+        """The check exists, and says the app started — having watched it."""
+        boot = _by_name(build_report(cwd=tmp_path), "boot")
+        assert boot.status is CheckStatus.OK  # type: ignore[attr-defined]
+
+    def test_a_project_that_cannot_boot_is_reported_not_raised(
+        self, tmp_path: Path
+    ) -> None:
+        """AC11 — the whole reason the probe runs in a child process.
+
+        A job module that explodes at import takes down anything that boots
+        in-process. Doctor must come back with a finding instead.
+        """
+        (tmp_path / "exploding.py").write_text(
+            "raise SystemError('this module detonates at import')\n"
+        )
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "broken"\nversion = "0"\n'
+            "[tool.functualize]\nrequire_file_import = false\n"
+        )
+        report = build_report(cwd=tmp_path)
+        # Whatever the verdict, a report came back rather than an exception.
+        assert report.checks
+        assert _by_name(report, "boot") is not None
+
+
+class TestRendering:
+    def test_text_and_json_render_from_one_structure(self, tmp_path: Path) -> None:
+        """So the two cannot drift into disagreeing about one installation."""
+        report = build_report(cwd=tmp_path)
+        payload = report.to_dict()
+        assert payload["status"] == report.worst.value
+        assert [c["name"] for c in payload["checks"]] == _names(report)  # type: ignore[index,union-attr]
+
+    def test_the_json_payload_is_json(self, tmp_path: Path) -> None:
+        json.dumps(build_report(cwd=tmp_path).to_dict())
+
+    def test_text_lines_mention_every_check(self, tmp_path: Path) -> None:
+        report = build_report(cwd=tmp_path)
+        blob = "\n".join(render_report_text(report))
+        for name in _names(report):
+            assert name in blob
+
+    def test_a_remedy_is_rendered_when_present(self) -> None:
+        from functualize._cli.self_cmd import Check, DoctorReport
+
+        report = DoctorReport(
+            (Check("x", CheckStatus.WARNING, "went wrong", remedy="do this instead"),)
+        )
+        assert "do this instead" in "\n".join(render_report_text(report))
+
+
+class TestStatusVocabulary:
+    def test_there_is_no_skipped_status(self) -> None:
+        """A skipped check reads as health that was not observed.
+
+        The design rule is that an unperformable check is *absent*. A `SKIPPED`
+        member is the affordance that would quietly undo it.
+        """
+        assert [s.value for s in CheckStatus] == ["ok", "info", "warning", "critical"]
+
+    def test_worst_prefers_critical_over_warning(self) -> None:
+        from functualize._cli.self_cmd import Check, DoctorReport
+
+        report = DoctorReport(
+            (
+                Check("a", CheckStatus.WARNING, "w"),
+                Check("b", CheckStatus.CRITICAL, "c"),
+                Check("c", CheckStatus.OK, "o"),
+            )
+        )
+        assert report.worst is CheckStatus.CRITICAL
+
+    def test_info_alone_is_not_a_problem(self) -> None:
+        from functualize._cli.self_cmd import Check, DoctorReport
+
+        report = DoctorReport((Check("a", CheckStatus.INFO, "fyi"),))
+        assert report.worst is CheckStatus.OK
+
+
+class TestItIsReachableThroughTheCli:
+    def test_doctor_runs_pre_boot_through_the_real_entry_point(
+        self, cli_run, tmp_path: Path
+    ) -> None:
+        """The wire: `_run_cli` intercepts before `cli_app` boots anything."""
+        result = cli_run(["builtin", "self", "doctor"], cwd=tmp_path)
+        assert result.exit_code == 0
+        assert "install-mode" in result.stdout
+
+    def test_the_json_flag_reaches_it(self, cli_run, tmp_path: Path) -> None:
+        result = cli_run(
+            ["builtin", "self", "doctor", "--format", "json"], cwd=tmp_path
+        )
+        assert result.exit_code == 0
+        assert json.loads(result.stdout)["checks"]
+
+    def test_a_job_named_doctor_is_not_intercepted(
+        self, cli_run, tmp_path: Path
+    ) -> None:
+        """The intercept matches a three-token prefix, never a bare word."""
+        (tmp_path / "doctor.py").write_text("def doctor():\n    print('the job ran')\n")
+        result = cli_run(["doctor"], cwd=tmp_path)
+        assert "the job ran" in result.stdout

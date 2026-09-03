@@ -158,6 +158,12 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
     BuiltinCommand("why", "Explain whether a job would run, and why"),
     BuiltinCommand("version", "Show the functualize version"),
     BuiltinCommand(
+        "self",
+        "Inspect and manage this installation",
+        (("doctor", "Check this installation and report what is wrong"),),
+        requires_subcommand=True,
+    ),
+    BuiltinCommand(
         "info",
         "Display app state, discovered jobs, and config",
         (
@@ -1822,6 +1828,14 @@ def register_builtin_commands(cli_group: Any) -> None:
             return
         for line in render_report_text(report):
             click.echo(line)
+
+    # Mounted from a sibling module rather than defined inline, following
+    # `scaffold` and `skills`. `self doctor` is *also* intercepted pre-boot in
+    # `_run_cli`; this mount is what makes it visible to `--help`, to the
+    # registry mirror, to completion, and to a consumer app's CLI.
+    from functualize._cli.self_cmd import self_app
+
+    _mount(builtin_app, self_app, "self")
 
     _mount(builtin_app, info_group, "info")
 
