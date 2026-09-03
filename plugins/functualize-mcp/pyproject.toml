@@ -1,6 +1,6 @@
 [project]
 name = "functualize-mcp"
-version = "0.1.3"
+version = "0.2.0"
 description = "MCP delivery adapter plugin for functualize — exposes jobs as MCP tools via FastMCP"
 readme = "README.md"
 license = "MIT"
