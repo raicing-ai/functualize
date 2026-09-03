@@ -622,6 +622,108 @@ who wrote it got neither an error nor an expansion.
 
 ## Completed
 
+### Boolean flag negation (2026-09-03, `feat/workflow-run-params`)
+
+`shape-intents/boolean-flag-negation.md` is **implemented**. A boolean set
+`true` in a config file can now be turned off from the command line, on both
+surfaces. The config ladder promised CLI > env > file; for booleans it was
+three-quarters true and nothing said so.
+
+**Four decisions were taken by the maintainer before specifying**, which is why
+the shape intent sat unimplemented:
+
+| | Question | Decision |
+|---|---|---|
+| D1 | Do config booleans gain a negative form? | **Yes** — `--x/--no-x` |
+| D2 | What wins when `--no-foo` is ambiguous? | **The literal field `no_foo`.** `foo` then renders with no negative form |
+| D3 | May the frozen typer snapshot change? | **Yes**, recorded as deliberate |
+| D4 | `--flag=value` for a boolean? | **Refused on both surfaces** |
+
+**One rule, two surfaces.** `negative_flag_for` (`_types/naming.py`, re-exported
+through `app.utils`) decides the spelling for both the click builders and
+`func`'s pre-boot parser. If they decided independently, `--no-cache` would mean
+different things depending on how the program was invoked — the divergence class
+that already produced three disagreeing dependency resolvers here.
+
+D2's guarantee is **determinism, not detection**: click raises nothing for a
+`cache`/`no_cache` collision and binds by declaration order, so the same two
+fields gave opposite results depending on which was written first. Asserted with
+the fields declared in **both orders**.
+
+Before / after, on a project whose config sets both booleans `true`:
+
+| | Before | After |
+|---|---|---|
+| `func deploy run --no-verbose` | `No such option` | `verbose=False` |
+| `func deploy --no-strict run` | `unknown option` | `strict=False` |
+| `func deploy --strict=false run` | **worked** (only here) | error naming `--no-strict` |
+| `python main.py deploy --strict=false run` | error | error (click's own) |
+| neither flag | from the file | **unchanged** |
+
+The third row is the only invocation that stops working. It worked on exactly
+one of four combinations and was the parity defect, not a feature: `func`'s
+parser never asked whether the flag was a boolean, while click always refuses an
+inline value on a flag.
+
+#### Five findings, all from running rather than reading
+
+1. **There are five flag-rendering sites, not the four the plan named.**
+   `_option_from_marker` was missed: a bool declaring a short form routed down
+   it and silently lost its pair. Found by the test.
+2. **The TUI readiness evaluator had the same bug shape** — `bar.py` added
+   `no_<name>` only for a bool *without* a short flag, mirroring the builder
+   defect. `TestReadinessAgreesWithClick` caught it immediately because it
+   derives its expected set from the param builder rather than a table. That is
+   the design from ADR-009 working exactly as intended.
+3. **The surface-parity harness read `--no-dry-run` as an extra *field***. It
+   now folds a negative onto its positive only when the positive is also
+   present — precisely right under D2, since a field literally named `no_cache`
+   appears alone and must survive as itself.
+4. **`_group_flag_tokens` had no sibling list**, so the emitter could not reach
+   the verdict dispatch would on the way back in. Threaded through, or
+   `emit(resolve(text)) == text` breaks in the one case D2 exists for.
+5. **A wave gate was weaker than CI's.** `tests/group_options/` was run without
+   `--run-slow`, so a second pinned test sat in the skip count and only
+   surfaced in the full suite. **`--run-slow` belongs in any gate that claims a
+   directory is green** — the same lesson `Potential Follow-ups` #7 records
+   ("green at `default` is not green at `ci`"), reached from a different angle.
+
+#### Two tripwires fired, and both were inverted rather than deleted
+
+- `test_a_groups_negative_boolean_spelling_is_not` ended with *"Whether group
+  booleans should gain the pair is a dispatch-level question this feature does
+  not answer. **If they ever do, this test is the one that will say so.**"* It
+  was the single failure across the group-options and TUI suites when dispatch
+  learned the spelling.
+- `test_the_group_listing_documents_its_options` has now moved **twice, in
+  opposite directions, for the same reason each time**: the listing must say
+  what the parser accepts. #13 inverted it to the positive form only, because
+  the builder advertised a negative the parser never recognised — and recorded
+  the gap it could not close. This feature closed that gap, so the listing
+  advertises the pair again, and this time it is true. Its docstring now names
+  the invariant that survived both moves rather than the spelling.
+
+#### Gates
+
+| Gate | Result |
+|---|---|
+| Full suite `HYPOTHESIS_PROFILE=ci --run-slow -n auto` | **9351 passed, 102 skipped, 1 failed** |
+| That one failure | `test_a_closed_pipe_exits_zero_and_quietly` — the known load flake, *Potential Follow-ups* **#12**. **12 passed serially**; a doc-verify run was concurrent |
+| `pytest examples/` | 187 passed |
+| All 11 plugin suites | 245 passed |
+| doc-verify shell tier | 9 passed, 0 failed, 10 skipped (docker/pty, as CI) — 95 steps |
+| `ruff check` + `format --check` | clean, 1226 files |
+| `mypy src/` | 0 errors, 305 files |
+| `lint-imports` | 5 kept, 0 broken |
+
+#### Known cost, accepted
+
+Help output changed for every boolean config field (`--dry-run` becomes
+`--dry-run / --no-dry-run`). Eleven such fields ship in `examples/`. Measured
+rather than estimated: of 74 `-k help` candidates and 23 tests naming a boolean
+flag, **three** actually moved, and all three were pinned tests that moved
+deliberately.
+
 ### Workflow launch validation (2026-09-03, `feat/workflow-run-params`)
 
 The first acceptance item of
@@ -1239,6 +1341,25 @@ Items identified during development that are worth doing but not yet designed:
     should see for `BLOCKED` — a gated workflow reached through Lambda is neither
     a success nor an error, and that is the case the mapping has to name rather
     than round off.
+
+22. **`test_env_override_opens_the_gate` passes only under xdist sharding.**
+    `tests/adapters/test_surface_gate.py::TestWantsStdoutSurface::test_env_override_opens_the_gate`
+    **fails when `tests/adapters/` is run on its own** and passes in the full
+    suite under `-n auto`. Verified against `f9fe1ba` in a throwaway worktree,
+    so it predates the workflow-launch-validation and boolean-flag-negation
+    work; found while chasing an unrelated red.
+
+    It sets `FUNCTUALIZE_TUI_DEFAULT_SURFACE=stdout` with `monkeypatch` and
+    asserts `wants_stdout_surface(...)` is true, so the likely cause is
+    settings-store state that another test in the wider run happens to
+    establish — meaning the test passes for a reason it does not state.
+
+    Same family as #10 and as the F10 finding in the 0.1.1 review: a test whose
+    result depends on something outside its own body. **Consequence:** anyone
+    running `pytest tests/adapters/` while working on the adapters sees a red
+    that is not theirs, which is exactly how a real regression gets waved
+    through. **Fix:** make the fixture establish whatever the wider run
+    supplies, or assert against an explicitly constructed settings store.
 
 ## Recently Completed (2026-08)
 

@@ -238,7 +238,7 @@ snapshot is updated to match observed output rather than predicted output.
 
 **Gate:** the parity suite green, and the docstring note present.
 
-### T4.1 — Full regression and STATUS entry (A10)
+### [x] T4.1 — Full regression and STATUS entry (A10)
 
 **[F]** `.spec/STATUS.md`, plus whatever T1.2's measurement turned up
 
