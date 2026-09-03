@@ -463,16 +463,40 @@ class TestSelfManagementFromTheInlineShell:
 
             assert "python" in _output_text(tui)
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "builtin self update",
+            "builtin self install requests",
+            "builtin plugin install functualize-http",
+        ],
+    )
     @pytest.mark.asyncio
     async def test_a_mutating_command_hands_the_terminal_over(
-        self, project: Path
+        self, project: Path, command: str
     ) -> None:
-        """`self update` must not run on a worker. `uv` and `pipx` write
-        progress straight to fd 1, which the worker path does not redirect --
-        the child would draw over the interface."""
+        """These must not run on a worker. `uv` and `pipx` write progress
+        straight to fd 1, which the worker path does not redirect -- the child
+        would draw over the interface.
+
+        Asserted on `_handoff_tokens`, which `request_handoff` sets before
+        `App.exit()`. An earlier version asserted only that "Done" was absent
+        from the log; sabotage found that vacuous, because a command that *does*
+        run on the worker also fails to print it -- the confirmation prompt has
+        no stdin under Pilot and aborts.
+        """
         tui = _make_tui(project)
         async with tui.run_test() as pilot:
-            await _execute(pilot, tui, "builtin self update")
+            await _execute(pilot, tui, command)
 
-            # A handoff exits the app rather than writing a result to the log.
-            assert "Done" not in _output_text(tui)
+            assert tui._handoff_tokens == command.split()
+
+    @pytest.mark.asyncio
+    async def test_a_read_only_command_does_not_hand_over(self, project: Path) -> None:
+        """The contrast. Without it, a TUI that handed *everything* over would
+        pass every assertion above."""
+        tui = _make_tui(project)
+        async with tui.run_test() as pilot:
+            await _execute(pilot, tui, "builtin plugin list")
+
+            assert tui._handoff_tokens is None or tui._handoff_tokens == []
