@@ -133,8 +133,297 @@ jobs:
         with:
           skip-existing: true
 
+  # ---------------------------------------------------------------------------
+  # The standalone binary, in two stages.
+  #
+  # Recipe B (decision O1): the distribution is *pre-baked* with functualize and
+  # every first-party plugin already installed, and PyApp embeds that artifact
+  # rather than pip-installing on first run. That is what makes the first launch
+  # work with no network at all — the property the binary exists for, and the
+  # one `l-standalone-binary.toml` tests with `--network none`.
+  #
+  # Split in two because they are different kinds of work with different failure
+  # modes: bake is "install a wheel into a relocatable Python", binaries is "run
+  # a Rust build over that". A bake failure names the platform whose dependency
+  # tree broke; a binaries failure names the PyApp build.
+  # ---------------------------------------------------------------------------
+  bake:
+    needs: build
+    if: always() && needs.build.result == 'success'
+    strategy:
+      # One platform's dependency tree breaking must not hide the others. Every
+      # target reports for itself.
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            libc: gnu
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+            libc: gnu
+          # musl is not optional. The binary's audience is the ops user with no
+          # Python, who is disproportionately on Alpine or in a container where
+          # glibc is absent -- a gnu-only release misses them precisely.
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+            libc: musl
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+            libc: musl
+          - target: x86_64-apple-darwin
+            runner: macos-13
+            libc: ""
+          - target: aarch64-apple-darwin
+            runner: macos-14
+            libc: ""
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            libc: ""
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      # A python-build-standalone distribution, relocated into `bake/`, with the
+      # wheels from `build` installed into it. `uv python install` fetches the
+      # same distributions PyApp would, so the interpreter in the binary is the
+      # one uv would have chosen anyway.
+      - name: Bake the distribution
+        shell: bash
+        env:
+          PYTHON_VERSION: "3.12"
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          uv python install "$PYTHON_VERSION"
+          root="bake/$TARGET"
+          rm -rf "$root"
+          mkdir -p "$root"
+
+          # A relocatable venv: the binary runs from a path this build cannot
+          # know, so nothing may bake in an absolute prefix.
+          uv venv --python "$PYTHON_VERSION" --relocatable --seed "$root/env"
+
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            python_bin="$root/env/Scripts/python.exe"
+          else
+            python_bin="$root/env/bin/python"
+          fi
+
+          # Install from the wheels this release built, not from the index:
+          # the binary must contain exactly what `publish` uploaded, and a
+          # resolver reaching PyPI could pick a different build of a plugin.
+          uv pip install --python "$python_bin" \
+            --find-links dist/ \
+            "functualize[all]==${{ github.ref_type == 'tag' && github.ref_name || '' }}" \
+            2>/dev/null \
+          || uv pip install --python "$python_bin" --find-links dist/ "functualize[all]"
+
+          "$python_bin" -c "import functualize; print(functualize.__version__)"
+
+      - name: Archive the baked distribution
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          mkdir -p baked
+          tar -czf "baked/functualize-baked-$TARGET.tar.gz" -C "bake/$TARGET" env
+
+      - name: Upload the baked distribution
+        uses: actions/upload-artifact@v4
+        with:
+          name: baked-${{ matrix.target }}
+          path: baked/
+          retention-days: 1
+
+  binaries:
+    needs: bake
+    if: always() && needs.bake.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            archive: tar.gz
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+            archive: tar.gz
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+            archive: tar.gz
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+            archive: tar.gz
+          - target: x86_64-apple-darwin
+            runner: macos-13
+            archive: tar.gz
+          - target: aarch64-apple-darwin
+            runner: macos-14
+            archive: tar.gz
+          # `.zip` rather than `.tar.gz`, per platform convention.
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            archive: zip
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Download the baked distribution
+        uses: actions/download-artifact@v4
+        with:
+          name: baked-${{ matrix.target }}
+          path: baked/
+
+      # Every variable is set explicitly (AC25). None is left to an implicit
+      # default, because PyApp's defaults are the online recipe: without
+      # PYAPP_SKIP_INSTALL and PYAPP_DISTRIBUTION_EMBED the binary would fetch
+      # on first run, which is the exact property recipe B exists to remove --
+      # and it would still *work* on a networked build machine, so the mistake
+      # would ship.
+      - name: Build the binary
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          PYAPP_PROJECT_NAME: functualize
+          PYAPP_PROJECT_FEATURES: all
+          PYAPP_EXEC_SPEC: "functualize._cli.main:main"
+          PYAPP_DISTRIBUTION_EMBED: "1"
+          PYAPP_SKIP_INSTALL: "1"
+          PYAPP_UV_ENABLED: "1"
+          # Renamed from PyApp's default. Left alone it would expose a working
+          # `self` command in standalone mode that exists in no other mode, so
+          # the surface would differ by install method. `func pyapp ...` is
+          # internal and carries no stability guarantee.
+          PYAPP_SELF_COMMAND: pyapp
+          PYAPP_FULL_ISOLATION: "1"
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          case "$version" in
+            *[!0-9.a-zA-Z-]*|"") version=$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2) ;;
+          esac
+          export PYAPP_PROJECT_VERSION="$version"
+          export PYAPP_DISTRIBUTION_PATH="$PWD/baked/functualize-baked-$TARGET.tar.gz"
+
+          echo "Build inputs:"
+          env | grep '^PYAPP_' | sort
+
+          cargo install pyapp --force --root out --target "$TARGET" --locked
+
+          mkdir -p artifacts
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            mv "out/bin/pyapp.exe" "artifacts/func.exe"
+          else
+            mv "out/bin/pyapp" "artifacts/func"
+            chmod +x artifacts/func
+          fi
+
+      # AC23: the *measured* size, never an estimate. The payload is large by
+      # decision O2 -- ~104 MB of dependencies for a genuinely complete offline
+      # binary -- and the number staying visible in CI is what keeps that a
+      # decision rather than a drift.
+      - name: Measure and report the binary size
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary=$(ls artifacts/func artifacts/func.exe 2>/dev/null | head -1)
+          bytes=$(wc -c < "$binary" | tr -d ' ')
+          mb=$(( bytes / 1000000 ))
+          echo "measured size: ${bytes} bytes (${mb} MB)"
+          {
+            echo "### \`${{ matrix.target }}\`"
+            echo ""
+            echo "Measured binary size: **${mb} MB** (${bytes} bytes)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # A ceiling, not a target. It exists so a dependency that doubles the
+          # payload fails the release rather than shipping quietly.
+          limit=$((400 * 1000 * 1000))
+          if [ "$bytes" -gt "$limit" ]; then
+            echo "Binary is ${mb} MB, over the ${limit} byte ceiling." >&2
+            exit 1
+          fi
+          # And a floor: a build that silently produced a stub would otherwise
+          # sail past a size check that only looks upward.
+          if [ "$bytes" -lt $((20 * 1000 * 1000)) ]; then
+            echo "Binary is only ${mb} MB -- the embedded distribution is missing." >&2
+            exit 1
+          fi
+
+      - name: Check the binary runs
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary=$(ls artifacts/func artifacts/func.exe 2>/dev/null | head -1)
+          "$binary" builtin version
+          "$binary" builtin self doctor || true
+
+      - name: Package the artifact
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          ARCHIVE: ${{ matrix.archive }}
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          if [ "$ARCHIVE" = "zip" ]; then
+            (cd artifacts && 7z a "../release/functualize-$TARGET.zip" func.exe)
+          else
+            tar -czf "release/functualize-$TARGET.tar.gz" -C artifacts func
+          fi
+
+      - name: Upload the release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.target }}
+          path: release/
+
+  # One job, so the checksum file covers every artifact in one document rather
+  # than one file per platform that a user has to assemble themselves.
+  checksums:
+    needs: binaries
+    if: always() && needs.binaries.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download every binary
+        uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          path: release/
+          merge-multiple: true
+
+      - name: Compute checksums
+        run: |
+          set -euo pipefail
+          cd release
+          sha256sum ./* > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Upload the release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle
+          path: release/
+
   github-release:
-    needs: publish
+    needs: [publish, checksums]
     runs-on: ubuntu-latest
     # Only a tag push is a release. A manual verification run has no tag for
     # the release notes to point at, so creating one there would be wrong.
@@ -144,7 +433,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Download the release bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: release-bundle
+          path: release/
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          # Every binary plus the checksum file covering all of them.
+          files: release/*

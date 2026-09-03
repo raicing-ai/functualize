@@ -77,3 +77,80 @@ workdir = "/src"
 command = "pip install /src/plugins/functualize-ai/ /src/plugins/functualize-ai-pydantic/ 2>&1 && echo 'OK' && python -c 'import functualize_ai; print(\"ai OK\")'"
 expected = { stdout_contains = "ai OK", exit_code = 0 }
 timeout = 240
+
+# ---------------------------------------------------------------------------
+# Runtime-mode detection, per install method.
+#
+# These settle what static reading cannot. `sys.prefix` is not settable by
+# environment, so a detection test running inside pytest can only ever observe
+# the one mode the suite happens to run under -- and the original detection
+# audit could not verify the pipx signal at all, because no pipx was available
+# on the audit host. A container per install method is the only place these are
+# real.
+# ---------------------------------------------------------------------------
+
+[[steps]]
+engine = "docker"
+description = "uv tool install detects tool_uv"
+image = "python:3.12-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/src"
+command = "pip install uv >/dev/null 2>&1 && uv tool install '/src[cli]' >/dev/null 2>&1 && ~/.local/bin/func builtin self doctor"
+expected = { stdout_contains = "tool_uv", exit_code = 0 }
+timeout = 420
+
+[[steps]]
+engine = "docker"
+description = "pipx install detects tool_pipx"
+image = "python:3.12-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/src"
+command = "pip install pipx >/dev/null 2>&1 && pipx install '/src[cli]' >/dev/null 2>&1 && ~/.local/bin/func builtin self doctor"
+expected = { stdout_contains = "tool_pipx", exit_code = 0 }
+timeout = 420
+
+# The ladder's order is binding, and these two steps are what make that
+# observable. The *same* bare-pip installation reports `project` from inside a
+# directory that declares functualize and `tool_pip` from anywhere else,
+# because rung 5 -- the bounded upward walk for a project -- runs before rung 6.
+# Asserting only one of them would pass with the rungs swapped.
+
+[[steps]]
+engine = "docker"
+description = "A bare pip install, seen from outside any project, is tool_pip"
+image = "python:3.12-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/tmp"
+command = "pip install --break-system-packages '/src[cli]' >/dev/null 2>&1 || pip install '/src[cli]' >/dev/null 2>&1; cd /tmp && func builtin self doctor"
+expected = { stdout_contains = "tool_pip", exit_code = 0 }
+timeout = 420
+
+[[steps]]
+engine = "docker"
+description = "The same installation, seen from inside a project that declares functualize, is project"
+image = "python:3.12-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/src"
+command = "pip install --break-system-packages '/src[cli]' >/dev/null 2>&1 || pip install '/src[cli]' >/dev/null 2>&1; cd /src && func builtin self doctor"
+expected = { stdout_contains = "project", exit_code = 0 }
+timeout = 420
+
+[[steps]]
+engine = "docker"
+description = "A degraded install refuses to update, with the refusal exit code"
+image = "python:3.12-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/tmp"
+command = "pip install --break-system-packages '/src[cli]' >/dev/null 2>&1 || pip install '/src[cli]' >/dev/null 2>&1; cd /tmp; func builtin self update --yes; test $? -eq 3 && echo 'REFUSED-3'"
+expected = { stdout_contains = "REFUSED-3", exit_code = 0 }
+timeout = 420
+
+[[steps]]
+engine = "docker"
+description = "A degraded install can still list what extends it"
+image = "python:3.12-slim"
+volumes = { "." = "/src:ro" }
+workdir = "/tmp"
+command = "pip install --break-system-packages '/src[cli]' >/dev/null 2>&1 || pip install '/src[cli]' >/dev/null 2>&1; cd /tmp && func builtin plugin list"
+expected = { stdout_contains = "format_providers", exit_code = 0 }
+timeout = 420

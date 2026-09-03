@@ -177,11 +177,16 @@ Zero function bodies beyond `...`, `pass`, or trivial property accessors.
 
 | Module | Contains |
 |--------|----------|
-| `main.py` | Entry point, arg routing → JobSources → CliAdapter.run() |
-| `builtins.py` | cache, version, domains commands |
+| `main.py` | Entry point, arg routing → JobSources → CliAdapter.run(); the pre-boot intercepts (`--version`, `self doctor`) and first-run registration |
+| `builtins.py` | The `builtin` command registry and every family's mount point |
 | `scaffold/` | scaffold sub-command (Click + Jinja2) |
 | `orchestrator.py` | Surface-resolution ladder (`resolve_surface`, `RenderSurface`) |
 | `inline_tui.py` | Inline-TUI launch + the EXCLUSIVE handoff loop |
+| `runtime.py` | How this `func` was installed and which distribution owns it (`InstallMode`, `detect`) — stdlib only, every input a parameter |
+| `manifest.py` | The user-global registry of every `func` that has run (`install.json`). Voluntary, append-only, never discovers anything |
+| `package_ops.py` | Mode → command planning, environment capture/reconciliation, the uv receipt merge, and `_call` — the one place this subsystem executes anything |
+| `self_cmd.py` | `builtin self` — `doctor`, `update`, `install`, `python`, `uv` |
+| `plugin_cmd.py` | `builtin plugin` — `list`, `install`, `uninstall`; extension discovery across `functualize.*` entry-point groups |
 
 ### `ui/` — Textual/Rich building blocks (the `[cli]` extra)
 

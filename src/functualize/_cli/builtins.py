@@ -38,6 +38,11 @@ class BuiltinCommand:
     #: an editor). A TUI front-end must suspend itself around these rather
     #: than capturing their output.
     terminal_subcommands: tuple[str, ...] = ()
+    #: Populated on the ``builtin`` root only, with the families beneath it.
+    #: Its presence is what makes :meth:`needs_terminal` resolve a family
+    #: before matching, rather than matching a bare name against every
+    #: family's declarations at once.
+    children: tuple[BuiltinCommand, ...] = ()
 
     @property
     def subcommand_map(self) -> dict[str, str]:
@@ -45,7 +50,23 @@ class BuiltinCommand:
         return dict(self.subcommands)
 
     def needs_terminal(self, args: list[str]) -> bool:
-        """Return True if invoking this command with ``args`` needs the terminal."""
+        """Return True if invoking this command with ``args`` needs the terminal.
+
+        On a **family** (``config``, ``skills``, …) ``args`` is that family's
+        own subcommand path, and a plain membership test is the whole answer.
+
+        On the **root**, ``args`` starts with a family name, so the family is
+        resolved first and asked about the rest. Matching the flattened set
+        instead would make any name declared by one family match inside every
+        other: with ``plugin install`` terminal-owning, ``skills install``
+        would answer True as well. Names cannot be chosen to avoid that —
+        ``skills`` shipped an ``install`` after ``install``/``uninstall`` were
+        picked precisely because nothing else used them.
+        """
+        if self.children and args:
+            for child in self.children:
+                if child.name == args[0]:
+                    return child.needs_terminal(list(args[1:]))
         return any(arg in self.terminal_subcommands for arg in args)
 
 
@@ -102,6 +123,12 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
             ("install", "Install the skills into a project via the skills CLI"),
         ),
         requires_subcommand=True,
+        # `skills install` shells out to `npx skills add`, which prompts. The
+        # subprocess inherits fd 0/1/2, which is what makes it work from a real
+        # terminal — and what breaks it on the TUI's worker path, where
+        # `invoke_builtin` redirects only Python-level `sys.stdout` and the
+        # child prompts onto the terminal underneath the interface.
+        terminal_subcommands=("install",),
     ),
     BuiltinCommand(
         "scaffold",
@@ -130,6 +157,46 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
     BuiltinCommand("shell-init", "Emit a static shell completion script"),
     BuiltinCommand("why", "Explain whether a job would run, and why"),
     BuiltinCommand("version", "Show the functualize version"),
+    BuiltinCommand(
+        "plugin",
+        "Inspect and manage installed extensions",
+        (
+            ("list", "List every installed extension and what provides it"),
+            ("install", "Install an extension"),
+            ("uninstall", "Remove an extension"),
+        ),
+        requires_subcommand=True,
+        # Both mutating commands run a package manager that inherits fd 0/1/2 --
+        # uv draws progress, an index can prompt for credentials. Same reason as
+        # `self install`; `list` only reads metadata and stays on the worker.
+        terminal_subcommands=("install", "uninstall"),
+    ),
+    BuiltinCommand(
+        "self",
+        "Inspect and manage this installation",
+        (
+            ("doctor", "Check this installation and report what is wrong"),
+            ("update", "Upgrade this installation and restore what you added"),
+            ("install", "Add a package to this installation's environment"),
+            ("python", "Run this installation's interpreter, or print its path"),
+            ("uv", "Run the uv this installation uses, or print its path"),
+        ),
+        requires_subcommand=True,
+        # All four mutating-or-passthrough subcommands own the terminal. Each
+        # runs a child that inherits fd 0/1/2 -- uv draws progress, pipx and an
+        # index can prompt for credentials, and `self python -- ...` runs
+        # whatever the user asked for. On the TUI's worker path only Python-level
+        # `sys.stdout` is redirected, so the child would draw straight onto the
+        # terminal underneath the interface. That is the `skills install` defect
+        # P2 fixed, and `update` has it for exactly the same reason the other
+        # three do.
+        #
+        # Bare `self python` also hands over the terminal to print one line,
+        # which is cosmetic; `needs_terminal` is a single answer per subcommand
+        # (`_types/commands.py:52-70`) and the passthrough is the form worth
+        # getting right.
+        terminal_subcommands=("update", "install", "python", "uv"),
+    ),
     BuiltinCommand(
         "info",
         "Display app state, discovered jobs, and config",
@@ -160,13 +227,13 @@ BUILTIN_ROOT_COMMAND: BuiltinCommand = BuiltinCommand(
     "First-party commands, kept out of the job namespace",
     tuple((c.name, c.description) for c in BUILTIN_COMMANDS),
     requires_subcommand=True,
-    # Inherited from the children: `builtin config edit` still spawns $EDITOR
-    # on the controlling terminal, and a TUI front-end must still suspend
-    # itself around it. Dropping this on the way under the subtree would have
-    # let the TUI capture an interactive editor.
-    terminal_subcommands=tuple(
-        sub for c in BUILTIN_COMMANDS for sub in c.terminal_subcommands
-    ),
+    # The children themselves, not a flattened set of their subcommand names.
+    # `builtin config edit` still spawns $EDITOR on the controlling terminal
+    # and a TUI front-end must still suspend itself around it, but the answer
+    # now comes from `config` rather than from every family at once — see
+    # `needs_terminal`. The root declares no `terminal_subcommands` of its
+    # own: it owns no subcommands, only families.
+    children=BUILTIN_COMMANDS,
 )
 
 
@@ -1795,6 +1862,16 @@ def register_builtin_commands(cli_group: Any) -> None:
             return
         for line in render_report_text(report):
             click.echo(line)
+
+    # Mounted from a sibling module rather than defined inline, following
+    # `scaffold` and `skills`. `self doctor` is *also* intercepted pre-boot in
+    # `_run_cli`; this mount is what makes it visible to `--help`, to the
+    # registry mirror, to completion, and to a consumer app's CLI.
+    from functualize._cli.plugin_cmd import plugin_app
+    from functualize._cli.self_cmd import self_app
+
+    _mount(builtin_app, plugin_app, "plugin")
+    _mount(builtin_app, self_app, "self")
 
     _mount(builtin_app, info_group, "info")
 

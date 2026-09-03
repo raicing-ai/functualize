@@ -423,3 +423,80 @@ def _output_text(tui: FunctualizeInlineTUI) -> str:
 
     log = tui.query_one("#output-log", RichLog)
     return "\n".join(strip.text for strip in log.lines)
+
+
+class TestSelfManagementFromTheInlineShell:
+    """AC32's third surface, with real keys against a real running TUI.
+
+    The read-only commands must actually *run* here. The mutating ones must
+    not: they hand the terminal over instead, which the shell reports rather
+    than executing on a worker with redirected stdout.
+    """
+
+    @pytest.mark.asyncio
+    async def test_self_doctor_runs_and_reports(self, project: Path) -> None:
+        tui = _make_tui(project)
+        async with tui.run_test() as pilot:
+            await _execute(pilot, tui, "builtin self doctor")
+
+            output = _output_text(tui)
+            assert "install-mode" in output
+            assert "Error" not in output
+
+    @pytest.mark.asyncio
+    async def test_plugin_list_runs_and_reports(self, project: Path) -> None:
+        tui = _make_tui(project)
+        async with tui.run_test() as pilot:
+            await _execute(pilot, tui, "builtin plugin list")
+
+            assert "functualize-inline" in _output_text(tui)
+
+    @pytest.mark.asyncio
+    async def test_doctor_output_is_escaped_not_interpreted(
+        self, project: Path
+    ) -> None:
+        """The report's status column is `ok` / `!!` / `XX` and its detail can
+        hold a bracketed `[stale]` marker, which markup would swallow."""
+        tui = _make_tui(project)
+        async with tui.run_test() as pilot:
+            await _execute(pilot, tui, "builtin self doctor")
+
+            assert "python" in _output_text(tui)
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "builtin self update",
+            "builtin self install requests",
+            "builtin plugin install functualize-http",
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_a_mutating_command_hands_the_terminal_over(
+        self, project: Path, command: str
+    ) -> None:
+        """These must not run on a worker. `uv` and `pipx` write progress
+        straight to fd 1, which the worker path does not redirect -- the child
+        would draw over the interface.
+
+        Asserted on `_handoff_tokens`, which `request_handoff` sets before
+        `App.exit()`. An earlier version asserted only that "Done" was absent
+        from the log; sabotage found that vacuous, because a command that *does*
+        run on the worker also fails to print it -- the confirmation prompt has
+        no stdin under Pilot and aborts.
+        """
+        tui = _make_tui(project)
+        async with tui.run_test() as pilot:
+            await _execute(pilot, tui, command)
+
+            assert tui._handoff_tokens == command.split()
+
+    @pytest.mark.asyncio
+    async def test_a_read_only_command_does_not_hand_over(self, project: Path) -> None:
+        """The contrast. Without it, a TUI that handed *everything* over would
+        pass every assertion above."""
+        tui = _make_tui(project)
+        async with tui.run_test() as pilot:
+            await _execute(pilot, tui, "builtin plugin list")
+
+            assert tui._handoff_tokens is None or tui._handoff_tokens == []

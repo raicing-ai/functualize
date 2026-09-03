@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — a standalone binary, and installations that manage themselves
+
+- **A single executable with Python and every first-party plugin inside it.**
+  No prerequisites, and **the first run needs no network** — the distribution is
+  baked into the binary rather than downloaded on first launch.
+
+  ```bash
+  curl -LsSf https://raw.githubusercontent.com/raicing-ai/functualize/master/install.sh | sh
+  # Windows: irm .../install.ps1 | iex
+  ```
+
+  Seven targets, named by Rust target triple, with a checksum file covering all
+  of them. **musl is included**, because the audience for a Python-free install
+  is disproportionately on Alpine or in a container where glibc is absent, and
+  the install script picks it by reading which dynamic loader is present rather
+  than by guessing from the distribution name.
+
+- **`func builtin self doctor`** reports how this `func` was installed, which
+  distribution owns it, whether the CLI can actually boot here, and every other
+  `func` that has run on this machine. It is intercepted **before the app
+  boots**, so it still answers when the thing you are diagnosing is boot itself.
+
+- **`func builtin self update`** upgrades in place and then restores what you
+  had added — including packages installed through the escape hatch that were
+  never recorded anywhere. It works out which of `uv tool upgrade`,
+  `pipx upgrade`, `uv lock && uv sync` or the binary's own updater applies.
+
+- **`func builtin self install <package>`** for a dependency your jobs import,
+  and **`func builtin plugin list|install|uninstall`** for extensions. The two
+  are recorded separately: `plugin list` never shows a plain dependency.
+
+- **`func builtin self python -- <args>`** and **`self uv -- <args>`** run the
+  owned environment directly, for anything these commands decline to do. Bare,
+  each prints exactly one absolute path and nothing else, so it stays capturable.
+
+- **`func builtin info`** gains the install mode and owning distribution.
+
+### Changed
+
+- **Every mutating self-management command prints the exact command it will run
+  before running it**, and does nothing without confirmation. `--yes` skips the
+  prompt, never the printing.
+
+- **An installation functualize does not own refuses to be managed.** A bare
+  `pip install` into a system interpreter prints guidance naming the tool that
+  *does* own it, changes nothing, and exits `3`. A script can tell that apart
+  from "the action ran and failed".
+
+- **`func builtin skills install` now takes the terminal in the inline shell.**
+  It shells out to `npx skills add`, which prompts; on the TUI's worker path the
+  child was drawing onto the terminal underneath the interface.
+
+### Fixed
+
+- **A builtin subcommand name declared terminal-owning by one command family no
+  longer matches in every other family.** `config edit` owning the terminal did
+  not imply `skills edit` would, but the check was flat and could not tell them
+  apart.
+
 ## [0.1.3] - 2026-09-03
 
 ### Changed — the config ladder is now whole for booleans

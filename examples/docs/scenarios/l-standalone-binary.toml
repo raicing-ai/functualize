@@ -1,0 +1,265 @@
+[scenario]
+name = "l-standalone-binary"
+version = 1
+description = "The binary launches and runs a job with networking disabled (AC22), at a measured size (AC23), and the install script picks the right libc (AC24b) and verifies before installing (AC24c)"
+
+# `--network none` is what turns the offline claim into a gate. Recipe B exists
+# for exactly one property -- the first run needs no network -- and a build
+# machine that has a network connection will happily produce a binary that
+# quietly downloads on first launch and still passes every other check. This is
+# the only test that can tell those two binaries apart.
+#
+# The build step takes 10-20 minutes. That is why this is a scenario rather than
+# a test: it runs on demand before a release, not on every commit.
+#
+# The binary is written to `dist/standalone/` on the host so the offline steps
+# can run it -- each docker step is a fresh container, so nothing survives in
+# the image between them.
+
+[source]
+file = "docs/getting-started/installation.md"
+lines = "52-121"
+description = "The standalone binary: offline first run, checksummed download, musl on a system without glibc"
+
+requires = []
+
+# ---------------------------------------------------------------------------
+# The binary itself
+# ---------------------------------------------------------------------------
+
+[[steps]]
+engine = "shell"
+description = "Prepare the directory the binary is handed back through"
+command = "mkdir -p dist/standalone && echo READY"
+expected = { stdout_contains = "READY", exit_code = 0 }
+timeout = 10
+
+[[steps]]
+engine = "docker"
+description = "Bake a distribution, build the binary, and measure it"
+image = "rust:1-slim-bookworm"
+volumes = { "." = "/src:ro", "./dist/standalone" = "/work" }
+workdir = "/work"
+command = """
+set -e
+apt-get update -qq && apt-get install -y -qq curl ca-certificates >/dev/null
+curl -LsSf https://astral.sh/uv/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+cd /tmp
+
+# Bake: a relocatable environment with functualize and every first-party plugin
+# already installed. `--relocatable` matters -- the binary runs from a path this
+# build cannot know.
+uv venv --python 3.12 --relocatable --seed env
+uv pip install --python env/bin/python '/src[all]'
+tar -czf baked.tar.gz env
+
+# Every variable explicit (AC25). PyApp's defaults are the *online* recipe:
+# without SKIP_INSTALL and DISTRIBUTION_EMBED this still builds, still works
+# here, and fails only for the offline user it was built for.
+export PYAPP_PROJECT_NAME=functualize
+export PYAPP_PROJECT_VERSION="$(grep -m1 '^version' /src/pyproject.toml | cut -d'"' -f2)"
+export PYAPP_PROJECT_FEATURES=all
+export PYAPP_EXEC_SPEC='functualize._cli.main:main'
+export PYAPP_DISTRIBUTION_EMBED=1
+export PYAPP_DISTRIBUTION_PATH=/tmp/baked.tar.gz
+export PYAPP_SKIP_INSTALL=1
+export PYAPP_UV_ENABLED=1
+export PYAPP_SELF_COMMAND=pyapp
+export PYAPP_FULL_ISOLATION=1
+
+cargo install pyapp --force --root out --locked
+cp out/bin/pyapp /work/func
+chmod 0755 /work/func
+
+bytes=$(wc -c < /work/func | tr -d ' ')
+echo "measured size: ${bytes} bytes ($((bytes / 1000000)) MB)"
+# A floor as well as a ceiling: a build that silently produced a stub sails
+# past a check that only looks upward.
+test "$bytes" -gt $((20 * 1000 * 1000)) || { echo "stub binary"; exit 1; }
+test "$bytes" -lt $((400 * 1000 * 1000)) || { echo "over the ceiling"; exit 1; }
+echo "SIZE-MEASURED"
+"""
+expected = { stdout_contains = "SIZE-MEASURED", exit_code = 0 }
+timeout = 2400
+
+[[steps]]
+engine = "docker"
+description = "With networking disabled, the binary starts and runs a job (AC22)"
+image = "debian:bookworm-slim"
+network = "none"
+volumes = { "./dist/standalone" = "/work" }
+workdir = "/tmp"
+command = """
+set -e
+test -x /work/func || { echo "run the build step first"; exit 1; }
+
+/work/func builtin version
+mkdir -p /tmp/proj/jobs
+cat > /tmp/proj/jobs/hello.py <<'PY'
+def run() -> str:
+    return "offline-ok"
+PY
+cd /tmp/proj
+/work/func hello
+echo "OFFLINE-RAN"
+"""
+expected = { stdout_contains = "OFFLINE-RAN", exit_code = 0 }
+timeout = 300
+
+[[steps]]
+engine = "docker"
+description = "Offline, the binary reports itself as a standalone install"
+image = "debian:bookworm-slim"
+network = "none"
+volumes = { "./dist/standalone" = "/work" }
+workdir = "/tmp"
+command = "/work/func builtin info all --json | grep '\"mode\": \"standalone\"'"
+expected = { stdout_contains = "standalone", exit_code = 0 }
+timeout = 180
+
+[[steps]]
+engine = "docker"
+description = "Offline, `self doctor` produces a report rather than a traceback"
+image = "debian:bookworm-slim"
+network = "none"
+volumes = { "./dist/standalone" = "/work" }
+workdir = "/tmp"
+command = "/work/func builtin self doctor"
+expected = { stdout_contains = "install-mode", exit_code = 0 }
+timeout = 300
+
+[[steps]]
+engine = "docker"
+description = "Offline, `self update` names PyApp's updater rather than a package manager"
+image = "debian:bookworm-slim"
+network = "none"
+volumes = { "./dist/standalone" = "/work" }
+workdir = "/tmp"
+command = "/work/func builtin self update </dev/null || true"
+expected = { stdout_contains = "pyapp update", exit_code = 0 }
+timeout = 180
+
+# ---------------------------------------------------------------------------
+# The install script
+#
+# Note on why these run on Debian rather than Alpine: the scenario runner
+# invokes every container as `bash -c`, and no musl base image in common use
+# ships bash. The musl branch is therefore exercised by presenting the script
+# with a musl system's *signals* -- which is what it actually reads -- rather
+# than by running on Alpine. The real musl binary is exercised by the release
+# pipeline, which builds and runs it on its own target.
+# ---------------------------------------------------------------------------
+
+[[steps]]
+engine = "docker"
+description = "Presented with musl's signals, the script picks the musl archive (AC24b)"
+image = "debian:bookworm-slim"
+network = "none"
+volumes = { "." = "/src:ro" }
+workdir = "/tmp"
+command = """
+set -e
+sed -n '/^detect_arch()/,/^# --- download/p' /src/install.sh > /tmp/detect.sh
+
+mkdir -p /tmp/fake
+cat > /tmp/fake/ldd <<'EOF'
+#!/bin/sh
+echo "musl libc (x86_64)" >&2
+echo "Version 1.2.5" >&2
+EOF
+chmod +x /tmp/fake/ldd
+
+PATH="/tmp/fake:$PATH" sh -c '. /tmp/detect.sh; detect_target' > /tmp/out
+target=$(cat /tmp/out)
+echo "detected: $target"
+case "$target" in
+  *-unknown-linux-musl) echo "PICKED-MUSL" ;;
+  *) echo "WRONG: $target"; exit 1 ;;
+esac
+"""
+expected = { stdout_contains = "PICKED-MUSL", exit_code = 0 }
+timeout = 120
+
+[[steps]]
+engine = "docker"
+description = "With no ldd at all -- the busybox case -- it still resolves a libc"
+image = "debian:bookworm-slim"
+network = "none"
+volumes = { "." = "/src:ro" }
+workdir = "/tmp"
+command = """
+set -e
+sed -n '/^detect_arch()/,/^# --- download/p' /src/install.sh > /tmp/detect.sh
+mkdir -p /tmp/empty
+# No ldd on PATH; the script falls through to the loader-file layout, and this
+# Debian image has glibc's loader present.
+PATH="/tmp/empty:/usr/bin:/bin" sh -c '. /tmp/detect.sh; detect_target' > /tmp/out
+target=$(cat /tmp/out)
+echo "detected: $target"
+case "$target" in
+  *-unknown-linux-*) echo "RESOLVED-A-LIBC" ;;
+  *) echo "WRONG: $target"; exit 1 ;;
+esac
+"""
+expected = { stdout_contains = "RESOLVED-A-LIBC", exit_code = 0 }
+timeout = 120
+
+[[steps]]
+engine = "docker"
+description = "On glibc, the script picks the gnu archive"
+image = "debian:bookworm-slim"
+network = "none"
+volumes = { "." = "/src:ro" }
+workdir = "/tmp"
+command = """
+set -e
+sed -n '/^detect_arch()/,/^# --- download/p' /src/install.sh > /tmp/detect.sh
+target=$(sh -c '. /tmp/detect.sh; detect_target')
+echo "detected: $target"
+case "$target" in
+  *-unknown-linux-gnu) echo "PICKED-GNU" ;;
+  *) echo "WRONG: $target"; exit 1 ;;
+esac
+"""
+expected = { stdout_contains = "PICKED-GNU", exit_code = 0 }
+timeout = 120
+
+[[steps]]
+engine = "docker"
+description = "A tampered archive is refused before it is ever unpacked (AC24c)"
+image = "debian:bookworm-slim"
+network = "none"
+volumes = { "." = "/src:ro" }
+workdir = "/tmp"
+command = """
+set -e
+sed -n '/^say()/,/^}/p;/^verify()/,/^}/p' /src/install.sh > /tmp/verify.sh
+
+mkdir -p /tmp/work && cd /tmp/work
+echo "the real thing" > payload.tar.gz
+sha256sum payload.tar.gz > SHA256SUMS
+
+# Each check runs in its own subshell: `die` calls `exit`, which is correct for
+# the installer and would otherwise take this scenario down with it.
+( . /tmp/verify.sh; verify payload.tar.gz SHA256SUMS payload.tar.gz ) && echo "GOOD-ACCEPTED"
+
+# A substituted payload against unchanged sums -- what a compromised mirror
+# looks like from the client side.
+echo "something else entirely" > payload.tar.gz
+if ( . /tmp/verify.sh; verify payload.tar.gz SHA256SUMS payload.tar.gz ) 2>/dev/null; then
+  echo "ACCEPTED-A-TAMPERED-ARCHIVE"
+  exit 1
+fi
+echo "TAMPERED-REFUSED"
+
+# And a payload nobody published a checksum for at all.
+echo "x" > unlisted.tar.gz
+if ( . /tmp/verify.sh; verify unlisted.tar.gz SHA256SUMS unlisted.tar.gz ) 2>/dev/null; then
+  echo "ACCEPTED-AN-UNLISTED-ARCHIVE"
+  exit 1
+fi
+echo "UNLISTED-REFUSED"
+"""
+expected = { stdout_contains = "TAMPERED-REFUSED", exit_code = 0 }
+timeout = 180

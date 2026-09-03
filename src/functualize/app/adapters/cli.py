@@ -1167,6 +1167,21 @@ def _show_info_impl(
     info_table.add_row("Environment", environment_display)
     info_table.add_row("Config Directory", str(config_dir))
 
+    # `Install mode`, never `Mode` — the Runtime State section below prints a
+    # `Mode:` line for *state storage* whose value can also read `standalone`,
+    # meaning "no project directory found" rather than "the pre-baked binary".
+    # Lazy import for the same reason `register_builtin_commands` is: `_cli`
+    # sits above `app`, so it is imported at call time to keep the graph acyclic.
+    try:
+        from functualize._cli.info import install_facts
+
+        facts = install_facts(include_manifest=False)
+    except Exception:  # noqa: BLE001 - never break `info` over a detail
+        facts = {}
+    if facts.get("mode"):
+        info_table.add_row("Install Mode", str(facts["mode"]))
+        info_table.add_row("Owned By", str(facts.get("owning_distribution") or "-"))
+
     console.print(
         Panel(info_table, title="[bold]General Info[/bold]", border_style="green")
     )
