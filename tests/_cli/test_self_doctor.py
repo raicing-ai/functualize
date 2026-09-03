@@ -263,3 +263,87 @@ class TestItIsReachableThroughTheCli:
             f"doctor reported boot as {boot['status']!r} in a project where the "
             "CLI cannot start"
         )
+
+
+class TestItReportsTheRegistry:
+    """Doctor reads the install registry — and says when an entry has gone.
+
+    Added because sabotage found these undefended: cutting `_check_registry`
+    out of `build_report` left every other doctor test green.
+    """
+
+    def _write_registry(self, xdg_dirs, *records) -> None:
+        from functualize._cli import manifest as m
+
+        config = xdg_dirs.functualize_config
+        config.mkdir(parents=True, exist_ok=True)
+        m.save(m.Manifest(installations=tuple(records)), m.manifest_path(config))
+
+    def _record(self, path: str, **over):
+        from functualize._cli.manifest import InstallRecord
+
+        return InstallRecord(
+            binary_path=path,
+            runtime_mode=over.get("runtime_mode", "tool_uv"),
+            owning_distribution="functualize",
+            python_version="3.12.0",
+            functualize_version=over.get("version", "1.0"),
+        )
+
+    def test_an_empty_registry_says_so(self, tmp_path: Path, xdg_dirs) -> None:
+        report = build_report(cwd=tmp_path)
+        assert _by_name(report, "installations") is not None
+
+    def test_registered_installations_are_counted(
+        self, tmp_path: Path, xdg_dirs
+    ) -> None:
+        live = tmp_path / "live-func"
+        live.touch()
+        self._write_registry(xdg_dirs, self._record(str(live)))
+
+        detail = _by_name(build_report(cwd=tmp_path), "installations").detail  # type: ignore[attr-defined]
+        assert "1 registered" in detail
+        assert "0 stale" in detail
+
+    def test_a_vanished_binary_is_reported_stale_and_kept(
+        self, tmp_path: Path, xdg_dirs
+    ) -> None:
+        """AC7 — reported, never deleted. The registry is append-only."""
+        live = tmp_path / "live-func"
+        live.touch()
+        self._write_registry(
+            xdg_dirs,
+            self._record(str(live)),
+            self._record(str(tmp_path / "gone-func")),
+        )
+
+        report = build_report(cwd=tmp_path)
+        assert "1 stale" in _by_name(report, "installations").detail  # type: ignore[attr-defined]
+
+        stale_lines = [
+            c for c in report.checks if "gone-func" in c.name and "[stale]" in c.detail
+        ]
+        assert stale_lines, "the vanished entry was not reported"
+        assert stale_lines[0].status is CheckStatus.WARNING
+
+        from functualize._cli import manifest as m
+
+        still_there = m.load(m.manifest_path(xdg_dirs.functualize_config))
+        assert len(still_there.installations) == 2, "doctor must not delete records"
+
+    def test_the_running_installation_is_distinguishable(
+        self, tmp_path: Path, xdg_dirs
+    ) -> None:
+        """AC9c — you can tell which of them is the one you just typed."""
+        import sys as _sys
+
+        running = _sys.argv[0] if _sys.argv else ""
+        other = tmp_path / "other-func"
+        other.touch()
+        self._write_registry(xdg_dirs, self._record(running), self._record(str(other)))
+
+        marked = [
+            c for c in build_report(cwd=tmp_path).checks if "(running)" in c.detail
+        ]
+        assert len(marked) == 1
+        assert running in marked[0].name

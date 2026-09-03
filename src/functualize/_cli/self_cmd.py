@@ -25,6 +25,7 @@ This module is in the ``_cli/`` layer — public API only.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -240,6 +241,10 @@ def _run_probe(script: str, cwd: Path) -> dict[str, object] | Check:
             text=True,
             timeout=_BOOT_PROBE_TIMEOUT_S,
             cwd=cwd,
+            # The boot probe drives the real entry point, which would otherwise
+            # register a phantom installation under the probe's own argv0 --
+            # doctor would add an entry every time it reported on the registry.
+            env={**os.environ, "FUNCTUALIZE_NO_REGISTER": "1"},
         )
     except subprocess.TimeoutExpired:
         return Check(

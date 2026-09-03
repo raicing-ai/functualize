@@ -18,6 +18,7 @@ _module_import_start_ns = _time.perf_counter_ns()
 
 import contextlib
 import logging
+import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -1734,6 +1735,12 @@ def _register_this_installation() -> None:
     container, a sandbox — registration becomes impossible and the command the
     user typed must not care. Bookkeeping never interferes.
     """
+    if os.environ.get("FUNCTUALIZE_NO_REGISTER"):
+        # Set by doctor's child probes. Without it, reporting *on* the registry
+        # adds an entry to it: the probe runs the real entry point, so it
+        # registers a phantom installation under the probe's own argv0, and the
+        # count grows every time somebody runs doctor.
+        return
     try:
         from pathlib import Path
 
