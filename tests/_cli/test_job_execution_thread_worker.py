@@ -22,6 +22,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from functualize._cli.tui.app import FunctualizeInlineTUI
+from functualize._cli.tui.job_execution import _job_worker_running
 from functualize.app.core import FunctualizeApp
 from tests._responsiveness import count_polls, responsive_floor
 
@@ -99,6 +100,20 @@ async def test_reentry_guard_ignores_second_trigger_while_running(
     Also verifies ``_snapshot_store.record``/``.flush`` are
     called exactly once per execution even under a rapid double-trigger,
     proving single-writer access is preserved by the re-entry guard.
+
+    **The second trigger has to be a real re-entry.** The guard asks
+    ``worker.is_running``, and a single ``pilot.pause()`` yields one loop
+    iteration — which is not a guarantee that Textual has transitioned the
+    thread worker into RUNNING yet. When it has not, the second trigger sees no
+    running worker, correctly starts a second execution, and ``record`` is
+    called twice: a correct system failing a test that assumed a scheduling
+    order it never established.
+
+    That is not hypothetical. It failed twice on the 3.11 matrix leg while 3.12
+    and 3.13 passed in the same runs (`STATUS.md` follow-up #23), in two pull
+    requests that changed nothing this test reaches. So the wait below is the
+    fix rather than a rerun: it *establishes* the precondition the docstring
+    names instead of racing it.
     """
     tui_app._snapshot_store.record = MagicMock(wraps=tui_app._snapshot_store.record)  # type: ignore[method-assign]
     tui_app._snapshot_store.flush = MagicMock(wraps=tui_app._snapshot_store.flush)  # type: ignore[method-assign]
@@ -110,8 +125,18 @@ async def test_reentry_guard_ignores_second_trigger_while_running(
         await pilot.pause()
 
         tui_app.action_execute()
-        await pilot.pause()
-        # Rapid re-trigger while the first job is still running.
+
+        # Wait for the guard's precondition rather than assuming it: the job
+        # sleeps for BLOCK_SECONDS once running, so there is ample room to
+        # re-trigger after this returns.
+        for _ in range(500):
+            if _job_worker_running(tui_app):
+                break
+            await pilot.pause()
+        else:  # pragma: no cover - only on a pathologically stalled loop
+            pytest.fail("the first job worker never reached RUNNING")
+
+        # Now genuinely a re-entry: a second trigger while the first is active.
         tui_app.action_execute()
         await pilot.pause()
 

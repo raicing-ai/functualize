@@ -1388,6 +1388,39 @@ Items identified during development that are worth doing but not yet designed:
     the first worker open until the second trigger has been observed, instead of
     racing it. Lowering nothing and rerunning is what makes a flake permanent.
 
+24. **An exemption used to silence the shell-write auditor instead of being
+    recorded by it — FIXED.** `bash_audit.py` folded two questions into one
+    predicate (*is there a task list?* / *is there an exemption?*) and returned
+    early on either. So a shell write to gated code under an active
+    `.spec/EXEMPT` was recorded **nowhere**: the `PreToolUse` gate never fires
+    for a shell write, and the auditor stayed quiet because the exemption
+    existed.
+
+    **Declaring an exemption made a write less audited than not declaring one.**
+    Reproduced before fixing — 0 ledger lines with an exemption, 1 without.
+    `CONSTITUTION.md` calls that ledger "the entire mitigation for the fact that
+    an agent can exempt itself"; a mitigation that skips the case it was built
+    for is not one.
+
+    Found during the 0.1.3 release prep: the bump to
+    `src/functualize/__init__.py` went in by script under an exemption and left
+    no trace, while the 0.1.2 release — which used the `Edit` tool — has its
+    ledger entry. That asymmetry between two releases is what exposed it.
+
+    `tests/harness/test_bash_audit_ledger.py` is the fix's gate and the **first
+    committed test for `.claude/hooks/`**, so #19 is now partly discharged: one
+    of the four validators has a test. The other three still have none.
+
+25. **The release version count in this file is stale, and the release skill now
+    says so.** Item #148 above records "13/13 sites at `0.1.1`" — true then, and
+    it predates the four `skills/*/SKILL.md` frontmatter versions that ship
+    inside the wheel. The real count at 0.1.3 is **seventeen**.
+
+    The historical line is left as written rather than back-dated. The durable
+    fix is in `.agents/skills/release/SKILL.md` Phase 0, which now enumerates
+    the sites, gives the verification grep, and says plainly not to trust a
+    count written in prose — including this file's.
+
 ## Recently Completed (2026-08)
 
 | Feature | Description |
