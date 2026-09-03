@@ -42,6 +42,7 @@ __all__ = [
     "Manifest",
     "manifest_path",
     "marker_path",
+    "forget_addition",
     "record_addition",
     "recorded_additions",
     "register",
@@ -435,6 +436,38 @@ def record_addition(
             },
         )
         return save(manifest.replace(updated_record), path)
+
+
+def forget_addition(config_dir: Path, *, binary_path: str, name: str) -> bool:
+    """Drop ``name`` from both lists after it has actually been uninstalled.
+
+    **This is not a hole in append-only.** What is append-only is the list of
+    *installations*: a record whose binary has gone is reported as stale rather
+    than deleted, because two installations coexisting is a real state. The
+    ``plugins`` and ``packages`` lists are a different thing — a note of what
+    this installation should put back after an upgrade — and a name left there
+    after an uninstall is reinstalled by the next ``self update``, undoing the
+    uninstall silently and at a distance.
+
+    Returns whether anything changed.
+    """
+    path = manifest_path(config_dir)
+
+    with _locked(path) as acquired:
+        if not acquired:
+            return False
+
+        manifest = load(path)
+        existing = manifest.find(binary_path)
+        if existing is None:
+            return False
+
+        plugins = tuple(p for p in existing.plugins if not _same(name, p))
+        packages = tuple(p for p in existing.packages if not _same(name, p))
+        if plugins == existing.plugins and packages == existing.packages:
+            return False
+        updated = replace(existing, plugins=plugins, packages=packages)
+        return save(manifest.replace(updated), path)
 
 
 def recorded_additions(config_dir: Path, binary_path: str) -> tuple[str, ...]:

@@ -158,6 +158,20 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
     BuiltinCommand("why", "Explain whether a job would run, and why"),
     BuiltinCommand("version", "Show the functualize version"),
     BuiltinCommand(
+        "plugin",
+        "Inspect and manage installed extensions",
+        (
+            ("list", "List every installed extension and what provides it"),
+            ("install", "Install an extension"),
+            ("uninstall", "Remove an extension"),
+        ),
+        requires_subcommand=True,
+        # Both mutating commands run a package manager that inherits fd 0/1/2 --
+        # uv draws progress, an index can prompt for credentials. Same reason as
+        # `self install`; `list` only reads metadata and stays on the worker.
+        terminal_subcommands=("install", "uninstall"),
+    ),
+    BuiltinCommand(
         "self",
         "Inspect and manage this installation",
         (
@@ -1853,8 +1867,10 @@ def register_builtin_commands(cli_group: Any) -> None:
     # `scaffold` and `skills`. `self doctor` is *also* intercepted pre-boot in
     # `_run_cli`; this mount is what makes it visible to `--help`, to the
     # registry mirror, to completion, and to a consumer app's CLI.
+    from functualize._cli.plugin_cmd import plugin_app
     from functualize._cli.self_cmd import self_app
 
+    _mount(builtin_app, plugin_app, "plugin")
     _mount(builtin_app, self_app, "self")
 
     _mount(builtin_app, info_group, "info")

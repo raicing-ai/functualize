@@ -467,79 +467,6 @@ def doctor(output_format: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _refuse(detection: Detection, what: str) -> None:
-    """Explain why functualize will not manage this installation, and stop.
-
-    Guidance names the tool that *does* own it. A refusal that only says no
-    leaves the user with a broken command and no next step, and the whole
-    reason detection resolves the owning distribution is so this message can be
-    specific.
-
-    Nothing is written to stdout: a script capturing this command's output must
-    get an empty capture and a non-zero status, not a paragraph of prose.
-    """
-    mode = detection.mode.value
-    distribution = detection.owning_distribution
-
-    if distribution is None:
-        click.echo(
-            f"Cannot {what}: this console script maps to no installed "
-            f"distribution, so there is nothing to name as the thing to change.",
-            err=True,
-        )
-        click.echo(
-            "Manage this installation with whatever put this interpreter here.",
-            err=True,
-        )
-    else:
-        click.echo(
-            f"Cannot {what}: {distribution} was installed in {mode!r} mode, "
-            f"which functualize does not manage.",
-            err=True,
-        )
-        hint = (
-            f"pip install --upgrade {distribution}"
-            if detection.mode.value == "tool_pip"
-            else f"the tool that installed {distribution}"
-        )
-        click.echo(f"Use {hint} instead.", err=True)
-
-    click.echo(
-        f"Run `{_script_name()} builtin self doctor` to see how this was detected.",
-        err=True,
-    )
-    raise SystemExit(ExitCode.REFUSED)
-
-
-def _script_name() -> str:
-    """The console script the user actually typed, for use in guidance.
-
-    Never a hard-coded ``func``: in a consumer application this text has to
-    name *that* application's script or it tells the user to run a command they
-    do not have.
-    """
-    argv0 = sys.argv[0] if sys.argv else ""
-    name = argv0.replace("\\", "/").rsplit("/", 1)[-1]
-    return name or "func"
-
-
-def _announce(commands: tuple[tuple[str, ...], ...], yes: bool) -> None:
-    """Print the exact commands, then ask — unless ``--yes`` was given.
-
-    ``--yes`` skips the *prompt*, never the printing (`contracts.md` §1). A
-    user who automates this still gets a log of what ran.
-
-    Declining aborts with click's own non-zero status rather than exiting 0.
-    "I asked and you said no" must not look like "I updated you" to
-    ``self update && deploy``.
-    """
-    click.echo("This will run:")
-    for argv in commands:
-        click.echo(f"  {package_ops_module().render(argv)}")
-    if not yes:
-        click.confirm("Proceed?", abort=True)
-
-
 def package_ops_module():  # noqa: ANN201 - a lazy import, not an interface
     from functualize._cli import package_ops
 
@@ -563,24 +490,6 @@ def _config_dir() -> Path:
     return resolve_user_config_dir()
 
 
-def _plan(build) -> tuple[tuple[str, ...], ...]:  # noqa: ANN001 - a thunk
-    """Run a command-planning call, mapping its refusals onto exit codes."""
-    package_ops = package_ops_module()
-    try:
-        return build()
-    except package_ops.MissingToolError as exc:
-        click.echo(str(exc), err=True)
-        raise SystemExit(ExitCode.USAGE) from None
-    except package_ops.LossyReceiptError as exc:
-        click.echo(str(exc), err=True)
-        click.echo(
-            f"Drive uv directly instead: "
-            f"`{_script_name()} builtin self uv -- tool install ...`",
-            err=True,
-        )
-        raise SystemExit(ExitCode.USAGE) from None
-
-
 @self_app.command("update")
 @click.option(
     "--yes",
@@ -593,12 +502,14 @@ def update(assume_yes: bool) -> None:
     """Upgrade this installation, then put back what you added to it."""
     detection = detect_from_process()
     if detection.degraded:
-        _refuse(detection, "update")
+        package_ops_module().refuse(detection, "update")
 
     package_ops = package_ops_module()
     binary = _this_binary()
-    commands = _plan(lambda: package_ops.update_commands(detection, binary))
-    _announce(commands, assume_yes)
+    commands = package_ops.plan_or_exit(
+        lambda: package_ops.update_commands(detection, binary)
+    )
+    package_ops.announce(commands, assume_yes)
 
     config_dir = _config_dir()
 
@@ -700,11 +611,13 @@ def install(package: str, assume_yes: bool) -> None:
     """
     detection = detect_from_process()
     if detection.degraded:
-        _refuse(detection, f"install {package}")
+        package_ops_module().refuse(detection, f"install {package}")
 
     package_ops = package_ops_module()
-    commands = _plan(lambda: package_ops.install_commands(detection, package))
-    _announce(commands, assume_yes)
+    commands = package_ops.plan_or_exit(
+        lambda: package_ops.install_commands(detection, package)
+    )
+    package_ops.announce(commands, assume_yes)
 
     code = package_ops.run_commands(commands)
     if code != 0:
@@ -722,7 +635,7 @@ def install(package: str, assume_yes: bool) -> None:
 def _owned_environment(detection: Detection, what: str) -> None:
     """Refuse unless there is an environment this installation owns."""
     if detection.degraded:
-        _refuse(detection, f"run {what}")
+        package_ops_module().refuse(detection, f"run {what}")
 
 
 @self_app.command(

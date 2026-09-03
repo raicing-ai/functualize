@@ -32,21 +32,26 @@ import tempfile
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 from functualize._cli.runtime import Detection, InstallMode
+from functualize.app.utils import ExitCode
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Callable, Iterable, Sequence
 
 __all__ = [
     "LossyReceiptError",
     "MissingToolError",
     "Requirement",
+    "announce",
     "capture_environment",
     "install_commands",
     "names_to_restore",
     "normalize",
+    "plan_or_exit",
+    "refuse",
+    "uninstall_commands",
     "update_commands",
 ]
 
@@ -558,6 +563,111 @@ def render(argv: Sequence[str]) -> str:
     for token in argv:
         parts.append(f'"{token}"' if " " in token else token)
     return " ".join(parts)
+
+
+def script_name() -> str:
+    """The console script the user actually typed, for use in guidance.
+
+    Never a hard-coded ``func``: in a consumer application this text has to
+    name *that* application's script or it tells the user to run a command they
+    do not have.
+    """
+    argv0 = sys.argv[0] if sys.argv else ""
+    name = argv0.replace("\\", "/").rsplit("/", 1)[-1]
+    return name or "func"
+
+
+def refuse(detection: Detection, what: str) -> NoReturn:
+    """Explain why functualize will not manage this installation, and stop.
+
+    Guidance names the tool that *does* own it. A refusal that only says no
+    leaves the user with a broken command and no next step, and the whole
+    reason detection resolves the owning distribution is so this message can be
+    specific.
+
+    Nothing is written to stdout: a script capturing this command's output must
+    get an empty capture and a non-zero status, not a paragraph of prose.
+    """
+    import click
+
+    mode = detection.mode.value
+    distribution = detection.owning_distribution
+
+    if distribution is None:
+        click.echo(
+            f"Cannot {what}: this console script maps to no installed "
+            f"distribution, so there is nothing to name as the thing to change.",
+            err=True,
+        )
+        click.echo(
+            "Manage this installation with whatever put this interpreter here.",
+            err=True,
+        )
+    else:
+        click.echo(
+            f"Cannot {what}: {distribution} was installed in {mode!r} mode, "
+            f"which functualize does not manage.",
+            err=True,
+        )
+        hint = (
+            f"pip install --upgrade {distribution}"
+            if detection.mode is InstallMode.TOOL_PIP
+            else f"the tool that installed {distribution}"
+        )
+        click.echo(f"Use {hint} instead.", err=True)
+
+    click.echo(
+        f"Run `{script_name()} builtin self doctor` to see how this was detected.",
+        err=True,
+    )
+    raise SystemExit(ExitCode.REFUSED)
+
+
+def announce(commands: Sequence[Sequence[str]], yes: bool) -> None:
+    """Print the exact commands, then ask — unless ``--yes`` was given.
+
+    ``--yes`` skips the *prompt*, never the printing (`contracts.md` §1). A
+    user who automates this still gets a log of what ran.
+
+    Declining aborts with click's own non-zero status rather than exiting 0.
+    "I asked and you said no" must not look like "I updated you" to
+    ``self update && deploy``.
+    """
+    import click
+
+    click.echo("This will run:")
+    for argv in commands:
+        click.echo(f"  {render(argv)}")
+    if not yes:
+        click.confirm("Proceed?", abort=True)
+
+
+def plan_or_exit(
+    build: Callable[[], tuple[tuple[str, ...], ...]],
+) -> tuple[tuple[str, ...], ...]:
+    """Run a command-planning call, mapping its refusals onto exit codes.
+
+    Both failures are *usage* rather than refusal: the installation is
+    manageable, and either the manager is absent or its receipt cannot be
+    reproduced. `contracts.md` §2 assigns exit 2 to an absent external tool,
+    and a receipt this cannot round-trip is the same kind of "I cannot do this
+    safely, here is what you can do instead".
+    """
+    import click
+
+    try:
+        return build()
+    except MissingToolError as exc:
+        click.echo(str(exc), err=True)
+        raise SystemExit(ExitCode.USAGE) from None
+    except LossyReceiptError as exc:
+        click.echo(str(exc), err=True)
+        click.echo(
+            f"Drive uv directly instead: "
+            f"`{script_name()} builtin self uv -- tool install ...`",
+            err=True,
+        )
+        raise SystemExit(ExitCode.USAGE) from None
 
 
 def _call(argv: Sequence[str]) -> int:

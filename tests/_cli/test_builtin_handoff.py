@@ -397,3 +397,37 @@ class TestSelfManagementOwnsTheTerminal:
         entry = get_builtin(family)
         assert entry is not None
         assert entry.needs_terminal([name]) is False
+
+
+class TestPluginMutationOwnsTheTerminal:
+    """AC19 — `plugin install` / `uninstall` go through the orchestrator.
+
+    Through `run_builtin`, not the registry object: `app/commands.py` resolves
+    terminal ownership per family and never through the root (`tasks.md` 1.1),
+    so an assertion on `BUILTIN_ROOT_COMMAND` reads a different code path than
+    production does.
+    """
+
+    @pytest.mark.parametrize("name", ["install", "uninstall"])
+    def test_it_requests_a_handoff(self, app: _FakeApp, name: str) -> None:
+        job_execution.run_builtin(app, [BUILTIN_ROOT, "plugin", name])
+        assert app.handoffs == [[BUILTIN_ROOT, "plugin", name]]
+
+    @pytest.mark.parametrize("name", ["install", "uninstall"])
+    def test_it_does_not_start_a_worker(self, app: _FakeApp, name: str) -> None:
+        job_execution.run_builtin(app, [BUILTIN_ROOT, "plugin", name])
+        assert app.started_workers == []
+
+    def test_list_still_runs_on_a_worker(self, app: _FakeApp) -> None:
+        """It only reads metadata. Tearing the inline shell down to print a
+        table would be a regression, not a safety measure."""
+        job_execution.run_builtin(app, [BUILTIN_ROOT, "plugin", "list"])
+        assert app.handoffs == []
+        assert len(app.started_workers) == 1
+
+    def test_uninstall_does_not_leak_into_the_self_family(self) -> None:
+        """`plugin` declares `uninstall`; `self` deliberately does not, because
+        removing the thing you are running is not a package operation."""
+        entry = get_builtin("self")
+        assert entry is not None
+        assert entry.needs_terminal(["uninstall"]) is False
