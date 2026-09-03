@@ -429,6 +429,26 @@ def _config_field_option(
     )
 
 
+def _short_flag_from_metadata(field_info: Any) -> str | None:
+    """The short flag an ``Option`` marker declares on a config-model field.
+
+    The cold builder reads the live Pydantic model; the warm one reads a cached
+    :class:`FieldDescriptor` whose ``short_flag`` was resolved from this same
+    marker by ``_discovery.group_options_extractor``. Both must arrive at the
+    same answer, or ``-s`` works on a warm boot and is unknown on a cold one —
+    the first run of a project behaving differently from every run after it.
+
+    Matched on the marker instance, not by name, because this module already
+    imports it for the signature path (``_OptionMarker``, ``:591``).
+    """
+    from functualize.job.markers import Option as _OptionMarker
+
+    for meta in getattr(field_info, "metadata", ()) or ():
+        if isinstance(meta, _OptionMarker) and meta.short:
+            return meta.short
+    return None
+
+
 def _config_field_help(description: str, *, required: bool, default: Any) -> str:
     """Annotate a config field's help with ``[required]`` / ``[default: X]``.
 
@@ -494,6 +514,7 @@ def _config_option_params(job_config_class: type[BaseModel]) -> list[click.Param
                 is_flag=is_flag,
                 multiple=multiple,
                 help_text=help_text,
+                short_flag=_short_flag_from_metadata(field_info),
             )
         )
     return params

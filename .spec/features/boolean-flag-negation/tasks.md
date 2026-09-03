@@ -9,7 +9,7 @@ prose and neither observed what its task changed.
 
 ## Wave 0 — the separable half, and the blast radius
 
-### T1.1 — Cold and warm agree on a config field's short flag (B6, A4)
+### [x] T1.1 — Cold and warm agree on a config field's short flag (B6, A4)
 
 **[F]** `src/functualize/app/adapters/click_params.py`,
 `tests/adapters/test_cold_warm_parity.py` *(new)*
@@ -22,27 +22,55 @@ unknown on a cold one. The value is recoverable from the field's
 Separable from negation and lands first, so a cold/warm agreement test exists
 *before* the pair changes what both builders emit.
 
-**Gate:** a test asserting `build_click_params` and
-`build_click_params_from_fields` produce identical `opts` and `secondary_opts`
-for a config field carrying `Option(short="-s")`. Must be **red** before the fix.
+**Gate — run red first, as RK5 requires.** Before the fix the cold builder
+produced `('--region',)` and the warm one `('--region', '-s')`; both cells
+failed. After: **2 passed**. Wider check `tests/adapters/ tests/group_options/`
+→ 282 passed, 24 skipped.
 
-**Sabotage:** drop `short_flag` from the cold call site again; the test must fail.
+The test carries a **control** asserting `-s` is actually present, because a
+"fix" that dropped the short flag from *both* builders would satisfy agreement
+perfectly while removing the capability.
 
-### T1.2 — Measure the help-output blast radius (RK1)
+**Sabotage** (cold call site stops passing `short_flag`): **2 failed** — the
+agreement cell and the control. Restored clean.
+
+### [x] T1.2 — Measure the help-output blast radius (RK1)
 
 **[F]** `.spec/features/boolean-flag-negation/tasks.md` *(this file)*
 
-No source change. Run and record the counts, so later tasks' `[F]` sets are
-derived from a command rather than an estimate:
+Measured, not estimated:
+
+| What | Command | Count |
+|---|---|---|
+| doc-verify scenarios mentioning `--no-` | `grep -rln -- "--no-" examples/docs/scenarios/` | **1** |
+| boolean fields in `examples/` | `grep -rn ": bool" examples/*/*/jobs/*.py examples/*/*/*.py` | **11** |
+| tests selected by `-k help` | `pytest -k help --collect-only` | **74** |
+| tests referencing `secondary_opts` | `grep -rln secondary_opts tests/` | **3** |
+| tests naming a boolean flag | `grep -rln -- "--dry-run\|--verbose\|--strict" tests/` | **23** |
+
+The 74 and 23 are *candidate* sets, not predicted failures — most assert
+behaviour rather than exact help text. The number that matters is how many
+actually go red, and that is measured in T4.1 rather than guessed here.
+
+#### RK3 resolved at the same time — click's pair behaves as needed
+
+Run against the installed click, not read from the shape intent:
 
 ```
-grep -rln -- "--no-" examples/docs/scenarios/ | wc -l
-grep -rn "bool" examples/*/*/jobs/*.py | wc -l
-uv run pytest tests/ -k "help" -q
+click.Option(["--dry-run/--no-dry-run", "-d"], default=None)
+  opts=['--dry-run', '-d']   secondary=['--no-dry-run']   is_flag=True   default=None
+
+  []                 -> None      (B7: "not provided" survives)
+  ['--dry-run']      -> True
+  ['--no-dry-run']   -> False
+  ['-d']             -> True      (short flag binds the positive form)
+  ['--dry-run=false']-> exit 2, "Option '--dry-run' does not take a value."
 ```
 
-Write the numbers into the wave-2 tasks below before starting them. **A count is
-a fact, not a claim** (`CONSTITUTION.md` → *Acceptance Gates*).
+**Two consequences.** `default=None` is preserved by the pair, so the resolution
+ladder is untouched (B7). And **click already refuses an inline value on a
+flag** — so D4 needs no click-side work at all; only `func`'s pre-boot parser
+(T3.1) accepts one today, and that is the whole of the parity defect.
 
 ---
 
