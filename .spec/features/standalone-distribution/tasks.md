@@ -56,7 +56,7 @@ Acceptance:
 
 ## Wave 1 — P2
 
-### [ ] 2.1 — P2: `skills install` declares terminal ownership
+### [x] 2.1 — P2: `skills install` declares terminal ownership
 
 `[F]` `src/functualize/_cli/builtins.py`, `tests/_cli/test_builtin_handoff.py`
 
