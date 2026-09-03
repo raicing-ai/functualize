@@ -467,20 +467,9 @@ def doctor(output_format: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def package_ops_module():  # noqa: ANN201 - a lazy import, not an interface
-    from functualize._cli import package_ops
-
-    return package_ops
-
-
-def _manifest_module():  # noqa: ANN202 - a lazy import, not an interface
+def _this_binary() -> str:
     from functualize._cli import manifest
 
-    return manifest
-
-
-def _this_binary() -> str:
-    manifest = _manifest_module()
     return manifest.resolve_binary_path(sys.argv[0] if sys.argv else "", sys.executable)
 
 
@@ -500,11 +489,12 @@ def _config_dir() -> Path:
 )
 def update(assume_yes: bool) -> None:
     """Upgrade this installation, then put back what you added to it."""
+    from functualize._cli import package_ops
+
     detection = detect_from_process()
     if detection.degraded:
-        package_ops_module().refuse(detection, "update")
+        package_ops.refuse(detection, "update")
 
-    package_ops = package_ops_module()
     binary = _this_binary()
     commands = package_ops.plan_or_exit(
         lambda: package_ops.update_commands(detection, binary)
@@ -551,8 +541,7 @@ def _reconcile(
     upgrade itself succeeded, and turning one unreachable package into a failed
     update would misdescribe the state of the installation.
     """
-    package_ops = package_ops_module()
-    manifest = _manifest_module()
+    from functualize._cli import manifest, package_ops
 
     after = package_ops.capture_environment()
     recorded = manifest.recorded_additions(config_dir, binary)
@@ -609,11 +598,12 @@ def install(package: str, assume_yes: bool) -> None:
     through `plugin install`, which records them where `plugin list` can see
     them.
     """
+    from functualize._cli import manifest, package_ops
+
     detection = detect_from_process()
     if detection.degraded:
-        package_ops_module().refuse(detection, f"install {package}")
+        package_ops.refuse(detection, f"install {package}")
 
-    package_ops = package_ops_module()
     commands = package_ops.plan_or_exit(
         lambda: package_ops.install_commands(detection, package)
     )
@@ -625,7 +615,6 @@ def install(package: str, assume_yes: bool) -> None:
 
     # Recorded only now. A record of a package that failed to install is worse
     # than no record: the next update would faithfully reinstall it.
-    manifest = _manifest_module()
     if manifest.record_addition(
         _config_dir(), binary_path=_this_binary(), key="packages", name=package
     ):
@@ -634,8 +623,10 @@ def install(package: str, assume_yes: bool) -> None:
 
 def _owned_environment(detection: Detection, what: str) -> None:
     """Refuse unless there is an environment this installation owns."""
+    from functualize._cli import package_ops
+
     if detection.degraded:
-        package_ops_module().refuse(detection, f"run {what}")
+        package_ops.refuse(detection, f"run {what}")
 
 
 @self_app.command(
@@ -655,10 +646,11 @@ def python_(args: tuple[str, ...]) -> None:
     proxied back. Bare, it prints exactly one absolute path and nothing else,
     so it stays capturable.
     """
+    from functualize._cli import package_ops
+
     detection = detect_from_process()
     _owned_environment(detection, "python")
 
-    package_ops = package_ops_module()
     interpreter = package_ops.owned_python()
     if not args:
         click.echo(interpreter)
@@ -683,10 +675,11 @@ def uv_(args: tuple[str, ...]) -> None:
     requirement, an index URL, a receipt shape a future uv introduces — you can
     still do by driving uv yourself.
     """
+    from functualize._cli import package_ops
+
     detection = detect_from_process()
     _owned_environment(detection, "uv")
 
-    package_ops = package_ops_module()
     try:
         uv = package_ops.resolve_uv()
     except package_ops.MissingToolError as exc:

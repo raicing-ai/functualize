@@ -423,17 +423,22 @@ def record_addition(
         if existing is None:
             return False
 
-        current = tuple(getattr(existing, key))
+        current: tuple[str, ...] = getattr(existing, key)
         if any(_same(name, held) for held in current):
             return True
-        updated_record = replace(
-            existing,
-            **{
-                key: (*current, name),
-                other: tuple(
-                    held for held in getattr(existing, other) if not _same(name, held)
-                ),
-            },
+
+        added = (*current, name)
+        # Spelled out rather than built with `**{key: ...}`: a dict keyed by a
+        # `Literal` widens to `str` at the `replace` boundary, so the checker
+        # cannot tell which field is being set and reads every keyword as a
+        # possible mistake.
+        pruned = tuple(
+            held for held in getattr(existing, other) if not _same(name, held)
+        )
+        updated_record = (
+            replace(existing, plugins=added, packages=pruned)
+            if key == "plugins"
+            else replace(existing, packages=added, plugins=pruned)
         )
         return save(manifest.replace(updated_record), path)
 
