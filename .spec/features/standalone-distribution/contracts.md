@@ -303,12 +303,48 @@ guarantee.
 
 ## 8. Distribution channels
 
-| Channel | Contract |
-|---|---|
-| GitHub Releases | One binary per supported platform/architecture, attached to the release tag |
-| `install.sh` | Detects platform, downloads the matching binary, places it on `PATH` |
-| Homebrew formula | Installs the same binary |
-| PyPI | Unchanged — the wheel and its extras continue to publish as today |
+Modelled on **Hatch**, which is the closest analog — same language, same builder (PyApp),
+same problem. Deliberately narrower than a Go tool's surface: functualize *is* a pip package,
+so the binary serves the audience that has no Python, rather than being the primary channel.
+
+### Artifact naming
+
+Rust target triples, matching Hatch and uv, so the platform is unambiguous and an installer
+script can compute the filename:
+
+```
+functualize-x86_64-unknown-linux-gnu.tar.gz
+functualize-aarch64-unknown-linux-gnu.tar.gz
+functualize-x86_64-unknown-linux-musl.tar.gz     <- static; Alpine and containers
+functualize-aarch64-apple-darwin.tar.gz
+functualize-x86_64-apple-darwin.tar.gz
+functualize-x86_64-pc-windows-msvc.zip
+```
+
+Each release also publishes a checksum file covering every artifact.
+
+**musl is not optional.** The binary's audience is the ops user with no Python, who is
+disproportionately on Alpine or in a container where glibc is absent. A gnu-only release
+misses them precisely.
+
+**Windows is included.** Hatch ships it, and the README already documents Windows behavior
+for the TUI. `.zip` rather than `.tar.gz`, per platform convention.
+
+### Channels, by tier
+
+| Tier | Channel | Contract |
+|---|---|---|
+| **1 — required** | GitHub Releases | Every artifact above plus checksums, attached to the release tag |
+| **1 — required** | PyPI | Unchanged. The wheel and its extras publish exactly as today |
+| **2 — high value** | `install.sh` | POSIX. Detects platform and libc, downloads the matching archive, verifies its checksum, places the binary on `PATH` |
+| **2 — high value** | `install.ps1` | The Windows equivalent. uv ships both; Hatch ships neither, and is harder to install for it |
+| **3 — deferred** | Homebrew | A tap first; core submission only once the formula is stable |
+| **3 — deferred** | winget / scoop | Windows package managers |
+| **4 — not planned** | `.pkg` / `.msi`, distro packages | Hatch ships `.pkg`/`.msi`; Task has apt/dnf/apk repos. Both are ongoing maintenance for an audience the install scripts already reach |
+
+**Install method determines whether self-update works** — the same rule uv states explicitly:
+a binary installed by Homebrew is upgraded by Homebrew, and `self update` refuses. That is
+§4's mode table, not a new rule.
 
 ---
 

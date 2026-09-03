@@ -389,7 +389,13 @@ Each is a behavior, checkable without reference to implementation. Per
 - **AC22** — The binary launches and runs a job **with networking disabled**.
 - **AC23** — CI asserts the binary's actual measured size. No estimate is treated as the
   assertion.
-- **AC24** — Release builds produce binaries for each supported platform and architecture.
+- **AC24** — Release builds produce binaries for each supported platform and architecture,
+  including a **musl** Linux variant and a Windows variant, named by target triple.
+- **AC24a** — Every release publishes a checksum file covering every artifact.
+- **AC24b** — The install script detects platform **and libc**, and picks the musl archive on
+  a system without glibc.
+- **AC24c** — The install script verifies the downloaded archive against the published
+  checksum before installing it.
 - **AC25** — Every build variable is set explicitly; none is left to an implicit default.
 
 ### P1 / P2
