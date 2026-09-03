@@ -386,7 +386,7 @@ doc-verify scenarios, **not pytest** — never imported by the suite. Follow
 Acceptance: each scenario passes under `run-scenario`. A failing scenario is **reported, never
 silently updated** (doc-verify rule 4).
 
-### [ ] 9.2 — Documentation
+### [x] 9.2 — Documentation
 
 `[F]` `README.md`, `contributor/reference/code-map.md`,
 `contributor/architecture/codemaps/modules.md`
@@ -398,6 +398,14 @@ update by hand.
 
 Acceptance: `uv run pytest tests/test_contributor_docs.py -q` green; the four new modules
 appear in both codemaps.
+
+**Recorded at execution — scope widened to `docs/getting-started/installation.md`.** The
+scenarios in 9.1 need a `[source]` anchor, which doc-verify treats as a traceability
+contract: it must point at the page the scenario verifies. There was no page documenting the
+standalone install, so anchoring to the shape intent would have pointed at a document that
+does not survive the merge. `installation.md` now carries a standalone tab, the target
+table, the checksum verification step, and the self-management commands — and both new
+scenarios anchor to it. Five modules, not four: `package_ops.py` was added in 6.1.
 
 ---
 
