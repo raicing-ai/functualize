@@ -188,7 +188,13 @@ Acceptance:
 
 ### [ ] 5.1 — Install facts in `builtin info`
 
-`[F]` `src/functualize/_cli/builtins.py`, `src/functualize/_cli/info.py`
+`[F]` `src/functualize/_cli/info.py`, `src/functualize/app/adapters/cli.py`
+
+**Scope widened at execution time**, per `.spec/CONSTITUTION.md` -> *Acceptance Gates*: the
+rich `General Info` panel that bare `func builtin info` prints lives in
+`app/adapters/cli.py:1162-1172`, not in `_cli/builtins.py` as planned. `builtins.py` needs no
+edit at all — `info`'s JSON and plain renderings both come from `_cli/info.py`. Widened rather
+than leaving a gate the listed files cannot satisfy.
 
 `full_report` gains the `install` block from `contracts.md` §3; the human form gains two
 lines, `info all` also the manifest summary.

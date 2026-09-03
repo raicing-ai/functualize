@@ -14,6 +14,7 @@ than by review.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -241,6 +242,53 @@ def command_schemas(
     return sorted(entries, key=lambda e: (e["kind"] != "job", e["name"]))
 
 
+def install_facts(*, include_manifest: bool) -> dict[str, Any]:
+    """How this ``func`` was installed, for the ``info`` document.
+
+    Nested under an ``install`` key rather than flattened, because the top
+    level already carries an unrelated notion of "mode": ``builtin info``
+    prints a ``Mode:`` line for *state storage*, whose value can also be the
+    word ``standalone`` — meaning "no project directory found", not "the
+    pre-baked binary". Two sibling keys spelled ``mode`` in one document would
+    be indistinguishable to a parser.
+
+    ``include_manifest`` is False for the overview and True for ``info all``:
+    reading the registry is cheap (~39us), but the overview is a summary and a
+    list of every installation on the machine is not part of it.
+    """
+    from functualize._cli.runtime import detect_from_process
+
+    try:
+        detection = detect_from_process()
+    except Exception:  # noqa: BLE001 - never break `info` over a detail
+        return {"mode": None, "owning_distribution": None}
+
+    facts: dict[str, Any] = {
+        "mode": detection.mode.value,
+        "owning_distribution": detection.owning_distribution,
+    }
+    if not include_manifest:
+        return facts
+
+    try:
+        from functualize._cli import manifest as _manifest
+        from functualize.app.utils import resolve_user_config_dir
+
+        path = _manifest.manifest_path(resolve_user_config_dir())
+        registry = _manifest.load(path)
+        stale = sum(
+            1 for r in registry.installations if not Path(r.binary_path).exists()
+        )
+        facts["manifest"] = {
+            "path": str(path),
+            "installations": len(registry.installations),
+            "stale": stale,
+        }
+    except Exception:  # noqa: BLE001 - an unreadable registry is not an error
+        facts["manifest"] = None
+    return facts
+
+
 def full_report(app: FunctualizeApp, cli_config: Any = None) -> dict[str, Any]:
     """Everything ``info`` knows, as one document.
 
@@ -271,6 +319,8 @@ def full_report(app: FunctualizeApp, cli_config: Any = None) -> dict[str, Any]:
         "dotenv": bool(getattr(cli_config, "dotenv", False)),
         "output": getattr(cli_config, "output", None),
     }
+
+    report["install"] = install_facts(include_manifest=True)
 
     location = resolve_skills_dir()
     report["skills"] = (
@@ -312,6 +362,20 @@ def render_report_text(report: dict[str, Any]) -> list[str]:
     environment = report.get("environment") or {}
     source = environment.get("source") or "default"
     lines.append(f"environment: {environment.get('name')} ({source})")
+
+    install = report.get("install") or {}
+    if install:
+        # `Install mode:`, never `Mode:` — the Runtime State section already
+        # prints a `Mode:` line for state storage whose value can also read
+        # `standalone`, meaning something entirely different.
+        lines.append(f"install mode: {install.get('mode')}")
+        lines.append(f"owned by: {install.get('owning_distribution')}")
+        manifest = install.get("manifest")
+        if manifest:
+            lines.append(
+                f"installations: {manifest.get('installations')} registered, "
+                f"{manifest.get('stale')} stale"
+            )
 
     config = report.get("config") or {}
     if config:
