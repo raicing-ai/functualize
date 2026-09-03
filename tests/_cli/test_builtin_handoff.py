@@ -110,32 +110,42 @@ class TestTerminalOwningBuiltins:
         `install`/`uninstall` were chosen in the first place *because* nothing
         else used them, and `skills` shipped an `install` afterwards.
 
-        Simulated rather than waiting for the real `plugin` family, so the
-        guarantee is pinned before the family that would violate it exists.
+        The declaring family is simulated so the guarantee holds for names no
+        real family has claimed yet. The families it must *not* leak into are
+        real ones, chosen because they own a subcommand of the same name and
+        declare nothing terminal: `scaffold add` and `workflow list`.
+
+        `install` was this test's original example. It stopped being usable the
+        moment `skills install` was correctly declared terminal-owning — two
+        families both declaring a name cannot demonstrate isolation. The
+        property under test did not change; only an example that no longer
+        contrasts.
         """
         from dataclasses import replace
 
         from functualize._cli.builtins import BUILTIN_COMMANDS, BuiltinCommand
 
-        plugin = BuiltinCommand(
-            "plugin",
-            "Manage plugin packages",
-            (("install", "Install"), ("uninstall", "Uninstall")),
+        demo = BuiltinCommand(
+            "demo",
+            "A family that owns the terminal for `add` and `list`",
+            (("add", "Add"), ("list", "List")),
             requires_subcommand=True,
-            terminal_subcommands=("install", "uninstall"),
+            terminal_subcommands=("add", "list"),
         )
         root = get_builtin(BUILTIN_ROOT)
         assert root is not None
-        root = replace(root, children=(*BUILTIN_COMMANDS, plugin))
+        root = replace(root, children=(*BUILTIN_COMMANDS, demo))
 
-        # The family that declared it.
-        assert root.needs_terminal(["plugin", "install"]) is True
-        assert root.needs_terminal(["plugin", "uninstall"]) is True
-        # The family that merely shares the word.
-        assert root.needs_terminal(["skills", "install"]) is False
-        # Still correct for the one true case, and for a near-miss.
-        assert root.needs_terminal(["config", "edit"]) is True
+        # The family that declared them.
+        assert root.needs_terminal(["demo", "add"]) is True
+        assert root.needs_terminal(["demo", "list"]) is True
+        # Real families owning the same names and declaring nothing.
         assert root.needs_terminal(["scaffold", "add"]) is False
+        assert root.needs_terminal(["workflow", "list"]) is False
+        assert root.needs_terminal(["domains", "list"]) is False
+        # The genuinely terminal-owning cases are untouched.
+        assert root.needs_terminal(["config", "edit"]) is True
+        assert root.needs_terminal(["skills", "install"]) is True
 
     def test_the_decision_comes_from_the_command_node(self, app: _FakeApp) -> None:
         """One notion of "owns the terminal", shared with jobs.
@@ -168,6 +178,47 @@ class TestTerminalOwningBuiltins:
         app.workers = [_RunningWorker()]
         job_execution.run_builtin(app, [BUILTIN_ROOT, "config", "edit"])
         assert app.handoffs == []
+
+
+class TestSkillsInstallOwnsTheTerminal:
+    """`skills install` spawns an interactive installer and must get the terminal.
+
+    Its body runs `subprocess.call(["npx", "skills", "add", …])`, which inherits
+    fd 0/1/2 — that inheritance is exactly what makes it work interactively from
+    a real terminal, and it is correct as written.
+
+    On the worker path it is not: `invoke_builtin` captures output with
+    `redirect_stdout(io.StringIO())`, which rebinds Python-level `sys.stdout`
+    only. A child process still inherits fd 1, so `npx` prompts onto the
+    terminal underneath the running TUI while the interface believes it owns
+    the screen.
+
+    The defect was the missing declaration, never the subprocess call.
+    """
+
+    def test_the_registry_marks_install_as_terminal_owning(self) -> None:
+        skills = get_builtin("skills")
+        assert skills is not None
+        assert skills.needs_terminal(["install"]) is True
+        # The family's read-only subcommands are unaffected.
+        assert skills.needs_terminal(["list"]) is False
+        assert skills.needs_terminal(["path"]) is False
+        assert skills.needs_terminal(["materialize"]) is False
+
+    def test_skills_install_requests_a_handoff(self, app: _FakeApp) -> None:
+        job_execution.run_builtin(app, [BUILTIN_ROOT, "skills", "install"])
+        assert app.handoffs == [[BUILTIN_ROOT, "skills", "install"]]
+
+    def test_skills_install_does_not_start_a_worker(self, app: _FakeApp) -> None:
+        """The whole defect, stated as an assertion."""
+        job_execution.run_builtin(app, [BUILTIN_ROOT, "skills", "install"])
+        assert app.started_workers == []
+
+    def test_skills_list_still_runs_on_a_worker(self, app: _FakeApp) -> None:
+        """Only `install` owns the terminal — the declaration is not family-wide."""
+        job_execution.run_builtin(app, [BUILTIN_ROOT, "skills", "list"])
+        assert app.handoffs == []
+        assert len(app.started_workers) == 1
 
 
 class TestOrdinaryBuiltinsAreUnaffected:

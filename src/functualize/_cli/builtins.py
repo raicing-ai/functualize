@@ -123,6 +123,12 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
             ("install", "Install the skills into a project via the skills CLI"),
         ),
         requires_subcommand=True,
+        # `skills install` shells out to `npx skills add`, which prompts. The
+        # subprocess inherits fd 0/1/2, which is what makes it work from a real
+        # terminal — and what breaks it on the TUI's worker path, where
+        # `invoke_builtin` redirects only Python-level `sys.stdout` and the
+        # child prompts onto the terminal underneath the interface.
+        terminal_subcommands=("install",),
     ),
     BuiltinCommand(
         "scaffold",
