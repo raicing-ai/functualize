@@ -17,8 +17,9 @@ The files committed here are the canonical design reference. Additional working 
 
 | Intent | Assertions |
 |--------|-----------|
-| [TUI Panel Adjustments for GroupOptions](shape-intents/tui-group-options-panels.md) | 30 (4 pass, 26 gaps) |
-| [Standalone Distribution & Self-Management](shape-intents/standalone-distribution.md) | 57 (7 pass, 50 gaps) |
+| [Standalone Distribution & Self-Management](shape-intents/standalone-distribution.md) | 57 (7 pass, 50 gaps) — **graduated** to `.spec/features/standalone-distribution/` |
+| [Builtins as Jobs](shape-intents/builtins-as-jobs.md) | 19 (9 pass, 10 gaps) — **undecided**, see B1 |
+| [Output-Flag Normalization](shape-intents/output-flag-normalization.md) | 16 (6 confirmed, 10 gaps) — **D1 open** |
 
 When a shape intent graduates to implementation, it is atomized into a task list under `.spec/features/<name>/` (gitignored) and executed via the spec-driven-developer workflow.
 
