@@ -390,18 +390,23 @@ class TestARefusalIsVisibleBeforeItIsFatal:
 
         assert readiness is BarReadiness.READY
 
-    async def test_a_groups_negative_boolean_spelling_is_not(self, glab_tui) -> None:
-        """And the asymmetry, pinned rather than assumed.
+    async def test_a_groups_negative_boolean_spelling_is_too(self, glab_tui) -> None:
+        """The asymmetry is gone, and this test is what said so.
 
-        A **group** boolean has no negative spelling: `_flag_aliases`
-        (`_cli/dispatch.py`) builds the long form, the undecorated form and any
-        short flag, and nothing else. `func deploy --no-dry-run web run v1`
-        really is rejected by the CLI — so greying it out is the bar agreeing
-        with dispatch, not the check overreaching.
+        This cell used to pin the opposite — that a **group** boolean had no
+        negative spelling, because `_flag_aliases` (`_cli/dispatch.py`) built
+        the long form, the undecorated form and any short flag, and nothing
+        else. Greying the line out was the bar agreeing with dispatch.
 
-        Whether group booleans *should* gain the pair is a dispatch-level
-        question this feature does not answer. If they ever do, this test is
-        the one that will say so.
+        Its own closing line was: *"Whether group booleans should gain the pair
+        is a dispatch-level question this feature does not answer. If they ever
+        do, this test is the one that will say so."*
+
+        They did, in the boolean-flag-negation feature, and it did — this was
+        the single failure across the group-options and TUI suites when
+        dispatch learned the spelling. **Inverted rather than deleted**, so the
+        record of which direction the contract moved survives in the file that
+        held the old one.
         """
         from functualize._cli.tui.bar import BarReadiness
 
@@ -411,7 +416,7 @@ class TestARefusalIsVisibleBeforeItIsFatal:
 
             readiness = glab_tui._smart_bar.readiness
 
-        assert readiness is not BarReadiness.READY
+        assert readiness is BarReadiness.READY
 
     async def test_an_undeclared_mid_path_flag_is_not_ready(self, glab_tui) -> None:
         """And a flag no ancestor declares stops the walk outright."""

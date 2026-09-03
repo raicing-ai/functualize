@@ -131,7 +131,7 @@ across two waves would hide a real regression behind an expected one. Its stated
 reason for landing late (update from *observed* output) was satisfied: the
 observed rows were in hand before it was touched.
 
-### T2.2 — The config boolean, end to end (A1, A7)
+### [x] T2.2 — The config boolean, end to end (A1, A7)
 
 **[F]** `tests/config/test_boolean_negation_e2e.py` *(new)*
 
@@ -140,14 +140,24 @@ entry point**: `--no-verbose` gives `verbose=False`, `--verbose` gives `True`,
 and neither gives `True` from the file. Capability coverage, per
 `CONSTITUTION.md` — a test that calls the builder directly does not count.
 
-**Gate:** the three cells above, on the app entry point.
-**Sabotage:** revert T2.1's `_config_field_option` change; the negative cell fails.
+**Result: 6 passed** — `cli_run` is parametrized over both surfaces, so the
+three cells run twice. Better than the gate asked for.
+
+**Sabotage** (`_config_field_option` loses the pair): **2 failed / 4 passed** —
+only the negation cells, on both surfaces. The positive and the control survive,
+which is what says the cells are not vacuous.
+
+**A debugging round worth recording:** the control failed first because the
+fixture wrote the job's config into `.functualize.toml`, which is
+**settings-only** — job config values live in `config.base.toml`. A misplaced
+section resolves nothing and is indistinguishable from a broken default. Adding
+a **non-boolean** field to the fixture is what separated the two in one run.
 
 ---
 
 ## Wave 2 — the `func` surface
 
-### T3.1 — Negation and the `--flag=value` refusal in dispatch (B2, B5; A2, A6)
+### [x] T3.1 — Negation and the `--flag=value` refusal in dispatch (B2, B5; A2, A6)
 
 **[F]** `src/functualize/_cli/dispatch.py`,
 `src/functualize/_cli/tui/cli_arg_parser.py`,
@@ -171,10 +181,23 @@ observe `strict=False`; `--strict=false` exits non-zero on both, and the `func`
 message names `--no-strict`. Modelled on
 `tests/group_options/test_adapter_entry_point_parity.py` (RK4).
 
-**Sabotage:** remove the negative alias; the `func` cell fails while the app
-cell still passes — that asymmetry is the evidence the test drives two surfaces.
+**Result: 9 passed, 1 skipped.** The skip is deliberate: the
+"names the replacement" cell is scoped `@surfaces("func")`, because on an app's
+own entry point click refuses the command first with its own wording. Rewording
+click would mean custom parameter handling for no gain — refusal on both is the
+parity A6 asks for.
 
-### T3.2 — Completion and TUI write-back (B8, A8)
+**RK2's grep, run:** `_match_group_flag` and `_flag_aliases` are **private to
+`dispatch.py`**; only `walk_group_path` is consumed elsewhere. The `[F]` above
+is narrower than the plan predicted, and the plan said so ("a prediction until
+that grep runs").
+
+**Sabotage** (negative alias removed): **1 failed / 8 passed / 1 skipped** — the
+`func` cell fails while the `app` cell still passes. That asymmetry is the
+evidence the test drives two surfaces: click already had the pair from T2.1, and
+only `func`'s parser needed teaching.
+
+### [x] T3.2 — Completion and TUI write-back (B8, A8)
 
 **[F]** `src/functualize/_cli/tui/smart_bar_autocomplete.py`,
 `src/functualize/_cli/tui/sync.py`,
@@ -185,14 +208,26 @@ Completion offers `--no-x`; `_group_flag_tokens` emits `--no-x` for an explicit
 is **inverted, not deleted** — its docstring says it is the test that will say
 so if group booleans ever gain the pair.
 
-**Gate (A8):** `emit(resolve(text)) == text` for a line containing `--no-strict`.
-**Sabotage:** revert the `sync.py` change; the round-trip cell fails.
+**Result: 267 passed, 19 skipped** across `group_options` + `tui_group_options`.
+
+The tripwire went red exactly once — it was the **single** failure across both
+suites when dispatch learned the spelling — and is inverted under a name that
+records which way the contract moved.
+
+**Two things the plan did not predict**, both found by running:
+- The **surface-parity harness** normalised `--no-dry-run` to `no_dry_run` and
+  read it as an extra *field*. It now folds a negative onto its positive only
+  when the positive is also present — exactly right under D2, since a field
+  literally named `no_cache` appears alone and must survive as itself.
+- `_group_flag_tokens` had no sibling list, so it could not reach the same
+  verdict dispatch would on the way back in. The caller has `spec.fields`; they
+  are threaded through, or the fixed point breaks in the one case D2 exists for.
 
 ---
 
 ## Wave 3 — the pinned snapshot, and verification
 
-### T4.2 — The frozen typer snapshot (D3)
+### [x] T4.2 — The frozen typer snapshot (D3) — *landed early, in wave 1*
 
 **[F]** `tests/adapters/test_click_params_parity.py`
 

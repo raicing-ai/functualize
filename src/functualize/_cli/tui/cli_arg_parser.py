@@ -164,7 +164,14 @@ class TuiCommandResolution:
         bad_flag: A ``-``-prefixed token no consumed ancestor declares.
     """
 
-    __slots__ = ("args", "bad_flag", "dotted_token", "group_values", "job_name")
+    __slots__ = (
+        "args",
+        "bad_flag",
+        "bad_flag_hint",
+        "dotted_token",
+        "group_values",
+        "job_name",
+    )
 
     def __init__(
         self,
@@ -173,12 +180,14 @@ class TuiCommandResolution:
         group_values: dict[str, Any],
         dotted_token: str | None = None,
         bad_flag: str | None = None,
+        bad_flag_hint: str | None = None,
     ) -> None:
         self.job_name = job_name
         self.args = args
         self.group_values = group_values
         self.dotted_token = dotted_token
         self.bad_flag = bad_flag
+        self.bad_flag_hint = bad_flag_hint
 
 
 def resolve_tui_command(trie: Any, tokens: list[str]) -> TuiCommandResolution:
@@ -223,4 +232,5 @@ def resolve_tui_command(trie: Any, tokens: list[str]) -> TuiCommandResolution:
         args=list(walk.remaining),
         group_values=dict(walk.options),
         bad_flag=walk.bad_flag,
+        bad_flag_hint=walk.bad_flag_hint,
     )
