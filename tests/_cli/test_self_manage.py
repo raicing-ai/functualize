@@ -211,7 +211,11 @@ class TestBookkeeping:
     def test_it_stays_out_of_plugins(
         self, cli_run, tmp_path: Path, calls, no_external_tools, xdg_dirs
     ) -> None:
-        """`plugin list` must never show a plain dependency."""
+        """`plugin list` must never show a plain dependency.
+
+        Both halves asserted: without the positive one the test passes when
+        nothing is recorded at all, which is not the property.
+        """
         cli_run(
             ["builtin", "self", "install", "requests", "--yes"],
             cwd=tmp_path,
@@ -219,23 +223,35 @@ class TestBookkeeping:
         )
         record = self._record(xdg_dirs)
         assert record is not None
+        assert "requests" in record.packages
         assert "requests" not in record.plugins
 
     def test_a_failed_install_is_not_recorded(
         self, cli_run, tmp_path: Path, no_external_tools, xdg_dirs, monkeypatch
     ) -> None:
         """A record of a package that is not installed is worse than no record:
-        the next update faithfully reinstalls it."""
-        monkeypatch.setattr(package_ops, "_call", lambda argv: 1)
-        result = cli_run(
-            ["builtin", "self", "install", "requests", "--yes"],
-            cwd=tmp_path,
-            env={"FUNCTUALIZE_RUNTIME": "standalone"},
+        the next update faithfully reinstalls it.
+
+        Paired with a successful install of a different package, so the
+        assertion is "recording happened, and skipped this one" rather than
+        "nothing was recorded" — which would hold with the bookkeeping deleted.
+        """
+        outcomes = {"good": 0, "bad": 1}
+        monkeypatch.setattr(
+            package_ops,
+            "_call",
+            lambda argv: next((c for p, c in outcomes.items() if p in argv), 0),
         )
-        assert result.exit_code == 1
+        for package in ("good", "bad"):
+            cli_run(
+                ["builtin", "self", "install", package, "--yes"],
+                cwd=tmp_path,
+                env={"FUNCTUALIZE_RUNTIME": "standalone"},
+            )
         record = self._record(xdg_dirs)
         assert record is not None
-        assert "requests" not in record.packages
+        assert "good" in record.packages
+        assert "bad" not in record.packages
 
     def test_recording_the_same_package_twice_stores_it_once(
         self, cli_run, tmp_path: Path, calls, no_external_tools, xdg_dirs

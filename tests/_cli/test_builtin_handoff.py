@@ -347,3 +347,53 @@ class TestNodesCanRunThemselves:
 
         sentinel = object()
         assert builtin_context_obj(sentinel)["app"] is sentinel
+
+
+class TestSelfManagementOwnsTheTerminal:
+    """`self update`, `install`, `python` and `uv` run children that inherit
+    fd 0/1/2.
+
+    Same shape as `skills install` above, and the same reason: `invoke_builtin`
+    redirects only Python-level `sys.stdout`, so on a worker the child draws
+    straight onto the terminal underneath the interface. `uv` draws progress,
+    an index can prompt for credentials, and `self python -- ...` runs whatever
+    the user asked for.
+
+    Asserted through `run_builtin` rather than through the registry object,
+    because the registry answer is not the production path: `app/commands.py`
+    resolves terminal ownership per *family*, never through the root
+    (`tasks.md` 1.1).
+    """
+
+    @pytest.mark.parametrize("name", ["update", "install", "python", "uv"])
+    def test_it_requests_a_handoff(self, app: _FakeApp, name: str) -> None:
+        job_execution.run_builtin(app, [BUILTIN_ROOT, "self", name])
+        assert app.handoffs == [[BUILTIN_ROOT, "self", name]]
+
+    @pytest.mark.parametrize("name", ["update", "install", "python", "uv"])
+    def test_it_does_not_start_a_worker(self, app: _FakeApp, name: str) -> None:
+        job_execution.run_builtin(app, [BUILTIN_ROOT, "self", name])
+        assert app.started_workers == []
+
+    def test_doctor_still_runs_on_a_worker(self, app: _FakeApp) -> None:
+        """It only prints a report. Taking the terminal for that would tear the
+        inline shell down for nothing."""
+        job_execution.run_builtin(app, [BUILTIN_ROOT, "self", "doctor"])
+        assert app.handoffs == []
+        assert len(app.started_workers) == 1
+
+    @pytest.mark.parametrize("family", ["workflow", "config", "cache", "domains"])
+    @pytest.mark.parametrize("name", ["update", "install", "python", "uv"])
+    def test_the_declaration_does_not_leak_into_other_families(
+        self, family: str, name: str
+    ) -> None:
+        """P1's property, re-asserted where this task could break it.
+
+        `self` now declares four common verbs. Under the flat predicate P1
+        replaced, every one of them would match in every other family — so a
+        `workflow update` that never existed would still hand over the terminal.
+        Asserted through the per-family lookup `app/commands.py` actually uses.
+        """
+        entry = get_builtin(family)
+        assert entry is not None
+        assert entry.needs_terminal([name]) is False
