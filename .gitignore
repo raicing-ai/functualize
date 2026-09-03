@@ -111,3 +111,4 @@ examples/plugins/file_based_plugin/.functualize/plugins/*
 # Internal pre-release audit reports (contain session IDs / local infra notes)
 .release/
 .worktrees/
+.claude/settings.local.json
