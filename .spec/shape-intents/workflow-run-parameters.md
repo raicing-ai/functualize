@@ -278,9 +278,14 @@ first.
 
 Under either option:
 
-- [ ] `app.execute('<workflow>', nonsense=1)` fails at launch, before the
+- [x] `app.execute('<workflow>', nonsense=1)` fails at launch, before the
       prelude walks. Demonstrated by a test that asserts the graph did **not**
       run — an assertion on status alone passes vacuously here.
+      **Done 2026-09-03** (`feat/workflow-run-params`); see `STATUS.md` →
+      *Workflow launch validation*. `tests/workflow/test_launch_validation.py`
+      asserts the state store is untouched — no step records, no gate, no
+      position — because a status assertion would pass against an
+      implementation that walked the whole graph and failed afterwards.
 - [ ] The gap in `docs/guides/group-options.md:198` is closed: either the
       section documents a channel that survives a resume, or it states in the
       text that the recipe does not, with the gated case named.

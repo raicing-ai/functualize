@@ -622,6 +622,117 @@ who wrote it got neither an error nor an expansion.
 
 ## Completed
 
+### Workflow launch validation (2026-09-03, `feat/workflow-run-params`)
+
+The first acceptance item of
+[`shape-intents/workflow-run-parameters.md`](shape-intents/workflow-run-parameters.md)
+is **implemented**. A `@workflow` job now refuses a launch argument its
+signature cannot accept **before the graph walks**, instead of running every
+step, blocking at a gate, waiting for a person to approve, and failing at the
+epilogue — spending the approval on a run that was never going to succeed.
+
+The shape intent's Assertion 3 called this "not an option: leaving it as it
+stands", and its fix is the same under either design option, so it lands ahead
+of the run-scoped parameter decision rather than waiting on it. **No run-scoped
+parameter layer was built**: no `Param` marker, no `RunParamSource`, no
+`scope["params"]`, and `step_key`'s empty `args_hash` is untouched.
+
+**The rule is Python's.** `Signature.bind_partial` already splits exactly the
+right way — it rejects a keyword the signature cannot accept, tolerates the
+parameters DI has yet to fill, and honours `**kwargs`. `unexpected_keyword_error`
+(`_engine/validation.py`) adds only the `fn()` prefix `bind_partial` omits, so
+the message is byte-identical to a real call's. The parity test compares against
+an actual call rather than a frozen literal.
+
+**Reproductions**, from `tests/workflow/test_launch_validation.py`:
+
+| | Before | After |
+|---|---|---|
+| `execute('walk', zzz=1)` | `BLOCKED`; 4 step records + a published gate | `FAILURE`; state store untouched |
+| the same on an approved, blocked scope | advanced the run | scope record byte-identical, still resumable to `SUCCESS` |
+| `execute('lab.parse', zzz=1)` (plain job) | `FAILURE` | unchanged |
+
+A1 asserts the **state store**, not the status: both behaviours return a status,
+so a status assertion would pass against an implementation that walked the whole
+graph and failed afterwards.
+
+#### Four defects this work found in its own gates
+
+Worth recording because three of the four were invisible to gates written during
+the Plan phase, and all four are the same class: **a gate derived from prose
+rather than run at authoring time is not a gate** (`CONSTITUTION.md` →
+*Acceptance Gates*).
+
+1. **A gate that did not observe the line its task changed.** The context-move
+   task's gate (`-k workflow` + the combination matrix) stayed **70 passed**
+   under sabotage. Widening to `tests/engine/ tests/config/ tests/execution/`
+   turned 7 red — one being `test_lifecycle_order.py`, which was **already red
+   against the unsabotaged change**: moving `ExecutionContext` above the
+   `@workflow` prelude reorders steps 2 and 3 of a pinned twenty-step contract.
+   The move is correct and stands; `contributor/reference/execution-lifecycle.md`
+   and the test's `_DOCUMENTED_ORDER` moved with it, as that test's own failure
+   message demands. **Step 2's constraint column was `—` and now states one.**
+
+2. **A task whose `[F]` named no test file** while its acceptance criteria could
+   not be met without one.
+
+3. **Two test files with the same basename** (`test_launch_validation.py`) in
+   `tests/engine/` and `tests/workflow/`, neither carrying an `__init__.py`, so
+   pytest refused to collect both. The first task's isolated run could not see
+   it; renamed to `tests/engine/test_unexpected_keyword.py`.
+
+4. **Config-model fields were refused as unknown launch arguments** — caught by
+   the full suite, not by the feature's own tests. `func trip-planner --city
+   Tokyo` failed with `trip_planner() got an unexpected keyword argument
+   'city'`, because `city` is a field of the job's config model and
+   `_resolve_config_model` pops those names out of `call_kwargs` *later*.
+
+   The research note asserting "membership in the signature is the whole
+   question" was **wrong**, and is corrected in the feature's `research.md`
+   rather than left standing. The acceptable set is the signature **plus what
+   later stages consume**; `also_accepts` carries it and both sides read
+   `model_fields`, so it stays one decision. Group options are genuinely not in
+   that set — `_resolve_group_options` reads the dedicated `group_option_values`
+   parameter, never `call_kwargs` — and that was checked after the failure
+   rather than assumed before it.
+
+   **The reasoning error is the reusable part:** the note correctly ruled out
+   reusing the engine's own `ResolutionPlan` classifier, then read that as "no
+   other stage matters". Ruling one candidate out is not an enumeration.
+
+   Every A1–A5 fixture declared a DI-only workflow with no config model, so the
+   one shape that mattered was the one shape absent.
+
+#### One design departure, and one risk that did not materialise
+
+- **`_failure_before_execution` is extracted and shared** by the launch refusal
+  and the existing `ValidationError` handler. The plan said only "return through
+  the established refusal shape"; copying ~28 lines to do that would have made a
+  second implementation of an invariant that matters — the exception is
+  *returned*, never raised, which is what lets the CLI render a failure panel
+  instead of a traceback.
+- **RK1-B was not needed.** The fallback (refuse without firing `AFTER_FAILURE`,
+  avoiding the context move) stayed unused: the move landed, and hook parity
+  with a plain job's `TypeError` — which reaches `AFTER_FAILURE` through
+  `_execute_with_lifecycle` — is intact.
+
+#### Gates
+
+| Gate | Result |
+|---|---|
+| Full suite `HYPOTHESIS_PROFILE=ci --run-slow -n auto` | **9326 passed, 101 skipped, 0 failed** |
+| `pytest examples/` | 187 passed |
+| All 11 plugin suites | 245 passed |
+| `ruff check` + `format --check` (src, tests, examples, plugins) | clean, 1222 files |
+| `mypy src/` | 0 errors, 305 files |
+| `lint-imports` | 5 kept, 0 broken |
+
+Still open from the shape intent, and untouched here: Assertion 2 (a value set
+for a walk does not survive a gate), Assertion 5 (no per-run channel that is not
+process-global), Assertion 6 (the trigger plugins cannot parameterize a walk),
+and Assertion 7 (step replay identity). The design question — a run-scoped
+parameter layer, or declaring walks unparameterizable — is still open.
+
 ### TUI panel support for GroupOptions (2026-08-28, `feat/tui-group-options-panels`)
 
 `shape-intents/tui-group-options-panels.md` is **implemented**. Its stale

@@ -244,7 +244,7 @@ it answering identically.
 
 ## Wave 4 — verification and disclosure
 
-### T4.1 — Full regression and STATUS entry
+### [x] T4.1 — Full regression and STATUS entry
 
 **[F]** `.spec/STATUS.md`
 
