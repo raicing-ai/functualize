@@ -84,7 +84,7 @@ Acceptance:
 
 ## Wave 2 — detection, reaching a real command
 
-### [ ] 3.1 — Detection + `self doctor`, mounted and pre-boot
+### [x] 3.1 — Detection + `self doctor`, mounted and pre-boot
 
 `[F]` `src/functualize/_cli/runtime.py` (new), `src/functualize/_cli/self_cmd.py` (new),
 `src/functualize/_cli/builtins.py`, `src/functualize/_cli/main.py`,
