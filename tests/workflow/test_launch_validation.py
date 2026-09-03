@@ -25,7 +25,7 @@ _JOBS = '''
 from pydantic import BaseModel, Field
 
 from functualize import workflow
-from functualize.job import Log, job
+from functualize.job import Log, RunContext, job
 from functualize.workflow import END, Edge, Gate, Step
 
 
@@ -43,6 +43,18 @@ def alpha(log: Log) -> str:
 def omega(log: Log) -> str:
     log("omega ran")
     return "z"
+
+
+@job
+def caller(log: Log, rc: RunContext) -> str:
+    """Invokes the workflow below with an argument it cannot accept.
+
+    `rc.invoke` *returns* a JobResult rather than raising, so this job reports
+    what it got back. A caller that ignored the result would succeed, which is
+    correct and is exactly why the assertion has to look at the inner status.
+    """
+    inner = rc.invoke("walk", zzz_nonsense=1)
+    return f"{inner.status.value}:{type(inner.exception).__name__}"
 
 
 @workflow(
@@ -330,7 +342,7 @@ _CONFIG_WORKFLOW = '''
 from pydantic import BaseModel, Field
 
 from functualize import workflow
-from functualize.job import Log, job
+from functualize.job import Log, RunContext, job
 from functualize.workflow import END, Edge, Gate, Step
 
 
@@ -421,3 +433,56 @@ class TestConfigModelFieldsAreLegitimate:
 
         assert app.execute("forecast", city="Osaka").status is RunStatus.SUCCESS  # type: ignore[attr-defined]
         assert app.execute("forecast", nonsense=1).status is RunStatus.FAILURE  # type: ignore[attr-defined]
+
+
+class TestTheOtherDeclaredEntryPoints:
+    """Surfaces `contracts.md` claims but the feature's own cells did not reach.
+
+    Found by the verify phase's declared-surface walk: a green suite is
+    necessary and not sufficient, and both of these are stated guarantees that
+    nothing exercised.
+    """
+
+    def test_a_job_invoking_a_workflow_is_refused_too(
+        self, project: tuple[object, Path]
+    ) -> None:
+        """`rc.invoke` reaches the same engine entry point as `app.execute`.
+
+        The contract says so; nothing proved it. A job that invokes a workflow
+        job with an argument it cannot accept must have that inner call refused
+        at launch, not after the graph has run.
+
+        The *caller* succeeds — `invoke` returns a result rather than raising,
+        so a job that ignores it is fine. That is why this asserts on the inner
+        status the caller reports back, and on the state store, rather than on
+        the caller's own status.
+        """
+        app, root = project
+
+        result = app.execute(  # type: ignore[attr-defined]
+            "caller", scope_id="invoke-probe"
+        )
+
+        assert result.status is RunStatus.SUCCESS, result.exception
+        assert result.return_value == "Failure:TypeError", (
+            f"the inner workflow launch was not refused: {result.return_value}"
+        )
+        assert not _scope(root, "invoke-probe").get("steps"), (
+            "the inner walk ran despite an unbindable argument"
+        )
+
+    def test_the_cli_refuses_an_unknown_flag_before_the_engine(
+        self, cli_run, project_tree
+    ) -> None:
+        """The surface that could *not* reach the defect, pinned.
+
+        click rejects an unknown option at parse time, which is why this bug
+        survived to be found: the surface everyone develops against is the one
+        that was already safe. Asserting it keeps that true.
+        """
+        root = project_tree(jobs={"w.py": _JOBS})
+
+        result = cli_run(["walk", "--zzz-nonsense", "1"], cwd=root)
+
+        assert result.exit_code != 0
+        assert "zzz" in (result.stdout + result.stderr).lower()
