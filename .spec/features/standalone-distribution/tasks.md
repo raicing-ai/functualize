@@ -290,7 +290,7 @@ pinned by two tests.
 
 ## Wave 6 — plugins
 
-### [ ] 7.1 — `builtin plugin list / install / uninstall`
+### [x] 7.1 — `builtin plugin list / install / uninstall`
 
 `[F]` `src/functualize/_cli/plugin_cmd.py` (new), `src/functualize/_cli/builtins.py`,
 `tests/_cli/test_plugin_cmd.py` (new)
@@ -314,6 +314,32 @@ Acceptance:
 - Every mutating path prints its command before any side effect (AC18)
 - From the inline shell, `plugin install` requests handoff (AC19)
 - Sabotage the `_mount(builtin_app, plugin_app, "plugin")` call; confirm a test fails
+
+**Recorded at execution — three deviations:**
+
+1. **Groups are discovered, not listed.** The plan named eight. A fixed set goes stale the
+   moment a domain declares a new provider group, and `_plugins/domain_registry.py:246`
+   reads that group from domain metadata, so domains do exactly that. The scan takes every
+   `functualize.*` group any installed distribution declares, minus `functualize.jobs` —
+   that group supplies work to *run*, not new capability, and listing it would invite a
+   `plugin uninstall` that removes somebody's jobs. Seven groups are live in this checkout;
+   `remote_providers` is declared but has no installed provider.
+2. **`manifest.forget_addition` added.** Not a hole in append-only: what is append-only is
+   the list of *installations*. `plugins`/`packages` are a note of what to put back after an
+   upgrade, and a name left there after an uninstall is reinstalled by the next
+   `self update` — undoing the uninstall silently and at a distance.
+3. **The confirm/refuse/plan helpers moved from `self_cmd` to `package_ops`** so both
+   command families share one refusal voice, rather than `plugin_cmd` importing `self_cmd`'s
+   private names.
+
+**Found by sabotage:** the job-source exclusion was undefended — nothing in this checkout
+publishes under `functualize.jobs`, so the test asserting the filter passed with the filter
+deleted. `extensions_from()` now takes its distributions as an argument, the same
+testability constraint `detect` carries, and seven tests supply a synthetic environment.
+
+**Process note:** one sabotage cycle ran against an *uncommitted* refactor, and
+`git checkout --` discarded it. Third occurrence. The rule that actually works is: commit,
+then sabotage, then restore — never sabotage across an unstaged change.
 
 ---
 
