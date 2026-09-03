@@ -186,7 +186,7 @@ Acceptance:
 
 ## Wave 4 — info
 
-### [ ] 5.1 — Install facts in `builtin info`
+### [x] 5.1 — Install facts in `builtin info`
 
 `[F]` `src/functualize/_cli/info.py`, `src/functualize/app/adapters/cli.py`
 
