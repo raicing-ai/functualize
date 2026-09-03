@@ -1,6 +1,6 @@
 [project]
 name = "functualize-state"
-version = "0.1.2"
+version = "0.1.3"
 description = "State Domain SDK providing protocols for state persistence and execution tracking"
 readme = "README.md"
 license = "MIT"
