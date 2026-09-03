@@ -1,7 +1,12 @@
 """``func builtin self`` — commands about the installation itself.
 
-Doctor is the whole of this module for now; ``update``, ``install``, ``python``
-and ``uv`` land in a later task.
+Five commands: ``doctor`` reports, ``update`` upgrades, ``install`` adds a
+package, and ``python`` / ``uv`` hand the user the owned environment directly.
+
+**Every mutating command prints what it will run before it runs it**, and does
+nothing without confirmation. That is not politeness — it is the seam that makes
+these commands testable at all, since asserting on the printed command needs no
+subprocess and no real installation to mutate.
 
 **Why doctor runs before the app boots.** ``cli_app`` unconditionally resolves
 config, loads dotenv, applies ``import_libs``, runs discovery and constructs a
@@ -35,6 +40,12 @@ from pathlib import Path
 import click
 
 from functualize._cli.runtime import Detection, detect_from_process
+from functualize.app.utils import ExitCode
+
+# `manifest` and `package_ops` are imported *inside* the commands that need
+# them, never at module scope. `builtins._mount` imports this module while
+# building the `builtin` group, so a module-level import here would put the
+# registry on every warm path — which is exactly what AC9 asserts structurally.
 
 __all__ = ["Check", "CheckStatus", "DoctorReport", "build_report", "self_app"]
 
@@ -449,3 +460,327 @@ def doctor(output_format: str) -> None:
             click.echo(line)
     # A report is a successful run even when it reports problems: exit codes
     # describe the command, and the command worked.
+
+
+# ---------------------------------------------------------------------------
+# The mutating commands, and the escape hatch
+# ---------------------------------------------------------------------------
+
+
+def _refuse(detection: Detection, what: str) -> None:
+    """Explain why functualize will not manage this installation, and stop.
+
+    Guidance names the tool that *does* own it. A refusal that only says no
+    leaves the user with a broken command and no next step, and the whole
+    reason detection resolves the owning distribution is so this message can be
+    specific.
+
+    Nothing is written to stdout: a script capturing this command's output must
+    get an empty capture and a non-zero status, not a paragraph of prose.
+    """
+    mode = detection.mode.value
+    distribution = detection.owning_distribution
+
+    if distribution is None:
+        click.echo(
+            f"Cannot {what}: this console script maps to no installed "
+            f"distribution, so there is nothing to name as the thing to change.",
+            err=True,
+        )
+        click.echo(
+            "Manage this installation with whatever put this interpreter here.",
+            err=True,
+        )
+    else:
+        click.echo(
+            f"Cannot {what}: {distribution} was installed in {mode!r} mode, "
+            f"which functualize does not manage.",
+            err=True,
+        )
+        hint = (
+            f"pip install --upgrade {distribution}"
+            if detection.mode.value == "tool_pip"
+            else f"the tool that installed {distribution}"
+        )
+        click.echo(f"Use {hint} instead.", err=True)
+
+    click.echo(
+        f"Run `{_script_name()} builtin self doctor` to see how this was detected.",
+        err=True,
+    )
+    raise SystemExit(ExitCode.REFUSED)
+
+
+def _script_name() -> str:
+    """The console script the user actually typed, for use in guidance.
+
+    Never a hard-coded ``func``: in a consumer application this text has to
+    name *that* application's script or it tells the user to run a command they
+    do not have.
+    """
+    argv0 = sys.argv[0] if sys.argv else ""
+    name = argv0.replace("\\", "/").rsplit("/", 1)[-1]
+    return name or "func"
+
+
+def _announce(commands: tuple[tuple[str, ...], ...], yes: bool) -> None:
+    """Print the exact commands, then ask — unless ``--yes`` was given.
+
+    ``--yes`` skips the *prompt*, never the printing (`contracts.md` §1). A
+    user who automates this still gets a log of what ran.
+
+    Declining aborts with click's own non-zero status rather than exiting 0.
+    "I asked and you said no" must not look like "I updated you" to
+    ``self update && deploy``.
+    """
+    click.echo("This will run:")
+    for argv in commands:
+        click.echo(f"  {package_ops_module().render(argv)}")
+    if not yes:
+        click.confirm("Proceed?", abort=True)
+
+
+def package_ops_module():  # noqa: ANN201 - a lazy import, not an interface
+    from functualize._cli import package_ops
+
+    return package_ops
+
+
+def _manifest_module():  # noqa: ANN202 - a lazy import, not an interface
+    from functualize._cli import manifest
+
+    return manifest
+
+
+def _this_binary() -> str:
+    manifest = _manifest_module()
+    return manifest.resolve_binary_path(sys.argv[0] if sys.argv else "", sys.executable)
+
+
+def _config_dir() -> Path:
+    from functualize.app.utils import resolve_user_config_dir
+
+    return resolve_user_config_dir()
+
+
+def _plan(build) -> tuple[tuple[str, ...], ...]:  # noqa: ANN001 - a thunk
+    """Run a command-planning call, mapping its refusals onto exit codes."""
+    package_ops = package_ops_module()
+    try:
+        return build()
+    except package_ops.MissingToolError as exc:
+        click.echo(str(exc), err=True)
+        raise SystemExit(ExitCode.USAGE) from None
+    except package_ops.LossyReceiptError as exc:
+        click.echo(str(exc), err=True)
+        click.echo(
+            f"Drive uv directly instead: "
+            f"`{_script_name()} builtin self uv -- tool install ...`",
+            err=True,
+        )
+        raise SystemExit(ExitCode.USAGE) from None
+
+
+@self_app.command("update")
+@click.option(
+    "--yes",
+    "-y",
+    "assume_yes",
+    is_flag=True,
+    help="Skip the confirmation prompt. The command is still printed.",
+)
+def update(assume_yes: bool) -> None:
+    """Upgrade this installation, then put back what you added to it."""
+    detection = detect_from_process()
+    if detection.degraded:
+        _refuse(detection, "update")
+
+    package_ops = package_ops_module()
+    binary = _this_binary()
+    commands = _plan(lambda: package_ops.update_commands(detection, binary))
+    _announce(commands, assume_yes)
+
+    config_dir = _config_dir()
+
+    # The pre-update capture is persisted *before* anything runs. An update
+    # interrupted between rebuilding the environment and restoring it would
+    # otherwise lose every user addition -- the one failure reconciliation
+    # exists to prevent. A capture already on disk means exactly that happened
+    # last time, so it is preferred over a fresh one: the current environment
+    # is the half-updated state, not the state worth restoring to.
+    resumed = package_ops.load_pending(config_dir)
+    if resumed is not None:
+        click.echo("Resuming: an earlier update did not finish reconciling.")
+        before = resumed
+    else:
+        before = package_ops.capture_environment()
+        package_ops.save_pending(config_dir, before)
+
+    code = package_ops.run_commands(commands)
+    if code != 0:
+        click.echo(
+            "The upgrade command failed; nothing was reconciled. "
+            "The pre-update snapshot is kept, so re-running will still restore.",
+            err=True,
+        )
+        raise SystemExit(code)
+
+    _reconcile(detection, config_dir, binary, before)
+
+
+def _reconcile(
+    detection: Detection,
+    config_dir: Path,
+    binary: str,
+    before: dict[str, str],
+) -> None:
+    """Reinstall what the upgrade removed, and say what happened to each.
+
+    A package that cannot be reinstalled is **reported, not fatal**: the
+    upgrade itself succeeded, and turning one unreachable package into a failed
+    update would misdescribe the state of the installation.
+    """
+    package_ops = package_ops_module()
+    manifest = _manifest_module()
+
+    after = package_ops.capture_environment()
+    recorded = manifest.recorded_additions(config_dir, binary)
+    names = package_ops.names_to_restore(before, after, recorded)
+
+    if not names:
+        click.echo("Up to date. Nothing needed restoring.")
+        package_ops.clear_pending(config_dir)
+        return
+
+    click.echo(f"Restoring {len(names)} package(s) the upgrade removed:")
+    failures: list[tuple[str, str]] = []
+    for name in names:
+        try:
+            commands = package_ops.install_commands(detection, name)
+        except (
+            package_ops.MissingToolError,
+            package_ops.LossyReceiptError,
+            ValueError,
+        ) as exc:
+            failures.append((name, str(exc)))
+            continue
+        code = package_ops.run_commands(commands)
+        if code == 0:
+            click.echo(f"  restored  {name}")
+        else:
+            failures.append((name, f"the install command exited {code}"))
+
+    for name, reason in failures:
+        click.echo(f"  FAILED    {name}: {reason}", err=True)
+    if failures:
+        click.echo(
+            f"{len(failures)} package(s) could not be restored. The upgrade "
+            f"itself succeeded; reinstall them yourself when you can.",
+            err=True,
+        )
+
+    package_ops.clear_pending(config_dir)
+
+
+@self_app.command("install")
+@click.argument("package")
+@click.option(
+    "--yes",
+    "-y",
+    "assume_yes",
+    is_flag=True,
+    help="Skip the confirmation prompt. The command is still printed.",
+)
+def install(package: str, assume_yes: bool) -> None:
+    """Install a package into this installation's environment.
+
+    For dependencies your jobs import. Extensions to functualize itself go
+    through `plugin install`, which records them where `plugin list` can see
+    them.
+    """
+    detection = detect_from_process()
+    if detection.degraded:
+        _refuse(detection, f"install {package}")
+
+    package_ops = package_ops_module()
+    commands = _plan(lambda: package_ops.install_commands(detection, package))
+    _announce(commands, assume_yes)
+
+    code = package_ops.run_commands(commands)
+    if code != 0:
+        raise SystemExit(code)
+
+    # Recorded only now. A record of a package that failed to install is worse
+    # than no record: the next update would faithfully reinstall it.
+    manifest = _manifest_module()
+    if manifest.record_addition(
+        _config_dir(), binary_path=_this_binary(), key="packages", name=package
+    ):
+        click.echo(f"Recorded {package}; `self update` will restore it.")
+
+
+def _owned_environment(detection: Detection, what: str) -> None:
+    """Refuse unless there is an environment this installation owns."""
+    if detection.degraded:
+        _refuse(detection, f"run {what}")
+
+
+@self_app.command(
+    "python",
+    context_settings={"ignore_unknown_options": True},
+    short_help="Run this installation's interpreter, or print its path.",
+)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+def python_(args: tuple[str, ...]) -> None:
+    """Run the interpreter this installation owns.
+
+    \b
+      func builtin self python -- -m pip debug    run it
+      func builtin self python                    print its path
+
+    Everything after `--` is passed through untouched and the exit code is
+    proxied back. Bare, it prints exactly one absolute path and nothing else,
+    so it stays capturable.
+    """
+    detection = detect_from_process()
+    _owned_environment(detection, "python")
+
+    package_ops = package_ops_module()
+    interpreter = package_ops.owned_python()
+    if not args:
+        click.echo(interpreter)
+        return
+    raise SystemExit(package_ops.run_commands([[interpreter, *args]]))
+
+
+@self_app.command(
+    "uv",
+    context_settings={"ignore_unknown_options": True},
+    short_help="Run the uv this installation uses, or print its path.",
+)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+def uv_(args: tuple[str, ...]) -> None:
+    """Run the uv this installation manages itself with.
+
+    \b
+      func builtin self uv -- pip install requests    run it
+      func builtin self uv                            print its path
+
+    The escape hatch: anything this command tree declines to do — a git
+    requirement, an index URL, a receipt shape a future uv introduces — you can
+    still do by driving uv yourself.
+    """
+    detection = detect_from_process()
+    _owned_environment(detection, "uv")
+
+    package_ops = package_ops_module()
+    try:
+        uv = package_ops.resolve_uv()
+    except package_ops.MissingToolError as exc:
+        click.echo(str(exc), err=True)
+        raise SystemExit(ExitCode.USAGE) from None
+
+    if not args:
+        click.echo(uv)
+        return
+    raise SystemExit(package_ops.run_commands([[uv, *args]]))

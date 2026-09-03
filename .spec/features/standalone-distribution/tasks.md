@@ -252,6 +252,40 @@ Acceptance:
 - With no functualize-owned environment, all three refuse with exit 3 (AC14d)
 - No generated command string contains a literal `functualize` where the owner belongs (AC31)
 
+**Recorded at execution — four deviations from the plan as written:**
+
+1. **A fourth file: `src/functualize/_cli/package_ops.py`.** Capture, reconciliation
+   and the mode→command planning are shared by `self install` and `plugin install`
+   ("same mechanism, different bookkeeping", `contracts.md` §1). Putting them in
+   `self_cmd.py` would make 7.1 import a command module for its mechanism; putting
+   them in `manifest.py` would give the registry a second, unrelated job. The module
+   also holds `_call`, the single point where this feature executes anything — which
+   is what lets every mutating command be tested end to end without touching the
+   developer's real installation.
+2. **The uv receipt merge lands here, not in 7.1.** `self install` in `tool_uv` mode
+   needs it for the same reason `plugin install` does: `uv tool install` is
+   declarative and drops prior `--with` entries. 7.1 now reuses `merge_receipt` /
+   `drop_from_receipt` and is correspondingly smaller.
+3. **`Requirement.extras` renamed to `Requirement.fields`** (`schema.md` had `extras`).
+   `extras` is itself a real receipt key holding PEP 508 extras
+   (`{name = "functualize", extras = ["cli"]}` — observed on the audit host), and one
+   name for two things in a type whose only job is faithful round-tripping is how a
+   lossy parser gets written. An unrenderable key now **refuses** (`LossyReceiptError`)
+   rather than being dropped: `uv tool install` rewrites the receipt from its
+   arguments, so a requirement this cannot reproduce is removed from the environment,
+   not merely absent from one command. `self uv -- tool install …` is the escape.
+4. **`update` is declared terminal too**, not only `install`/`python`/`uv`. It runs
+   `uv tool upgrade` / `pipx upgrade`, which draw progress and can prompt for index
+   credentials, on a TUI worker path that redirects only Python-level `sys.stdout` —
+   the exact `skills install` defect P2 fixed.
+
+**Defect found while building, not by a test:** `owned_python()` first used
+`Path(sys.executable).resolve()`, which follows a virtualenv's `bin/python` symlink out
+to the base interpreter — `self python` printed `~/.local/share/uv/python/…/python3.13`
+instead of `.venv/bin/python`, and running it would have seen none of the environment's
+packages. The symlink *is* the environment; resolving it is leaving it. Now `abspath`,
+pinned by two tests.
+
 ---
 
 ## Wave 6 — plugins

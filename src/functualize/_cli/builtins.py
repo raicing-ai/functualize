@@ -160,8 +160,28 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
     BuiltinCommand(
         "self",
         "Inspect and manage this installation",
-        (("doctor", "Check this installation and report what is wrong"),),
+        (
+            ("doctor", "Check this installation and report what is wrong"),
+            ("update", "Upgrade this installation and restore what you added"),
+            ("install", "Add a package to this installation's environment"),
+            ("python", "Run this installation's interpreter, or print its path"),
+            ("uv", "Run the uv this installation uses, or print its path"),
+        ),
         requires_subcommand=True,
+        # All four mutating-or-passthrough subcommands own the terminal. Each
+        # runs a child that inherits fd 0/1/2 -- uv draws progress, pipx and an
+        # index can prompt for credentials, and `self python -- ...` runs
+        # whatever the user asked for. On the TUI's worker path only Python-level
+        # `sys.stdout` is redirected, so the child would draw straight onto the
+        # terminal underneath the interface. That is the `skills install` defect
+        # P2 fixed, and `update` has it for exactly the same reason the other
+        # three do.
+        #
+        # Bare `self python` also hands over the terminal to print one line,
+        # which is cosmetic; `needs_terminal` is a single answer per subcommand
+        # (`_types/commands.py:52-70`) and the passthrough is the form worth
+        # getting right.
+        terminal_subcommands=("update", "install", "python", "uv"),
     ),
     BuiltinCommand(
         "info",

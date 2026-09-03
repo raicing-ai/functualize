@@ -25,12 +25,13 @@ import contextlib
 import hashlib
 import json
 import os
+import re
 import tempfile
 import time
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -41,6 +42,8 @@ __all__ = [
     "Manifest",
     "manifest_path",
     "marker_path",
+    "record_addition",
+    "recorded_additions",
     "register",
 ]
 
@@ -381,3 +384,76 @@ def register(
     except OSError:
         return False
     return True
+
+
+def record_addition(
+    config_dir: Path,
+    *,
+    binary_path: str,
+    key: Literal["plugins", "packages"],
+    name: str,
+) -> bool:
+    """Note that this installation added ``name``, under ``plugins`` or ``packages``.
+
+    The two lists stay **disjoint**: a name recorded under one is moved rather
+    than duplicated if it later arrives through the other command. ``plugin
+    list`` must never show a plain dependency, and ``self update`` restores both
+    in one pass, so the distinction has to survive the file
+    (`contracts.md` §6).
+
+    Called only after the install command has actually succeeded — a record of
+    a package that is not installed is worse than no record, because the next
+    update reinstalls it.
+
+    Returns whether anything was written; a failure is silent by design, exactly
+    as :func:`register`'s is.
+    """
+    path = manifest_path(config_dir)
+    other: Literal["plugins", "packages"] = (
+        "packages" if key == "plugins" else "plugins"
+    )
+
+    with _locked(path) as acquired:
+        if not acquired:
+            return False
+
+        manifest = load(path)
+        existing = manifest.find(binary_path)
+        if existing is None:
+            return False
+
+        current = tuple(getattr(existing, key))
+        if any(_same(name, held) for held in current):
+            return True
+        updated_record = replace(
+            existing,
+            **{
+                key: (*current, name),
+                other: tuple(
+                    held for held in getattr(existing, other) if not _same(name, held)
+                ),
+            },
+        )
+        return save(manifest.replace(updated_record), path)
+
+
+def recorded_additions(config_dir: Path, binary_path: str) -> tuple[str, ...]:
+    """Everything this installation added, plugins and packages together.
+
+    One list because reconciliation restores them in one pass and does not care
+    which is which — the distinction matters to ``plugin list``, not here.
+    """
+    record = load(manifest_path(config_dir)).find(binary_path)
+    if record is None:
+        return ()
+    return (*record.plugins, *record.packages)
+
+
+def _same(left: str, right: str) -> bool:
+    """PEP 503 name equality, so ``functualize-http`` and ``functualize_http``
+    are not recorded twice."""
+    return _canonical(left) == _canonical(right)
+
+
+def _canonical(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).strip().lower()
