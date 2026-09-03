@@ -88,8 +88,12 @@ def has_wave_graph(text):
     return isinstance(waves, list) and len(waves) > 0
 
 
-def workflow_followed(cwd):
-    """True when a task list or a fresh exemption already covers this work."""
+def has_task_list(cwd):
+    """True when some feature carries a parseable wave graph.
+
+    This is the only condition that means "no record is owed". The workflow was
+    followed; there is nothing to disclose.
+    """
     root = os.path.join(cwd, ".spec", "features")
     if os.path.isdir(root):
         with os.scandir(root) as entries:
@@ -104,6 +108,23 @@ def workflow_followed(cwd):
                                 return True
                 except OSError:
                     continue
+    return False
+
+
+def active_exemption(cwd):
+    """The reason from a fresh, well-formed `.spec/EXEMPT`, else ``None``.
+
+    An exemption is **not** a reason to stay quiet. It is the thing the ledger
+    exists to record: `CONSTITUTION.md` calls that ledger "the entire
+    mitigation for the fact that an agent can exempt itself", and a mitigation
+    that skips the case it was built for is not one.
+
+    This used to be folded into the task-list check, so a shell write covered
+    by an exemption was recorded **nowhere** — the `PreToolUse` gate never fires
+    for a shell write, and this hook returned early because the exemption
+    existed. Declaring an exemption therefore made a write *less* audited than
+    not declaring one, which is exactly backwards.
+    """
     path = os.path.join(cwd, EXEMPT_FILE)
     try:
         if time.time() - os.path.getmtime(path) <= EXEMPT_MAX_AGE_S:
@@ -111,10 +132,11 @@ def workflow_followed(cwd):
                 for line in fh:
                     line = line.strip()
                     if line:
-                        return bool(EXEMPT_RE.match(line))
+                        m = EXEMPT_RE.match(line)
+                        return m.group(1).strip() if m else None
     except (OSError, ValueError):
         pass
-    return False
+    return None
 
 
 def cache_path(session_id):
@@ -138,7 +160,7 @@ def save_seen(path, seen):
         pass
 
 
-def log(cwd, paths):
+def log(cwd, paths, reason=REASON):
     ledger = os.path.join(cwd, LEDGER_FILE)
     stamp = time.strftime("%Y-%m-%dT%H:%M:%S%z")
     hour = stamp[:13]
@@ -157,7 +179,7 @@ def log(cwd, paths):
             return
         with open(ledger, "a", encoding="utf-8") as fh:
             for p in rows:
-                fh.write(f"{stamp}\t{os.path.basename(cwd)}\t{p}\t{REASON}\n")
+                fh.write(f"{stamp}\t{os.path.basename(cwd)}\t{p}\t{reason}\n")
     except OSError:
         pass
 
@@ -174,9 +196,10 @@ def main():
     save_seen(cache, current)
     if not new:
         return
-    if workflow_followed(cwd):
+    if has_task_list(cwd):
         return
-    log(cwd, new)
+    reason = active_exemption(cwd)
+    log(cwd, new, f"shell-write under exemption: {reason}" if reason else REASON)
 
 
 if __name__ == "__main__":
