@@ -140,7 +140,7 @@ Acceptance:
 
 ## Wave 3 — the registry
 
-### [ ] 4.1 — Manifest, first-run registration, and doctor's manifest checks
+### [x] 4.1 — Manifest, first-run registration, and doctor's manifest checks
 
 `[F]` `src/functualize/_cli/manifest.py` (new), `src/functualize/_cli/main.py`,
 `src/functualize/_cli/self_cmd.py`, `tests/_cli/test_manifest.py` (new)
