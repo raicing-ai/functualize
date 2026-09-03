@@ -113,6 +113,42 @@ class TestTheTextRendering:
         assert "\nmode: standalone" not in result.stdout
 
 
+class TestTheRichPanel:
+    """The default rendering, which the `plain` tests above do not reach.
+
+    Added because sabotage found it undefended: removing the two rows from the
+    `General Info` panel in `app/adapters/cli.py` left all 22 other tests green,
+    since every one of them pinned `FUNCTUALIZE_CLI_OUTPUT=plain`.
+    """
+
+    def test_the_default_rendering_shows_the_install_mode(
+        self, cli_run, tmp_path: Path
+    ) -> None:
+        result = cli_run(
+            ["builtin", "info"],
+            cwd=tmp_path,
+            env={"FUNCTUALIZE_RUNTIME": "tool_pipx"},
+        )
+        assert result.exit_code == 0
+        assert "Install Mode" in result.stdout
+        assert "tool_pipx" in result.stdout
+
+    def test_the_default_rendering_shows_the_owner(
+        self, cli_run, tmp_path: Path
+    ) -> None:
+        result = cli_run(["builtin", "info"], cwd=tmp_path)
+        assert "Owned By" in result.stdout
+
+    def test_the_panel_label_is_not_a_bare_mode(self, cli_run, tmp_path: Path) -> None:
+        """AC20a in the rich form: the existing `Mode` line means storage."""
+        result = cli_run(
+            ["builtin", "info"],
+            cwd=tmp_path,
+            env={"FUNCTUALIZE_RUNTIME": "standalone"},
+        )
+        assert "Install Mode" in result.stdout
+
+
 class TestNoNewCommandsWereAdded:
     def test_there_is_no_self_paths(self, cli_run, tmp_path: Path) -> None:
         """AC21 — O3 folded these in rather than shipping two more commands."""
