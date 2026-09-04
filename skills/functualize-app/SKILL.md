@@ -11,7 +11,7 @@ description: >
   ready" or well tested, or when packaging a functualize CLI for distribution.
 license: MIT
 metadata:
-  version: "0.2.2"
+  version: "0.2.3"
   project: functualize
 ---
 

@@ -21,12 +21,87 @@ set -eu
 # and cannot execute here. Bootstrapping is cheap and keeps the two paths
 # running the same script rather than two drifting copies.
 if ! command -v uv >/dev/null 2>&1; then
-    # `build-base` is not optional. PyPI publishes musl wheels for the common
-    # architectures but not for every dependency on aarch64 -- tree-sitter-json
-    # builds from source there, and Alpine ships no compiler, so the bake dies
-    # with `No such file or directory: 'cc'` on exactly one of the seven
-    # targets.
-    apk add --no-cache curl ca-certificates build-base >/dev/null
+    # A toolchain is not optional. PyPI publishes musl wheels for the common
+    # architectures but not for every dependency on aarch64 -- several
+    # tree-sitter grammars build from source there, and Alpine ships no
+    # compiler.
+    #
+    # `clang` specifically, and this is not a preference. python-build-standalone
+    # builds its aarch64-musl interpreter with clang and bakes clang-only flags
+    # into the sysconfig every extension build inherits:
+    #
+    #   CFLAGS   = ... --rtlib=compiler-rt -fPIC
+    #   LDSHARED = cc -pthread -shared ... --rtlib=compiler-rt ...
+    #
+    # `build-base` provides gcc as `cc`, which rejects that outright --
+    # `cc: error: unrecognized command-line option '--rtlib=compiler-rt'`. The
+    # x86_64-musl distribution carries no such flag, which is why exactly one of
+    # the seven targets failed and why it could not be reproduced on the others.
+    apk add --no-cache curl ca-certificates build-base clang compiler-rt >/dev/null
+    # `cc` is gcc on Alpine no matter what is installed alongside it, so the
+    # compiler has to be named rather than left to the sysconfig default.
+    CC=clang
+    LDSHARED="clang -shared"
+    export CC LDSHARED
+
+    # ---------------------------------------------------------------------
+    # tree-sitter on aarch64-musl
+    #
+    # `textual[syntax]` pulls sixteen tree-sitter grammars. Every other target
+    # gets wheels for all of them; aarch64-musl is the only one that has to
+    # compile any, and their sdists are broken -- they ship `src/parser.c` and
+    # omit the headers it includes. tree_sitter_json-0.24.8.tar.gz's entire
+    # `src/` is one `.c` file. Nothing else supplies them: Alpine's
+    # `tree-sitter-dev` has only the runtime `api.h`, and the `tree-sitter`
+    # wheel has no headers at all.
+    #
+    # Core headers can be vendored (below) and that gets most of the way, but
+    # not all: tree-sitter-xml's sdist wants `"../../common/scanner.h"`, and the
+    # copy at its own `v0.7.0` tag then wants `"./ts_assert.h"`, a file that tag
+    # does not contain -- the published sdist was built from some later commit.
+    # Reconstructing a package's private source tree by guessing at its
+    # provenance is not a thing to put in a release pipeline.
+    #
+    # So this target installs the one grammar the code actually uses instead of
+    # all sixteen. `TextArea.code_editor(language="python")` in
+    # `_cli/tui/shortcut_save_modal.py` is the only syntax-highlighted widget in
+    # the tree, and `tree-sitter-python` publishes an aarch64-musl wheel. The
+    # override strips the `[syntax]` extra; the two packages are then requested
+    # directly, which keeps highlighting working rather than degrading it.
+    #
+    # (Without them textual does not fail -- `TextArea` falls back from
+    # `SyntaxAwareDocument` to `Document` and the preview is simply uncoloured.
+    # Keeping the grammar is about appearance, not function.)
+    #
+    # Narrowed for this target only. x86_64-musl builds all sixteen without
+    # trouble, and degrading a platform that works, for symmetry with one that
+    # cannot, would trade real functionality for tidiness.
+    # ---------------------------------------------------------------------
+    case "$TARGET" in
+        aarch64-unknown-linux-musl)
+            ts_override=/tmp/musl-overrides.txt
+            # An override replaces the requirement outright, extras included,
+            # so this is what drops `[syntax]`.
+            echo "textual>=8.0" > "$ts_override"
+            UV_OVERRIDE="$ts_override"
+            export UV_OVERRIDE
+            extra_requirements="tree-sitter tree-sitter-python"
+
+            # `tree-sitter` itself has never published an aarch64-musl wheel at
+            # any version, so it still compiles and still needs these. Upstream
+            # keeps them under `lib/src/`; grammars include them as
+            # `tree_sitter/...`.
+            ts_root=/usr/local/share/ts-headers
+            mkdir -p "$ts_root/tree_sitter"
+            for header in parser alloc array; do
+                curl -LsSf --retry 3 \
+                    "https://raw.githubusercontent.com/tree-sitter/tree-sitter/v0.24.7/lib/src/${header}.h" \
+                    -o "$ts_root/tree_sitter/${header}.h"
+            done
+            CFLAGS="${CFLAGS:-} -I$ts_root"
+            export CFLAGS
+            ;;
+    esac
     curl -LsSf https://astral.sh/uv/install.sh -o /tmp/uv-install.sh
     sh /tmp/uv-install.sh >/dev/null
     PATH="$HOME/.local/bin:$PATH"
@@ -67,10 +142,14 @@ fi
 # From the wheels this release built, not from the index: the binary must
 # contain exactly what `publish` uploaded, and a resolver reaching PyPI could
 # pick a different build of a plugin.
+# Unquoted on purpose: `extra_requirements` is a word list, empty on every
+# target but aarch64-musl (see above).
+# shellcheck disable=SC2086
 uv pip install --python "$python_bin" --break-system-packages \
     --find-links dist/ "functualize[all]==$FUNCTUALIZE_VERSION" \
+    ${extra_requirements:-} \
     || uv pip install --python "$python_bin" --break-system-packages \
-        --find-links dist/ "functualize[all]"
+        --find-links dist/ "functualize[all]" ${extra_requirements:-}
 
 # An editable install would leave a `.pth` pointing at a build-machine path and
 # no package at all in site-packages -- a binary that starts, then imports
