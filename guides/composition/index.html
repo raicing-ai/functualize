@@ -1,0 +1,3835 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A reusable Python CLI framework with auto-discovery, structured run context, layered configuration, and TUI integration.">
+      
+      
+      
+        <link rel="canonical" href="https://raicing-ai.github.io/functualize/guides/composition/">
+      
+      
+        <link rel="prev" href="../task-runner/">
+      
+      
+        <link rel="next" href="../../api/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Composing Capabilities - Functualize</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#composing-capabilities" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Functualize" class="md-header__button md-logo" aria-label="Functualize" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Functualize
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Composing Capabilities
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/raicing-ai/functualize" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    raicing-ai/functualize
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/" class="md-tabs__link">
+          
+  
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
+          
+  
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../api/" class="md-tabs__link">
+          
+  
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../cli/" class="md-tabs__link">
+          
+  
+  
+  CLI Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../testing/tui-command-panel-manual-test/" class="md-tabs__link">
+          
+  
+  
+  Testing
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../examples/" class="md-tabs__link">
+          
+  
+  
+  Examples
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../contributing/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Contributing
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Functualize" class="md-nav__button md-logo" aria-label="Functualize" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Functualize
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/raicing-ai/functualize" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    raicing-ai/functualize
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/project-structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../modes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage Modes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../jobs-discovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Jobs and Auto-Discovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../group-options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Group Options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../job-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    JobConfig with Pydantic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../run-context/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RunContext Lifecycle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../domain-sdks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Domain SDKs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI Capability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Adapter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interactivity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interactivity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TUI Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hooks-vs-plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hooks vs Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../hierarchy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Projects
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hierarchy-validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchy Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../shell/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Shell Capability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-runner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task Runner
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Composing Capabilities
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Composing Capabilities
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-use-cases-what-to-reach-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Use cases → what to reach for
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Use cases → what to reach for">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-not-to-reach-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What not to reach for
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-the-combination-matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. The combination matrix
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. The combination matrix">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-five-rules-worth-memorising" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The five rules worth memorising
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-the-idiomatic-matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. The idiomatic matrix
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-worked-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Worked pipeline
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Worked pipeline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-the-release-half-a-glob-a-group-flag-a-second-group-and-a-gate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 The release half: a glob, a group flag, a second group, and a gate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-two-surfaces-over-one-declaration-set" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Two surfaces over one declaration set
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-traps-at-the-intersections" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Traps at the intersections
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Traps at the intersections">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-three-things-are-called-state-one-persists" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Three things are called "state"; one persists
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-a-refusal-is-not-a-failure-and-not-a-skip" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 A refusal is not a failure, and not a skip
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-declaring-nothing-declaring-something-that-matches-nothing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 Declaring nothing ≠ declaring something that matches nothing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#54-a-missing-declared-output-forces-a-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.4 A missing declared output forces a run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#55-output-is-a-global-flag" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.5 --output is a global flag
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#56-generates-entries-are-globs-not-literal-paths" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.6 generates entries are globs, not literal paths
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#57-a-dependency-is-not-a-precondition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.7 A dependency is not a precondition
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#58-a-mid-path-flag-does-not-cross-into-a-walk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.8 A mid-path flag does not cross into a walk
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See Also
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/context/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Context
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/core/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Core
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/discovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/hierarchy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/hooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    CLI Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/aliases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Aliases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/discovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/global-config-directory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Global Config Directory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/inline-tui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inline TUI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/modes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Modes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/scaffold/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scaffold Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/user-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User App Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Testing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../testing/tui-command-panel-manual-test/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TUI Command Panel Manual Test
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Examples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart (Steps 1-8)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_7_3" id="__nav_7_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Standalone
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Standalone
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/standalone/hello-world/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hello World
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/standalone/inline-dependencies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inline Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/standalone/ai-inbound/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI Inbound
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/standalone/ai-outbound/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI Outbound
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_7_4" id="__nav_7_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Project
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/project/http-service/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HTTP Service (functualize-http)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/project/lambda-handler/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lambda Handler (functualize-lambda)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_7_5" id="__nav_7_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Plugins
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/plugins/custom-state-backend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom State Backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/plugins/custom-adapter/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Adapter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/plugins/file-based-plugin/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    File-Based Plugin
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-use-cases-what-to-reach-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Use cases → what to reach for
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Use cases → what to reach for">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-not-to-reach-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What not to reach for
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-the-combination-matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. The combination matrix
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. The combination matrix">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-five-rules-worth-memorising" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The five rules worth memorising
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-the-idiomatic-matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. The idiomatic matrix
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-worked-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Worked pipeline
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Worked pipeline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-the-release-half-a-glob-a-group-flag-a-second-group-and-a-gate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 The release half: a glob, a group flag, a second group, and a gate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-two-surfaces-over-one-declaration-set" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Two surfaces over one declaration set
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-traps-at-the-intersections" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Traps at the intersections
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Traps at the intersections">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-three-things-are-called-state-one-persists" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Three things are called "state"; one persists
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-a-refusal-is-not-a-failure-and-not-a-skip" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 A refusal is not a failure, and not a skip
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-declaring-nothing-declaring-something-that-matches-nothing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 Declaring nothing ≠ declaring something that matches nothing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#54-a-missing-declared-output-forces-a-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.4 A missing declared output forces a run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#55-output-is-a-global-flag" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.5 --output is a global flag
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#56-generates-entries-are-globs-not-literal-paths" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.6 generates entries are globs, not literal paths
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#57-a-dependency-is-not-a-precondition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.7 A dependency is not a precondition
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#58-a-mid-path-flag-does-not-cross-into-a-walk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.8 A mid-path flag does not cross into a walk
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See Also
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="composing-capabilities">Composing Capabilities<a class="headerlink" href="#composing-capabilities" title="Permanent link">&para;</a></h1>
+<p>Every other guide covers one feature. This one covers the <strong>seams between</strong>
+them, because that is where the real questions are:</p>
+<ul>
+<li>Does <code>Fingerprint</code> still fire if my job takes a <code>Log</code>?</li>
+<li>Does <code>FromJob</code> deliver anything if the upstream was skipped as fresh?</li>
+<li>Does a failing <code>Precondition</code> look like a crash to my CI?</li>
+<li>If I declare <code>Guards(status=...)</code> <em>and</em> <code>Fingerprint</code>, which one wins?</li>
+<li>Where does the config for <code>def report(config: ReportConfig)</code> come from — and
+  does changing it invalidate the cache?</li>
+</ul>
+<p>Each answer below is <strong>executed</strong>, not asserted in prose:
+<a href="https://github.com/raicing-ai/functualize/tree/master/examples/standalone/composition_lab/"><code>examples/standalone/composition_lab/</code></a>
+is a runnable project with one job per combination, and
+<code>examples/docs/scenarios/n-composition.toml</code> runs them and checks their output.
+If this page and the framework disagree, that scenario goes red.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">cd</span><span class="w"> </span>examples/standalone/composition_lab
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>func<span class="w"> </span>lab<span class="w"> </span>parse<span class="w">          </span><span class="c1"># or any job below</span>
+</code></pre></div>
+<hr />
+<h2 id="1-use-cases-what-to-reach-for">1. Use cases → what to reach for<a class="headerlink" href="#1-use-cases-what-to-reach-for" title="Permanent link">&para;</a></h2>
+<p>Start here. Find the sentence that matches what you are trying to do.</p>
+<table>
+<thead>
+<tr>
+<th>I want to…</th>
+<th>Reach for</th>
+<th>Verified by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Run a step only when its inputs changed</td>
+<td><code>@job(cache=Fingerprint(sources=[...], generates=[...]))</code></td>
+<td><code>lab parse</code></td>
+</tr>
+<tr>
+<td>Read the files I declared, without repeating the glob</td>
+<td><code>sources: Sources</code></td>
+<td><code>lab parse</code></td>
+</tr>
+<tr>
+<td>Hand a typed value to the next step</td>
+<td>a pydantic return type + <code>Annotated[T, FromJob("group.job")]</code></td>
+<td><code>lab report</code></td>
+</tr>
+<tr>
+<td>Order two steps</td>
+<td><code>Deps("group.job")</code> — or just <code>FromJob</code>, which <em>is</em> an edge</td>
+<td><code>lab publish</code></td>
+</tr>
+<tr>
+<td>Skip work that something else already did</td>
+<td><code>Guards(status=["test -f stamp"])</code></td>
+<td><code>lab publish</code></td>
+</tr>
+<tr>
+<td>Refuse to start unless the environment is right</td>
+<td><code>Guards(preconditions=[Precondition("cmd", msg="…")])</code></td>
+<td><code>lab gated</code></td>
+</tr>
+<tr>
+<td>Fail loudly when the thing I'm meant to verify isn't there</td>
+<td>declare it in <code>Fingerprint(sources=...)</code> — an empty resolution refuses</td>
+<td><code>lab verify</code></td>
+</tr>
+<tr>
+<td>Give a caller machine-readable output</td>
+<td><code>out: Stdout</code> + <code>func --output json …</code></td>
+<td><code>lab emit</code></td>
+</tr>
+<tr>
+<td>Run an external command</td>
+<td><code>sh: Shell</code></td>
+<td><code>lab probe</code></td>
+</tr>
+<tr>
+<td>Retry a flaky <em>job</em></td>
+<td><code>Exec(retry=Retry(attempts=N))</code></td>
+<td><code>lab probe</code></td>
+</tr>
+<tr>
+<td>Run the same work over N inputs</td>
+<td>a driver job + <code>inv.parallel([...])</code></td>
+<td><code>lab fanout</code></td>
+</tr>
+<tr>
+<td>Keep a value for this invocation</td>
+<td><code>state: State</code></td>
+<td><code>lab worker</code></td>
+</tr>
+<tr>
+<td>Keep a value <strong>across</strong> runs</td>
+<td>a file you own, or the runtime <code>StateStore</code> — <strong>not</strong> <code>State</code></td>
+<td><code>lab counter</code></td>
+</tr>
+<tr>
+<td>Ask a human mid-run</td>
+<td><code>Gate(...)</code> in a <code>@workflow</code> — see <a href="../workflows/">Workflows</a></td>
+<td>—</td>
+</tr>
+<tr>
+<td>Pause and resume a long pipeline</td>
+<td><code>@workflow</code> + <code>--scope-id</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td>Expose all of it to an AI agent</td>
+<td>the <a href="../mcp/">MCP adapter</a> — no per-job work</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<h3 id="what-not-to-reach-for">What <em>not</em> to reach for<a class="headerlink" href="#what-not-to-reach-for" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Instead of…</th>
+<th>Because</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>re-globbing your own <code>Fingerprint(sources=...)</code> in the body</td>
+<td>two statements of one intent drift; use <code>Sources</code></td>
+</tr>
+<tr>
+<td><code>subprocess.run</code></td>
+<td><code>Shell</code> gives you secret redaction, streaming, retry and a <code>FakeShell</code> for tests</td>
+</tr>
+<tr>
+<td>a module-level global</td>
+<td><code>State</code> for one invocation; a file for across runs</td>
+</tr>
+<tr>
+<td><code>print()</code> for machine output</td>
+<td><code>out.emit()</code> honours <code>--output</code>; <code>print</code> does not</td>
+</tr>
+<tr>
+<td><code>sys.exit(1)</code> in a guard</td>
+<td><code>Precondition</code> refuses with exit <strong>3</strong>, which a caller can tell from a crash</td>
+</tr>
+<tr>
+<td>a sentinel file you check by hand</td>
+<td><code>Guards(status=...)</code>, which ANDs with staleness (§3, R10a)</td>
+</tr>
+<tr>
+<td><code>time.sleep</code> retry loops</td>
+<td><code>Exec(retry=...)</code> for the job, <code>sh(..., retry=...)</code> for one command</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="2-the-combination-matrix">2. The combination matrix<a class="headerlink" href="#2-the-combination-matrix" title="Permanent link">&para;</a></h2>
+<p>Read a row as "if my job declares this", a column as "and also this". The cell
+is <strong>the rule at that intersection</strong> — the thing you would otherwise have to
+discover.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th><code>Fingerprint</code></th>
+<th><code>Deps</code> / <code>FromJob</code></th>
+<th><code>Guards(status)</code></th>
+<th><code>Guards(precondition)</code></th>
+<th>config class</th>
+<th>a capability (<code>Log</code>, <code>Shell</code>, …)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong><code>Fingerprint</code></strong></td>
+<td>—</td>
+<td>deps run <strong>first</strong>, then this job's freshness is judged</td>
+<td><strong>ANDed</strong>: status cannot mask changed sources (R10a)</td>
+<td>precondition runs <strong>first</strong>; a refusal means freshness is never consulted</td>
+<td>config <strong>is in the key</strong> — changing it re-runs</td>
+<td>capabilities are <strong>excluded</strong> from the key</td>
+</tr>
+<tr>
+<td><strong><code>Deps</code> / <code>FromJob</code></strong></td>
+<td>↑</td>
+<td><code>FromJob</code> is <em>also</em> an edge — don't declare both</td>
+<td>status is judged per-job, not per-graph</td>
+<td>a refused dep fails the dependent</td>
+<td>each job resolves its own config</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong><code>Guards(status)</code></strong></td>
+<td>↑</td>
+<td>↑</td>
+<td>—</td>
+<td>precondition is evaluated <strong>before</strong> status</td>
+<td>callables receive the resolved config</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong><code>Guards(precondition)</code></strong></td>
+<td>↑</td>
+<td>↑</td>
+<td>↑</td>
+<td>—</td>
+<td>callables receive the resolved config</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>config class</strong></td>
+<td>↑</td>
+<td>↑</td>
+<td>↑</td>
+<td>↑</td>
+<td>—</td>
+<td>told apart by <strong>position</strong>: config annotates a <em>parameter</em>; a pydantic <em>return</em> is not config</td>
+</tr>
+<tr>
+<td><strong>capability</strong></td>
+<td>↑</td>
+<td>↑</td>
+<td>↑</td>
+<td>↑</td>
+<td>↑</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<h3 id="the-five-rules-worth-memorising">The five rules worth memorising<a class="headerlink" href="#the-five-rules-worth-memorising" title="Permanent link">&para;</a></h3>
+<p><strong>1. The guard order is fixed: platforms → preconditions → status → fingerprint.</strong>
+A refusal short-circuits everything after it.</p>
+<p><strong>2. Status ANDs with staleness (R10a).</strong> A <code>status</code> guard saying "already done"
+does <strong>not</strong> override changed sources. <code>lab publish</code> pins this:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>$ func builtin why lab.publish              # after touching build/report.md
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>lab.publish → WOULD RUN
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>  status  test -f build/publish.stamp ✓
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>  fingerprint  1 changed (build/report.md) since last run
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>  status satisfied, but sources changed → running (R10a)
+</code></pre></div>
+<p>Without this rule a stale stamp would freeze a pipeline permanently.</p>
+<p><strong>3. Resolved config is in the fingerprint key; injected capabilities are not.</strong>
+Changing <code>--title</code> re-runs the job. Taking a <code>Log</code> does not make it re-run
+forever — a live object's <code>repr</code> is not stable between processes, so it has no
+business in a cache key.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>func<span class="w"> </span>lab<span class="w"> </span>report<span class="w"> </span>--title<span class="w"> </span><span class="s2">&quot;A&quot;</span><span class="w">    </span><span class="c1"># runs</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>func<span class="w"> </span>lab<span class="w"> </span>report<span class="w"> </span>--title<span class="w"> </span><span class="s2">&quot;A&quot;</span><span class="w">    </span><span class="c1"># skipped — fresh</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>func<span class="w"> </span>lab<span class="w"> </span>report<span class="w"> </span>--title<span class="w"> </span><span class="s2">&quot;B&quot;</span><span class="w">    </span><span class="c1"># runs again — different key</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>func<span class="w"> </span>lab<span class="w"> </span>report<span class="w"> </span>--title<span class="w"> </span><span class="s2">&quot;A&quot;</span><span class="w">    </span><span class="c1"># skipped — that key was already recorded</span>
+</code></pre></div>
+<p><strong>4. A pydantic <em>return</em> type is not a config class.</strong> The framework tells them
+apart by position, and <code>lab report</code> has all three in one signature:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">report</span><span class="p">(</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    <span class="n">log</span><span class="p">:</span> <span class="n">Log</span><span class="p">,</span>                                       <span class="c1"># capability</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="n">config</span><span class="p">:</span> <span class="n">ReportConfig</span><span class="p">,</span>                           <span class="c1"># config class — a parameter</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="n">parsed</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span><span class="n">Parsed</span><span class="p">,</span> <span class="n">FromJob</span><span class="p">(</span><span class="s2">&quot;lab.parse&quot;</span><span class="p">)],</span><span class="c1"># an upstream value</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Parsed</span><span class="p">:</span>                                        <span class="c1"># a return type, NOT config</span>
+</code></pre></div>
+<p><strong>5. <code>FromJob</code> works across processes.</strong> The upstream's value is read from its
+fingerprint record when it was skipped as fresh, so a consumer does not force
+its producer to re-run just to hand over a value.</p>
+<hr />
+<h2 id="3-the-idiomatic-matrix">3. The idiomatic matrix<a class="headerlink" href="#3-the-idiomatic-matrix" title="Permanent link">&para;</a></h2>
+<p>Where the framework has an opinion, and what happens when you go around it.</p>
+<table>
+<thead>
+<tr>
+<th>Concern</th>
+<th>Idiomatic</th>
+<th>Hand-rolled equivalent</th>
+<th>What you lose by hand-rolling</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Ordering</td>
+<td><code>Deps</code> / <code>FromJob</code></td>
+<td>calling a function</td>
+<td>the graph — <code>why</code>, dedup, parallel scheduling</td>
+</tr>
+<tr>
+<td>Passing a value downstream</td>
+<td><code>FromJob</code></td>
+<td>writing and re-reading a file</td>
+<td>typing, and the cross-process record</td>
+</tr>
+<tr>
+<td>Up-to-date checking</td>
+<td><code>Fingerprint</code></td>
+<td>mtime comparisons</td>
+<td><code>generates</code> checking, <code>why</code>, the state record</td>
+</tr>
+<tr>
+<td>Reading declared inputs</td>
+<td><code>Sources</code></td>
+<td><code>Path().rglob(...)</code></td>
+<td>the guarantee that both see the same files</td>
+</tr>
+<tr>
+<td>"Already done"</td>
+<td><code>Guards(status=...)</code></td>
+<td><code>if stamp.exists(): return</code></td>
+<td>the R10a AND — your check silently masks changed sources</td>
+</tr>
+<tr>
+<td>"Not runnable here"</td>
+<td><code>Guards(preconditions=...)</code></td>
+<td><code>sys.exit(1)</code></td>
+<td>exit <strong>3</strong> vs exit 1; the caller cannot tell refusal from crash</td>
+</tr>
+<tr>
+<td>External commands</td>
+<td><code>Shell</code></td>
+<td><code>subprocess.run</code></td>
+<td>redaction, streaming, <code>FakeShell</code></td>
+</tr>
+<tr>
+<td>Retry</td>
+<td><code>Exec(retry=...)</code></td>
+<td>a <code>for</code> loop</td>
+<td>backoff policy, exit-code filtering, and it shows up in <code>why</code></td>
+</tr>
+<tr>
+<td>Concurrency</td>
+<td><code>inv.parallel([...])</code></td>
+<td><code>ThreadPoolExecutor</code></td>
+<td>per-child <code>RunResult</code>, depth limits, scope propagation</td>
+</tr>
+<tr>
+<td>Machine output</td>
+<td><code>out.emit(...)</code></td>
+<td><code>print(json.dumps(...))</code></td>
+<td><code>--output</code> honouring; <code>print</code> ignores it</td>
+</tr>
+<tr>
+<td>Config</td>
+<td>a pydantic parameter</td>
+<td><code>os.environ[...]</code></td>
+<td>the ladder (file → env → CLI), <code>--help</code> flags, <code>builtin env</code></td>
+</tr>
+<tr>
+<td>Per-invocation scratch</td>
+<td><code>State</code></td>
+<td>a module global</td>
+<td>isolation between concurrent invocations</td>
+</tr>
+<tr>
+<td>Across-run persistence</td>
+<td>a file you own</td>
+<td><code>State</code></td>
+<td><strong><code>State</code> does not persist</strong> — see §5</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="4-worked-pipeline">4. Worked pipeline<a class="headerlink" href="#4-worked-pipeline" title="Permanent link">&para;</a></h2>
+<p>The whole lab as one flow. Each arrow is a declaration, not a call.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>inputs/*.yaml
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>     │  Fingerprint(sources)          read via Sources — no second glob
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>     ▼
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>  lab.parse ──────────────► Parsed        (a pydantic return type)
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>     │  FromJob(&quot;lab.parse&quot;)
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>     ▼
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>  lab.report ─────────────► build/report.md
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>     │  Deps(&quot;lab.report&quot;) + Guards(status) + Fingerprint
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>     ▼
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>  lab.publish ────────────► build/publish.stamp
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>$<span class="w"> </span>func<span class="w"> </span>lab<span class="w"> </span>publish<span class="w">            </span><span class="c1"># runs parse, then report, then publish</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>PARSED<span class="w"> </span><span class="nv">n</span><span class="o">=</span><span class="m">2</span><span class="w"> </span><span class="nv">total</span><span class="o">=</span><span class="m">8</span><span class="w"> </span><span class="nv">keys</span><span class="o">=[</span><span class="s1">&#39;inputs/alpha.yaml&#39;</span>,<span class="w"> </span><span class="s1">&#39;inputs/beta.yaml&#39;</span><span class="o">]</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>REPORT<span class="w"> </span><span class="nv">title</span><span class="o">=</span><span class="s1">&#39;Composition Lab&#39;</span><span class="w"> </span><span class="nv">items</span><span class="o">=</span><span class="m">2</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>PUBLISHED
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>$<span class="w"> </span>func<span class="w"> </span>lab<span class="w"> </span>publish<span class="w">            </span><span class="c1"># everything fresh; nothing re-runs</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>$<span class="w"> </span>func<span class="w"> </span><span class="nb">builtin</span><span class="w"> </span>why<span class="w"> </span>lab.publish
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>lab.publish<span class="w"> </span>→<span class="w"> </span>SKIP<span class="w"> </span><span class="o">(</span>already<span class="w"> </span><span class="k">done</span><span class="o">)</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">  </span>status<span class="w">  </span><span class="nb">test</span><span class="w"> </span>-f<span class="w"> </span>build/publish.stamp<span class="w"> </span>✓
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">  </span>fingerprint<span class="w">  </span><span class="m">1</span><span class="w"> </span>sources<span class="w"> </span>unchanged
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">  </span>deps<span class="w">  </span>lab.report<span class="w"> </span>✓<span class="w"> </span>fresh
+</code></pre></div>
+<p><code>func builtin why &lt;job&gt;</code> is the tool for every "why did/didn't this run"
+question, and it reports the verdict the executor would actually reach. It
+exits with that verdict too — <code>0</code> for a skip, <code>4</code> (<code>ExitCode.STALE</code>) for a job
+that would run — so a script can branch on it without parsing the text.</p>
+<h3 id="41-the-release-half-a-glob-a-group-flag-a-second-group-and-a-gate">4.1 The release half: a glob, a group flag, a second group, and a gate<a class="headerlink" href="#41-the-release-half-a-glob-a-group-flag-a-second-group-and-a-gate" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>  lab.publish ────────────► build/publish.stamp
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>     │  Deps + Fingerprint(generates=[&quot;dist/*.tar.gz&quot;])   a pattern, not a path
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>     ▼
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>  lab.bundle ─────────────► dist/lab-0.1.0.tar.gz        + GroupOptions(--strict)
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>     │  Gate(awaits=Approval)                            the walk pauses here
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>     ▼
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>  check.signoff                                          a *second* group
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>$<span class="w"> </span>func<span class="w"> </span>lab<span class="w"> </span>bundle<span class="w">             </span><span class="c1"># runs: dist/*.tar.gz matches nothing yet</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>BUNDLED<span class="w"> </span>lab-0.1.0.tar.gz<span class="w"> </span><span class="nv">strict</span><span class="o">=</span>False
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>$<span class="w"> </span>func<span class="w"> </span>lab<span class="w"> </span>bundle<span class="w">             </span><span class="c1"># fresh: the glob matches now</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>$<span class="w"> </span>func<span class="w"> </span>--force<span class="w"> </span>lab<span class="w"> </span>--strict<span class="w"> </span>bundle
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>BUNDLED<span class="w"> </span>lab-0.1.0.tar.gz<span class="w"> </span><span class="nv">strict</span><span class="o">=</span>True
+</code></pre></div>
+<p><code>--force</code> runs a job freshness would skip. <code>--strict</code> is declared <strong>once</strong> on
+the group and typed <em>mid-path</em> — <code>lab --strict bundle</code>, not
+<code>lab bundle --strict</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>$<span class="w"> </span>func<span class="w"> </span>lab<span class="w"> </span>release<span class="w">            </span><span class="c1"># blocks at the gate</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>Blocked:<span class="w"> </span>gate<span class="w"> </span><span class="s1">&#39;approval-gate&#39;</span><span class="w"> </span><span class="k">in</span><span class="w"> </span>scope<span class="w"> </span><span class="s1">&#39;f81eb2d5&#39;</span><span class="w"> </span>awaits<span class="w"> </span>input.
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span>func<span class="w"> </span><span class="nb">builtin</span><span class="w"> </span>workflow<span class="w"> </span>resume<span class="w"> </span>f81eb2d5<span class="w"> </span>approval-gate<span class="w"> </span>--input<span class="w"> </span><span class="s1">&#39;{…}&#39;</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">  </span>func<span class="w"> </span>lab<span class="w"> </span>release<span class="w"> </span>--scope-id<span class="w"> </span>f81eb2d5
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>$<span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="nv">$?</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="m">5</span>
+</code></pre></div>
+<p>Deposit the input and re-run with that scope id and the walk finishes. Omit the
+scope id and you open a <strong>new</strong> walk that blocks again — resuming is opt-in.</p>
+<h3 id="42-two-surfaces-over-one-declaration-set">4.2 Two surfaces over one declaration set<a class="headerlink" href="#42-two-surfaces-over-one-declaration-set" title="Permanent link">&para;</a></h3>
+<p>The lab ships <code>main.py</code> as well, and every claim on this page is verified
+against both:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>func<span class="w"> </span>lab<span class="w"> </span>publish<span class="w">             </span><span class="c1"># pre-boot dispatch, commands built from the live signature</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>python<span class="w"> </span>main.py<span class="w"> </span>lab<span class="w"> </span>publish<span class="w">   </span><span class="c1"># a FunctualizeApp: click&#39;s tree, built from cached descriptors</span>
+</code></pre></div>
+<p>They are two different builders, and they have disagreed — on a config field's
+default, and on whether <code>--scope-id</code> existed at all, which left a gated walk on
+an app entry point blocked, able to accept a deposit, and impossible to resume.
+Anything that passes on one surface and fails on the other is a finding, which
+is why <code>tests/test_composition_lab_e2e.py</code> is parameterised over both.</p>
+<hr />
+<h2 id="5-traps-at-the-intersections">5. Traps at the intersections<a class="headerlink" href="#5-traps-at-the-intersections" title="Permanent link">&para;</a></h2>
+<p>Each of these is a real defect the framework shipped, or a distinction that
+costs an afternoon. See
+<a href="https://github.com/raicing-ai/functualize/blob/master/contributor/reference/pitfalls.md"><code>contributor/reference/pitfalls.md</code></a>
+for the full list.</p>
+<h3 id="51-three-things-are-called-state-one-persists">5.1 Three things are called "state"; one persists<a class="headerlink" href="#51-three-things-are-called-state-one-persists" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Import</th>
+<th>Scope</th>
+<th>Persists?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>State</code> (capability)</td>
+<td><code>functualize.job</code></td>
+<td>one invocation</td>
+<td><strong>no</strong></td>
+</tr>
+<tr>
+<td><code>StateStore</code> (scope)</td>
+<td>internal</td>
+<td>one <code>WorkflowScope</code></td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>StateStore</code> (runtime)</td>
+<td><code>functualize.app.utils</code></td>
+<td>the project</td>
+<td><strong>yes</strong> — <code>.functualize/state.json</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>lab fanout</code> pins it: two children each set <code>state["slot"]</code>, and the parent
+reads <code>None</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>$ func lab fanout
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>WORKER slot=a state=a
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>WORKER slot=b state=b
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>FANOUT n=2 statuses=[&#39;Success&#39;, &#39;Success&#39;] parent_state=None
+</code></pre></div>
+<h3 id="52-a-refusal-is-not-a-failure-and-not-a-skip">5.2 A refusal is not a failure, and not a skip<a class="headerlink" href="#52-a-refusal-is-not-a-failure-and-not-a-skip" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Outcome</th>
+<th>Status</th>
+<th>Exit</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ran, returned</td>
+<td><code>SUCCESS</code></td>
+<td>0</td>
+<td></td>
+</tr>
+<tr>
+<td>guard said nothing to do</td>
+<td><code>SKIPPED</code></td>
+<td>0</td>
+<td>a skip is success at the boundary</td>
+</tr>
+<tr>
+<td>declined to start</td>
+<td><code>REFUSED</code></td>
+<td><strong>3</strong></td>
+<td>a <code>Precondition</code> failed, or declared sources resolved to nothing</td>
+</tr>
+<tr>
+<td>body raised</td>
+<td><code>FAILURE</code></td>
+<td>1</td>
+<td></td>
+</tr>
+<tr>
+<td>paused at a <code>Gate</code></td>
+<td><code>BLOCKED</code></td>
+<td>5</td>
+<td>ran successfully, resumable</td>
+</tr>
+</tbody>
+</table>
+<p><code>func lab gated</code> and <code>func lab verify</code> both exit 3 for the two different
+reasons. <strong>Do not treat exit 3 as a crash</strong>: nothing ran.</p>
+<h3 id="53-declaring-nothing-declaring-something-that-matches-nothing">5.3 Declaring nothing ≠ declaring something that matches nothing<a class="headerlink" href="#53-declaring-nothing-declaring-something-that-matches-nothing" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nd">@job</span><span class="p">(</span><span class="n">cache</span><span class="o">=</span><span class="n">Fingerprint</span><span class="p">(</span><span class="n">sources</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;absent/*.json&quot;</span><span class="p">]))</span>   <span class="c1"># refuses — exit 3</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="nd">@job</span><span class="p">()</span>                                               <span class="c1"># fine — nothing declared</span>
+</code></pre></div>
+<p><code>sources.declared</code> is how a body tells them apart. A stage that certifies
+success having verified nothing is the failure this distinction prevents.</p>
+<h3 id="54-a-missing-declared-output-forces-a-run">5.4 A missing declared output forces a run<a class="headerlink" href="#54-a-missing-declared-output-forces-a-run" title="Permanent link">&para;</a></h3>
+<p><code>generates</code> is part of the freshness question. Delete <code>build/report.md</code> and
+<code>lab report</code> runs again, even though its inputs are unchanged — it promised to
+produce that file.</p>
+<h3 id="55-output-is-a-global-flag">5.5 <code>--output</code> is a <em>global</em> flag<a class="headerlink" href="#55-output-is-a-global-flag" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>func<span class="w"> </span>--output<span class="w"> </span>json<span class="w"> </span>lab<span class="w"> </span>emit<span class="w">      </span><span class="c1"># correct</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>func<span class="w"> </span>lab<span class="w"> </span>emit<span class="w"> </span>--output<span class="w"> </span>json<span class="w">      </span><span class="c1"># Error: No such option &#39;--output&#39;</span>
+</code></pre></div>
+<p>A job's <strong>return value is programmatic</strong> — it feeds <code>FromJob</code> and <code>rc.invoke()</code>
+and never reaches stdout on its own. <code>out.emit()</code> is the explicit path, and it
+is the one that honours <code>--output</code>.</p>
+<h3 id="56-generates-entries-are-globs-not-literal-paths">5.6 <code>generates</code> entries are globs, not literal paths<a class="headerlink" href="#56-generates-entries-are-globs-not-literal-paths" title="Permanent link">&para;</a></h3>
+<p><code>generates=["dist/*.whl"]</code> — the form the <code>@job</code> docstring itself advertises —
+was tested with <code>(root / entry).exists()</code>, which is always false for a pattern.
+The job reported <code>output missing: dist/*.whl</code> forever and rebuilt on every
+invocation. It degrades to "always rebuild", never to an error, so the only
+symptom is a cache that quietly stops working. Both <code>sources</code> and <code>generates</code>
+are expanded the same way now, and a pattern matching <strong>nothing</strong> is a missing
+output that forces a run.</p>
+<h3 id="57-a-dependency-is-not-a-precondition">5.7 A dependency is not a precondition<a class="headerlink" href="#57-a-dependency-is-not-a-precondition" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="nd">@job</span><span class="p">(</span><span class="n">group</span><span class="o">=</span><span class="s2">&quot;check&quot;</span><span class="p">,</span> <span class="n">deps</span><span class="o">=</span><span class="n">Deps</span><span class="p">(</span><span class="s2">&quot;lab.bundle&quot;</span><span class="p">))</span>          <span class="c1"># correct</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="k">def</span><span class="w"> </span><span class="nf">signoff</span><span class="p">(</span><span class="o">...</span><span class="p">):</span> <span class="o">...</span>
+</code></pre></div>
+<p>Adding <code>Guards(preconditions=[Precondition(_archive_exists)])</code> on top reads
+like a safety net and is not one: <code>Deps</code> has already produced the archive by
+the time guards are evaluated, so the guard can never fire. Guard the <em>world</em>
+— things outside the graph that may not be fit to run in. Let <code>Deps</code> guard the
+graph.</p>
+<h3 id="58-a-mid-path-flag-does-not-cross-into-a-walk">5.8 A mid-path flag does not cross into a walk<a class="headerlink" href="#58-a-mid-path-flag-does-not-cross-into-a-walk" title="Permanent link">&para;</a></h3>
+<p><code>--strict</code> reaches <code>lab bundle</code> when you run it, and does not when the walk
+runs it:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>$<span class="w"> </span>func<span class="w"> </span>--force<span class="w"> </span>lab<span class="w"> </span>--strict<span class="w"> </span>bundle<span class="w">    </span><span class="c1"># bundle is what you launched</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>BUNDLED<span class="w"> </span>lab-0.1.0.tar.gz<span class="w"> </span><span class="nv">strict</span><span class="o">=</span>True
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>$<span class="w"> </span>func<span class="w"> </span>lab<span class="w"> </span>--strict<span class="w"> </span>release<span class="w">           </span><span class="c1"># bundle is a *step* of the walk</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>BUNDLED<span class="w"> </span>lab-0.1.0.tar.gz<span class="w"> </span><span class="nv">strict</span><span class="o">=</span>False
+</code></pre></div>
+<p>The flag layer belongs to the command line that typed it, and is not inherited
+by jobs the run reaches afterwards — <code>@workflow</code> steps, <code>Deps</code> upstreams and
+<code>rc.invoke</code> children alike. This is deliberate: a value typed at <code>lab</code> silently
+steering a job under another group is the failure it prevents.</p>
+<p>Every <strong>other</strong> layer does reach them, because each job resolves them for
+itself. To steer a whole walk, set one of those instead:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>$<span class="w"> </span><span class="nv">LAB__STRICT</span><span class="o">=</span><span class="nb">true</span><span class="w"> </span>func<span class="w"> </span>lab<span class="w"> </span>release<span class="w">   </span><span class="c1"># every step sees strict=True</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>BUNDLED<span class="w"> </span>lab-0.1.0.tar.gz<span class="w"> </span><span class="nv">strict</span><span class="o">=</span>True
+</code></pre></div>
+<p>Note the <strong>double</strong> underscore: a group option is <code>GROUP__FIELD</code>, prefixed by
+the group it is declared on, while a job's own config field is <code>JOB_FIELD</code>.
+<a href="../group-options/">Group Options</a> covers the rule and the same move from
+Python.</p>
+<hr />
+<h2 id="see-also">See Also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../task-runner/">Task Runner</a> — <code>@job</code>, <code>Deps</code>, <code>Fingerprint</code>, <code>Guards</code>, <code>Exec</code> in depth</li>
+<li><a href="../shell/">Shell Capability</a> — <code>Shell</code>, redaction, <code>FakeShell</code></li>
+<li><a href="../workflows/">Workflows</a> — <code>@workflow</code>, <code>Gate</code>, branching, <code>--scope-id</code></li>
+<li><a href="../job-config/">JobConfig with Pydantic</a> — the config ladder and <code>JOB_FIELD</code></li>
+<li><a href="../group-options/">Group Options</a> — flags shared by every job under a group</li>
+<li><a href="../ai/">AI Capability</a> and <a href="../mcp/">MCP Adapter</a> — exposing this to agents</li>
+<li><a href="../run-context/">RunContext Lifecycle</a> — the capability facade</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

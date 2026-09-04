@@ -1,0 +1,4738 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A reusable Python CLI framework with auto-discovery, structured run context, layered configuration, and TUI integration.">
+      
+      
+      
+        <link rel="canonical" href="https://raicing-ai.github.io/functualize/contributing/">
+      
+      
+        <link rel="prev" href="../examples/plugins/file-based-plugin/">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Contributing - Functualize</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#contributing" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Functualize" class="md-header__button md-logo" aria-label="Functualize" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Functualize
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Contributing
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/raicing-ai/functualize" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    raicing-ai/functualize
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../getting-started/" class="md-tabs__link">
+          
+  
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../guides/" class="md-tabs__link">
+          
+  
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../api/" class="md-tabs__link">
+          
+  
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../cli/" class="md-tabs__link">
+          
+  
+  
+  CLI Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../testing/tui-command-panel-manual-test/" class="md-tabs__link">
+          
+  
+  
+  Testing
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../examples/" class="md-tabs__link">
+          
+  
+  
+  Examples
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Contributing
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Functualize" class="md-nav__button md-logo" aria-label="Functualize" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Functualize
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/raicing-ai/functualize" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    raicing-ai/functualize
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/project-structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/modes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage Modes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/jobs-discovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Jobs and Auto-Discovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/group-options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Group Options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/job-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    JobConfig with Pydantic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/run-context/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RunContext Lifecycle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/domain-sdks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Domain SDKs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI Capability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/workflows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Adapter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/interactivity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interactivity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/tui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TUI Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/hooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/hooks-vs-plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hooks vs Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hierarchy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Projects
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/hierarchy-validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchy Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/shell/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Shell Capability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/task-runner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task Runner
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/composition/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Composing Capabilities
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/context/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Context
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/core/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Core
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/discovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/hierarchy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/hooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    CLI Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/aliases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Aliases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/discovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/global-config-directory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Global Config Directory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/inline-tui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inline TUI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/modes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Modes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/scaffold/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scaffold Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/user-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User App Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Testing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/tui-command-panel-manual-test/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TUI Command Panel Manual Test
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Examples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart (Steps 1-8)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_7_3" id="__nav_7_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Standalone
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Standalone
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/standalone/hello-world/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hello World
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/standalone/inline-dependencies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inline Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/standalone/ai-inbound/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI Inbound
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/standalone/ai-outbound/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI Outbound
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_7_4" id="__nav_7_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Project
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/project/http-service/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HTTP Service (functualize-http)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/project/lambda-handler/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lambda Handler (functualize-lambda)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_7_5" id="__nav_7_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Plugins
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/plugins/custom-state-backend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom State Backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/plugins/custom-adapter/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Adapter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/plugins/file-based-plugin/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    File-Based Plugin
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#required-toolchain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Required Toolchain
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#development-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Development Setup
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Development Setup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-clone-the-repository" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Clone the repository
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-install-tool-versions-with-mise" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Install tool versions with mise
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-install-dependencies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Install dependencies
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-install-pre-commit-hooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Install pre-commit hooks
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workspace-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workspace Structure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#internal-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Internal Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Internal Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#package-layout-overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Package Layout Overview
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#layer-dependency-graph" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Layer Dependency Graph
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-each-internal-package-does" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Each Internal Package Does
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#import-linter-contracts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Import-Linter Contracts
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Import-Linter Contracts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#running-lint-imports-locally" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running lint-imports Locally
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-composition-root-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Composition Root Pattern
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_types-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        _types/ Rules
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cli-dependency-isolation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CLI Dependency Isolation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-to-add-a-new-internal-module" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How to Add a New Internal Module
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How to Add a New Internal Module">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example-adding-a-caching-utility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: Adding a caching utility
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-to-add-a-new-public-api-symbol" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How to Add a New Public API Symbol
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running Tests
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Running Tests">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fast-tests-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fast tests (default)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#full-test-suite" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full test suite
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ci-equivalent-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CI-equivalent run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#quick-smoke-check-of-property-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick smoke-check of property tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test-tiers-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test tiers summary
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#targeting-specific-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Targeting specific tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#code-quality" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code Quality
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Code Quality">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#linting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Linting
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#formatting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Formatting
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#type-checking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Type Checking
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#import-linting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Import Linting
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#commit-message-convention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Commit Message Convention
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Commit Message Convention">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Format
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pull-request-guidelines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pull Request Guidelines
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pull Request Guidelines">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#branch-naming" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Branch Naming
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#before-submitting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Before Submitting
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ci-requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CI Requirements
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#review-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Review Process
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reporting-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reporting Issues
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#contributing-to-domain-sdk-packages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Contributing to Domain SDK Packages
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Contributing to Domain SDK Packages">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#rules-for-domain-sdks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rules for Domain SDKs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rules-for-implementation-plugins" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rules for Implementation Plugins
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#contributing-to-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Contributing to Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Contributing to Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example-requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example Requirements
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#running-example-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running Example Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#license" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        License
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#required-toolchain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Required Toolchain
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#development-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Development Setup
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Development Setup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-clone-the-repository" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Clone the repository
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-install-tool-versions-with-mise" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Install tool versions with mise
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-install-dependencies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Install dependencies
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-install-pre-commit-hooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Install pre-commit hooks
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workspace-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workspace Structure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#internal-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Internal Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Internal Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#package-layout-overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Package Layout Overview
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#layer-dependency-graph" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Layer Dependency Graph
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-each-internal-package-does" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Each Internal Package Does
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#import-linter-contracts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Import-Linter Contracts
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Import-Linter Contracts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#running-lint-imports-locally" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running lint-imports Locally
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-composition-root-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Composition Root Pattern
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_types-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        _types/ Rules
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cli-dependency-isolation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CLI Dependency Isolation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-to-add-a-new-internal-module" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How to Add a New Internal Module
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How to Add a New Internal Module">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example-adding-a-caching-utility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: Adding a caching utility
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-to-add-a-new-public-api-symbol" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How to Add a New Public API Symbol
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running Tests
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Running Tests">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fast-tests-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fast tests (default)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#full-test-suite" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full test suite
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ci-equivalent-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CI-equivalent run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#quick-smoke-check-of-property-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick smoke-check of property tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test-tiers-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test tiers summary
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#targeting-specific-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Targeting specific tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#code-quality" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code Quality
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Code Quality">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#linting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Linting
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#formatting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Formatting
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#type-checking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Type Checking
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#import-linting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Import Linting
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#commit-message-convention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Commit Message Convention
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Commit Message Convention">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Format
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pull-request-guidelines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pull Request Guidelines
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pull Request Guidelines">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#branch-naming" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Branch Naming
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#before-submitting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Before Submitting
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ci-requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CI Requirements
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#review-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Review Process
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reporting-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reporting Issues
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#contributing-to-domain-sdk-packages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Contributing to Domain SDK Packages
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Contributing to Domain SDK Packages">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#rules-for-domain-sdks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rules for Domain SDKs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rules-for-implementation-plugins" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rules for Implementation Plugins
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#contributing-to-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Contributing to Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Contributing to Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example-requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example Requirements
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#running-example-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running Example Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#license" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        License
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="contributing">Contributing<a class="headerlink" href="#contributing" title="Permanent link">&para;</a></h1>
+<p>Thanks for your interest in contributing to Functualize! This guide covers everything you need to get started with development.</p>
+<h2 id="required-toolchain">Required Toolchain<a class="headerlink" href="#required-toolchain" title="Permanent link">&para;</a></h2>
+<p>Before contributing, ensure you have the following tools installed:</p>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Minimum Version</th>
+<th>Purpose</th>
+<th>Installation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Python</td>
+<td>3.11+</td>
+<td>Runtime and development</td>
+<td><a href="https://www.python.org/downloads/">python.org</a> or via mise</td>
+</tr>
+<tr>
+<td>uv</td>
+<td>latest</td>
+<td>Package and environment management</td>
+<td><a href="https://docs.astral.sh/uv/getting-started/installation/">docs.astral.sh/uv</a></td>
+</tr>
+<tr>
+<td>mise</td>
+<td>latest</td>
+<td>Tool version management</td>
+<td><a href="https://mise.jdx.dev/getting-started.html">mise.jdx.dev</a></td>
+</tr>
+<tr>
+<td>pre-commit</td>
+<td>4.0+</td>
+<td>Git hook management</td>
+<td>Installed via dev dependencies</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition tip">
+<p class="admonition-title">Using mise</p>
+<p>mise manages Python and uv versions from the project's <code>mise.toml</code>. Running <code>mise install</code> after cloning ensures you have the correct tool versions.</p>
+</div>
+<h2 id="development-setup">Development Setup<a class="headerlink" href="#development-setup" title="Permanent link">&para;</a></h2>
+<h3 id="1-clone-the-repository">1. Clone the repository<a class="headerlink" href="#1-clone-the-repository" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/raicing-ai/functualize.git
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nb">cd</span><span class="w"> </span>functualize
+</code></pre></div>
+<h3 id="2-install-tool-versions-with-mise">2. Install tool versions with mise<a class="headerlink" href="#2-install-tool-versions-with-mise" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>mise<span class="w"> </span>install
+</code></pre></div>
+<p>This installs the correct Python and uv versions defined in <code>mise.toml</code>.</p>
+<h3 id="3-install-dependencies">3. Install dependencies<a class="headerlink" href="#3-install-dependencies" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--group<span class="w"> </span>dev
+</code></pre></div>
+<p>This creates a virtual environment (<code>.venv</code>) and installs all runtime and development dependencies, including all workspace plugin packages.</p>
+<h3 id="4-install-pre-commit-hooks">4. Install pre-commit hooks<a class="headerlink" href="#4-install-pre-commit-hooks" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>uv<span class="w"> </span>run<span class="w"> </span>pre-commit<span class="w"> </span>install
+</code></pre></div>
+<div class="admonition warning">
+<p class="admonition-title">Required step</p>
+<p>You <strong>must</strong> install pre-commit hooks after cloning the repository. These hooks run automatically on every commit to enforce code quality standards before code reaches CI.</p>
+</div>
+<p>The pre-commit configuration (<code>.pre-commit-config.yaml</code>) includes the following hooks:</p>
+<table>
+<thead>
+<tr>
+<th>Hook</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>trailing-whitespace</code></td>
+<td>Removes trailing whitespace</td>
+</tr>
+<tr>
+<td><code>end-of-file-fixer</code></td>
+<td>Ensures files end with a newline</td>
+</tr>
+<tr>
+<td><code>check-yaml</code></td>
+<td>Validates YAML syntax</td>
+</tr>
+<tr>
+<td><code>check-toml</code></td>
+<td>Validates TOML syntax</td>
+</tr>
+<tr>
+<td><code>check-added-large-files</code></td>
+<td>Prevents files larger than 500KB</td>
+</tr>
+<tr>
+<td><code>check-merge-conflict</code></td>
+<td>Detects unresolved merge conflict markers</td>
+</tr>
+<tr>
+<td><code>detect-private-key</code></td>
+<td>Prevents committing private keys</td>
+</tr>
+<tr>
+<td><code>ruff</code></td>
+<td>Lints Python code (with auto-fix)</td>
+</tr>
+<tr>
+<td><code>ruff-format</code></td>
+<td>Formats Python code</td>
+</tr>
+<tr>
+<td><code>gitleaks</code></td>
+<td>Scans for secrets and credentials</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="workspace-structure">Workspace Structure<a class="headerlink" href="#workspace-structure" title="Permanent link">&para;</a></h2>
+<p>The repository is a <strong>uv workspace</strong> with multiple packages:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>functualize/                          ← Root workspace
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>├── src/functualize/                  ← Core framework
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>├── plugins/
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>│   ├── functualize-state/            ← Domain SDK: StateBackend, ExecutionStore
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>│   ├── functualize-ai/               ← Domain SDK: AI capability
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>│   ├── functualize-tasks/            ← Domain SDK: Tasks capability
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>│   ├── functualize-ai-pydantic/      ← Implementation: PydanticAI + LiteLLM
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>│   ├── functualize-state-sqlite/     ← Implementation: SQLite persistence
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>│   ├── functualize-tasks-local/      ← Implementation: StateBackend-backed tasks
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>│   ├── functualize-mcp/              ← Delivery: MCP adapter (FastMCP)
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>│   ├── functualize-http/             ← Delivery: HTTP adapter
+<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>│   ├── functualize-lambda/           ← Delivery: AWS Lambda adapter
+<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a>│   ├── functualize-inline/           ← Interactivity: CLI inline prompts (PromptCollector)
+<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a>│   └── functualize-flow-viz/         ← Visualization utility
+<a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a>├── examples/                         ← Working examples (quickstart, standalone, project, plugins)
+<a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a>├── tests/                            ← Core framework tests
+<a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a>└── docs/                             ← Documentation (MkDocs Material)
+</code></pre></div>
+<p>Each plugin in <code>plugins/</code> is a standalone Python package with its own <code>pyproject.toml</code>, registered as a workspace member. Install everything with:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--all-packages
+</code></pre></div>
+<hr />
+<h2 id="internal-architecture">Internal Architecture<a class="headerlink" href="#internal-architecture" title="Permanent link">&para;</a></h2>
+<p>This section is for <strong>framework contributors</strong> — people working on functualize internals. It explains the layer dependency graph, enforcement rules, and how to safely modify the codebase.</p>
+<h3 id="package-layout-overview">Package Layout Overview<a class="headerlink" href="#package-layout-overview" title="Permanent link">&para;</a></h3>
+<p>The source tree at <code>src/functualize/</code> is split into <strong>5 public directories</strong> (stable API for users) and <strong>9 internal directories</strong> (underscore-prefixed, implementation details):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>src/functualize/
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>├── app/              # Public: app construction, adapters, presets
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>├── job/              # Public: job author API (RunContext, capabilities)
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>├── plugin/           # Public: plugin author API (EventBus, protocols)
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>├── types/            # Public: shared types (JobDescriptor, enums)
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>├── testing/          # Public: test utilities (TestRunContext, mocks)
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>├── workflow/         # Public: @workflow decorator, Step, Edge, ConditionalEdge, END
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>├── _types/           # Internal: shared vocabulary (frozen dataclasses, enums, protocols)
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>├── _primitives/      # Internal: zero-dep foundation utilities
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>├── _events/          # Internal: cross-cutting event system
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>├── _discovery/       # Internal: job finding, caching, hierarchy
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>├── _config/          # Internal: config resolution chain, sources
+<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a>├── _engine/          # Internal: execution lifecycle, capabilities
+<a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a>├── _plugins/         # Internal: plugin loading machinery
+<a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a>├── _gate/            # Internal: gate resolution system
+<a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a>├── _app/             # Internal: composition root (boot, wiring)
+<a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a>├── _cli/             # Internal: CLI delivery (uses PUBLIC API only)
+<a id="__codelineno-6-18" name="__codelineno-6-18" href="#__codelineno-6-18"></a>├── __init__.py       # Re-exports: FunctualizeApp, RunContext, workflow types, gate types
+<a id="__codelineno-6-19" name="__codelineno-6-19" href="#__codelineno-6-19"></a>└── __main__.py       # Entry point
+</code></pre></div>
+<h3 id="layer-dependency-graph">Layer Dependency Graph<a class="headerlink" href="#layer-dependency-graph" title="Permanent link">&para;</a></h3>
+<p>The dependency rules flow strictly downward. Each layer may only import from layers above it in this diagram:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>┌─────────────────────────────────────────────────────────────┐
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>│                      _types/                                  │
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>│   Frozen dataclasses, Enums, Protocols — zero logic          │
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>│   Imports: stdlib ONLY                                       │
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>└──────────────────────────────┬──────────────────────────────┘
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>                               │
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>┌──────────────────────────────▼──────────────────────────────┐
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>│                    _primitives/                               │
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>│   DIRegistry, ResourceLocator, MiddlewareChain, lazy_cached, │
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>│   resilient — zero third-party deps                          │
+<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>│   Imports: _types/, stdlib                                   │
+<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a>└──────────────────────────────┬──────────────────────────────┘
+<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a>                               │
+<a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a>┌──────────────────────────────▼──────────────────────────────┐
+<a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a>│                     _events/                                  │
+<a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a>│   EventBus, HookRegistry, PropagationContext, PerfTimeline   │
+<a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a>│   Imports: _types/, _primitives/                             │
+<a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a>└───┬──────────────┬───────────────┬──────────────┬───────────┘
+<a id="__codelineno-7-19" name="__codelineno-7-19" href="#__codelineno-7-19"></a>    │              │               │              │
+<a id="__codelineno-7-20" name="__codelineno-7-20" href="#__codelineno-7-20"></a>┌───▼────┐   ┌────▼─────┐   ┌────▼────┐   ┌────▼─────┐
+<a id="__codelineno-7-21" name="__codelineno-7-21" href="#__codelineno-7-21"></a>│_discovery│  │ _config/ │   │_engine/ │   │_plugins/ │  ← PEER LAYERS
+<a id="__codelineno-7-22" name="__codelineno-7-22" href="#__codelineno-7-22"></a>│         │  │          │   │         │   │          │    (independent)
+<a id="__codelineno-7-23" name="__codelineno-7-23" href="#__codelineno-7-23"></a>└───┬─────┘  └────┬─────┘   └────┬────┘   └────┬─────┘
+<a id="__codelineno-7-24" name="__codelineno-7-24" href="#__codelineno-7-24"></a>    │              │              │              │
+<a id="__codelineno-7-25" name="__codelineno-7-25" href="#__codelineno-7-25"></a>    │   Each imports ONLY from: _types/, _primitives/, _events/
+<a id="__codelineno-7-26" name="__codelineno-7-26" href="#__codelineno-7-26"></a>    │   Each NEVER imports from another peer layer
+<a id="__codelineno-7-27" name="__codelineno-7-27" href="#__codelineno-7-27"></a>    │              │              │              │
+<a id="__codelineno-7-28" name="__codelineno-7-28" href="#__codelineno-7-28"></a>┌───▼──────────────▼──────────────▼──────────────▼────────────┐
+<a id="__codelineno-7-29" name="__codelineno-7-29" href="#__codelineno-7-29"></a>│                       _app/                                   │
+<a id="__codelineno-7-30" name="__codelineno-7-30" href="#__codelineno-7-30"></a>│   Composition root — sole cross-layer wiring point           │
+<a id="__codelineno-7-31" name="__codelineno-7-31" href="#__codelineno-7-31"></a>│   Imports: ALL internal layers (except _cli/)                │
+<a id="__codelineno-7-32" name="__codelineno-7-32" href="#__codelineno-7-32"></a>└──────────────────────────────┬──────────────────────────────┘
+<a id="__codelineno-7-33" name="__codelineno-7-33" href="#__codelineno-7-33"></a>                               │
+<a id="__codelineno-7-34" name="__codelineno-7-34" href="#__codelineno-7-34"></a>                   (public API boundary)
+<a id="__codelineno-7-35" name="__codelineno-7-35" href="#__codelineno-7-35"></a>                               │
+<a id="__codelineno-7-36" name="__codelineno-7-36" href="#__codelineno-7-36"></a>┌──────────────────────────────▼──────────────────────────────┐
+<a id="__codelineno-7-37" name="__codelineno-7-37" href="#__codelineno-7-37"></a>│                       _cli/                                   │
+<a id="__codelineno-7-38" name="__codelineno-7-38" href="#__codelineno-7-38"></a>│   CLI delivery — uses PUBLIC API ONLY                        │
+<a id="__codelineno-7-39" name="__codelineno-7-39" href="#__codelineno-7-39"></a>│   Imports: app/, job/, plugin/, types/, testing/             │
+<a id="__codelineno-7-40" name="__codelineno-7-40" href="#__codelineno-7-40"></a>│   NEVER imports from any _-prefixed package                  │
+<a id="__codelineno-7-41" name="__codelineno-7-41" href="#__codelineno-7-41"></a>└─────────────────────────────────────────────────────────────┘
+</code></pre></div>
+<h3 id="what-each-internal-package-does">What Each Internal Package Does<a class="headerlink" href="#what-each-internal-package-does" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Package</th>
+<th>Responsibility</th>
+<th>Key Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>_types/</code></td>
+<td>Shared vocabulary — zero logic</td>
+<td>Frozen <code>@dataclass</code> (JobDescriptor, FieldDescriptor, JobResult, CacheInfo), Enums (RunStatus, RunType, JobPhase), Protocols (JobProvider, AdapterPlugin, Surface, PromptCollector, etc.)</td>
+</tr>
+<tr>
+<td><code>_primitives/</code></td>
+<td>Foundation utilities with zero third-party deps</td>
+<td><code>di.py</code> (DIRegistry), <code>locator.py</code> (ResourceLocator), <code>middleware.py</code> (MiddlewareChain), <code>lazy.py</code> (lazy_cached descriptor), <code>resilient.py</code> (resilient generator wrapper), <code>modules.py</code> (iter_module_files)</td>
+</tr>
+<tr>
+<td><code>_events/</code></td>
+<td>Cross-cutting event system</td>
+<td><code>bus.py</code> (EventBus — trie-based topic router), <code>hooks.py</code> (HookRegistry), <code>tracing.py</code> (PropagationContext), <code>perf.py</code> (PerfTimeline)</td>
+</tr>
+<tr>
+<td><code>_discovery/</code></td>
+<td>Job finding + caching</td>
+<td><code>providers.py</code> (DirectoryScan, Cached, Static, EntryPoint), <code>transforms.py</code> (Namespace, GroupByModule), <code>cache.py</code> (persistence + sync), <code>hierarchy.py</code> (child projects), <code>pipeline.py</code> (ResolutionPipeline)</td>
+</tr>
+<tr>
+<td><code>_config/</code></td>
+<td>Configuration resolution</td>
+<td><code>chain.py</code> (ResolutionChain), <code>sources.py</code> (Cli/Env/File/Remote/Default), <code>job_config.py</code> (JobConfigView), <code>providers/</code> (<code>TomlFormatProvider</code> registered by default; <code>IniFormatProvider</code> in-tree, plugin-registered only — ADR-007)</td>
+</tr>
+<tr>
+<td><code>_engine/</code></td>
+<td>Execution lifecycle</td>
+<td><code>executor.py</code> (JobExecutionEngine), <code>middleware.py</code> (execution middleware), <code>context.py</code> (ExecutionContext), <code>capabilities/invoke.py</code> (Invoke), <code>capabilities/workflow.py</code> (WorkflowTracker)</td>
+</tr>
+<tr>
+<td><code>_plugins/</code></td>
+<td>Plugin loading machinery</td>
+<td><code>loader.py</code> (discovery + dependency sort + loading), <code>config.py</code> (PluginConfigRegistry)</td>
+</tr>
+<tr>
+<td><code>_app/</code></td>
+<td>Composition root — boot orchestration</td>
+<td><code>boot.py</code> (provider wiring, config chain, plugin loading), <code>impl.py</code> (FunctualizeApp internals), <code>state.py</code> (AppState)</td>
+</tr>
+<tr>
+<td><code>_cli/</code></td>
+<td>CLI delivery layer</td>
+<td><code>main.py</code> (entry point), <code>builtins.py</code> (cache/version commands), <code>scaffold/</code> (scaffold sub-command with Click + Jinja2)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="import-linter-contracts">Import-Linter Contracts<a class="headerlink" href="#import-linter-contracts" title="Permanent link">&para;</a></h3>
+<p>Layer dependencies are <strong>enforced in CI</strong> via <a href="https://import-linter.readthedocs.io/">import-linter</a>. Five contracts are configured in <code>pyproject.toml</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Contract</th>
+<th>Type</th>
+<th>What It Enforces</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>"Peer layers are independent"</td>
+<td><code>independence</code></td>
+<td><code>_discovery</code>, <code>_config</code>, <code>_engine</code>, <code>_plugins</code> cannot import from each other</td>
+</tr>
+<tr>
+<td>"Primitives import nothing internal"</td>
+<td><code>forbidden</code></td>
+<td><code>_primitives</code> cannot import <code>_events</code>, <code>_discovery</code>, <code>_config</code>, <code>_engine</code>, <code>_plugins</code>, <code>_app</code>, <code>_cli</code></td>
+</tr>
+<tr>
+<td>"Types import nothing internal"</td>
+<td><code>forbidden</code></td>
+<td><code>_types</code> cannot import any other <code>_</code>-prefixed package</td>
+</tr>
+<tr>
+<td>"Internal never imports public"</td>
+<td><code>forbidden</code></td>
+<td><code>_types</code> through <code>_app</code> cannot import <code>app/</code>, <code>job/</code>, <code>plugin/</code>, <code>types/</code>, <code>testing/</code></td>
+</tr>
+<tr>
+<td>"_cli uses public API only"</td>
+<td><code>forbidden</code></td>
+<td><code>_cli</code> cannot import any <code>_</code>-prefixed internal package</td>
+</tr>
+</tbody>
+</table>
+<h4 id="running-lint-imports-locally">Running lint-imports Locally<a class="headerlink" href="#running-lint-imports-locally" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>uv<span class="w"> </span>run<span class="w"> </span>lint-imports
+</code></pre></div>
+<p>Run this before pushing any change that adds or modifies imports. A contract violation looks like:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>functualize._discovery imports functualize._config
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>  (violates contract &quot;Peer layers are independent&quot;)
+</code></pre></div>
+<p>If you see a violation, it means your import breaks the architecture. The fix is always one of:</p>
+<ol>
+<li>Move the shared code to a lower layer (<code>_types/</code>, <code>_primitives/</code>, or <code>_events/</code>)</li>
+<li>Define a Protocol in <code>_types/</code> and inject the implementation via <code>_app/</code></li>
+<li>Use the EventBus for cross-layer communication</li>
+</ol>
+<h3 id="the-composition-root-pattern">The Composition Root Pattern<a class="headerlink" href="#the-composition-root-pattern" title="Permanent link">&para;</a></h3>
+<p><code>_app/</code> is the <strong>only</strong> internal package allowed to import from all peer layers. This is where dependency injection wiring happens:</p>
+<ul>
+<li><code>_app/boot.py</code> — constructs providers from <code>_discovery</code>, builds the resolution chain from <code>_config</code>, initializes the engine from <code>_engine</code>, loads plugins from <code>_plugins</code></li>
+<li><code>_app/impl.py</code> — heavy internal methods that the public <code>FunctualizeApp</code> facade delegates to</li>
+<li><code>_app/state.py</code> — application state container</li>
+</ul>
+<p><strong>Why this matters:</strong> If two peer layers need to communicate (e.g., <code>_engine</code> needs a discovered job list from <code>_discovery</code>), they don't import each other. Instead, <code>_app/boot.py</code> passes the data between them during construction.</p>
+<p>This means:
+- Peer layers are independently testable (no hidden coupling)
+- Refactoring one peer layer doesn't cascade to others
+- The wiring logic is consolidated in one auditable location</p>
+<h3 id="_types-rules"><code>_types/</code> Rules<a class="headerlink" href="#_types-rules" title="Permanent link">&para;</a></h3>
+<p>The <code>_types/</code> package is special — it's the <strong>shared vocabulary</strong> that every layer can depend on. Strict rules apply:</p>
+<ol>
+<li><strong>No logic.</strong> Function/method bodies may only contain <code>...</code>, <code>pass</code>, or <code>return self.&lt;field&gt;</code> (trivial property accessors)</li>
+<li><strong>No internal imports.</strong> <code>_types/</code> cannot import from any other <code>_</code>-prefixed package</li>
+<li><strong>Only data + protocols.</strong> Allowed contents:<ul>
+<li>Frozen <code>@dataclass</code> definitions</li>
+<li><code>Enum</code> classes</li>
+<li><code>Protocol</code> definitions (abstract interfaces)</li>
+</ul>
+</li>
+</ol>
+<p>This prevents circular imports and ensures the shared vocabulary layer has zero coupling to implementations.</p>
+<h3 id="cli-dependency-isolation">CLI Dependency Isolation<a class="headerlink" href="#cli-dependency-isolation" title="Permanent link">&para;</a></h3>
+<p>The CLI layer is <strong>click-native</strong> — the framework no longer depends on Typer
+(or Trogon) at all. Isolation is enforced by <code>tests/test_typer_isolation.py</code>
+and has two rules:</p>
+<ol>
+<li>
+<p><strong>Public-API boundary.</strong> Importing <code>functualize.app</code> or <code>functualize.job</code>
+   must not pull <code>typer</code>, <code>click</code>, <code>rich</code>, or <code>textual</code> into <code>sys.modules</code>.
+   Lambda, HTTP, and programmatic deployments stay free of CLI dependencies.</p>
+</li>
+<li>
+<p><strong>Kernel packages.</strong> The internal packages (<code>_types/</code>, <code>_primitives/</code>,
+   <code>_events/</code>, <code>_discovery/</code>, <code>_config/</code>, <code>_engine/</code>, <code>_plugins/</code>, <code>_app/</code>)
+   must have <strong>zero runtime imports</strong> of <code>textual</code>, <code>rich</code>, or <code>jinja2</code>
+   (and <code>typer</code>, which no longer exists in the tree). <code>click</code> is the one
+   exception: it is a lightweight argument-parsing library that a kernel
+   module may use directly — <code>_config/cli_adapter.py</code> reads explicit values
+   off a <code>click.Context</code>. It stays out of the public-API boundary above, so
+   <code>import functualize.app</code> still never loads it.</p>
+</li>
+</ol>
+<p>Command trees are built from <code>JobDescriptor</code> metadata in the delivery layer —
+<code>app/adapters/click_params.py</code> (schema → <code>click.Parameter</code>s), <code>cli.py</code>
+(<code>CliAdapter</code> → <code>click.Group</code>), <code>lazy_command.py</code> (cached-metadata commands),
+<code>_cli/main.py</code>, and <code>_cli/scaffold/cli.py</code>.</p>
+<p><code>TYPE_CHECKING</code>-guarded imports of these libraries (for type annotations only)
+are permitted anywhere since they have no runtime effect.</p>
+<h3 id="how-to-add-a-new-internal-module">How to Add a New Internal Module<a class="headerlink" href="#how-to-add-a-new-internal-module" title="Permanent link">&para;</a></h3>
+<p>When you need a new internal module, follow this decision process:</p>
+<ol>
+<li>
+<p><strong>Determine which layer it belongs to</strong> based on its dependencies:</p>
+<table>
+<thead>
+<tr>
+<th>If it needs...</th>
+<th>It belongs in...</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Nothing (stdlib only)</td>
+<td><code>_types/</code> (if data/protocol) or <code>_primitives/</code> (if utility)</td>
+</tr>
+<tr>
+<td>Only <code>_types/</code></td>
+<td><code>_primitives/</code></td>
+</tr>
+<tr>
+<td><code>_types/</code> + <code>_primitives/</code></td>
+<td><code>_events/</code> (if event-related)</td>
+</tr>
+<tr>
+<td><code>_types/</code> + <code>_primitives/</code> + <code>_events/</code></td>
+<td>One of the peer layers (<code>_discovery/</code>, <code>_config/</code>, <code>_engine/</code>, <code>_plugins/</code>) based on domain</td>
+</tr>
+<tr>
+<td>Multiple peer layers</td>
+<td><code>_app/</code> (composition root)</td>
+</tr>
+</tbody>
+</table>
+</li>
+<li>
+<p><strong>Create the module</strong> in the appropriate package directory</p>
+</li>
+<li>
+<p><strong>Verify the layer rules</strong> by running:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>uv<span class="w"> </span>run<span class="w"> </span>lint-imports
+</code></pre></div>
+</li>
+<li>
+<p><strong>Never</strong> create a module that needs to import from two peer layers — if you find yourself needing this, the abstraction belongs in a lower layer or should be wired through <code>_app/</code></p>
+</li>
+</ol>
+<h4 id="example-adding-a-caching-utility">Example: Adding a caching utility<a class="headerlink" href="#example-adding-a-caching-utility" title="Permanent link">&para;</a></h4>
+<p>If you're adding a generic caching decorator with no domain-specific logic:
+- It goes in <code>_primitives/</code> (zero third-party deps, used by multiple layers)
+- It may import from <code>_types/</code> for type definitions
+- It must not import from <code>_events/</code> or any peer layer</p>
+<p>If you're adding a cache for discovered jobs specifically:
+- It goes in <code>_discovery/</code> (domain-specific to job finding)
+- It may import from <code>_types/</code>, <code>_primitives/</code>, <code>_events/</code>
+- It must not import from <code>_config/</code>, <code>_engine/</code>, <code>_plugins/</code>, <code>_app/</code>, or <code>_cli/</code></p>
+<h3 id="how-to-add-a-new-public-api-symbol">How to Add a New Public API Symbol<a class="headerlink" href="#how-to-add-a-new-public-api-symbol" title="Permanent link">&para;</a></h3>
+<p>Public API symbols are what users import. Adding one requires updates in multiple places:</p>
+<ol>
+<li>
+<p><strong>Implement the symbol</strong> — typically a class, function, or type in the appropriate internal package</p>
+</li>
+<li>
+<p><strong>Export from the correct public directory</strong> — choose based on audience:</p>
+<table>
+<thead>
+<tr>
+<th>Audience</th>
+<th>Public directory</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>App constructors</td>
+<td><code>app/</code></td>
+</tr>
+<tr>
+<td>Job authors</td>
+<td><code>job/</code></td>
+</tr>
+<tr>
+<td>Plugin authors</td>
+<td><code>plugin/</code></td>
+</tr>
+<tr>
+<td>Shared types</td>
+<td><code>types/</code></td>
+</tr>
+<tr>
+<td>Test utilities</td>
+<td><code>testing/</code></td>
+</tr>
+</tbody>
+</table>
+</li>
+<li>
+<p><strong>Add to <code>__all__</code></strong> in that directory's <code>__init__.py</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># e.g., in src/functualize/types/__init__.py</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>    <span class="s2">&quot;JobResult&quot;</span><span class="p">,</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>    <span class="s2">&quot;JobDescriptor&quot;</span><span class="p">,</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>    <span class="s2">&quot;FieldDescriptor&quot;</span><span class="p">,</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>    <span class="s2">&quot;RunStatus&quot;</span><span class="p">,</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a>    <span class="s2">&quot;RunType&quot;</span><span class="p">,</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>    <span class="s2">&quot;JobPhase&quot;</span><span class="p">,</span>
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a>    <span class="s2">&quot;CacheInfo&quot;</span><span class="p">,</span>
+<a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a>    <span class="s2">&quot;YourNewType&quot;</span><span class="p">,</span>  <span class="c1"># ← add here</span>
+<a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a><span class="p">]</span>
+</code></pre></div>
+</li>
+<li>
+<p><strong>Verify <code>_cli/</code> can use it</strong> — since <code>_cli/</code> operates exclusively through the public API, any symbol needed by the CLI must be exported publicly. If you're adding a symbol that the CLI will use, confirm it's reachable via a public import path.</p>
+</li>
+<li>
+<p><strong>Run the checks:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>uv<span class="w"> </span>run<span class="w"> </span>lint-imports<span class="w">       </span><span class="c1"># Verify no contract violations</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>uv<span class="w"> </span>run<span class="w"> </span>mypy<span class="w"> </span>src/<span class="w">          </span><span class="c1"># Verify type correctness</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w">             </span><span class="c1"># Verify nothing broke</span>
+</code></pre></div>
+</li>
+</ol>
+<div class="admonition warning">
+<p class="admonition-title">The <code>_cli/</code> dogfooding rule</p>
+<p>The <code>_cli/</code> package is not allowed to import from any <code>_</code>-prefixed internal package. If you find that <code>_cli/</code> needs functionality that isn't available through the public API, the correct solution is to <strong>add it to the public API</strong> — not to break the import rule. This ensures the public API is complete enough for any external consumer (GUI, HTTP runner, CI tool) to do everything the CLI does.</p>
+</div>
+<hr />
+<h2 id="running-tests">Running Tests<a class="headerlink" href="#running-tests" title="Permanent link">&para;</a></h2>
+<p>The test suite is split into <strong>fast</strong> (unit) and <strong>slow</strong> (property-based / Hypothesis) tiers. By default, only fast tests run — giving you quick feedback during development.</p>
+<h3 id="fast-tests-default">Fast tests (default)<a class="headerlink" href="#fast-tests-default" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest
+</code></pre></div>
+<p>This skips all property-based tests (files named <code>*_properties.py</code>, <code>*_props.py</code>, <code>*_property.py</code>) and runs only unit/integration tests. Target: under 10 seconds.</p>
+<h3 id="full-test-suite">Full test suite<a class="headerlink" href="#full-test-suite" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>--run-slow
+</code></pre></div>
+<p>Includes property-based tests with the default Hypothesis profile (100 examples per test).</p>
+<h3 id="ci-equivalent-run">CI-equivalent run<a class="headerlink" href="#ci-equivalent-run" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="nv">HYPOTHESIS_PROFILE</span><span class="o">=</span>ci<span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>--run-slow<span class="w"> </span>--cov<span class="o">=</span>functualize<span class="w"> </span>-n<span class="w"> </span>auto
+</code></pre></div>
+<p>Runs all tests in parallel across CPU cores with coverage measurement.</p>
+<p>The <code>HYPOTHESIS_PROFILE=ci</code> prefix is what makes this equivalent to CI, not a refinement
+of it. The <code>ci</code> profile draws 200 examples per property where the default draws 100, so
+it reaches inputs a plain <code>--run-slow</code> never generates — a suite that passes locally
+without it can still fail on CI.</p>
+<h3 id="quick-smoke-check-of-property-tests">Quick smoke-check of property tests<a class="headerlink" href="#quick-smoke-check-of-property-tests" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="nv">HYPOTHESIS_PROFILE</span><span class="o">=</span>dev<span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>--run-slow
+</code></pre></div>
+<p>Runs property tests with only 10 examples each — useful for a quick sanity check before pushing.</p>
+<h3 id="test-tiers-summary">Test tiers summary<a class="headerlink" href="#test-tiers-summary" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>What runs</th>
+<th>When to use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>uv run pytest</code></td>
+<td>Unit tests only</td>
+<td>After every change</td>
+</tr>
+<tr>
+<td><code>uv run pytest --run-slow</code></td>
+<td>All tests including property-based</td>
+<td>Before pushing</td>
+</tr>
+<tr>
+<td><code>HYPOTHESIS_PROFILE=dev uv run pytest --run-slow</code></td>
+<td>All tests, 10 hypothesis examples</td>
+<td>Quick full check</td>
+</tr>
+<tr>
+<td><code>HYPOTHESIS_PROFILE=ci uv run pytest --run-slow --cov=functualize -n auto</code></td>
+<td>Full CI equivalent</td>
+<td>Replicate CI locally</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition tip">
+<p class="admonition-title">Hypothesis profiles</p>
+<p>The project defines three Hypothesis profiles:</p>
+<ul>
+<li><strong>dev</strong> — 10 examples (quick smoke-check)</li>
+<li><strong>default</strong> — 100 examples (balanced)</li>
+<li><strong>ci</strong> — 200 examples (thorough, used in GitHub Actions)</li>
+</ul>
+<p>Set the profile via environment variable: <code>HYPOTHESIS_PROFILE=dev</code></p>
+</div>
+<h3 id="targeting-specific-tests">Targeting specific tests<a class="headerlink" href="#targeting-specific-tests" title="Permanent link">&para;</a></h3>
+<p>Run a specific test file:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/core/test_state.py
+</code></pre></div>
+<p>Run tests matching a name pattern:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>-k<span class="w"> </span><span class="s2">&quot;test_discovery&quot;</span>
+</code></pre></div>
+<p>Run tests with verbose output:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>-v
+</code></pre></div>
+<h2 id="code-quality">Code Quality<a class="headerlink" href="#code-quality" title="Permanent link">&para;</a></h2>
+<h3 id="linting">Linting<a class="headerlink" href="#linting" title="Permanent link">&para;</a></h3>
+<p>Check for code issues with ruff:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>check<span class="w"> </span>src/<span class="w"> </span>tests/
+</code></pre></div>
+<p>Auto-fix linting issues:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>check<span class="w"> </span>--fix<span class="w"> </span>src/<span class="w"> </span>tests/
+</code></pre></div>
+<h3 id="formatting">Formatting<a class="headerlink" href="#formatting" title="Permanent link">&para;</a></h3>
+<p>Check formatting without making changes:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>format<span class="w"> </span>--check<span class="w"> </span>src/<span class="w"> </span>tests/
+</code></pre></div>
+<p>Apply formatting:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>format<span class="w"> </span>src/<span class="w"> </span>tests/
+</code></pre></div>
+<h3 id="type-checking">Type Checking<a class="headerlink" href="#type-checking" title="Permanent link">&para;</a></h3>
+<p>Run mypy for static type analysis:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>uv<span class="w"> </span>run<span class="w"> </span>mypy<span class="w"> </span>src/
+</code></pre></div>
+<h3 id="import-linting">Import Linting<a class="headerlink" href="#import-linting" title="Permanent link">&para;</a></h3>
+<p>Verify layer dependency contracts:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>uv<span class="w"> </span>run<span class="w"> </span>lint-imports
+</code></pre></div>
+<div class="admonition note">
+<p class="admonition-title">Run all checks before pushing</p>
+<p>Ensure all checks pass before pushing your branch:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a>uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>check<span class="w"> </span>src/<span class="w"> </span>tests/
+<a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a>uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>format<span class="w"> </span>--check<span class="w"> </span>src/<span class="w"> </span>tests/
+<a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a>uv<span class="w"> </span>run<span class="w"> </span>mypy<span class="w"> </span>src/
+<a id="__codelineno-26-4" name="__codelineno-26-4" href="#__codelineno-26-4"></a>uv<span class="w"> </span>run<span class="w"> </span>lint-imports
+<a id="__codelineno-26-5" name="__codelineno-26-5" href="#__codelineno-26-5"></a><span class="nv">HYPOTHESIS_PROFILE</span><span class="o">=</span>ci<span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>--run-slow<span class="w"> </span>-n<span class="w"> </span>auto
+</code></pre></div>
+</div>
+<h2 id="commit-message-convention">Commit Message Convention<a class="headerlink" href="#commit-message-convention" title="Permanent link">&para;</a></h2>
+<p>We follow <a href="https://www.conventionalcommits.org/">Conventional Commits</a>. Every commit message must use one of the allowed type prefixes:</p>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>feat</code></td>
+<td>A new feature</td>
+</tr>
+<tr>
+<td><code>fix</code></td>
+<td>A bug fix</td>
+</tr>
+<tr>
+<td><code>docs</code></td>
+<td>Documentation-only changes</td>
+</tr>
+<tr>
+<td><code>refactor</code></td>
+<td>Code change that neither fixes a bug nor adds a feature</td>
+</tr>
+<tr>
+<td><code>test</code></td>
+<td>Adding or updating tests</td>
+</tr>
+<tr>
+<td><code>chore</code></td>
+<td>Maintenance tasks (CI, dependencies, tooling)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="format">Format<a class="headerlink" href="#format" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a>&lt;type&gt;: &lt;short description&gt;
+<a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a>
+<a id="__codelineno-27-3" name="__codelineno-27-3" href="#__codelineno-27-3"></a>[optional body]
+<a id="__codelineno-27-4" name="__codelineno-27-4" href="#__codelineno-27-4"></a>
+<a id="__codelineno-27-5" name="__codelineno-27-5" href="#__codelineno-27-5"></a>[optional footer]
+</code></pre></div>
+<h3 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a>git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat: add support for custom config file patterns&quot;</span>
+<a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a>git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;fix: resolve race condition in plugin loading&quot;</span>
+<a id="__codelineno-28-3" name="__codelineno-28-3" href="#__codelineno-28-3"></a>git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;docs: update configuration guide with new examples&quot;</span>
+<a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a>git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;refactor: simplify job discovery module&quot;</span>
+<a id="__codelineno-28-5" name="__codelineno-28-5" href="#__codelineno-28-5"></a>git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;test: add property tests for config resolution&quot;</span>
+<a id="__codelineno-28-6" name="__codelineno-28-6" href="#__codelineno-28-6"></a>git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;chore: update ruff to v0.9.0&quot;</span>
+</code></pre></div>
+<h2 id="pull-request-guidelines">Pull Request Guidelines<a class="headerlink" href="#pull-request-guidelines" title="Permanent link">&para;</a></h2>
+<h3 id="branch-naming">Branch Naming<a class="headerlink" href="#branch-naming" title="Permanent link">&para;</a></h3>
+<p>Create a branch from <code>main</code> using the convention <code>&lt;type&gt;/&lt;short-description&gt;</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a>git<span class="w"> </span>checkout<span class="w"> </span>-b<span class="w"> </span>feat/my-feature
+<a id="__codelineno-29-2" name="__codelineno-29-2" href="#__codelineno-29-2"></a>git<span class="w"> </span>checkout<span class="w"> </span>-b<span class="w"> </span>fix/config-resolution-bug
+<a id="__codelineno-29-3" name="__codelineno-29-3" href="#__codelineno-29-3"></a>git<span class="w"> </span>checkout<span class="w"> </span>-b<span class="w"> </span>docs/update-api-reference
+</code></pre></div>
+<h3 id="before-submitting">Before Submitting<a class="headerlink" href="#before-submitting" title="Permanent link">&para;</a></h3>
+<ol>
+<li>
+<p>Ensure all checks pass locally:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a>uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>check<span class="w"> </span>src/<span class="w"> </span>tests/
+<a id="__codelineno-30-2" name="__codelineno-30-2" href="#__codelineno-30-2"></a>uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>format<span class="w"> </span>--check<span class="w"> </span>src/<span class="w"> </span>tests/
+<a id="__codelineno-30-3" name="__codelineno-30-3" href="#__codelineno-30-3"></a>uv<span class="w"> </span>run<span class="w"> </span>mypy<span class="w"> </span>src/
+<a id="__codelineno-30-4" name="__codelineno-30-4" href="#__codelineno-30-4"></a>uv<span class="w"> </span>run<span class="w"> </span>lint-imports
+<a id="__codelineno-30-5" name="__codelineno-30-5" href="#__codelineno-30-5"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest
+</code></pre></div>
+</li>
+<li>
+<p>Write tests for any new functionality.</p>
+</li>
+<li>
+<p>Update documentation if behavior changes.</p>
+</li>
+</ol>
+<h3 id="ci-requirements">CI Requirements<a class="headerlink" href="#ci-requirements" title="Permanent link">&para;</a></h3>
+<p>All pull requests must pass the CI pipeline before merging. The pipeline runs:</p>
+<ul>
+<li><strong>Linting</strong> — ruff check and format verification</li>
+<li><strong>Type checking</strong> — mypy</li>
+<li><strong>Import linting</strong> — lint-imports (layer dependency enforcement)</li>
+<li><strong>Fast tests</strong> — unit tests only (immediate feedback)</li>
+<li><strong>Full tests</strong> — property-based tests + coverage across Python 3.11, 3.12, 3.13 (parallel via pytest-xdist)</li>
+</ul>
+<div class="admonition failure">
+<p class="admonition-title">Blocked on CI failure</p>
+<p>PRs with failing CI checks cannot be merged. Fix all issues before requesting review.</p>
+</div>
+<h3 id="review-process">Review Process<a class="headerlink" href="#review-process" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Open a pull request against <code>main</code>.</li>
+<li>Keep PRs focused on a single change.</li>
+<li>Provide a clear description of what changed and why.</li>
+<li>Address reviewer feedback with additional commits (do not force-push during review).</li>
+<li>Once approved and CI passes, the PR will be merged.</li>
+</ol>
+<h2 id="reporting-issues">Reporting Issues<a class="headerlink" href="#reporting-issues" title="Permanent link">&para;</a></h2>
+<p>Use <a href="https://github.com/raicing-ai/functualize/issues">GitHub Issues</a> with the provided templates:</p>
+<ul>
+<li><strong>Bug reports</strong> — describe the issue, steps to reproduce, and expected behavior</li>
+<li><strong>Feature requests</strong> — describe the use case and proposed solution</li>
+</ul>
+<h2 id="contributing-to-domain-sdk-packages">Contributing to Domain SDK Packages<a class="headerlink" href="#contributing-to-domain-sdk-packages" title="Permanent link">&para;</a></h2>
+<p>Domain SDK packages live in <code>plugins/</code> and follow a consistent structure:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a>plugins/functualize-{domain}/
+<a id="__codelineno-31-2" name="__codelineno-31-2" href="#__codelineno-31-2"></a>├── pyproject.toml                    # hatchling build, pydantic-only deps
+<a id="__codelineno-31-3" name="__codelineno-31-3" href="#__codelineno-31-3"></a>├── src/functualize_{domain}/
+<a id="__codelineno-31-4" name="__codelineno-31-4" href="#__codelineno-31-4"></a>│   ├── __init__.py                   # Re-exports all public API
+<a id="__codelineno-31-5" name="__codelineno-31-5" href="#__codelineno-31-5"></a>│   ├── _types.py                     # Frozen dataclasses, shared types
+<a id="__codelineno-31-6" name="__codelineno-31-6" href="#__codelineno-31-6"></a>│   ├── _protocols.py                 # @runtime_checkable Protocol definitions
+<a id="__codelineno-31-7" name="__codelineno-31-7" href="#__codelineno-31-7"></a>│   ├── _errors.py                    # Domain-specific exceptions
+<a id="__codelineno-31-8" name="__codelineno-31-8" href="#__codelineno-31-8"></a>│   ├── _events.py                    # Event name constants
+<a id="__codelineno-31-9" name="__codelineno-31-9" href="#__codelineno-31-9"></a>│   ├── _metadata.py                  # DomainMetadata entry point
+<a id="__codelineno-31-10" name="__codelineno-31-10" href="#__codelineno-31-10"></a>│   ├── _{capability}.py             # Capability class implementation
+<a id="__codelineno-31-11" name="__codelineno-31-11" href="#__codelineno-31-11"></a>│   └── testing/                      # Testing doubles (MockX, FakeX)
+<a id="__codelineno-31-12" name="__codelineno-31-12" href="#__codelineno-31-12"></a>│       └── __init__.py
+<a id="__codelineno-31-13" name="__codelineno-31-13" href="#__codelineno-31-13"></a>└── tests/
+</code></pre></div>
+<h3 id="rules-for-domain-sdks">Rules for Domain SDKs<a class="headerlink" href="#rules-for-domain-sdks" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>No heavy dependencies</strong> — Only <code>pydantic</code> (for type definitions)</li>
+<li><strong>Export everything from root <code>__init__.py</code></strong> — Capability class, protocols, types, errors, events, testing doubles</li>
+<li><strong>Register a DomainMetadata entry point</strong> under <code>functualize.domains</code></li>
+<li><strong>Include testing doubles</strong> usable without implementation plugins</li>
+<li><strong>Raise a domain-specific error with install instructions</strong> when no provider is registered</li>
+</ol>
+<h3 id="rules-for-implementation-plugins">Rules for Implementation Plugins<a class="headerlink" href="#rules-for-implementation-plugins" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Depend on the Domain SDK</strong> — Not on functualize core internals</li>
+<li><strong>Register via the domain's entry point group</strong> — e.g., <code>functualize.state_providers</code></li>
+<li><strong>Implement the provider protocol</strong> from the Domain SDK</li>
+<li><strong>Register with DI</strong> via <code>app.provide()</code> in the plugin boot class</li>
+</ol>
+<hr />
+<h2 id="contributing-to-examples">Contributing to Examples<a class="headerlink" href="#contributing-to-examples" title="Permanent link">&para;</a></h2>
+<p>Examples live in <code>examples/</code> and are organized by usage pattern:</p>
+<ul>
+<li><strong><code>quickstart/</code></strong> — The README Quick Start, step by step (1–8)</li>
+<li><strong><code>standalone/</code></strong> — Feature reference: discovery, config, AI, inline TUI</li>
+<li><strong><code>project/</code></strong> — Full <code>FunctualizeApp</code> projects</li>
+<li><strong><code>plugins/</code></strong> — Custom plugin implementations (packaged and file-based)</li>
+</ul>
+<p>Examples of <em>using</em> a specific first-party plugin belong in that plugin's own folder: <code>plugins/&lt;name&gt;/examples/</code> (see the "Examples" section in <code>contributor/guides/plugin-development.md</code>).</p>
+<h3 id="example-requirements">Example Requirements<a class="headerlink" href="#example-requirements" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Include a test file</strong> (<code>test_*.py</code>) proving the example works (interactive TUI scenarios document manual steps instead)</li>
+<li><strong>Include a <code>README.md</code></strong> explaining the use case and how to run</li>
+<li><strong>Keep dependencies minimal</strong> — Use testing doubles (MockAI, InMemoryState) instead of real backends</li>
+<li><strong>Keep tests green</strong> — Run <code>uv run pytest examples/ -v</code> before submitting (requires <code>uv sync --all-packages</code>). CI runs this too, in the <code>examples</code> job, so a broken example fails the pull request.</li>
+</ol>
+<h3 id="running-example-tests">Running Example Tests<a class="headerlink" href="#running-example-tests" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="c1"># Install workspace packages first (AI/plugin examples import them)</span>
+<a id="__codelineno-32-2" name="__codelineno-32-2" href="#__codelineno-32-2"></a>uv<span class="w"> </span>sync<span class="w"> </span>--all-packages
+<a id="__codelineno-32-3" name="__codelineno-32-3" href="#__codelineno-32-3"></a>
+<a id="__codelineno-32-4" name="__codelineno-32-4" href="#__codelineno-32-4"></a><span class="c1"># All examples</span>
+<a id="__codelineno-32-5" name="__codelineno-32-5" href="#__codelineno-32-5"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>examples/<span class="w"> </span>-v
+<a id="__codelineno-32-6" name="__codelineno-32-6" href="#__codelineno-32-6"></a>
+<a id="__codelineno-32-7" name="__codelineno-32-7" href="#__codelineno-32-7"></a><span class="c1"># Standalone only</span>
+<a id="__codelineno-32-8" name="__codelineno-32-8" href="#__codelineno-32-8"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>examples/standalone/<span class="w"> </span>-v
+<a id="__codelineno-32-9" name="__codelineno-32-9" href="#__codelineno-32-9"></a>
+<a id="__codelineno-32-10" name="__codelineno-32-10" href="#__codelineno-32-10"></a><span class="c1"># Specific example</span>
+<a id="__codelineno-32-11" name="__codelineno-32-11" href="#__codelineno-32-11"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>examples/standalone/showcase/<span class="w"> </span>-v
+<a id="__codelineno-32-12" name="__codelineno-32-12" href="#__codelineno-32-12"></a>
+<a id="__codelineno-32-13" name="__codelineno-32-13" href="#__codelineno-32-13"></a><span class="c1"># Per-plugin examples (run explicitly, like plugin tests)</span>
+<a id="__codelineno-32-14" name="__codelineno-32-14" href="#__codelineno-32-14"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>plugins/functualize-mcp/examples/<span class="w"> </span>-v
+</code></pre></div>
+<hr />
+<h2 id="license">License<a class="headerlink" href="#license" title="Permanent link">&para;</a></h2>
+<p>By contributing, you agree that your contributions will be licensed under the MIT License.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
