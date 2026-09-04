@@ -92,14 +92,26 @@ ship glibc.
 
 ```bash
 func builtin self doctor    # how was this installed, and is anything wrong with it?
-func builtin self update    # upgrade in place, then restore anything you added
-func builtin self install <package>   # add a dependency your jobs import
 func builtin plugin list    # what extends this installation
 ```
 
-`self update` prints the exact command it will run before running it, and restores packages
-you added — including ones installed through the `self python` / `self uv` escape hatch,
-which it never recorded.
+!!! warning "Mutating commands do not work on the standalone binary yet"
+
+    `self update`, `self install` and `plugin install` **refuse on a standalone install**
+    and exit `3`. PyApp launches the application through `python -c`, so `argv[0]` is `-c`
+    rather than a console script — and self-management resolves the distribution it is
+    about to change by reverse-mapping that script. With no script there is no owner, and
+    the commands decline rather than guess.
+
+    Read-only commands are unaffected: `self doctor`, `builtin info`, `plugin list` and
+    running jobs all work normally, offline.
+
+    **To upgrade a standalone install, re-run the install script.** It downloads the new
+    release, verifies it against `SHA256SUMS`, and replaces the binary in place.
+
+On the install methods where it does work, `self update` prints the exact command it will
+run before running it, and restores packages you added — including ones installed through
+the `self python` / `self uv` escape hatch, which it never recorded.
 
 !!! note "Install method decides whether self-update works"
 

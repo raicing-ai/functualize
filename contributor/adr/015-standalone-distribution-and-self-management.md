@@ -137,6 +137,53 @@ has an obvious home there without contorting a general package installer.
 fixed set goes stale the moment a domain declares a new provider group, and
 domains do exactly that.
 
+## Correction (2026-09-04, after the binary was first built)
+
+Two claims above were written from the design and never checked against a
+running binary. Building one falsified both.
+
+**The baked artifact must be a Python *installation*, not a virtual
+environment.** The original pipeline baked a `uv venv --relocatable`. A venv's
+`bin/python` is a symlink to the interpreter it was created from, and its
+standard library lives in that interpreter's prefix — so a venv tarred up and
+unpacked anywhere else contains no Python at all. The binary built over one dies
+on launch with `project execution failed / No such file or directory (os error
+2)`. The pipeline now copies the python-build-standalone installation itself and
+installs into its `lib/pythonX.Y/site-packages`.
+
+Three consequences travel with that. `uv` installs a workspace root as an
+*editable* by default, which writes a `.pth` pointing at the build machine and
+puts no package in site-packages, so `--no-editable` is load-bearing and the
+bake asserts no `_editable_impl_*.pth` survives. A python-build-standalone
+install on Windows puts `python.exe` at the distribution root, not under
+`Scripts/`, so that path is not the venv path it would otherwise be. And
+`uv python install` only offers the *host* libc's distributions, so a musl
+target baked on a glibc runner would embed a glibc interpreter — the musl bakes
+run inside an Alpine container.
+
+**`self update` on a standalone install does not work, and never did.** The
+decision above says PyApp's own updater handles it. Read against pyapp 0.29.0,
+that subcommand is hidden unless `PYAPP_EXPOSE_UPDATE=1`, refuses outright under
+`PYAPP_SKIP_INSTALL=1` (`"Cannot update as installation is disabled"`), and
+would `pip install --upgrade` from an index if it ran — which would replace the
+offline-complete environment this decision exists to produce. Separately, every
+mutating `self`/`plugin` command refuses on a standalone binary, because PyApp
+launches the app through `python -c` and `argv[0]` is `-c`, which reverse-maps
+to no console script and so reads as a degraded install. That signal is false:
+a standalone binary has no owning distribution *by construction*, and the
+standalone `install`/`uninstall` branches are already written and correct but
+unreachable.
+
+The refusal is honest and the read-only commands are unaffected, so the binary
+ships as it stands and the documentation now says so. The design question —
+what updating a pre-baked binary should mean — is recorded in
+`.spec/shape-intents/standalone-self-management.md`.
+
+Both were invisible to every gate the feature had. The scenario written to catch
+exactly this, `l-standalone-binary.toml`, carried the same wrong recipe and was
+never executed; its build step is the expensive one. **A verification step that
+has not been run is not evidence.**
+
 ## Consequences
 
 ### Positive

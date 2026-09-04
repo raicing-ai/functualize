@@ -18,7 +18,7 @@ description = "The binary launches and runs a job with networking disabled (AC22
 
 [source]
 file = "docs/getting-started/installation.md"
-lines = "52-121"
+lines = "52-133"
 description = "The standalone binary: offline first run, checksummed download, musl on a system without glibc"
 
 requires = []
@@ -47,12 +47,31 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 cd /tmp
 
-# Bake: a relocatable environment with functualize and every first-party plugin
-# already installed. `--relocatable` matters -- the binary runs from a path this
-# build cannot know.
-uv venv --python 3.12 --relocatable --seed env
-uv pip install --python env/bin/python '/src[all]'
-tar -czf baked.tar.gz env
+# Bake a python-build-standalone *installation* -- not a venv. A venv's
+# `bin/python` is a symlink into the interpreter it was built from and its
+# stdlib lives in that interpreter's prefix, so a venv unpacked on another
+# machine contains no Python at all. This is the failure that produced
+# v0.2.1's seven dead binaries.
+uv python install 3.12
+src_root=$(uv python find 3.12 | xargs -I{} {} -c 'import sys; print(sys.prefix)')
+mkdir -p /tmp/dist
+# `"$src_root"/.` -- uv's unversioned path is a symlink to the patch-versioned
+# directory, and copying it makes /tmp/dist a link back into uv's own store.
+cp -a "$src_root"/. /tmp/dist/
+test ! -L /tmp/dist
+rm -f /tmp/dist/lib/python3.12/EXTERNALLY-MANAGED
+
+# `--no-editable` is load-bearing: uv installs this workspace root as an
+# editable by default, which writes a `.pth` pointing at /src and puts no
+# package in site-packages -- a binary that starts and then imports nothing.
+uv pip install --python /tmp/dist/bin/python --break-system-packages \
+  --no-editable '/src[all]'
+test -f /tmp/dist/lib/python3.12/site-packages/functualize/__init__.py \
+  || { echo "no functualize in site-packages"; exit 1; }
+
+# Archive root *is* the distribution root -- PyApp's distribution paths are
+# relative to it, and a wrapper directory means every one needs a prefix.
+tar -czf baked.tar.gz -C /tmp/dist .
 
 # Every variable explicit (AC25). PyApp's defaults are the *online* recipe:
 # without SKIP_INSTALL and DISTRIBUTION_EMBED this still builds, still works
@@ -67,6 +86,14 @@ export PYAPP_SKIP_INSTALL=1
 export PYAPP_UV_ENABLED=1
 export PYAPP_SELF_COMMAND=pyapp
 export PYAPP_FULL_ISOLATION=1
+export PYAPP_PYTHON_VERSION=3.12
+# **Both mandatory for a custom embedded distribution.** PyApp panics at build
+# time without the python path, and silently guesses the site-packages one from
+# its own default layout -- which is not a venv's -- yielding a binary that
+# starts and then imports nothing. Omitting them is what broke v0.2.1's release.
+export PYAPP_DISTRIBUTION_PYTHON_PATH=bin/python
+export PYAPP_DISTRIBUTION_SITE_PACKAGES_PATH=lib/python3.12/site-packages
+export PYAPP_DISTRIBUTION_FORMAT='tar|gzip'
 
 cargo install pyapp --force --root out --locked
 cp out/bin/pyapp /work/func
@@ -95,13 +122,14 @@ set -e
 test -x /work/func || { echo "run the build step first"; exit 1; }
 
 /work/func builtin version
-mkdir -p /tmp/proj/jobs
-cat > /tmp/proj/jobs/hello.py <<'PY'
-def run() -> str:
-    return "offline-ok"
-PY
-cd /tmp/proj
-/work/func hello
+
+# Scaffolded rather than hand-written: a bare `jobs/hello.py` in a bare
+# directory is not a project, and discovery correctly finds nothing in it.
+# The scaffold writes the `[tool.functualize.discovery]` block that makes the
+# tree scannable -- and exercises scaffolding offline into the bargain.
+/work/func builtin scaffold init demo --template simple
+cd /tmp/demo
+/work/func sample.run
 echo "OFFLINE-RAN"
 """
 expected = { stdout_contains = "OFFLINE-RAN", exit_code = 0 }
@@ -129,15 +157,29 @@ command = "/work/func builtin self doctor"
 expected = { stdout_contains = "install-mode", exit_code = 0 }
 timeout = 300
 
+# This step asserted `pyapp update` until the binary was actually built and the
+# claim could be checked. It is wrong twice over: PyApp hides that subcommand
+# unless `PYAPP_EXPOSE_UPDATE=1`, and even when reached it refuses outright on a
+# pre-baked build ("Cannot update as installation is disabled") because
+# `PYAPP_SKIP_INSTALL=1` -- and would pip-install from an index if it did run,
+# which is the one thing recipe B exists to avoid.
+#
+# So a standalone binary has no in-place update path today, and every mutating
+# `self`/`plugin` command refuses on it: PyApp launches the app through
+# `python -c`, `argv[0]` is `-c`, and that maps to no console script, so
+# detection finds no owning distribution and declines rather than guessing.
+# The refusal is the *correct* behaviour for the current design; what is wrong
+# is that the binary cannot manage itself at all. Tracked in
+# `.spec/shape-intents/standalone-self-management.md`.
 [[steps]]
 engine = "docker"
-description = "Offline, `self update` names PyApp's updater rather than a package manager"
+description = "Offline, `self update` refuses on a standalone binary rather than pretending"
 image = "debian:bookworm-slim"
 network = "none"
 volumes = { "./dist/standalone" = "/work" }
 workdir = "/tmp"
-command = "/work/func builtin self update </dev/null || true"
-expected = { stdout_contains = "pyapp update", exit_code = 0 }
+command = "/work/func builtin self update </dev/null; echo \"exit=$?\""
+expected = { stdout_contains = "exit=3", exit_code = 0 }
 timeout = 180
 
 # ---------------------------------------------------------------------------
