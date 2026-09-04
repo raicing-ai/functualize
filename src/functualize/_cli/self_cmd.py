@@ -39,7 +39,7 @@ from pathlib import Path
 
 import click
 
-from functualize._cli.runtime import Detection, detect_from_process
+from functualize._cli.runtime import Detection, InstallMode, detect_from_process
 from functualize.app.utils import ExitCode
 
 # `manifest` and `package_ops` are imported *inside* the commands that need
@@ -154,7 +154,37 @@ def _check_install(detection: Detection) -> list[Check]:
     checks = [
         Check("install-mode", CheckStatus.INFO, detection.mode.value),
     ]
-    if detection.owning_distribution is None:
+    if detection.mode is InstallMode.STANDALONE:
+        # Not a warning, and not "unknown". A standalone binary has no owning
+        # distribution *by construction* -- it is a file, not a package -- so
+        # reporting the absence as a fault would tell a healthy installation
+        # that self-management is unavailable, which it is not. What identifies
+        # it is the executable, and that is worth showing.
+        checks.append(
+            Check(
+                "owning-distribution",
+                CheckStatus.INFO,
+                "not applicable — a standalone binary manages itself",
+            )
+        )
+        if detection.standalone_binary is None:
+            checks.append(
+                Check(
+                    "binary-path",
+                    CheckStatus.WARNING,
+                    "this binary cannot determine its own location",
+                    remedy=(
+                        "It was built without PYAPP_PASS_LOCATION=1, so there is "
+                        "nothing for `self update` to replace. Reinstall from a "
+                        "current release."
+                    ),
+                )
+            )
+        else:
+            checks.append(
+                Check("binary-path", CheckStatus.OK, detection.standalone_binary)
+            )
+    elif detection.owning_distribution is None:
         checks.append(
             Check(
                 "owning-distribution",

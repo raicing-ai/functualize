@@ -198,9 +198,14 @@ class TestTheConfirmationSeam:
         is exit 2, which `contracts.md` §2 assigns to an absent external tool."""
 
         def _absent() -> str:
-            raise package_ops.MissingToolError("uv is required")
+            raise package_ops.MissingToolError("pipx is required")
 
-        monkeypatch.setattr(package_ops, "resolve_uv", _absent)
+        # The mode's *own* manager has to be the one that is missing. Patching
+        # a different one leaves the real `resolve_pipx` in play, and this then
+        # asserts on whether the host happens to have pipx installed -- which
+        # passes on a developer machine and fails on a GitHub runner, where it
+        # is preinstalled.
+        monkeypatch.setattr(package_ops, "resolve_pipx", _absent)
         result = cli_run(
             ["builtin", "self", "install", "requests", "--yes"],
             cwd=tmp_path,

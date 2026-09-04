@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from functualize._cli.runtime import Detection, InstallMode
 from functualize._cli.self_cmd import (
     CheckStatus,
     build_report,
@@ -192,6 +193,70 @@ class TestStatusVocabulary:
 
         report = DoctorReport((Check("a", CheckStatus.INFO, "fyi"),))
         assert report.worst is CheckStatus.OK
+
+
+class TestStandaloneIdentity:
+    """A standalone binary has no owning distribution, and that is not a fault."""
+
+    def test_the_missing_owner_is_not_reported_as_a_problem(
+        self, cli_run, tmp_path: Path
+    ) -> None:
+        """It used to warn `Self-management is unavailable here`.
+
+        That told a perfectly healthy binary the opposite of the truth: it has
+        no owning distribution *by construction* -- it is a file, not a package
+        -- and it manages itself.
+        """
+        result = cli_run(
+            ["builtin", "self", "doctor"],
+            cwd=tmp_path,
+            env={"FUNCTUALIZE_RUNTIME": "standalone"},
+        )
+        assert "Self-management is unavailable" not in result.stdout
+        assert "a standalone binary manages itself" in result.stdout
+
+    def test_the_binary_path_is_reported(self, cli_run, tmp_path: Path) -> None:
+        """`self update` replaces this path, so it is worth showing."""
+        result = cli_run(
+            ["builtin", "self", "doctor"],
+            cwd=tmp_path,
+            env={"FUNCTUALIZE_RUNTIME": "standalone"},
+        )
+        assert "binary-path" in result.stdout
+
+    def test_a_binary_that_cannot_locate_itself_is_a_warning(self) -> None:
+        """Built without `PYAPP_PASS_LOCATION=1` there is nothing to replace.
+
+        Driven at the check level rather than through the CLI: this state needs
+        `argv0 == "-c"`, which is what a real PyApp binary has and what no test
+        runner can produce.
+        """
+        from functualize._cli.self_cmd import _check_install
+
+        checks = _check_install(
+            Detection(
+                mode=InstallMode.STANDALONE,
+                owning_distribution=None,
+                standalone_binary=None,
+            )
+        )
+        binary = next(c for c in checks if c.name == "binary-path")
+        assert binary.status is CheckStatus.WARNING
+        assert "cannot determine its own location" in binary.detail
+
+    def test_a_located_binary_is_reported_ok(self) -> None:
+        from functualize._cli.self_cmd import _check_install
+
+        checks = _check_install(
+            Detection(
+                mode=InstallMode.STANDALONE,
+                owning_distribution=None,
+                standalone_binary="/usr/local/bin/func",
+            )
+        )
+        binary = next(c for c in checks if c.name == "binary-path")
+        assert binary.status is CheckStatus.OK
+        assert binary.detail == "/usr/local/bin/func"
 
 
 class TestItIsReachableThroughTheCli:
