@@ -1528,3 +1528,46 @@ Good first issues for new contributors (ordered by complexity):
 4. **Follow-up #14 (`omit_defaults` has no caller)** — small and self-contained; the parameter is specified and tested but nothing passes it
 
 See `CONSTITUTION.md` for quality gates that apply to all changes.
+
+## standalone-self-management — completed 2026-09-04
+
+A standalone binary can manage itself. The design record is
+`contributor/adr/015-standalone-distribution-and-self-management.md`, whose
+**Correction** section supersedes the original decision; the analysis of why
+PyApp's own updater cannot be used is kept in
+`.spec/shape-intents/standalone-self-management.md`.
+
+What building a real binary found that no gate had:
+
+1. **A venv is not a distribution.** The bake produced `uv venv --relocatable`,
+   whose `bin/python` is a symlink to the interpreter it was made from and
+   whose stdlib lives in that interpreter's prefix. Unpacked elsewhere it
+   contains no Python. Killed all seven v0.2.1 binaries.
+2. **uv installs a workspace root as editable by default**, leaving a `.pth`
+   pointing at the build machine and no package in site-packages — a binary
+   that starts and then imports nothing. `--no-editable`, asserted in the bake.
+3. **`uv python install` offers only the host libc's distributions**, so a musl
+   target baked on a glibc runner embeds a glibc interpreter.
+4. **`pyapp update` does not exist** on a pre-baked build: hidden without
+   `PYAPP_EXPOSE_UPDATE=1`, refuses under `PYAPP_SKIP_INSTALL=1`, and would
+   pip-install from an index if it ran.
+5. **`argv[0]` is `-c`** inside a PyApp binary, which made every mutating
+   command read as a degraded install and made the registry record
+   `<prefix>/bin/-c` — a path that never existed and was reported stale on the
+   run that created it.
+6. **The size-measurement step failed six working builds.** `ls a b` exits
+   non-zero when one of the two is absent, and `set -o pipefail` turned that
+   into a failed job after a successful ten-minute build.
+
+Process notes:
+
+- **A verification step that has not been run is not evidence.**
+  `l-standalone-binary.toml` was written to catch defects 1 and 2 and carried
+  the same wrong recipe, because its build step is expensive and was never
+  executed. Two releases were burned before it was.
+- **A test that asserts on host state passes locally and fails in CI.** The
+  missing-manager test patched `resolve_uv` while the mode used `resolve_pipx`,
+  so it was really asserting "this machine has no pipx" — true on a laptop,
+  false on a GitHub runner.
+- **One new test was vacuous on first run**: it computed the expected checksum
+  from the tampered archive, so it verified a checksum of the tampering.

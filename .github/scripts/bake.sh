@@ -21,7 +21,12 @@ set -eu
 # and cannot execute here. Bootstrapping is cheap and keeps the two paths
 # running the same script rather than two drifting copies.
 if ! command -v uv >/dev/null 2>&1; then
-    apk add --no-cache curl ca-certificates >/dev/null
+    # `build-base` is not optional. PyPI publishes musl wheels for the common
+    # architectures but not for every dependency on aarch64 -- tree-sitter-json
+    # builds from source there, and Alpine ships no compiler, so the bake dies
+    # with `No such file or directory: 'cc'` on exactly one of the seven
+    # targets.
+    apk add --no-cache curl ca-certificates build-base >/dev/null
     curl -LsSf https://astral.sh/uv/install.sh -o /tmp/uv-install.sh
     sh /tmp/uv-install.sh >/dev/null
     PATH="$HOME/.local/bin:$PATH"
@@ -74,5 +79,24 @@ if find "$root" -name '_editable_impl_*.pth' | grep -q .; then
     echo "editable install leaked into the distribution" >&2
     exit 1
 fi
+
+# `self update` replaces the binary from a release, so it has to know which
+# releases. Baked in rather than hard-coded in the framework: an application
+# that builds its own PyApp binary over functualize writes its own file here and
+# points its users at its own releases, instead of being handed ours.
+cat > "$root/standalone-release.json" <<JSON
+{
+  "repo": "${GITHUB_REPOSITORY:-raicing-ai/functualize}",
+  "asset_prefix": "functualize",
+  "target": "$TARGET"
+}
+JSON
+
+# The standalone install path adds packages with the bundled interpreter's own
+# pip -- a binary is the install method for machines with no Python toolchain,
+# so requiring uv on PATH to add a dependency would defeat it. Asserted here so
+# a future change to how the distribution is seeded fails in the build rather
+# than in somebody's `self install`.
+"$python_bin" -c "import pip" || { echo "no pip in the distribution" >&2; exit 1; }
 
 "$python_bin" -c "import functualize; print(functualize.__version__)"

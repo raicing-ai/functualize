@@ -92,26 +92,48 @@ ship glibc.
 
 ```bash
 func builtin self doctor    # how was this installed, and is anything wrong with it?
+func builtin self update    # fetch the newer release and replace this binary
+func builtin self install <package>   # add a dependency your jobs import
 func builtin plugin list    # what extends this installation
 ```
 
-!!! warning "Mutating commands do not work on the standalone binary yet"
+`self update` on a standalone binary does not call a package manager — there is none. It
+reads the release source baked into the binary, asks that repository for its latest
+release, and shows you what it will do before doing it:
 
-    `self update`, `self install` and `plugin install` **refuse on a standalone install**
-    and exit `3`. PyApp launches the application through `python -c`, so `argv[0]` is `-c`
-    rather than a console script — and self-management resolves the distribution it is
-    about to change by reverse-mapping that script. With no script there is no owner, and
-    the commands decline rather than guess.
+```
+This will replace:
+  /usr/local/bin/func
+  0.2.1 -> 0.3.0
+  from https://github.com/.../functualize-x86_64-unknown-linux-gnu.tar.gz
+  verified against https://github.com/.../SHA256SUMS
+Proceed? [y/N]
+```
 
-    Read-only commands are unaffected: `self doctor`, `builtin info`, `plugin list` and
-    running jobs all work normally, offline.
+The archive is checked against `SHA256SUMS` **before it is unpacked**, and an archive the
+checksums file does not mention is refused exactly like one that fails to match. The new
+executable is written beside the old one and moved into place, so an interrupted update
+leaves you with one working binary or the other, never a truncated file.
 
-    **To upgrade a standalone install, re-run the install script.** It downloads the new
-    release, verifies it against `SHA256SUMS`, and replaces the binary in place.
+Packages you added with `self install` are reinstalled into the new distribution once the
+swap is done. They do not carry over on their own: a new binary unpacks a new environment
+at a new path, and the old one is simply no longer consulted.
 
-On the install methods where it does work, `self update` prints the exact command it will
-run before running it, and restores packages you added — including ones installed through
-the `self python` / `self uv` escape hatch, which it never recorded.
+!!! note "A binary somebody else built"
+
+    If you built your own PyApp binary over functualize, `self update` refuses and exits
+    `3` rather than offering functualize's own release. Bake a `standalone-release.json`
+    into your distribution root — `{"repo": ..., "asset_prefix": ..., "target": ...}` — and
+    it will follow your releases instead.
+
+!!! note "`self uv` is not available on a standalone install"
+
+    The baked distribution ships pip, not uv, so `self install` uses the bundled
+    interpreter's own pip. `self python -- ...` is the escape hatch that works everywhere.
+
+On the package-manager install methods, `self update` prints the exact command it will run
+before running it, and restores packages you added — including ones installed through the
+`self python` / `self uv` escape hatch, which it never recorded.
 
 !!! note "Install method decides whether self-update works"
 

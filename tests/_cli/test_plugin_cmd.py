@@ -38,6 +38,10 @@ def calls(monkeypatch) -> list[list[str]]:
 def no_external_tools(monkeypatch) -> None:
     monkeypatch.setattr(package_ops, "resolve_uv", lambda: "/opt/uv")
     monkeypatch.setattr(package_ops, "resolve_pipx", lambda: "/opt/pipx")
+    # Standalone adds packages with the *bundled* interpreter's pip, not
+    # uv: a binary is the install method for a machine with no Python
+    # toolchain, and PyApp's distribution ships no uv.
+    monkeypatch.setattr(package_ops, "owned_python", lambda: "/opt/python")
 
 
 class TestDiscovery:
@@ -189,7 +193,7 @@ class TestMutatingCommands:
             cwd=tmp_path,
             env={"FUNCTUALIZE_RUNTIME": "standalone"},
         )
-        assert "/opt/uv" in result.stdout
+        assert "/opt/python -m pip" in result.stdout
         assert "functualize-http" in result.stdout
         assert calls == []
 

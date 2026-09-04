@@ -38,11 +38,12 @@ from functualize._cli.runtime import Detection, InstallMode
 from functualize.app.utils import ExitCode
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Sequence
+    from collections.abc import Callable, Iterable, Mapping, Sequence
 
 __all__ = [
     "LossyReceiptError",
     "MissingToolError",
+    "StandaloneUpdateError",
     "Requirement",
     "announce",
     "capture_environment",
@@ -510,6 +511,24 @@ def owned_python() -> str:
 # ---------------------------------------------------------------------------
 
 
+class StandaloneUpdateError(Exception):
+    """``self update`` on a standalone install is not a subprocess.
+
+    Every other mode delegates to a package manager, so its update is a command
+    tuple. A standalone binary is a single file, and updating it means
+    downloading a release and replacing that file -- work that happens
+    in-process, in :mod:`functualize._cli.self_update`. Raised rather than
+    returned so a caller that forgets to handle it fails loudly instead of
+    running an empty command list and reporting success.
+
+    PyApp's own updater is not an option: it is hidden unless
+    ``PYAPP_EXPOSE_UPDATE=1``, refuses outright under ``PYAPP_SKIP_INSTALL=1``
+    (`"Cannot update as installation is disabled"`), and would ``pip install
+    --upgrade`` from an index if it ran -- replacing the offline-complete
+    environment the binary exists to be.
+    """
+
+
 def update_commands(
     detection: Detection, binary_path: str
 ) -> tuple[tuple[str, ...], ...]:
@@ -526,15 +545,23 @@ def update_commands(
             backstop that keeps a refusal from silently becoming a command.
         MissingToolError: the mode's manager is not installed.
     """
+    # Standalone is checked *before* the owner guard. It has no owning
+    # distribution by construction -- it is a file, not a package -- so the
+    # guard that protects every other mode from acting on a name it could not
+    # resolve would refuse every healthy binary.
+    if detection.mode is InstallMode.STANDALONE:
+        if detection.standalone_binary is None:
+            raise ValueError(
+                "standalone installations cannot be updated without knowing "
+                "their own path"
+            )
+        raise StandaloneUpdateError(detection.standalone_binary)
+
     distribution = detection.owning_distribution
     if detection.degraded or distribution is None:
         raise ValueError(f"{detection.mode.value} installations are not self-managing")
 
     match detection.mode:
-        case InstallMode.STANDALONE:
-            # PyApp's own updater, reachable at the renamed self-command
-            # (`PYAPP_SELF_COMMAND=pyapp`). It replaces the binary in place.
-            return ((binary_path, "pyapp", "update"),)
         case InstallMode.TOOL_UV:
             return ((resolve_uv(), "tool", "upgrade", distribution),)
         case InstallMode.TOOL_PIPX:
@@ -562,18 +589,14 @@ def install_commands(detection: Detection, package: str) -> tuple[tuple[str, ...
         MissingToolError: the mode's manager is not installed.
         LossyReceiptError: a uv receipt could not be reproduced faithfully.
     """
+    if detection.mode is InstallMode.STANDALONE:
+        return ((*_bundled_pip(), "install", package),)
+
     distribution = detection.owning_distribution
     if detection.degraded or distribution is None:
         raise ValueError(f"{detection.mode.value} installations are not self-managing")
 
     match detection.mode:
-        case InstallMode.STANDALONE:
-            # `--python` targets the bundled interpreter explicitly. Without it
-            # uv picks a Python by its own discovery rules, which in a shell
-            # with an activated venv is somebody else's environment.
-            return (
-                (resolve_uv(), "pip", "install", "--python", owned_python(), package),
-            )
         case InstallMode.TOOL_UV:
             uv = resolve_uv()
             receipt = read_receipt(Path(sys.prefix))
@@ -597,15 +620,14 @@ def uninstall_commands(
         MissingToolError: the mode's manager is not installed.
         LossyReceiptError: a uv receipt could not be reproduced faithfully.
     """
+    if detection.mode is InstallMode.STANDALONE:
+        return ((*_bundled_pip(), "uninstall", "-y", package),)
+
     distribution = detection.owning_distribution
     if detection.degraded or distribution is None:
         raise ValueError(f"{detection.mode.value} installations are not self-managing")
 
     match detection.mode:
-        case InstallMode.STANDALONE:
-            return (
-                (resolve_uv(), "pip", "uninstall", "--python", owned_python(), package),
-            )
         case InstallMode.TOOL_UV:
             uv = resolve_uv()
             receipt = read_receipt(Path(sys.prefix))
@@ -638,16 +660,53 @@ def render(argv: Sequence[str]) -> str:
     return " ".join(parts)
 
 
-def script_name() -> str:
+def _bundled_pip() -> tuple[str, ...]:
+    """The bundled interpreter's own pip, as a command prefix.
+
+    Not uv. A standalone binary is the install method for a machine with no
+    Python toolchain, so requiring ``uv`` on ``PATH`` before a package can be
+    added defeats the reason it exists -- and PyApp's baked distribution ships
+    no uv, so ``resolve_uv()`` would raise on the very install method that
+    cannot fix it. pip is present in the distribution and the bake asserts so.
+
+    ``-m pip`` rather than the ``pip`` script: the script's shebang is written
+    at build time and points at the *build machine's* path, which is not where
+    the distribution unpacks.
+    """
+    return (owned_python(), "-m", "pip")
+
+
+def script_name(environ: Mapping[str, str] | None = None) -> str:
     """The console script the user actually typed, for use in guidance.
 
     Never a hard-coded ``func``: in a consumer application this text has to
     name *that* application's script or it tells the user to run a command they
     do not have.
+
+    And never ``-c``. PyApp launches a standalone binary as ``python -c "..."``,
+    so ``argv[0]`` is that literal string and guidance built from it reads
+    ``Run `-c builtin self doctor` `` -- a command nobody can type. PyApp
+    supplies the real name in ``PYAPP_COMMAND_NAME``; falling back to the
+    binary's own basename covers a build that did not expose one.
     """
+    env = os.environ if environ is None else environ
+
+    exposed = env.get("PYAPP_COMMAND_NAME", "")
+    if exposed:
+        return exposed
+
     argv0 = sys.argv[0] if sys.argv else ""
     name = argv0.replace("\\", "/").rsplit("/", 1)[-1]
-    return name or "func"
+    if name and name != "-c":
+        return name
+
+    binary = env.get("PYAPP", "")
+    if binary and binary != "1":
+        basename = binary.replace("\\", "/").rsplit("/", 1)[-1]
+        if basename:
+            return basename
+
+    return "func"
 
 
 def refuse(detection: Detection, what: str) -> NoReturn:

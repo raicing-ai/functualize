@@ -216,7 +216,14 @@ jobs:
           LIBC: ${{ matrix.libc }}
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          # Only a tag names a version. On `workflow_dispatch` the ref name
+          # is the *branch* -- "master" is all-alphanumeric and sails past a
+          # character-class guard, producing `functualize[all]==master`.
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version=""
+          fi
           case "$version" in
             *[!0-9.a-zA-Z-]*|"") version=$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2) ;;
           esac
@@ -338,12 +345,23 @@ jobs:
           # internal and carries no stability guarantee.
           PYAPP_SELF_COMMAND: pyapp
           PYAPP_FULL_ISOLATION: "1"
+          # Makes PyApp set `PYAPP` to the running executable's absolute path
+          # rather than the literal "1" (`distribution.rs:54`). That path is the
+          # installation's identity: what `self update` replaces, what the
+          # registry records, and what `self doctor` reports. Without it the
+          # only handle on the binary is `argv[0]`, which PyApp's exec spec
+          # makes the literal string `-c`.
+          PYAPP_PASS_LOCATION: "1"
           # Must match the interpreter `bake` created, or the site-packages path
           # below points at a directory that does not exist.
           PYAPP_PYTHON_VERSION: "3.12"
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version=""
+          fi
           case "$version" in
             *[!0-9.a-zA-Z-]*|"") version=$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2) ;;
           esac
@@ -394,7 +412,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          binary=$(ls artifacts/func artifacts/func.exe 2>/dev/null | head -1)
+          # Not `ls artifacts/func artifacts/func.exe`: exactly one of those
+          # names exists on any given platform, `ls` exits non-zero for the
+          # other, and under `set -o pipefail` that failed the step *after* a
+          # successful ten-minute build.
+          if [ -f artifacts/func.exe ]; then
+            binary=artifacts/func.exe
+          else
+            binary=artifacts/func
+          fi
           bytes=$(wc -c < "$binary" | tr -d ' ')
           mb=$(( bytes / 1000000 ))
           echo "measured size: ${bytes} bytes (${mb} MB)"
@@ -422,7 +448,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          binary=$(ls artifacts/func artifacts/func.exe 2>/dev/null | head -1)
+          # Not `ls artifacts/func artifacts/func.exe`: exactly one of those
+          # names exists on any given platform, `ls` exits non-zero for the
+          # other, and under `set -o pipefail` that failed the step *after* a
+          # successful ten-minute build.
+          if [ -f artifacts/func.exe ]; then
+            binary=artifacts/func.exe
+          else
+            binary=artifacts/func
+          fi
           "$binary" builtin version
           "$binary" builtin self doctor || true
 

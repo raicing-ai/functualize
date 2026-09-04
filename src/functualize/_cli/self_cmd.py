@@ -39,7 +39,7 @@ from pathlib import Path
 
 import click
 
-from functualize._cli.runtime import Detection, detect_from_process
+from functualize._cli.runtime import Detection, InstallMode, detect_from_process
 from functualize.app.utils import ExitCode
 
 # `manifest` and `package_ops` are imported *inside* the commands that need
@@ -154,7 +154,37 @@ def _check_install(detection: Detection) -> list[Check]:
     checks = [
         Check("install-mode", CheckStatus.INFO, detection.mode.value),
     ]
-    if detection.owning_distribution is None:
+    if detection.mode is InstallMode.STANDALONE:
+        # Not a warning, and not "unknown". A standalone binary has no owning
+        # distribution *by construction* -- it is a file, not a package -- so
+        # reporting the absence as a fault would tell a healthy installation
+        # that self-management is unavailable, which it is not. What identifies
+        # it is the executable, and that is worth showing.
+        checks.append(
+            Check(
+                "owning-distribution",
+                CheckStatus.INFO,
+                "not applicable — a standalone binary manages itself",
+            )
+        )
+        if detection.standalone_binary is None:
+            checks.append(
+                Check(
+                    "binary-path",
+                    CheckStatus.WARNING,
+                    "this binary cannot determine its own location",
+                    remedy=(
+                        "It was built without PYAPP_PASS_LOCATION=1, so there is "
+                        "nothing for `self update` to replace. Reinstall from a "
+                        "current release."
+                    ),
+                )
+            )
+        else:
+            checks.append(
+                Check("binary-path", CheckStatus.OK, detection.standalone_binary)
+            )
+    elif detection.owning_distribution is None:
         checks.append(
             Check(
                 "owning-distribution",
@@ -470,7 +500,11 @@ def doctor(output_format: str) -> None:
 def _this_binary() -> str:
     from functualize._cli import manifest
 
-    return manifest.resolve_binary_path(sys.argv[0] if sys.argv else "", sys.executable)
+    return manifest.resolve_binary_path(
+        sys.argv[0] if sys.argv else "",
+        sys.executable,
+        detect_from_process().standalone_binary,
+    )
 
 
 def _config_dir() -> Path:
@@ -496,9 +530,18 @@ def update(assume_yes: bool) -> None:
         package_ops.refuse(detection, "update")
 
     binary = _this_binary()
-    commands = package_ops.plan_or_exit(
-        lambda: package_ops.update_commands(detection, binary)
-    )
+    try:
+        commands = package_ops.plan_or_exit(
+            lambda: package_ops.update_commands(detection, binary)
+        )
+    except package_ops.StandaloneUpdateError:
+        # A standalone binary has no package manager to delegate to: updating
+        # it means fetching a release and replacing one file, which happens
+        # in-process. Raised rather than returned as an empty command list, so
+        # forgetting this branch fails loudly instead of reporting success
+        # having done nothing.
+        raise SystemExit(_update_standalone(binary, assume_yes)) from None
+
     package_ops.announce(commands, assume_yes)
 
     config_dir = _config_dir()
@@ -527,6 +570,59 @@ def update(assume_yes: bool) -> None:
         raise SystemExit(code)
 
     _reconcile(detection, config_dir, binary, before)
+
+
+def _update_standalone(binary: str, assume_yes: bool) -> int:
+    """`self update` for a standalone binary. Returns the process exit code.
+
+    Reconciliation is deliberately *not* the in-process kind the other modes
+    use. Replacing the executable means the next launch unpacks a different
+    distribution at a different path, so packages added to the old one are not
+    "removed by an upgrade" -- they are in a directory nothing will look at
+    again. The new binary is therefore asked to install them into its own
+    distribution, which it can only do after it has unpacked one.
+    """
+    import functualize
+    from functualize._cli import manifest, self_update
+
+    config_dir = _config_dir()
+    # Captured before the replacement, for the same reason every other mode
+    # persists first: an update interrupted between the two loses the record of
+    # what to put back.
+    keep = sorted(set(manifest.recorded_additions(config_dir, binary)))
+
+    code = self_update.perform(
+        binary=Path(binary),
+        prefix=Path(sys.prefix),
+        current_version=functualize.__version__,
+        assume_yes=assume_yes,
+        echo=click.echo,
+        confirm=click.confirm,
+    )
+    if code != int(ExitCode.OK) or not keep:
+        return code
+
+    click.echo(f"Reinstalling {len(keep)} package(s) into the new distribution.")
+    failed: list[str] = []
+    for package in keep:
+        result = subprocess.run(  # noqa: S603 - argv list, no shell
+            [binary, "builtin", "self", "install", package, "--yes"],
+            check=False,
+        )
+        if result.returncode != 0:
+            failed.append(package)
+
+    for package in failed:
+        click.echo(f"  could not reinstall {package}", err=True)
+    if failed:
+        # Reported, not fatal: the update itself succeeded, and turning one
+        # unreachable package into a failed update would misdescribe the state
+        # of the installation.
+        click.echo(
+            f"{len(failed)} package(s) need reinstalling by hand.",
+            err=True,
+        )
+    return int(ExitCode.OK)
 
 
 def _reconcile(

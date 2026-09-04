@@ -45,6 +45,10 @@ def no_external_tools(monkeypatch) -> None:
     """Pin the manager paths, so a machine without uv still runs these tests."""
     monkeypatch.setattr(package_ops, "resolve_uv", lambda: "/opt/uv")
     monkeypatch.setattr(package_ops, "resolve_pipx", lambda: "/opt/pipx")
+    # Standalone adds packages with the *bundled* interpreter's pip, not
+    # uv: a binary is the install method for a machine with no Python
+    # toolchain, and PyApp's distribution ships no uv.
+    monkeypatch.setattr(package_ops, "owned_python", lambda: "/opt/python")
 
 
 DEGRADED = ("tool_pip", "unknown")
@@ -113,14 +117,34 @@ class TestTheConfirmationSeam:
     a yes."""
 
     def test_update_prints_the_exact_command(
-        self, cli_run, tmp_path: Path, calls
+        self, cli_run, tmp_path: Path, calls, no_external_tools
     ) -> None:
         result = cli_run(
             ["builtin", "self", "update"],
             cwd=tmp_path,
+            env={"FUNCTUALIZE_RUNTIME": "tool_pipx"},
+        )
+        assert "/opt/pipx upgrade" in result.stdout
+
+    def test_standalone_update_does_not_shell_out_to_a_manager(
+        self, cli_run, tmp_path: Path, calls, no_external_tools
+    ) -> None:
+        """A standalone binary has no package manager to delegate to.
+
+        It reaches `self_update.perform` instead, which refuses here because
+        this checkout is not a baked distribution and carries no
+        `standalone-release.json`. What matters is that *no command ran*: the
+        old code path ran `<binary> pyapp update`, a command PyApp hides and
+        then refuses.
+        """
+        result = cli_run(
+            ["builtin", "self", "update", "--yes"],
+            cwd=tmp_path,
             env={"FUNCTUALIZE_RUNTIME": "standalone"},
         )
-        assert "pyapp update" in result.stdout
+        assert calls == []
+        assert result.exit_code == 3
+        assert "no release source" in result.stdout
 
     def test_update_declined_runs_nothing(self, cli_run, tmp_path: Path, calls) -> None:
         """pytest's stdin cannot be read, so `click.confirm` aborts — which is
@@ -128,7 +152,7 @@ class TestTheConfirmationSeam:
         result = cli_run(
             ["builtin", "self", "update"],
             cwd=tmp_path,
-            env={"FUNCTUALIZE_RUNTIME": "standalone"},
+            env={"FUNCTUALIZE_RUNTIME": "tool_pipx"},
         )
         assert calls == []
         assert result.exit_code != 0
@@ -141,7 +165,7 @@ class TestTheConfirmationSeam:
             cwd=tmp_path,
             env={"FUNCTUALIZE_RUNTIME": "standalone"},
         )
-        assert "/opt/uv pip install" in result.stdout
+        assert "/opt/python -m pip install" in result.stdout
         assert "requests" in result.stdout
 
     def test_install_declined_runs_nothing(
@@ -174,13 +198,18 @@ class TestTheConfirmationSeam:
         is exit 2, which `contracts.md` §2 assigns to an absent external tool."""
 
         def _absent() -> str:
-            raise package_ops.MissingToolError("uv is required")
+            raise package_ops.MissingToolError("pipx is required")
 
-        monkeypatch.setattr(package_ops, "resolve_uv", _absent)
+        # The mode's *own* manager has to be the one that is missing. Patching
+        # a different one leaves the real `resolve_pipx` in play, and this then
+        # asserts on whether the host happens to have pipx installed -- which
+        # passes on a developer machine and fails on a GitHub runner, where it
+        # is preinstalled.
+        monkeypatch.setattr(package_ops, "resolve_pipx", _absent)
         result = cli_run(
             ["builtin", "self", "install", "requests", "--yes"],
             cwd=tmp_path,
-            env={"FUNCTUALIZE_RUNTIME": "standalone"},
+            env={"FUNCTUALIZE_RUNTIME": "tool_pipx"},
         )
         assert result.exit_code == 2
         assert calls == []
@@ -306,7 +335,7 @@ class TestBookkeeping:
 @pytest.mark.surfaces("func")
 class TestReconciliation:
     def test_the_capture_is_persisted_before_the_update_runs(
-        self, cli_run, tmp_path: Path, xdg_dirs, monkeypatch
+        self, cli_run, tmp_path: Path, xdg_dirs, monkeypatch, no_external_tools
     ) -> None:
         """AC14h.
 
@@ -326,7 +355,7 @@ class TestReconciliation:
         cli_run(
             ["builtin", "self", "update", "--yes"],
             cwd=tmp_path,
-            env={"FUNCTUALIZE_RUNTIME": "standalone"},
+            env={"FUNCTUALIZE_RUNTIME": "tool_pipx"},
         )
         assert pending_at_call_time == [True]
 
@@ -341,14 +370,14 @@ class TestReconciliation:
         assert not package_ops.pending_path(Path(xdg_dirs.functualize_config)).exists()
 
     def test_a_failed_upgrade_keeps_the_snapshot(
-        self, cli_run, tmp_path: Path, xdg_dirs, monkeypatch
+        self, cli_run, tmp_path: Path, xdg_dirs, monkeypatch, no_external_tools
     ) -> None:
         """Re-running must still be able to restore."""
         monkeypatch.setattr(package_ops, "_call", lambda argv: 9)
         result = cli_run(
             ["builtin", "self", "update", "--yes"],
             cwd=tmp_path,
-            env={"FUNCTUALIZE_RUNTIME": "standalone"},
+            env={"FUNCTUALIZE_RUNTIME": "tool_pipx"},
         )
         assert result.exit_code == 9
         assert package_ops.pending_path(Path(xdg_dirs.functualize_config)).exists()
@@ -368,7 +397,7 @@ class TestReconciliation:
         result = cli_run(
             ["builtin", "self", "update", "--yes"],
             cwd=tmp_path,
-            env={"FUNCTUALIZE_RUNTIME": "standalone"},
+            env={"FUNCTUALIZE_RUNTIME": "tool_pipx"},
         )
         assert "Resuming" in result.stdout
         assert "pandas" in result.stdout
@@ -384,7 +413,7 @@ class TestReconciliation:
         result = cli_run(
             ["builtin", "self", "update", "--yes"],
             cwd=tmp_path,
-            env={"FUNCTUALIZE_RUNTIME": "standalone"},
+            env={"FUNCTUALIZE_RUNTIME": "tool_pipx"},
         )
         assert "restored  pandas" in result.stdout
         assert "restored  polars" in result.stdout
@@ -403,7 +432,7 @@ class TestReconciliation:
         result = cli_run(
             ["builtin", "self", "update", "--yes"],
             cwd=tmp_path,
-            env={"FUNCTUALIZE_RUNTIME": "standalone"},
+            env={"FUNCTUALIZE_RUNTIME": "tool_pipx"},
         )
         assert result.exit_code == 0
         assert "FAILED" in result.stderr
@@ -444,7 +473,7 @@ class TestReconciliation:
         manifest.register(
             config,
             binary_path=binary,
-            runtime_mode="standalone",
+            runtime_mode="tool_pipx",
             owning_distribution="functualize",
             python_version="3.13.0",
             functualize_version="0.1.2",
@@ -455,7 +484,7 @@ class TestReconciliation:
         result = cli_run(
             ["builtin", "self", "update", "--yes"],
             cwd=tmp_path,
-            env={"FUNCTUALIZE_RUNTIME": "standalone"},
+            env={"FUNCTUALIZE_RUNTIME": "tool_pipx"},
         )
         assert "restored  functualize-absent-plugin" in result.stdout
 
