@@ -1,6 +1,6 @@
 [project]
 name = "functualize-ai-pydantic"
-version = "0.2.1"
+version = "0.2.2"
 description = "PydanticAI-backed AI implementation plugin for functualize"
 readme = "README.md"
 license = "MIT"

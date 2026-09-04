@@ -1,6 +1,6 @@
 [project]
 name = "functualize-tasks"
-version = "0.2.1"
+version = "0.2.2"
 description = "Tasks Domain SDK for functualize — task management capabilities"
 readme = "README.md"
 license = "MIT"
