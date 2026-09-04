@@ -7,6 +7,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-09-04
+
+### Added — the standalone binary manages itself
+
+`func builtin self update` on a standalone install now **replaces the binary**.
+It reads the release source baked into the distribution, fetches that release,
+verifies the archive against its `SHA256SUMS` *before unpacking*, and swaps the
+file through a staged `os.replace` in the target's own directory — atomic, so
+an interrupted update leaves one working binary or the other, never a truncated
+file. An archive the checksums file does not mention is refused exactly like one
+that fails to match.
+
+`self install`, `self uninstall`, `plugin install` and `plugin uninstall` work
+on a standalone install too, through the bundled interpreter's own pip. A binary
+is the install method for a machine with no Python toolchain, so requiring `uv`
+on `PATH` to add a dependency would defeat it — and the baked distribution ships
+no uv. `self python -- ...` remains the escape hatch; `self uv` is the one
+command a standalone install does not have.
+
+The release source is baked, never hard-coded. An application that builds its
+own PyApp binary over functualize writes its own `standalone-release.json` and
+points its users at its own releases; its absence refuses cleanly rather than
+offering functualize's artifact to somebody else's users.
+
+### Fixed — the binaries 0.2.1 announced and could not build
+
+**All seven `binaries` jobs failed on 0.2.1.** The reported error was PyApp
+panicking without `PYAPP_DISTRIBUTION_PYTHON_PATH`, but fixing that alone was
+not enough: building a binary locally showed the baked artifact was unusable in
+a second, quieter way.
+
+- **A virtual environment is not a distribution.** The bake produced
+  `uv venv --relocatable`, whose `bin/python` is a symlink to the interpreter it
+  was created from and whose standard library lives in that interpreter's
+  prefix. Unpacked on another machine it contains no Python at all, and the
+  binary died on launch with `project execution failed / No such file or
+  directory (os error 2)`. The bake now copies the python-build-standalone
+  installation itself.
+
+- **uv installs a workspace root as editable by default**, writing a `.pth`
+  that points at the build machine and leaving no package in site-packages — a
+  binary that starts and then imports nothing. The bake passes `--no-editable`
+  and asserts no editable `.pth` survives.
+
+- **`uv python install` offers only the host libc's distributions**, so a musl
+  target baked on a glibc runner would embed a glibc interpreter. The musl bakes
+  run inside Alpine, with `build-base` installed because aarch64-musl has no
+  published wheel for one dependency.
+
+- **The size-measurement step failed six working builds.** `ls a b` exits
+  non-zero when one of the two names is absent, and under `set -o pipefail`
+  that failed the job *after* a successful ten-minute build.
+
+- **A `python.exe` at the distribution root**, not under `Scripts/`, is the
+  Windows layout for a standalone install.
+
+### Fixed — a standalone install could not be identified
+
+PyApp launches the application as `python -c "..."`, so `argv[0]` is the literal
+string `-c`. Self-management reverse-maps that to a distribution, found nothing,
+and read a healthy binary as a degraded install: every mutating command refused
+with exit `3`, `self doctor` reported "self-management is unavailable here", and
+the installation registry recorded `<prefix>/bin/-c` — a path that never existed
+— which it then correctly reported as stale on the run that created it.
+
+Identity now comes from PyApp itself, which supplies the executable's absolute
+path in `PYAPP` when built with `PYAPP_PASS_LOCATION=1`. A standalone install is
+no longer degraded for want of an owning distribution: it has none by
+construction, because it is a file rather than a package.
+
+`self update` previously delegated to `func pyapp update`. That command does not
+work on a pre-baked binary: PyApp hides it unless `PYAPP_EXPOSE_UPDATE=1`,
+refuses it outright under `PYAPP_SKIP_INSTALL=1`, and would `pip install
+--upgrade` from an index if it ran — dissolving the offline-complete
+distribution the binary exists to be.
+
+`install.sh` and `install.ps1` work from **this** release onward; 0.2.1's note
+to that effect was premature, as it shipped no binaries.
+
 ## [0.2.1] - 2026-09-04
 
 ### Fixed — the release pipeline that could not deliver 0.2.0's binaries
@@ -1095,7 +1174,8 @@ function knowing which.
   through the injected `Log` is deferred to a later release.
   *(Fixed in 0.1.1.)*
 
-[Unreleased]: https://github.com/raicing-ai/functualize/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/raicing-ai/functualize/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/raicing-ai/functualize/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/raicing-ai/functualize/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/raicing-ai/functualize/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/raicing-ai/functualize/compare/v0.1.2...v0.1.3
