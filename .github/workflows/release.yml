@@ -338,6 +338,13 @@ jobs:
           # internal and carries no stability guarantee.
           PYAPP_SELF_COMMAND: pyapp
           PYAPP_FULL_ISOLATION: "1"
+          # Makes PyApp set `PYAPP` to the running executable's absolute path
+          # rather than the literal "1" (`distribution.rs:54`). That path is the
+          # installation's identity: what `self update` replaces, what the
+          # registry records, and what `self doctor` reports. Without it the
+          # only handle on the binary is `argv[0]`, which PyApp's exec spec
+          # makes the literal string `-c`.
+          PYAPP_PASS_LOCATION: "1"
           # Must match the interpreter `bake` created, or the site-packages path
           # below points at a directory that does not exist.
           PYAPP_PYTHON_VERSION: "3.12"

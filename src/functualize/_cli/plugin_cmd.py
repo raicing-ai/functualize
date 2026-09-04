@@ -174,10 +174,13 @@ def _binary_and_config() -> tuple[str, Path]:
     import sys
 
     from functualize._cli import manifest
+    from functualize._cli.runtime import detect_from_process
     from functualize.app.utils import resolve_user_config_dir
 
     binary = manifest.resolve_binary_path(
-        sys.argv[0] if sys.argv else "", sys.executable
+        sys.argv[0] if sys.argv else "",
+        sys.executable,
+        detect_from_process().standalone_binary,
     )
     return binary, resolve_user_config_dir()
 

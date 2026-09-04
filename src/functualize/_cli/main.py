@@ -1758,7 +1758,12 @@ def _register_this_installation() -> None:
         # than imported so the warm path stays free of that module's dataclass
         # codegen. `tests/_cli/test_manifest.py` asserts the two agree.
         argv0 = sys.argv[0] if sys.argv else ""
-        if not argv0:
+        pyapp = os.environ.get("PYAPP", "")
+        if pyapp and pyapp != "1":
+            # A standalone binary: `argv0` is `-c` and useless. See
+            # `resolve_binary_path`.
+            binary_path = str(Path(pyapp).resolve())
+        elif not argv0:
             binary_path = ""
         elif "/" in argv0 or "\\" in argv0:
             binary_path = str(Path(argv0).resolve())

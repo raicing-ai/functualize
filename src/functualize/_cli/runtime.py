@@ -90,10 +90,23 @@ class Detection:
     #: wrong-owner failure this module exists to prevent, so ``None`` forces
     #: the refusal path.
     owning_distribution: str | None
+    #: The standalone binary's own absolute path, as PyApp reports it in
+    #: ``PYAPP`` when built with ``PYAPP_PASS_LOCATION=1``. ``None`` for every
+    #: other mode, and for a standalone binary built without that flag or whose
+    #: ``current_exe()`` lookup failed.
+    standalone_binary: str | None = None
 
     @property
     def degraded(self) -> bool:
         """Either the environment or the owner is unusable for management."""
+        if self.mode is InstallMode.STANDALONE:
+            # A standalone binary has no owning distribution *by construction*
+            # -- it is a file, not a package -- so the absence that degrades
+            # every other mode says nothing here. What a mutating command needs
+            # is the executable to act on, and PyApp launches the application
+            # through `python -c`, so `argv[0]` is the literal string `-c` and
+            # can never supply it. The binary's own path is the discriminator.
+            return self.standalone_binary is None
         return self.mode.degraded or self.owning_distribution is None
 
 
@@ -233,7 +246,31 @@ def detect(
     return Detection(
         mode=_detect_mode(prefix, base_prefix, environ, cwd),
         owning_distribution=_owning_distribution(argv0),
+        standalone_binary=_standalone_binary(environ, argv0),
     )
+
+
+def _standalone_binary(environ: Mapping[str, str], argv0: str) -> str | None:
+    """The running executable's path, for a standalone installation.
+
+    ``PYAPP`` holds the absolute path only when the binary was built with
+    ``PYAPP_PASS_LOCATION=1``; older builds set the literal ``"1"`` and a build
+    whose ``current_exe()`` failed sets the empty string. Both are "unknown",
+    not a path — returning ``"1"`` here would have every mutating command
+    operate on a file named ``1`` in the working directory.
+
+    ``argv0`` is the second rung, and it is not a fallback guess. Inside a real
+    PyApp binary it is the literal string ``-c`` and this rung cannot fire. It
+    fires only when the mode was pinned with ``FUNCTUALIZE_RUNTIME=standalone``
+    — where ``argv0`` genuinely *is* the command that ran — which is what keeps
+    that override useful rather than a way to manufacture a degraded install.
+    """
+    value = environ.get("PYAPP", "")
+    if value and value != "1":
+        return value
+    if argv0 and argv0 != "-c":
+        return argv0
+    return None
 
 
 def _detect_mode(
@@ -254,8 +291,14 @@ def _detect_mode(
                 f"Expected one of: {', '.join(m.value for m in InstallMode)}"
             ) from None
 
-    # 2. The binary announces itself: PyApp injects PYAPP=1 into its runtime.
-    if environ.get("PYAPP") or environ.get("PYAPP_COMMAND_NAME"):
+    # 2. The binary announces itself: PyApp injects PYAPP into its runtime --
+    #    the executable's own path under `PYAPP_PASS_LOCATION=1`, otherwise
+    #    "1". Membership, not truthiness: PyApp sets it to the *empty string*
+    #    when `current_exe()` fails (`distribution.rs:56`), and a binary that
+    #    cannot name itself is still a standalone binary. Reading that as
+    #    "not standalone" would send it down the project or unknown rungs and
+    #    describe it as something it is not.
+    if "PYAPP" in environ or environ.get("PYAPP_COMMAND_NAME"):
         return InstallMode.STANDALONE
 
     prefix_path = Path(prefix)

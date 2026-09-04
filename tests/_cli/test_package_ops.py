@@ -23,8 +23,16 @@ from functualize._cli.package_ops import (
 from functualize._cli.runtime import Detection, InstallMode
 
 
-def _detection(mode: InstallMode, owner: str | None = "functualize") -> Detection:
-    return Detection(mode=mode, owning_distribution=owner)
+def _detection(
+    mode: InstallMode,
+    owner: str | None = "functualize",
+    standalone_binary: str | None = "/usr/local/bin/func",
+) -> Detection:
+    return Detection(
+        mode=mode,
+        owning_distribution=owner,
+        standalone_binary=standalone_binary,
+    )
 
 
 class TestNameNormalization:
@@ -314,11 +322,32 @@ class TestUpdateCommands:
             _detection(InstallMode.TOOL_PIPX), "/bin/func"
         ) == (("/opt/pipx", "upgrade", "functualize"),)
 
-    def test_standalone_mode_drives_the_binary_itself(self) -> None:
-        """PyApp's own updater, at the renamed self-command."""
-        assert package_ops.update_commands(
-            _detection(InstallMode.STANDALONE), "/usr/local/bin/func"
-        ) == (("/usr/local/bin/func", "pyapp", "update"),)
+    def test_standalone_mode_is_not_a_command_at_all(self) -> None:
+        """It used to return `<binary> pyapp update`, which cannot work.
+
+        Read against pyapp 0.29.0, that subcommand is hidden unless
+        `PYAPP_EXPOSE_UPDATE=1`, refuses outright under `PYAPP_SKIP_INSTALL=1`
+        (`"Cannot update as installation is disabled"`), and would
+        `pip install --upgrade` from an index if it ran -- dissolving the
+        offline-complete distribution the binary exists to be.
+
+        Raised rather than returned as an empty command list, so a caller that
+        forgets this branch fails loudly instead of reporting success having
+        done nothing.
+        """
+        detection = _detection(
+            InstallMode.STANDALONE, standalone_binary="/usr/local/bin/func"
+        )
+        with pytest.raises(
+            package_ops.StandaloneUpdateError, match="/usr/local/bin/func"
+        ):
+            package_ops.update_commands(detection, "/usr/local/bin/func")
+
+    def test_a_standalone_binary_that_cannot_name_itself_refuses(self) -> None:
+        """There is nothing to replace, so this is a refusal, not an update."""
+        detection = _detection(InstallMode.STANDALONE, standalone_binary=None)
+        with pytest.raises(ValueError, match="their own path"):
+            package_ops.update_commands(detection, "/usr/local/bin/func")
 
     def test_project_mode_moves_the_lock_before_syncing(self, monkeypatch) -> None:
         """`uv sync` alone reinstalls the pinned version — it is not an upgrade."""
@@ -410,18 +439,30 @@ class TestTheOwningDistributionIsNeverHardcoded:
 
 
 class TestInstallCommands:
-    def test_standalone_targets_the_bundled_interpreter_explicitly(
-        self, monkeypatch
-    ) -> None:
-        """Without `--python`, uv picks an interpreter by its own discovery
-        rules — which in a shell with an activated venv is somebody else's."""
-        monkeypatch.setattr(package_ops, "resolve_uv", lambda: "/opt/uv")
+    def test_standalone_uses_the_bundled_pip_not_uv(self, monkeypatch) -> None:
+        """A binary is the install method for a machine with no Python toolchain.
+
+        Requiring `uv` on `PATH` before a package can be added defeats that --
+        and PyApp's baked distribution ships no uv, so `resolve_uv()` would
+        raise on the one install method that cannot fix it. `-m pip` rather than
+        the `pip` script because the script's shebang points at the *build*
+        machine's path.
+        """
         monkeypatch.setattr(package_ops, "owned_python", lambda: "/pyapp/bin/python")
+        monkeypatch.setattr(
+            package_ops,
+            "resolve_uv",
+            lambda: pytest.fail("standalone must not reach for uv"),
+        )
         assert package_ops.install_commands(
             _detection(InstallMode.STANDALONE), "requests"
-        ) == (
-            ("/opt/uv", "pip", "install", "--python", "/pyapp/bin/python", "requests"),
-        )
+        ) == (("/pyapp/bin/python", "-m", "pip", "install", "requests"),)
+
+    def test_standalone_uninstall_uses_the_bundled_pip_too(self, monkeypatch) -> None:
+        monkeypatch.setattr(package_ops, "owned_python", lambda: "/pyapp/bin/python")
+        assert package_ops.uninstall_commands(
+            _detection(InstallMode.STANDALONE), "requests"
+        ) == (("/pyapp/bin/python", "-m", "pip", "uninstall", "-y", "requests"),)
 
     def test_pipx_uses_its_real_injection_verb(self, monkeypatch) -> None:
         monkeypatch.setattr(package_ops, "resolve_pipx", lambda: "/opt/pipx")

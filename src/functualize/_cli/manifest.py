@@ -164,8 +164,17 @@ class Manifest:
         }
 
 
-def resolve_binary_path(argv0: str, executable: str) -> str:
+def resolve_binary_path(
+    argv0: str, executable: str, standalone_binary: str | None = None
+) -> str:
     """A stable identity for "this installation", whatever `argv[0]` looks like.
+
+    `standalone_binary` wins outright when supplied. PyApp launches a standalone
+    binary as `python -c "..."`, so `argv[0]` is the literal string `-c` and
+    every derivation below produces `<prefix>/bin/-c` -- a path that has never
+    existed, which the registry then correctly reports as stale on the very run
+    that recorded it. PyApp hands over the real executable path in `PYAPP`
+    (built with `PYAPP_PASS_LOCATION=1`), and that is the only honest answer.
 
     `sys.argv[0]` is not stable across invocation styles: a direct call gives an
     absolute path, while `uv run func` gives the bare name `func`. Recording it
@@ -181,6 +190,15 @@ def resolve_binary_path(argv0: str, executable: str) -> str:
     avoid importing this module; `tests/_cli/test_manifest.py` asserts the two
     agree.
     """
+    if standalone_binary:
+        # Substituted for `argv0` rather than returned directly, so it goes
+        # through the same normalization. PyApp's `PYAPP` is always absolute and
+        # falls out of the separator branch unchanged; a bare name -- which is
+        # what the `FUNCTUALIZE_RUNTIME=standalone` override sees -- must still
+        # resolve against the interpreter's directory and not the working one,
+        # or this disagrees with `main.py`'s warm path and the registry records
+        # the same installation twice.
+        argv0 = standalone_binary
     if not argv0:
         return ""
     if "/" in argv0 or "\\" in argv0:

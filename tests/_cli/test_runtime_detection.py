@@ -91,6 +91,72 @@ class TestTheSignalRungs:
         got = _detect(environ={"PYAPP_COMMAND_NAME": "pyapp"}, tmp_path=tmp_path)
         assert got.mode is InstallMode.STANDALONE
 
+    def test_empty_pyapp_still_means_standalone(self, tmp_path: Path) -> None:
+        """PyApp sets `PYAPP=""` when it cannot resolve its own path.
+
+        A truthiness test reads that as "not standalone" and sends the binary
+        down the project or unknown rungs, describing it as something it is not.
+        Membership is the correct test (`distribution.rs:56`).
+        """
+        got = _detect(environ={"PYAPP": ""}, tmp_path=tmp_path)
+        assert got.mode is InstallMode.STANDALONE
+
+    def test_pyapp_path_is_carried_as_the_binary(self, tmp_path: Path) -> None:
+        """Built with `PYAPP_PASS_LOCATION=1`, `PYAPP` is the executable path."""
+        got = _detect(environ={"PYAPP": "/usr/local/bin/func"}, tmp_path=tmp_path)
+        assert got.standalone_binary == "/usr/local/bin/func"
+
+    @pytest.mark.parametrize("value", ["1", ""])
+    def test_pyapp_without_a_path_carries_no_binary(
+        self, value: str, tmp_path: Path
+    ) -> None:
+        """`"1"` is a flag, not a path.
+
+        Returning it would have every mutating command operate on a file named
+        `1` in the working directory. `argv0` is `-c` here because that is what
+        it is inside a real PyApp binary — the one place this can happen.
+        """
+        got = _detect(environ={"PYAPP": value}, argv0="-c", tmp_path=tmp_path)
+        assert got.standalone_binary is None
+
+    def test_a_pinned_mode_still_names_the_running_command(
+        self, tmp_path: Path
+    ) -> None:
+        """`FUNCTUALIZE_RUNTIME=standalone` must not manufacture a degraded install.
+
+        Under the override `argv0` genuinely is the command that ran, so it is
+        the binary. Inside a real PyApp binary `argv0` is `-c` and this rung
+        cannot fire, which is what keeps the two cases apart.
+        """
+        got = _detect(
+            environ={"FUNCTUALIZE_RUNTIME": "standalone"},
+            argv0="/somewhere/project/.venv/bin/func",
+            tmp_path=tmp_path,
+        )
+        assert got.mode is InstallMode.STANDALONE
+        assert got.standalone_binary == "/somewhere/project/.venv/bin/func"
+        assert got.degraded is False
+
+    def test_standalone_with_a_known_binary_is_not_degraded(
+        self, tmp_path: Path
+    ) -> None:
+        """The absence of an owning distribution says nothing about standalone.
+
+        It is a file, not a package. `argv0` is `-c` under PyApp's exec spec and
+        can never map to a console script, so requiring one refuses every
+        mutating command on a perfectly healthy binary.
+        """
+        got = _detect(
+            environ={"PYAPP": "/usr/local/bin/func"}, argv0="-c", tmp_path=tmp_path
+        )
+        assert got.owning_distribution is None
+        assert got.degraded is False
+
+    def test_standalone_without_a_binary_is_degraded(self, tmp_path: Path) -> None:
+        """There is nothing for a mutating command to act on."""
+        got = _detect(environ={"PYAPP": "1"}, argv0="-c", tmp_path=tmp_path)
+        assert got.degraded is True
+
     def test_prefix_under_the_uv_tools_dir_means_tool_uv(self, tmp_path: Path) -> None:
         got = _detect(
             prefix="/home/u/.local/share/uv/tools/functualize",
