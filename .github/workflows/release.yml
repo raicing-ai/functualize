@@ -200,43 +200,42 @@ jobs:
           name: dist
           path: dist/
 
-      # A python-build-standalone distribution, relocated into `bake/`, with the
-      # wheels from `build` installed into it. `uv python install` fetches the
-      # same distributions PyApp would, so the interpreter in the binary is the
-      # one uv would have chosen anyway.
+      # A python-build-standalone *installation* -- not a virtual environment --
+      # with the wheels from `build` installed into it. The recipe lives in
+      # `.github/scripts/bake.sh` because the musl targets have to run it inside
+      # an Alpine container and two copies of it would drift.
+      #
+      # musl needs the container because `uv python install` offers only the
+      # host libc's distributions: on a glibc runner there is no musl Python to
+      # fetch, so a musl binary built here would embed a glibc interpreter.
       - name: Bake the distribution
         shell: bash
         env:
           PYTHON_VERSION: "3.12"
           TARGET: ${{ matrix.target }}
+          LIBC: ${{ matrix.libc }}
         run: |
           set -euo pipefail
-          uv python install "$PYTHON_VERSION"
-          root="bake/$TARGET"
-          rm -rf "$root"
-          mkdir -p "$root"
+          version="${GITHUB_REF_NAME#v}"
+          case "$version" in
+            *[!0-9.a-zA-Z-]*|"") version=$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2) ;;
+          esac
+          export FUNCTUALIZE_VERSION="$version"
 
-          # A relocatable venv: the binary runs from a path this build cannot
-          # know, so nothing may bake in an absolute prefix.
-          uv venv --python "$PYTHON_VERSION" --relocatable --seed "$root/env"
-
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            python_bin="$root/env/Scripts/python.exe"
+          if [ "$LIBC" = "musl" ]; then
+            docker run --rm \
+              -e PYTHON_VERSION -e TARGET -e FUNCTUALIZE_VERSION \
+              -v "$PWD:/w" -w /w \
+              alpine:3.20 sh .github/scripts/bake.sh
           else
-            python_bin="$root/env/bin/python"
+            sh .github/scripts/bake.sh
           fi
 
-          # Install from the wheels this release built, not from the index:
-          # the binary must contain exactly what `publish` uploaded, and a
-          # resolver reaching PyPI could pick a different build of a plugin.
-          uv pip install --python "$python_bin" \
-            --find-links dist/ \
-            "functualize[all]==${{ github.ref_type == 'tag' && github.ref_name || '' }}" \
-            2>/dev/null \
-          || uv pip install --python "$python_bin" --find-links dist/ "functualize[all]"
-
-          "$python_bin" -c "import functualize; print(functualize.__version__)"
-
+      # Archived so the tarball's **root is the distribution root** -- the
+      # directory holding `bin/` and `lib/` -- not a wrapper containing it.
+      # PyApp's distribution paths are relative to the archive root, and a
+      # wrapper means every one of them needs a prefix that is easy to get wrong
+      # in exactly one of the two platform branches.
       - name: Archive the baked distribution
         shell: bash
         env:
@@ -244,7 +243,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p baked
-          tar -czf "baked/functualize-baked-$TARGET.tar.gz" -C "bake/$TARGET" env
+          tar -czf "baked/functualize-baked-$TARGET.tar.gz" -C "bake/$TARGET" .
 
       - name: Upload the baked distribution
         uses: actions/upload-artifact@v4
@@ -296,6 +295,21 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      # `rustup target add` installs the standard library, never a linker. The
+      # musl targets link with `musl-gcc`, which comes from `musl-tools`, and
+      # without it cargo fails at the very last step of a ten-minute build.
+      - name: Install the musl toolchain
+        if: endsWith(matrix.target, '-musl')
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq musl-tools
+          # Two spellings, because the two consumers disagree: cargo reads an
+          # uppercased `CARGO_TARGET_<TRIPLE>_LINKER`, while the `cc` crate --
+          # which any C dependency goes through -- reads `TARGET_CC` verbatim.
+          triple=$(echo "${{ matrix.target }}" | tr 'a-z-' 'A-Z_')
+          echo "CARGO_TARGET_${triple}_LINKER=musl-gcc" >> "$GITHUB_ENV"
+          echo "TARGET_CC=musl-gcc" >> "$GITHUB_ENV"
+
       - name: Download the baked distribution
         uses: actions/download-artifact@v4
         with:
@@ -324,6 +338,9 @@ jobs:
           # internal and carries no stability guarantee.
           PYAPP_SELF_COMMAND: pyapp
           PYAPP_FULL_ISOLATION: "1"
+          # Must match the interpreter `bake` created, or the site-packages path
+          # below points at a directory that does not exist.
+          PYAPP_PYTHON_VERSION: "3.12"
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
@@ -332,6 +349,29 @@ jobs:
           esac
           export PYAPP_PROJECT_VERSION="$version"
           export PYAPP_DISTRIBUTION_PATH="$PWD/baked/functualize-baked-$TARGET.tar.gz"
+
+          # **Both of these are mandatory for a custom embedded distribution**,
+          # and they are paths *inside the archive*. PyApp panics at build time
+          # without the python path (`build.rs:813`), and silently guesses the
+          # site-packages one from its own default layout -- which is not a
+          # venv's layout, so a wrong guess yields a binary that starts and then
+          # cannot import anything.
+          #
+          # The archive root is the distribution root (see `bake`). A
+          # python-build-standalone install puts `python.exe` at that root --
+          # `Scripts/` holds console scripts, not the interpreter -- so the
+          # Windows branch is *not* the venv layout it would be for a venv.
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            export PYAPP_DISTRIBUTION_PYTHON_PATH='python.exe'
+            export PYAPP_DISTRIBUTION_SITE_PACKAGES_PATH='Lib\site-packages'
+          else
+            export PYAPP_DISTRIBUTION_PYTHON_PATH="bin/python"
+            export PYAPP_DISTRIBUTION_SITE_PACKAGES_PATH="lib/python${PYAPP_PYTHON_VERSION}/site-packages"
+          fi
+
+          # Derived from the extension by PyApp, but stated because AC25 means
+          # every input is visible in the log rather than inferred.
+          export PYAPP_DISTRIBUTION_FORMAT="tar|gzip"
 
           echo "Build inputs:"
           env | grep '^PYAPP_' | sort

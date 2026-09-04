@@ -103,10 +103,16 @@ Every mutating command prints the exact command it will run before running it. `
 self update` then restores anything you had added — including packages installed through the
 `func builtin self python -- ...` escape hatch, which it never recorded.
 
-> **Install method decides whether self-update works.** `self update` manages the standalone
-> binary, a `uv tool` install, a `pipx` install, or a project checkout. A bare `pip install`
-> into a system interpreter is not self-managing: the command prints guidance, changes
-> nothing, and exits `3`. `func builtin self doctor` tells you which kind you have.
+> **Install method decides whether self-update works.** `self update` manages a `uv tool`
+> install, a `pipx` install, or a project checkout. A bare `pip install` into a system
+> interpreter is not self-managing: the command prints guidance, changes nothing, and exits
+> `3`. `func builtin self doctor` tells you which kind you have.
+>
+> **The standalone binary is not self-managing yet.** PyApp runs the application through
+> `python -c`, so the console script that self-management reverse-maps to a distribution is
+> absent, and every mutating `self`/`plugin` command refuses on it. `self doctor`, `info`,
+> `plugin list` and running jobs all work. Upgrade a standalone install by re-running the
+> install script, which replaces the binary in place.
 
 ### How `func` finds jobs
 
