@@ -21,7 +21,12 @@ set -eu
 # and cannot execute here. Bootstrapping is cheap and keeps the two paths
 # running the same script rather than two drifting copies.
 if ! command -v uv >/dev/null 2>&1; then
-    apk add --no-cache curl ca-certificates >/dev/null
+    # `build-base` is not optional. PyPI publishes musl wheels for the common
+    # architectures but not for every dependency on aarch64 -- tree-sitter-json
+    # builds from source there, and Alpine ships no compiler, so the bake dies
+    # with `No such file or directory: 'cc'` on exactly one of the seven
+    # targets.
+    apk add --no-cache curl ca-certificates build-base >/dev/null
     curl -LsSf https://astral.sh/uv/install.sh -o /tmp/uv-install.sh
     sh /tmp/uv-install.sh >/dev/null
     PATH="$HOME/.local/bin:$PATH"

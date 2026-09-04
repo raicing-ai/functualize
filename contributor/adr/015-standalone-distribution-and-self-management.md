@@ -161,23 +161,56 @@ install on Windows puts `python.exe` at the distribution root, not under
 target baked on a glibc runner would embed a glibc interpreter — the musl bakes
 run inside an Alpine container.
 
-**`self update` on a standalone install does not work, and never did.** The
+**`self update` on a standalone install did not work, and never had.** The
 decision above says PyApp's own updater handles it. Read against pyapp 0.29.0,
 that subcommand is hidden unless `PYAPP_EXPOSE_UPDATE=1`, refuses outright under
 `PYAPP_SKIP_INSTALL=1` (`"Cannot update as installation is disabled"`), and
 would `pip install --upgrade` from an index if it ran — which would replace the
 offline-complete environment this decision exists to produce. Separately, every
-mutating `self`/`plugin` command refuses on a standalone binary, because PyApp
+mutating `self`/`plugin` command refused on a standalone binary, because PyApp
 launches the app through `python -c` and `argv[0]` is `-c`, which reverse-maps
-to no console script and so reads as a degraded install. That signal is false:
-a standalone binary has no owning distribution *by construction*, and the
-standalone `install`/`uninstall` branches are already written and correct but
-unreachable.
+to no console script and so read as a degraded install.
 
-The refusal is honest and the read-only commands are unaffected, so the binary
-ships as it stands and the documentation now says so. The design question —
-what updating a pre-baked binary should mean — is recorded in
-`.spec/shape-intents/standalone-self-management.md`.
+That signal was false, and the correction supersedes the decision above rather
+than merely noting it:
+
+**Identity comes from PyApp, not from `argv[0]`.** Built with
+`PYAPP_PASS_LOCATION=1`, PyApp sets `PYAPP` to the running executable's absolute
+path (`distribution.rs:54`). That path is the installation's identity. `PYAPP`
+is tested for *presence* rather than truthiness, because PyApp sets it to the
+empty string when `current_exe()` fails and a binary that cannot name itself is
+still a standalone binary.
+
+**A standalone install is not degraded for want of an owning distribution.** It
+has none by construction — it is a file, not a package — so the absence that
+degrades every other mode says nothing here. The discriminator is the binary
+path: an install that cannot name its own executable *is* degraded, because
+there is nothing for a mutating command to act on.
+
+**`self update` replaces the binary.** It reads a release source baked into the
+distribution root, fetches that release, verifies the archive against its
+`SHA256SUMS` **before unpacking** — handing `tarfile` unverified bytes is itself
+the attack surface — and stages the replacement in the target's own directory so
+`os.replace` is atomic (it is atomic only within a filesystem, and `/tmp` is
+routinely a different one). An archive the checksums file does not mention is
+refused exactly like one that fails to match: "no line for this name" and "the
+line does not match" are the same security outcome.
+
+The release source is baked rather than hard-coded, for the same reason
+detection resolves an owning distribution rather than assuming `functualize`: an
+application that builds its own PyApp binary points its users at its own
+releases. Its absence refuses cleanly.
+
+**Reconciliation is not the in-process kind.** Replacing the executable means
+the next launch unpacks a different distribution at a different path, so
+packages added to the old one were not "removed by an upgrade" — they are in a
+directory nothing will consult again. The new binary is asked to install them
+into its own distribution, which it can only do once it has unpacked one.
+
+**`self install` uses the bundled pip, not uv.** A binary is the install method
+for a machine with no Python toolchain; requiring `uv` on `PATH` to add a
+dependency defeats it, and the baked distribution ships no uv, so `resolve_uv()`
+would raise on the one install method that cannot fix it.
 
 Both were invisible to every gate the feature had. The scenario written to catch
 exactly this, `l-standalone-binary.toml`, carried the same wrong recipe and was

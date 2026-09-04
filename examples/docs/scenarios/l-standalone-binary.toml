@@ -18,7 +18,7 @@ description = "The binary launches and runs a job with networking disabled (AC22
 
 [source]
 file = "docs/getting-started/installation.md"
-lines = "52-133"
+lines = "52-155"
 description = "The standalone binary: offline first run, checksummed download, musl on a system without glibc"
 
 requires = []
@@ -158,29 +158,83 @@ expected = { stdout_contains = "install-mode", exit_code = 0 }
 timeout = 300
 
 # This step asserted `pyapp update` until the binary was actually built and the
-# claim could be checked. It is wrong twice over: PyApp hides that subcommand
+# claim could be checked. It was wrong twice over: PyApp hides that subcommand
 # unless `PYAPP_EXPOSE_UPDATE=1`, and even when reached it refuses outright on a
 # pre-baked build ("Cannot update as installation is disabled") because
 # `PYAPP_SKIP_INSTALL=1` -- and would pip-install from an index if it did run,
 # which is the one thing recipe B exists to avoid.
 #
-# So a standalone binary has no in-place update path today, and every mutating
-# `self`/`plugin` command refuses on it: PyApp launches the app through
-# `python -c`, `argv[0]` is `-c`, and that maps to no console script, so
-# detection finds no owning distribution and declines rather than guessing.
-# The refusal is the *correct* behaviour for the current design; what is wrong
-# is that the binary cannot manage itself at all. Tracked in
-# `.spec/shape-intents/standalone-self-management.md`.
+# `self update` now replaces the binary itself. Offline is the *interesting*
+# case to gate here: it must fail cleanly against an unreachable index rather
+# than traceback, and it must leave the binary alone.
 [[steps]]
 engine = "docker"
-description = "Offline, `self update` refuses on a standalone binary rather than pretending"
+description = "Offline, `self update` fails cleanly and leaves the binary intact"
 image = "debian:bookworm-slim"
 network = "none"
 volumes = { "./dist/standalone" = "/work" }
 workdir = "/tmp"
-command = "/work/func builtin self update </dev/null; echo \"exit=$?\""
-expected = { stdout_contains = "exit=3", exit_code = 0 }
+command = """
+before=$(sha256sum /work/func | cut -d' ' -f1)
+/work/func builtin self update --yes </dev/null; code=$?
+after=$(sha256sum /work/func | cut -d' ' -f1)
+echo "exit=$code"
+test "$before" = "$after" || { echo "THE BINARY WAS MODIFIED"; exit 1; }
+echo "BINARY-INTACT"
+"""
+expected = { stdout_contains = "BINARY-INTACT", exit_code = 0 }
 timeout = 180
+
+# The commands that used to refuse. `plugin list` reads; `self install` mutates
+# and needs the index, so it is asserted here only as far as *planning* the
+# right command -- the offline container cannot complete it, and a step that
+# needed the network would not belong in this file.
+[[steps]]
+engine = "docker"
+description = "Offline, the mutating commands plan the bundled interpreter's pip (no longer refuse)"
+image = "debian:bookworm-slim"
+network = "none"
+volumes = { "./dist/standalone" = "/work" }
+workdir = "/tmp"
+command = """
+set -e
+/work/func builtin plugin list >/dev/null && echo "PLUGIN-LIST-OK"
+
+# Declined at the prompt: what matters is that a command was *offered* at all.
+# Before this worked, both of these printed "maps to no installed distribution"
+# and exited 3 without planning anything.
+out=$(/work/func builtin self install requests </dev/null 2>&1 || true)
+echo "$out" | grep -q -- "-m pip install requests" || {
+  echo "self install did not plan a pip command:"; echo "$out"; exit 1; }
+echo "SELF-INSTALL-PLANNED"
+
+out=$(/work/func builtin plugin install functualize-http </dev/null 2>&1 || true)
+echo "$out" | grep -q -- "-m pip install functualize-http" || {
+  echo "plugin install did not plan a pip command:"; echo "$out"; exit 1; }
+echo "PLUGIN-INSTALL-PLANNED"
+"""
+expected = { stdout_contains = "PLUGIN-INSTALL-PLANNED", exit_code = 0 }
+timeout = 240
+
+[[steps]]
+engine = "docker"
+description = "Offline, `self doctor` names the binary's real path, not `-c`"
+image = "debian:bookworm-slim"
+network = "none"
+volumes = { "./dist/standalone" = "/work" }
+workdir = "/tmp"
+command = """
+set -e
+out=$(/work/func builtin self doctor)
+echo "$out"
+# The registry used to record `<prefix>/bin/-c` -- a path that never existed --
+# and then correctly reported the fresh install as stale on its first run.
+echo "$out" | grep -q -- "/bin/-c" && { echo "STILL RECORDING -c"; exit 1; }
+echo "$out" | grep -q "stale" && { echo "REPORTS ITSELF STALE"; exit 1; }
+echo "IDENTITY-OK"
+"""
+expected = { stdout_contains = "IDENTITY-OK", exit_code = 0 }
+timeout = 240
 
 # ---------------------------------------------------------------------------
 # The install script

@@ -1,7 +1,14 @@
 # Standalone self-management
 
-**Status**: intent — not specified, not scheduled
-**Raised**: 2026-09-04, from building the binary for the first time (v0.2.2 pipeline work)
+**Status**: RESOLVED — specified and built, 2026-09-04
+**Raised**: 2026-09-04, from building the binary for the first time
+**Resolved by**: option (2), *self-replacing*, of the three below. See
+`contributor/adr/015-standalone-distribution-and-self-management.md`, whose
+Correction section supersedes the original decision.
+
+Kept rather than deleted: the analysis of *why* PyApp's own updater is not an
+option is the load-bearing part, and it is not obvious from the code that
+replaced it.
 
 ## The gap
 

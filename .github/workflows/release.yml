@@ -216,7 +216,14 @@ jobs:
           LIBC: ${{ matrix.libc }}
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          # Only a tag names a version. On `workflow_dispatch` the ref name
+          # is the *branch* -- "master" is all-alphanumeric and sails past a
+          # character-class guard, producing `functualize[all]==master`.
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version=""
+          fi
           case "$version" in
             *[!0-9.a-zA-Z-]*|"") version=$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2) ;;
           esac
@@ -350,7 +357,11 @@ jobs:
           PYAPP_PYTHON_VERSION: "3.12"
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version=""
+          fi
           case "$version" in
             *[!0-9.a-zA-Z-]*|"") version=$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2) ;;
           esac
@@ -401,7 +412,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          binary=$(ls artifacts/func artifacts/func.exe 2>/dev/null | head -1)
+          # Not `ls artifacts/func artifacts/func.exe`: exactly one of those
+          # names exists on any given platform, `ls` exits non-zero for the
+          # other, and under `set -o pipefail` that failed the step *after* a
+          # successful ten-minute build.
+          if [ -f artifacts/func.exe ]; then
+            binary=artifacts/func.exe
+          else
+            binary=artifacts/func
+          fi
           bytes=$(wc -c < "$binary" | tr -d ' ')
           mb=$(( bytes / 1000000 ))
           echo "measured size: ${bytes} bytes (${mb} MB)"
@@ -429,7 +448,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          binary=$(ls artifacts/func artifacts/func.exe 2>/dev/null | head -1)
+          # Not `ls artifacts/func artifacts/func.exe`: exactly one of those
+          # names exists on any given platform, `ls` exits non-zero for the
+          # other, and under `set -o pipefail` that failed the step *after* a
+          # successful ten-minute build.
+          if [ -f artifacts/func.exe ]; then
+            binary=artifacts/func.exe
+          else
+            binary=artifacts/func
+          fi
           "$binary" builtin version
           "$binary" builtin self doctor || true
 
