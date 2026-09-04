@@ -1,6 +1,6 @@
 [project]
 name = "functualize-ai"
-version = "0.2.0"
+version = "0.2.1"
 description = "AI Domain SDK for functualize — LLM interaction capabilities"
 readme = "README.md"
 license = "MIT"

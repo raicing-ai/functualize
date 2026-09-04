@@ -1,6 +1,6 @@
 [project]
 name = "functualize-state-sqlite"
-version = "0.2.0"
+version = "0.2.1"
 description = "SQLite-backed state persistence and execution tracking plugin for functualize"
 readme = "README.md"
 license = "MIT"
