@@ -1,6 +1,6 @@
 [project]
 name = "functualize-inline"
-version = "0.2.0"
+version = "0.2.1"
 description = "Textual inline interactivity plugin for functualize prompts"
 readme = "README.md"
 license = "MIT"

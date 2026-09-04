@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-04
+
+### Fixed — the release pipeline that could not deliver 0.2.0's binaries
+
+**No library changes.** This release exists to ship the standalone binaries that
+0.2.0 announced and could not produce. If you install from PyPI, 0.2.1 and 0.2.0
+are the same code.
+
+The binary pipeline shipped in 0.2.0 and ran for the first time on its tag —
+these stages cannot execute before a tag exists, so the tag *was* the first test.
+Three defects surfaced:
+
+- **The `macos-13` runner label was retired on 2025-12-04.** A workflow naming a
+  dead label does not fail — it queues forever. The release sat "in progress"
+  for an hour with no runner ever assigned. Now `macos-15-intel`, which is the
+  last x86_64 macOS image GitHub will offer.
+
+- **The binary and checksum stages required their entire upstream matrix to
+  succeed.** `needs.<job>.result` is the aggregate across a matrix, so one
+  target failing skipped all seven — `fail-fast: false` buys nothing across a
+  stage boundary. A broken platform now costs its own binary and nothing else.
+
+- **The GitHub Release depended on the binaries.** A failed binary build
+  therefore skipped the release entirely, leaving PyPI with the version and
+  GitHub with a bare tag. It is now gated on the PyPI publish alone; the wheel
+  is the primary artifact and the binaries ride along.
+
+`install.sh` and `install.ps1` work from this release onward. 0.2.0 remains a
+PyPI-only release.
+
 ## [0.2.0] - 2026-09-04
 
 ### Added — a standalone binary, and installations that manage themselves
@@ -1065,7 +1095,8 @@ function knowing which.
   through the injected `Log` is deferred to a later release.
   *(Fixed in 0.1.1.)*
 
-[Unreleased]: https://github.com/raicing-ai/functualize/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/raicing-ai/functualize/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/raicing-ai/functualize/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/raicing-ai/functualize/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/raicing-ai/functualize/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/raicing-ai/functualize/compare/v0.1.1...v0.1.2
