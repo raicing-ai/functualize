@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-09-04
+
+### Fixed — the seventh binary
+
+`aarch64-unknown-linux-musl` was the one target 0.2.2 could not build, and the
+only one that has to compile anything: every other platform gets wheels for all
+sixteen tree-sitter grammars `textual[syntax]` pulls in.
+
+Three things were wrong, in order of discovery:
+
+- **The wrong compiler.** python-build-standalone builds its aarch64-musl
+  interpreter with clang and bakes clang-only flags into the sysconfig every
+  extension build inherits (`--rtlib=compiler-rt`). Alpine's `cc` is gcc, which
+  rejects that outright. The x86_64-musl distribution carries no such flag,
+  which is why exactly one target failed and why it could not be reproduced on
+  any other.
+
+- **No headers.** The grammar sdists ship `src/parser.c` and omit every header
+  it includes — `tree_sitter_json-0.24.8.tar.gz`'s entire `src/` is one `.c`
+  file. Nothing else supplies them: Alpine's `tree-sitter-dev` has only the
+  runtime `api.h`, and the `tree-sitter` wheel has no headers at all. The core
+  headers are now vendored from tree-sitter at a pinned tag.
+
+- **One sdist that cannot be repaired from outside.** `tree-sitter-xml` wants
+  `"../../common/scanner.h"`, and the copy at its own `v0.7.0` tag then wants
+  `"./ts_assert.h"`, a file that tag does not contain — its published sdist was
+  built from some later commit.
+
+So this target installs **the one grammar the code actually uses** rather than
+all sixteen. `TextArea.code_editor(language="python")` in the shortcut-save
+modal is the only syntax-highlighted widget in the tree, and
+`tree-sitter-python` publishes an aarch64-musl wheel. Highlighting is
+unaffected; the fifteen unused grammars are simply not installed.
+
+Narrowed for that target alone. x86_64-musl builds all sixteen without trouble
+and is untouched — degrading a platform that works, for symmetry with one that
+cannot, would trade real functionality for tidiness.
+
+**All seven platforms now build.**
+
 ## [0.2.2] - 2026-09-04
 
 ### Added — the standalone binary manages itself
@@ -1174,7 +1214,8 @@ function knowing which.
   through the injected `Log` is deferred to a later release.
   *(Fixed in 0.1.1.)*
 
-[Unreleased]: https://github.com/raicing-ai/functualize/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/raicing-ai/functualize/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/raicing-ai/functualize/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/raicing-ai/functualize/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/raicing-ai/functualize/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/raicing-ai/functualize/compare/v0.1.3...v0.2.0

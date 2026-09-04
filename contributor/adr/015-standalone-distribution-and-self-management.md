@@ -217,6 +217,26 @@ exactly this, `l-standalone-binary.toml`, carried the same wrong recipe and was
 never executed; its build step is the expensive one. **A verification step that
 has not been run is not evidence.**
 
+### One platform carries a narrower payload
+
+`aarch64-unknown-linux-musl` installs `tree-sitter` and `tree-sitter-python`
+instead of the sixteen grammars `textual[syntax]` pulls in. It is the only
+target that has to *compile* a grammar — every other platform gets wheels — and
+the grammar sdists are unbuildable as published: they ship `src/parser.c` and
+omit every header it includes, and `tree-sitter-xml`'s cannot be repaired from
+outside the package at all, because its published sdist was built from a commit
+that matches no tag in its repository.
+
+This is a deliberate, bounded exception to "the same payload everywhere".
+`TextArea.code_editor(language="python")` is the only syntax-highlighted widget
+in the tree, so the narrowing removes fifteen grammars nothing loads and changes
+no behaviour a user can see. The alternative was no aarch64-musl binary — which
+would miss precisely the ARM-container audience the musl targets exist for.
+
+It is narrowed for that target alone. x86_64-musl builds all sixteen and is left
+as it is: degrading a platform that works, for symmetry with one that cannot,
+trades real functionality for tidiness.
+
 ## Consequences
 
 ### Positive
