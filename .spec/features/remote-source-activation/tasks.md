@@ -247,20 +247,66 @@ its command returned, so drift between authoring and execution is visible.
 
 ## 3. Wiring
 
-- [ ] **3.1 — V1: the boot path builds the chain**
-  `build_resolution_chain` (`_app/boot.py:772`) gains an optional remote slot;
-  `remote_first()` carries a marker instead of a bare `None`.
-  - `[F]` `src/functualize/_app/boot.py`, `src/functualize/app/presets.py`, `tests/app/test_remote_first.py`
+- [x] **3.1 — V1: the boot path builds the chain** — DONE
+  `build_resolution_chain` gains an optional `remote_source` slot;
+  `remote_first()` carries `remote=True` instead of a bare `None`.
+  - `[F]` `src/functualize/_app/boot.py`, `src/functualize/app/presets.py`,
+    `src/functualize/app/config.py`, `src/functualize/_config/vault_source.py`,
+    `tests/app/test_remote_first.py`
   - Acceptance: `grep -c "remote" src/functualize/_app/boot.py` ≥ 1.
-    Authoring-time count: **0**.
+    Authoring-time count: **0**; now **19**. **Met.**
   - Second acceptance: `remote_first()` with **no** registered provider raises
-    at construction, naming the entry-point group. It must **not** degrade to
-    `classic()` — that degradation is the defect this feature closes.
-  - Third acceptance: `classic()` is byte-identical before and after. One
-    builder serves both; a regression here means they have drifted.
-  - Reachability: `FunctualizeApp(config_sources=remote_first())` → boot →
-    chain. Verify by removing the remote slot and watching the test fail.
+    at construction, naming the entry-point group. **Met** — verified against a
+    real project tree, not only in unit tests:
+
+    ```
+    --- classic() still boots ---
+       jobs: ['hello']
+    --- remote_first() with no provider registered ---
+       RuntimeError: This app selects remote_first(), but no remote
+       configuration provider is registered...
+       names the group: True
+    ```
+
+  - Third acceptance: `classic()` unchanged. **Met** —
+    `test_classic_composition_is_unchanged` pins
+    `["cli", "env", "file", "default"]`, and the remote slot is skipped
+    entirely when `remote_source is None`.
   - `[verify-e2e:TARGETED]`
+
+  **Design notes:**
+
+  - **`ConfigSources.remote` is the marker.** A bare `None` chain cannot
+    distinguish "build the classic chain" from "build the remote chain", and
+    that ambiguity *is* the defect: `remote_first()` returned `None`, `None`
+    fell through to the classic builder, and the preset silently became
+    `classic()` for its entire shipped life. Intent is now data.
+  - **One builder, not two.** `build_resolution_chain` takes an optional slot
+    rather than growing a parallel `build_remote_resolution_chain`. Two
+    builders is how the presets would drift apart again.
+  - **The vault slots between CLI and Env**, so a synced secret outranks the
+    environment and the config file while an explicit CLI argument still wins.
+  - **Refusal is for a missing provider; a missing key is only a warning.**
+    Both are reachable from `func --help`, but they differ: no provider means
+    *nothing could ever resolve remotely*, which is a misconfiguration worth
+    stopping for. No key means *this machine cannot open the vault right now*,
+    which must not make the tool unusable. `VaultSource` is inert in that case
+    and boot logs once.
+  - **`VaultSource` reads by config key, not by annotation.** The vault row
+    already records the annotation and provider that produced a value, so a
+    read needs no re-parsing; annotations are consulted when *syncing*.
+  - **A `VaultDecryptionError` propagates rather than becoming a miss.** A
+    vault that cannot be *read* is a different situation from one that does not
+    *hold* the key, and collapsing them would hide a wrong-key configuration
+    behind a silent fall-through — the exact shape of the defect being closed.
+  - `has()` and `get()` are asserted to agree: a source that claims a key it
+    cannot deliver breaks the chain's contract.
+
+  **Verification.** 20 tests. Two sabotages, both caught: making the refusal
+  `return None` (degrade to classic) fails all 3 refusal tests; making the
+  chain never slot the vault fails the composition test. `ruff`, `format`,
+  `mypy` (316 files), `lint-imports` green. Removing a now-redundant
+  `type: ignore[arg-type]` was needed — `sources` widened to `list[Any]`.
 
 - [ ] **3.2 — V6: a miss falls through, loudly**
   Warn naming the key, its annotation, **which source answered instead**, and

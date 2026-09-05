@@ -614,6 +614,7 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
             file_regex=custom_regex,
             environment=app._environment,
             event_bus=app.event_bus,
+            remote_source=build_remote_source(app),
         )
     perf_timeline.mark("boot.config_resolution.end")
 
@@ -761,6 +762,61 @@ def discover_config_path(
     return str(Path.home() / ".config" / app_name)
 
 
+def build_remote_source(app: Any) -> Any:
+    """Build the vault-backed source for a ``remote_first()`` app, or None.
+
+    Returns None for every other preset, so ``classic()`` builds exactly the
+    chain it always did.
+
+    Raises:
+        RuntimeError: If the app asked for remote resolution and no remote
+            provider is registered. **This must not degrade to the classic
+            chain.** Silently resolving from local files while the caller
+            believes they are reading AWS Secrets Manager is the defect
+            ADR-016 exists to close; refusing is the whole point.
+    """
+    if not getattr(app._config_sources, "remote", False):
+        return None
+
+    registered = app.config_registry.list_remote_providers()
+    if not registered:
+        msg = (
+            "This app selects remote_first(), but no remote configuration "
+            "provider is registered, so nothing could resolve remotely.\n\n"
+            "Install a provider plugin — for example `pip install "
+            "functualize-aws` — or register one through the "
+            "'functualize.remote_providers' entry-point group.\n\n"
+            "Refusing rather than falling back to local files: resolving from "
+            "config while you believe you are reading a secret store is the "
+            "failure this preset exists to prevent."
+        )
+        raise RuntimeError(msg)
+
+    from functualize._config.vault import vault_path_for_project
+    from functualize._config.vault_keys import resolve_vault_key
+    from functualize._config.vault_source import VaultSource
+    from functualize._primitives.locator import compute_project_id
+
+    project_id = compute_project_id(Path.cwd())
+    resolution = resolve_vault_key(project_id)
+    if resolution is None:
+        # Inert, not fatal: this path is reachable from `func --help`, and a
+        # missing key must not make the tool unusable. Task 3.2 makes the
+        # resulting fall-through visible per key.
+        logger.warning(
+            "remote_first() is active but no vault key is available. Declared "
+            "remote values will fall back to local sources. Set "
+            "$FUNCTUALIZE_VAULT_KEY (see `func builtin vault keygen`)."
+        )
+        return VaultSource(vault_path_for_project(), encryption_key=None)
+
+    return VaultSource(
+        vault_path_for_project(),
+        encryption_key=resolution.key,
+        key_provider_id=resolution.provider_id,
+    )
+
+
 def build_resolution_chain(
     config_path: str,
     app_name: str,
@@ -769,6 +825,7 @@ def build_resolution_chain(
     file_regex: str | None = None,
     environment: str | None = None,
     event_bus: Any = None,
+    remote_source: Any = None,
 ) -> ResolutionChain:
     """Build a ResolutionChain with source precedence: CLI → Env → Files → Defaults.
 
@@ -789,6 +846,10 @@ def build_resolution_chain(
             banding (every discovered file merges in discovery order).
         event_bus: Optional EventBus, so FileSource can report which
             overlay slots matched and which were inert.
+        remote_source: A vault-backed source to slot between CLI and Env, or
+            None. Only ``remote_first()`` supplies one — one builder serves
+            both presets so they cannot drift, which is how ``remote_first()``
+            came to silently *be* ``classic()`` in the first place (ADR-016).
 
     Returns:
         Configured ResolutionChain instance.
@@ -800,8 +861,16 @@ def build_resolution_chain(
         .search_platform_user(app_name=app_name)
     )
     filename_regex = file_regex
-    sources: list[CliSource | EnvSource | FileSource | DefaultSource] = [
+    sources: list[Any] = [
         CliSource({}),
+    ]
+    # The vault slots between CLI and Env: a synced remote value outranks the
+    # environment and the config file, while an explicit CLI argument still
+    # wins. `remote_source` is None for every preset but `remote_first()`, so
+    # `classic()` builds exactly the chain it always did.
+    if remote_source is not None:
+        sources.append(remote_source)
+    sources += [
         EnvSource(),
         FileSource(
             resolver,
@@ -818,7 +887,7 @@ def build_resolution_chain(
         ),
         DefaultSource({}),
     ]
-    return ResolutionChain(sources)  # type: ignore[arg-type]
+    return ResolutionChain(sources)
 
 
 def wire_children_to_pipeline(app: Any) -> None:

@@ -94,6 +94,15 @@ class ConfigSources:
     config_resolution_chain: ResolutionChain | None = None
     dotenv: bool = True
     dotenv_path: str | None = None
+    remote: bool = False
+    """Whether to resolve declared remote annotations from the local vault.
+
+    Set by ``remote_first()``. It exists because a *bare* ``None`` chain cannot
+    distinguish "build the classic chain" from "build the remote chain" -- and
+    that ambiguity is exactly how ``remote_first()`` came to resolve silently
+    as ``classic()`` for its whole shipped life (ADR-016). The intent is now a
+    fact in the data rather than an inference from absence.
+    """
 
 
 @dataclass(frozen=True)
