@@ -12,7 +12,28 @@ placement follows the constitution's audience split (public folders only:
 class ModulePreFilter(Protocol):
     def accepts(self, path: Path, source: str) -> bool:
         """Return whether this module should be imported for discovery."""
+
+    def fingerprint(self) -> str:
+        """Stable identity of this filter's logic, for cache invalidation.
+
+        Must be identical across processes for identical behaviour, and must
+        change when the predicate's behaviour changes.
+        """
 ```
+
+**`fingerprint()` is load-bearing, not decorative** (decided 2026-09-05). The
+discovery cache persists negative pre-filter decisions and replays them,
+trusting them only while the discovery fingerprint matches. A caller-supplied
+predicate cannot participate in that hash by identity:
+`_normalize_discovery_value` renders an unknown value with `str()`, and
+`str()` of a function is `'<function p at 0x7fd949036160>'` — address-bearing
+and different in every process. Hashing the object invalidates the cache on
+every boot; omitting it reproduces the X1–X4 replay bug that `CACHE_VERSION`
+15→16→17 and ADR-010/ADR-011 exist to close.
+
+A host that forgets to bump its fingerprint gets a stale cache — the same
+contract as any cache key, and the same failure the `require_*` fields already
+have when a config is edited without invalidation.
 
 ```python
 # functualize/app/config.py
@@ -27,8 +48,15 @@ class DiscoveryConfig:
     require_job_decorators: tuple[str, ...] | None = None
     require_job_prefix: str | None = None
     require_job_postfix: str | None = None
-    pre_filter: ModulePreFilter | None = None      # NEW
+    pre_filter: ModulePreFilter | None = None      # NEW — the tenth field
 ```
+
+The tenth field is not free. `_DISCOVERY_FINGERPRINT_FIELDS`
+(`_discovery/filter_factory.py:187`) mirrors these names exactly, and
+`tests/discovery/test_discovery_hash.py:101` asserts set equality between the
+two with the docstring *"Guard against a tenth setting being added and silently
+uncovered."* The field contributes `pre_filter.fingerprint()` to the digest —
+never the object.
 
 Composition is AND, matching the docstring's existing rule: a module is
 imported when every set constraint accepts it. `None` means no constraint.
@@ -105,6 +133,29 @@ def resolve_skills_locations() -> list[SkillsLocation]:
 def resolve_skills_dir() -> SkillsLocation | None:
     """Core's own location. Retained — 3 call sites migrate to the plural."""
 ```
+
+### `skills path` becomes multi-line — breaking, and deliberate
+
+Decided 2026-09-05. `path` iterates like `list`, `materialize` and `install`,
+printing one location per line.
+
+This breaks two shipped single-value consumers, which change in the same task:
+
+| Site | Today | Why it breaks |
+|---|---|---|
+| `_cli/builtins.py:1496` docstring | *"one path, no decoration, so it composes: `npx skills add "$(func builtin skills path)"`"* | the promise is no longer true |
+| `README.md:924` | `cp -R "$(func builtin skills path)"/* .claude/skills/` | two lines substitute as one argument; `cp` fails with "No such file or directory" |
+
+Replacement idiom:
+
+```bash
+func builtin skills path | while read -r d; do
+  cp -R "$d"/* .claude/skills/
+done
+```
+
+The pre-release stance permits the break; leaving the README publishing a
+command that no longer works does not.
 
 `materialize_skills` stamps per source:
 `$XDG_DATA_HOME/functualize/skills/<distribution>-<version>/<skill-name>/`.

@@ -33,14 +33,18 @@ was designed to block instead.
 
 ## Behavior
 
-### B1 — `job_providers` is honoured or it is gone
+### B1 — `job_providers` is honoured
 
 `JobSources.job_providers` is declared, documented in the dataclass docstring,
-and read by nothing. Either the field wires its providers into the resolution
-pipeline on both boot paths, or the field and its docstring line are deleted.
+and read by nothing.
 
-**Decision required from the maintainer** (see `plan.md` §3). The spec accepts
-either outcome; it does not accept the field continuing to exist unread.
+**Decided 2026-09-05: wire it.** `plan.md` §3 recommended deletion; the
+maintainer chose wiring. The field's providers reach the resolution pipeline on
+**both** boot paths, including the `(provider, [transforms])` tuple form the
+docstring promises, and the declared type stops being `list[Any]`.
+
+`app.add_job_provider()` remains the imperative path; this makes the
+declarative one real rather than removing it.
 
 ### B2 — `functions` is honoured on both boot paths, or refused
 
@@ -82,14 +86,29 @@ After this change, `Gate(strategy="ai_inbound")` without `functualize-ai`
 installed produces a `BLOCKED` walk carrying a reason that names the missing
 strategy and, where known, the plugin that registers it.
 
-### B5 — import failures are diagnosable, not just logged
+### B5 — discovery failures are diagnosable, not just logged
 
-A job module that raises on import logs one line to stderr and contributes no
+A job module that fails to load logs one line to stderr and contributes no
 jobs. Nothing records the failure, so `builtin info` shows a short list with
 no explanation and the operator has to reproduce the boot to see why.
 
 After this change, the failure is retained and reported by a builtin surface:
 module path, exception type, and message.
+
+**Scope widened 2026-09-05 to cover parse failures, not only import failures.**
+As first written this covered the import path alone, which does not reach a
+`SyntaxError`: a module with a plain typo is rejected earlier, in the
+AST/pre-filter stage, at nine sites that swallow it —
+`_primitives/pre_filter.py:115,143,188,266,329,387,431` and
+`_discovery/ast_extractor.py:37`.
+
+That gap matters because it is the *more likely* failure and it is STATUS
+follow-up #12, listed there as a good first issue. Import-only would have
+shipped `discovery_failures: []` for a syntactically broken tree — a report
+that actively says "nothing is wrong", which is worse than the current silence.
+
+Both stages now record, under one key. The nine sites keep swallowing: a broken
+module must stay non-fatal, it just stops being invisible.
 
 ### B6 — the gate-strategy documentation states its own constraints
 
@@ -106,11 +125,12 @@ at authoring time.
 
 | # | Criterion | Authoring-time state |
 |---|---|---|
-| A1 | `grep -rn "job_providers" src/` returns either 0 hits (deleted) or ≥1 hit outside `app/config.py` (wired) | 2 hits, both in `app/config.py` |
+| A1 | `grep -rn "job_providers" src/` returns ≥1 hit **outside** `app/config.py`, with a test per boot path and one for the tuple form | 2 hits, both in `app/config.py` |
 | A2 | A test asserts `JobSources(functions=[f])` without full explicitness either yields `f` or raises; it never yields `[]` | yields `[]` silently |
 | A3 | A test asserts `register_dynamic_job` and directory discovery produce equal `parameters` for one function | `[]` vs `['x']` |
 | A4 | A test asserts `Gate(strategy="ai_inbound")` with no resolver registered returns `RunStatus.BLOCKED` | raises `ValueError` |
 | A5 | A builtin surface reports a module that failed to import, naming the module and the exception | not reported |
+| A5b | The same surface reports a module that failed to **parse** (`error_type == "SyntaxError"`), closing STATUS #12 | not reported; swallowed at 9 sites |
 | A6 | `grep -n "preset" docs/guides/ai.md` reaches text stating presets are not valid `Gate` strategies | absent |
 | A7 | `uv run pytest`, `uv run ruff check src/ tests/`, `uv run mypy src/`, `uv run lint-imports` all green | — |
 

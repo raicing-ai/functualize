@@ -6,19 +6,26 @@ visible. `[F]` equals the gate's hit set.
 
 ---
 
-## 1. Decision gate
+## 1. `job_providers`
 
-- [ ] **1.1 — Resolve B1: wire or delete `job_providers`**
-  Ask the maintainer, one question, with the snippet from `plan.md` §3.
-  Record the answer in this file under the task, then do it.
-  - `[F]` `src/functualize/app/config.py`
-  - Acceptance: `grep -rn "job_providers" src/` returns **0** hits (delete), or
-    ≥1 hit outside `app/config.py` (wire). Authoring-time count: **2**, both
-    in `app/config.py:48` (docstring) and `:56` (field).
-  - If wired: the `(provider, [transforms])` tuple form the docstring promises
-    works on **both** boot paths, with a test for each.
-  - If deleted: the commit body names `app.add_job_provider()` as the
-    supported path.
+**B1 is decided: WIRE IT.** (Maintainer, 2026-09-05. `plan.md` §3 recommended
+deletion; the maintainer chose wiring, so the field must honour everything its
+docstring promises rather than being removed.)
+
+- [ ] **1.1 — B1: wire `job_providers` on both boot paths**
+  The field's providers reach the resolution pipeline, including the
+  `(provider, [transforms])` tuple form the docstring promises.
+  - `[F]` `src/functualize/app/config.py`, `src/functualize/_app/boot.py`, `tests/app/test_job_providers.py`
+  - Acceptance: `grep -rn "job_providers" src/` returns ≥1 hit **outside**
+    `app/config.py`. Authoring-time count: **2**, both inside it —
+    `app/config.py:48` (docstring) and `:56` (field).
+  - Second acceptance: a test for **each** boot path (`boot_static` and
+    `boot_standard`), and a test for the tuple form. Three tests minimum.
+  - The declared type stops being `list[Any]` and becomes what the docstring
+    says (`contracts.md` §1).
+  - Shares `_app/boot.py` with 2.1, which adds a provider path to
+    `boot_standard` for the same reason — build **one** helper both use, or
+    they will drift. Same wave, one task order: 1.1 then 2.1.
 
 ---
 
@@ -47,6 +54,15 @@ visible. `[F]` equals the gate's hit set.
   - Second acceptance: a test asserts the dynamic and directory-discovered
     descriptors for one function have **equal** `parameters`. Authoring-time:
     `[]` vs `['x']`.
+  - Third acceptance **(added 2026-09-05)**: assert the *downstream* payload,
+    not only the descriptor. `contracts.md` §5 says "no caller changes", which
+    is true of call **sites** but not of payloads: `job_detail` computes
+    `fields = descriptor.config_fields or descriptor.parameters`
+    (`_cli/info.py:136`) and feeds `inputSchema`. So populating `parameters`
+    changes `job_detail["parameters"]` **and the MCP tool input schema** for
+    every dynamically registered job. That is the desired outcome and it was
+    uncovered by any gate. Assert the schema a dynamic job exposes is equal to
+    the one its directory-discovered twin exposes.
   - Layer check: `_app` → `_discovery` is permitted (composition root).
     `uv run lint-imports` must stay green.
 
@@ -82,27 +98,68 @@ visible. `[F]` equals the gate's hit set.
   - Second acceptance: the three already-correct cases stay correct —
     `strategy=None`, `"ai_outbound"`, and a registered-but-raising resolver all
     still return `BLOCKED`. Regression guard, parameterized.
+  - **Downstream consequence (found 2026-09-05, reproduced).** Today
+    `Gate(strategy="ai_inbound")` raises `ValueError` **out of
+    `app.execute()`** — confirmed by running `examples/standalone/
+    composition_lab` with the strategy flipped. On the Lambda surface that
+    exception hits the handler's `except` branch and becomes a visible **500**.
+    After this task it becomes a `BLOCKED` result, and the Lambda handler
+    (`plugins/functualize-lambda/…/__init__.py:126`) never reads
+    `result.status` — so a correct fix silently turns a 500 into
+    `{"statusCode": 200, "body": null}`.
+
+    That is STATUS follow-up #21, and it is closed in
+    `features/remote-source-activation/` tasks **1.3** (the `RunStatus` → HTTP
+    table in `_types/`) and **4.2** (the plugins consuming it). **This task
+    must not land in a release without those**, or the release ships the
+    regression.
   - `[verify-e2e:TARGETED]`
 
 ---
 
 ## 4. Diagnosis
 
-- [ ] **4.1 — B5: retain import failures**
-  The directory scan appends `{module, path, error_type, message}` per failed
-  import instead of only logging.
-  - `[F]` `src/functualize/_discovery/providers.py`, `tests/discovery/test_import_failures.py`
-  - Acceptance: a test with a module raising `ModuleNotFoundError` asserts one
-    retained record with the module path and the exception type.
+- [ ] **4.1 — B5: retain discovery failures — parse *and* import**
+  **Scope widened (maintainer, 2026-09-05).** As originally written this task
+  covered import failures only, which would **not** have closed STATUS
+  follow-up #12 ("a job module with a `SyntaxError` vanishes silently") — a
+  `SyntaxError` never reaches the import path. It is swallowed earlier, in the
+  AST/pre-filter stage, at **nine** sites verified at authoring time:
+  `_primitives/pre_filter.py:115,143,188,266,329,387,431` and
+  `_discovery/ast_extractor.py:37`.
+
+  Shipping import-only would have displayed `import_failures: []` for a
+  syntactically broken tree — which reads as "nothing is wrong" and is worse
+  than today's silence.
+
+  Both stages append `{module, path, error_type, message}` to one list, named
+  `discovery_failures`.
+  - `[F]` `src/functualize/_discovery/providers.py`, `src/functualize/_primitives/pre_filter.py`, `src/functualize/_discovery/ast_extractor.py`, `tests/discovery/test_discovery_failures.py`
+  - Acceptance: a test with a module raising `ModuleNotFoundError` retains one
+    record naming the module path and the exception type.
+  - Second acceptance: a test with a module containing a **`SyntaxError`**
+    retains one record with `error_type == "SyntaxError"`. This is the
+    assertion that closes #12; without it the widening is not done.
+  - Third acceptance: the nine swallow sites still **swallow** — a broken
+    module must not become fatal. Discovery continues; it just records.
   - The list is per-scan. A cached/lazy boot that imported nothing reports no
     failures — assert that too, so a stale report cannot appear.
+  - `_primitives` may not import `_discovery` (constitution). The record type
+    therefore lives in `_types/` or is a plain tuple; `lint-imports` is the
+    gate.
 
 - [ ] **4.2 — B5: surface them**
-  `builtin info` carries `import_failures` (empty list when none, never
+  `builtin info` carries `discovery_failures` (empty list when none, never
   absent), per `contracts.md` §3.
   - `[F]` `src/functualize/_cli/info.py`, `tests/cli/test_info.py`
-  - Acceptance: `func builtin info --output json` on a tree with one broken
-    module contains the record; on a clean tree the key is present and `[]`.
+  - Acceptance: `func builtin info --json` on a tree with one broken module
+    contains the record; on a clean tree the key is present and `[]`.
+  - **Flag corrected (2026-09-05).** This gate previously read
+    `func builtin info --output json`, which is **unexecutable** — verified:
+    `Error: No such option '--output'`. The shipped flag is `--json` (bool).
+    `--output` is the spelling *proposed* by
+    `shape-intents/output-flag-normalization.md`, which is unimplemented; if
+    that lands first, this command moves with every other, not ahead of them.
   - Reachability: name the call path from the CLI command to the provider's
     list. Verify by breaking it and watching the test fail.
 
@@ -137,11 +194,21 @@ visible. `[F]` equals the gate's hit set.
 
 ## Task Dependency Graph
 
-Wave 0 is the decision gate: 1.1 touches `app/config.py`, and its answer can
-change whether `boot.py` grows a second provider path, so 2.1 must not start
-first. 3.1 produces the error 3.3 consumes. 4.1 produces the list 4.2 reads.
-2.1 and 2.2 touch different files and are independent. 3.2 is table-only and
-shares no file with 3.1.
+Wave 0 is 1.1. B1 is now decided as *wire it*, so 1.1 is real work rather than
+a question — and because wiring `job_providers` adds a provider path to
+`boot_standard`, it touches the same file and the same seam as 2.1. They must
+not run concurrently, and 1.1 goes first because 2.1 should extend the helper
+1.1 builds rather than introduce a second one.
+
+3.1 produces the error 3.3 consumes. 4.1 produces the list 4.2 reads. 2.1 and
+2.2 touch different files and are independent. 3.2 is table-only and shares no
+file with 3.1. 4.1's widened scope adds `_primitives/pre_filter.py` and
+`_discovery/ast_extractor.py`, neither of which any other wave-1 task touches.
+
+**Cross-feature ordering.** 3.3 makes an unresolvable gate return `BLOCKED`
+instead of raising, which regresses the Lambda surface until
+`remote-source-activation`/1.3 and /4.2 land. Those are not tasks here, but no
+release may contain 3.3 without them.
 
 ```json
 {

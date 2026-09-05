@@ -59,6 +59,12 @@ returns whether to import it.
 The existing seven `require_*` fields are unchanged; the hook is an
 additional AND-ed constraint, consistent with the documented composition rule.
 
+The predicate also declares a `fingerprint()`, because the discovery cache
+replays persisted pre-filter decisions and must know when the predicate that
+produced them has changed. A callable has no stable identity across processes,
+so the caller supplies one. `contracts.md` §S1 carries the verification of why
+neither alternative works.
+
 ### S2 — install detection and package operations become public
 
 The capability behind `builtin self doctor` / `install` / `update` becomes
@@ -104,6 +110,7 @@ Executable; hit counts from running each against `a2f453d` at authoring time.
 | # | Criterion | Authoring-time state |
 |---|---|---|
 | A1 | A test registers a predicate that rejects one module of two and asserts only the other's jobs appear | `grep -c "pre_filter" src/functualize/app/config.py` = **0** |
+| A1b | The predicate participates in the discovery-cache fingerprint via `fingerprint()`: a changed fingerprint re-scans, and the same filter in a fresh process yields the same hash | the field does not exist; hashing the object would differ every process |
 | A2 | A test imports the detection API from a public module and reports on a known tool; `grep -rn "from functualize._cli" src/functualize/app/` stays **0** | 1,683 private lines, 0 public re-exports |
 | A3 | A test installs a fixture distribution declaring `functualize.skills` and asserts its skill appears in `list_skills` output | `resolve_skills_dir` has **3** call sites (`info.py:325`, `builtins.py:1482`, `builtins.py:1723`) and returns one location |
 | A4 | `job_detail(app, name)` contains `tags`, `examples`, `extra_description`, `category` | 12 keys, none of the four |

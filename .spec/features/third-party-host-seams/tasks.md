@@ -35,14 +35,56 @@ rather than waiting behind them.
   - `ScriptMetadata.skill` is parsed and exposed. Nothing reads it — mark the
     site `# TRANSITIONAL(third-party-host-seams/1.2): parsed, not yet
     consumed; see plan.md §4`.
+  - **Third acceptance (maintainer, 2026-09-05): add a STATUS.md follow-up
+    entry for it.** This knowingly creates a fourth instance of the
+    "accepted, validated, and read by nothing" class that `.spec/STATUS.md`
+    calls *"the worst of the three states"* — alongside `omit_defaults` (#14),
+    `remote_first()` (#16), and the `job_providers` field being wired in the
+    sibling feature. Shipping it early is deliberate, so the file format
+    settles before a consumer exists; the entry is what keeps it counted
+    rather than invisible.
 
-- [ ] **1.3 — S1a: promote the `ModulePreFilter` Protocol**
+- [ ] **1.3 — S1a: promote the `ModulePreFilter` Protocol, with `fingerprint()`**
   Move the Protocol shape to `functualize/plugin`. `_primitives`
   implementations satisfy it structurally — no upward import.
-  - `[F]` `src/functualize/plugin/__init__.py`, `src/functualize/_primitives/pre_filter.py`
+
+  **The Protocol gains a second method (maintainer, 2026-09-05):**
+
+  ```python
+  @runtime_checkable
+  class ModulePreFilter(Protocol):
+      def accepts(self, path: Path, source: str) -> bool: ...
+      def fingerprint(self) -> str:
+          """Stable identity of this filter's logic, for cache invalidation.
+
+          Bump it when the predicate's behaviour changes.
+          """
+  ```
+
+  **Why it is not optional.** The discovery cache persists *negative*
+  pre-filter decisions and replays them, and it decides whether to trust them
+  by hashing the discovery config. A caller-supplied predicate breaks that in
+  both directions, and both were verified at authoring time:
+
+  - **Hash the callable** → `_normalize_discovery_value`
+    (`_primitives/cache_format.py`) falls through to `f"str({value})"`, and
+    `str()` of a function is `'<function p at 0x7fd949036160>'` — an address
+    that changes every process. The digest would differ on **every boot**,
+    invalidating the cache on every run.
+  - **Omit it** → reproduces the X1–X4 defect class verbatim: a warm cache
+    replays decisions made under a *different* predicate. That is the bug
+    ADR-010/ADR-011 exist to close, and it drove `CACHE_VERSION` 15→16→17.
+
+  `fingerprint()` is the only option that keeps the cache both warm and
+  correct.
+  - `[F]` `src/functualize/plugin/__init__.py`, `src/functualize/_primitives/pre_filter.py`, `tests/plugin/test_module_pre_filter.py`
   - Acceptance: `uv run lint-imports` green; a test asserts
     `isinstance(ASTModulePreFilter(...), ModulePreFilter)` via the
     `@runtime_checkable` Protocol.
+  - Second acceptance: a test asserts two filters with different
+    `fingerprint()` values produce different discovery hashes, and that the
+    **same** filter reconstructed in a fresh process produces the **same**
+    hash. The second half is what proves the address problem is gone.
 
 ---
 
@@ -52,9 +94,28 @@ rather than waiting behind them.
   Add the field and wire it to `DirectoryScanProvider`'s existing `pre_filter`
   parameter, **combined** with the `require_*`-derived filter (AND), not
   replacing it.
-  - `[F]` `src/functualize/app/config.py`, `src/functualize/_app/boot.py`, `tests/discovery/test_pre_filter_hook.py`
+
+  **The field must also join the cache fingerprint.** `DiscoveryConfig` has
+  nine fields today and `_DISCOVERY_FINGERPRINT_FIELDS`
+  (`_discovery/filter_factory.py:187`) mirrors them exactly.
+  `tests/discovery/test_discovery_hash.py:101-104` asserts **set equality**
+  between the two, with the docstring *"Guard against a tenth setting being
+  added and silently uncovered."* This task adds exactly that tenth setting, so
+  that test is a designed tripwire and **will fail** until the fingerprint is
+  extended. It was missing from this task's `[F]` set and is added below.
+
+  The fingerprint contribution is `pre_filter.fingerprint()` from 1.3, never
+  the object itself.
+  - `[F]` `src/functualize/app/config.py`, `src/functualize/_app/boot.py`, `src/functualize/_discovery/filter_factory.py`, `tests/discovery/test_discovery_hash.py`, `tests/discovery/test_pre_filter_hook.py`
   - Acceptance: `grep -c "pre_filter" src/functualize/app/config.py` ≥ 1.
     Authoring-time count: **0**.
+  - Acceptance: `uv run pytest tests/discovery/test_discovery_hash.py` green —
+    both the set-equality guard and the defaults guard.
+  - Acceptance: a cold run, then a run with a **changed** `fingerprint()`,
+    re-scans rather than replaying — the X4 direction, asserted for this field.
+  - `_discovery` may not import the public `app.config` (constitution), which
+    is why the defaults are duplicated in `filter_factory.py`; the tenth entry
+    duplicates `None` the same way.
   - Second acceptance: a test with two modules and a predicate rejecting one
     asserts only the other's jobs appear — **and** that a `require_file_prefix`
     set alongside still applies. Composition is AND, per the docstring.
@@ -113,10 +174,31 @@ rather than waiting behind them.
   `func-<version>` so existing agent configs keep working.
   - `[F]` `src/functualize/_cli/builtins.py`, `src/functualize/_cli/info.py`, `tests/cli/test_skills_hosting.py`
   - Acceptance: `grep -rn "resolve_skills_dir(" src/functualize/_cli/` returns
-    only the definition. Authoring-time count: **3** call sites.
+    only the definition. Authoring-time count: **3** call sites —
+    `info.py:325`, `builtins.py:1482`, `builtins.py:1725` (the task previously
+    said `:1723`; corrected 2026-09-05, and note `info.py:299` is a fourth
+    *reference* that is an import, not a call).
   - Second acceptance: a third-party skill materializes under **its own**
     distribution's version, not functualize's. This is the guarantee
     `_cli/skills.py:16` exists for; a shared stamp would break it.
+
+  **`skills path` becomes multi-line — a deliberate breaking change**
+  (maintainer, 2026-09-05). It prints one location per line, consistent with
+  `list` / `materialize` / `install`.
+
+  Two published single-value consumers break and **must** change in this task:
+
+  - `skills_path`'s own docstring (`_cli/builtins.py:1496`), which currently
+    states *"Machine-readable on purpose — one path, no decoration, so it
+    composes: `npx skills add "$(func builtin skills path)"`"*.
+  - `README.md:924`: `cp -R "$(func builtin skills path)"/* .claude/skills/`
+
+  Left unchanged, both substitute a multi-line string as a single argument and
+  fail with a confusing "No such file or directory".
+  - `[F]` (adds) `README.md`
+  - Third acceptance: a test asserts `skills path` emits one line **per
+    location**, and the README's replacement idiom is exercised by a
+    doc-verify scenario rather than only being written down.
   - `[verify-e2e:TARGETED]`
 
 ---
