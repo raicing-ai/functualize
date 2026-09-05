@@ -151,28 +151,97 @@ its command returned, so drift between authoring and execution is visible.
   **Verification.** 25 tests. `ruff check`, `ruff format`, `mypy`,
   `lint-imports` green.
 
-- [ ] **2.2 — V4: the two key providers**
+- [x] **2.2 — V4: the two key providers** — DONE
   `EnvKeyProvider` (non-interactive, `FUNCTUALIZE_VAULT_KEY`) and
   `KeychainKeyProvider` (interactive). Resolution order per `contracts.md` §1.
-  - `[F]` `src/functualize/_config/vault_keys.py`, `tests/config/test_vault_keys.py`
+  - `[F]` `src/functualize/_config/vault_keys.py`, `pyproject.toml`,
+    `tests/config/test_vault_keys.py`
   - Acceptance: a test asserts the env var **wins when set**, even with an
-    interactive provider registered and available.
+    interactive provider registered and available. **Met** — the test lists the
+    interactive provider *first*, so it proves order is not registration order.
   - Second acceptance: a test asserts that with **no TTY**, an interactive
-    provider is never consulted — the Lambda-hangs-on-a-prompt case.
+    provider is never consulted — the Lambda-hangs-on-a-prompt case. **Met**,
+    asserted on `get_key_calls == 0` rather than on the return value, since a
+    provider that is *called* has already had its chance to block.
   - Third acceptance: with no key available at all, the vault does not open and
-    there is **no plaintext fallback**.
+    there is **no plaintext fallback**. **Met** — `resolve_vault_key` returns
+    `None` and the caller decides; `vault.py` has no unencrypted path.
 
-- [ ] **2.3 — V2: annotation discovery**
+  **Implementation notes worth keeping:**
+
+  - Resolution is **two passes** (non-interactive, then interactive), not one
+    pass over a sorted list. A single pass makes correctness depend on
+    registration order, and the failure mode is a *hang*, not an error.
+  - A malformed or wrong-length key **fails loudly** rather than being padded
+    or truncated: a truncated key must never silently become a different valid
+    key. Errors name `$FUNCTUALIZE_VAULT_KEY` and point at `vault keygen`.
+  - `KeyResolution.__repr__` renders `<32 bytes>`, never the key, so it is safe
+    to log.
+  - **`keyring` is imported lazily and is NOT a declared dependency.** It is
+    present in this environment transitively (25.7.0, SecretService backend),
+    and depending on that accident is precisely how STATUS follow-up #1
+    happened — a missing optional dependency crashing instead of degrading.
+    `is_available()` returns False for a missing module, a `fail.Keyring`
+    backend, or a raising one.
+
+  **The entry-point group is now populated** (`env`, `keychain`), which 1.2
+  deliberately deferred until this module existed. Verified both load:
+  `env interactive=False available=False`, `keychain interactive=True
+  available=True`.
+
+  **Verification.** 27 tests. Reachability proven by sabotage: replacing the
+  two-pass resolution with a single registration-order pass fails
+  `test_non_interactive_wins_over_interactive` and
+  `test_an_interactive_provider_is_never_reached_without_a_tty` (2 failed / 25
+  passed), then restored green. `ruff`, `format`, `mypy`, `lint-imports` green.
+
+- [x] **2.3 — V2: annotation discovery** — DONE
   Scan located-but-unresolved config values for `provider://reference`; build
   the `annotations` map `RemoteSource` already accepts. First production caller
   of `parse_annotation`.
   - `[F]` `src/functualize/_config/annotations.py`, `tests/config/test_annotation_scan.py`
   - Acceptance: `grep -rn "parse_annotation" src/functualize/_config/annotations.py`
-    ≥ 1. Authoring-time production callers: **0**.
+    ≥ 1. Authoring-time production callers: **0**. **Met.**
   - Second acceptance: a literal containing `://` — an ordinary URL in a config
-    file — is **not** treated as an annotation.
+    file — is **not** treated as an annotation. **Met**, and this turned out to
+    be the task's whole design problem; see below.
   - Third acceptance: the fallback chain (`a | b`, max 5) parses, and a 6-entry
-    chain raises.
+    chain raises. **Met.**
+
+  **The pattern cannot be the test — measured, not assumed.**
+  `ANNOTATION_PATTERN` matches any `scheme://rest`, so `is_annotation` returns
+  **True** for `https://api.example.com` (provider `https`),
+  `postgres://user:pw@host/db`, and `s3://bucket/key` — all verified. A scan
+  keyed on shape would make every URL in a config file an annotation.
+
+  **Decision (maintainer, 2026-09-05): match only against registered provider
+  identifiers.**
+
+  That decision has a hazard, and it is handled rather than accepted:
+  `aws-sm://prod/db` with the AWS plugin *not installed* stops being an
+  annotation, so a job would receive the literal string as its password —
+  silently, the exact class this feature exists to remove. Annotation-shaped
+  values naming an **unregistered** scheme are therefore reported as
+  `UnresolvedAnnotation`. A partially-installed fallback chain is used *and*
+  reported, so it cannot look healthier than it is.
+
+  `_COMMON_URL_SCHEMES` suppresses that report for ordinary URLs. It is
+  consulted **only** to decide whether to complain, never to classify — a
+  scheme missing from it costs a spurious warning, never a wrong resolution.
+
+  **The reference is opaque to core**, which is what makes the AWS credential
+  overrides possible (`contracts.md` §3, and task 5.1). Verified that
+  `?profile=`, `?account=&region=`, and role ARNs (whose colons a naive
+  splitter would truncate) survive verbatim, and that each fallback entry keeps
+  its **own** overrides rather than inheriting the first entry's.
+
+  **Verification.** 34 tests. Reachability proven by sabotage: replacing the
+  registration check with pattern-only classification fails **11** tests —
+  every plain-URL case, the coexistence case, the no-providers-registered case,
+  and both missing-plugin cases — then restored green.
+
+  `ruff check`, `ruff format`, `mypy`, `lint-imports` green (one `SIM300` Yoda
+  condition auto-fixed).
 
 ---
 
@@ -252,6 +321,36 @@ its command returned, so drift between authoring and execution is visible.
   - Second acceptance: `grep -rn "boto3" src/functualize/` returns **0** —
     core must not import the provider's dependency.
   - The probe proved this shape at authoring time; each provider was ~10 lines.
+
+  **Credential overrides in the annotation (maintainer, 2026-09-05).**
+  The provider follows boto3's standard precedence by default, and the
+  annotation must be able to override it **per value** — different secrets in
+  one config file may need different accounts, roles or profiles.
+
+  ```toml
+  password = "aws-sm://prod/db-password?profile=prod-admin"
+  replica  = "aws-sm://prod/db?account=123456789012&region=eu-west-1"
+  audit    = "aws-ssm:///p/audit?role=arn:aws:iam::123456789012:role/Deploy"
+  ```
+
+  Core already carries this: the reference is opaque to it and arrives at
+  `fetch()` whole, verified including ARN colons and per-entry overrides inside
+  a fallback chain (`contracts.md` §3, pinned by
+  `TestTheReferenceIsOpaqueToCore`). **This task owns the grammar**, and must
+  specify at minimum:
+  - which keys are honoured — at least `profile`, `role`, `account`, `region`;
+  - the precedence between an override and the ambient boto3 chain, and what
+    happens when both are present;
+  - what `account` means operationally — almost certainly an *assertion* that
+    the resolved identity matches, not a selector, since boto3 has no
+    "switch to account N" primitive. A mismatch must fail loudly rather than
+    silently reading the wrong account's secret;
+  - whether `role` implies an STS `AssumeRole`, and where those temporary
+    credentials are cached (they must **not** enter the vault — the vault holds
+    resolved values, not credentials).
+  - Acceptance: a test per honoured key, plus one asserting an unknown key is
+    rejected rather than ignored — a typo'd `?porfile=prod` must not silently
+    resolve under the default identity.
 
 - [ ] **5.2 — `functualize-bitwarden`**
   Bitwarden Secrets Manager, same seam.

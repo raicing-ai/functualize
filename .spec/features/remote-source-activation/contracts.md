@@ -85,6 +85,54 @@ token    = "aws-sm://prod/token | aws-ssm:///fallback/token"
 A value that does not match the pattern is a literal. This is unchanged
 behaviour; what changes is that something now calls the parser.
 
+### The scheme must be a **registered provider**, not merely a URL scheme
+
+Decided 2026-09-05. `ANNOTATION_PATTERN` matches any `scheme://rest`, so on the
+pattern alone `https://api.example.com` parses as provider `https`,
+`postgres://user:pw@host/db` as `postgres`, and `s3://bucket/key` as `s3` —
+verified. Classifying on shape would turn every URL in a config file into an
+annotation and send boot looking for a provider named `https`.
+
+So a value is an annotation **only when its scheme is a registered remote
+provider identifier**.
+
+That choice creates one hazard, and it is handled rather than accepted:
+`aws-sm://prod/db` with the AWS plugin *not installed* is no longer an
+annotation, so a job would receive the literal string `"aws-sm://prod/db"` as
+its password — silently, which is the failure class this feature exists to
+remove. Any annotation-shaped value naming an **unregistered** scheme is
+therefore reported as an `UnresolvedAnnotation`. Ordinary URL schemes are
+excluded from that report to keep it quiet.
+
+The exclusion list is consulted **only** to decide whether to complain, never
+to decide what a value *is*. A scheme missing from it costs a spurious warning;
+it can never cause a wrong resolution.
+
+### The reference is opaque to core
+
+Everything after `://` belongs to the provider. Core does not parse, split,
+normalise or truncate it, and `RemoteProvider.fetch(reference)` receives it
+whole.
+
+This is what lets the AWS provider accept credential overrides. boto3's normal
+precedence applies by default, and the annotation overrides it per value:
+
+```toml
+[database]
+password = "aws-sm://prod/db-password?profile=prod-admin"
+replica  = "aws-sm://prod/db?account=123456789012&region=eu-west-1"
+audit    = "aws-ssm:///p/audit?role=arn:aws:iam::123456789012:role/Deploy"
+```
+
+Verified to survive parsing verbatim, including role ARNs (whose colons a
+naive scheme-splitter would truncate) and per-entry overrides inside a fallback
+chain — failing over must not carry the first entry's profile to the second.
+Pinned by `tests/config/test_annotation_scan.py::TestTheReferenceIsOpaqueToCore`.
+
+The override **grammar** — which keys are honoured, and their precedence
+against the ambient boto3 chain — is `functualize-aws`'s contract, specified in
+task 5.1, not core's.
+
 ## 4. On-disk vault
 
 `$XDG_DATA_HOME/functualize/vaults/<project_id>/vault.db` — one per project,
