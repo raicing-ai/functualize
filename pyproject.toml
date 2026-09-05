@@ -23,6 +23,12 @@ dependencies = [
     "pydantic>=2.0.0",
     "python-dotenv>=1.0.0",
     "jinja2>=3.1.0",
+    # Encrypts the local secrets vault (ADR-016). Core rather than an extra:
+    # `remote_first()` is public API, and a preset whose behaviour depends on
+    # whether an optional package happens to be installed is the class of
+    # surprise that ADR exists to remove. Cost is the standalone binary across
+    # seven build targets, accepted deliberately and measured at checkpoint.
+    "cryptography>=42.0.0",
 ]
 
 [project.urls]

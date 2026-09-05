@@ -1203,6 +1203,7 @@ name = "functualize"
 version = "0.2.3"
 source = { editable = "." }
 dependencies = [
+    { name = "cryptography" },
     { name = "jinja2" },
     { name = "pydantic" },
     { name = "python-dotenv" },
@@ -1258,6 +1259,7 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "click", marker = "extra == 'cli'", specifier = ">=8.0.0" },
+    { name = "cryptography", specifier = ">=42.0.0" },
     { name = "functualize", extras = ["cli"], marker = "extra == 'all'" },
     { name = "functualize-ai", marker = "extra == 'all'", editable = "plugins/functualize-ai" },
     { name = "functualize-ai-pydantic", marker = "extra == 'all'", editable = "plugins/functualize-ai-pydantic" },

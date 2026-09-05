@@ -107,21 +107,49 @@ its command returned, so drift between authoring and execution is visible.
 
 ## 2. The vault
 
-- [ ] **2.1 — V3: the encrypted store**
+- [x] **2.1 — V3: the encrypted store** — DONE
   SQLite (stdlib) in WAL mode at
   `$XDG_DATA_HOME/functualize/vaults/<project_id>/vault.db`, per
-  `contracts.md` §4. AES-256-GCM per value, fresh nonce per entry. Reuse
-  `compute_project_id` (`_primitives/locator.py:527`) — do not re-derive it.
+  `contracts.md` §4. AES-256-GCM per value, fresh nonce per entry. Reuses
+  `compute_project_id` (`_primitives/locator.py:527`) and `_xdg_data_dir()`.
   - `[F]` `src/functualize/_config/vault.py`, `pyproject.toml`, `tests/config/test_vault_store.py`
   - Acceptance: a test writes a value, then asserts the **raw file bytes do not
-    contain the plaintext**. This is the only assertion that actually proves
-    encryption; a round-trip test does not.
+    contain the plaintext**. **Met** — see the finding below; the test as first
+    written did *not* meet it.
   - Second acceptance: two different `project_id`s produce two files, and one
-    cannot read the other's entry (`spec.md` A7).
+    cannot read the other's entry (`spec.md` A7). **Met.**
   - Third acceptance: a wrong key fails **authentication** and raises an error
-    naming the key provider in use — never returns garbage.
+    naming the key provider in use — never returns garbage. **Met**, plus a
+    test that the error does not leak the value.
   - `uv run lint-imports` green: `_config` must not acquire a `_cli` or public
-    import.
+    import. **Met** — all 5 contracts kept.
+
+  **Finding: the headline acceptance test was vacuous, and sabotage caught it.**
+
+  `test_the_plaintext_is_not_in_the_file` read `vault.path.read_bytes()` and
+  passed. Under sabotage — `put()` storing the plaintext instead of the
+  ciphertext — **it still passed**, while five other tests failed.
+
+  Cause: in WAL mode a fresh write lands in the `-wal` sidecar and the main
+  database file can still be empty. So the one assertion the acceptance
+  criterion names was asserting against an empty file.
+
+  Rewritten as `test_the_plaintext_is_in_no_file_the_vault_writes`, which scans
+  every file the vault produces and asserts it wrote *something* first, plus a
+  second test that checkpoints the WAL and re-checks the main database. Under
+  the same sabotage both now fail (6 failed / 19 passed), and both pass
+  restored.
+
+  This is the reason the workflow requires breaking the call rather than
+  trusting a green run: 25/25 passed on the first attempt against a test that
+  could not fail.
+
+  **Also done here:** `cryptography>=42.0.0` added to core `dependencies` with
+  a comment recording *why* it is core rather than an extra (ADR-016) and that
+  the standalone-binary cost is accepted and measured at checkpoint.
+
+  **Verification.** 25 tests. `ruff check`, `ruff format`, `mypy`,
+  `lint-imports` green.
 
 - [ ] **2.2 — V4: the two key providers**
   `EnvKeyProvider` (non-interactive, `FUNCTUALIZE_VAULT_KEY`) and
