@@ -40,6 +40,12 @@ func = "functualize._cli.main:main"
 [project.entry-points."functualize.format_providers"]
 toml = "functualize._config.providers.toml:TomlFormatProvider"
 
+# Populated by remote-source-activation task 2.2, which builds the two
+# shipped implementations. Declared empty here so the group exists without a
+# dangling target: an entry point naming a module that does not import would
+# surface on any command that scans the group.
+[project.entry-points."functualize.vault_key_providers"]
+
 [project.entry-points."functualize.remote_providers"]
 
 [dependency-groups]

@@ -142,6 +142,7 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "StatusBarItemProvider",
         "FormatProvider",
         "ThemeProvider",
+        "VaultKeyProvider",
         "discover_domains",
         "scan_domain_providers",
         "validate_extension_id",

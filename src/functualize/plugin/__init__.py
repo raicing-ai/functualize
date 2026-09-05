@@ -33,6 +33,7 @@ from functualize._types.protocols import (
     JobTransform,
     PluginWithShutdown,
     Source,
+    VaultKeyProvider,
 )
 from functualize._types.settings import (
     AppSettingsSchema,
@@ -87,6 +88,7 @@ __all__ = [
     "PluginWithShutdown",
     "Source",
     "FormatProvider",
+    "VaultKeyProvider",
     # Domain discovery
     "discover_domains",
     "scan_domain_providers",

@@ -210,6 +210,60 @@ class JobTransform(Protocol):
         ...
 
 
+@runtime_checkable
+class VaultKeyProvider(Protocol):
+    """Protocol for supplying the key that opens the local secrets vault.
+
+    The vault caches values synced from remote providers (AWS Secrets Manager,
+    Bitwarden, …) so that jobs resolve configuration without touching the
+    network. It is encrypted at rest; this protocol is *where the key comes
+    from*, and it is a seam rather than a fixed source so that an OS keychain,
+    a cloud KMS, a password manager or a hosted control plane are all the same
+    shape (ADR-016).
+
+    Two implementations ship: an environment-variable provider
+    (non-interactive) and an OS keychain provider (interactive).
+
+    **Resolution order is part of the contract.** Non-interactive providers are
+    consulted first, and interactive ones only when no key was found *and* a
+    TTY is present. Reversed, an unattended run — CI, Lambda, a container —
+    would block forever on a prompt nobody can answer.
+    """
+
+    def identifier(self) -> str:
+        """Return the short provider name, e.g. 'env' or 'keychain'."""
+        ...
+
+    def interactive(self) -> bool:
+        """Whether obtaining the key may prompt, block, or require a TTY.
+
+        A provider returning True is never consulted on an unattended run.
+        """
+        ...
+
+    def is_available(self) -> bool:
+        """Whether this provider can supply a key in this environment.
+
+        Reports capability, not success: a keychain provider returns False
+        where no keyring exists, rather than raising when asked for a key.
+        """
+        ...
+
+    def get_key(self, project_id: str) -> bytes | None:
+        """Return the 32-byte key for a project's vault, or None.
+
+        Args:
+            project_id: The project identity the vault is scoped to. Vaults are
+                per-project, so a provider may hold a distinct key per project.
+
+        Returns:
+            Exactly 32 bytes, or None when this provider has no key to offer.
+            Returning None is normal and lets resolution continue; it is not an
+            error.
+        """
+        ...
+
+
 __all__ = [
     # Protocols
     "AdapterPlugin",
@@ -218,6 +272,7 @@ __all__ = [
     "JobTransform",
     "PluginWithShutdown",
     "Source",
+    "VaultKeyProvider",
     # Re-exports from functualize._types.interactivity
     "InputNotAvailable",
     "PromptChoice",
