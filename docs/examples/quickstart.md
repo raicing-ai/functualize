@@ -11,7 +11,7 @@ Source: [`examples/quickstart/`](https://github.com/raicing-ai/functualize/tree/
 | 3 | `step3_invoke/` | `rc.invoke()` + `rc.track_phase()` pipelines |
 | 4 | `step4_tui/` | The inline TUI — bare `func`, SmartBar, panel rings |
 | 5 | `step5_ai/` | `ai.complete()` with structured output (`MockAI`, no keys) |
-| 6 | `step6_mcp/` | `@job_metadata` visibility + `func mcp serve` |
+| 6 | `step6_mcp/` | `@job(visibility=...)` + `func mcp serve` |
 | 7 | `step7_workflow/` | `@workflow` graphs with gates |
 | 8 | `step8_scaffold/` | `func builtin scaffold init` walkthrough → the finished project in [`examples/project/weather_app/`](https://github.com/raicing-ai/functualize/tree/master/examples/project/weather_app) |
 

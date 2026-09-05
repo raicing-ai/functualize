@@ -43,7 +43,7 @@ uv run func            # bare func → inline TUI / job listing
 - The `func builtin scaffold init` project shape: `src/` layout, `main.py` wiring, `jobs/` directory
 - A `[project.scripts]` console entry point (`weather-app`) — distribute your jobs as a CLI
 - `classic()` config preset: CLI flags → env vars → `config.base.toml` + `ENVIRONMENT` overlay → defaults
-- `@job_metadata` with `visibility="external"` — ready to serve over MCP by adding `functualize-mcp`
+- `@job` with `visibility="external"` — ready to serve over MCP by adding `functualize-mcp`
 - `rc.invoke()` + `rc.track_phase()` pipelines inside a project
 
 ## Escalating further

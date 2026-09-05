@@ -246,19 +246,19 @@ Options:
   --help             Show this message and exit.
 ```
 
-## Job Metadata Decorator
+## Job Metadata
 
-The `@job_metadata` decorator attaches structured metadata to job functions. This metadata is available via `JobDescriptor` and useful for AI orchestrators, schema exporters, and documentation generators.
+`@job` attaches structured metadata to job functions. It is available via `JobDescriptor.declaration` and useful for AI orchestrators, schema exporters, and documentation generators.
 
 ```python
-from functualize.job import job_metadata
+from functualize.job import job
 from functualize.job import RunContext
 
 JOB_NAME = "deploy"
 
 
-@job_metadata(
-    ai_description="Deploy the application to the specified environment",
+@job(
+    extra_description="Deploy the application to the specified environment",
     category="deployment",
     examples=["deploy --env production", "deploy --env staging --dry-run"],
     tags=["deploy", "infrastructure", "production"],
@@ -268,19 +268,27 @@ def run(rc: RunContext) -> None:
     ...
 ```
 
-### Parameters
+### Identity and description parameters
 
-| Parameter | Type | Constraint | Description |
-|---|---|---|---|
-| `ai_description` | `str \| None` | Max 500 characters | Description optimized for AI/LLM consumption |
-| `category` | `str \| None` | Max 50 characters | Grouping category for job organization |
-| `examples` | `list[str] \| None` | Max 10 items, each max 200 chars | Usage examples |
-| `tags` | `list[str] \| None` | Max 20 items, each max 50 chars | Searchable tags |
+| Parameter | Type | Description |
+|---|---|---|
+| `group` | `str \| None` | Overrides the module-level `JOB_GROUP` |
+| `extra_description` | `str \| None` | Description beyond the docstring summary, for AI/LLM consumption |
+| `category` | `str \| None` | Grouping category for job organization |
+| `examples` | `tuple[str, ...] \| list[str]` | Usage examples |
+| `tags` | `tuple[str, ...] \| list[str]` | Searchable tags; also drives `func mcp serve --include-tags` |
+| `visibility` | `"external" \| "internal"` | `"internal"` hides the job from MCP. Defaults to `"external"` |
+| `config_section` | `str \| None` | Config section this job reads |
 
-The metadata is stored as a `JobMetadataAnnotation` on the function's `__functualize_metadata__` attribute and incorporated into the `JobDescriptor` during registration.
+`@job` also carries the operational contract — `deps`, `cache`, `guards`, `exec` — as self-validating value objects. See the [`@job` API reference](../api/discovery.md).
+
+The declaration is stored as a frozen `JobDeclaration` on the function's `__functualize_job__` attribute and incorporated into the `JobDescriptor` during registration. It round-trips through the discovery cache, so warm boot has it without importing the module.
+
+!!! note "Replaces @job_metadata"
+    The `@job_metadata` decorator has been removed. Its `ai_description` argument is now `extra_description`; `category`, `examples`, `tags` and `visibility` keep their names.
 
 !!! info "Composable with other decorators"
-    `@job_metadata` can be combined with any other decorators in any order. It does not wrap the function — it only attaches an attribute.
+    `@job` can be combined with any other decorators in any order. It does not wrap the function — it only attaches an attribute, so `decorated is original` always holds.
 
 ---
 
