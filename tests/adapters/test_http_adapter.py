@@ -18,6 +18,7 @@ import pytest
 from functualize_http import HttpAdapter, HttpServerCore, HttpServerPlugin
 
 from functualize.app.adapters import AdapterPlugin
+from functualize.types import RunStatus
 
 # =============================================================================
 # Helpers / Fixtures
@@ -40,18 +41,17 @@ class FakeJobDescriptor:
     metadata: Any = None
 
 
-class FakeRunStatus:
-    """Fake run status with a .value attribute."""
-
-    def __init__(self, value: str) -> None:
-        self.value = value
+# `status` carries a real `RunStatus`, not a look-alike. A fake that mistypes
+# the field under test is how the adapter could report 200 for every outcome
+# with a green suite: `result.status` was never read, and nothing here could
+# have noticed. See remote-source-activation/4.2.
 
 
 @dataclass(frozen=True)
 class FakeJobResult:
     """Minimal job result for testing."""
 
-    status: FakeRunStatus
+    status: RunStatus
     duration_ms: float
     return_value: Any
     exception: BaseException | None = None
@@ -82,7 +82,7 @@ def make_mock_app(
         app.execute.return_value = execute_result
     else:
         app.execute.return_value = FakeJobResult(
-            status=FakeRunStatus("success"),
+            status=RunStatus.SUCCESS,
             duration_ms=42.0,
             return_value=None,
         )
@@ -224,7 +224,7 @@ class TestHttpServerCoreRequestHandling:
         """POST /jobs/{name}/execute with valid job returns 200."""
         jobs = [FakeJobDescriptor(name="deploy")]
         result = FakeJobResult(
-            status=FakeRunStatus("success"),
+            status=RunStatus.SUCCESS,
             duration_ms=123.4,
             return_value={"deployed": True},
             job_name="deploy",
@@ -238,7 +238,10 @@ class TestHttpServerCoreRequestHandling:
         )
 
         assert status == 200
-        assert response["status"] == "success"
+        # `RunStatus.SUCCESS.value` is "Success". The old fake carried a
+        # look-alike whose `.value` was lowercase, so this assertion was
+        # documenting the fake rather than the wire.
+        assert response["status"] == "Success"
         assert response["duration_ms"] == 123.4
         assert response["return_value"] == {"deployed": True}
         app.execute.assert_called_once_with("deploy", env="prod")
@@ -436,7 +439,7 @@ class TestAsyncToSyncBridging:
         """Job execution goes through app.execute() (sync call in thread)."""
         jobs = [FakeJobDescriptor(name="sync-job")]
         result = FakeJobResult(
-            status=FakeRunStatus("success"),
+            status=RunStatus.SUCCESS,
             duration_ms=10.0,
             return_value="done",
             job_name="sync-job",

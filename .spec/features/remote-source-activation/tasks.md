@@ -400,16 +400,85 @@ its command returned, so drift between authoring and execution is visible.
   - `_cli` reaches the vault through `app/utils.py`, never `_config` directly;
     `lint-imports` is the gate.
 
-- [ ] **4.2 — §7: the trigger plugins consume the status table**
+- [x] **4.2 — §7: the trigger plugins consume the status table** — DONE
   Lambda and HTTP both read the `_types/` table from 1.3.
-  - `[F]` `plugins/functualize-lambda/src/functualize_lambda/__init__.py`, `plugins/functualize-http/src/functualize_http/__init__.py`, `plugins/functualize-lambda/tests/`
+  - `[F]` `plugins/functualize-lambda/src/functualize_lambda/__init__.py`, `plugins/functualize-http/src/functualize_http/__init__.py`, `plugins/functualize-{lambda,http}/tests/`, `plugins/conftest.py`, `src/functualize/types/__init__.py`, `tests/test_public_api_surface.py`, `tests/adapters/test_{lambda,http}_adapter.py`, `tests/adapters/test_surface_gate.py`
   - Acceptance: a test asserts a `BLOCKED` result reaches the Lambda handler as
-    **202**, not 200. Authoring-time behaviour: `{"statusCode": 200, "body":
-    null}` for *every* outcome, because `result.status` is never read
-    (`__init__.py:126`). Closes STATUS #21.
-  - Second acceptance: parameterized over all **8** statuses.
+    **202**, not 200. **Met.**
+  - Second acceptance: parameterized over all **8** statuses. **Met** — the
+    list is derived (`[s for s in RunStatus if s is not RunStatus.RUNNING]`),
+    not typed out, so a tenth member fails rather than being skipped. It is 8
+    because `RunStatus` has nine and `RUNNING` is excluded.
   - Depends on `discovery-and-gate-defects`/3.3 landing, which is what makes an
-    unresolvable gate produce `BLOCKED` instead of raising.
+    unresolvable gate produce `BLOCKED` instead of raising. **That dependency
+    runs the other way for shipping**: 3.3 must not land before this, or it
+    converts a visible crash into a silent 200. This unblocks it.
+
+  **A second surface was wrong in a subtler way.** `functualize-http` already
+  put `"status": "failure"` in the JSON body while the status *line* said
+  `200 OK`. Everything that reads only the line — a load balancer, a retry
+  policy, an uptime probe, `curl -f` — saw success on a failed run. Its
+  reason-phrase map also knew only 200/400/404/500, so a correct 202 would
+  have gone out as `HTTP/1.1 202 Unknown`; the map now covers every code the
+  table can produce, asserted by iterating the table rather than listing them.
+
+  **The fakes were why this could hide.** Four separate `FakeJobResult`s typed
+  `status` as `str` (`"success"`), and one carried a `FakeRunStatus` shim whose
+  `.value` was lowercase. A fake that mistypes the field under test cannot
+  notice that the field is never read — and `tests/adapters/test_http_adapter.py`
+  asserted `response["status"] == "success"` when the real
+  `RunStatus.SUCCESS.value` is `"Success"`, so the test was documenting the
+  fake rather than the wire. All four now carry a real `RunStatus`.
+
+  **Deviations, disclosed:**
+
+  1. **`http_status_for_status` is now public**, re-exported from
+     `functualize.types` beside `RunStatus`. A plugin cannot reach `_types`,
+     and the alternative — each plugin keeping its own copy — is the defect.
+     `tests/test_public_api_surface.py` refused the addition until registered;
+     third time that tripwire has fired outside a task's `[F]`.
+  2. **Both Lambda handler shapes now share one `_response` helper.** Fat and
+     thin each had their own `{"statusCode": 200, ...}`; two copies is how they
+     drifted from the table. `status` and `error` are *added* to the body, not
+     substituted, so a caller reading `body` on success is unaffected.
+  3. **`tests/adapters/test_surface_gate.py` was repaired** — see below.
+
+  **A pre-existing product defect surfaced, and is recorded rather than
+  fixed.** `test_env_override_opens_the_gate` began failing. It is not this
+  work: it fails at `3519cb9` when run alone, and passes when preceded by
+  `tests/tui_audit`. Cause: `tui.default_surface` is **not** in the base
+  catalog — the shell registers it as an import side effect of
+  `_cli/tui/__init__.py:88` — and a direct `func <job>` run under true-lazy
+  boot never imports that package. So neither `FUNCTUALIZE_TUI_DEFAULT_SURFACE`
+  nor a `tui.default_surface` line in a config file reaches the gate that
+  exists to serve the direct-run path, and
+  `_explicit_stdout_preference`'s broad `except Exception` would hide the
+  difference anyway. Proven directly: with the env var set, the gate returns
+  False in a clean process and True immediately after
+  `register_settings(*tui_settings())`. Under `-n auto` xdist balances
+  dynamically, so whether the worker had imported the shell varied run to run.
+
+  Fixing it belongs to the surface/settings owner. What this task did:
+  made both tests state which catalog they mean (a `settings_catalog` fixture),
+  and added `test_the_setting_is_inert_until_the_shell_registers_it`, which
+  asserts against `_BASE_SETTINGS` so that closing the gap **fails the test**
+  and prompts its deletion. A `strict=True` xfail was tried first and rejected:
+  it XPASSes when the shell has been imported, so it swaps one order-dependent
+  outcome for another.
+
+  **Verification.** 68 new tests across the two plugins. **Eight sabotages.**
+  Six caught immediately: Lambda back to a constant 200 (16 fail), HTTP back
+  to a constant 200 (14), HTTP reason phrases reverted (4), `BLOCKED` remapped
+  to 200 in the shared table (1 in *each* plugin — the table is genuinely
+  shared), the thin handler bypassing `_response` (6), `error` dropped from the
+  body (1). Two more were run against the surface-gate work and **both
+  initially survived**: "an empty catalog yields no preference" is true by
+  construction. Adding the `_BASE_SETTINGS` assertion made the "gap is closed"
+  sabotage fail 2 tests.
+
+  Full suite **8550 passed, 1554 skipped**, 0 failures; all 11 plugin suites
+  green separately (334 tests). `ruff`, `format`, `mypy` (316 files),
+  `lint-imports` green.
 
 ---
 

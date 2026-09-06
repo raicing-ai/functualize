@@ -159,6 +159,9 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "ConfigFileRole",
         "EnvironmentSource",
         "Secret",
+        # The one RunStatus -> HTTP table, beside RunStatus itself, so a
+        # trigger plugin consumes it instead of writing a second opinion.
+        "http_status_for_status",
     },
     "functualize.workflow": {
         # A gate offers jobs; Tool narrows which of their arguments the
