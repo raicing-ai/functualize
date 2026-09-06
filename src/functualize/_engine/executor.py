@@ -1271,6 +1271,11 @@ class JobExecutionEngine:
             )
         if run.outcome is WalkOutcome.BLOCKED:
             metadata["blocked_on"] = run.blocked_on
+            # Present only when there is something to say — a gate waiting by
+            # design has no reason to give, and an always-present empty key
+            # would make consumers guard for it.
+            if run.blocked_reason:
+                metadata["blocked_reason"] = run.blocked_reason
             return None, JobResult(
                 status=RunStatus.BLOCKED,
                 return_value=None,
