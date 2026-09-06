@@ -59,7 +59,7 @@ pip install "functualize[cli]"
 ```
 
 **No Python on the machine?** Download the standalone binary — one executable with Python
-and every first-party plugin already inside it. Its first run needs no network:
+and every first-party plugin `[all]` carries already inside it. Its first run needs no network:
 
 ```bash
 curl -LsSf https://raw.githubusercontent.com/raicing-ai/functualize/master/install.sh | sh
@@ -832,6 +832,7 @@ Install the full plugin ecosystem with a single command:
 
 ```bash
 pip install "functualize[all]"
+pip install functualize-bitwarden   # not in [all] -- see the note below
 ```
 
 | Plugin | Purpose |
@@ -839,7 +840,7 @@ pip install "functualize[all]"
 | `functualize-ai` | Provider-agnostic LLM interaction with budget enforcement and tool scoping |
 | `functualize-ai-pydantic` | PydanticAI-backed AI provider with LiteLLM routing and structured output |
 | `functualize-aws` | AWS Secrets Manager and Parameter Store as remote config providers (`aws-sm`, `aws-ssm`) |
-| `functualize-bitwarden` | Bitwarden Secrets Manager as a remote config provider (`bws`) |
+| `functualize-bitwarden` | Bitwarden Secrets Manager as a remote config provider (`bws`) — **install separately** |
 | `functualize-flow-viz` | Live inline execution tree visualization with step status and durations |
 | `functualize-http` | HTTP delivery adapter exposing jobs as API endpoints via stdlib asyncio |
 | `functualize-inline` | Textual-based inline terminal widgets for prompts, selections, and progress |
@@ -849,6 +850,14 @@ pip install "functualize[all]"
 | `functualize-state-sqlite` | SQLite-backed state persistence and execution history in WAL mode |
 | `functualize-tasks` | Task management domain SDK with status tracking and event emission |
 | `functualize-tasks-local` | Local state-backed task storage provider for the tasks domain |
+
+> **Why `functualize-bitwarden` is not in `[all]`.** Its `bitwarden-sdk`
+> dependency is a Rust extension published as wheels for glibc, macOS and
+> Windows only, with no source fallback — so including it makes
+> `functualize[all]` impossible to resolve on musl (Alpine, distroless), and
+> `[all]` is what the standalone binaries bake. There is no PEP 508 marker for
+> musl, so it cannot be excluded conditionally. Install it directly on a
+> platform its SDK supports.
 
 Every plugin ships runnable examples in its own folder: [`plugins/<name>/examples/`](https://github.com/raicing-ai/functualize/tree/master/plugins).
 

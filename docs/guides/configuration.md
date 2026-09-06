@@ -516,8 +516,8 @@ actually work on.
 
 ```bash
 # 1. Install a provider plugin.
-pip install functualize-aws          # aws-sm, aws-ssm
-pip install functualize-bitwarden    # bws
+pip install functualize-aws          # aws-sm, aws-ssm (also in functualize[all])
+pip install functualize-bitwarden    # bws (separate: its SDK has no musl build)
 
 # 2. Create a vault key and keep it somewhere your shell can read.
 export FUNCTUALIZE_VAULT_KEY=$(func builtin vault keygen)

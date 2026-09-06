@@ -998,14 +998,123 @@ its command returned, so drift between authoring and execution is visible.
 
 ## 7. Checkpoint
 
-- [ ] **7.1 — Full gate run**
+- [x] **7.1 — Full gate run** — DONE
   - Acceptance: `uv run pytest`, `uv run ruff check src/ tests/`,
     `uv run ruff format --check src/ tests/`, `uv run mypy src/`,
-    `uv run lint-imports` — all green.
-  - Walk `spec.md`'s A1–A10 item by item and record each as met.
-  - Measure the standalone binary size delta from `cryptography` across the
-    7 build targets and record it (`plan.md` §5).
+    `uv run lint-imports` — all green. **Met.**
   - `[verify-e2e:FULL]`
+
+  **Gates.** Full suite **8711 passed, 1544 skipped, 0 failures**. All 13
+  plugin suites green run separately (489 tests; `plugins/` is not collected by
+  the root run, `testpaths = ["tests"]`). `ruff check` clean, `ruff format
+  --check` 1027 files, `mypy src/` 316 files, `lint-imports` 5 contracts kept.
+  `mkdocs build --strict` exits 0.
+
+  ### A1–A10, walked
+
+  | # | Verified by | Result |
+  |---|---|---|
+  | A1 | `grep -c "remote" src/functualize/_app/boot.py` | **21** (was 0) |
+  | A2 | `parse_annotation` production caller | `_config/annotations.py:169`, reached from `vault_sync` and `VaultSource._annotation_in`, both exercised against a real CLI |
+  | A3 | `test_remote_first.py::TestRefusalWhenNothingCouldResolve` | 4 tests; raises, names the group, explains the refusal |
+  | A4 | `test_vault_commands.py::TestWhatSyncLeavesOnDisk` | 4 tests, **added at this checkpoint** — see below |
+  | A5 | `test_vault_miss.py::TestTheFallThroughStillHappens` | 5 tests; next source's value returned, warning names the annotation |
+  | A6 | `test_vault_staleness.py::TestAStaleVaultStillRuns` | warns **and** `RunStatus.SUCCESS`, in one run |
+  | A7 | `test_vault_store.py::TestProjectScoping` | 3 tests; two files, and neither reads the other |
+  | A8 | `test_vault_commands.py::TestList` | 10 tests; the value appears nowhere in the serialised payload |
+  | A9 | `plugins/functualize-aws/tests/test_integration_floci.py` | **9 passed, 1 skipped** against a live Floci container: secret, SSM `String`, `SecureString`, region override, both not-found paths, fallback chain, per-entry overrides |
+  | A10 | above | green |
+
+  **A4 was not met until this task.** `test_vault_store.py` asserted the
+  byte-level property for a direct `put`, which proves the *store* encrypts —
+  a `sync` that wrote a plaintext sidecar, logged the value, or left it in the
+  audit table passes every one of those tests. Four end-to-end tests added, and
+  three sabotages: the annotation column holding the plaintext (3 fail),
+  `put()` storing nothing (22), and the audit row carrying the value (2). The
+  third is worth noting — `sync` is the first path that actually writes audit
+  rows, so ADR-016's "`audit_log` never holds a value" had never been exercised
+  end to end.
+
+  A9's one skip is the honest one recorded in 5.1: Floci does not encrypt
+  `SecureString`, so the test proving decryption is *needed* skips where the
+  endpoint cannot discriminate.
+
+  ### The binary-size measurement, and what it actually found
+
+  **The premise in `plan.md` §5 was wrong.** It listed *"`cryptography` in core
+  inflates the standalone binary across 7 build targets"* as the headline risk.
+  Measured, the delta for the binary is **zero**.
+
+  The binary bakes `functualize[all]` (`PYAPP_PROJECT_FEATURES=all`), and inside
+  that closure `cryptography` is required **unconditionally** by four other
+  packages — Authlib, SecretStorage, google-auth and joserfc. Resolving `[all]`
+  per target with `uv pip compile --python-platform` puts `cryptography` in all
+  seven. It was in the binary before this feature and it is in the binary after.
+
+  Where the cost is real is the **bare install**, which the risk register did
+  not consider:
+
+  | Profile | Installed | `cryptography`+`cffi`+`pycparser` | Share | Other requirers |
+  |---|---|---|---|---|
+  | `functualize` | 27.1 MB | 15.9 MB | **58.6 %** | none |
+  | `functualize[cli]` | 48.6 MB | 15.9 MB | 32.7 % | none |
+  | `functualize[all]` | 264.2 MB | 15.9 MB | 6.0 % | Authlib, SecretStorage, google-auth, joserfc |
+
+  Per-target payload, were `[all]` ever to stop pulling it (wheel contents,
+  gzipped as the embed would store them):
+
+  | Target | raw | gzipped |
+  |---|---|---|
+  | x86_64-unknown-linux-gnu | 15.9 MB | 5.0 MB |
+  | aarch64-unknown-linux-gnu | 15.2 MB | 4.9 MB |
+  | x86_64-unknown-linux-musl | 16.0 MB | 5.2 MB |
+  | aarch64-unknown-linux-musl | 15.5 MB | 5.1 MB |
+  | x86_64-apple-darwin | 24.9 MB | 8.1 MB |
+  | aarch64-apple-darwin | 13.2 MB | 4.1 MB |
+  | x86_64-pc-windows-msvc | 11.3 MB | 3.9 MB |
+
+  x86_64 macOS is the outlier because `cryptography` stopped publishing that
+  wheel after 48.0.1; every other target resolves to 50.0.1.
+
+  **No binary was built in this session.** Deriving the delta from the
+  dependency closure covers all seven targets; one host build would have
+  covered one, and would not have answered "delta" at all.
+
+  ### The checkpoint found a release blocker, which is what it is for
+
+  **`functualize[all]` could not be resolved on either musl target.**
+  `uv pip compile --python-platform x86_64-unknown-linux-musl --extra all`
+  failed outright: `functualize-bitwarden` needs `bitwarden-sdk>=2.0.0`, which
+  publishes wheels for glibc, macOS and Windows only and **no sdist**. Only
+  `bitwarden-sdk==1.0.0` has anything musl can install, and it is not the API
+  5.2 was built against.
+
+  `[all]` is what the standalone binary bakes, so both Alpine/distroless
+  binaries could not have been built at all — including
+  `aarch64-unknown-linux-musl`, the one target 0.2.3's changelog says took
+  three separate fixes to make buildable. I flagged the risk in prose when
+  closing 5.2; this is where it became a measurement.
+
+  **Resolution: `functualize-bitwarden` is out of the `all` extra**, and in the
+  `dev` group instead so `uv sync --all-extras` still installs it and its 66
+  tests still run. There is no PEP 508 marker for musl versus glibc, so it
+  cannot be excluded conditionally — the choice was between an `[all]` that
+  cannot be installed on two shipped targets and an `[all]` that does not mean
+  literally everything. The plugin stays first-class and directly installable,
+  which is what the docs already told people to do.
+
+  All seven targets now resolve. **This is a packaging decision the maintainer
+  may want to take differently** — pinning `bitwarden-sdk` 1.x, or dropping
+  musl from the release matrix — and it is one line in `pyproject.toml` either
+  way. README, `installation.md`, `plugins.md`, `configuration.md` and the
+  CHANGELOG all say plainly that `[all]` excludes it and why; the binary's
+  "every first-party plugin" claim is corrected in both places it appears.
+
+  ### Core purity
+
+  `grep -rn "boto3" src/functualize/` → **0**.
+  `grep -rni "bitwarden" src/functualize/` → **2**, both prose in docstrings
+  (`_config/vault.py:4`, `_types/protocols.py:218`); no import of either.
 
 ---
 

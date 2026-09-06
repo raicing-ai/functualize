@@ -49,7 +49,19 @@ would end offline work.
   mapping, now consumed by the Lambda and HTTP trigger plugins, which both
   returned a constant `200` regardless of outcome.
 
-`cryptography` is now a core dependency.
+`cryptography` is now a core dependency. For `functualize[all]` that costs
+nothing — Authlib, SecretStorage, google-auth and joserfc already required it
+unconditionally, on every one of the seven build targets. For a bare
+`pip install functualize` it is new, and it is not small: 15.9 MB of the
+27.1 MB installed footprint.
+
+**`functualize-bitwarden` is not part of `functualize[all]`.** Its
+`bitwarden-sdk` dependency is a Rust extension published as wheels for glibc,
+macOS and Windows only, with no source fallback, so including it makes `[all]`
+impossible to resolve on musl — and `[all]` is what the standalone binaries
+bake, so both Alpine/distroless targets could not have been built. There is no
+PEP 508 marker for musl, so it cannot be excluded conditionally. Install it
+directly: `pip install functualize-bitwarden`.
 
 
 ## [0.2.3] - 2026-09-04

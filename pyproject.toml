@@ -67,6 +67,12 @@ dev = [
     "import-linter>=2.0",
     "invoke>=2.2.0",
     "debugpy>=1.8.21",
+    # Not in the `all` extra -- see the comment there: `bitwarden-sdk>=2.0.0`
+    # has no musl wheel and no sdist, so shipping it in `all` makes two of the
+    # seven build targets unresolvable. It is still a first-party plugin with
+    # its own suite, so it belongs in the development environment, and
+    # `uv sync --all-extras` keeps installing it from here.
+    "functualize-bitwarden",
 ]
 docs = [
     "mkdocs>=1.6.0",
@@ -100,8 +106,19 @@ all = [
     # everything -- but it is the one entry here that is not small. Measured
     # at the 7.1 checkpoint.
     "functualize-aws",
-    # Also a binary wheel (Bitwarden's Rust SDK), and glibc-only.
-    "functualize-bitwarden",
+    # `functualize-bitwarden` is deliberately NOT here. `bitwarden-sdk>=2.0.0`
+    # publishes wheels for glibc, macOS and Windows only, with no sdist, so
+    # including it makes `functualize[all]` **unresolvable** on both musl
+    # targets -- and `all` is what the standalone binary bakes
+    # (PYAPP_PROJECT_FEATURES=all), so the Alpine/distroless binaries could not
+    # be built at all. Measured at the 7.1 checkpoint; `uv pip compile
+    # --python-platform x86_64-unknown-linux-musl --extra all` fails outright.
+    #
+    # There is no PEP 508 marker for musl vs glibc, so it cannot be excluded
+    # conditionally. The plugin stays first-class and directly installable
+    # (`pip install functualize-bitwarden`), which is what the docs already
+    # tell people to do; it simply is not part of "everything", because on two
+    # of the seven shipped targets it cannot be.
 ]
 
 [build-system]

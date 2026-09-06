@@ -653,6 +653,76 @@ class TestSync:
 
 
 @pytest.mark.usefixtures("project")
+class TestWhatSyncLeavesOnDisk:
+    """Acceptance A4, end to end: fetch through a provider, then read the bytes.
+
+    `test_vault_store.py` already asserts this for a direct `put`, which proves
+    the *store* encrypts. It cannot prove that the command wired to fill the
+    store uses it — a `sync` that wrote a plaintext sidecar, or logged the
+    value, or left it in the audit table, passes every one of those tests. The
+    only assertion that covers the whole path reads what is actually on disk
+    after running the command.
+    """
+
+    def _files(self) -> list[Path]:
+        path = vault_location()
+        return [
+            p
+            for p in path.parent.iterdir()
+            if p.is_file() and p.name.startswith(path.name)
+        ]
+
+    def test_the_value_is_in_none_of_the_files_sync_writes(
+        self, register: Callable[..., list[_FakeProvider]]
+    ) -> None:
+        """Every file, not just `vault.db`. In WAL mode a fresh write lands in
+        the `-wal` sidecar and the main database can still be empty — the
+        mistake 2.1 caught by sabotage, and it would be just as invisible
+        here."""
+        register()
+        _run(["sync"], app=_app())
+
+        files = self._files()
+        assert files, "sync wrote nothing to assert against"
+        assert any(f.stat().st_size > 0 for f in files), "every file was empty"
+        for path in files:
+            assert _CONSPICUOUS.encode() not in path.read_bytes(), path.name
+
+    def test_the_annotation_is_on_disk_in_clear_which_is_the_point(
+        self, register: Callable[..., list[_FakeProvider]]
+    ) -> None:
+        """The control. Without it, a `sync` that stored nothing at all would
+        satisfy the assertion above."""
+        register()
+        _run(["sync"], app=_app())
+        blob = b"".join(p.read_bytes() for p in self._files())
+        assert b"aws-sm://prod/db-password" not in blob
+        assert b"fake-sm://prod/db-password" in blob
+
+    def test_the_audit_table_holds_no_value_either(
+        self, register: Callable[..., list[_FakeProvider]]
+    ) -> None:
+        """`sync` writes an audit row per stored key. ADR-016 says that table
+        never holds a value; this is the first path that actually fills it."""
+        register()
+        _run(["sync"], app=_app())
+        records = list(SecretsVault(vault_location()).audit_records())
+        assert records, "sync recorded no audit row"
+        assert all(_CONSPICUOUS not in str(row) for row in records)
+
+    def test_it_decrypts_back_to_what_the_provider_returned(
+        self, register: Callable[..., list[_FakeProvider]]
+    ) -> None:
+        """Encrypted is not enough — it has to be the right value."""
+        register()
+        _run(["sync"], app=_app())
+        assert (
+            SecretsVault(vault_location()).get("report.password", encryption_key=_KEY)
+            == _CONSPICUOUS
+        )
+
+
+@pytest.mark.usefixtures("project")
 class TestSyncFailures:
     def test_an_unregistered_provider_is_reported_and_fails_the_command(
         self, project: Path, register: Callable[..., list[_FakeProvider]]
