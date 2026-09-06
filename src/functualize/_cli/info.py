@@ -13,6 +13,7 @@ than by review.
 
 from __future__ import annotations
 
+import contextlib
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -29,6 +30,7 @@ BUILTIN_ROOT_SEGMENT = "builtin"
 
 __all__ = [
     "RENDERERS",
+    "discovery_failures",
     "full_report",
     "job_catalog",
     "job_detail",
@@ -289,6 +291,35 @@ def install_facts(*, include_manifest: bool) -> dict[str, Any]:
     return facts
 
 
+def discovery_failures(app: FunctualizeApp) -> list[dict[str, str]]:
+    """Modules discovery could not parse or import, as report payloads.
+
+    Read from the providers themselves rather than from a field on the app,
+    because that is where the answer is *current*: discovery is lazy, so the
+    scan behind a given set of descriptors may not have happened at boot. A
+    field set during boot would report an empty list for a tree whose failures
+    had not been found yet.
+
+    Reached by attribute access, not by import. ``_cli`` may not import
+    ``_discovery`` (constitution), and B5 is explicitly not allowed to add
+    public API -- that belongs to the sibling feature ``third-party-host-seams``,
+    which is where a host-facing seam for this would go if one is wanted. The
+    same shape as the existing ``_group_options`` read a few lines above.
+
+    Providers that do not scan -- ``StaticProvider``, anything a plugin adds --
+    have no such attribute and contribute nothing.
+    """
+    pipeline = getattr(app, "_resolution_pipeline", None)
+    entries = getattr(pipeline, "_providers", ()) or ()
+    failures: list[dict[str, str]] = []
+    for entry in entries:
+        provider = getattr(entry, "provider", entry)
+        for failure in getattr(provider, "discovery_failures", ()) or ():
+            with contextlib.suppress(Exception):
+                failures.append(failure.as_dict())
+    return failures
+
+
 def full_report(app: FunctualizeApp, cli_config: Any = None) -> dict[str, Any]:
     """Everything ``info`` knows, as one document.
 
@@ -306,6 +337,14 @@ def full_report(app: FunctualizeApp, cli_config: Any = None) -> dict[str, Any]:
         },
         "jobs": [job_detail(app, entry["name"]) for entry in job_catalog(app)],
     }
+
+    # After the jobs key, deliberately: building it is what forces the scan
+    # under a lazy boot, and the failures only exist once something has tried
+    # to read the tree.
+    #
+    # Always present, `[]` when there are none, so a consumer never has to
+    # guard for the key -- the same rule the `config` block below follows.
+    report["discovery_failures"] = discovery_failures(app)
 
     # Always present, even with no store to read. This is a document an agent
     # parses, so its *shape* must not depend on which entry point produced it:
@@ -391,6 +430,17 @@ def render_report_text(report: dict[str, Any]) -> list[str]:
         lines.append(f"skills: {skills['path']} ({skills['origin']})")
     else:
         lines.append("skills: (none found)")
+
+    # Before the job list, not after: this is the explanation for a job list
+    # that looks shorter than it should, and an explanation printed below the
+    # thing it explains gets scrolled past.
+    failures = report.get("discovery_failures") or []
+    if failures:
+        lines.append("")
+        lines.append(f"discovery failures ({len(failures)}):")
+        for failure in failures:
+            lines.append(f"  {failure['path']}")
+            lines.append(f"    {failure['error_type']}: {failure['message']}")
 
     jobs = report.get("jobs") or []
     lines.append("")

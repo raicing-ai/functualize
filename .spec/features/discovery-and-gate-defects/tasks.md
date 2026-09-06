@@ -247,7 +247,7 @@ docstring promises rather than being removed.)
   - **Reachability, by sabotage**: making the hint always empty → 4 failed;
     dropping `ai_outbound` from the table → 3 failed.
 
-- [ ] **3.3 — B4c: the walk blocks, with a reason**
+- [x] **3.3 — B4c: the walk blocks, with a reason**
   The walker's gate branch produces `BLOCKED` for this cause and sets the
   additive `blocked_reason` from the `GateResolutionError`.
   - `[F]` `src/functualize/_engine/workflow_walker.py`, `tests/engine/test_workflow_gates.py`
@@ -273,6 +273,44 @@ docstring promises rather than being removed.)
     must not land in a release without those**, or the release ships the
     regression.
   - `[verify-e2e:TARGETED]`
+
+  **Done 2026-09-06.** `blocked_reason` is carried by three objects in
+  sequence, and each hop is asserted separately so a break is attributable
+  rather than merely visible at the top: `WalkReport` → `WorkflowRun` →
+  `JobResult.metadata`.
+
+  - **`[F]` extended (recorded):** `src/functualize/_engine/workflow_runner.py`
+    and `src/functualize/_engine/executor.py`. The acceptance is written in
+    terms of `RunStatus.BLOCKED` and `metadata["blocked_reason"]`, neither of
+    which the walker produces — the walker returns a `WalkReport`, and the
+    executor is what turns one into a `JobResult`. There was no way to meet
+    the stated acceptance inside the declared scope.
+  - Acceptance met: `Gate(strategy="ai_inbound")` with no resolver registered
+    gives `RunStatus.BLOCKED`, `metadata["blocked_on"] == "triage"`, and a
+    `blocked_reason` naming both `ai_inbound` and `functualize-ai`. It was a
+    `ValueError` out of `app.execute()`.
+  - Second acceptance met, parameterized: `strategy=None`, `"ai_outbound"`,
+    and a registered-but-raising resolver all still return `BLOCKED`.
+  - `blocked_reason` is **absent**, not empty, when there is nothing to say —
+    a gate waiting by design, or `ai_outbound`, which blocks by policy so the
+    walker never builds a strategy list for it. An always-present empty key
+    would make every consumer guard for it.
+  - A registered-but-raising resolver produces a reason with **no install
+    hint**: the strategy exists, it failed, and "install functualize-ai" would
+    send the operator the wrong way. Its text is the *last* rung's error, not
+    the raising resolver's — the ladder keeps going, and
+    `GateResolutionError.last_error` means last. Whether first would be more
+    diagnostic is a pre-existing question about that field.
+  - **STATUS #21 verified, not assumed.** Two tests assert
+    `http_status_for_status(RunStatus.BLOCKED) != 200`, so the sequencing
+    constraint this task carried is now executable rather than a note. Without
+    `remote-source-activation` 1.3 and 4.2 this fix would have turned a visible
+    Lambda 500 into `{"statusCode": 200, "body": null}`.
+  - **Reachability, by sabotage** (6 mutations, each restored): restoring the
+    registry's unconditional raise → 7 failed; the walker dropping
+    `exc.last_error` → 3; `WalkReport` not carrying it → 3; `WorkflowRun` not
+    carrying it → 3; the executor not publishing it → 3; publishing it
+    unconditionally even when empty → 2. Baseline and restore 14 passed.
 
 ---
 
@@ -358,7 +396,7 @@ docstring promises rather than being removed.)
     active → 25; accumulating instead of replacing the list → 1. Baseline and
     restore 29 passed.
 
-- [ ] **4.2 — B5: surface them**
+- [x] **4.2 — B5: surface them**
   `builtin info` carries `discovery_failures` (empty list when none, never
   absent), per `contracts.md` §3.
   - `[F]` `src/functualize/_cli/info.py`, `tests/cli/test_info.py`
@@ -372,6 +410,44 @@ docstring promises rather than being removed.)
     that lands first, this command moves with every other, not ahead of them.
   - Reachability: name the call path from the CLI command to the provider's
     list. Verify by breaking it and watching the test fail.
+
+  **Done 2026-09-06.** `_cli/info.discovery_failures(app)` walks
+  `app._resolution_pipeline._providers` and collects each provider's
+  `discovery_failures`. `full_report` publishes the key **after** `jobs`,
+  because building that key is what forces the scan under a lazy boot.
+
+  - **Read by attribute access, not by import, and deliberately not through a
+    public seam.** `_cli` may not import `_discovery` (constitution), and
+    `spec.md` puts new public API out of scope for this feature — a
+    host-facing seam belongs to `third-party-host-seams`. The shape matches
+    the existing `getattr(app, "_group_options", None)` a few lines above.
+    Two tests cover the degradation: an app with no pipeline, and providers
+    (`StaticProvider`, anything a plugin adds) that do not scan.
+  - Acceptance met: `func builtin info --json` on a tree with one broken
+    module contains the record; on a clean tree the key is present and `[]`.
+    Both stages arrive under the one key.
+  - **Flag correction confirmed by execution**, not by reading:
+    `func builtin info --output json` still prints
+    `Error: No such option '--output'`. The shipped flag is `--json`, and that
+    is what the tests use.
+  - **Key name follows `tasks.md`, not `contracts.md`.** §3 calls it
+    `import_failures`, written before the scope widened. `import_failures`
+    would be actively wrong for a `SyntaxError`, which never reaches the
+    import path.
+  - The plain rendering prints the failures **above** the job list: this is
+    the explanation for a list that looks too short, and an explanation
+    printed below the thing it explains gets scrolled past.
+  - **A defect found by executing this, in 4.1's code.** A composite
+    pre-filter is several filters, each of which parses the file itself, so
+    one broken module produced *three* identical records in a single scan.
+    The count tracked the filter configuration rather than the tree.
+    `record_discovery_failure` now collapses an identical record; a
+    *different* failure for the same path (an `OSError` after a
+    `SyntaxError`) is a separate fact and is kept.
+  - **Reachability, by sabotage** (5 mutations over 53 tests): the key never
+    published → 18 failed; the key always empty → 14; the plain rendering
+    never showing them → 4; the reader looking at the `ProviderEntry` instead
+    of its `.provider` → 14; no deduplication → 2.
 
 ---
 

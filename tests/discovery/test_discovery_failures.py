@@ -114,6 +114,24 @@ class TestTheCollectorItself:
             pass
         assert fresh == []
 
+    def test_an_identical_record_collapses(self) -> None:
+        """A composite pre-filter is several filters, each of which parses the
+        file itself, so one broken module is genuinely rejected three or four
+        times per scan. Reporting it once per filter would tell an operator
+        there are four problems where there is one -- and the count would
+        track the filter configuration rather than the tree."""
+        with collecting_discovery_failures() as failures:
+            for _ in range(4):
+                record_discovery_failure("/tmp/broken.py", SyntaxError("bad colon"))
+        assert len(failures) == 1
+
+    def test_a_different_failure_for_the_same_path_is_kept(self) -> None:
+        """Deduplication must not swallow a second, distinct fact."""
+        with collecting_discovery_failures() as failures:
+            record_discovery_failure("/tmp/x.py", SyntaxError("bad colon"))
+            record_discovery_failure("/tmp/x.py", OSError("gone"))
+        assert [f.error_type for f in failures] == ["SyntaxError", "OSError"]
+
     def test_the_payload_shape_is_the_four_documented_keys(self) -> None:
         with collecting_discovery_failures() as failures:
             record_discovery_failure("/tmp/x.py", ImportError("no module"))

@@ -120,13 +120,21 @@ def record_discovery_failure(source_file: Path | str, exc: BaseException) -> Non
     try:
         text = str(source_file)
         stem = text.rsplit("/", 1)[-1]
-        collected.append(
-            DiscoveryFailure(
-                module=stem[:-3] if stem.endswith(".py") else stem,
-                path=text,
-                error_type=type(exc).__name__,
-                message=str(exc),
-            )
+        failure = DiscoveryFailure(
+            module=stem[:-3] if stem.endswith(".py") else stem,
+            path=text,
+            error_type=type(exc).__name__,
+            message=str(exc),
         )
+        # A composite pre-filter is several filters, each of which parses the
+        # file itself -- so one broken module is genuinely rejected three or
+        # four times in a single scan. Reporting it once per filter would tell
+        # an operator there are four problems where there is one, and the
+        # count is an artifact of the filter configuration rather than of the
+        # tree. Identical records collapse; a *different* failure for the same
+        # path (an OSError after a SyntaxError, say) is a separate fact and
+        # stays.
+        if failure not in collected:
+            collected.append(failure)
     except Exception:  # pragma: no cover - defensive; see the docstring
         return
