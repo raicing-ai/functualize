@@ -1230,11 +1230,26 @@ Items identified during development that are worth doing but not yet designed:
     rather than waiting out the timeout, and an in-flight run is waited on for up to 45
     minutes. CONTRIBUTING carries the two consequences a releaser needs before tagging.
 
-12. **A job module with a `SyntaxError` vanishes silently.** No warning, no
-    diagnostic, exit 0 — the job simply is not listed. Cost ~20 minutes on a
-    test fixture during the secrets work, and would cost a user far more, since
-    they have no reason to suspect the file was even considered. Discovery
-    should report a module it failed to parse.
+12. **CLOSED (2026-09-06) by `discovery-and-gate-defects`/4.1 and /4.2.**
+    A job module with a `SyntaxError` no longer vanishes silently.
+
+    `func builtin info --json` carries `discovery_failures` — always present,
+    `[]` when there are none — with `{module, path, error_type, message}` per
+    entry, and the plain rendering prints them above the job list. Both stages
+    that can reject a module now record: the AST/pre-filter pass (where a
+    `SyntaxError` actually lands) and the import pass.
+
+    The original framing was half the problem. Covering imports alone would
+    have published `discovery_failures: []` for a syntactically broken tree — a
+    report that actively says "nothing is wrong", which is worse than the
+    silence it replaced. A `SyntaxError` never reaches the import path; it was
+    swallowed earlier, at eight sites (seven in `_primitives/pre_filter.py`,
+    one in `_discovery/ast_extractor.py`). All eight still swallow — a broken
+    module must stay non-fatal to the scan — they just stop being invisible.
+
+    Verified against the shipped `func` on a real tree: one healthy job
+    discovered, one `SyntaxError` and one `ModuleNotFoundError` reported. See
+    #27 for the one case that is still invisible.
 
 13. **A second, unreachable "what's missing?" implementation** —
     `get_missing_required_args` (`_cli/tui/missing_args.py`) answers "which required
@@ -1580,6 +1595,71 @@ Items identified during development that are worth doing but not yet designed:
       design and should say what it actually means: the *ambient credential
       chain* comes from the environment; an annotation may redirect which
       identity is used, and never carries a credential itself.
+
+27. **A parse failure disappears on the second run.** The remaining half of
+    #12, left open deliberately rather than missed.
+
+    `discovery_failures` is **per scan**: it answers "what did this pass fail
+    to read". The two stages behave differently under the cache, and only one
+    of them keeps reporting:
+
+    - **Import failures repeat.** A module that fails to import writes no cache
+      entry, so it stays in the "new files" set and is retried — and reported —
+      on every run.
+    - **Parse failures do not.** `_should_import_with_cache` persists a
+      *negative* pre-filter decision keyed by mtime, so a file rejected for a
+      `SyntaxError` is judged once and skipped thereafter. A skipped file
+      records nothing.
+
+    Verified against the shipped `func` with a warm cache: run one reports both
+    the `SyntaxError` and the `ModuleNotFoundError`; run two reports only the
+    `ModuleNotFoundError`. So the operator most likely to be confused — someone
+    who has run the tool before, fixes nothing, and runs it again — sees the
+    typo reported once and then never again.
+
+    Both behaviours are asserted in `tests/discovery/test_discovery_failures.py`
+    so neither can change silently. Making the parse failure survive means
+    writing it into the cache entry, which turns a per-scan report into a
+    standing inventory of broken files — a different feature with its own
+    invalidation question (when does a recorded failure stop being true?), and
+    not one to fold into a defect fix.
+
+28. **`l-standalone-binary` cannot pass: its own recipe has a broken `xargs`.**
+    Found at the `discovery-and-gate-defects`/6.1 checkpoint, where the full
+    scenario suite was run. 15 of 16 doc pages verified; this is the one that
+    did not, and it fails for a reason inside the scenario rather than in the
+    documentation it is supposed to check.
+
+    `examples/docs/scenarios/l-standalone-binary.toml:56`:
+
+    ```sh
+    src_root=$(uv python find 3.12 | xargs -I{} {} -c 'import sys; print(sys.prefix)')
+    ```
+
+    In the `rust:1-slim-bookworm` container this prints
+    `xargs: {}: No such file or directory` — the `-I` replacement is not applied
+    to `argv[0]`, so xargs tries to exec the literal string `{}`. Under
+    `set -e` the step exits **127** at ~21s, long before the ten-minute
+    `cargo install pyapp` it exists to run.
+
+    Reproduced directly: `uv python find 3.12` prints a valid path
+    (`/root/.local/share/uv/python/cpython-3.12-linux-x86_64-gnu/bin/python3.12`)
+    and exits 0, and uv installs correctly — so neither the network, the
+    image, nor `docs/getting-started/installation.md` is at fault. The string
+    `xargs` appears **only** in the scenario; the documented commands do not
+    use it.
+
+    Consequence: `docs/getting-started/installation.md:52-155` is **not
+    verified**, and has not been since this recipe was written. That is the
+    same class of failure STATUS already records for this scenario — *"a
+    verification step that has not been run is not evidence"* — recurring one
+    layer down, in a step that now runs and fails fast rather than never
+    running at all.
+
+    Fix is one line: `src_root=$("$(uv python find 3.12)" -c 'import sys;
+    print(sys.prefix)')`. Left undone deliberately — it belongs to the
+    standalone-distribution work, and verifying it costs a full ten-minute
+    container build.
 
 ## Recently Completed (2026-08)
 

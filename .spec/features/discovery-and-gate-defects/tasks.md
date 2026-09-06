@@ -512,12 +512,66 @@ docstring promises rather than being removed.)
 
 ## 6. Checkpoint
 
-- [ ] **6.1 — Full gate run**
+- [x] **6.1 — Full gate run**
   - Acceptance: `uv run pytest`, `uv run ruff check src/ tests/`,
     `uv run ruff format --check src/ tests/`, `uv run mypy src/`,
     `uv run lint-imports` — all green.
   - Walk `spec.md`'s A1–A7 item by item and record each as met.
   - `[verify-e2e:FULL]`
+
+  **Done 2026-09-06.**
+
+  ### A1–A7, walked
+
+  | # | Criterion | Authoring-time | Now | Evidence |
+  |---|---|---|---|---|
+  | A1 | `job_providers` outside `app/config.py`, with a test per boot path and one for the tuple form | 0 hits outside | **8** hits | `grep -rn "job_providers" src/ \| grep -vc "app/config.py"`; 15 tests in `tests/app/test_job_providers.py` |
+  | A2 | `JobSources(functions=[f])` yields `f` or raises, never `[]` | yields `[]` | yields `['alpha']` | executed against a live `FunctualizeApp`; 12 tests in `tests/app/test_job_sources.py` |
+  | A3 | dynamic and directory `parameters` equal | `[]` vs `['x']` | `['x']` vs `['x']` | executed; `grep -cn "parameters=\[\]" src/functualize/_app/impl.py` → **0** (was 1) |
+  | A4 | `Gate(strategy="ai_inbound")`, no resolver → `RunStatus.BLOCKED` | raises `ValueError` | `RunStatus.BLOCKED` + `blocked_reason` | executed end-to-end through `app.execute()`; 14 tests in `tests/engine/test_workflow_gates.py` |
+  | A5 | a builtin reports a module that failed to **import** | not reported | reported | `func builtin info --json` on a real tree: `ModuleNotFoundError importer` |
+  | A5b | the same surface reports a **parse** failure (`SyntaxError`) | swallowed at 8 sites | reported | same run: `SyntaxError broken`; **closes STATUS #12** |
+  | A6 | `grep -n "preset" docs/guides/ai.md` reaches text saying presets are not valid `Gate` strategies | absent | present | `docs/guides/ai.md:234`, plus a worked `ValueError` and the two APIs that do reach presets |
+  | A7 | pytest, ruff, mypy, lint-imports green | — | green | below |
+
+  A5/A5b were walked against the **shipped `func` entry point** on a real
+  three-module tree, not through a test fixture: one healthy job discovered
+  and listed, one `SyntaxError` and one `ModuleNotFoundError` reported, in both
+  the `--json` and the plain rendering.
+
+  ### A7 and the rest
+
+  | Gate | Result |
+  |---|---|
+  | `uv run pytest` | **8835 passed, 1544 skipped** |
+  | 13 plugin suites, run one directory at a time | all green (`plugins/` is not in root `testpaths`) |
+  | `uv run ruff check src/ tests/` | All checks passed |
+  | `uv run ruff format --check src/ tests/` | 1035 files already formatted |
+  | `uv run mypy src/` | no issues in 317 source files |
+  | `uv run lint-imports` | 5 contracts kept, 0 broken |
+  | `uv run mkdocs build --strict` | exit 0 |
+  | `[verify-e2e:FULL]` doc scenarios | **15 of 16 doc pages verified**; 1 failure, 4 PTY scenarios skipped |
+
+  **Two concurrency artifacts, both re-run alone and green.**
+  `tests/test_packaging.py::test_build_produces_sdist_and_wheel` and
+  `::test_wheel_contains_entry_points` failed in the run that overlapped the
+  A5 `uv run --project` invocations, which touch the same build directory.
+  `uv run pytest tests/test_packaging.py` alone: **14 passed**. The passing
+  count is unchanged either way, so nothing regressed.
+
+  **The one scenario failure is pre-existing and unrelated**, and diagnosing
+  it is recorded as STATUS #28. `l-standalone-binary` exits 127 at ~21s inside
+  its container because its *own* recipe uses `xargs -I{} {} -c …`, and `-I`
+  does not substitute into `argv[0]`. Confirmed not to be this feature, the
+  network, the image, or the documentation: `uv python find 3.12` prints a
+  valid path and exits 0 in that container, and the string `xargs` appears
+  only in the scenario, never in
+  `docs/getting-started/installation.md`. `g-discovery`, which failed under
+  concurrency in an earlier run, **passed** here.
+
+  The four PTY scenarios are skipped by policy, not by accident — `CLAUDE.md`
+  reserves them for local/release verification and forbids them in automated
+  runs.
 
 ---
 
