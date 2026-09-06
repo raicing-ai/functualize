@@ -1661,6 +1661,27 @@ Items identified during development that are worth doing but not yet designed:
     standalone-distribution work, and verifying it costs a full ten-minute
     container build.
 
+29. **`[tool.functualize] skill` is accepted, validated, and read by nothing.**
+    Shipped knowingly by `third-party-host-seams`/1.2, and recorded here
+    because that task required it to be — this is the fourth member of a class
+    this file already calls *"the worst of the three states"*.
+
+    `_KNOWN_TOOL_KEYS` now holds `{"job", "skill"}`, so a single-file script
+    declaring the skill it belongs to no longer earns a warning on every run.
+    `ScriptMetadata.skill` is parsed and exposed. **Nothing consumes it**, and
+    `spec.md` puts consuming it out of scope.
+
+    Shipping the key ahead of a consumer is deliberate: the file format should
+    settle before anything depends on it, and a host package can start writing
+    the field now. But the pattern has a track record here — `omit_defaults`
+    (#14) and `remote_first()` (#16) are the same shape, and the second of
+    those resolved silently as `classic()` for its entire shipped life. The
+    difference is that this one is counted from the day it landed.
+
+    The site is marked `# TRANSITIONAL(third-party-host-seams/1.2)`. Close this
+    by wiring the value to whatever reads it, or by removing the key if no
+    consumer arrives.
+
 ## Recently Completed (2026-08)
 
 | Feature | Description |

@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 __all__ = [
+    "SKILLS_ENTRY_POINT_GROUP",
     "SKILLS_PACKAGE_DIRNAME",
     "SkillInfo",
     "SkillsLocation",
@@ -44,6 +45,7 @@ __all__ = [
     "parse_frontmatter",
     "read_skill",
     "resolve_skills_dir",
+    "resolve_skills_locations",
 ]
 
 #: Directory name the skills are force-included under inside the wheel.
@@ -71,13 +73,23 @@ class SkillInfo:
 class SkillsLocation:
     """Where the skills came from, and whether that is the packaged copy.
 
-    ``origin`` is reported rather than inferred by the caller because the two
+    ``origin`` is reported rather than inferred by the caller because the
     cases have different guarantees: ``package`` is pinned to the running
-    version, ``checkout`` is whatever the working tree currently says.
+    version, ``checkout`` is whatever the working tree currently says, and
+    ``entry-point`` belongs to somebody else's distribution entirely.
+
+    ``distribution`` and ``version`` exist for the last of those. The module
+    docstring's promise -- *a skill read from here can never describe a
+    different release* -- has to hold for a third-party skill too, and it only
+    does if the stamp comes from **that** package's version rather than from
+    functualize's. A shared stamp would quietly break the one guarantee this
+    module is for.
     """
 
     path: Path
-    origin: str  # "package" | "checkout"
+    origin: str  # "package" | "checkout" | "entry-point"
+    distribution: str = "functualize"
+    version: str = ""
 
     @property
     def is_packaged(self) -> bool:
@@ -109,6 +121,96 @@ def resolve_skills_dir() -> SkillsLocation | None:
         return SkillsLocation(checkout, "checkout")
 
     return None
+
+
+#: The entry-point group a third-party distribution declares to host skills:
+#:
+#:     [project.entry-points."functualize.skills"]
+#:     mypackage = "mypackage._skills"
+#:
+#: The value is an importable package whose directory holds skill directories
+#: -- the same shape as functualize's own ``_skills/``.
+SKILLS_ENTRY_POINT_GROUP = "functualize.skills"
+
+
+def _functualize_version() -> str:
+    from functualize import __version__
+
+    return __version__
+
+
+def _entry_point_locations() -> list[SkillsLocation]:
+    """Every third-party skills directory declared through the entry point.
+
+    A malformed or missing entry is **warned about and skipped**, never fatal.
+    This path is reachable from ``func --help``, so one broken third-party
+    package must not be able to take the whole CLI down.
+
+    Resolution uses ``importlib.resources`` rather than a path relative to
+    ``__file__``: the target package may be zipped, and a host has no reason to
+    replicate functualize's own layout assumptions.
+    """
+    import logging
+    from importlib.metadata import entry_points, version
+
+    logger = logging.getLogger(__name__)
+    locations: list[SkillsLocation] = []
+
+    try:
+        found = entry_points(group=SKILLS_ENTRY_POINT_GROUP)
+    except Exception as exc:  # pragma: no cover - importlib is very stable
+        logger.warning(
+            "Could not read %s entry points: %s", SKILLS_ENTRY_POINT_GROUP, exc
+        )
+        return locations
+
+    for entry in sorted(found, key=lambda e: e.name):
+        try:
+            from importlib.resources import files
+
+            directory = Path(str(files(entry.value)))
+            if not directory.is_dir():
+                raise NotADirectoryError(directory)
+            distribution = (
+                getattr(getattr(entry, "dist", None), "name", None) or entry.name
+            )
+            locations.append(
+                SkillsLocation(
+                    directory,
+                    "entry-point",
+                    distribution=distribution,
+                    version=version(distribution),
+                )
+            )
+        except Exception as exc:
+            logger.warning(
+                "Skipping skills entry point %r (%s): %s", entry.name, entry.value, exc
+            )
+
+    return locations
+
+
+def resolve_skills_locations() -> list[SkillsLocation]:
+    """Core's own location first, then every registered entry point.
+
+    Core first because it is the one location with a guaranteed shape, and
+    because ``list``/``path``/``materialize`` all present it as the primary
+    answer. An empty list is a real state: a stripped-down install with no
+    third-party hosts.
+    """
+    locations: list[SkillsLocation] = []
+    own = resolve_skills_dir()
+    if own is not None:
+        locations.append(
+            SkillsLocation(
+                own.path,
+                own.origin,
+                distribution="functualize",
+                version=_functualize_version(),
+            )
+        )
+    locations.extend(_entry_point_locations())
+    return locations
 
 
 def parse_frontmatter(text: str) -> dict[str, object]:

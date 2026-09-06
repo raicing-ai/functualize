@@ -11,7 +11,7 @@ rather than waiting behind them.
 
 ## 1. Small, independent seams
 
-- [ ] **1.1 — S4: `job_detail` exposes the declaration**
+- [x] **1.1 — S4: `job_detail` exposes the declaration**
   Add `tags`, `examples`, `extra_description`, `category` to the returned dict,
   read from `descriptor.declaration` and guarded for `None`.
   - `[F]` `src/functualize/_cli/info.py`, `tests/cli/test_info.py`
@@ -24,7 +24,30 @@ rather than waiting behind them.
   - Reachability: `func builtin info schema <job>` → `job_detail`. Verify by
     removing the four keys and watching the test fail.
 
-- [ ] **1.2 — S5: `[tool.functualize] skill` is a known key**
+  **Done 2026-09-06.** 12 tests in `tests/cli/test_job_detail_declaration.py`.
+
+  - Acceptance met: `set(detail) == DETAIL_KEYS`, a 16-name literal, asserted
+    for **both** shapes of job. The count went 12 → 16 as predicted.
+  - Second acceptance met: a convention-discovered job renders `[]`, `[]`,
+    `None`, `None`. Both shapes publish the same key set, which is the
+    property that lets a consumer skip the branch entirely.
+  - `job_catalog`'s key set is asserted unchanged. It is documented as
+    "deliberately shallow", and widening it would cost every `func`
+    invocation that renders a listing.
+  - `tags`/`examples` are converted to `list`, not left as the declaration's
+    tuples: this payload is JSON, and a tuple is not a JSON type. A caller
+    reading the dict directly would otherwise get a tuple where the schema
+    says array. Asserted, and the payload is round-tripped through `json`.
+  - **The named reachability path is wrong.** `func builtin info schema` does
+    **not** call `job_detail` — it renders `command_schemas`, which walks the
+    command tree and builds from `node.params()`, and it has no `--json` flag
+    because it is always JSON. `grep -n "job_detail"` finds exactly two
+    callers: `full_report` (`builtin info --json`) and `info_jobs`
+    (`builtin info jobs <name> --json`). Both are covered.
+  - **Reachability, by sabotage**: removing the four keys → 11 failed;
+    leaving `tags` a tuple → 3 failed.
+
+- [x] **1.2 — S5: `[tool.functualize] skill` is a known key**
   - `[F]` `src/functualize/_cli/pep723.py`, `tests/cli/test_pep723.py`
   - Acceptance: `grep -n "_KNOWN_TOOL_KEYS" src/functualize/_cli/pep723.py`
     shows `frozenset({"job", "skill"})`. Authoring-time: `frozenset({"job"})`
@@ -44,7 +67,24 @@ rather than waiting behind them.
     settles before a consumer exists; the entry is what keeps it counted
     rather than invisible.
 
-- [ ] **1.3 — S1a: promote the `ModulePreFilter` Protocol, with `fingerprint()`**
+  **Done 2026-09-06.** 10 tests in `tests/cli/test_pep723_skill_key.py`.
+
+  - Acceptance met: `_KNOWN_TOOL_KEYS == frozenset({"job", "skill"})`,
+    asserted directly rather than by grep.
+  - Second acceptance met: `skill = "x"` parses with **empty stderr**; a
+    `bogus` key still warns and still names both known keys. A near-miss
+    (`skills`, plural) still warns — adding a key to the set is not the same
+    as widening the set to everything, and that distinction is what the
+    warning exists for.
+  - `_parse_tool_table` now returns a pair rather than a bare `job`, with one
+    `_string()` helper applying the same "empty is not a value" rule to both
+    keys. Non-string and empty values are covered.
+  - Third acceptance met: **STATUS follow-up #29**, and the site carries the
+    `# TRANSITIONAL(third-party-host-seams/1.2)` marker the task asked for.
+  - **Reachability, by sabotage**: reverting `_KNOWN_TOOL_KEYS` → 4 failed;
+    returning `None` for `skill` while keeping the key known → 3 failed.
+
+- [x] **1.3 — S1a: promote the `ModulePreFilter` Protocol, with `fingerprint()`**
   Move the Protocol shape to `functualize/plugin`. `_primitives`
   implementations satisfy it structurally — no upward import.
 
@@ -85,6 +125,46 @@ rather than waiting behind them.
     `fingerprint()` values produce different discovery hashes, and that the
     **same** filter reconstructed in a fresh process produces the **same**
     hash. The second half is what proves the address problem is gone.
+
+  **Done 2026-09-06.** 39 tests in `tests/plugin/test_module_pre_filter.py`.
+
+  - **`[F]` extended (recorded):** `src/functualize/_types/protocols.py`. The
+    Protocol went there rather than being defined in `plugin/__init__.py`,
+    because that is where every other extension Protocol lives and it is the
+    only layer both `_primitives` and `plugin` may import. `plugin/__init__.py`
+    re-exports it exactly as it re-exports `JobProvider` and `JobTransform`.
+    Defining it in `plugin/` would have forced `plugin` → `_primitives`, or a
+    second definition. One object is asserted:
+    `functualize.plugin.ModulePreFilter is _types.protocols.ModulePreFilter is
+    _primitives.pre_filter.ModulePreFilter`.
+  - **The method name is `should_import(source_file)`, not `contracts.md`'s
+    `accepts(path, source)`.** The two disagree, and three things point the
+    same way: `contracts.md`'s own prose says this *"promotes the existing
+    shape rather than inventing one"*; this task's acceptance is
+    `isinstance(ASTModulePreFilter(...), ModulePreFilter)`, which only holds
+    for the existing shape; and all thirteen built-ins implement
+    `should_import`. `accepts(path, source)` appears once, in a code block.
+    Adopting it would mean rewriting every built-in and restructuring the
+    scan to read each file once up front — a better design, and a different
+    task. **Flagged for the maintainer**; changing it later is one Protocol
+    plus thirteen renames.
+  - Acceptance met: `lint-imports` green; `isinstance` asserted for **all
+    thirteen** built-ins, not a sample, with a guard test that fails if a new
+    filter class ships without joining the list — such a class would enter the
+    discovery hash as nothing.
+  - Second acceptance met, both halves. Different config, different class,
+    different composition and different composition *order* all produce
+    different fingerprints; identical config produces an identical one; and
+    two fresh subprocesses agree with each other and with the in-process
+    value. The last is what an `id()`-based identity would fail, and a test
+    asserts directly that `str()` of two behaviourally identical functions
+    differs — the reason this method exists.
+  - Every built-in gained `fingerprint()` (13 methods), derived from the class
+    name plus its configuration through one `_fingerprint()` helper. A short
+    digest rather than the raw parts, so a filter configured with a long glob
+    list cannot dominate the discovery fingerprint it joins.
+  - **Reachability, by sabotage**: making `_fingerprint` ignore its inputs →
+    5 failed.
 
 ---
 
@@ -127,7 +207,7 @@ rather than waiting behind them.
 
 ## 3. Packaging surface
 
-- [ ] **3.1 — S2a: create `app/packaging.py` by moving `runtime.py`**
+- [x] **3.1 — S2a: create `app/packaging.py` by moving `runtime.py`**
   All of `_cli/runtime.py` moves: `InstallMode`, `Detection`,
   `RuntimeOverrideError`, `detect`, and the module privates. It is stdlib-only
   (verified: `os`, `tomllib`, `dataclasses`, `enum`, `pathlib`, `typing`), so
@@ -138,6 +218,41 @@ rather than waiting behind them.
   - Second acceptance: the existing `builtin self doctor` test passes
     unchanged. **Do not run `self update` or `self install`** — they mutate the
     developer's environment.
+
+  **Done 2026-09-06.** `git mv` — the whole module, no shim left behind. 12
+  tests in `tests/app/test_packaging.py`.
+
+  - Acceptance met: `grep -rn "from functualize._cli.runtime import" src/` →
+    **0**, and the grep runs inside a test rather than once by hand. All six
+    `src/` consumers and four test files were repointed at
+    `functualize.app.packaging`.
+  - Second acceptance met: `tests/_cli/test_self_doctor.py`,
+    `test_runtime_detection.py`, `test_package_ops.py` and `test_plugin_cmd.py`
+    — **193 passed, 9 skipped**, changed only in their import line. Neither
+    `self update` nor `self install` was run.
+  - No shim: `_cli/runtime.py` is gone and asserted un-importable. A shim would
+    let a consumer keep the private path and never learn the public one exists.
+  - "Nothing CLI travels with it" is asserted three ways: no `functualize._`
+    import in the source, no `click`, and — stronger, because a transitive
+    import would not show up in the source — a subprocess that imports the
+    module and asserts **no** `functualize._cli.*` entry appears in
+    `sys.modules`.
+  - **`detect`'s real signature is not `contracts.md`'s.** §S2 sketches
+    `detect(tool: str = "functualize") -> Detection`; the actual signature is
+    `detect(prefix, base_prefix, environ, argv0, cwd)`, with
+    `detect_from_process()` as the no-argument entry point. The explicit form
+    is deliberate — `sys.prefix` cannot be set by an environment variable, so
+    a version reading it directly could only be exercised in whichever mode
+    the suite happens to run under. This task is a *move* ("nothing about the
+    semantics changes"), so the real signature is what became public and the
+    sketch is what is wrong. Pinned by an `inspect.signature` assertion, and
+    `detect_from_process` added to `__all__` since it is the ergonomic door.
+  - **`A2`'s stated gate was already false at authoring time.**
+    `grep -rn "from functualize._cli" src/functualize/app/` returns **14**, and
+    `git grep` confirms all fourteen predate this feature (`adapters/cli.py` 6,
+    `click_params.py` 3, `surface_gate.py` 2, `tui.py` 1, `commands.py` 2).
+    The meaningful version — `app/packaging.py` itself importing no `_cli` —
+    is what the tests assert.
 
 - [ ] **3.2 — S2b: move the command builders**
   `Requirement`, `install_commands`, `update_commands`, `uninstall_commands`,
@@ -155,7 +270,7 @@ rather than waiting behind them.
 
 ## 4. Skill hosting
 
-- [ ] **4.1 — S3a: plural resolution**
+- [x] **4.1 — S3a: plural resolution**
   Add `resolve_skills_locations()` and the `functualize.skills` entry-point
   scan. `SkillsLocation` gains `distribution` and `version`. A malformed or
   missing entry point warns and is skipped — never fatal, since this path is
@@ -167,6 +282,30 @@ rather than waiting behind them.
     `builtins.py:1482`, `builtins.py:1723`.
   - Second acceptance: a fixture whose entry point points at a missing module
     produces a warning and does not raise.
+
+  **Done 2026-09-06.** 10 tests in `tests/cli/test_skills_hosting.py`.
+
+  - Acceptance met, with the fixture faked at the `importlib.metadata` seam
+    rather than by installing a real wheel: a real install would mutate the
+    developer's environment, and `entry_points(group=...)` is the exact
+    surface the code reads. Its skill appears, `list_skills` reads it, and
+    core still comes first.
+  - Second acceptance met: a missing module and a path that is not a directory
+    each warn and are skipped, and core is still returned in both cases — the
+    point of skipping rather than failing, since this path is reachable from
+    `func --help`.
+  - Per-source stamping is in place: `SkillsLocation` gained `distribution`
+    and `version`, defaulting to `functualize` so the two existing
+    construction sites stay valid. `resolve_skills_dir()` is retained and
+    still answers for core alone; the three call sites migrate in 4.2.
+  - **A vacuous test, caught by sabotage.** Removing the `is_dir()` guard
+    changed nothing: the not-a-directory entry point was being rejected by
+    `PackageNotFoundError` from `version("broken")` instead, so the assertion
+    held whether or not the guard existed. Stubbing `version` makes the guard
+    the only thing that can reject it; that mutation now fails.
+  - **Reachability, by sabotage**: stamping a third-party location with
+    functualize's own distribution → 2 failed; never scanning entry points →
+    4 failed; dropping the `is_dir()` guard → 1 failed.
 
 - [ ] **4.2 — S3b: migrate the three call sites and stamp per source**
   `builtin skills list | path | materialize | install` iterate. Materialization
