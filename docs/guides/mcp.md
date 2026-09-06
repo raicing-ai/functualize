@@ -116,6 +116,53 @@ func mcp tools                       # List exposed tools (no server)
 
 ---
 
+## What an agent learns about a job
+
+`builtin info --job <name> --json` and the MCP tool list render the same
+payload, so what an agent can find out is the same on both surfaces.
+
+Alongside the callable facts — parameters, `inputSchema`, `dependencies`,
+`requires_tty` — it carries the four descriptive fields `@job` declares:
+
+```python title="jobs/deploy.py"
+from functualize.job import job
+
+
+@job(
+    category="release",
+    tags=["deploy", "production"],
+    examples=["func deploy --target staging"],
+    extra_description="Requires the release role. Rolls back on failure.",
+)
+def deploy(target: str) -> None:
+    """Deploy to the given target."""
+```
+
+```bash
+func builtin info --job deploy --json
+```
+
+```json
+{
+  "name": "deploy",
+  "summary": "Deploy to the given target.",
+  "category": "release",
+  "tags": ["deploy", "production"],
+  "examples": ["func deploy --target staging"],
+  "extra_description": "Requires the release role. Rolls back on failure."
+}
+```
+
+These survive discovery *and* the cache, and this payload used to drop them —
+which made the one direction that matters impossible: an agent that had found a
+job could not walk from it to the judgment explaining when to use it.
+
+**A job declared by convention renders the same shape**, not a different one:
+`tags` and `examples` come back as `[]`, `category` and `extra_description` as
+`null`. A consumer never has to branch on which kind of job it is looking at.
+
+---
+
 ## Multi-Server Management
 
 Manage MCP servers for multiple functualize projects:

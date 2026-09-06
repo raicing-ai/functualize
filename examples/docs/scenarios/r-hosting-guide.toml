@@ -1,0 +1,263 @@
+[scenario]
+name = "r-hosting-guide"
+version = 1
+description = "Every snippet in the Hosting Functualize guide runs as written"
+
+# The guide documents the host-facing seams `third-party-host-seams` added.
+# Its claims are all executable, so they are executed rather than reviewed: an
+# API sketch that has drifted reads exactly as authoritative as one that has
+# not.
+[source]
+file = "docs/guides/hosting.md"
+lines = "13-186"
+description = "Install detection, command planning, skills hosting, and the PEP 723 skill key"
+
+requires = []
+
+# --- "Knowing how you were installed" -------------------------------------
+
+[[steps]]
+engine = "shell"
+description = "detect_from_process returns a Detection with the three documented attributes"
+command = """
+python - <<'PY'
+from functualize.app import packaging
+
+detection = packaging.detect_from_process()
+print(detection.mode)
+print(detection.owning_distribution)
+print(detection.degraded)
+assert isinstance(detection, packaging.Detection)
+assert isinstance(detection.degraded, bool)
+print("DETECT-OK")
+PY
+"""
+expected = { exit_code = 0, stdout_contains = "DETECT-OK" }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "InstallMode prints as the bare value, and every documented mode exists"
+command = """
+python - <<'PY'
+from functualize.app import packaging
+
+# The guide states this explicitly: `tool_uv`, not `InstallMode.TOOL_UV`.
+assert str(packaging.InstallMode.TOOL_UV) == "tool_uv"
+for name in ("standalone", "tool_uv", "tool_pipx", "project", "tool_pip", "unknown"):
+    assert packaging.InstallMode(name)
+print("MODES-OK")
+PY
+"""
+expected = { exit_code = 0, stdout_contains = "MODES-OK" }
+timeout = 60
+
+# --- "Asking what would change it" ----------------------------------------
+
+[[steps]]
+engine = "shell"
+description = "the three planning calls return argv tuples for a healthy detection"
+command = """
+python - <<'PY'
+from functualize.app import packaging
+
+detection = packaging.Detection(
+    mode=packaging.InstallMode.TOOL_UV,
+    owning_distribution="yourapp",
+)
+assert not detection.degraded
+
+commands = packaging.update_commands(detection, "/usr/local/bin/yourapp")
+assert commands[0][1:] == ("tool", "upgrade", "yourapp"), commands
+assert "functualize" not in commands[0], "the owner must never be hardcoded"
+
+for planned in (
+    packaging.install_commands(detection, "requests"),
+    packaging.uninstall_commands(detection, "requests"),
+):
+    assert isinstance(planned, tuple) and isinstance(planned[0], tuple)
+print("PLANNING-OK")
+PY
+"""
+expected = { exit_code = 0, stdout_contains = "PLANNING-OK" }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "a degraded detection raises ValueError instead of planning a command"
+command = """
+python - <<'PY'
+from functualize.app import packaging
+
+degraded = packaging.Detection(
+    mode=packaging.InstallMode.TOOL_PIP, owning_distribution="yourapp"
+)
+assert degraded.degraded
+try:
+    packaging.update_commands(degraded, "/usr/local/bin/yourapp")
+except ValueError as exc:
+    print(f"REFUSED: {exc}")
+else:
+    raise AssertionError("a degraded mode must not plan a command")
+PY
+"""
+expected = { exit_code = 0, stdout_contains = "REFUSED:" }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "the three documented exceptions exist and are exception types"
+command = """
+python - <<'PY'
+from functualize.app import packaging
+
+for name in ("MissingToolError", "LossyReceiptError", "StandaloneUpdateError"):
+    assert issubclass(getattr(packaging, name), BaseException), name
+print("EXCEPTIONS-OK")
+PY
+"""
+expected = { exit_code = 0, stdout_contains = "EXCEPTIONS-OK" }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "planning imports no CLI framework — the claim that makes it host-safe"
+command = """
+python - <<'PY'
+import sys
+
+import functualize.app.packaging  # noqa: F401
+
+leaked = [m for m in sys.modules if m.startswith("functualize._cli")]
+assert leaked == [], leaked
+assert "click" not in sys.modules, "a CLI framework came with the planner"
+print("NO-CLI-LEAKED")
+PY
+"""
+expected = { exit_code = 0, stdout_contains = "NO-CLI-LEAKED" }
+timeout = 60
+
+# --- "Shipping your own agent skills" -------------------------------------
+
+[[steps]]
+engine = "shell"
+description = "the entry-point group is spelled as the pyproject snippet spells it"
+command = """
+python - <<'PY'
+from functualize._cli.skills import SKILLS_ENTRY_POINT_GROUP
+
+assert SKILLS_ENTRY_POINT_GROUP == "functualize.skills", SKILLS_ENTRY_POINT_GROUP
+print("GROUP-OK")
+PY
+"""
+expected = { exit_code = 0, stdout_contains = "GROUP-OK" }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "core materializes under func-<version>; a host under its own name"
+command = """
+python - <<'PY'
+from functualize._cli.skills import materialized_root
+
+core = materialized_root("0.1.0")
+hosted = materialized_root("2.4.0", "yourapp")
+assert core.name == "func-0.1.0", core
+assert hosted.name == "yourapp-2.4.0", hosted
+print("STAMPS-OK")
+PY
+"""
+expected = { exit_code = 0, stdout_contains = "STAMPS-OK" }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "the three skills commands named in the guide all run"
+command = "func builtin skills list && func builtin skills path && func builtin skills materialize"
+expected = { exit_code = 0 }
+timeout = 60
+
+# --- "Declaring a skill from a single-file script" ------------------------
+
+[[steps]]
+engine = "shell"
+description = "a script declaring `skill` parses it and warns about nothing"
+command = """
+python - <<'PY'
+import contextlib
+import io
+import tempfile
+from pathlib import Path
+
+from functualize._cli.pep723 import parse_script_metadata
+
+SCRIPT = '''#!/usr/bin/env -S func
+# /// script
+# dependencies = ["httpx"]
+#
+# [tool.functualize]
+# job = "deploy"
+# skill = "yourapp-deploy"
+# ///
+
+
+def deploy(target: str = "staging") -> None:
+    print(target)
+'''
+
+with tempfile.TemporaryDirectory() as td:
+    path = Path(td) / "deploy.py"
+    path.write_text(SCRIPT)
+    stderr = io.StringIO()
+    with contextlib.redirect_stderr(stderr):
+        meta = parse_script_metadata(path)
+
+assert meta is not None
+assert meta.job == "deploy", meta.job
+assert meta.skill == "yourapp-deploy", meta.skill
+assert meta.dependencies == ["httpx"], meta.dependencies
+assert "unknown key" not in stderr.getvalue(), stderr.getvalue()
+print("SKILL-KEY-OK")
+PY
+"""
+expected = { exit_code = 0, stdout_contains = "SKILL-KEY-OK" }
+timeout = 60
+
+[[steps]]
+engine = "shell"
+description = "an unrecognised key warns instead of failing, as the guide says"
+command = """
+python - <<'PY'
+import contextlib
+import io
+import tempfile
+from pathlib import Path
+
+from functualize._cli.pep723 import parse_script_metadata
+
+SCRIPT = '''# /// script
+# [tool.functualize]
+# job = "deploy"
+# jbo = "typo"
+# ///
+
+
+def deploy() -> None:
+    pass
+'''
+
+with tempfile.TemporaryDirectory() as td:
+    path = Path(td) / "deploy.py"
+    path.write_text(SCRIPT)
+    stderr = io.StringIO()
+    with contextlib.redirect_stderr(stderr):
+        meta = parse_script_metadata(path)
+
+assert meta is not None, "an unknown key must not make the block unreadable"
+assert meta.job == "deploy"
+assert "jbo" in stderr.getvalue(), stderr.getvalue()
+print("WARNED-NOT-FAILED")
+PY
+"""
+expected = { exit_code = 0, stdout_contains = "WARNED-NOT-FAILED" }
+timeout = 60

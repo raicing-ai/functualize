@@ -488,7 +488,7 @@ rather than waiting behind them.
 
 ## 5. Documentation
 
-- [ ] **5.1 — Document the five seams**
+- [x] **5.1 — Document the five seams**
   `docs/guides/jobs-discovery.md` (S1), a new `docs/guides/packaging.md` or a
   section in `docs/cli/` (S2), `docs/guides/mcp.md` (S3, S4), and the PEP 723
   reference (S5).
@@ -496,6 +496,57 @@ rather than waiting behind them.
   - Acceptance: every snippet executes; `mkdocs build --strict` exits 0.
   - Sequenced last so it describes shipped behaviour, per the constitution's
     *Transitional Changes* rule.
+
+  **Done 2026-09-06.** One new guide, two extended, two doc-verify scenarios.
+
+  - **S1** → `docs/guides/jobs-discovery.md`, as named: a new section covering
+    `DiscoveryConfig.pre_filter`, why it composes rather than replaces, why
+    `fingerprint()` is mandatory and what identity-hashing would do instead,
+    and an admonition for the `lazy=False` gap (STATUS #30) so the page does
+    not promise filtering on a path that has none.
+  - **S4** → `docs/guides/mcp.md`, as named: what an agent learns about a job,
+    including that a convention-declared job renders the *same shape* with
+    empty values rather than a different one.
+  - **S2, S3, S5** → one new page, `docs/guides/hosting.md`, rather than the
+    three the task sketched. **A deliberate deviation.** The task suggested
+    `docs/guides/packaging.md` for S2 and `mcp.md` for S3; but S2, S3 and S5
+    have one audience — *your distribution is what the user installed, and
+    functualize is inside it* — and splitting them across a packaging page and
+    the MCP adapter page would scatter one story over two unrelated ones. S3
+    in particular has nothing to do with MCP. Added to `mkdocs.yml` nav under
+    Guides.
+  - Acceptance met: `mkdocs build --strict` exits **0**.
+  - Second half of the acceptance — *every snippet executes* — met by running
+    them, not by reading them:
+    - `examples/docs/scenarios/r-hosting-guide.toml`, **11/11 green**, covers
+      every claim on the new page: the three `Detection` attributes, `StrEnum`
+      printing as the bare value, all six modes, the three planning calls, the
+      `ValueError` backstop, the three exception types, the no-CLI-import
+      property, the entry-point group spelling, both materialization stems, the
+      three `skills` commands, and both PEP 723 branches (`skill` parses
+      silently; an unknown key warns without failing).
+    - `examples/docs/scenarios/q-skills-hosting.toml`, **7/7 green**, runs
+      `README.md`'s replacement loop (4.2's `[F]`).
+  - **Two corrections the run forced, both drift the prose would have shipped:**
+    - The guide first wrote `print(detection.mode)  # InstallMode.TOOL_UV`.
+      `InstallMode` is a `StrEnum`, so it prints `tool_uv`. Corrected, and the
+      spelling is now asserted.
+    - The "asking what would change it" snippet called `update_commands`
+      against the *live* detection, which is degraded in a checkout and raises.
+      Rewritten behind the `detection.degraded` guard the page already tells
+      the reader to write.
+  - **A process finding worth keeping.** The first local run of
+    `q-skills-hosting` passed against `~/.local/bin/func` — a *stale 0.1.2
+    release*, not this worktree — so it verified an old binary and said green.
+    CI does `PATH="$PWD/.venv/bin:$PATH"` (`ci.yml`); a local run without it is
+    testing whatever `func` happens to be installed. Both scenarios were re-run
+    correctly, and the second one caught a real wrong assertion: `skills list`
+    prints `source checkout … (not version-pinned)` in a checkout, never a
+    version stamp.
+  - `run-scenario` has three engines — `shell`, `docker`, `pty`. There is no
+    `python` engine; the first draft invented one and the scenario errored on
+    load. The Python assertions run as `shell` steps with heredocs, the pattern
+    `k-plugin-lifecycle.toml` already uses.
 
 ---
 

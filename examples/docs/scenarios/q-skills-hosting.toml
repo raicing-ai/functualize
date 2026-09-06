@@ -50,9 +50,22 @@ timeout = 10
 
 [[steps]]
 engine = "shell"
-description = "skills list names each source with its own distribution and version"
+description = "skills list names its source, and the skills that source holds"
 command = "func builtin skills list"
-expected = { exit_code = 0, stdout_regex = "functualize \\d+\\.\\d+" }
+# Deliberately not asserting a version here. `list` labels a packaged install
+# `functualize <version> (packaged)` and a source checkout `source checkout at
+# … (not version-pinned)`, and which one runs depends on how the verifying
+# environment installed functualize. The per-source *stamp* is asserted where
+# it can be pinned exactly: `tests/cli/test_skills_hosting.py` and the
+# `materialized_root` step in `r-hosting-guide.toml`.
+expected = { exit_code = 0, stdout_contains = "Agent skills from" }
+timeout = 20
+
+[[steps]]
+engine = "shell"
+description = "and the skills it lists are the ones on disk"
+command = "func builtin skills list"
+expected = { exit_code = 0, stdout_contains = "functualize-cli" }
 timeout = 20
 
 [[steps]]
