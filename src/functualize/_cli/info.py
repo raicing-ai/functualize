@@ -128,13 +128,24 @@ def job_catalog(app: FunctualizeApp) -> list[dict[str, Any]]:
 
 
 def job_detail(app: FunctualizeApp, name: str) -> dict[str, Any] | None:
-    """One job in full, or None when no job resolves to ``name``."""
+    """One job in full, or None when no job resolves to ``name``.
+
+    Includes the four descriptive fields ``@job`` carries. They survive
+    discovery *and* the cache onto ``descriptor.declaration``, and this
+    payload — which both the CLI and the MCP tool list render — used to drop
+    them. That made the one direction that matters impossible: an agent that
+    has found a job could not walk from it to the judgment that explains it.
+    """
     from functualize.app.utils import job_input_schema
 
     descriptor = next((d for d in app.get_jobs() if d.name == name), None)
     if descriptor is None:
         return None
 
+    # A job discovered by convention has no declaration at all. It renders as
+    # empty rather than absent, so a consumer never branches on which kind of
+    # job it is looking at.
+    declaration = getattr(descriptor, "declaration", None)
     fields = descriptor.config_fields or descriptor.parameters
     return {
         "name": descriptor.name,
@@ -148,6 +159,13 @@ def job_detail(app: FunctualizeApp, name: str) -> dict[str, Any] | None:
         "source_file": getattr(descriptor, "source_file", None),
         "module_path": getattr(descriptor, "module_path", None),
         "python_name": getattr(descriptor, "python_name", None),
+        # `tags` and `examples` are lists, never None -- empty when the job has
+        # none, so a consumer need not guard. `extra_description` and
+        # `category` are None when unset, matching `JobDeclaration`'s defaults.
+        "tags": list(getattr(declaration, "tags", ()) or ()),
+        "examples": list(getattr(declaration, "examples", ()) or ()),
+        "extra_description": getattr(declaration, "extra_description", None),
+        "category": getattr(declaration, "category", None),
         "inputSchema": job_input_schema(
             descriptor,
             group_options_class_names=_group_options_class_names(app),
@@ -258,7 +276,7 @@ def install_facts(*, include_manifest: bool) -> dict[str, Any]:
     reading the registry is cheap (~39us), but the overview is a summary and a
     list of every installation on the machine is not part of it.
     """
-    from functualize._cli.runtime import detect_from_process
+    from functualize.app.packaging import detect_from_process
 
     try:
         detection = detect_from_process()
