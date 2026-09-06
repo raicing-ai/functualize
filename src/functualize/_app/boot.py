@@ -239,10 +239,7 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
     # Resolution pipeline with StaticProvider (zero I/O)
     app._resolution_pipeline = ResolutionPipeline()
     app._jobs_memo = None
-    if app._job_sources.functions:
-        static_provider = StaticProvider(app._job_sources.functions)
-        app._resolution_pipeline.add_provider(static_provider)
-    wire_declared_job_providers(app)
+    wire_declared_job_sources(app)
 
     perf_timeline.mark("boot.core_infra.end")
 
@@ -507,7 +504,7 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
                 )
             )
 
-    wire_declared_job_providers(app)
+    wire_declared_job_sources(app)
 
     perf_timeline.mark("boot.core_infra.end")
 
@@ -905,33 +902,49 @@ def build_resolution_chain(
     return ResolutionChain(sources)
 
 
-def wire_declared_job_providers(app: Any) -> None:
-    """Add ``JobSources.job_providers`` to the resolution pipeline.
+def wire_declared_job_sources(app: Any) -> None:
+    """Add ``JobSources.functions`` and ``.job_providers`` to the pipeline.
 
     Called by **both** boot paths, immediately after each has added whatever
-    providers it derives itself, so the declared providers sit last and the
-    resulting order matches the order the fields are declared in
-    ``JobSources``: directories, then functions, then ``job_providers``.
+    providers it derives from ``directories``, so the resulting pipeline order
+    matches the order the fields are declared in ``JobSources``: directories,
+    then functions, then ``job_providers``.
 
-    The field accepts either a bare provider or a ``(provider, [transforms])``
-    pair -- the form its docstring has always promised. Both reach
-    ``ResolutionPipeline.add_provider``, which is also what
-    ``app.add_job_provider()`` calls, so a declared provider and an imperative
-    one are indistinguishable downstream.
+    Both fields were silent-drop defects, for the same reason and with the
+    same symptom -- an empty job list and no diagnostic -- so both are fixed
+    here, in one function, rather than in two that would drift:
 
-    Until this existed the field was read by nothing: ``JobSources`` accepted
-    it, froze it, documented it, and dropped it. A caller got an empty job list
-    and no diagnostic. Malformed entries therefore raise here rather than being
-    skipped -- silence is what this function exists to end.
+    * ``functions`` reached ``StaticProvider`` only inside ``boot_static``,
+      which runs only when ``is_fully_explicit()`` holds. That additionally
+      requires no directories, no children, an explicit resolution chain and
+      explicit plugins with an empty entry-point group, so
+      ``FunctualizeApp("a", job_sources=JobSources(functions=[alpha]))``
+      discovered zero jobs and said nothing.
+    * ``job_providers`` was read by nothing at all on either path.
+
+    ``job_providers`` accepts either a bare provider or a
+    ``(provider, [transforms])`` pair -- the form its docstring has always
+    promised. Both reach ``ResolutionPipeline.add_provider``, which is also
+    what ``app.add_job_provider()`` calls, so a declared provider and an
+    imperative one are indistinguishable downstream.
+
+    Malformed entries raise here rather than being skipped: silence is what
+    this function exists to end, so it must not start its own.
 
     Args:
         app: The FunctualizeApp instance being booted.
 
     Raises:
-        TypeError: If an entry is neither a provider nor a two-element
-            ``(provider, transforms)`` pair, or if the provider or transforms
-            inside a pair fail their protocol check.
+        TypeError: If a ``job_providers`` entry is neither a provider nor a
+            two-element ``(provider, transforms)`` pair, or if the provider or
+            transforms inside a pair fail their protocol check.
     """
+    if app._job_sources.functions:
+        app._resolution_pipeline.add_provider(
+            StaticProvider(app._job_sources.functions)
+        )
+        app._jobs_memo = None
+
     declared = getattr(app._job_sources, "job_providers", None)
     if not declared:
         return
