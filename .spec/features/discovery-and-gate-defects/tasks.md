@@ -69,7 +69,7 @@ docstring promises rather than being removed.)
 
 ## 2. Silent-drop defects
 
-- [ ] **2.1 — B2: `JobSources.functions` on `boot_standard`**
+- [x] **2.1 — B2: `JobSources.functions` on `boot_standard`**
   Lift the `functions` → `StaticProvider` step out of `boot_static` into a
   helper both paths call.
   - `[F]` `src/functualize/_app/boot.py`, `tests/app/test_job_sources.py`
@@ -82,7 +82,27 @@ docstring promises rather than being removed.)
     → the new helper. Verify by removing the helper call and watching the new
     test fail.
 
-- [ ] **2.2 — B3: `register_dynamic_job` extracts parameters**
+  **Done 2026-09-06.** The helper 1.1 built was extended rather than joined by
+  a second one, and renamed to say what it now covers:
+  `wire_declared_job_providers` → **`wire_declared_job_sources`**. It handles
+  `functions` then `job_providers`; `boot_static`'s inline block is gone.
+
+  - Acceptance met: `FunctualizeApp("a", job_sources=JobSources(functions=[alpha]))`
+    yields `alpha` (was `[]`). 12 tests in `tests/app/test_job_sources.py`.
+  - Ordering asserted: with a directory *and* `functions`, the pipeline reads
+    `[DirectoryScanProvider, StaticProvider]`, and with `functions` +
+    `job_providers` it reads functions-then-providers — matching the field
+    order in `JobSources`, which is what keeps `StaticProvider`'s bare-name
+    keying predictable.
+  - `lazy=True` is covered explicitly. It is the default a real caller has and
+    the static path never sees it, so a fix tested only at `lazy=False` would
+    have missed the common case.
+  - **Reachability, by sabotage** (each restored): deleting the `functions`
+    block from the helper → 8 failed; removing the `boot_standard` call →
+    19 failed; removing the `boot_static` call → 4 failed. Baseline and
+    restore 24 passed.
+
+- [x] **2.2 — B3: `register_dynamic_job` extracts parameters**
   Replace `parameters=[]` with `extract_parameters_from_signature(function)`,
   imported beside the existing `extract_capability_markers` /
   `extract_ext_metadata` imports.
@@ -104,11 +124,72 @@ docstring promises rather than being removed.)
   - Layer check: `_app` → `_discovery` is permitted (composition root).
     `uv run lint-imports` must stay green.
 
+  **Done 2026-09-06.** Not one line — two extractions, because the one-line
+  version made a whole class of job *worse*.
+
+  **`config_fields` is the other half.** `job_detail` reads
+  `config_fields or parameters`. A job declared `def needs(config: NeedsCity)`
+  has exactly one signature parameter: `config`, of a Pydantic model type no
+  CLI caller and no agent can supply. Populating `parameters` alone published
+  *that* in place of the model's real fields — where before the fix, both were
+  empty and nothing was published. So the dynamic path now applies discovery's
+  full rule: fields from the config class if there is one, else the signature.
+  An explicit `config_class=` argument wins over one detected on the signature,
+  which is what `RegisteredJob` already does a few lines above.
+
+  This half was **caught by sabotage, not by design**: the first version of
+  this task added `config_fields` and three mutations of it — dropping the
+  field, never detecting a class, ignoring the explicit argument — all passed.
+  `TestAJobWithAConfigClass` (5 tests) closes that; the same three mutations
+  now fail 5, 4 and 1.
+
+  - Acceptance met: `grep -n "parameters=\[\]" src/functualize/_app/impl.py`
+    → **0** (was 1, at `:732`).
+  - Second acceptance met: `test_parameters_equal_the_discovered_twins`
+    compares `(name, type_annotation, required, default)` tuples against a
+    twin genuinely written to a file and scanned — not against the extractor
+    called directly, which would only prove the extractor is deterministic.
+  - Third acceptance met: `dynamic["inputSchema"] == discovered["inputSchema"]`
+    and the same for `["parameters"]`. Before the fix a dynamically registered
+    job published an **empty** `inputSchema` to `builtin info --json` and to
+    every MCP client: an agent was told the job takes no arguments, called it
+    with none, and got a `TypeError` from a job declared correctly.
+  - `lint-imports` green — `_app` → `_discovery` is the composition root.
+  - **Reachability, by sabotage** (4 mutations over 21 tests): `parameters=[]`
+    → 9 failed; `config_fields` dropped → 5; no config class ever detected
+    → 4; the explicit `config_class` ignored → 1. Baseline and restore 21
+    passed.
+
+  **Three test files outside `[F]` had to change, and the reason is the
+  finding.** `tests/_cli/_tui_fixtures.py` carried this warning:
+
+  > *dynamic jobs currently yield no field defs, so this default is only
+  > suitable for SmartBar/keymap/modal flows, not panel-field flows*
+
+  That was the defect, written down as a property of the framework and
+  referenced from `contributor/guides/steering_textual_tui.md` §4.2. Removing
+  it changed real behaviour in two places, both verified as improvements
+  before anything was updated:
+
+  1. `tests/_cli/test_snapshot_baseline.py` — two baselines regenerated. The
+     entire diff is one new line, `● name: bob (cli) str` (and
+     `name: world (default)` in the modal snapshot): the pre-flight row a
+     dynamically registered job could not previously render. Confirmed by
+     extracting the text nodes from both SVGs and diffing them.
+  2. `tests/_cli/test_tui_failure_display.py` — two tests reached FAILURE by
+     running a config job with nothing filled in, which only worked *because*
+     the bar could not see the required field. The same job discovered from a
+     file reported PENDING and opened the panel; a probe confirmed that,
+     before the fixture was touched. Their assertions are unchanged; the run
+     is now made to fail by a raising body instead, and
+     `test_a_config_job_now_blocks_at_the_bar` pins the behaviour that
+     replaced the old route.
+
 ---
 
 ## 3. Gate robustness
 
-- [ ] **3.1 — B4a: an unregistered strategy is a failed strategy, not a raise**
+- [x] **3.1 — B4a: an unregistered strategy is a failed strategy, not a raise**
   In `GateRegistry.resolve_gate`, when the strategy list has more than one
   entry, an unregistered name records its failure and continues instead of
   raising. A single explicitly-named strategy still raises, and the
@@ -118,13 +199,53 @@ docstring promises rather than being removed.)
     resolves via `resolve`, and `resolve_gate(M, gate_strategy="nope")` raises.
   - `GateResolutionError.last_error` names the unregistered strategies.
 
-- [ ] **3.2 — B4b: the strategy→plugin table**
+  **Done 2026-09-06.** Both acceptances met, in `tests/gate/test_registry.py`
+  (17 tests). Three branches now, in this order: a preset reference still
+  raises with its distinct message; a **single** entry — whether `"nope"` or
+  `["nope"]` — still raises, so a typo in `gate_strategy="ai_inbund"` stays
+  loud; anything longer records the name and continues.
+
+  - `last_error` reports **both** causes when both occur: the unregistered
+    names first (actionable), then the last resolver exception (usually a
+    downstream symptom of having fallen that far). Dropping either half would
+    leave the operator with only a cause or only a symptom.
+  - Ordering matters and is pinned: a preset expands to *several* entries, so
+    `len(...) == 1` does not distinguish it — `preset_source` does. Collapsing
+    the two checks would silently make a broken preset fall through.
+  - **Reachability, by sabotage**: forcing the old unconditional raise →
+    6 failed; never raising for a single explicit name → 2 failed; removing
+    the preset branch → 2 failed; dropping the unregistered names from
+    `last_error` → 3 failed.
+
+- [x] **3.2 — B4b: the strategy→plugin table**
   Add the fixed table from `contracts.md` §2 to `_gate/_strategy.py`, beside
   the enum. Core names the plugins; it must not import them.
   - `[F]` `src/functualize/_gate/_strategy.py`
   - Acceptance: `grep -rn "import functualize_ai\|import functualize_mcp" src/`
     returns **0** hits. Authoring-time count: **0** — this gate exists to keep
     it at zero.
+
+  **Done 2026-09-06.** `STRATEGY_PROVIDERS`, `CORE_STRATEGIES` and
+  `missing_strategy_hint()` sit beside the enum. The hint is what
+  `_unregistered_message` in 3.1 renders into `last_error`.
+
+  - Acceptance met and made **executable**, not just asserted: the grep runs
+    inside `test_core_names_the_plugins_without_importing_them`, so it cannot
+    silently stop being true. Still **0**.
+  - `CORE_STRATEGIES` exists so `resolve` and `prompt` produce *no* hint.
+    "Install something" is the wrong advice for those — if one is missing the
+    registry was built by hand.
+  - A second gate guards staleness: `set(STRATEGY_PROVIDERS)` must equal
+    `_types.workflow._VALID_GATE_STRATEGIES`. A name a `Gate` accepts but the
+    table omits would block with no hint, which is the failure the table
+    exists to prevent.
+  - **Divergence recorded, not fixed.** `GateStrategy` has three members;
+    `_VALID_GATE_STRATEGIES` accepts four. The table follows the validator,
+    because that is the set a `Gate` can actually declare, and `"ai_outbound"`
+    is therefore a bare string here. Reconciling the two is out of scope
+    (`spec.md`, "Redesigning gate strategy naming").
+  - **Reachability, by sabotage**: making the hint always empty → 4 failed;
+    dropping `ai_outbound` from the table → 3 failed.
 
 - [ ] **3.3 — B4c: the walk blocks, with a reason**
   The walker's gate branch produces `BLOCKED` for this cause and sets the
@@ -157,7 +278,7 @@ docstring promises rather than being removed.)
 
 ## 4. Diagnosis
 
-- [ ] **4.1 — B5: retain discovery failures — parse *and* import**
+- [x] **4.1 — B5: retain discovery failures — parse *and* import**
   **Scope widened (maintainer, 2026-09-05).** As originally written this task
   covered import failures only, which would **not** have closed STATUS
   follow-up #12 ("a job module with a `SyntaxError` vanishes silently") — a
@@ -185,6 +306,57 @@ docstring promises rather than being removed.)
   - `_primitives` may not import `_discovery` (constitution). The record type
     therefore lives in `_types/` or is a plain tuple; `lint-imports` is the
     gate.
+
+  **Done 2026-09-06.** New module `src/functualize/_types/discovery_report.py`:
+  a frozen `DiscoveryFailure` (`module`, `path`, `error_type`, `message` — the
+  four keys `contracts.md` §3 fixes) plus a ContextVar-scoped collector,
+  `collecting_discovery_failures()` / `record_discovery_failure()`.
+
+  A ContextVar rather than a threaded parameter because the parse sites live
+  on `ModulePreFilter` implementations in `_primitives`, which have no
+  reference to the provider running them and — by the constitution — cannot
+  acquire one. A provider opens a scope around its scan; anything failing
+  inside records. Outside a scope the call is a no-op, so a stray parse
+  elsewhere in the process never lands in a discovery report. `lint-imports`
+  green: `_types` still imports nothing internal.
+
+  - **`[F]` extended (recorded, not silent):** `src/functualize/_discovery/cached_provider.py`
+    was not in the declared scope and had to be. `lazy=True` is the default, so
+    `CachedDirectoryScanProvider` is the provider a real boot uses; wiring only
+    `providers.py` would have shipped a feature that reports nothing in the
+    common case.
+  - **Count corrected: eight sites, not nine.** The task says "nine" and then
+    *lists* eight — seven in `_primitives/pre_filter.py` (six `should_import`
+    methods plus `extract_function_decorators`) and one in
+    `_discovery/ast_extractor.py`. Verified: `record_discovery_failure` now
+    appears 7× in `pre_filter.py`, 1× in `ast_extractor.py`, and 2× more at
+    the import sites (`providers.py`, `cached_provider.py`).
+  - Acceptance met: `ModuleNotFoundError` retained with module path and
+    exception type. Second acceptance met (**closes STATUS #12**): a
+    `SyntaxError` module yields `error_type == "SyntaxError"`, reached both by
+    calling a filter directly and end-to-end through a directory scan.
+  - Third acceptance met, and made site-by-site rather than by sample: all six
+    filter classes carry byte-identical `except` blocks, so
+    `TestEverySwallowSite` parameterizes over every one and asserts both
+    halves — it records, **and** it still returns `False`. Both branches of
+    `except (OSError, SyntaxError)` are covered.
+  - **A finding better than the task anticipated.** The warm-boot blind spot
+    applies to *one* of the two stages, not both:
+    - **import** failures write no cache entry, so the file stays in the "new"
+      set and is retried — and reported — on every pass;
+    - **parse** failures persist a negative pre-filter decision keyed by
+      mtime, so the second pass skips the file and reports nothing.
+
+    Both are asserted, the second with its reasoning: the list answers "what
+    did *this* pass fail to read". A standing inventory of broken files would
+    have to survive the cache, which means writing the failure into the cache
+    entry — a different feature, deliberately not this one.
+  - **Reachability, by sabotage** (eight mutations, each restored): all six
+    pre-filter sites → 14 failed; `extract_function_decorators` → 1;
+    `DirectoryScanProvider` import site → 4; `CachedDirectoryScanProvider`
+    import site → 2; either provider's scope → 4 and 3; the collector never
+    active → 25; accumulating instead of replacing the list → 1. Baseline and
+    restore 29 passed.
 
 - [ ] **4.2 — B5: surface them**
   `builtin info` carries `discovery_failures` (empty list when none, never

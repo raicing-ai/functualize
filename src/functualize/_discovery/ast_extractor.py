@@ -11,6 +11,8 @@ import ast
 import hashlib
 from pathlib import Path
 
+from functualize._types.discovery_report import record_discovery_failure
+
 
 def extract_first_level_dependencies(
     source_file: Path, project_root: Path
@@ -34,7 +36,8 @@ def extract_first_level_dependencies(
     try:
         source = source_file.read_text(encoding="utf-8")
         tree = ast.parse(source)
-    except (OSError, SyntaxError):
+    except (OSError, SyntaxError) as exc:
+        record_discovery_failure(source_file, exc)
         return {}
 
     dependencies: dict[str, str] = {}

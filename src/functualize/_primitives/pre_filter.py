@@ -14,6 +14,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
+from functualize._types.discovery_report import record_discovery_failure
+
 
 @runtime_checkable
 class ModulePreFilter(Protocol):
@@ -112,7 +114,8 @@ class ASTModulePreFilter:
         try:
             source = source_file.read_text(encoding="utf-8")
             tree = ast.parse(source, filename=str(source_file))
-        except (OSError, SyntaxError):
+        except (OSError, SyntaxError) as exc:
+            record_discovery_failure(source_file, exc)
             return False
 
         for node in ast.iter_child_nodes(tree):
@@ -140,7 +143,8 @@ class DisplayClassPreFilter:
         try:
             source = source_file.read_text(encoding="utf-8")
             tree = ast.parse(source, filename=str(source_file))
-        except (OSError, SyntaxError):
+        except (OSError, SyntaxError) as exc:
+            record_discovery_failure(source_file, exc)
             return False
 
         for node in ast.iter_child_nodes(tree):
@@ -185,7 +189,8 @@ class GroupOptionsPreFilter:
         try:
             source = source_file.read_text(encoding="utf-8")
             tree = ast.parse(source, filename=str(source_file))
-        except (OSError, SyntaxError):
+        except (OSError, SyntaxError) as exc:
+            record_discovery_failure(source_file, exc)
             return False
 
         for node in ast.iter_child_nodes(tree):
@@ -263,7 +268,8 @@ class ImportModulePreFilter:
         try:
             source = source_file.read_text(encoding="utf-8")
             tree = ast.parse(source, filename=str(source_file))
-        except (OSError, SyntaxError):
+        except (OSError, SyntaxError) as exc:
+            record_discovery_failure(source_file, exc)
             return False
 
         return self._has_matching_import(tree.body)
@@ -326,7 +332,8 @@ class MarkerModulePreFilter:
         try:
             source = source_file.read_text(encoding="utf-8")
             tree = ast.parse(source, filename=str(source_file))
-        except (OSError, SyntaxError):
+        except (OSError, SyntaxError) as exc:
+            record_discovery_failure(source_file, exc)
             return False
 
         for node in ast.iter_child_nodes(tree):
@@ -384,7 +391,8 @@ def extract_function_decorators(source_file: Path) -> dict[str, tuple[str, ...]]
     try:
         source = source_file.read_text(encoding="utf-8")
         tree = ast.parse(source, filename=str(source_file))
-    except (OSError, SyntaxError):
+    except (OSError, SyntaxError) as exc:
+        record_discovery_failure(source_file, exc)
         return {}
 
     result: dict[str, tuple[str, ...]] = {}
@@ -428,7 +436,8 @@ class DecoratorModulePreFilter:
         try:
             source = source_file.read_text(encoding="utf-8")
             tree = ast.parse(source, filename=str(source_file))
-        except (OSError, SyntaxError):
+        except (OSError, SyntaxError) as exc:
+            record_discovery_failure(source_file, exc)
             return False
 
         for node in ast.iter_child_nodes(tree):

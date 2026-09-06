@@ -35,6 +35,11 @@ from functualize._primitives.group_options_detection import (
 )
 from functualize._types import FieldDescriptor, JobDescriptor
 from functualize._types.annotations import resolved_hints
+from functualize._types.discovery_report import (
+    DiscoveryFailure,
+    collecting_discovery_failures,
+    record_discovery_failure,
+)
 from functualize._types.from_job import from_job_names
 from functualize._types.naming import normalize_name, normalize_segment
 from functualize._types.redaction import is_secret_annotation
@@ -477,6 +482,7 @@ class DirectoryScanProvider:
         self._pre_filter = pre_filter
         self._job_filter = job_filter
         self._cache: list[JobDescriptor] | None = None
+        self._discovery_failures: list[DiscoveryFailure] = []
 
     def list_jobs(self) -> Sequence[JobDescriptor]:
         """Return all job descriptors from scanned directories.
@@ -484,8 +490,24 @@ class DirectoryScanProvider:
         Results are cached after the first call.
         """
         if self._cache is None:
-            self._cache = self._scan()
+            with collecting_discovery_failures() as failures:
+                self._cache = self._scan()
+            # Per scan, not cumulative: this list answers "what did the scan
+            # behind these descriptors fail to read", so it is replaced
+            # wholesale rather than appended to. Since `_cache` makes the scan
+            # happen once, so does this.
+            self._discovery_failures = list(failures)
         return self._cache
+
+    @property
+    def discovery_failures(self) -> list[DiscoveryFailure]:
+        """Modules this provider's last scan could not parse or import.
+
+        Empty before the first scan, and empty after a scan that read
+        everything. A report reads this rather than the log, so the operator
+        does not have to reproduce the boot to find out why a job is missing.
+        """
+        return list(self._discovery_failures)
 
     def get_job(self, name: str) -> JobDescriptor | None:
         """Retrieve a specific job by name. None if not found.
@@ -559,6 +581,7 @@ class DirectoryScanProvider:
             return self._extract_descriptors(module, source_file)
         except Exception as e:
             logger.warning("Failed to import and extract from '%s': %s", source_file, e)
+            record_discovery_failure(source_file, e)
             return []
 
     def _extract_descriptors(
