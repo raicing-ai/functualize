@@ -50,7 +50,7 @@ _DEPTH_ENV_VAR = "_FUNCTUALIZE_PEP723_DEPTH"
 #: a script because of a field this version has not heard of would be worse
 #: than the typo it protects against. Silence would be worse still — that is
 #: how a misspelled setting looks exactly like a setting with no effect.
-_KNOWN_TOOL_KEYS = frozenset({"job"})
+_KNOWN_TOOL_KEYS = frozenset({"job", "skill"})
 
 
 @dataclass(frozen=True)
@@ -62,10 +62,16 @@ class ScriptMetadata:
         job: `[tool.functualize] job` — the function this script runs when
             invoked as a program. None if unset, which keeps the pre-T41
             behaviour (first argument is read as a function name).
+        skill: `[tool.functualize] skill` — the agent skill this script
+            belongs to. Parsed and exposed; nothing reads it yet. See the
+            note on `_parse_tool_table`.
     """
 
     dependencies: list[str] | None = None
     job: str | None = None
+    # TRANSITIONAL(third-party-host-seams/1.2): parsed, not yet consumed;
+    # see plan.md §4 and STATUS follow-up #29.
+    skill: str | None = None
 
 
 def parse_script_metadata(source_file: Path) -> ScriptMetadata | None:
@@ -122,17 +128,30 @@ def parse_script_metadata(source_file: Path) -> ScriptMetadata | None:
     if not isinstance(deps, list):
         deps = None
 
-    return ScriptMetadata(dependencies=deps, job=_parse_tool_table(data, source_file))
+    job, skill = _parse_tool_table(data, source_file)
+    return ScriptMetadata(dependencies=deps, job=job, skill=skill)
 
 
-def _parse_tool_table(data: dict[str, Any], source_file: Path) -> str | None:
-    """Read `[tool.functualize]`, warning about anything not understood."""
+def _parse_tool_table(
+    data: dict[str, Any], source_file: Path
+) -> tuple[str | None, str | None]:
+    """Read `[tool.functualize]`, warning about anything not understood.
+
+    Returns ``(job, skill)``.
+
+    ``skill`` is **TRANSITIONAL(third-party-host-seams/1.2)**: parsed and
+    exposed on ``ScriptMetadata``, read by nothing. That is deliberate — the
+    file format should settle before a consumer exists — but it knowingly
+    creates a fourth instance of the class ``.spec/STATUS.md`` calls *"the
+    worst of the three states"*: accepted, validated, and read by nothing.
+    STATUS follow-up #29 exists so it stays counted rather than invisible.
+    """
     tool = data.get("tool")
     if not isinstance(tool, dict):
-        return None
+        return None, None
     table = tool.get("functualize")
     if not isinstance(table, dict):
-        return None
+        return None, None
 
     unknown = sorted(set(table) - _KNOWN_TOOL_KEYS)
     if unknown:
@@ -143,8 +162,11 @@ def _parse_tool_table(data: dict[str, Any], source_file: Path) -> str | None:
             file=sys.stderr,
         )
 
-    job = table.get("job")
-    return job if isinstance(job, str) and job else None
+    def _string(key: str) -> str | None:
+        value = table.get(key)
+        return value if isinstance(value, str) and value else None
+
+    return _string("job"), _string("skill")
 
 
 def parse_pep723_deps(source_file: Path) -> list[str] | None:
