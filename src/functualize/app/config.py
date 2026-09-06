@@ -104,6 +104,25 @@ class ConfigSources:
     fact in the data rather than an inference from absence.
     """
 
+    vault_max_age: str | None = None
+    """How old the vault may be before every run warns, e.g. ``"7d"``.
+
+    None means unconfigured, which resolves to the ``"24h"`` default. The
+    distinction matters: ``$FUNCTUALIZE_VAULT_MAX_AGE`` outranks this field, and
+    a field that defaulted to ``"24h"`` could not be told apart from an author
+    who wrote ``max_age="24h"`` on purpose.
+
+    Only consulted when :attr:`remote` is set. Exceeding it warns and the run
+    continues -- offline work stays possible (ADR-016).
+
+    **The literal default lives in** ``_config.vault.DEFAULT_MAX_AGE``, not
+    here, and is deliberately not imported: ``_config.vault`` pulls in
+    ``cryptography``, and this module is on the cold boot path for every app
+    including the ones that never open a vault. ``tests/config/
+    test_vault_staleness.py`` asserts the two agree, so the duplication cannot
+    drift.
+    """
+
 
 @dataclass(frozen=True)
 class PluginSources:

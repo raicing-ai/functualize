@@ -378,12 +378,97 @@ its command returned, so drift between authoring and execution is visible.
   Full suite **8549 passed, 1554 skipped**, 0 failures. `ruff`, `format`,
   `mypy` (316 files), `lint-imports` green.
 
-- [ ] **3.3 — V5: staleness warning**
+- [x] **3.3 — V5: staleness warning** — DONE
   `synced_at` per entry; `[vault] max_age` (default `24h`); warn and **still
   run**.
-  - `[F]` `src/functualize/_config/vault.py`, `src/functualize/app/config.py`, `tests/config/test_vault_staleness.py`
+  - `[F]` `src/functualize/_config/vault.py`,
+    `src/functualize/_config/vault_source.py`, `src/functualize/_app/boot.py`,
+    `src/functualize/app/config.py`, `src/functualize/app/presets.py`,
+    `tests/config/test_vault_staleness.py`
   - Acceptance: a test with a backdated vault asserts a warning **and**
-    `RunStatus.SUCCESS` — offline work must stay possible.
+    `RunStatus.SUCCESS` — offline work must stay possible. **Met**, and both
+    halves in *one* run: a test asserting only the warning would pass if the
+    run had been refused, and one asserting only SUCCESS would pass with the
+    warning deleted. A companion test asserts the job actually *receives* the
+    stale value, because "offline work stays possible" means the old value is
+    used, not that the process merely survives.
+
+  **`synced_at` already existed** (2.1 wrote it, and `oldest_sync()` read it),
+  so this task is the threshold, the comparison, and the warning.
+
+  **The oldest entry decides.** A vault is only as fresh as the value most
+  likely to have been rotated behind it; judging on the newest would let one
+  re-synced key vouch for twenty stale ones.
+
+  **Where the check fires: the first vault *read* of the run, not
+  construction.** `func --help`, a completion, and a job that resolves no
+  config all build a source without consulting it, and a stale vault is only
+  worth mentioning to somebody about to use it. Once per run thereafter, so a
+  job reading ten secrets hears it once — the same rule 3.2 applies to misses.
+
+  **An unusable threshold warns and is skipped; it never raises.** This setting
+  governs a warning that by design never fails a run, so letting a typo in it
+  stop the tool would make the misspelling more disruptive than the thing it
+  warns about. Skipping continues *down* the precedence order rather than
+  jumping to the bottom of it, and the offending text is named.
+
+  **Three deviations from this task as written, disclosed:**
+
+  1. **`[F]` grew by three files.** The warning is a property of the run path,
+     which is `vault_source.py`, not the store; `boot.py` resolves the
+     threshold and passes it; `presets.py` is what makes the knob reachable
+     (`remote_first(max_age="7d")`).
+
+  2. **`[vault] max_age` is not yet readable from `.functualize.toml`.** The
+     settings store lives in `_cli/data/func_settings.py`, and `_config` cannot
+     import `_cli`. Wiring a *second* TOML reader into `_config` would give the
+     repository two disagreeing answers to "what is configured", which is the
+     class of defect this feature exists to remove. So the knob today is
+     `remote_first(max_age=...)` plus `$FUNCTUALIZE_VAULT_MAX_AGE` — and that
+     variable is spelled exactly as the store *would* generate for a
+     `vault.max_age` setting (`FUNCTUALIZE_<SECTION>_<KEY>`), asserted by a
+     test against `AppSettingsSchema.env_var_for`. Registering the setting in
+     the catalog later therefore adds the file path without renaming anything
+     an operator already exports. **Contract item deferred, not dropped** —
+     recorded in `.spec/STATE.md`.
+
+  3. **The `"24h"` literal is written twice.** `app/config.py` cannot import
+     `_config.vault` — that module pulls in `cryptography`, and `app/config.py`
+     is on the cold boot path of *every* app including the ones that never open
+     a vault (measured: `import functualize.app.config` leaves `cryptography`
+     unimported, and this keeps it that way). So the field expresses
+     "unconfigured" as `None` and the literal lives in
+     `_config.vault.DEFAULT_MAX_AGE`; two tests pin the agreement so it cannot
+     drift. `None` rather than `"24h"` as the field default is also what lets
+     `$FUNCTUALIZE_VAULT_MAX_AGE` outrank the field without outranking an
+     author who deliberately wrote `max_age="24h"`.
+
+  **A test found a real ambiguity in the parser.** `parse_duration` folds case,
+  so `24H` works — and that folding silently turned `1M` into **one minute**.
+  Whoever writes `1M` means a month; the two disagree by a factor of 43,200,
+  applied silently. Months are not a fixed length, so `M` is now refused with
+  an error saying why and what to write instead, while lowercase `m` stays
+  minutes. A bare number is refused for the same reason: `max_age = "3600"`
+  reads as an hour to whoever wrote it and as a decade to whoever guesses days.
+
+  **Verification.** 82 tests. **Eleven sabotages, all caught**: the read never
+  checks (9 fail), no once-per-run dedupe (3), `age()` judging on the newest
+  entry (1), precedence reversed (2), a bad threshold raising instead of
+  degrading (5), boot never passing the threshold (2 — including the acceptance
+  test), the comparison reversed (14), naive timestamps left naive (2),
+  `format_duration` printing every unit (1), `M` folded to minutes (2), a bare
+  number guessed as seconds (1).
+
+  One test was rewritten mid-task for being vacuous:
+  `test_exactly_at_the_threshold_is_not_yet_stale` poked a private flag and
+  asserted nothing about the boundary. Replaced by a just-under / just-over
+  pair, which is what actually pins the comparison's direction — either half
+  alone passes under a comparison that never fires, or one that always does.
+
+  Full suite **8642 passed, 1544 skipped**, 0 failures (baseline measured at
+  8560/1544 with the change stashed, so the delta is exactly the 82 new tests
+  and nothing flipped). All 13 plugin suites green separately. `ruff`,
+  `format`, `mypy` (316 files), `lint-imports` (5 contracts) green.
 
 ---
 

@@ -93,6 +93,7 @@ def remote_first(
     *,
     file_pattern: str = "config.*",
     dotenv: bool = False,
+    max_age: str | None = None,
 ) -> ConfigSources:
     """CLI → Vault → Env → Files → Defaults.
 
@@ -117,6 +118,9 @@ def remote_first(
     Args:
         file_pattern: Glob pattern for config file matching.
         dotenv: Whether to load .env files.
+        max_age: How old the vault may be before every run warns, e.g.
+            ``"7d"``. Default ``"24h"``. Exceeding it never fails a run;
+            ``$FUNCTUALIZE_VAULT_MAX_AGE`` overrides it.
 
     Returns:
         A ConfigSources instance configured for remote-first resolution.
@@ -126,4 +130,5 @@ def remote_first(
         dotenv=dotenv,
         config_resolution_chain=None,
         remote=True,
+        vault_max_age=max_age,
     )

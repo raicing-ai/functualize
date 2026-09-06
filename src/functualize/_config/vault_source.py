@@ -36,6 +36,15 @@ config file was never discovered at all, has no annotation anywhere in the
 chain and so warns about nothing. Filling it needs the annotation map from a
 config pre-scan, which boot does not build yet.
 
+Staleness
+---------
+
+Separately from any single key, the vault as a whole can be *old*. The first
+read of a run compares :meth:`SecretsVault.age` against the configured
+``max_age`` and warns once, then the run proceeds on what is stored. The check
+hangs off the first read rather than construction so that building a source
+without consulting it — ``func --help``, a completion — stays silent.
+
 Nothing but an annotation is ever rendered (ADR-008). An annotation names
 where a credential lives and carries no credential; every other value the
 chain hands this method could be the secret itself, so none of them reach the
@@ -48,10 +57,11 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from functualize._config.annotations import scan_annotations
-from functualize._config.vault import SecretsVault
+from functualize._config.vault import SecretsVault, format_duration
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+    from datetime import timedelta
     from pathlib import Path
 
     from functualize._config.chain import ResolvedValue
@@ -76,6 +86,7 @@ class VaultSource:
         encryption_key: bytes | None,
         key_provider_id: str = "unknown",
         providers: Iterable[str] = (),
+        max_age: timedelta | None = None,
     ) -> None:
         """Initialise the source.
 
@@ -89,11 +100,15 @@ class VaultSource:
                 only to recognise an annotation when warning about a miss; a
                 scheme absent here is not an annotation, exactly as in
                 :func:`~functualize._config.annotations.scan_annotations`.
+            max_age: How old the vault may be before the first read of the run
+                warns. None disables the staleness check entirely.
         """
         self._vault = SecretsVault(vault_path, key_provider_id=key_provider_id)
         self._key = encryption_key
         self._key_provider_id = key_provider_id
         self._providers = frozenset(providers)
+        self._max_age = max_age
+        self._staleness_checked = False
         self._warned: set[str] = set()
         self.misses: list[str] = []
         """Fully-qualified keys this source was asked for and did not hold.
@@ -131,6 +146,7 @@ class VaultSource:
         """
         if not self.usable:
             return None
+        self._warn_if_stale()
         qualified = self._qualified(key, section)
         assert self._key is not None  # narrowed by `usable`
         # VaultDecryptionError deliberately propagates. A vault that cannot be
@@ -159,6 +175,34 @@ class VaultSource:
             for entry in self._entries()
             if entry.key.startswith(prefix)
         }
+
+    def _warn_if_stale(self) -> None:
+        """Warn once per run that the vault is older than its threshold.
+
+        Deferred to the first *read* rather than done at construction, so the
+        paths that build a source without consulting it — ``func --help``, a
+        completion, a job that resolves no config at all — stay quiet. A stale
+        vault is only worth mentioning to someone about to use it.
+
+        Never raises and never blocks. ADR-016 rejected auto-syncing here
+        precisely because it would put the network back on the run path; the
+        run continues on what is stored, which is what keeps a developer on a
+        plane working.
+        """
+        if self._staleness_checked or self._max_age is None:
+            return
+        self._staleness_checked = True
+        age = self._vault.age()
+        if age is None or age <= self._max_age:
+            return
+        logger.warning(
+            "The vault was last synced %s ago, past the %s staleness "
+            "threshold. Any value rotated since is stale here. Run "
+            "`func builtin vault sync` to refresh it — continuing meanwhile "
+            "with what is stored.",
+            format_duration(age),
+            format_duration(self._max_age),
+        )
 
     def note_fallthrough(
         self, resolved: ResolvedValue, section: str | None = None

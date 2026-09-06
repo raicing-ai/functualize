@@ -792,7 +792,7 @@ def build_remote_source(app: Any) -> Any:
         )
         raise RuntimeError(msg)
 
-    from functualize._config.vault import vault_path_for_project
+    from functualize._config.vault import resolve_max_age, vault_path_for_project
     from functualize._config.vault_keys import resolve_vault_key
     from functualize._config.vault_source import VaultSource
     from functualize._primitives.locator import compute_project_id
@@ -820,6 +820,10 @@ def build_remote_source(app: Any) -> Any:
         # The identifiers, so a fall-through can tell an annotation naming an
         # installed provider from an ordinary URL that merely looks like one.
         providers=registered,
+        # Resolved only on the path that can actually read: an unusable vault
+        # never checks its age, so parsing the threshold there would risk
+        # warning about a misspelled setting that was never going to be used.
+        max_age=resolve_max_age(getattr(app._config_sources, "vault_max_age", None)),
     )
 
 
