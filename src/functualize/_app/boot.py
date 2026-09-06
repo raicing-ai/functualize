@@ -242,6 +242,7 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
     if app._job_sources.functions:
         static_provider = StaticProvider(app._job_sources.functions)
         app._resolution_pipeline.add_provider(static_provider)
+    wire_declared_job_providers(app)
 
     perf_timeline.mark("boot.core_infra.end")
 
@@ -505,6 +506,8 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
                     job_filter=job_filter,
                 )
             )
+
+    wire_declared_job_providers(app)
 
     perf_timeline.mark("boot.core_infra.end")
 
@@ -900,6 +903,60 @@ def build_resolution_chain(
         DefaultSource({}),
     ]
     return ResolutionChain(sources)
+
+
+def wire_declared_job_providers(app: Any) -> None:
+    """Add ``JobSources.job_providers`` to the resolution pipeline.
+
+    Called by **both** boot paths, immediately after each has added whatever
+    providers it derives itself, so the declared providers sit last and the
+    resulting order matches the order the fields are declared in
+    ``JobSources``: directories, then functions, then ``job_providers``.
+
+    The field accepts either a bare provider or a ``(provider, [transforms])``
+    pair -- the form its docstring has always promised. Both reach
+    ``ResolutionPipeline.add_provider``, which is also what
+    ``app.add_job_provider()`` calls, so a declared provider and an imperative
+    one are indistinguishable downstream.
+
+    Until this existed the field was read by nothing: ``JobSources`` accepted
+    it, froze it, documented it, and dropped it. A caller got an empty job list
+    and no diagnostic. Malformed entries therefore raise here rather than being
+    skipped -- silence is what this function exists to end.
+
+    Args:
+        app: The FunctualizeApp instance being booted.
+
+    Raises:
+        TypeError: If an entry is neither a provider nor a two-element
+            ``(provider, transforms)`` pair, or if the provider or transforms
+            inside a pair fail their protocol check.
+    """
+    declared = getattr(app._job_sources, "job_providers", None)
+    if not declared:
+        return
+
+    for index, entry in enumerate(declared):
+        if isinstance(entry, tuple):
+            if len(entry) != 2:
+                raise TypeError(
+                    f"job_providers[{index}] is a {len(entry)}-tuple. The tuple "
+                    "form is (provider, [transform, ...]) -- exactly two items."
+                )
+            provider, transforms = entry
+            if transforms is not None and not isinstance(transforms, list):
+                raise TypeError(
+                    f"job_providers[{index}] pairs a provider with "
+                    f"{type(transforms).__name__}. The second item is a list of "
+                    "JobTransform instances."
+                )
+        else:
+            provider, transforms = entry, None
+        # add_provider does the protocol checks for both halves and raises a
+        # TypeError naming the missing members, so it is left to do that here.
+        app._resolution_pipeline.add_provider(provider, transforms)
+
+    app._jobs_memo = None
 
 
 def wire_children_to_pipeline(app: Any) -> None:

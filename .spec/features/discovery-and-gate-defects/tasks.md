@@ -12,7 +12,7 @@ visible. `[F]` equals the gate's hit set.
 deletion; the maintainer chose wiring, so the field must honour everything its
 docstring promises rather than being removed.)
 
-- [ ] **1.1 — B1: wire `job_providers` on both boot paths**
+- [x] **1.1 — B1: wire `job_providers` on both boot paths**
   The field's providers reach the resolution pipeline, including the
   `(provider, [transforms])` tuple form the docstring promises.
   - `[F]` `src/functualize/app/config.py`, `src/functualize/_app/boot.py`, `tests/app/test_job_providers.py`
@@ -26,6 +26,44 @@ docstring promises rather than being removed.)
   - Shares `_app/boot.py` with 2.1, which adds a provider path to
     `boot_standard` for the same reason — build **one** helper both use, or
     they will drift. Same wave, one task order: 1.1 then 2.1.
+
+  **Done 2026-09-06.** `_app/boot.wire_declared_job_providers(app)` is the one
+  helper, called from both paths after each has added the providers it derives
+  itself — so pipeline order matches field declaration order (directories,
+  functions, `job_providers`). 2.1 extends this function; it must not add a
+  second one.
+
+  - Acceptance met: `grep -rn "job_providers" src/ | grep -vc "app/config.py"`
+    → **8** (was 0). Second acceptance met: 15 tests in
+    `tests/app/test_job_providers.py`, covering both paths, the pair form on
+    both paths, mixed entries, ordering against a directory provider,
+    malformed entries, and equivalence with `add_job_provider`.
+  - Type is now
+    `list[JobProvider | tuple[JobProvider, list[JobTransform]]] | None`, with
+    the protocols imported under `TYPE_CHECKING` (`app/config.py` is on the
+    cold boot path, and `exclude_type_checking_imports` keeps `lint-imports`
+    indifferent).
+  - **Reachability, by sabotage.** Four mutations, each restored: removing the
+    `boot_static` call → 2 failed; removing the `boot_standard` call →
+    12 failed; ignoring `isinstance(entry, tuple)` → 7 failed; passing
+    `None` instead of `transforms` → 4 failed. Baseline and restore both 15
+    passed.
+  - Full root suite after: **8726 passed, 1544 skipped, 0 failed** (8711
+    before, +15 = exactly the new tests). `ruff`, `ruff format --check`,
+    `mypy src/` (316 files), `lint-imports` (5 contracts) green.
+
+  **Two adjacent findings, both left alone as out of scope.** Recorded because
+  each looks like a bug in this wiring and is not:
+  1. `is_fully_explicit()` reads `functions is not None`, so an app declaring
+     *only* `job_providers` falls to `boot_standard`. Changing that condition
+     is explicitly out of scope (`spec.md`), so the static-path tests pass
+     `functions=[]`.
+  2. `ResolutionPipeline.resolve_one("ns.alpha")` returns `None` for a
+     namespaced descriptor that `resolve_all()` lists — the single-name lookup
+     does not reach through `NamespaceTransform.transform_get`. It predates
+     this change and is equally wrong for a declared and an added provider.
+     Pinned by assertion in `test_both_paths_agree_on_the_pair_form` so a fix
+     is noticed rather than assumed.
 
 ---
 

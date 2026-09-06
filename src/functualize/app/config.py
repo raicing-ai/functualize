@@ -27,6 +27,7 @@ from functualize._discovery import Job
 
 if TYPE_CHECKING:
     from functualize._config import ResolutionChain
+    from functualize._types.protocols import JobProvider, JobTransform
 
 __all__ = [
     "ConfigSources",
@@ -53,9 +54,27 @@ class JobSources:
 
     directories: list[str] | None = None
     functions: list[Callable[..., Any] | Job] | None = None
-    job_providers: list[Any] | None = (
-        None  # list[JobProvider | tuple[JobProvider, list[JobTransform]]]
+    job_providers: list[JobProvider | tuple[JobProvider, list[JobTransform]]] | None = (
+        None
     )
+    """Providers to add to the resolution pipeline, in declaration order.
+
+    Each entry is a ``JobProvider`` or a ``(provider, [transform, ...])`` pair.
+    They are added *after* whatever the boot path derives from ``directories``
+    and ``functions``, so the pipeline order matches the order these fields are
+    declared in.
+
+    The type was ``list[Any]`` for as long as the field was read by nothing:
+    ``boot_static`` and ``boot_standard`` both ignored it, so a caller who
+    declared a provider here got an empty job list and no diagnostic. It is now
+    honoured on both paths by ``_app.boot.wire_declared_job_providers``, and the
+    annotation says what the docstring always promised.
+
+    ``app.add_job_provider()`` remains the imperative equivalent -- the path a
+    plugin uses from inside its ``__call__(app)``, where there is no
+    ``JobSources`` left to declare into.
+    """
+
     children: dict[str, str] | None = None
     children_glob: str | None = None
     lazy: bool = True
