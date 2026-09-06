@@ -484,7 +484,7 @@ its command returned, so drift between authoring and execution is visible.
 
 ## 5. Providers
 
-- [ ] **5.1 — `functualize-aws`**
+- [x] **5.1 — `functualize-aws`** — DONE
   `aws-sm` (Secrets Manager) and `aws-ssm` (Parameter Store, incl.
   `SecureString`). Registered through `functualize.remote_providers`.
   - `[F]` `plugins/functualize-aws/`, `tests/…`
@@ -525,6 +525,104 @@ its command returned, so drift between authoring and execution is visible.
   - Acceptance: a test per honoured key, plus one asserting an unknown key is
     rejected rather than ignored — a typo'd `?porfile=prod` must not silently
     resolve under the default identity.
+
+  **Met.** 81 tests: 41 on the grammar, 31 on the providers and credential
+  rules, 9 integration against a live Floci container. Acceptance 2 —
+  `grep -rn "boto3" src/functualize/` — returns **0**.
+
+  **The grammar, as specified.** `aws-sm://<secret-id>[?k=v&…]`,
+  `aws-ssm://<parameter-name>[?k=v&…]`. Splitting on the first `?` is safe
+  because neither an SSM name nor an ARN admits a literal `?`.
+
+  | Key | Semantics |
+  |---|---|
+  | `profile` | Selects the source identity, replacing the ambient chain for this value. |
+  | `role` | IAM role ARN, assumed **from** whatever `profile` (or the ambient chain) produced — they compose, they do not conflict. |
+  | `region` | The region the client is built for; carried onto the post-assumption session too. |
+  | `account` | An **assertion**, checked *after* any assumption. |
+
+  `account` is an assertion rather than a selector because boto3 has no
+  "switch to account N" primitive, so the key could only ever mean *ignored*
+  or *checked*. Checked: reading the wrong account's secret while the config
+  file names the right one is precisely this feature's failure mode. Checked
+  after assumption, because crossing into another account is usually the
+  point of assuming a role — asserting the source identity would assert the
+  wrong thing. It costs an STS call only when asserted.
+
+  Temporary credentials from `role` live in `_session._ASSUMED` for the life
+  of the process, keyed by `(profile, role, region)` and re-assumed five
+  minutes before expiry so a long sync cannot begin a fetch with credentials
+  that die mid-call. **They never enter the vault** — structurally, since the
+  vault is filled from what `fetch()` returns and `fetch()` returns the secret
+  string — and `test_nothing_is_written_to_disk` fails first if that changes.
+
+  Shape checks on every value (12-digit account, region pattern including the
+  `us-gov-`/`cn-` partitions, full IAM role ARN) exist to turn a typo into a
+  message naming the annotation, instead of an opaque boto3 error that never
+  mentions it. `parse_qsl` is deliberately **not** used: it decodes `+` as a
+  space, and none of these four values may contain a space, so that decoding
+  could only ever corrupt one identity into another.
+
+  **Deviations, disclosed:**
+
+  1. **`is_ready()` does not honour the protocol's 12-factor clause.** The
+     docstring on `RemoteProvider.is_ready` says credentials "MUST be resolved
+     from environment variables only". The maintainer's per-value override
+     requirement makes that untrue by construction — env vars cannot express
+     "this secret from that account". `is_ready` reports whether boto3 can
+     find credentials by *any* means in its chain. Recorded in the plugin's
+     module docstring, not just here.
+  2. **`RemoteKeyNotFoundError` and `RemoteConnectionError` do not exist.**
+     The protocol docstring names all three; only `RemoteTimeoutError` is
+     defined, and none are publicly exported. The plugin therefore defines its
+     own `SecretNotFoundError` / `InvalidReferenceError` / `AccountMismatchError`
+     rather than importing from `_config`. **The protocol docstring is a
+     dangling contract** — a separate finding, not fixed here.
+  3. **`functualize-aws` is in the `all` extra**, which pulls boto3/botocore
+     (~20MB of wheel). `all` means every plugin and is itself opt-in, but this
+     is the one entry that is not small. Flagged for 7.1 to measure.
+  4. **`?key=<json-field>` is not implemented.** A Secrets Manager secret is
+     often a JSON blob and selecting one field is a reasonable expectation.
+     Out of the requested scope, so it is *rejected* as an unknown key rather
+     than quietly ignored — `test_a_plausible_but_unimplemented_key_raises`.
+
+  **The integration test found its own vacuity.** `WithDecryption` was
+  asserted against Floci — and Floci **does not actually encrypt**:
+  `WithDecryption=False` returns the identical plaintext (measured). The test
+  therefore could not tell a decrypted read from an undecrypted one. Renamed
+  to `test_an_ssm_securestring_is_readable`, which is what it proves, with the
+  limitation stated in its docstring; the flag itself is pinned by a unit test
+  asserting the *call*. Added
+  `test_decryption_is_proven_wherever_the_endpoint_encrypts`, which measures
+  whether the endpoint discriminates and skips when it does not — so pointing
+  `AWS_ENDPOINT_URL` at real AWS strengthens the suite without editing it.
+
+  Without a reachable endpoint the module skips rather than falling back to a
+  fake: a green run that silently tested nothing is the failure mode this
+  whole feature exists to remove.
+
+  **Verification.** **Eight sabotages, all caught**: unknown override silently
+  ignored (5 fail), `WithDecryption` dropped (1), `account` ignored (3), `role`
+  replacing `profile` (2), the assume-role cache never expiring (1), region
+  dropped after assumption (1), not-found swallowed into an empty string (6),
+  a binary secret decoded by guessing (1).
+
+  End-to-end against live Floci:
+
+  ```
+  aws-sm://demo/db-password          -> 's3cret-from-secrets-manager'
+  aws-ssm:///demo/api-url            -> 'https://api.internal'
+  aws-ssm:///demo/api-token (Secure) -> 'tok-abc123'
+  ?porfile=prod                      -> refused, "Did you mean 'profile'?"
+  ?account=999999999999              -> AccountMismatchError
+  ```
+
+  And the feature now boots for the first time: with the plugin installed,
+  `remote_first()` stops refusing and builds
+  `['cli', 'remote', 'env', 'file', 'default']`.
+
+  Full suite **8550 passed, 1554 skipped**, 0 failures; all 12 plugin suites
+  green. `ruff`, `format`, `mypy` (316 files), `lint-imports` green.
 
 - [ ] **5.2 — `functualize-bitwarden`**
   Bitwarden Secrets Manager, same seam.

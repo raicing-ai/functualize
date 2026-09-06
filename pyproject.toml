@@ -95,6 +95,11 @@ all = [
     "functualize-tasks",
     "functualize-tasks-local",
     "functualize-mcp",
+    # Pulls boto3/botocore (~20MB of wheel). `all` means every plugin, and it
+    # is itself opt-in, so the cost lands only on someone who asked for
+    # everything -- but it is the one entry here that is not small. Measured
+    # at the 7.1 checkpoint.
+    "functualize-aws",
 ]
 
 [build-system]
@@ -116,6 +121,7 @@ functualize-ai-pydantic = { workspace = true }
 functualize-tasks = { workspace = true }
 functualize-tasks-local = { workspace = true }
 functualize-mcp = { workspace = true }
+functualize-aws = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/functualize"]
