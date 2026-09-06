@@ -78,7 +78,9 @@ threads — a UI implementation must marshal onto its own loop (see
 (log files, MCP progress, test recorders).
 
 !!! note "Exception safety"
-    Exceptions raised inside `handle_event` are **swallowed with a warning** and never interrupt job execution or starve other surfaces.
+    Exceptions raised inside `handle_event` are caught and logged at ERROR level
+    by the event bus; dispatch continues, so a failing surface never interrupts
+    job execution or starves other surfaces.
 
 ---
 

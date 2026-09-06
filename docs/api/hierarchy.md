@@ -17,10 +17,16 @@ app = FunctualizeApp(
     name="parent-app",
     job_sources=JobSources(
         directories=["jobs"],
-        children=["../child-project-a", "../child-project-b"],
+        children={
+            "child-a": "../child-project-a",
+            "child-b": "../child-project-b",
+        },
     ),
 )
 ```
+
+`children` maps a **namespace** to a child project directory; the child's jobs
+are composed under that namespace (`child-a.deploy`, `child-b.deploy`, ...).
 
 ## Internal Location
 

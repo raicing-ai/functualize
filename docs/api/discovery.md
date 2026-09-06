@@ -72,6 +72,9 @@ A frozen dataclass providing structured parameter schema for a job's configurati
 | `short_flag` | `str \| None` | Short flag alias (e.g., `-t`) from `Option()` marker. |
 | `is_stdin` | `bool` | True if marked with `Stdin()` — reads from a pipe. |
 | `stdin_flag` | `str \| None` | Explicit flag name from `Stdin(flag=...)`. |
+| `secret` | `bool` | True when the field is masked in listings and rendered output (derived at discovery time so the warm-cache path never imports the config model). |
+| `from_config_model` | `bool` | True when this field came from a job's config model rather than its plain signature. |
+| `type` (property) | `str` | Backward-compatible alias for `type_annotation`. |
 
 ## `@job` Decorator
 

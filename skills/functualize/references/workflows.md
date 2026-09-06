@@ -73,6 +73,28 @@ recorded result, so the gate presents a narrowed choice rather than a raw call.
 
 Gate resolution lives in `_gate/`. A paused workflow persists as a scope.
 
+### Strategies
+
+`Gate(strategy=...)` names who answers the gate. Only four bare names are
+valid — `"resolve"` (config chain), `"prompt"` (interactive surface),
+`"ai_inbound"` (an LLM fills the model), `"ai_outbound"` (an external agent
+deposits it). Preset names are **not** accepted here; presets are reachable
+only through `rc.invoke(..., gate_strategy=...)` and `app.resolve_gate`.
+
+Two are only registered when a plugin is installed: `ai_inbound` by
+`functualize-ai`, `ai_outbound` by `functualize-mcp`.
+
+**Blocking is the fallback.** A gate that cannot be resolved blocks, and the
+walk is resumable — that includes `strategy=None`, `strategy="ai_outbound"`
+(the walker blocks without calling any resolver), and a registered resolver
+that fails.
+
+The exception, worth knowing before you reach for it: naming `ai_inbound` on
+a gate when `functualize-ai` is **not installed** raises
+`ValueError: Unregistered gate strategy` and stops the walk — it does not
+block. Declare an AI strategy only when the project depends on the plugin
+that registers it.
+
 ## Inspecting and resuming
 
 ```bash

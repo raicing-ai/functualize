@@ -289,13 +289,13 @@ myapp data-sync run
 **Verifying what's loaded:**
 
 ```bash
-# show-info displays whether a dotenv file was loaded and its contents
-myapp --dotenv-file .env show-info
+# builtin info displays whether a dotenv file was loaded and its contents
+myapp --dotenv-file .env builtin info all
 ```
 
-### Introspection with `show-info`
+### Introspection with `builtin info`
 
-The `show-info` command reports the current dotenv status:
+The `builtin info` command reports the current dotenv status:
 
 - If `--dotenv-file` was passed, it displays the file path and its key-value contents
 - If no dotenv file was loaded, it prints a notice: "No dotenv file loaded"
@@ -303,7 +303,7 @@ The `show-info` command reports the current dotenv status:
 
 ## Per-Job Config Sections
 
-Each job can have its own config section where the section name matches the `JOB_NAME` value defined in the job module. When a job uses a `JobConfig` Pydantic model, fields are resolved from the matching section.
+Each job can have its own config section where the section name matches the `JOB_GROUP` value defined in the job module. When a job uses a `JobConfig` Pydantic model, fields are resolved from the matching section.
 
 ```toml
 # config.base.toml
@@ -322,7 +322,7 @@ output_dir = "./reports"
 format = "pdf"
 ```
 
-In this example, a job with `JOB_NAME = "data_sync"` reads from the `[data_sync]` section.
+In this example, a job with `JOB_GROUP = "data_sync"` reads from the `[data_sync]` section.
 
 ## JobConfig Field Resolution
 
@@ -487,7 +487,7 @@ timeout = 60
 from pydantic import BaseModel, Field
 from functualize.job import RunContext
 
-JOB_NAME = "data_sync"
+JOB_GROUP = "data_sync"
 
 
 class SyncConfig(BaseModel):
@@ -562,19 +562,19 @@ config_view = rc.config
 debug = config_view.get("debug", default="false", section="general")
 ```
 
-## Introspection with `show-info`
+## Introspection with `builtin info`
 
-Use the built-in `show-info` command to inspect resolved configuration at runtime:
+Use the built-in `builtin info` command to inspect resolved configuration at runtime:
 
 ```bash
 # Show general config info and loaded files
-myapp show-info
+myapp builtin info all
 
 # Show resolved JobConfig for a specific job
-myapp show-info --job data_sync
+myapp builtin info --job data_sync
 
 # Show all environment variables
-myapp show-info --show-env-vars
+myapp builtin info --show-env-vars
 ```
 
 This displays which config files were loaded, their interpolated values, and the source of each resolved field (env var, config file, or model default).

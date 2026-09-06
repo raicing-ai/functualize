@@ -47,7 +47,7 @@ But plugins can also do things hooks cannot:
 - Add CLI commands (via `app.cli_command`)
 - Declare config schemas that get auto-resolved through the Resolution Chain
 - Participate in dependency ordering (`depends_on`)
-- Subscribe to custom signals on the `SignalBus`
+- Subscribe to custom events on the `EventBus`
 
 ## When to Use Which
 

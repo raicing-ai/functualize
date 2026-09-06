@@ -24,7 +24,13 @@ This section takes you from zero to running jobs in minutes, then shows how to s
 
     ---
 
-    Drop job files in a `jobs/` directory. Auto-discovery handles the rest.
+    Keep job files in a `jobs/` directory declared in `pyproject.toml`.
+    Auto-discovery registers every public function.
+
+    ```toml
+    [tool.functualize]
+    jobs_directories = ["jobs"]
+    ```
 
     ```bash
     func deploy

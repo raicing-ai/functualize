@@ -133,8 +133,8 @@ This launches the TUI with multiple jobs (status, ping, send, migrate, deploy, �
 4. **Expect:** Breadcrumb pushes to "Detail: host" showing:
    - Field metadata: `Type: str | Required: no | Choices: -`
    - Resolution chain with ★/● markers and values or `(not set)`
-   - For CONFIG params: all 6 sources (CLI, Session, Env, File, Remote, Default)
-   - For PLAIN params: only 3 sources (CLI, Session, Default) with banner: "Plain parameter — resolved from CLI/default only"
+   - For CONFIG params: all 5 sources (CLI, Env, File, Remote, Default)
+   - For PLAIN params: only 2 sources (CLI, Default) with banner: "Plain parameter — resolved from CLI/default only"
    - Description text
 5. Press **Esc**
 6. **Expect:** Returns to the Config Table (breadcrumb pops)

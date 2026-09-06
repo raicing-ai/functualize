@@ -213,15 +213,15 @@ Display the fully resolved configuration with source annotations:
 ```bash
 $ func builtin config show
 [discovery]
-require_file_import = "functualize"  # from: pyproject.toml
-exclude_patterns = ["**/test_*.py"]  # from: global config
+require_file_import = "functualize"  # source: pyproject.toml
+exclude_patterns = ["**/test_*.py"]  # source: global config
 
 [cli]
-output = "rich"                      # from: default
-show_timing = false                  # from: default
+output = "rich"                      # source: default
+show_timing = false                  # source: default
 
 [aliases]
-d = "deploy"                         # from: global config
+d = "deploy"                         # source: global config
 ```
 
 ### `func builtin config path`
@@ -230,15 +230,15 @@ Show config file paths with their status:
 
 ```bash
 $ func builtin config path
-[used]    /home/user/project/pyproject.toml
-[missing] /home/user/project/.functualize.toml
-[used]    /home/user/.config/functualize/config.toml
+✓ used    /home/user/project/pyproject.toml
+✗ missing /home/user/project/.functualize.toml
+○ found   /home/user/.config/functualize/config.toml
 ```
 
 Status indicators:
-- **used** — file exists and contributed values
-- **found** — file exists but all values were overridden by higher-priority sources
-- **missing** — file does not exist
+- **`✓ used`** — file exists and contributed values
+- **`○ found`** — file exists but all values were overridden by higher-priority sources
+- **`✗ missing`** — file does not exist
 
 ### `func builtin config edit`
 

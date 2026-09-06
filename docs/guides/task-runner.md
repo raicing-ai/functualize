@@ -10,7 +10,7 @@ The task runner turns your job functions into build-tool-style targets: declare 
 from functualize.job.decorators import job
 from functualize.job import Log
 
-@job(doc="Deploy the application.")
+@job(extra_description="Deploy the application.")
 def deploy(log: Log):
     log("Deploying...")
 ```
@@ -124,15 +124,16 @@ See [ADR-012](https://github.com/raicing-ai/functualize/blob/master/contributor/
 ### With guards
 
 ```python
-from functualize.job.decorators import job, Guards
+from functualize.job.decorators import job, Guards, Exec
 
-@job(guards=Guards(platforms=["linux", "darwin"], preconditions=["docker_running"]))
+@job(guards=Guards(preconditions=["docker_running"]), exec=Exec(platforms=["linux", "darwin"]))
 def deploy_docker(sh: Shell):
     sh(["docker", "compose", "up", "-d"])
 ```
 
 Guards are checked before dependencies. The pipeline is: **platforms →
-preconditions → status → fingerprint**. If Docker isn't running the job
+preconditions → status → fingerprint** (platforms are read from `Exec`, not
+`Guards`). If Docker isn't running the job
 **refuses** immediately — `RunStatus.REFUSED`, exit **3** — rather than failing
 after an opaque error from the shell. Exit 3 is distinct from exit 1 on purpose:
 nothing ran and nothing raised, so a caller can tell "I declined to start" from
@@ -154,32 +155,30 @@ Deps("lint", "test", policy="fail-fast")
 ### Fingerprint
 
 ```python
-Fingerprint(sources=["src/**/*.py", "pyproject.toml"], method="sha256")
+Fingerprint(sources=["src/**/*.py", "pyproject.toml"], method="checksum")
 ```
 
 - `sources`: glob patterns. Hashed with resolved config/args for the composite key.
-- `method`: hash algorithm.
-- `key`: explicit override (bypasses file hashing).
+- `method`: `"checksum"` (default), `"timestamp"`, or `"none"`.
 
 ### Guards
 
 ```python
-Guards(platforms=["linux"], preconditions=["docker_running", "k8s_connected"])
+Guards(preconditions=["docker_running", "k8s_connected"])
 ```
 
-- `platforms`: `sys.platform` prefix match.
 - `preconditions`: registered checks (session-cached).
 - `status`: named status checks.
 
 ### Exec
 
 ```python
-Exec(timeout=300, retry=Retry(attempts=3), run="when_changed")
+Exec(platforms=["linux", "darwin"], run="when_changed", retry=Retry(attempts=3))
 ```
 
 - `run`: `"always"` (default), `"once"` (deduplicates within a session), `"when_changed"` (deduplicates only with identical resolved args).
-- `timeout`: best-effort. Enforceable for shell commands; advisory for pure Python.
-- `retry`: `Retry(attempts, backoff, on=(Exception, ...))`.
+- `platforms`: `sys.platform` prefix match — a mismatch refuses (exit 3).
+- `retry`: `Retry(attempts, backoff=..., on=(...), on_exit_codes=(...))`.
 
 ## Inspecting Why a Job Will Run
 
@@ -204,7 +203,7 @@ location depends on the mode described in
 
 ```bash
 func builtin state clear    # Clear runtime state (fingerprints, history, preconditions)
-func cache clear            # Clear discovery cache (job metadata)
+func builtin cache clear            # Clear discovery cache (job metadata)
 ```
 
 These are independent — `state clear` doesn't touch the cache; `cache clear` doesn't touch state.

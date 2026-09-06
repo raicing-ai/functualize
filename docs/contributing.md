@@ -105,7 +105,7 @@ This section is for **framework contributors** — people working on functualize
 
 ### Package Layout Overview
 
-The source tree at `src/functualize/` is split into **5 public directories** (stable API for users) and **9 internal directories** (underscore-prefixed, implementation details):
+The source tree at `src/functualize/` is split into **6 public directories** (stable API for users) and **10 internal directories** (underscore-prefixed, implementation details):
 
 ```
 src/functualize/
@@ -184,7 +184,7 @@ The dependency rules flow strictly downward. Each layer may only import from lay
 | `_types/` | Shared vocabulary — zero logic | Frozen `@dataclass` (JobDescriptor, FieldDescriptor, JobResult, CacheInfo), Enums (RunStatus, RunType, JobPhase), Protocols (JobProvider, AdapterPlugin, Surface, PromptCollector, etc.) |
 | `_primitives/` | Foundation utilities with zero third-party deps | `di.py` (DIRegistry), `locator.py` (ResourceLocator), `middleware.py` (MiddlewareChain), `lazy.py` (lazy_cached descriptor), `resilient.py` (resilient generator wrapper), `modules.py` (iter_module_files) |
 | `_events/` | Cross-cutting event system | `bus.py` (EventBus — trie-based topic router), `hooks.py` (HookRegistry), `tracing.py` (PropagationContext), `perf.py` (PerfTimeline) |
-| `_discovery/` | Job finding + caching | `providers.py` (DirectoryScan, Cached, Static, EntryPoint), `transforms.py` (Namespace, GroupByModule), `cache.py` (persistence + sync), `hierarchy.py` (child projects), `pipeline.py` (ResolutionPipeline) |
+| `_discovery/` | Job finding + caching | `providers.py` (DirectoryScan, Cached, Static, EntryPoint), `transforms.py` (Namespace, GroupByModule), `cached_provider.py` (persistence + sync), `hierarchy.py` (child projects), `pipeline.py` (ResolutionPipeline) |
 | `_config/` | Configuration resolution | `chain.py` (ResolutionChain), `sources.py` (Cli/Env/File/Remote/Default), `job_config.py` (JobConfigView), `providers/` (`TomlFormatProvider` registered by default; `IniFormatProvider` in-tree, plugin-registered only — ADR-007) |
 | `_engine/` | Execution lifecycle | `executor.py` (JobExecutionEngine), `middleware.py` (execution middleware), `context.py` (ExecutionContext), `capabilities/invoke.py` (Invoke), `capabilities/workflow.py` (WorkflowTracker) |
 | `_plugins/` | Plugin loading machinery | `loader.py` (discovery + dependency sort + loading), `config.py` (PluginConfigRegistry) |
@@ -370,7 +370,7 @@ The test suite is split into **fast** (unit) and **slow** (property-based / Hypo
 uv run pytest
 ```
 
-This skips all property-based tests (files named `*_properties.py`, `*_props.py`, `*_property.py`) and runs only unit/integration tests. Target: under 10 seconds.
+This skips all property-based tests (files named `*_properties.py`, `*_props.py`, `*_property.py`) and runs only unit/integration tests. Target: under a minute (see ADR-003); the suite has drifted past this and runs several minutes — use `-k` to scope during development.
 
 ### Full test suite
 
@@ -424,7 +424,7 @@ Runs property tests with only 10 examples each — useful for a quick sanity che
 Run a specific test file:
 
 ```bash
-uv run pytest tests/core/test_state.py
+uv run pytest tests/test_state_store.py
 ```
 
 Run tests matching a name pattern:
@@ -507,34 +507,40 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/). Every co
 | `docs` | Documentation-only changes |
 | `refactor` | Code change that neither fixes a bug nor adds a feature |
 | `test` | Adding or updating tests |
+| `perf` | A code change that improves performance |
+| `ci` | Changes to CI configuration files and scripts |
+| `build` | Changes that affect the build system or external dependencies |
 | `chore` | Maintenance tasks (CI, dependencies, tooling) |
+| `revert` | Reverts a previous commit |
 
 ### Format
 
 ```
-<type>: <short description>
+<type>(<scope>)!: <subject>
 
 [optional body]
 
 [optional footer]
 ```
 
+The `<scope>` is a single token identifying the affected area (e.g. `discovery`, `config`, `engine`). The `!` marks a breaking change; it is optional. The `<subject>` is an imperative lowercase description, at most 72 characters.
+
 ### Examples
 
 ```bash
-git commit -m "feat: add support for custom config file patterns"
-git commit -m "fix: resolve race condition in plugin loading"
-git commit -m "docs: update configuration guide with new examples"
-git commit -m "refactor: simplify job discovery module"
-git commit -m "test: add property tests for config resolution"
-git commit -m "chore: update ruff to v0.9.0"
+git commit -m "feat(config): add support for custom config file patterns"
+git commit -m "fix(plugins): resolve race condition in plugin loading"
+git commit -m "docs(guides): update configuration guide with new examples"
+git commit -m "refactor(discovery): simplify job discovery module"
+git commit -m "test(config): add property tests for config resolution"
+git commit -m "chore(deps): update ruff to v0.9.0"
 ```
 
 ## Pull Request Guidelines
 
 ### Branch Naming
 
-Create a branch from `main` using the convention `<type>/<short-description>`:
+Create a branch from `master` using the convention `<type>/<short-description>`:
 
 ```bash
 git checkout -b feat/my-feature
@@ -573,7 +579,7 @@ All pull requests must pass the CI pipeline before merging. The pipeline runs:
 
 ### Review Process
 
-1. Open a pull request against `main`.
+1. Open a pull request against `master`.
 2. Keep PRs focused on a single change.
 3. Provide a clear description of what changed and why.
 4. Address reviewer feedback with additional commits (do not force-push during review).

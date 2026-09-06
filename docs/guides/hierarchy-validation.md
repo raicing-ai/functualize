@@ -77,15 +77,14 @@ Enable strict validation by setting `strict_hierarchy_validation = true` in the 
 
 ```toml title="config.base.toml"
 [general]
-app_name = "ops-cli"
-strict_hierarchy_validation = "true  # (1)!"
-
-[children]
-tools = "~/code/tools-project"
-infra = "~/code/infra-project"
+strict_hierarchy_validation = "true"  # (1)!
 ```
 
 1. Default is `false` (non-strict mode). Set to `true` to halt on validation failures.
+
+> Children are mounted via `JobSources(children={...})` / `children_glob` — see
+> [Hierarchical Projects](../hierarchy.md). There is no `[children]` config
+> section.
 
 ### Behavior Modes
 

@@ -1,6 +1,6 @@
 # Aliases
 
-Aliases let you define short names for frequently-used jobs. Define them in the `[aliases]` section of your [global config](global-config-directory.md).
+Aliases let you define short names for frequently-used jobs. Define them in the `[aliases]` section of your project config (`pyproject.toml` `[tool.functualize]` or `.functualize.toml`) or your [global config](global-config-directory.md); project wins on conflict.
 
 ## Defining Aliases
 
@@ -33,8 +33,6 @@ Alias names must follow these rules:
 | Start | Must begin with a letter (a-z, A-Z) |
 | Body | Letters, digits, underscores, hyphens |
 | Max length | 32 characters |
-
-Alias values (the job name being aliased) have a max length of 128 characters.
 
 ### Valid Names
 
@@ -78,15 +76,15 @@ func d → FallbackCommand chain → AliasFallback matches "d" → executes "dep
 
 | Setting | Maximum |
 |---|---|
-| Total aliases | 200 |
 | Alias key length | 32 characters |
-| Alias value length | 128 characters |
+
+No total-count or value-length limits exist.
 
 ---
 
 ## Priority and Conflicts
 
-- Aliases are loaded from the global config only
+- Aliases are merged from project and global config (project wins on conflict)
 - If an alias name conflicts with a registered command (e.g., aliasing `d` when a job named `d` exists), the **registered command wins** — the alias is not consulted
 - Aliases are only checked as a fallback when no command matches directly
 
