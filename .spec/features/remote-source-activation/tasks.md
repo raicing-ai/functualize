@@ -308,16 +308,75 @@ its command returned, so drift between authoring and execution is visible.
   `mypy` (316 files), `lint-imports` green. Removing a now-redundant
   `type: ignore[arg-type]` was needed — `sources` widened to `list[Any]`.
 
-- [ ] **3.2 — V6: a miss falls through, loudly**
+- [x] **3.2 — V6: a miss falls through, loudly** — DONE
   Warn naming the key, its annotation, **which source answered instead**, and
   the fix command. Never render the value.
-  - `[F]` `src/functualize/_config/vault.py`, `src/functualize/_app/boot.py`, `tests/config/test_vault_miss.py`
+  - `[F]` `src/functualize/_config/chain.py`, `src/functualize/_config/vault_source.py`, `src/functualize/_app/boot.py`, `tests/config/test_vault_miss.py`
   - Acceptance: a test asserts the next source's value **is** returned and a
-    warning **is** emitted naming the annotation.
+    warning **is** emitted naming the annotation. **Met.**
   - Second acceptance: the warning fires **once per key per run**, not per
-    access — a job reading one secret ten times warns once.
+    access — a job reading one secret ten times warns once. **Met.**
   - Third acceptance: ADR-008 — the warning contains no plaintext value. Assert
-    against a value that would be conspicuous if leaked.
+    against a value that would be conspicuous if leaked. **Met** — asserted
+    against the message *and* `record.args`/`record.msg`, because a `%s`-style
+    record carries its arguments separately and a structured handler renders
+    them.
+
+  **The seam.** "Which source answered instead" is knowable only after the
+  winner is found, which is inside `ResolutionChain`. The chain must not learn
+  what a vault is, so it calls an opt-in, duck-typed
+  `note_fallthrough(resolved, section)` on every source that returned None.
+  `VaultSource` is the only implementor. Nothing is notified when *no* source
+  answered: `MissingKeyError` is louder than the warning would be.
+
+  **Which misses warn — the design decision this task turned on.** A vault
+  misses on nearly every key it is asked about (`database.port` will never be
+  in it), so "warn on a miss" would bury the one miss that matters. The test is
+  instead **"somebody declared this key remote"**: the winning value, or an
+  alternative beneath it, is annotation-shaped for a *registered* provider,
+  reusing 2.3's `scan_annotations` so "is this an annotation?" keeps one
+  answer. That fires exactly when a job is about to receive
+  `aws-sm://prod/db` where it expected a password, and it makes the ADR-008
+  criterion structural rather than careful: the only value ever rendered has
+  been *proved* to be an annotation, and an annotation carries no credential.
+
+  Stated blind spot: a key declared remote in a config file that was never
+  discovered, whose value an env var also supplies, has no annotation anywhere
+  in the chain and warns about nothing. Closing it needs an annotation map from
+  a config pre-scan, which boot does not build yet. Recorded in the module
+  docstring rather than left implicit.
+
+  An unusable vault (no key) stays silent per key — boot already warns once,
+  and with no key *every* lookup falls through, so per-key warnings would
+  drown that message rather than sharpen it.
+
+  **Three deviations from this task as written, disclosed:**
+
+  1. **`[F]` named `_config/vault.py`; the work landed in
+     `_config/vault_source.py` and `_config/chain.py`.** `vault.py` is the
+     encrypted store and knows nothing of resolution; the miss is a property of
+     the *source*, and the notification seam is the chain's. `[F]` updated.
+  2. **`resolve()` and `introspect()` had byte-identical bodies.** Adding the
+     hook to both would have been the third copy of a 30-line walk. They now
+     both delegate to `_walk`. Behaviour is unchanged and asserted equal,
+     alternatives included.
+  3. **`VaultSource` gained a `providers` argument** so it can tell an
+     annotation naming an installed provider from an ordinary URL. `boot.py`
+     passes the registered identifiers.
+
+  **Verification.** 19 tests. **Six sabotages, five caught immediately; the
+  sixth found a vacuous test.** Giving `introspect` its own notification-free
+  body left every test green, because `test_introspect_shares_the_same_ledger`
+  asserted only that `resolve` + `introspect` warn *once between them* — which
+  holds just as well when `introspect` never warns at all. Added
+  `test_introspect_alone_warns`, and widened `test_resolve_and_introspect_agree`
+  to a three-source chain so it pins `alternatives` too; the sabotage now
+  fails both. The other five: dedupe removed (2 fail), value rendered instead
+  of annotation (2), annotation gate removed (3), chain never notifies (10),
+  `usable` gate removed (1).
+
+  Full suite **8549 passed, 1554 skipped**, 0 failures. `ruff`, `format`,
+  `mypy` (316 files), `lint-imports` green.
 
 - [ ] **3.3 — V5: staleness warning**
   `synced_at` per entry; `[vault] max_age` (default `24h`); warn and **still

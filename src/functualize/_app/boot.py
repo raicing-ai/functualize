@@ -801,19 +801,25 @@ def build_remote_source(app: Any) -> Any:
     resolution = resolve_vault_key(project_id)
     if resolution is None:
         # Inert, not fatal: this path is reachable from `func --help`, and a
-        # missing key must not make the tool unusable. Task 3.2 makes the
-        # resulting fall-through visible per key.
+        # missing key must not make the tool unusable. One warning here rather
+        # than one per key: with no key *every* lookup falls through, so the
+        # per-key warning would drown this message instead of sharpening it.
         logger.warning(
             "remote_first() is active but no vault key is available. Declared "
             "remote values will fall back to local sources. Set "
             "$FUNCTUALIZE_VAULT_KEY (see `func builtin vault keygen`)."
         )
-        return VaultSource(vault_path_for_project(), encryption_key=None)
+        return VaultSource(
+            vault_path_for_project(), encryption_key=None, providers=registered
+        )
 
     return VaultSource(
         vault_path_for_project(),
         encryption_key=resolution.key,
         key_provider_id=resolution.provider_id,
+        # The identifiers, so a fall-through can tell an annotation naming an
+        # installed provider from an ordinary URL that merely looks like one.
+        providers=registered,
     )
 
 
