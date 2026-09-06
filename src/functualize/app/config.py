@@ -27,7 +27,11 @@ from functualize._discovery import Job
 
 if TYPE_CHECKING:
     from functualize._config import ResolutionChain
-    from functualize._types.protocols import JobProvider, JobTransform
+    from functualize._types.protocols import (
+        JobProvider,
+        JobTransform,
+        ModulePreFilter,
+    )
 
 __all__ = [
     "ConfigSources",
@@ -190,3 +194,21 @@ class DiscoveryConfig:
     require_job_decorators: tuple[str, ...] | None = None
     require_job_prefix: str | None = None
     require_job_postfix: str | None = None
+
+    #: A caller-supplied pre-import predicate, for a host whose jobs no
+    #: ``require_*`` setting can describe -- methods on a class, say.
+    #:
+    #: **Composed, not substituted.** It is ANDed onto the stack the nine
+    #: settings above build, and runs last: its cost is unknown, so the cheap
+    #: built-in checks short-circuit ahead of it.
+    #:
+    #: Its ``fingerprint()`` -- never the object -- is what joins the cache
+    #: digest. The cache persists *negative* pre-filter decisions and replays
+    #: them while the fingerprint matches, and ``str()`` of a callable carries
+    #: its address, so identity would re-digest on every boot. See
+    #: :class:`functualize.plugin.ModulePreFilter`.
+    #:
+    #: Note this is the one field that is not guaranteed hashable: the other
+    #: nine are strings and tuples, and a filter object is hashable only if
+    #: its own type is.
+    pre_filter: ModulePreFilter | None = None

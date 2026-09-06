@@ -135,6 +135,15 @@ def build_pre_filter_from_config(
     if config.require_job_decorators is not None:
         filters.append(DecoratorModulePreFilter(config.require_job_decorators))
 
+    # 9. The caller's own filter, if any — appended, never substituted, so a
+    # host that adds one keeps every `require_*` setting it also configured.
+    # Last because its cost is unknown: the built-ins above are ordered
+    # cheapest-first precisely so an expensive check runs on the fewest files,
+    # and an unknown cost is assumed expensive.
+    caller_filter = getattr(config, "pre_filter", None)
+    if caller_filter is not None:
+        filters.append(caller_filter)
+
     return AllOf(*filters)
 
 
@@ -173,11 +182,14 @@ def build_job_filter_from_config(config: DiscoveryConfig) -> JobFilter | None:
     return AllJobFilters(*filters)
 
 
-# The nine DiscoveryConfig settings that decide which modules and jobs are
+# The ten DiscoveryConfig settings that decide which modules and jobs are
 # admitted, each paired with its DiscoveryConfig default. Kept beside the two
 # builders above deliberately: the cache fingerprint must cover exactly the
 # fields those builders consume, and one file is what keeps the two in agreement
-# when a tenth setting is added.
+# when an eleventh setting is added.
+#
+# `pre_filter` is the one entry whose *value* is not what gets hashed --
+# see `_fingerprint_contribution` below.
 #
 # The defaults are repeated here because `_discovery` may not import the public
 # `app.config` at runtime (see `.spec/CONSTITUTION.md` layer rules), so they
@@ -194,6 +206,7 @@ _DISCOVERY_FINGERPRINT_FIELDS: tuple[tuple[str, object], ...] = (
     ("require_job_decorators", None),
     ("require_job_prefix", None),
     ("require_job_postfix", None),
+    ("pre_filter", None),
 )
 
 
@@ -219,7 +232,43 @@ def discovery_hash_from_config(config: DiscoveryConfig | None) -> str:
     """
     return compute_discovery_hash(
         [
-            (name, default if config is None else getattr(config, name, default))
+            (
+                name,
+                _fingerprint_contribution(
+                    name,
+                    default if config is None else getattr(config, name, default),
+                ),
+            )
             for name, default in _DISCOVERY_FINGERPRINT_FIELDS
         ]
     )
+
+
+def _fingerprint_contribution(name: str, value: object) -> object:
+    """What a field contributes to the digest, which is not always its value.
+
+    Nine of the ten settings are strings and tuples and hash as themselves. A
+    caller-supplied ``pre_filter`` cannot: ``compute_discovery_hash`` renders an
+    unrecognised value with ``str()``, and ``str()`` of an object carries its
+    address, so the digest would differ on every boot -- invalidating the cache
+    on every run while looking like it worked. Its ``fingerprint()`` is a
+    stable, caller-declared string, and is the only thing hashed.
+
+    A filter that predates the two-method Protocol has no ``fingerprint()``. It
+    is not silently accepted: a filter whose identity cannot be established
+    would replay decisions its own logic no longer makes, which is the X1-X4
+    class ADR-010/ADR-011 exist to close.
+    """
+    if name != "pre_filter" or value is None:
+        return value
+    fingerprint = getattr(value, "fingerprint", None)
+    if not callable(fingerprint):
+        msg = (
+            f"{type(value).__name__} was given as DiscoveryConfig.pre_filter but "
+            f"has no fingerprint(). The discovery cache persists this filter's "
+            f"negative decisions and replays them, so it needs a stable identity "
+            f"that changes when the filter's behaviour changes. Add a "
+            f"fingerprint() returning a string you bump when the logic changes."
+        )
+        raise TypeError(msg)
+    return f"fingerprint:{fingerprint()}"

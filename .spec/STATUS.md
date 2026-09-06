@@ -1682,6 +1682,36 @@ Items identified during development that are worth doing but not yet designed:
     by wiring the value to whatever reads it, or by removing the key if no
     consumer arrives.
 
+30. **`lazy=False` applies no discovery filter at all.** Not `pre_filter`, and
+    not the nine `require_*` settings either — `exclude_patterns`,
+    `require_file_prefix`, `require_job_decorators`, all of them are silently
+    ignored on the eager boot path. Found by `third-party-host-seams`/2.1 while
+    testing a field it had just added; the defect long predates that field.
+
+    `_app/boot.py` builds the pre-filter and job-filter stack from the config
+    and hands them to a provider — and then `resolve_and_register_jobs` does
+    not use that provider. For `lazy=False` it calls
+    `JobRegistry.scan_and_register_headless(app._jobs_directories)` instead,
+    and `_scan_directory_headless` enumerates with `pkgutil.iter_modules` and
+    accepts no filter argument. The filters are built and dropped.
+
+    Why it stayed invisible: `JobSources.lazy` defaults to `True`, so the
+    default path is the cached provider, which does apply them. Only a caller
+    who explicitly opts out of the cache gets an unfiltered scan — and gets it
+    with no warning, so a `require_file_prefix` that quietly stopped applying
+    looks like a discovery bug rather than a boot-path one.
+
+    Not fixed by 2.1, which adds a field rather than reworking eager boot. It
+    is pinned instead: `TestTheEagerPathFiltersNothing` in
+    `tests/discovery/test_pre_filter_hook.py` characterizes the gap on
+    `pre_filter` *and* on `require_file_prefix`, with a failure message saying
+    to delete the class. A fix therefore fails loudly and findably rather than
+    landing against a green suite that never covered it.
+
+    Close this by routing eager boot through the provider it already builds,
+    or by deciding the eager path is deprecated and saying so — but not by
+    leaving the filters built and discarded.
+
 ## Recently Completed (2026-08)
 
 | Feature | Description |

@@ -170,7 +170,7 @@ rather than waiting behind them.
 
 ## 2. Discovery hook
 
-- [ ] **2.1 — S1b: `DiscoveryConfig.pre_filter`**
+- [x] **2.1 — S1b: `DiscoveryConfig.pre_filter`**
   Add the field and wire it to `DirectoryScanProvider`'s existing `pre_filter`
   parameter, **combined** with the `require_*`-derived filter (AND), not
   replacing it.
@@ -202,6 +202,58 @@ rather than waiting behind them.
   - Reachability: `FunctualizeApp(discovery=DiscoveryConfig(pre_filter=…))` →
     boot → provider. Verify by dropping the wiring and watching the test fail.
   - `[verify-e2e:TARGETED]`
+
+  **Done 2026-09-06.** 8 tests in `tests/discovery/test_pre_filter_hook.py`,
+  5 more in `tests/discovery/test_discovery_hash.py`.
+
+  - Wired in `build_pre_filter_from_config`, not in `boot.py`. Both boot paths
+    and `app.utils.build_discovery_cache_provider` call that one builder, so
+    the seam is where the stack is assembled rather than in each caller. The
+    `[F]` set named `_app/boot.py`; it needed no change.
+  - Composed last in the AllOf. The built-ins are ordered cheapest-first so an
+    expensive check runs on the fewest files, and a caller's filter is of
+    unknown cost — which is assumed expensive.
+  - Acceptance met: `grep -c "pre_filter" src/functualize/app/config.py` → **1**
+    (authoring-time 0).
+  - The designed tripwire fired as predicted and is now green:
+    `test_fingerprint_covers_every_discovery_config_field` asserts set equality
+    between `DiscoveryConfig.__dataclass_fields__` and
+    `_DISCOVERY_FINGERPRINT_FIELDS`, and the tenth entry closes it. Whole file:
+    **25 passed**.
+  - The digest takes `fingerprint()`, never the object, via a new
+    `_fingerprint_contribution`. A filter that has no `fingerprint()` raises
+    `TypeError` rather than being hashed by `str()` — silently accepting it is
+    the X1-X4 replay defect, and the message says what to add.
+  - X4 asserted twice: as a digest (`test_a_changed_stamp_re_digests`) and as
+    behaviour through a real cold/warm cycle
+    (`test_a_changed_filter_rescans_rather_than_replaying`). The warm half is
+    asserted too, because a digest that moved every boot would pass the X4 half
+    alone while rescanning every run.
+  - Composition is AND, in both directions: a `require_file_prefix` set
+    alongside still rejects, and the caller's filter still rejects what the
+    prefix admits.
+  - **Reachability, by sabotage** (4 mutations, backup/restore, never
+    `git checkout`): never appending the filter → 3 failed; substituting the
+    stack instead of composing → 2 failed; dropping the tenth fingerprint entry
+    → 4 failed; hashing the object instead of `fingerprint()` → 2 failed.
+  - `[verify-e2e:TARGETED]` **met in a real process.** A `main.py` building the
+    app with a `RejectSkipme` filter lists `alpha-job` only; bumping the
+    filter's stamp and widening it to accept everything makes `beta-job`
+    reappear on the next run, against the cache the first run wrote to
+    `~/.cache/functualize/<project-hash>/cache.json` (which does hold the
+    persisted negative decision for `beta_skipme.py` — checked directly).
+
+  - **Found in passing: the eager path applies no discovery filter at all.**
+    With `lazy=False`, `resolve_and_register_jobs` calls
+    `JobRegistry.scan_and_register_headless` instead of the pipeline provider
+    the boot path just built, and `_scan_directory_headless` enumerates via
+    `pkgutil.iter_modules` taking no filter argument. So `require_file_prefix`,
+    `exclude_patterns` and the rest are silently ignored there — a pre-existing
+    defect far wider than this field (verified: `registry.py` and `boot.py` are
+    untouched by this feature). Out of scope for a task that adds a field.
+    Pinned by `TestTheEagerPathFiltersNothing`, which characterizes the gap on
+    `pre_filter` **and** on `require_file_prefix`, so a future fix fails loudly
+    and findably rather than being invisible. Recorded in `.spec/STATUS.md`.
 
 ---
 

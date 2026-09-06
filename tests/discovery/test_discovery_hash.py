@@ -9,6 +9,7 @@ requirement is that any change to an effective filter setting changes the digest
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -18,6 +19,27 @@ from functualize._discovery.filter_factory import (
 )
 from functualize._primitives.cache_format import compute_discovery_hash
 from functualize.app.config import DiscoveryConfig
+
+
+class _StampedFilter:
+    """A caller-supplied filter with the identity the cache needs."""
+
+    def __init__(self, stamp: str = "v1") -> None:
+        self._stamp = stamp
+
+    def should_import(self, source_file: Path) -> bool:
+        return True
+
+    def fingerprint(self) -> str:
+        return self._stamp
+
+
+class _UnstampedFilter:
+    """Answers the question, but cannot be fingerprinted."""
+
+    def should_import(self, source_file: Path) -> bool:
+        return True
+
 
 _SAMPLE_VALUES: dict[str, object] = {
     "exclude_patterns": ("test_*.py",),
@@ -29,6 +51,7 @@ _SAMPLE_VALUES: dict[str, object] = {
     "require_job_decorators": ("job",),
     "require_job_prefix": "do_",
     "require_job_postfix": "_task",
+    "pre_filter": _StampedFilter(),
 }
 
 
@@ -114,3 +137,52 @@ class TestDiscoveryHashFromConfig:
         actual = DiscoveryConfig()
         for name, default in _DISCOVERY_FINGERPRINT_FIELDS:
             assert getattr(actual, name) == default, name
+
+
+class TestTheCallerSuppliedFilterJoinsTheDigest:
+    """``pre_filter`` is the one field whose object is not what gets hashed."""
+
+    def test_a_changed_stamp_re_digests(self) -> None:
+        """The X4 direction: the filter's logic changed, so the cache must not
+        replay the decisions the old logic made."""
+        before = discovery_hash_from_config(
+            DiscoveryConfig(pre_filter=_StampedFilter("v1"))
+        )
+        after = discovery_hash_from_config(
+            DiscoveryConfig(pre_filter=_StampedFilter("v2"))
+        )
+        assert before != after
+
+    def test_an_unchanged_stamp_keeps_the_cache_warm(self) -> None:
+        """Two boots, two objects, same logic — the digest cannot move.
+
+        This is the half identity-hashing gets wrong: ``str()`` of an object
+        carries its address, so a digest built from the object itself would
+        differ on every boot and rescan every run while appearing to work.
+        """
+        first = discovery_hash_from_config(
+            DiscoveryConfig(pre_filter=_StampedFilter("v1"))
+        )
+        second = discovery_hash_from_config(
+            DiscoveryConfig(pre_filter=_StampedFilter("v1"))
+        )
+        assert first == second
+
+    def test_the_address_is_not_what_is_hashed(self) -> None:
+        """Directly: two same-stamp filters have different ``str()``."""
+        a, b = _StampedFilter("v1"), _StampedFilter("v1")
+        assert str(a) != str(b)
+        assert discovery_hash_from_config(
+            DiscoveryConfig(pre_filter=a)
+        ) == discovery_hash_from_config(DiscoveryConfig(pre_filter=b))
+
+    def test_no_filter_still_matches_the_default_config(self) -> None:
+        assert discovery_hash_from_config(
+            DiscoveryConfig(pre_filter=None)
+        ) == discovery_hash_from_config(DiscoveryConfig())
+
+    def test_a_filter_without_a_fingerprint_is_refused(self) -> None:
+        """Silently accepting it would replay decisions its logic no longer
+        makes — the defect ADR-010/ADR-011 exist to close."""
+        with pytest.raises(TypeError, match="fingerprint"):
+            discovery_hash_from_config(DiscoveryConfig(pre_filter=_UnstampedFilter()))
