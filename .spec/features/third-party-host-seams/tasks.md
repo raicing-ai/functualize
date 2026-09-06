@@ -552,12 +552,85 @@ rather than waiting behind them.
 
 ## 6. Checkpoint
 
-- [ ] **6.1 — Full gate run**
+- [x] **6.1 — Full gate run**
   - Acceptance: `uv run pytest`, `uv run ruff check src/ tests/`,
     `uv run ruff format --check src/ tests/`, `uv run mypy src/`,
     `uv run lint-imports` — all green.
   - Walk `spec.md`'s A1–A6 and `contracts.md` item by item; record each as met.
   - `[verify-e2e:FULL]`
+
+  **Done 2026-09-07.** Feature closed: 10/10 tasks, 4 waves.
+
+  ### Gates
+
+  | Gate | Result |
+  |---|---|
+  | `uv run pytest` | **8959 passed, 1544 skipped** |
+  | 13 plugin suites (one directory at a time) | all green — 448 passed, 1 skipped |
+  | `uv run ruff check src/ tests/` | clean |
+  | `uv run ruff format --check src/ tests/` | 1041 files already formatted |
+  | `uv run mypy src/` | 317 files, no issues |
+  | `uv run lint-imports` | 5 contracts kept, 0 broken |
+  | `uv run mkdocs build --strict` | exit 0 |
+
+  ### Acceptance criteria
+
+  | # | Result |
+  |---|---|
+  | **A1** | Met. `grep -c "pre_filter" src/functualize/app/config.py` → **1** (was 0). `tests/discovery/test_pre_filter_hook.py` rejects one module of two and asserts only the other's jobs appear, with a control proving the second is otherwise discoverable. |
+  | **A1b** | Met, both halves. `test_a_changed_stamp_re_digests` (digest) and `test_a_changed_filter_rescans_rather_than_replaying` (behaviour, through a real cold/warm cycle). The same filter in a fresh process yields the same hash — `test_the_address_is_not_what_is_hashed` proves the two objects have different `str()` and the same digest. |
+  | **A2** | Met, with the gate's literal form corrected. `grep -rn "from functualize._cli" src/functualize/app/packaging.py` → **0**. The criterion as written says the whole `app/` directory stays 0; it is **14**, and all fourteen predate this feature (recorded under 3.1: `adapters/cli.py` 6, `click_params.py` 3, `surface_gate.py` 2, `tui.py` 1, `commands.py` 2). The meaningful version — the new public module importing no `_cli`, transitively either — is asserted three ways including a subprocess `sys.modules` check. |
+  | **A3** | Met. A fixture distribution declaring `functualize.skills` has its skill appear in `list_skills`, in `resolve_skills_locations()`, and in all four `builtin skills` commands. Faked at the `importlib.metadata` seam rather than by installing a wheel — a real install would mutate the developer's environment, and `entry_points(group=…)` is the exact surface the code reads. |
+  | **A4** | Met. `job_detail` carries all four keys (`info.py:165-168`), 16 total. Pinned by `tests/cli/test_job_detail_declaration.py` (12 tests). Verified live: `builtin info`'s skills block renders the new per-source stamps in a real process. |
+  | **A5** | Met. `_KNOWN_TOOL_KEYS = frozenset({"job", "skill"})`. A script declaring `skill` parses it with no warning, and an unknown key still warns without failing — both asserted as unit tests *and* executed as doc-verify steps. |
+  | **A6** | Met — the table above. |
+
+  ### `contracts.md` — three signature drifts, all resolved toward the code
+
+  1. **S1 writes `accepts(self, path: Path, source: str) -> bool`.** The shipped
+     method is `should_import(self, source_file: Path) -> bool` — the name the
+     thirteen built-in filters in `_primitives/pre_filter.py` have always used,
+     and which the whole discovery path calls. The contract itself says this
+     seam *"promotes the existing shape rather than inventing one"*, so the
+     existing name is what was promoted. **Flagged for the maintainer.**
+  2. **S2 writes `detect(tool: str = "functualize") -> Detection`.** The real
+     signature is `detect(prefix, base_prefix, environ, argv0, cwd)` with
+     `detect_from_process()` as the no-argument door. Explicit on purpose:
+     `sys.prefix` cannot be set by an environment variable, so a version
+     reading it directly could only ever be exercised in whichever mode the
+     suite happens to run under. 3.1 was a *move*, so the shipped signature is
+     what became public. Pinned by an `inspect.signature` assertion.
+  3. **S2 writes `install_commands(req: Requirement, mode: InstallMode) ->
+     list[list[str]]`.** The real signature is
+     `install_commands(detection: Detection, package: str) -> tuple[tuple[str,
+     ...], ...]`, and the same for `update_commands` / `uninstall_commands`.
+     `Requirement` is a *uv receipt entry*, not an install request, so the
+     sketch had the wrong type in the wrong position; and the return is
+     immutable tuples rather than lists.
+
+  Everything else in `contracts.md` shipped as written: `fingerprint()`
+  load-bearing and enforced, the tenth `DiscoveryConfig` field contributing
+  `fingerprint()` rather than the object, AND composition, `SkillsLocation`
+  gaining `distribution` and `version`, `resolve_skills_locations()` with core
+  first, per-source materialization with core keeping `func-<version>`, a
+  broken entry point warning rather than raising, `plan_or_exit`/`refuse`/
+  `announce` staying in `_cli`, the manifest API deferred, `job_catalog`
+  unchanged, and the additive `job_detail` keys with a convention-declared job
+  rendering `[]`, `[]`, `None`, `None`.
+
+  ### `[verify-e2e:FULL]`
+
+  Full doc-verify suite, run as CI runs it (`PATH="$PWD/.venv/bin:$PATH"`):
+  **18 scenarios, 13 passed, 4 pty-skipped by policy (`CLAUDE.md:11`), 1
+  failed.** The failure is `l-standalone-binary`, exit 127 — the pre-existing
+  STATUS #28 defect in that scenario's own `xargs -I{} {} -c` recipe, unrelated
+  to this feature and unchanged by it.
+
+  Both new scenarios green: `r-hosting-guide` 11/11, `q-skills-hosting` 7/7.
+  Plus two real-process checks outside the harness: an app booted with a
+  caller-supplied `pre_filter` lists only the admitted job and re-scans when
+  the filter's stamp changes (2.1), and `builtin info` renders the per-source
+  skills stamps (4.2).
 
 ---
 

@@ -1712,6 +1712,30 @@ Items identified during development that are worth doing but not yet designed:
     or by deciding the eager path is deprecated and saying so — but not by
     leaving the filters built and discarded.
 
+31. **`ModulePreFilter` ships as `should_import`, not `accepts` — for the
+    maintainer to confirm.** `third-party-host-seams`/`contracts.md` §S1
+    sketches the promoted Protocol as `accepts(self, path: Path, source: str)
+    -> bool`. What shipped is `should_import(self, source_file: Path) -> bool`.
+
+    The implementation followed the code rather than the contract, deliberately
+    and on the contract's own reasoning: §S1 says this seam *"promotes the
+    existing shape rather than inventing one"*, and the existing shape is
+    `should_import(source_file)` — the method all thirteen built-in filters in
+    `_primitives/pre_filter.py` implement and every call site in discovery
+    invokes. Shipping `accepts` would have meant either renaming thirteen
+    filters and their call sites, or publishing a public method name that
+    disagrees with every internal one.
+
+    The `source` parameter is also absent: filters read the file themselves
+    (and the AST ones parse it), so a caller-supplied `source` string would be
+    a second, possibly-stale copy of what the filter is about to read.
+
+    This is now the public surface, exported from `functualize.plugin` and
+    documented in `docs/guides/jobs-discovery.md`. Renaming it later is a
+    breaking change, so it is flagged here rather than left as an unremarked
+    difference between the spec and the code. **No action needed if the shipped
+    name is right; this exists so the choice is visible.**
+
 ## Recently Completed (2026-08)
 
 | Feature | Description |
