@@ -1289,7 +1289,7 @@ Items identified during development that are worth doing but not yet designed:
     the "wire it" way; see `contributor/adr/016-remote-source-activation.md`.
 
     Two contracts found on the way and **not** closed, carried forward as
-    follow-up **21** below. The finding as originally written follows,
+    follow-up **26** below. The finding as originally written follows,
     unchanged.
 
     **`remote_first()` is a public preset that resolves nothing remotely.** The
@@ -1369,28 +1369,6 @@ Items identified during development that are worth doing but not yet designed:
     and that is the bug: there is more than one scanned directory, and the filter
     only ever knows about one of them.
 19. **The workflow hooks have no committed tests** — `.claude/hooks/{spec_gate,agent_contract,plan_context,bash_audit}.py` were verified exhaustively at authoring time (deny/pass/exemption/staleness/dedup/symlink-containment/fail-open, against real captured harness payloads), but those matrices were throwaway scripts. `grep -rn '.claude/hooks' tests/` returns **0**. Nothing catches a regression if someone edits a validator. This is the repo's own reachability rule pointed at itself: the declared surfaces in the feature's `contracts.md` are exercised by no committed test. Fix: a `tests/harness/` tier feeding recorded payloads to each script and asserting on stdout and exit code — never calling internals, since the hook's public entry point *is* stdin/stdout.
-21. **`RemoteProvider`'s docstring names two exceptions that do not exist, and
-    a 12-factor clause one shipped provider cannot honour.** Found while
-    building the two provider plugins (`remote-source-activation` 5.1/5.2) and
-    deliberately not fixed there — both are core contracts, and a plugin task
-    changing the protocol its own plugins implement is the wrong direction.
-
-    - The docstring tells an implementor to raise `RemoteKeyNotFoundError` and
-      `RemoteConnectionError`. **Neither exists.** Only `RemoteTimeoutError`
-      does, and none of the three is publicly exported, so `functualize-aws`
-      and `functualize-bitwarden` each define their own `SecretNotFoundError`.
-      Two plugins, two private hierarchies, and a caller cannot catch "not
-      found" generically. Either export the family or delete the promise.
-    - *"Credentials MUST be resolved from environment variables only, following
-      12-Factor App principles."* `functualize-bitwarden` honours it;
-      `functualize-aws` cannot, because the maintainer's per-value override
-      requirement (`?profile=`, `?role=`, `?account=`, `?region=`) is
-      something environment variables cannot express — different secrets in one
-      config file may need different accounts. The clause is now half-false by
-      design and should say what it actually means: the *ambient credential
-      chain* comes from the environment; an annotation may redirect which
-      identity is used, and never carries a credential itself.
-
 20. **User-scope `~/.claude/commands/agentic-*.md` shadow the project copies** — all five diverge, and two still name `ROADMAP.md` / `PROJECT.md`, files this repo removed. A maintainer with those personal copies gets the stale command; a fresh clone gets the correct one. Hooks hot-reload mid-session, but command definitions resolved this way do not. Fix: delete the user-scope copies so the project versions apply, or keep them deliberately and accept that project-level command fixes will not reach you.
 
     `boot.py:469` picks `base_dir = Path(app._jobs_directories[0])` and hands it to
@@ -1430,7 +1408,22 @@ Items identified during development that are worth doing but not yet designed:
     rush. But it is the failure class `AGENTS.md:82` names: shipped, unit-tested,
     and unreachable on the path that matters.
 
-21. **`functualize-lambda` reports every failure as HTTP 200 with a null body.**
+21. **CLOSED (2026-09-06) by `remote-source-activation`/4.2.** Both trigger
+    plugins now read the one `RunStatus` -> HTTP table
+    (`functualize.types.http_status_for_status`, declared in
+    `_types/http_status.py`), parameterized over every enum member so a tenth
+    status fails rather than defaulting. `functualize-http` had the same defect
+    in a subtler form — its JSON body said `"status": "failure"` while the
+    status *line* said `200 OK`, so anything reading only the line saw success.
+    Its reason-phrase map knew four codes and would have emitted
+    `HTTP/1.1 202 Unknown`; it now covers every code the table can produce.
+
+    Four `FakeJobResult`s typed `status` as a `str` is why this could hide, and
+    one test asserted `response["status"] == "success"` when the real value is
+    `"Success"` — documenting the fake rather than the wire. The finding as
+    originally written follows, unchanged.
+
+    **`functualize-lambda` reports every failure as HTTP 200 with a null body.**
     The generated handler
     (`plugins/functualize-lambda/src/functualize_lambda/__init__.py:126`) does
 
@@ -1465,7 +1458,29 @@ Items identified during development that are worth doing but not yet designed:
     a success nor an error, and that is the case the mapping has to name rather
     than round off.
 
-22. **`test_env_override_opens_the_gate` passes only under xdist sharding.**
+22. **AMENDED (2026-09-06) — the cause is a product defect, and it is proven.**
+    `tui.default_surface` is **not** in `_BASE_SETTINGS`; the shell registers it
+    as an import side effect of `_cli/tui/__init__.py:88`, and a direct
+    `func <job>` run under true-lazy boot never imports that package. So
+    neither `FUNCTUALIZE_TUI_DEFAULT_SURFACE` nor a `tui.default_surface` line
+    in a config file reaches the gate that exists to serve the direct-run path,
+    and `_explicit_stdout_preference`'s broad `except Exception` hides the
+    difference. Verified directly: with the env var set, the gate returns False
+    in a clean process and True immediately after
+    `register_settings(*tui_settings())`. Under `-n auto` xdist balances
+    dynamically, so whether the worker had already imported the shell varied
+    run to run — the sharding was the symptom, not the cause.
+
+    `remote-source-activation`/4.2 made both tests state which catalog they
+    mean and added
+    `test_the_setting_is_inert_until_the_shell_registers_it`, which asserts
+    against `_BASE_SETTINGS` so that **closing the gap fails the test** and
+    prompts its deletion. A `strict=True` xfail was tried and rejected: it
+    XPASSes once the shell has been imported, swapping one order-dependent
+    outcome for another. The fix belongs to the surface/settings owner. The
+    finding as originally written follows, unchanged.
+
+    **`test_env_override_opens_the_gate` passes only under xdist sharding.**
     `tests/adapters/test_surface_gate.py::TestWantsStdoutSurface::test_env_override_opens_the_gate`
     **fails when `tests/adapters/` is run on its own** and passes in the full
     suite under `-n auto`. Verified against `f9fe1ba` in a throwaway worktree,
@@ -1543,6 +1558,28 @@ Items identified during development that are worth doing but not yet designed:
     fix is in `.agents/skills/release/SKILL.md` Phase 0, which now enumerates
     the sites, gives the verification grep, and says plainly not to trust a
     count written in prose — including this file's.
+
+26. **`RemoteProvider`'s docstring names two exceptions that do not exist, and
+    a 12-factor clause one shipped provider cannot honour.** Found while
+    building the two provider plugins (`remote-source-activation` 5.1/5.2) and
+    deliberately not fixed there — both are core contracts, and a plugin task
+    changing the protocol its own plugins implement is the wrong direction.
+
+    - The docstring tells an implementor to raise `RemoteKeyNotFoundError` and
+      `RemoteConnectionError`. **Neither exists.** Only `RemoteTimeoutError`
+      does, and none of the three is publicly exported, so `functualize-aws`
+      and `functualize-bitwarden` each define their own `SecretNotFoundError`.
+      Two plugins, two private hierarchies, and a caller cannot catch "not
+      found" generically. Either export the family or delete the promise.
+    - *"Credentials MUST be resolved from environment variables only, following
+      12-Factor App principles."* `functualize-bitwarden` honours it;
+      `functualize-aws` cannot, because the maintainer's per-value override
+      requirement (`?profile=`, `?role=`, `?account=`, `?region=`) is
+      something environment variables cannot express — different secrets in one
+      config file may need different accounts. The clause is now half-false by
+      design and should say what it actually means: the *ambient credential
+      chain* comes from the environment; an annotation may redirect which
+      identity is used, and never carries a credential itself.
 
 ## Recently Completed (2026-08)
 
