@@ -840,7 +840,9 @@ def build_resolution_chain(
     """Build a ResolutionChain with source precedence: CLI → Env → Files → Defaults.
 
     This is the "classic" resolution order — identical to what the
-    `classic()` preset produces when the boot path discovers files.
+    `classic()` preset produces when the boot path discovers files. Passing
+    ``remote_source`` slots the vault between CLI and Env, which is the only
+    difference between this chain and ``remote_first()``'s.
 
     Args:
         config_path: Path to the directory containing config files.

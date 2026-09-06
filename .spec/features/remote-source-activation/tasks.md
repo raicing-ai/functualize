@@ -378,6 +378,30 @@ its command returned, so drift between authoring and execution is visible.
   Full suite **8549 passed, 1554 skipped**, 0 failures. `ruff`, `format`,
   `mypy` (316 files), `lint-imports` green.
 
+  **AMENDED during 6.1 — this task shipped with a hole, and the docs found
+  it.** Executing the guide's own worked example showed a job receiving
+  `aws-sm://prod/db-password` as its password **with no warning at all** — the
+  exact failure this task exists to remove.
+
+  Cause: `note_fallthrough` returned early on `usable`, which is *a key is
+  available AND the vault file exists*. The early return's comment reasoned
+  only about the missing-key half. The missing-**file** half is the opposite
+  situation — the key is there, nobody has run `vault sync` yet — and it is
+  both the most common first run and the one case whose fix the message can
+  actually name. The gate is now `opens` (a key is available); `usable` keeps
+  both halves for reads, because opening a non-existent SQLite path would
+  *create* one.
+
+  Why no test caught it: every test in `test_vault_miss.py` used the
+  `synced_vault` fixture, whose docstring says outright that it exists "so it
+  is `usable`". The one situation every new user meets first was the one
+  situation no test set up. Five tests added, and three sabotages — the
+  original gate restored (2 fail), the gate removed entirely (2), and `usable`
+  losing its `exists()` half (2).
+
+  This is the parity guide's thesis holding up: the claim was falsifiable only
+  by running the thing, and reading the code would not have found it.
+
 - [x] **3.3 — V5: staleness warning** — DONE
   `synced_at` per entry; `[vault] max_age` (default `24h`); warn and **still
   run**.
@@ -887,13 +911,88 @@ its command returned, so drift between authoring and execution is visible.
 
 ## 6. Documentation
 
-- [ ] **6.1 — Document the remote layer**
+- [x] **6.1 — Document the remote layer** — DONE
   `docs/guides/configuration.md` gains the annotation syntax, the vault, the
   key seam and the sync workflow. Correct the existing text that says
   `remote_first()` is not wired.
-  - `[F]` the doc files touched
+  - `[F]` `docs/guides/configuration.md`,
+    `docs/getting-started/quickstart.md`, `docs/guides/plugins.md`,
+    `README.md`, `CHANGELOG.md`,
+    `contributor/guides/docs-example-parity.md`,
+    `examples/docs/scenarios/p-remote-vault.toml` (new),
+    `examples/docs/scenarios/l-secrets.toml`,
+    `src/functualize/_cli/tui/panels/config_table.py`,
+    `src/functualize/_app/boot.py`
   - Acceptance: every snippet executes; `mkdocs build --strict` exits 0.
-  - Sequenced last so it describes shipped behaviour.
+    **Met**, and "executes" was taken literally — see below.
+  - Sequenced last so it describes shipped behaviour. **The sequencing paid for
+    itself.**
+
+  **Every snippet was run, not read.** In a scratch project: the guide's exact
+  `config.base.toml` produced exactly the three annotations it claims, with
+  `region` and `docs_url` untouched and nothing unresolved; its exact `main.py`
+  constructed against the three genuinely installed providers; all five `vault`
+  subcommands answered; the `status` console block matches the real rendering
+  down to `4d 2h ago  <- stale`; a real sync with no credentials reported
+  `not ready` per provider and exited 3; and both plugins parsed all four
+  provider-option references in the last block.
+
+  **Doing that found a shipped defect, which is the whole point of the
+  sequencing.** The worked example emitted **no warning** where the guide said
+  it would. Fixed under 3.2, whose record is amended above with the cause and
+  the sabotages. A documentation task changing production code is a deviation
+  worth naming — but a doc describing a warning the code does not emit is the
+  wrong half to correct.
+
+  **Six stale claims removed**, found by grepping the *claim* rather than the
+  file, per the parity guide:
+
+  1. `README.md` and `quickstart.md` preset tables: "**remote resolution is not
+     wired**" -> the real chain, plus a three-line getting-started.
+  2. Both files' warning blocks: "does not resolve anything remotely" -> what it
+     now does, with the pre-0.2.4 behaviour kept as history rather than deleted.
+  3. `configuration.md`: "resolves as classic() today".
+  4. `configuration.md`: "**Config files have no vocabulary for naming a
+     secret's location, and none is planned.**" Now false. The neighbouring
+     `${env:VAR}` rejection is *not* false and stands — the text now says why
+     an annotation is a different thing: it names a location the config file
+     could not otherwise reach, and nothing about it tempts anyone to paste a
+     password in its place.
+  5. `config_table.py:50` claimed the chain is `CLI -> Env -> File -> Remote ->
+     Default`. The vault sits between CLI and Env. A wrong precedence in a
+     panel docstring is how the next person learns it wrong.
+  6. `build_resolution_chain`'s docstring described only the classic order
+     while the function had grown the remote slot.
+
+  **Two index-drift repairs**, that class being one the parity guide names:
+  `functualize-aws` and `functualize-bitwarden` added to both plugin tables
+  (README and `plugins.md`), and `l-secrets.toml`'s source line range corrected
+  — my edits shifted it by 4 lines, and it was pointing at the wrong paragraph.
+
+  **A new executable scenario, `p-remote-vault.toml`**, pinning the claims that
+  only running can falsify: `keygen` emits 64 hex characters and a *different*
+  one each time; `status` and `list` answer with **no key exported**, which is
+  the entire reason the metadata columns are cleartext; `--json` is
+  machine-readable; a project declaring nothing remote says so and writes no
+  vault file. It redirects `XDG_DATA_HOME`, because `clear --yes` deletes
+  without asking and a maintainer who had synced a real vault for this
+  repository should not lose it to a documentation check.
+
+  Its ninth step was written asserting a `no app context` usage error, and the
+  harness rejected it: the shipped `func` always boots an app, so that branch
+  is unreachable from a terminal. Rewritten to assert what actually happens.
+
+  **Verification.** `mkdocs build --strict` exits 0. `p-remote-vault` and
+  `l-secrets` both pass. `uv run pytest examples/` — 187 passed. Full suite
+  **8707 passed, 1544 skipped**, 0 failures; `ruff`, `format`, `mypy` (316
+  files), `lint-imports` green.
+
+  The full scenario sweep had 5 unrelated failures, all environmental: four
+  PTY-based TUI scenarios run from a non-interactive shell, and
+  `l-standalone-binary` exiting 127 on a build tool this host lacks.
+  `g-discovery` also failed in that sweep and **passes alone** — I had three
+  heavyweight jobs running at once, which is also what made
+  `test_packaging.py` fail in one root-suite run and pass on its own.
 
 ---
 

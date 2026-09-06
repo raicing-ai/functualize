@@ -47,7 +47,8 @@ class ParamKind(Enum):
     """Classification of a field's resolution behavior.
 
     PLAIN: Direct pass-through from CLI/default only (no layered resolution).
-    CONFIG: Full layered resolution chain (CLI → Env → File → Remote → Default).
+    CONFIG: Full layered resolution chain (CLI → Env → File → Default), with
+    the vault slotted between CLI and Env under `remote_first()` (ADR-016).
     """
 
     PLAIN = "plain"

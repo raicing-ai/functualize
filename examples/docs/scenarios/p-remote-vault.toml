@@ -1,0 +1,99 @@
+[scenario]
+name = "p-remote-vault"
+version = 1
+description = "The builtin vault family: keygen, and the surfaces that answer with no key"
+
+[source]
+file = "docs/guides/configuration.md"
+lines = "605-641"
+description = "The `builtin vault` commands, and the claim that `list` and `status` need no key"
+
+requires = []
+
+# Everything here is credential-free on purpose. Fetching from a real provider
+# needs a real account, which is why the providers are tested against fakes
+# (plan.md §5) — but the *surfaces* make claims that only running them can
+# falsify, and those are what this scenario pins.
+#
+# FUNCTUALIZE_VAULT_KEY is deliberately NOT set for the read-only steps. The
+# whole reason `key`, `annotation`, `provider` and `synced_at` are stored in
+# clear is so these answer on a machine that cannot open the store, and a
+# scenario that exported a key would never notice that regressing.
+#
+# Every step redirects XDG_DATA_HOME. Vaults live under it, and `clear --yes`
+# deletes without asking -- a maintainer who had actually synced a vault for
+# this repository would otherwise lose it to a documentation check.
+
+[[steps]]
+description = "keygen prints 64 hex characters and nothing else"
+engine = "shell"
+command = "XDG_DATA_HOME=${TMPDIR:-/tmp}/functualize-doc-verify-vault func builtin vault keygen"
+expected = { exit_code = 0, stdout_regex = "^[0-9a-f]{64}\\s*$" }
+timeout = 30
+
+[[steps]]
+description = "each keygen differs — a constant key would pass a shape check"
+engine = "shell"
+command = "test \"$(XDG_DATA_HOME=${TMPDIR:-/tmp}/functualize-doc-verify-vault func builtin vault keygen)\" != \"$(XDG_DATA_HOME=${TMPDIR:-/tmp}/functualize-doc-verify-vault func builtin vault keygen)\""
+expected = { exit_code = 0 }
+timeout = 30
+
+[[steps]]
+description = "status answers with no key at all, and says which provider it has"
+engine = "shell"
+command = "XDG_DATA_HOME=${TMPDIR:-/tmp}/functualize-doc-verify-vault func builtin vault status"
+expected = { exit_code = 0, stdout_contains = "Key provider:" }
+timeout = 30
+
+[[steps]]
+description = "status names the vault path and the threshold in force"
+engine = "shell"
+command = "XDG_DATA_HOME=${TMPDIR:-/tmp}/functualize-doc-verify-vault func builtin vault status"
+expected = { exit_code = 0, stdout_contains = "Max age:      1d" }
+timeout = 30
+
+[[steps]]
+description = "status --json is machine-readable"
+engine = "shell"
+command = "XDG_DATA_HOME=${TMPDIR:-/tmp}/functualize-doc-verify-vault func builtin vault status --json"
+expected = { exit_code = 0, stdout_contains = "\"max_age_seconds\": 86400" }
+timeout = 30
+
+[[steps]]
+description = "an unsynced project says so, and names the command that fixes it"
+engine = "shell"
+command = "XDG_DATA_HOME=${TMPDIR:-/tmp}/functualize-doc-verify-vault func builtin vault list"
+expected = { exit_code = 0, stdout_contains = "func builtin vault sync" }
+timeout = 30
+
+[[steps]]
+description = "list --json is a document, empty or not"
+engine = "shell"
+command = "XDG_DATA_HOME=${TMPDIR:-/tmp}/functualize-doc-verify-vault func builtin vault list --json"
+expected = { exit_code = 0, stdout_contains = "\"entries\"" }
+timeout = 30
+
+[[steps]]
+description = "clearing a vault that is not there is not an error"
+engine = "shell"
+command = "XDG_DATA_HOME=${TMPDIR:-/tmp}/functualize-doc-verify-vault func builtin vault clear --yes"
+expected = { exit_code = 0, stdout_contains = "No vault to clear" }
+timeout = 30
+
+# Written the other way round first, asserting a "no app context" usage error,
+# and the harness caught it: the shipped `func` always boots an app, so that
+# branch is unreachable from a terminal. What a project with nothing declared
+# remotely actually gets is this -- and saying so is the useful claim anyway.
+[[steps]]
+description = "a project declaring nothing remote says so, and does not fail"
+engine = "shell"
+command = "XDG_DATA_HOME=${TMPDIR:-/tmp}/functualize-doc-verify-vault func builtin vault sync"
+expected = { exit_code = 0, stdout_contains = "Nothing to sync" }
+timeout = 30
+
+[[steps]]
+description = "and it wrote no vault file for the nothing it stored"
+engine = "shell"
+command = "XDG_DATA_HOME=${TMPDIR:-/tmp}/functualize-doc-verify-vault func builtin vault status"
+expected = { exit_code = 0, stdout_contains = "Exists:       no" }
+timeout = 30

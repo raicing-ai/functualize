@@ -13,6 +13,7 @@ The configuration system provides:
 - **Per-job sections** that map directly to `JobConfig` Pydantic models
 - **Tracking** of which settings were accessed and where values came from
 - **[Credentials](#credentials)** declared with `Secret[str]`, masked on every surface that renders configuration
+- **[Remote configuration](#remote-configuration)** — values declared as `aws-sm://prod/db-password`, synced into an encrypted local vault
 
 ## Configuration Presets
 
@@ -30,18 +31,21 @@ app = FunctualizeApp(name="myapp", config_sources=twelve_factor())
 # Env-only: CLI → Env → Defaults (minimal, with optional dotenv)
 app = FunctualizeApp(name="myapp", config_sources=env_only(dotenv=True))
 
-# Remote-first: despite the name, resolves as classic() today — see the warning below
+# Remote-first: CLI → Vault → Env → Files → Defaults
 app = FunctualizeApp(name="myapp", config_sources=remote_first())
 ```
 
-!!! warning "`remote_first()` does not resolve anything remotely"
-    The preset exists and is exported, but the boot wiring is not there:
-    nothing in the shipped package constructs a `RemoteSource`, and
-    `remote_first()` returns `config_resolution_chain=None`, which boot turns
-    into the classic chain `[CliSource, EnvSource, FileSource, DefaultSource]`.
-    It is `classic()` with a different file pattern and `dotenv=False`. Choose it
-    for a vault and your credentials come from a local file or the environment,
-    with nothing to say so.
+!!! info "`remote_first()` requires a provider plugin"
+    It resolves declared `provider://reference` annotations from the project's
+    encrypted local vault, which `func builtin vault sync` fills. Selecting it
+    with **no** remote provider registered raises at construction rather than
+    quietly resolving from local files. See
+    [Remote Configuration](#remote-configuration).
+
+    Before 0.2.4 this preset silently *was* `classic()`: it returned
+    `config_resolution_chain=None` and no boot path built a remote source, so
+    an operator choosing it for AWS Secrets Manager got local files and
+    environment variables with no warning.
 
 
 When no `config_sources` is specified, the default behavior is identical to `classic()`.
@@ -436,19 +440,237 @@ for.
 
 ### Where credentials come from
 
-Set them in the environment, or in a `.env` file that is not committed. **Config
-files have no vocabulary for naming a secret's location, and none is planned.**
+Set them in the environment, or in a `.env` file that is not committed — or
+name a remote secret store with an annotation, covered in
+[Remote Configuration](#remote-configuration).
 
-A `${env:VAR}` interpolation syntax was considered and rejected. It reads as
-indirection but resolves to the same environment variable the field would have
-read anyway — so it adds a syntax, a parse step and a failure mode, and buys
-nothing except the appearance of a secrets feature. That appearance is the
-danger: it invites putting the real value there "just for now". A field that
-resolves from the environment does so because that is the ladder, not because a
-config file pointed at it.
+A `${env:VAR}` interpolation syntax was considered and **rejected**, and that
+decision stands. It reads as indirection but resolves to the same environment
+variable the field would have read anyway — so it adds a syntax, a parse step
+and a failure mode, and buys nothing except the appearance of a secrets
+feature. That appearance is the danger: it invites putting the real value there
+"just for now". A field that resolves from the environment does so because that
+is the ladder, not because a config file pointed at it.
+
+An annotation is a different thing, and the difference is the whole reason it
+was accepted where `${env:VAR}` was not: `aws-sm://prod/db-password` names a
+location the config file could not otherwise reach, and nothing about it
+tempts anyone to paste a password in its place. It names **where** a credential
+lives and never carries its **value** (ADR-016).
 
 There is no `[secrets]` section. A credential is a field in its job's own
 section, marked secret — one concept, not two.
+
+## Remote Configuration
+
+A config value can name **where** a credential lives instead of carrying it:
+
+```toml title="config.base.toml"
+[data-sync]
+password = "aws-sm://prod/db-password"
+api_token = "aws-ssm:///platform/api-token"
+webhook   = "bws://8a9c2f0e-1b3d-4c5e-9f70-2a1b3c4d5e6f"
+region    = "eu-west-1"                      # an ordinary value, untouched
+docs_url  = "https://docs.example.com"       # an ordinary URL, untouched
+```
+
+Two rules make that safe to put in a committed file:
+
+- The annotation names a **location**, never a **value**. Reading the file
+  tells you a credential exists and which store holds it, which is what the
+  file previously could not say at all.
+- A value is an annotation only when its scheme matches a **registered
+  provider**. `https://docs.example.com` stays a string because no plugin
+  registers `https`.
+
+### The vault, and why reads never hit the network
+
+Values are fetched by `func builtin vault sync` and written to a per-project
+encrypted store. A job run reads that store and **never** the network.
+
+That is a deliberate trade (ADR-016). Resolving annotations live would put a
+network round-trip and a 30-second timeout between the operator and every job
+run, including runs of jobs that use no secret at all — and it would stop you
+working offline. Here the network is touched when *you* sync.
+
+```mermaid
+flowchart LR
+    sync["func builtin vault sync"] -->|"fetch"| remote["AWS / Bitwarden / ..."]
+    sync -->|"encrypt + store"| vault[("local vault")]
+    run["func data-sync"] -->|"read"| vault
+    run -.->|"never"| remote
+```
+
+Only the **value** is encrypted. `key`, `annotation`, `provider` and
+`synced_at` are stored in clear on purpose, so `vault list` can report what is
+held and how fresh it is on a machine that cannot open the store. None of them
+is the secret: knowing that `data-sync.password` came from
+`aws-sm://prod/db-password` reveals nothing the config file did not already say
+out loud.
+
+Each project gets its own vault, keyed the same way the discovery cache is. A
+repository you cloned to look at cannot read the secrets of a project you
+actually work on.
+
+### Getting started
+
+```bash
+# 1. Install a provider plugin.
+pip install functualize-aws          # aws-sm, aws-ssm
+pip install functualize-bitwarden    # bws
+
+# 2. Create a vault key and keep it somewhere your shell can read.
+export FUNCTUALIZE_VAULT_KEY=$(func builtin vault keygen)
+
+# 3. Declare annotations in your config file, then fill the vault.
+func builtin vault sync
+
+# 4. Run jobs as usual. Nothing else contacts the network.
+func data-sync
+```
+
+Select the preset in your `main.py`:
+
+```python
+from functualize.app import FunctualizeApp, JobSources, remote_first
+
+app = FunctualizeApp(
+    name="my-platform",
+    job_sources=JobSources(directories=["my_platform.jobs"]),
+    config_sources=remote_first(),
+)
+```
+
+### Where the vault sits in the chain
+
+`remote_first()` builds **CLI → Vault → Env → Files → Defaults**. A synced
+secret outranks the environment and the config file; an explicit CLI argument
+still wins.
+
+Note what that means in practice: once `data-sync.password` is in the vault, an
+environment variable no longer overrides it. That is the preset's whole
+proposition — the value comes from the store you named — but it is a change
+from `classic()` worth knowing before you switch.
+
+### The key
+
+The vault key is resolved by a `VaultKeyProvider`, non-interactive sources
+first:
+
+| Provider | Source | Interactive |
+|---|---|---|
+| `env` | `$FUNCTUALIZE_VAULT_KEY` (64 hex characters) | no |
+| `keychain` | the OS keyring | yes |
+
+The environment wins **when set**, so an automated run is deterministic and
+never blocks on a prompt. Interactive providers are consulted only on a real
+terminal — a Lambda must not hang on a keychain dialog.
+
+With no key at all the vault does not open. There is **no plaintext fallback**:
+resolution falls through to the next source, and says so.
+
+### Three things that warn rather than fail
+
+Offline work has to keep working, so none of these stops a run.
+
+**A key declared remotely with nothing synced for it.** Resolution continues to
+the next source, and the warning names the key, its annotation, which source
+answered instead, and the fix:
+
+```
+Config key 'data-sync.password' is declared remotely as
+'aws-sm://prod/db-password', but the vault holds no synced value for it. The
+job will receive the literal annotation string from
+file (/srv/my-platform/config.base.toml), not the secret it names. Run
+`func builtin vault sync` to fill the vault.
+```
+
+That is also what a **first run** looks like — a key exported and `vault sync`
+not yet run. It warns per declared key rather than once, because unlike a
+missing key it has a one-command fix the message can name.
+
+Once per key per run, not once per access.
+
+**A stale vault.** Past `max_age` (default `24h`, judged on the oldest entry)
+the first vault read of a run warns once and the run continues:
+
+```python
+config_sources=remote_first(max_age="7d")
+```
+
+`$FUNCTUALIZE_VAULT_MAX_AGE` overrides that. Durations are
+`<number><unit>` terms — `30s`, `45m`, `24h`, `7d`, `2w`, or `1d12h`. A bare
+number is refused rather than guessed, and so is `1M`: a month has no fixed
+length, and reading it as minutes would be wrong by a factor of 43,200.
+
+**An annotation whose plugin is not installed.** `aws-sm://prod/db` with
+`functualize-aws` absent is reported by `vault sync` rather than passed over,
+because the alternative is a job receiving the literal string as its password.
+
+### The `builtin vault` commands
+
+```bash
+func builtin vault sync      # fetch every annotation, write the vault
+func builtin vault list      # names, providers, synced_at -- never values
+func builtin vault status    # key provider in use, age, entry count
+func builtin vault clear     # delete this project's vault
+func builtin vault keygen    # print a fresh 32-byte key, hex-encoded
+```
+
+`sync`, `list` and `status` take `--json`.
+
+`list` and `status` need **no key** — they read the cleartext metadata columns,
+which is what makes them useful on the machine where something is wrong.
+`status` also never prompts, so it is safe in a script.
+
+```console
+$ func builtin vault status
+Path:         ~/.local/share/functualize/vaults/0f8c5900f3b1/vault.db
+Exists:       yes
+Entries:      3
+Key provider: env
+Last synced:  4d 2h ago  ← stale
+Max age:      1d
+Providers:    aws-sm, aws-ssm, bws
+
+Run `func builtin vault sync` to refresh it.
+```
+
+`sync` collects failures rather than stopping at the first: one unreachable
+provider must not abandon the other twelve secrets. It exits non-zero when
+anything declared did not land, so a pipeline still notices.
+
+Only config **files** are scanned. An annotation set in an environment variable
+would, once synced, be answered by the vault instead — the vault sits above Env
+— so re-exporting the variable would silently stop changing anything.
+
+### Fallback chains
+
+An annotation may name more than one store, tried in order:
+
+```toml
+[data-sync]
+password = "aws-sm://prod/db-password | bws://DB_PASSWORD"
+```
+
+Up to five entries. Each keeps its own provider-specific options, and `sync`
+reports every entry's reason when the whole chain is exhausted.
+
+### Provider-specific references
+
+Everything after `://` is opaque to functualize and is handed to the provider
+whole, which is what lets a provider define its own options:
+
+```toml
+[data-sync]
+password = "aws-sm://prod/db-password?profile=prod-admin"
+replica  = "aws-sm://prod/db?account=123456789012&region=eu-west-1"
+audit    = "aws-ssm:///p/audit?role=arn:aws:iam::123456789012:role/Deploy"
+scoped   = "bws://DB_PASSWORD?project=aaaaaaaa-1111-2222-3333-444444444444"
+```
+
+See each plugin's README for the options it honours. Both shipped plugins
+refuse an unknown option rather than ignoring it.
 
 ## Complete Example
 

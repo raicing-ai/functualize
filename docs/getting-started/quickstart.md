@@ -208,16 +208,14 @@ app = FunctualizeApp(
 | `classic()` | CLI → Env → Config files → Defaults | Local dev, desktop tools |
 | `twelve_factor()` | CLI → Env → Defaults (no files) | Docker, Kubernetes, Heroku |
 | `env_only()` | CLI → Env → Defaults (dotenv on) | Serverless, minimal setups |
-| `remote_first()` | CLI → Env → Files → Defaults — **remote resolution is not wired** | — |
+| `remote_first()` | CLI → Vault → Env → Files → Defaults | AWS Secrets Manager, Bitwarden |
 
-!!! warning "`remote_first()` does not resolve anything remotely"
-    The preset exists and is exported, but the boot wiring is not there:
-    nothing in the shipped package constructs a `RemoteSource`, and
-    `remote_first()` returns `config_resolution_chain=None`, which boot turns
-    into the classic chain `[CliSource, EnvSource, FileSource, DefaultSource]`.
-    It is `classic()` with a different file pattern and `dotenv=False`. Choose it
-    for a vault and your credentials come from a local file or the environment,
-    with nothing to say so.
+!!! info "`remote_first()` needs a provider plugin and a vault key"
+    Config values declared as `aws-sm://prod/db-password` resolve from an
+    encrypted local vault that `func builtin vault sync` fills — reads never
+    touch the network. Selecting the preset with no remote provider registered
+    raises at construction rather than quietly resolving from local files. See
+    [Remote Configuration](../guides/configuration.md#remote-configuration).
 
 You can also write your own preset — any function returning `ConfigSources` works:
 

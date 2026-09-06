@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — the remote configuration layer
+
+`remote_first()` stops being a lie. It returned `config_resolution_chain=None`
+for its whole shipped life, which boot turned into the classic chain, so an
+operator selecting it for AWS Secrets Manager got local files and environment
+variables with no warning. Selecting it with no remote provider registered now
+**raises at construction** rather than degrading (ADR-016).
+
+A config value can name where a credential lives instead of carrying it:
+
+```toml
+[data-sync]
+password = "aws-sm://prod/db-password"
+```
+
+Those are fetched by `func builtin vault sync` and written to a per-project
+encrypted vault (AES-256-GCM, one file per project). **Job runs read the vault
+and never the network** — resolving live would put a 30-second timeout between
+the operator and every run, including runs of jobs that use no secret, and
+would end offline work.
+
+- **`func builtin vault`** — `sync`, `list`, `status`, `clear`, `keygen`.
+  `list` and `status` need no key: `key`, `annotation`, `provider` and
+  `synced_at` are stored in clear on purpose, and only the value is encrypted.
+  No surface renders a value.
+- **`functualize-aws`** — `aws-sm` (Secrets Manager) and `aws-ssm` (Parameter
+  Store, including `SecureString`), with per-value `?profile=`, `?role=`,
+  `?region=` and `?account=` overrides.
+- **`functualize-bitwarden`** — `bws` (Bitwarden **Secrets Manager**, not
+  Password Manager; Vaultwarden cannot serve it).
+- **Vault keys** through a new `VaultKeyProvider` protocol:
+  `$FUNCTUALIZE_VAULT_KEY` first, the OS keyring only on a real terminal. With
+  no key the vault does not open, and there is no plaintext fallback.
+- **Three loud degradations, none of them fatal.** A key declared remotely with
+  nothing synced falls through and warns, naming which source answered instead.
+  A vault older than `[vault] max_age` (default `24h`) warns and still runs. An
+  annotation whose plugin is not installed is reported rather than read as a
+  literal.
+- `functualize.types.http_status_for_status` — the one `RunStatus` → HTTP
+  mapping, now consumed by the Lambda and HTTP trigger plugins, which both
+  returned a constant `200` regardless of outcome.
+
+`cryptography` is now a core dependency.
+
+
 ## [0.2.3] - 2026-09-04
 
 ### Fixed — the seventh binary

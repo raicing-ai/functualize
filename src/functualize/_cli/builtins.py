@@ -1697,10 +1697,12 @@ def register_builtin_commands(cli_group: Any) -> None:
             click.echo("The vault is empty. Run `func builtin vault sync` to fill it.")
             return
 
-        width = max(len(e.key) for e in entries)
+        key_width = max(len(e.key) for e in entries)
+        provider_width = max(len(e.provider) for e in entries)
         for entry in entries:
             click.echo(
-                f"{entry.key:<{width}}  {entry.provider}  "
+                f"{entry.key:<{key_width}}  "
+                f"{entry.provider:<{provider_width}}  "
                 f"{entry.synced_at.isoformat(timespec='seconds')}  {entry.annotation}"
             )
 

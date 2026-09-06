@@ -15,7 +15,10 @@ both are reachable from ``func --help``:
 * **No key available.** The vault cannot be opened, so it answers nothing.
 * **No vault file yet.** Nobody has run ``vault sync``.
 
-In both cases resolution continues to the next source. That fall-through is
+In both cases resolution continues to the next source, and the two are *not*
+treated alike when it comes to saying so: the first is announced once at boot,
+the second warns per declared key, because "run ``vault sync``" is advice only
+the second case can act on. That fall-through is
 made *visible* by :meth:`VaultSource.note_fallthrough`, which the chain calls
 on any source that answered nothing, naming the source that answered instead.
 Leaving it silent would rebuild the very defect this feature exists to remove.
@@ -128,8 +131,25 @@ class VaultSource:
 
     @property
     def usable(self) -> bool:
-        """Whether this source can answer anything at all."""
+        """Whether this source can answer anything at all.
+
+        Both halves matter, and for different reasons: with no key nothing
+        decrypts, and with no file there is nothing to read — opening a
+        non-existent SQLite path would *create* one.
+        """
         return self._key is not None and self._vault.path.exists()
+
+    @property
+    def opens(self) -> bool:
+        """Whether a key is available, regardless of what is stored.
+
+        Deliberately distinct from :attr:`usable`. "This machine cannot open
+        the vault" and "nobody has synced yet" are different situations with
+        different fixes, and conflating them is what let the most common
+        first-run case — a key exported, ``vault sync`` never run — fall
+        through in silence. See :meth:`note_fallthrough`.
+        """
+        return self._key is not None
 
     def _qualified(self, key: str, section: str | None) -> str:
         return f"{section}.{key}" if section else key
@@ -223,9 +243,17 @@ class VaultSource:
                 alternatives from lower-priority sources.
             section: The section the key was resolved in, if any.
         """
-        if not self.usable:
-            # Boot already warned once that no key is available; repeating it
-            # per key would drown the message rather than sharpen it.
+        if not self.opens:
+            # No key: boot already warned once, and with no key *every* lookup
+            # falls through, so a per-key warning would drown that message
+            # rather than sharpen it.
+            #
+            # Gated on `opens` rather than `usable` on purpose. A vault file
+            # that does not exist yet is the opposite case: the key is there,
+            # nothing has been synced, and "run `vault sync`" is exactly the
+            # advice this warning gives. Silence there was a real defect —
+            # every test used a vault that existed, so nothing caught it until
+            # the documentation's own example was executed.
             return
 
         qualified = self._qualified(resolved.key, section)

@@ -311,6 +311,85 @@ class TestOnlyDeclaredKeysWarn:
         assert caplog.records == []
 
 
+class TestTheFirstRunIsTheLoudestCase:
+    """A key exported, `vault sync` never run — and nothing warned.
+
+    Found by executing this feature's own documentation, not by a test. Every
+    test in this file used the `synced_vault` fixture, whose docstring says
+    outright that it exists "so it is `usable`" — so the one situation every
+    new user meets first was the one situation no test covered.
+
+    The cause was a single gate: `note_fallthrough` returned early on
+    `usable`, which is `a key is available AND the file exists`. Its comment
+    reasoned only about the missing-key half. The missing-*file* half is the
+    opposite case: the key is there, nothing has been synced, and
+    "run `vault sync`" is precisely the advice the warning gives.
+    """
+
+    def test_a_vault_that_was_never_synced_still_warns(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        below = _StaticSource(
+            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+        )
+        chain = _chain(_source(tmp_path / "never-synced.db"), below)
+        with caplog.at_level(logging.WARNING):
+            resolved = chain.resolve("password", "database")
+
+        assert resolved.value == _ANNOTATION
+        assert len(caplog.records) == 1
+        assert _ANNOTATION in caplog.records[0].getMessage()
+
+    def test_the_warning_names_the_command_that_would_fix_it(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The whole reason this case must not be silent: unlike a missing
+        key, it has a one-command fix that the message can name."""
+        below = _StaticSource(
+            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+        )
+        with caplog.at_level(logging.WARNING):
+            _chain(_source(tmp_path / "never-synced.db"), below).resolve(
+                "password", "database"
+            )
+        assert "vault sync" in caplog.records[0].getMessage()
+
+    def test_no_file_and_no_key_stays_silent(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The half that was right. Boot already warned; with no key every
+        lookup falls through, so per-key warnings would drown it."""
+        below = _StaticSource(
+            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+        )
+        chain = _chain(_source(tmp_path / "never-synced.db", key=None), below)
+        with caplog.at_level(logging.WARNING):
+            chain.resolve("password", "database")
+        assert caplog.records == []
+
+    def test_an_unsynced_vault_is_still_silent_about_ordinary_keys(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Opening the gate must not open it for everything: without the
+        annotation test, a project that never synced would warn about every
+        key it resolves."""
+        below = _StaticSource("file", "config.dev.toml", {"database.port": "5432"})
+        chain = _chain(_source(tmp_path / "never-synced.db"), below)
+        with caplog.at_level(logging.WARNING):
+            chain.resolve("port", "database")
+        assert caplog.records == []
+
+    def test_it_still_answers_nothing_and_creates_no_file(self, tmp_path: Path) -> None:
+        """`usable` keeps both halves: opening a non-existent SQLite path
+        would create one, and a source that reports `has()` and then yields
+        None breaks the chain's contract."""
+        path = tmp_path / "never-synced.db"
+        source = _source(path)
+        assert source.get("password", "database") is None
+        assert source.has("password", "database") is False
+        assert not path.exists()
+
+
 class TestTheChainStaysGeneric:
     def test_a_source_without_the_hook_is_not_called(self, tmp_path: Path) -> None:
         """The hook is opt-in and duck-typed; `_StaticSource` lacks it."""

@@ -664,15 +664,22 @@ ENVIRONMENT=prod func data-sync
 | `classic()` | CLI → Env → Config files → Defaults | Local dev, desktop tools |
 | `twelve_factor()` | CLI → Env → Defaults | Docker, Kubernetes |
 | `env_only(dotenv=True)` | CLI → Env → Defaults | Serverless, minimal setups |
-| `remote_first()` | CLI → Env → Files → Defaults — **remote resolution is not wired**; see below | — |
+| `remote_first()` | CLI → Vault → Env → Files → Defaults | AWS Secrets Manager, Bitwarden |
 
-> **`remote_first()` does not resolve anything remotely.** The preset exists and is
-> exported, but nothing in the shipped package constructs a `RemoteSource`, and
-> `remote_first()` returns `config_resolution_chain=None` — which boot turns into the
-> classic chain `[CliSource, EnvSource, FileSource, DefaultSource]`. It is `classic()`
-> with a different file pattern and `dotenv=False`. Pick it for Vault or AWS Secrets
-> Manager and your credentials come from a local file or the environment instead, with
-> nothing to say so.
+> **`remote_first()` needs a provider plugin.** A config value declared as
+> `password = "aws-sm://prod/db-password"` names *where* a credential lives and never
+> carries it. `func builtin vault sync` fetches those values into a per-project
+> encrypted vault, and job runs read the vault — never the network. Selecting the
+> preset with no remote provider registered raises at construction rather than quietly
+> resolving from local files.
+>
+> ```bash
+> pip install functualize-aws
+> export FUNCTUALIZE_VAULT_KEY=$(func builtin vault keygen)
+> func builtin vault sync
+> ```
+>
+> Full guide: [Remote Configuration](docs/guides/configuration.md#remote-configuration).
 
 Presets are selected in your project's `main.py` when constructing `FunctualizeApp`:
 
@@ -831,6 +838,8 @@ pip install "functualize[all]"
 |--------|---------|
 | `functualize-ai` | Provider-agnostic LLM interaction with budget enforcement and tool scoping |
 | `functualize-ai-pydantic` | PydanticAI-backed AI provider with LiteLLM routing and structured output |
+| `functualize-aws` | AWS Secrets Manager and Parameter Store as remote config providers (`aws-sm`, `aws-ssm`) |
+| `functualize-bitwarden` | Bitwarden Secrets Manager as a remote config provider (`bws`) |
 | `functualize-flow-viz` | Live inline execution tree visualization with step status and durations |
 | `functualize-http` | HTTP delivery adapter exposing jobs as API endpoints via stdlib asyncio |
 | `functualize-inline` | Textual-based inline terminal widgets for prompts, selections, and progress |
