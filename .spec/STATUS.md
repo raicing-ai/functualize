@@ -290,7 +290,16 @@ sound and does not need re-auditing. What follows is what it did **not** cover.
 
 #### Ship-blocking
 
-7. **DEFERRED to a shape intent (2026-08-29).** Taken out of the 0.1.1 cut by
+7. **CLOSED (2026-09-06) — the shape intent was resolved the "wire it" way.**
+   See follow-up **16** below and ADR-016. Both docstrings this entry names are
+   corrected: `presets.py` states the real chain, and
+   `_cli/tui/panels/config_table.py:50` said `CLI -> Env -> File -> Remote ->
+   Default`, which was never the order and is now `CLI -> Env -> File ->
+   Default` with the vault noted between CLI and Env. Re-running the gate
+   **without** `--include="*.md"` is what found the second one. The deferral
+   and the finding as originally written follow, unchanged.
+
+   **DEFERRED to a shape intent (2026-08-29).** Taken out of the 0.1.1 cut by
    decision; the full evidence and the two coherent end states now live in
    [`.spec/shape-intents/remote-config-source.md`](shape-intents/remote-config-source.md),
    which is committed and self-contained. The finding as originally written
@@ -556,7 +565,7 @@ Committed design documents with per-assertion PASS/GAP verification against the 
 
 | Shape intent | Scope |
 |---|---|
-| [`remote-config-source.md`](shape-intents/remote-config-source.md) | `RemoteSource` is defined, exported and documented with **zero construction sites in `src/`**, and the `remote_first` preset's docstring promises a chain the boot path does not build. Wire it or remove it — correcting only the docstrings is explicitly not an option. Carries the finding that the original gate passed *because of* its `--include="*.md"` scoping. |
+| [`remote-config-source.md`](shape-intents/remote-config-source.md) — **RESOLVED 2026-09-06, wired; see ADR-016** | `RemoteSource` is defined, exported and documented with **zero construction sites in `src/`**, and the `remote_first` preset's docstring promises a chain the boot path does not build. Wire it or remove it — correcting only the docstrings is explicitly not an option. Carries the finding that the original gate passed *because of* its `--include="*.md"` scoping. |
 | [`workflow-run-parameters.md`](shape-intents/workflow-run-parameters.md) | A `@workflow` job **silently discards** the arguments `app.execute()` is given, then fails at the epilogue after the gate has been approved — while a plain job rejects the same argument at launch. Underneath it: no run-scoped parameter layer exists at all, so a value set for a walk does **not survive a gate** (one `scope_id`, two answers, selected by the resuming shell). The three trigger plugins can parameterize a single job and not a walk. Implement a run-scoped layer or declare walks unparameterizable and enforce it; the silent-drop fix is separable and lands first either way. |
 
 ## Open Features
@@ -1269,7 +1278,21 @@ Items identified during development that are worth doing but not yet designed:
     The example project and `collision_tui` already supply the project shapes; what is
     missing is the value axis.
 
-16. **`remote_first()` is a public preset that resolves nothing remotely.** The
+16. **CLOSED (2026-09-06) by ADR-016 / `remote-source-activation`.**
+    `remote_first()` now builds CLI -> Vault -> Env -> Files -> Defaults, and
+    **raises** at construction when no remote provider is registered rather
+    than degrading to `classic()`. `parse_annotation` has a production caller
+    (`_config/annotations.py`), the encrypted per-project vault and its key
+    seam exist, `func builtin vault sync|list|status|clear|keygen` fill and
+    inspect it, and `functualize-aws` / `functualize-bitwarden` provide
+    `aws-sm`, `aws-ssm` and `bws`. The decision the entry asked for was made
+    the "wire it" way; see `contributor/adr/016-remote-source-activation.md`.
+
+    Two contracts found on the way and **not** closed, carried forward as
+    follow-up **21** below. The finding as originally written follows,
+    unchanged.
+
+    **`remote_first()` is a public preset that resolves nothing remotely.** The
     preset is exported, documented and unit-tested, and the boot wiring behind it
     does not exist. `remote_first()` returns `config_resolution_chain=None`, which
     `app/config.py:74-77` documents as boot building the *classic* chain — so it is
@@ -1346,6 +1369,28 @@ Items identified during development that are worth doing but not yet designed:
     and that is the bug: there is more than one scanned directory, and the filter
     only ever knows about one of them.
 19. **The workflow hooks have no committed tests** — `.claude/hooks/{spec_gate,agent_contract,plan_context,bash_audit}.py` were verified exhaustively at authoring time (deny/pass/exemption/staleness/dedup/symlink-containment/fail-open, against real captured harness payloads), but those matrices were throwaway scripts. `grep -rn '.claude/hooks' tests/` returns **0**. Nothing catches a regression if someone edits a validator. This is the repo's own reachability rule pointed at itself: the declared surfaces in the feature's `contracts.md` are exercised by no committed test. Fix: a `tests/harness/` tier feeding recorded payloads to each script and asserting on stdout and exit code — never calling internals, since the hook's public entry point *is* stdin/stdout.
+21. **`RemoteProvider`'s docstring names two exceptions that do not exist, and
+    a 12-factor clause one shipped provider cannot honour.** Found while
+    building the two provider plugins (`remote-source-activation` 5.1/5.2) and
+    deliberately not fixed there — both are core contracts, and a plugin task
+    changing the protocol its own plugins implement is the wrong direction.
+
+    - The docstring tells an implementor to raise `RemoteKeyNotFoundError` and
+      `RemoteConnectionError`. **Neither exists.** Only `RemoteTimeoutError`
+      does, and none of the three is publicly exported, so `functualize-aws`
+      and `functualize-bitwarden` each define their own `SecretNotFoundError`.
+      Two plugins, two private hierarchies, and a caller cannot catch "not
+      found" generically. Either export the family or delete the promise.
+    - *"Credentials MUST be resolved from environment variables only, following
+      12-Factor App principles."* `functualize-bitwarden` honours it;
+      `functualize-aws` cannot, because the maintainer's per-value override
+      requirement (`?profile=`, `?role=`, `?account=`, `?region=`) is
+      something environment variables cannot express — different secrets in one
+      config file may need different accounts. The clause is now half-false by
+      design and should say what it actually means: the *ambient credential
+      chain* comes from the environment; an annotation may redirect which
+      identity is used, and never carries a credential itself.
+
 20. **User-scope `~/.claude/commands/agentic-*.md` shadow the project copies** — all five diverge, and two still name `ROADMAP.md` / `PROJECT.md`, files this repo removed. A maintainer with those personal copies gets the stale command; a fresh clone gets the correct one. Hooks hot-reload mid-session, but command definitions resolved this way do not. Fix: delete the user-scope copies so the project versions apply, or keep them deliberately and accept that project-level command fixes will not reach you.
 
     `boot.py:469` picks `base_dir = Path(app._jobs_directories[0])` and hands it to
