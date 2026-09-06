@@ -624,13 +624,105 @@ its command returned, so drift between authoring and execution is visible.
   Full suite **8550 passed, 1554 skipped**, 0 failures; all 12 plugin suites
   green. `ruff`, `format`, `mypy` (316 files), `lint-imports` green.
 
-- [ ] **5.2 — `functualize-bitwarden`**
+- [x] **5.2 — `functualize-bitwarden`** — DONE
   Bitwarden Secrets Manager, same seam.
-  - `[F]` `plugins/functualize-bitwarden/`, `tests/…`
+  - `[F]` `plugins/functualize-bitwarden/`, `pyproject.toml`
   - Acceptance: tested against a fake, not a live account. Only the AWS pair
-    gets a live integration test.
+    gets a live integration test. **Met** — 66 tests, no network path.
   - Confirm the target product before building: **Bitwarden Secrets Manager**
-    (`bws`), not the password-manager CLI.
+    (`bws`), not the password-manager CLI. **Confirmed, and it mattered.**
+
+  **The maintainer proposed Vaultwarden as a live backend; it cannot be one.**
+  Vaultwarden reimplements Bitwarden's **Password Manager** API (the `bw`
+  CLI). Secrets Manager is a separate, Bitwarden-licensed product that
+  Vaultwarden deliberately does not implement, so a `bws` provider cannot talk
+  to it however its URL is configured — the endpoints are absent. Confirmed on
+  Vaultwarden's own discussion tracker (dani-garcia/vaultwarden#5702, #3368).
+  This is exactly the confusion the task text pre-empted. Recorded in the
+  plugin's module docstring and README, because "self-hosted Bitwarden"
+  naturally reads as though it should work.
+
+  Consequence: there is no Floci equivalent here, which is why the task
+  specified a fake in the first place.
+
+  **Backend chosen by the maintainer: the official `bitwarden-sdk`.** Offered
+  against two alternatives — shelling out to the `bws` binary, and the
+  third-party pure-Python `bws-sdk`. The deciding factor was that this package
+  decrypts the user's secrets, and that code should be the vendor's. The cost
+  is a Rust binary wheel with no source fallback: Windows/Linux(glibc)/macOS
+  on x86-64 and ARM64 only. A musl or unusual-arch host cannot install this
+  plugin — which is why it is a plugin. `grep -rn "bitwarden" src/functualize/`
+  returns **0**.
+
+  **The trap this SDK sets.** It does not raise on failure; every call returns
+  `ResponseFor…(success=False, data=None, error_message=…)`. An unchecked
+  `.data.value` writes a `None` into the vault, and a job then reads nothing
+  where it expected a secret, with no error anywhere — the same silent shape
+  this whole feature exists to remove, arriving through a dependency instead of
+  through our own code. `_client.unwrap` is the single place that turns the
+  wrapper into a value or an exception, and five tests exist to keep it there.
+
+  **The grammar.** Two addressing forms, told apart structurally: a uuid is a
+  secret id and resolves in one call; anything else is a key name resolved by
+  listing the organization. The id form alone would have been less code and is
+  what the `bws` CLI leans on, but `password = "bws://8a9c2f0e-…"` is
+  unreadable and the sibling AWS provider addresses secrets by name.
+
+  Keys are not unique across projects, so a key matching more than one secret
+  is an **error** naming every candidate id — never a pick. A wrong pick is a
+  *working* run with the wrong credential, the quietest failure available.
+
+  Overrides `project` and `organization`, both uuids, both serving the key
+  form only. **A correctly-spelled override that cannot apply is refused too**:
+  `bws://<uuid>?project=…` raises rather than being ignored. That edge is not
+  in the AWS provider and was added on the same reasoning as the unknown-key
+  rule — a line that reads as though it constrains the lookup should either do
+  so or say it cannot. Being spelled correctly does not make a no-op better.
+
+  **Deviations and decisions, disclosed:**
+
+  1. **Key-name addressing is beyond "same seam".** The task asked for a
+     provider; a provider addressable only by raw uuid is technically complete
+     and practically unusable. Costs one listing call and the ambiguity rule.
+  2. **Project *names* are not accepted** — only uuids. Resolving a name costs
+     a second listing and a second ambiguity rule, and the ambiguity error
+     already reports the ids to choose between.
+  3. **`is_ready()` honours the protocol's 12-factor clause**, unlike the AWS
+     provider: it reads `$BWS_ACCESS_TOKEN` and nothing else. It deliberately
+     does not authenticate — readiness is asked per value, and a round-trip
+     each time is a fetch, not a check.
+  4. **`BWS_API_URL` / `BWS_IDENTITY_URL` are this plugin's own names.** The
+     `bws` CLI has no environment variable for the server (it uses `bws config`
+     and `--server-url`), so there was no canonical name to adopt. Stated
+     explicitly, because a `BWS_`-prefixed variable reads as official.
+  5. **The grammar duplicates the shape of `functualize_aws._reference`.**
+     Plugins must not depend on each other, and a shared query-grammar package
+     would be a third thing to version for forty lines the two providers should
+     stay free to diverge on.
+  6. **The SDK's auth-state file is off.** Nothing this plugin holds outlives
+     the process; a state file is a credential at rest. Same reasoning as the
+     AWS in-memory STS cache.
+
+  **A test settled a question I had left implicit.** Percent-decoding applies
+  to the override block and *not* to the target: inside the block `&` and `=`
+  are structural so values must be escapable, while decoding the target would
+  corrupt a key legitimately containing `%5F` into one containing `_`. The
+  cost — a key containing `?` cannot be addressed by name — is now pinned by a
+  test showing it raises rather than silently truncating to the part before
+  the `?`.
+
+  **Verification.** 66 tests. **Eight sabotages, all caught**: `unwrap`
+  ignoring `success=False` (5 fail), `unwrap` allowing a `None` payload (1), an
+  ambiguous key silently picking the first (4), the project filter using
+  singular `project_id` equality instead of `project_ids` membership (2), an
+  inert override accepted (4), auth writing a state file (1), a rejected login
+  unchecked (1), `is_ready` authenticating (3).
+
+  All three providers now discover through entry points:
+  `['aws-sm', 'aws-ssm', 'bws']`.
+
+  Full suite **8550 passed, 1554 skipped**, 0 failures; all 13 plugin suites
+  green. `ruff`, `format`, `mypy` (316 files), `lint-imports` green.
 
 ---
 
