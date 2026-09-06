@@ -11,6 +11,7 @@ Protocols defined here:
 - Source: Configuration value sources
 - FormatProvider: Configuration file format plugins
 - JobTransform: Job descriptor interceptors/modifiers
+- ModulePreFilter: Pre-import discovery predicates
 
 Re-exported from functualize._types.interactivity:
 - Surface: renders a job's events
@@ -34,6 +35,8 @@ from functualize._types.interactivity import (
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from functualize._types.descriptors import JobDescriptor
 
 
@@ -192,6 +195,47 @@ class FormatProvider(Protocol):
 
 
 @runtime_checkable
+class ModulePreFilter(Protocol):
+    """Decide whether a module is worth importing, without importing it.
+
+    Discovery reads a candidate file's AST before executing it, and a filter
+    answers from that alone. The built-in filters
+    (``_primitives/pre_filter.py``) express the ``require_*`` settings; a host
+    whose jobs are, say, methods on classes cannot express itself in any of
+    those and supplies its own.
+
+    Implementations satisfy this structurally -- there is nothing to inherit,
+    and ``_primitives`` does not import this module's package upward.
+
+    ``fingerprint()`` is not decorative. The discovery cache persists
+    *negative* pre-filter decisions and replays them, trusting them only while
+    the discovery fingerprint matches. A caller-supplied predicate cannot join
+    that hash by identity: ``_normalize_discovery_value`` renders an unknown
+    value with ``str()``, and ``str()`` of a function carries its address, so
+    the digest would differ on every boot and invalidate the cache on every
+    run. Omitting it instead reproduces the X1-X4 replay defect that
+    ``CACHE_VERSION`` 15->16->17 and ADR-010/ADR-011 exist to close. A stable,
+    caller-declared string is the only option that keeps the cache both warm
+    and correct.
+    """
+
+    def should_import(self, source_file: Path) -> bool:
+        """Return whether this module should be imported for discovery."""
+        ...
+
+    def fingerprint(self) -> str:
+        """Stable identity of this filter's logic, for cache invalidation.
+
+        Must be identical across processes for identical behaviour, and must
+        change when the predicate's behaviour changes. A host that forgets to
+        bump it gets a stale cache -- the same contract as any cache key, and
+        the same failure the ``require_*`` fields already have when a config
+        is edited without invalidation.
+        """
+        ...
+
+
+@runtime_checkable
 class JobTransform(Protocol):
     """Protocol for intercepting and modifying job descriptors.
 
@@ -270,6 +314,7 @@ __all__ = [
     "FormatProvider",
     "JobProvider",
     "JobTransform",
+    "ModulePreFilter",
     "PluginWithShutdown",
     "Source",
     "VaultKeyProvider",

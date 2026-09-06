@@ -29,11 +29,29 @@ class _CustomFilter:
     def should_import(self, source_file: Path) -> bool:
         return True
 
+    def fingerprint(self) -> str:
+        return "custom:v1"
+
 
 class _NotAFilter:
     """Does not satisfy ModulePreFilter — wrong method name."""
 
     def check_file(self, source_file: Path) -> bool:
+        return True
+
+
+class _UnfingerprintedFilter:
+    """Answers the question but cannot join the discovery hash.
+
+    Conforming used to mean ``should_import`` alone. It no longer does
+    (``third-party-host-seams``/1.3): the cache persists *negative* pre-filter
+    decisions and replays them while the discovery fingerprint matches, and a
+    filter with no stable identity either invalidates that cache every boot or
+    -- worse -- replays decisions its own logic no longer makes. Rejecting it
+    structurally is what turns that into an error at the seam.
+    """
+
+    def should_import(self, source_file: Path) -> bool:
         return True
 
 
@@ -46,6 +64,10 @@ class TestProtocol:
 
     def test_runtime_checkable_rejects_non_conforming(self) -> None:
         assert not isinstance(_NotAFilter(), ModulePreFilter)
+
+    def test_should_import_alone_is_not_enough(self) -> None:
+        """``fingerprint()`` is part of the contract, not an optional extra."""
+        assert not isinstance(_UnfingerprintedFilter(), ModulePreFilter)
 
     def test_combinators_satisfy_protocol(self) -> None:
         assert isinstance(AllOf(), ModulePreFilter)

@@ -10,18 +10,32 @@ from __future__ import annotations
 
 import ast
 import fnmatch
+import hashlib
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Protocol, runtime_checkable
 
 from functualize._types.discovery_report import record_discovery_failure
+from functualize._types.protocols import ModulePreFilter
+
+# `ModulePreFilter` is imported, not defined here. It moved to
+# `_types/protocols.py` -- where every other extension Protocol lives, and
+# where `functualize.plugin` re-exports it from -- so a host can implement it
+# without reaching into an underscore package. `_primitives` -> `_types` is the
+# permitted direction; nothing imports upward. The name stays importable from
+# here because callers predating the public seam use that path.
+__all__ = ["ModulePreFilter"]
 
 
-@runtime_checkable
-class ModulePreFilter(Protocol):
-    """Fast pre-import check: should this module be imported for job extraction?"""
+def _fingerprint(*parts: object) -> str:
+    """Stable identity for a built-in filter: its class plus its configuration.
 
-    def should_import(self, source_file: Path) -> bool: ...
+    Short digest rather than the raw parts, because this string joins the
+    discovery-cache fingerprint and a filter configured with a long list of
+    glob patterns would otherwise dominate it. Deterministic across processes
+    -- which is the whole point, and what `str(callable)` fails at.
+    """
+    joined = "|".join(repr(part) for part in parts)
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()[:16]
 
 
 # ---------------------------------------------------------------------------
@@ -45,6 +59,16 @@ class AllOf:
         """Return True only if all inner filters return True."""
         return all(f.should_import(source_file) for f in self._filters)
 
+    def fingerprint(self) -> str:
+        """Fold the inner filters' identities, in order.
+
+        Order matters: `AllOf` short-circuits, so two compositions of the same
+        filters can read different files and must not share a cache entry.
+        """
+        return _fingerprint(
+            type(self).__name__, *(f.fingerprint() for f in self._filters)
+        )
+
 
 class AnyOf:
     """Composite pre-filter: passes if ANY inner filter passes.
@@ -62,6 +86,12 @@ class AnyOf:
         """Return True if at least one inner filter returns True."""
         return any(f.should_import(source_file) for f in self._filters)
 
+    def fingerprint(self) -> str:
+        """Fold the inner filters' identities, in order."""
+        return _fingerprint(
+            type(self).__name__, *(f.fingerprint() for f in self._filters)
+        )
+
 
 class NoneOf:
     """Composite pre-filter: passes only if NO inner filter passes.
@@ -78,6 +108,12 @@ class NoneOf:
     def should_import(self, source_file: Path) -> bool:
         """Return True only if no inner filter returns True."""
         return not any(f.should_import(source_file) for f in self._filters)
+
+    def fingerprint(self) -> str:
+        """Fold the inner filters' identities, in order."""
+        return _fingerprint(
+            type(self).__name__, *(f.fingerprint() for f in self._filters)
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +133,9 @@ class DefaultModulePreFilter:
     def should_import(self, source_file: Path) -> bool:
         """Return False for underscore-prefixed filenames."""
         return not source_file.name.startswith("_")
+
+    def fingerprint(self) -> str:
+        return _fingerprint(type(self).__name__)
 
 
 class ASTModulePreFilter:
@@ -124,6 +163,9 @@ class ASTModulePreFilter:
             ) and not node.name.startswith("_"):
                 return True
         return False
+
+    def fingerprint(self) -> str:
+        return _fingerprint(type(self).__name__)
 
 
 class DisplayClassPreFilter:
@@ -162,6 +204,9 @@ class DisplayClassPreFilter:
                 ):
                     return True
         return False
+
+    def fingerprint(self) -> str:
+        return _fingerprint(type(self).__name__)
 
 
 class GroupOptionsPreFilter:
@@ -204,6 +249,9 @@ class GroupOptionsPreFilter:
                     return True
         return False
 
+    def fingerprint(self) -> str:
+        return _fingerprint(type(self).__name__)
+
 
 class FilePrefixPreFilter:
     """Only pass files whose stem starts with the specified prefix.
@@ -224,6 +272,9 @@ class FilePrefixPreFilter:
         """Return True if the file stem starts with the configured prefix."""
         return source_file.stem.startswith(self._prefix)
 
+    def fingerprint(self) -> str:
+        return _fingerprint(type(self).__name__, self._prefix)
+
 
 class FilePostfixPreFilter:
     """Only pass files whose stem ends with the specified postfix.
@@ -243,6 +294,9 @@ class FilePostfixPreFilter:
     def should_import(self, source_file: Path) -> bool:
         """Return True if the file stem ends with the configured postfix."""
         return source_file.stem.endswith(self._postfix)
+
+    def fingerprint(self) -> str:
+        return _fingerprint(type(self).__name__, self._postfix)
 
 
 class ImportModulePreFilter:
@@ -311,6 +365,9 @@ class ImportModulePreFilter:
             self._package + "."
         )
 
+    def fingerprint(self) -> str:
+        return _fingerprint(type(self).__name__, self._package)
+
 
 class MarkerModulePreFilter:
     """Require a named module-level variable to be present.
@@ -348,6 +405,9 @@ class MarkerModulePreFilter:
             ):
                 return True
         return False
+
+    def fingerprint(self) -> str:
+        return _fingerprint(type(self).__name__, self._marker)
 
 
 def extract_decorator_root_name(node: ast.expr) -> str | None:
@@ -450,6 +510,9 @@ class DecoratorModulePreFilter:
 
     _extract_root_name = staticmethod(extract_decorator_root_name)
 
+    def fingerprint(self) -> str:
+        return _fingerprint(type(self).__name__, *sorted(self._names))
+
 
 class GlobExcludePreFilter:
     """Exclude files matching any glob pattern (evaluated against relative path).
@@ -518,3 +581,6 @@ class GlobExcludePreFilter:
 
         # Under no scan root — nothing to relativize against, so allow through.
         return True
+
+    def fingerprint(self) -> str:
+        return _fingerprint(type(self).__name__, tuple(self._patterns))

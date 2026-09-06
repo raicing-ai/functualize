@@ -136,6 +136,10 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "PromptChoice",
         "PluginMetadata",
         "PluginWithShutdown",
+        # Pre-import discovery predicate (third-party-host-seams/1.3). Promoted
+        # from _primitives so a host can supply one; `fingerprint()` is part of
+        # the contract because the discovery cache replays negative decisions.
+        "ModulePreFilter",
         "SessionState",
         "SignatureProvider",
         "Source",
