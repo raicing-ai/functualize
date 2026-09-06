@@ -51,10 +51,17 @@ def make_tui_app(
         app_name: name passed to ``FunctualizeApp(name=...)``.
         jobs: optional ``{job_name: callable}`` mapping to register as
             dynamic jobs. Defaults to a single no-op ``greet(name="world")``
-            job (never executed — dynamic jobs currently yield no field
+            job (never executed).
+
+            This used to warn that "dynamic jobs currently yield no field
             defs, so this default is only suitable for SmartBar/keymap/modal
-            flows, not panel-field flows; see
-            ``contributor/guides/steering_textual_tui.md`` §4.2).
+            flows, not panel-field flows". That was true, and it was a
+            **defect**, not a property: ``register_dynamic_job`` built its
+            descriptor with ``parameters=[]``. Closing it
+            (``discovery-and-gate-defects`` B3, 2026-09-06) makes a dynamically
+            registered job publish exactly what its discovered twin does, so
+            panel-field flows work here too — and the baseline snapshots gained
+            the pre-flight row that had been missing.
 
     Returns:
         A constructed (not yet mounted/run) ``FunctualizeInlineTUI``.

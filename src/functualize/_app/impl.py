@@ -717,19 +717,46 @@ def register_dynamic_job(
     app.job_registry._registered_jobs[name] = entry
     app._execution_engine.register_job(entry)
 
+    import contextlib
+
     from functualize._discovery.providers import (
         extract_capability_markers,
         extract_ext_metadata,
+        extract_parameters_from_signature,
     )
+    from functualize._discovery.schema_extractor import extract_field_descriptors
+    from functualize._primitives.config_class_detection import detect_config_class
     from functualize._types.from_job import from_job_names
     from functualize._types.workflow import workflow_shape_of
+
+    # The same extraction directory discovery uses. `parameters` was `[]` here,
+    # so the *same function* registered dynamically took different arguments
+    # from one discovered from a file.
+    parameters = extract_parameters_from_signature(function)
+
+    # `config_fields` is the other half, and populating only `parameters` makes
+    # the mismatch worse rather than better for a job with a config class:
+    # `job_detail` reads `config_fields or parameters`, so such a job would
+    # publish its bare `config: NeedsCity` parameter -- which no caller can
+    # supply -- in place of the model's actual fields.
+    #
+    # The rule is discovery's, unchanged: fields from the config class if there
+    # is one, else the signature. An explicitly passed `config_class` wins over
+    # the one detected on the signature, because it is the caller stating the
+    # answer this function already trusts for `RegisteredJob`.
+    config_fields: list[Any] = []
+    effective_config_class = config_class or detect_config_class(function)
+    if effective_config_class is not None:
+        with contextlib.suppress(Exception):
+            config_fields = extract_field_descriptors(effective_config_class)
 
     descriptor = JobDescriptor(
         name=name,
         group=group,
         function=function,
         docstring=function.__doc__,
-        parameters=[],
+        parameters=parameters,
+        config_fields=config_fields if config_fields else parameters,
         source="<dynamic>",
         metadata=extract_ext_metadata(function),
         module_path=module_path,

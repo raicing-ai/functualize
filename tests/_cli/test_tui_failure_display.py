@@ -10,6 +10,22 @@ split a user actually hit.
 
 These drive the real `run_job` path through a real `FunctualizeInlineTUI` and
 read the output panel, per the TUI audit rules (no mocked surface).
+
+**The failing job changed 2026-09-06, and why matters.** These tests used to
+reach FAILURE through a *missing required config value*: a dynamically
+registered job whose config class has a required field, executed with nothing
+filled in. That worked only because `register_dynamic_job` built its descriptor
+with `parameters=[]` and no `config_fields` — so the SmartBar could not see the
+required field, reported READY, and executed a run that was bound to fail
+validation. The same job discovered from a file reported PENDING and opened the
+pre-flight panel instead.
+
+Closing that defect (`discovery-and-gate-defects` B3) makes the two paths
+agree, and the dynamic job now correctly goes PENDING too — so that route to a
+FAILURE result is no longer reachable through the bar, by design. The assertion
+these tests exist for is unchanged; only the way the run is made to fail is. A
+job body that raises is now the vehicle, and `test_a_config_job_now_blocks_at_the_bar`
+below pins the behaviour that replaced the old one.
 """
 
 from __future__ import annotations
@@ -38,12 +54,17 @@ def tui_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FunctualizeInlin
     def ok() -> str:
         return "fine"
 
-    # A required-config job run with no value → execute() returns FAILURE
-    # (ValidationError) without raising.
+    # A job body that raises → execute() returns FAILURE without raising.
+    def boom() -> str:
+        raise RuntimeError("job body exploded")
+
+    # Kept so the *other* half of the story stays covered: the bar must refuse
+    # to run this rather than execute it into a validation error.
     def needs_config(config: NeedsCity) -> str:
         return config.city
 
     func_app.register_dynamic_job("ok", ok)
+    func_app.register_dynamic_job("boom", boom)
     func_app.register_dynamic_job("needsconfig", needs_config, config_class=NeedsCity)
     return FunctualizeInlineTUI(func_app)
 
@@ -58,7 +79,7 @@ async def test_a_failed_run_shows_failed_not_done(tui_app) -> None:
     "Done" in the panel."""
     async with tui_app.run_test(size=(100, 30)) as pilot:
         await pilot.pause()
-        tui_app._smart_bar.value = "needsconfig"
+        tui_app._smart_bar.value = "boom"
         await pilot.pause()
         tui_app.action_execute()
         await pilot.pause()
@@ -81,7 +102,7 @@ async def test_a_failed_run_records_failure_not_success(tui_app) -> None:
 
     async with tui_app.run_test(size=(100, 30)) as pilot:
         await pilot.pause()
-        tui_app._smart_bar.value = "needsconfig"
+        tui_app._smart_bar.value = "boom"
         await pilot.pause()
         tui_app.action_execute()
         await pilot.pause()
@@ -92,6 +113,32 @@ async def test_a_failed_run_records_failure_not_success(tui_app) -> None:
     assert tui_app._snapshot_store.record.call_count == 1
     outcome = tui_app._snapshot_store.record.call_args.args[2]
     assert outcome == "failure"
+
+
+async def test_a_config_job_now_blocks_at_the_bar(tui_app) -> None:
+    """The behaviour that replaced the old route to FAILURE.
+
+    A dynamically registered job with a required config field now reports
+    PENDING and never executes, exactly as the same job discovered from a file
+    always did. Before `register_dynamic_job` extracted `parameters` and
+    `config_fields`, the bar could not see `city`, reported READY, and ran a
+    job guaranteed to fail validation.
+    """
+    from functualize._cli.tui.bar import BarReadiness
+
+    async with tui_app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        tui_app._smart_bar.value = "needsconfig"
+        await pilot.pause()
+
+        assert tui_app._smart_bar.readiness == BarReadiness.PENDING
+
+        tui_app.action_execute()
+        await pilot.pause()
+        await tui_app.workers.wait_for_complete()
+        await pilot.pause()
+
+        assert _panel_text(tui_app) == "", "a PENDING bar must not run the job"
 
 
 async def test_a_successful_run_still_shows_done(tui_app) -> None:
