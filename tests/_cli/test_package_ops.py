@@ -20,7 +20,7 @@ from functualize._cli.package_ops import (
     Receipt,
     Requirement,
 )
-from functualize._cli.runtime import Detection, InstallMode
+from functualize.app.packaging import Detection, InstallMode
 
 
 def _detection(

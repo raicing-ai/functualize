@@ -27,15 +27,22 @@ from pathlib import Path
 
 import pytest
 
-_SUBSYSTEM = (
-    "runtime.py",
-    "manifest.py",
-    "package_ops.py",
-    "self_cmd.py",
-    "plugin_cmd.py",
-)
+#: Files keyed by name, because the property follows the *code*, not the
+#: directory. `runtime.py` moved to `functualize/app/packaging.py` when install
+#: detection became public (`third-party-host-seams`/3.1) and the invariant
+#: applies at least as strongly there: a public module that crawled the
+#: filesystem would hand the behaviour to every host as well.
+_ROOT = Path(__file__).resolve().parents[2] / "src" / "functualize"
 
-_SRC = Path(__file__).resolve().parents[2] / "src" / "functualize" / "_cli"
+_SUBSYSTEM = {
+    "packaging.py": _ROOT / "app" / "packaging.py",
+    "manifest.py": _ROOT / "_cli" / "manifest.py",
+    "package_ops.py": _ROOT / "_cli" / "package_ops.py",
+    "self_cmd.py": _ROOT / "_cli" / "self_cmd.py",
+    "plugin_cmd.py": _ROOT / "_cli" / "plugin_cmd.py",
+}
+
+_SRC = _ROOT / "_cli"
 
 #: Calls that would be discovery wherever they appeared in this subsystem.
 #: `which` is absent on purpose -- see the module docstring.
@@ -50,8 +57,8 @@ _FORBIDDEN = {
 @pytest.fixture(scope="module")
 def trees() -> dict[str, ast.Module]:
     return {
-        name: ast.parse((_SRC / name).read_text(encoding="utf-8"))
-        for name in _SUBSYSTEM
+        name: ast.parse(path.read_text(encoding="utf-8"))
+        for name, path in _SUBSYSTEM.items()
     }
 
 
@@ -68,7 +75,7 @@ def _called_names(tree: ast.Module) -> set[str]:
 
 
 class TestNothingCrawlsTheFilesystem:
-    @pytest.mark.parametrize("name", _SUBSYSTEM)
+    @pytest.mark.parametrize("name", sorted(_SUBSYSTEM))
     def test_no_forbidden_call(self, trees, name: str) -> None:
         offenders = _called_names(trees[name]) & _FORBIDDEN
         assert not offenders, (
@@ -91,7 +98,7 @@ class TestPathIsConsultedOnlyForAPackageManager:
         """`shutil.which` is legitimate for finding uv and pipx and for nothing
         else. Confined to two named functions so a third use has to be a
         deliberate edit to this test."""
-        tree = ast.parse((_SRC / "package_ops.py").read_text(encoding="utf-8"))
+        tree = ast.parse(_SUBSYSTEM["package_ops.py"].read_text(encoding="utf-8"))
         holders = {
             node.name
             for node in ast.walk(tree)
@@ -101,7 +108,7 @@ class TestPathIsConsultedOnlyForAPackageManager:
         assert holders == {"resolve_uv", "resolve_pipx"}
 
     @pytest.mark.parametrize(
-        "name", ["runtime.py", "manifest.py", "self_cmd.py", "plugin_cmd.py"]
+        "name", ["packaging.py", "manifest.py", "self_cmd.py", "plugin_cmd.py"]
     )
     def test_no_other_module_touches_path(self, trees, name: str) -> None:
         assert "which" not in _called_names(trees[name])
@@ -115,12 +122,12 @@ class TestTheRegistryIsReadNeverDerived:
         assert not called & {"run", "call", "Popen", "check_output"}
 
     def test_manifest_imports_no_subprocess(self) -> None:
-        source = (_SRC / "manifest.py").read_text(encoding="utf-8")
+        source = _SUBSYSTEM["manifest.py"].read_text(encoding="utf-8")
         assert "import subprocess" not in source
 
     def test_runtime_detection_spawns_nothing(self) -> None:
         """Detection answers from `sys.prefix`, the environment and metadata.
         A subprocess here would put a process spawn on the path of every
         command that reports its own install mode."""
-        source = (_SRC / "runtime.py").read_text(encoding="utf-8")
+        source = _SUBSYSTEM["packaging.py"].read_text(encoding="utf-8")
         assert "subprocess" not in source

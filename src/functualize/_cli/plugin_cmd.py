@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING, Any
 
 import click
 
-from functualize._cli.runtime import detect_from_process
+from functualize.app.packaging import detect_from_process
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -174,7 +174,7 @@ def _binary_and_config() -> tuple[str, Path]:
     import sys
 
     from functualize._cli import manifest
-    from functualize._cli.runtime import detect_from_process
+    from functualize.app.packaging import detect_from_process
     from functualize.app.utils import resolve_user_config_dir
 
     binary = manifest.resolve_binary_path(

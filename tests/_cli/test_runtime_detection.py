@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from functualize._cli.runtime import (
+from functualize.app.packaging import (
     Detection,
     InstallMode,
     RuntimeOverrideError,

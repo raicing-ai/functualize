@@ -294,7 +294,7 @@ class TestSecondInstallKeepsTheFirst:
         monkeypatch.setattr(package_ops, "resolve_uv", lambda: "/opt/uv")
         monkeypatch.setattr(package_ops.sys, "prefix", str(tmp_path))
 
-        from functualize._cli.runtime import Detection, InstallMode
+        from functualize.app.packaging import Detection, InstallMode
 
         (command,) = package_ops.install_commands(
             Detection(mode=InstallMode.TOOL_UV, owning_distribution="functualize"),

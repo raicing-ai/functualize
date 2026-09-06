@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
 
-from functualize._cli.runtime import Detection, InstallMode
+from functualize.app.packaging import Detection, InstallMode
 from functualize.app.utils import ExitCode
 
 if TYPE_CHECKING:

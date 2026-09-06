@@ -39,7 +39,7 @@ from pathlib import Path
 
 import click
 
-from functualize._cli.runtime import Detection, InstallMode, detect_from_process
+from functualize.app.packaging import Detection, InstallMode, detect_from_process
 from functualize.app.utils import ExitCode
 
 # `manifest` and `package_ops` are imported *inside* the commands that need

@@ -16,7 +16,11 @@ determined gets guidance and a non-zero exit, never a guess: a wrong guess
 prints commands that do not exist and runs updaters against binaries they do
 not own.
 
-This module is in the ``_cli/`` layer — stdlib + ``_cli`` siblings only.
+This module is **public**: a package built on functualize asks it whether a
+tool is installed, how, and where, rather than shipping a second detector
+that disagrees. It is stdlib-only (``os``, ``tomllib``, ``dataclasses``,
+``enum``, ``pathlib``, ``typing``), so nothing CLI travels with it -- which is
+what made promoting it a move rather than a rewrite.
 """
 
 from __future__ import annotations
@@ -31,7 +35,13 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-__all__ = ["Detection", "InstallMode", "RuntimeOverrideError", "detect"]
+__all__ = [
+    "Detection",
+    "InstallMode",
+    "RuntimeOverrideError",
+    "detect",
+    "detect_from_process",
+]
 
 #: How far up from the working directory rung 5 looks for a project that
 #: declares functualize. Bounded on purpose: the rung is a directory walk plus
