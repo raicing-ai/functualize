@@ -20,13 +20,19 @@ Global options are processed before any sub-command runs. They control logging v
 
 ---
 
-## `show-info`
+## `builtin info`
 
 ```
-<your-app> show-info [OPTIONS]
+<your-app> builtin info [OPTIONS] [COMMAND]
 ```
 
-Show current CLI configuration, discovered jobs, and resolved config values. This introspection command displays general info (log level, environment, config directory), loaded config files with interpolated values, discovered jobs, mounted child projects, and dotenv file status.
+Show current CLI configuration, discovered jobs, and resolved config values.
+There is no top-level `show-info` — it lives under the reserved `builtin`
+subtree. Subcommands: `all` (everything as one document), `jobs` (list jobs or
+show one in detail), `schema` (every command's input contract as JSON Schema).
+`--json` emits the full report as JSON.
+
+This introspection command displays general info (log level, environment, config directory), loaded config files with interpolated values, discovered jobs, mounted child projects, and dotenv file status.
 
 ### Options
 

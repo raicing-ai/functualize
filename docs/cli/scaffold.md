@@ -12,10 +12,12 @@ The `func builtin scaffold` (or `functualize builtin scaffold`) sub-command prov
 ```
 func builtin scaffold
 ├── init <project_name> [--template simple|full-interactivity|plugin-project|job-folder] [--directory .]
+├── list domains
 └── add
     ├── job <name> [--jobs-dir <path>]
-    ├── plugin <name> [--target-dir <path>]
-    └── tui-screen <name> [--target-dir <path>]
+    ├── plugin <name> [--target-dir <path>] | --domain <d> --name <n> [--output-dir plugins]
+    ├── tui-screen <name> [--target-dir <path>]
+    └── domain <domain>
 ```
 
 ## `func builtin scaffold`
@@ -62,7 +64,7 @@ Initialize a new functualize project from a template. Creates a complete project
 |----------|-------------|
 | `simple` | Minimal project with one sample job and layered configuration |
 | `full-interactivity` | All interactivity plugins with samples demonstrating prompts, events, and workflow steps |
-| `plugin-project` | Starter for building a functualize plugin with a Surface and PromptCollector |
+| `plugin-project` | Starter for building a functualize plugin with an `OutputRenderer` and `InputProvider` |
 | `job-folder` | Standalone jobs directory with file-based plugins (no FunctualizeApp, no main.py) |
 
 ### Examples
@@ -95,6 +97,7 @@ Add a component to an existing functualize project. All `add` sub-commands are c
 | `job` | Add a new job file |
 | `plugin` | Add a new plugin file |
 | `tui-screen` | Add a new TUI screen (Textual Screen subclass + TCSS) |
+| `domain` | Add a plugin for a domain (e.g. `ai`, `state`) |
 
 ---
 
@@ -110,7 +113,7 @@ Add a new job file. Context-aware: in a project context creates a project-style 
 
 | Context | Output Path | Template Style |
 |---------|-------------|----------------|
-| Project (`src/<package>/` exists) | `src/<package>/jobs/<name>.py` | Project job with `JOB_NAME` and `RunContext` |
+| Project (`src/<package>/` exists) | `src/<package>/jobs/<name>.py` | Project job with `JOB_GROUP` and `RunContext` |
 | Bare (no project structure) | `./<name>.py` in CWD | Standalone function discoverable by `func` CLI |
 
 #### Arguments
@@ -143,7 +146,7 @@ func builtin scaffold add job data-sync --jobs-dir ./my-jobs
 ### `func builtin scaffold add plugin`
 
 ```
-func builtin scaffold add plugin [OPTIONS] PLUGIN_NAME
+func builtin scaffold add plugin [OPTIONS] [PLUGIN_NAME]
 ```
 
 Add a new plugin file. Context-aware: in a project context creates in the package plugins directory; in a bare context creates a file-based plugin.
@@ -159,13 +162,16 @@ Add a new plugin file. Context-aware: in a project context creates in the packag
 
 | Argument | Type | Required | Description |
 |----------|------|----------|-------------|
-| `PLUGIN_NAME` | `string` | Yes | Name of the plugin to add (PEP 508 compliant). |
+| `PLUGIN_NAME` | `string` | No (optional) | Name of the plugin to add (PEP 508 compliant). Omit it when using the `--domain`/`--name` form. |
 
 #### Options
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `--target-dir`, `-t` | `path` | `None` (auto-detected from context) | Directory where the plugin file will be created. Overrides context detection. |
+| `--domain`, `-d` | `string` | `None` | Domain to create a plugin for (e.g. `ai`, `state`). Generates a full plugin package (pyproject, source, entry point, tests). |
+| `--name`, `-n` | `string` | `None` | Plugin name used with `--domain` to derive package and provider names. |
+| `--output-dir`, `-o` | `path` | `plugins` | Output directory for a domain plugin package. |
 
 #### Examples
 

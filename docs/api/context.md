@@ -9,7 +9,10 @@
 
 ## RunContext API Reference
 
-The `RunContext` is a thin facade (~870 LOC) that delegates to capability classes. It provides configuration access, logging, metadata tracking, phase tracking, job invocation, event emission, and prompting.
+`functualize.job.RunContext` is a thin facade (a 32-line re-export module) over
+the ~780-LOC capability class in `functualize._engine.capabilities.runcontext`,
+which delegates work to per-capability classes (`Log`, `Invoke`, `Perf`,
+`WorkflowTracker`, ...). It provides configuration access, logging, metadata tracking, phase tracking, job invocation, event emission, and prompting.
 
 **Module location:** `src/functualize/job/context.py`
 

@@ -88,14 +88,15 @@ Mode C activates when:
 - No arguments are provided (lists available jobs)
 - `--help` is passed
 - A built-in subcommand is invoked. The first-party commands under `builtin`
-  are `cache`, `state`, `config`, `domains`, `scaffold`, `workflow`,
-  `parallel`, `history`, `env`, `shell-init`, `why`, `version`, and `info`.
+  are `cache`, `config`, `domains`, `env`, `history`, `info`, `parallel`,
+  `plugin`, `scaffold`, `self`, `shell-init`, `skills`, `state`, `version`,
+  `why`, and `workflow`.
 
 ### Behavior
 
 - For listing: performs full discovery using the active filter configuration, displays all qualifying jobs
 - For help: shows CLI usage, available commands, and global options
-- For builtins: executes the built-in command directly under the `builtin` subtree. These are registered as standard Click commands via the `GroupTrie` namespace authority. Builtins are auto-discovered at boot and include `cache`, `state`, `config`, `domains`, `scaffold`, `workflow`, `parallel`, `history`, `env`, `shell-init`, `why`, `version`, and `info`
+- For builtins: executes the built-in command directly under the `builtin` subtree. These are registered as standard Click commands via the `GroupTrie` namespace authority. Builtins are auto-discovered at boot and include `cache`, `config`, `domains`, `env`, `history`, `info`, `parallel`, `plugin`, `scaffold`, `self`, `shell-init`, `skills`, `state`, `version`, `why`, and `workflow`
 
 ### Use Cases
 

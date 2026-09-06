@@ -78,7 +78,7 @@ The "defined in module" check prevents imported helper functions from accidental
 
 from some_library import helper_function  # (1)!
 
-JOB_NAME = "data"
+JOB_GROUP = "data"
 
 
 def export():  # (2)!
@@ -101,18 +101,18 @@ class DataProcessor:  # (4)!
 3. `_validate_row` is **not** registered — it starts with an underscore.
 4. `DataProcessor` is **not** registered — it's a class, not a function.
 
-## JOB_NAME and sub-command grouping
+## JOB_GROUP and sub-command grouping
 
-The `JOB_NAME` module-level variable controls how functions are organized in the CLI hierarchy.
+The `JOB_GROUP` module-level variable controls how functions are organized in the CLI hierarchy.
 
-### With JOB_NAME (grouped)
+### With JOB_GROUP (grouped)
 
-When a module defines `JOB_NAME`, all qualifying functions in that module are registered under a Click sub-command group named after the `JOB_NAME` value:
+When a module defines `JOB_GROUP`, all qualifying functions in that module are registered under a Click sub-command group named after the `JOB_GROUP` value:
 
 ```python
 # jobs/reporting.py
 
-JOB_NAME = "report"  # (1)!
+JOB_GROUP = "report"  # (1)!
 
 
 def generate(format: str = "pdf"):
@@ -134,13 +134,13 @@ my-app report generate --format pdf
 my-app report send --recipient team@example.com
 ```
 
-### Without JOB_NAME (top-level)
+### Without JOB_GROUP (top-level)
 
-When a module does **not** define `JOB_NAME`, its qualifying functions are registered as top-level commands on the main application:
+When a module does **not** define `JOB_GROUP`, its qualifying functions are registered as top-level commands on the main application:
 
 ```python
 # jobs/health.py
-# No JOB_NAME defined
+# No JOB_GROUP defined
 
 
 def ping():
@@ -154,13 +154,13 @@ This registers `ping` directly on the app:
 my-app ping
 ```
 
-## Multiple modules sharing the same JOB_NAME
+## Multiple modules sharing the same JOB_GROUP
 
-Multiple job modules can share the same `JOB_NAME` value. Their functions are all registered under the same sub-command group:
+Multiple job modules can share the same `JOB_GROUP` value. Their functions are all registered under the same sub-command group:
 
 ```python
 # jobs/data_export.py
-JOB_NAME = "data"
+JOB_GROUP = "data"
 
 def export():
     """Export data to file."""
@@ -169,7 +169,7 @@ def export():
 
 ```python
 # jobs/data_import.py
-JOB_NAME = "data"
+JOB_GROUP = "data"
 
 def load():
     """Load data from file."""
@@ -184,25 +184,21 @@ my-app data load
 ```
 
 !!! tip "Organizing large projects"
-    Splitting related functions across multiple files while sharing a `JOB_NAME` keeps individual modules focused and manageable, while presenting a unified command group to users.
+    Splitting related functions across multiple files while sharing a `JOB_GROUP` keeps individual modules focused and manageable, while presenting a unified command group to users.
 
 ## Duplicate command detection
 
-When a command name is already registered at the same level (either within the same group or at the top level), the duplicate is **skipped** and a warning is logged:
-
-```
-WARNING - Duplicate command 'export' (already registered from 'data_export'). Skipping duplicate from 'data_backup'.
-```
+When a command name is already registered at the same level (either within the same group or at the top level):
 
 This can happen when:
 
-- Two modules with the same `JOB_NAME` both define a function with the same name
-- Two modules without `JOB_NAME` both define a function with the same name
+- Two modules with the same `JOB_GROUP` both define a function with the same name
+- Two modules without `JOB_GROUP` both define a function with the same name
 
-The first module discovered (based on filesystem ordering from `pkgutil.iter_modules`) wins. The duplicate is silently skipped after the warning.
-
-!!! warning "Avoid relying on discovery order"
-    The order in which modules are discovered depends on the filesystem and `pkgutil.iter_modules` behavior. If you have naming conflicts, rename one of the functions rather than relying on which one gets registered first.
+Within one directory, the **first module discovered wins** (filesystem order
+from `pkgutil.iter_modules`) and the duplicate is not registered. Duplicate
+job names across *providers* raise a `ValueError` at registration. Do not
+rely on discovery order — rename one of the functions.
 
 ## Minimal job file example
 
@@ -211,7 +207,7 @@ Here's a complete, minimal job file with annotations showing which elements are 
 ```python title="jobs/sample_job.py" hl_lines="3 6"
 """Sample job module demonstrating auto-discovery requirements."""
 
-JOB_NAME = "sample"  # (1)!
+JOB_GROUP = "sample"  # (1)!
 
 
 def run(target: str, dry_run: bool = False):  # (2)!
@@ -227,7 +223,7 @@ def run(target: str, dry_run: bool = False):  # (2)!
     print("Job completed successfully")
 ```
 
-1. **`JOB_NAME`** — Groups this module's functions under the `sample` sub-command. Remove this line to register functions at the top level instead.
+1. **`JOB_GROUP`** — Groups this module's functions under the `sample` sub-command. Remove this line to register functions at the top level instead.
 2. **Public function** — Must be a function (not a class), must not start with `_`, and must be defined in this module. Parameters with type annotations become Click CLI options automatically.
 3. **Docstring** — Used as the command's help text in `--help` output.
 
@@ -254,7 +250,7 @@ Options:
 from functualize.job import job
 from functualize.job import RunContext
 
-JOB_NAME = "deploy"
+JOB_GROUP = "deploy"
 
 
 @job(

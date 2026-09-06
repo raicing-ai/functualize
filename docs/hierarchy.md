@@ -1,12 +1,12 @@
 # Hierarchical Projects
 
-Functualize supports two methods for composing jobs from multiple sources into a single CLI application: **flat inclusion** (via `JobSources.directories`) and **hierarchical inclusion** (via `JobSources.children` / `[children]` config). Both can be used together.
+Functualize supports two methods for composing jobs from multiple sources into a single CLI application: **flat inclusion** (via `JobSources.directories`) and **hierarchical inclusion** (via `JobSources.children`). Both can be used together.
 
 ## Overview
 
 | Aspect | Flat (`JobSources.directories`) | Hierarchical (`JobSources.children`) |
 |--------|--------------------------|---------------------------|
-| Namespacing | Jobs appear at top-level (or grouped by `JOB_NAME`) | Jobs are nested under a namespace sub-command |
+| Namespacing | Jobs appear at top-level (or grouped by `JOB_GROUP`) | Jobs are nested under a namespace sub-command |
 | Configuration | Uses the **parent's** config exclusively | Each child can have its **own** config directory |
 | Identity | Jobs become part of the parent — no separate project boundary | Children retain their project identity and path |
 | Discovery | Scans Python module paths (dotted or filesystem) | Scans full project directories for `src/<pkg>/jobs/` layout |
@@ -30,7 +30,7 @@ app = FunctualizeApp(
 ```
 ops-cli deploy        # from ops_cli.jobs
 ops-cli backup        # from ops_cli.maintenance
-ops-cli show-info
+ops-cli builtin info
 ```
 
 **When to use:**
@@ -48,19 +48,8 @@ ops-cli show-info
 
 Child projects are mounted as namespaced sub-commands. Each child is a standalone functualize project with its own directory structure.
 
-### Configuration-driven (recommended for dynamic setups)
-
-In your parent's `config.base.toml`:
-
-```toml
-[children]
-# Each key becomes the CLI namespace, value is the path
-difftastic = "/home/user/code/tickets/dnadvo-3759/difftastic_filter"
-infra-tools = "/home/user/code/tickets/dnadvo-4001/infra-tools"
-# Glob patterns work too — each matched directory becomes a child
-# using its directory name as the namespace
-tickets = "~/code/tickets/*/"
-```
+> Children are configured **programmatically** through `JobSources` — there is
+> no `[children]` config-file section.
 
 ### Programmatic (in `main.py`)
 
@@ -99,7 +88,7 @@ ops-cli deploy                    # parent's own job
 ops-cli difftastic filter         # child's job, namespaced
 ops-cli difftastic transform      # another child job
 ops-cli infra-tools provision     # different child
-ops-cli show-info                 # shows parent + children info
+ops-cli builtin info              # shows parent + children info
 ```
 
 **When to use:**
@@ -111,8 +100,8 @@ ops-cli show-info                 # shows parent + children info
 
 **Configuration behavior:**
 - Each child's jobs use the **parent's** config for `RunContext` resolution (the parent is the running app)
-- Children can have their own `config.base.toml` for reference (shown in `show-info`)
-- The parent's `[children]` section defines the mapping
+- Children can have their own `config.base.toml` for reference (shown in `builtin info`)
+- The parent's `JobSources.children` mapping defines the children
 - No config key collisions between children since they're namespaced
 
 ## Child Project Structure
@@ -165,16 +154,22 @@ ops-cli difftastic filter         # hierarchical — from child
 
 For your workflow where `ops-cli` is the parent and each ticket gets a new child project:
 
-**Parent: `ops-cli/config.base.toml`**
-```toml
-[general]
-app_name = "ops-cli"
+**Parent: `ops-cli/main.py`**
+```python
+from functualize.app import FunctualizeApp, JobSources
 
-[children]
-# Add new ticket projects here as you create them
-difftastic = "~/code/ticket-workspace/dnadvo-3759/difftastic_filter"
-# Or use a glob to auto-discover all ticket projects:
-# tickets = ~/code/ticket-workspace/*/
+app = FunctualizeApp(
+    name="ops-cli",
+    job_sources=JobSources(
+        directories=["ops_cli.jobs"],
+        # Add new ticket projects here as you create them
+        children={
+            "difftastic": "~/code/ticket-workspace/dnadvo-3759/difftastic_filter",
+        },
+        # Or use a glob to auto-discover all ticket projects:
+        # children_glob="~/code/ticket-workspace/*/",
+    ),
+)
 ```
 
 **Child: `difftastic_filter/`** — scaffold with `func builtin scaffold init difftastic-filter` in a fresh directory, then move/develop your code there.
@@ -190,13 +185,13 @@ difftastic-filter filter --input myfile.txt
 
 ## Path Resolution
 
-Paths in the `[children]` config section support:
+Paths in `JobSources.children` / `children_glob` support:
 - **Absolute paths:** `/home/user/code/my-project`
 - **Home expansion:** `~/code/my-project`
 - **Environment variables:** `$WORKSPACE/my-project`
-- **Relative paths:** Resolved from the config directory (where `config.base.toml` lives)
+- **Relative paths:** Resolved from the config directory
 - **Glob patterns:** `~/code/tickets/*` — each matched directory becomes a child
 
 ## Introspection
 
-Run `ops-cli show-info` to see all mounted children, their paths, and discovered jobs.
+Run `ops-cli builtin info` to see all mounted children, their paths, and discovered jobs.

@@ -2,9 +2,21 @@
 
 This page explains the project layouts for each mode of using functualize — from a single file to a full scaffolded project.
 
+Functualize can be used in two ways. **Standalone** layouts are run directly with the
+`func` CLI: `func` discovers your jobs from the current directory (no package install,
+state cached under XDG). **Project** layouts declare a `FunctualizeApp` in a `main.py`
+and are installed as a named command — giving you explicit control over job sources,
+config, plugins, and delivery adapters.
+
 ---
 
-## Single-File Mode
+## Standalone mode — the `func` CLI
+
+`func` scans the working directory and discovers job functions for you. No project
+metadata or installation is required — you just point `func` at a file or a `jobs/`
+folder.
+
+### Single-File Mode
 
 The simplest layout. No structure required.
 
@@ -14,11 +26,9 @@ jobs.py          # Your job functions
 
 Run with `func jobs.py deploy`. Functualize imports the file directly.
 
----
+### Directory Mode
 
-## Directory Mode
-
-A `jobs/` folder with auto-discovery. Minimal structure, maximum convenience.
+A `jobs/` folder, declared in `pyproject.toml` so `func` knows where to look. Minimal structure, maximum convenience.
 
 ```
 myproject/
@@ -27,22 +37,40 @@ myproject/
 │   ├── migrate.py
 │   └── healthcheck.py
 ├── config.base.toml       # optional: layered config
-└── pyproject.toml        # optional: for installable CLI
+└── pyproject.toml        # declares job directories; also enables installable CLI
 ```
 
-Run with `func deploy` from inside `myproject/`. Functualize discovers the `jobs/` directory automatically.
+Run with `func deploy` from inside `myproject/`. Functualize discovers the `jobs/` directory because it is declared in config.
 
-### What each part does
+```toml title="pyproject.toml"
+[tool.functualize]
+jobs_directories = ["jobs"]
+```
+
+> **Note:** By default `func` only scans the current directory (`scan_depth = 0`),
+> not its subdirectories. `jobs_directories` tells it to look inside `jobs/`.
+> Without this (or a `.functualize.toml` with the same setting, or `scan_depth >= 1`),
+> `func deploy` from `myproject/` finds nothing — though running it from *inside*
+> `jobs/` would, since the `.py` files are then at the top level.
+
+#### What each part does
 
 | Path | Purpose |
 |------|---------|
-| `jobs/` | Auto-discovered job directory. Every `.py` file with qualifying functions becomes a command. |
+| `jobs/` | Job directory. Every `.py` file with qualifying functions becomes a command once it is declared via `jobs_directories` (or reached by a recursive scan). |
 | `config.base.toml` | Base configuration. Values are overridden by env-specific files, env vars, and CLI args. |
-| `pyproject.toml` | Optional. Needed only if you want the project installable as a named CLI command. |
+| `pyproject.toml` | Declares `jobs_directories` for discovery and, if it also defines `[project.scripts]`, makes the project installable as a named CLI command. |
 
 ---
 
-## Full Project Mode (Scaffolded)
+## Project mode — a declared FunctualizeApp
+
+You construct a `FunctualizeApp` in your own `main.py`, passing `JobSources` and
+`ConfigSources` explicitly. This is the library/bootstrap path: it is installed as a
+named command and gives you full control over config presets, plugins, DI, and
+delivery adapters (CLI, HTTP, Lambda, TUI).
+
+### Full Project Mode (Scaffolded)
 
 When you run `func builtin scaffold init my-app`, the following structure is generated:
 
@@ -155,13 +183,13 @@ from pydantic import BaseModel, Field
 
 from functualize.job import RunContext
 
-JOB_NAME = "sample"
+JOB_GROUP = "sample"
 
 
 class SampleConfig(BaseModel):
     """Configuration schema for the sample job."""
 
-    target: str = Field(description="Target resource to process")
+    target: str = Field(default="world", description="Target resource to process")
     dry_run: bool = Field(default=False, description="Run without making changes")
 
 
@@ -173,7 +201,7 @@ def run(config: SampleConfig, rc: RunContext) -> None:
 
 | Element | Purpose |
 |---------|---------|
-| `JOB_NAME` | Groups functions under a CLI sub-command (`my-app sample run`) |
+| `JOB_GROUP` | Groups functions under a CLI sub-command (`my-app sample run`) |
 | `SampleConfig` | Pydantic model defining typed CLI options and config fields |
 | `run()` | The job function — auto-discovered and registered as a command |
 | `RunContext` | Structured execution context with logging, invocation, DI, events |

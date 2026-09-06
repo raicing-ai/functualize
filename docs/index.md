@@ -92,7 +92,8 @@ func deploy.py deploy
 
 ### Multi-job project
 
-A `jobs/` directory with auto-discovery. No manual registration needed.
+A `jobs/` directory, declared in `pyproject.toml` so functualize knows where to
+look. Every public function inside it is auto-discovered — no per-job registration.
 
 ```
 myproject/
@@ -103,11 +104,21 @@ myproject/
 └── pyproject.toml
 ```
 
+```toml title="pyproject.toml"
+[tool.functualize]
+jobs_directories = ["jobs"]
+```
+
 ```bash
 func deploy       # auto-discovered from jobs/
 func migrate
 func healthcheck
 ```
+
+(If you prefer zero config, you can instead let `func` scan the working directory
+recursively by setting `[discovery] scan_depth = 1` in `pyproject.toml`, or passing
+`func --discovery-depth 1 deploy`. The default `scan_depth` is `0`, which only scans
+the top level of the current directory.)
 
 ### Full framework with plugins
 

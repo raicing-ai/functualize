@@ -206,7 +206,7 @@ def deploy(sh: Shell): ...
 
 # Consume: workflow's return value feeds a job
 @job
-def report(artifacts: FromJob["build_workflow"]): ...
+def report(artifacts: Annotated[list[Artifact], FromJob("build_workflow")]): ...
 
 # Nest: workflow as a step inside another workflow
 @workflow(
@@ -238,7 +238,7 @@ Resuming a paused workflow replays it with memoization:
 When `functualize-mcp` is installed, workflows are exposed as MCP tools:
 
 ```bash
-func builtin mcp serve
+func mcp serve
 ```
 
 AI agents can:

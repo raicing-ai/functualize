@@ -133,13 +133,13 @@ sequenceDiagram
 | 2 | `provider_registry` | `TomlFormatProvider` registered — the only built-in default since ADR-007 |
 | 3 | `observability` | `MiddlewareStack` created (before plugins so plugins can subscribe) |
 | 4 | `plugins` | Entry-point and file-based plugins loaded via `PluginLoader.load_all()` |
-| 5 | `config_entry_points` | Format and remote providers from entry points discovered |
-| 6 | `config_resolution` | `ResourceLocator` and `ResolutionChain` built once; all config lookups reuse them |
-| 7 | `job_registration` | Providers from `JobSources` wired (directories → `CachedDirectoryScanProvider`, functions → `StaticProvider`) |
+| 5 | `domains` | Domain SDK metadata registered (`functualize.domains` entry points) |
+| 6 | `config_entry_points` | Format and remote providers from entry points discovered |
+| 7 | `config_resolution` | `ResourceLocator` and `ResolutionChain` built once |
 | 8 | `children` | Child `FunctualizeApp` projects mounted via `ChildProjectLoader` |
-| 9 | `registry_frozen` | DI registry frozen — no further `provide()` calls. `REGISTRY_FROZEN` event emitted |
-| 10 | `app_ready` | `APP_READY` hook fires — all boot steps complete |
-| 11 | `adapter.run()` | Active adapter (CLI, HTTP, Lambda, TUI) takes over delivery |
+| 9 | `job_registration` | Providers from `JobSources` wired |
+| 10 | `di_validation` + `registry_frozen` | DI registry frozen — no further `provide()` calls. `REGISTRY_FROZEN` emitted |
+| 11 | `app_ready` | `APP_READY` hook fires |
 
 Config files are parsed **once at boot** — there is no per-invocation file I/O.
 
@@ -418,8 +418,8 @@ rc.emit("pipeline.stage.complete", resource="extract", records=1000)
 Framework lifecycle events (`job.execute.*`, `job.teardown.*`, `plugin.*`,
 `config.*`, `cli.*`, `tui.*`) are filtered out — they never reach a `Surface`.
 
-Exceptions inside `handle_event` are **swallowed with a warning** — one bad
-surface never interrupts a job or starves its peers.
+Exceptions inside `handle_event` are **caught and logged at ERROR level by the event
+bus; dispatch continues** — one bad surface never interrupts a job or starves its peers.
 
 ---
 
@@ -427,7 +427,7 @@ surface never interrupts a job or starves its peers.
 
 | Extension point | Interface | Registered via | Purpose |
 |---|---|---|---|
-| **Hooks** | `HookRegistry.register()` | Code (`app.hooks.register(...)`) | Callbacks at lifecycle points |
+| **Hooks** | `HookRegistry.register()` | Code (`app.hook_registry.register(...)`) | Callbacks at lifecycle points |
 | **DI Registration** | `app.provide()` / `provide_factory()` / `provide_named()` | Code (from plugins during boot) | Register typed capabilities for DI injection |
 | **Plugins** | `PluginMetadata` protocol + callable | Python entry points (`functualize.plugins`) | Add CLI commands, register providers, subscribe to events |
 | **Adapters** | `AdapterPlugin` Protocol | `adapter(app); adapter.run()` | Delivery surfaces: CLI, HTTP, Lambda, custom |

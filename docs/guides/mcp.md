@@ -93,11 +93,13 @@ def deploy(...): ...
 def _helper(...): ...
 ```
 
-CLI filtering:
+Configuration filtering — set in the `[mcp]` section of your config files:
 
-```bash
-func mcp serve --include-tags ai,safe      # Only expose tagged jobs
-func mcp serve --exclude-jobs internal-job  # Hide specific jobs
+```toml
+[mcp]
+include_tags = ["ai", "safe"]       # only expose jobs with one of these tags
+exclude_jobs = ["internal-job"]     # hide specific jobs
+enable_management = true            # expose the multi-server management tools
 ```
 
 ---
@@ -128,10 +130,11 @@ func mcp stop api      # Stop by name
 func mcp stop --all    # Stop all
 ```
 
-With `--enable-management`, expose management as MCP tools themselves:
+With `enable_management = true` in `[mcp]` config, management is exposed as MCP tools themselves:
 
-```bash
-func mcp serve --enable-management
+```toml
+[mcp]
+enable_management = true
 # Exposes: mcp_start_server, mcp_list_servers, mcp_stop_server, mcp_get_server_tools
 ```
 

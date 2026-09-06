@@ -12,11 +12,11 @@ from functualize.app import FunctualizeApp, JobSources, PluginSources
 app = FunctualizeApp(
     name="my-app",
     job_sources=JobSources(directories=["jobs"]),
-    plugin_sources=PluginSources(group="functualize.plugins"),  # (1)!
+    plugin_sources=PluginSources(entry_point_group="functualize.plugins"),  # (1)!
 )
 ```
 
-1. The `plugin_sources` parameter defaults to `PluginSources(group="functualize.plugins")`. You can change this to use a custom entry point group name for your application.
+1. The `plugin_sources` parameter defaults to `PluginSources(entry_point_group="functualize.plugins")`. You can change this to use a custom entry point group name for your application.
 
 The discovery process:
 
@@ -32,7 +32,7 @@ If you're building a framework on top of Functualize and want plugins scoped to 
 ```python
 app = FunctualizeApp(
     name="my-framework",
-    plugin_sources=PluginSources(group="my_framework.plugins"),  # Custom group
+    plugin_sources=PluginSources(entry_point_group="my_framework.plugins"),  # Custom group
 )
 ```
 
@@ -84,10 +84,10 @@ class MyPlugin:
 
     def __call__(self, app):  # (1)!
         """Register plugin functionality with the app."""
-        @app.command()
         def greet(name: str = "World"):
             """Say hello."""
             print(f"Hello, {name}!")
+        app.register_plugin_command("greet", greet, help_text="Say hello")
 ```
 
 1. The `app` parameter is the application instance. Use `app.cli_command` (a Click `Group`) to register commands, add callbacks, or access any Click API.
@@ -203,7 +203,7 @@ This creates `my-app mcp serve` and `my-app mcp stop` commands.
 |-----------|------|-------------|
 | `name` | `str` | Command name (1-64 chars, `^[a-z][a-z0-9-]{0,63}$`) |
 | `callback` | `Callable` | The callable to invoke when the command runs |
-| `group` | `str \| None` | Sub-group name (creates `app <group> <name>`) or `None` for top-level |
+| `namespace` | `str \| None` | Sub-group name (creates `app <namespace> <name>`) or `None` for top-level |
 | `help_text` | `str` | Help text for the command (max 256 chars) |
 
 !!! warning "Validation"
