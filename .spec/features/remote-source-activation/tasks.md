@@ -474,16 +474,90 @@ its command returned, so drift between authoring and execution is visible.
 
 ## 4. Surfaces
 
-- [ ] **4.1 — V6: the `builtin vault` family**
+- [x] **4.1 — V6: the `builtin vault` family** — DONE
   `sync`, `list`, `status`, `clear`, `keygen` per `contracts.md` §6.
   - `[F]` `src/functualize/_cli/builtins.py`, `src/functualize/app/utils.py`, `tests/cli/test_vault_commands.py`
   - Acceptance: `func builtin vault list --json` renders names, providers and
-    `synced_at` with **no** value present anywhere in the payload.
-  - Flag spelling is `--json`, matching `builtin info` as shipped. **Not**
-    `--output json` — that option does not exist
-    (`Error: No such option '--output'`, verified at authoring time).
+    `synced_at` with **no** value present anywhere in the payload. **Met**, and
+    asserted against the *whole serialised document* rather than field by
+    field — a leak arriving through a field nobody thought to check is exactly
+    what this must catch.
+  - Flag spelling is `--json`, matching `builtin info` as shipped. **Met.**
   - `_cli` reaches the vault through `app/utils.py`, never `_config` directly;
-    `lint-imports` is the gate.
+    `lint-imports` is the gate. **Met**, 5 contracts kept.
+
+  **This is the task that made the feature exist.** Every part of the remote
+  layer already worked and none of it was reachable: the chain was wired, three
+  provider plugins were installed, and nothing ever *filled* the vault, so
+  every declared remote value fell through with 3.2's warning.
+
+  **ADR-008 is met structurally, not by care.** `list` and `status` are never
+  handed a decrypted value — they read the cleartext metadata columns, which is
+  the same property that lets them answer on a machine with no key. `sync`
+  writes values and returns none. The surfaces *cannot* render a secret rather
+  than being trusted not to.
+
+  **Only `sync` needs an app.** `list`, `status`, `clear` and `keygen` answer
+  from the filesystem, deliberately: the moment you most want to ask "what is
+  in my vault?" is when the app will not boot.
+
+  **Three design decisions worth keeping:**
+
+  1. **Failures are collected, not raised.** One unreachable provider must not
+     abandon the twelve secrets that would have synced fine. Each is reported
+     with its reason, and an exhausted fallback chain reports *every* entry's
+     reason — "it did not work" carrying only the last why makes the first
+     provider look innocent. The exit code is `REFUSED` when anything declared
+     did not land, so a pipeline still notices.
+  2. **A missing key is the one fatal case.** With no key there is nothing to
+     write into, and reporting a successful sync would leave an operator
+     believing one happened.
+  3. **`sync` scans config *files* only.** An annotation set in an environment
+     variable would, once synced, be answered by the vault instead — the vault
+     sits *above* Env in the chain `remote_first()` builds — so re-exporting
+     the variable would silently stop changing anything. A file annotation has
+     no such surprise: the file is below Env either way. Pinned by a test.
+
+  **Two deviations from this task as written, disclosed:**
+
+  1. **`app/utils.py` grew a whole seam, not a passthrough.** Ten names:
+     `vault_sync`, `vault_status`, `vault_entries`, `vault_clear`,
+     `vault_location`, `vault_duration`, `generate_vault_key`,
+     `declared_config_values`, plus `VaultStatusReport`/`VaultSyncReport` and
+     `VaultKeyUnavailableError`. That is more surface than "re-export the
+     store", and it is the point: without it the CLI would have to decide which
+     key wins, what counts as an annotation, and how a fallback chain fails
+     over — each of which already has exactly one answer one layer down.
+  2. **`vault_duration` re-exports `format_duration` from 3.3** so `vault
+     status` prints ages in the same words the run-path warning uses. Two
+     surfaces disagreeing about whether a vault is "1d 2h" or "26 hours" old is
+     a small thing that makes them look like two systems.
+
+  **Verified against a real app, not only `CliRunner`.** In a scratch project
+  with `remote_first()`, `func builtin vault status` reported the three
+  genuinely installed providers (`aws-sm, aws-ssm, bws`) from real entry
+  points, `vault` appeared in `builtin --help` beside the other families, and
+  `keygen` → `$FUNCTUALIZE_VAULT_KEY` → `status` reported `Key provider: env`.
+
+  **Verification.** 60 tests. **Fourteen sabotages; thirteen caught
+  immediately and the fourteenth found a vacuous test.** `status` resolving
+  the key *interactively* changed nothing, because `CliRunner`'s stdin is not a
+  tty and `resolve_vault_key`'s own default already declines to prompt — so the
+  test was asserting a property of the harness. It now forces a pretend
+  terminal, which makes the explicit `allow_interactive=False` the only thing
+  standing between `status` and a keychain prompt, plus a control test proving
+  the pretence actually enables interactive resolution. The other thirteen:
+  `list --json` leaking the value (1), `sync` printing the fetched value (2),
+  a chain reporting only the last reason (1), `is_ready()` unchecked (2), a
+  chain stopping at the first failure (2), `sync` opening the vault before
+  checking whether there is anything to store (2), a provider error aborting
+  the sync (4), `clear` leaving the WAL sidecars (1), `clear` defaulting to yes
+  (1), `sync` always exiting 0 (3), `list` requiring a key (1), env values
+  joining the scan (1), and storing under the bare key rather than
+  `section.key` (4).
+
+  Full suite **8702 passed, 1544 skipped**, 0 failures. All 13 plugin suites
+  green separately. `ruff`, `format`, `mypy` (316 files), `lint-imports` green.
 
 - [x] **4.2 — §7: the trigger plugins consume the status table** — DONE
   Lambda and HTTP both read the `_types/` table from 1.3.
