@@ -403,7 +403,7 @@ rather than waiting behind them.
     functualize's own distribution → 2 failed; never scanning entry points →
     4 failed; dropping the `is_dir()` guard → 1 failed.
 
-- [ ] **4.2 — S3b: migrate the three call sites and stamp per source**
+- [x] **4.2 — S3b: migrate the three call sites and stamp per source**
   `builtin skills list | path | materialize | install` iterate. Materialization
   destination is `<distribution>-<version>`; core's own tree keeps
   `func-<version>` so existing agent configs keep working.
@@ -435,6 +435,54 @@ rather than waiting behind them.
     location**, and the README's replacement idiom is exercised by a
     doc-verify scenario rather than only being written down.
   - `[verify-e2e:TARGETED]`
+
+  **Done 2026-09-06.** 17 new tests in `tests/cli/test_skills_hosting.py` (27
+  in the file), plus `examples/docs/scenarios/q-skills-hosting.toml`.
+
+  - All four subcommands iterate. `_require_skills_location()` became
+    `_require_skills_locations()`; `path`, `list`, `materialize`, `install` and
+    the `builtin info` skills block each report every location.
+  - Acceptance met, with one honest deviation:
+    `grep -rn "resolve_skills_dir(" src/functualize/_cli/` returns **2**, not
+    1 — the definition, and the call inside `resolve_skills_locations()` that
+    builds core's entry. That second one is 4.1's design, not a stray caller:
+    the plural resolver is *defined* in terms of the singular. No command calls
+    it directly any more, which is what the gate is for.
+  - Second acceptance met, **through the CLI**: `builtin skills materialize`
+    writes `func-<functualize version>` and `otherpkg-9.9.9` as separate trees,
+    and asserts `otherpkg-<functualize version>` is not among them.
+  - Third acceptance met both ways: `test_path_emits_one_line_per_location`
+    pins the line count against two locations, and `q-skills-hosting.toml`
+    *runs* the README's loop, copies the skills, and checks a real `SKILL.md`
+    landed — 6/6 steps green.
+  - `materialized_root` and `materialize_skills` gained `distribution`. Core
+    keeps the `func-` stem rather than becoming `functualize-`: agent configs
+    already point at `func-<version>`, and renaming would break every one of
+    them for nothing. `--prune` now scopes to the distribution's own prefix —
+    a bare `func-` prefix would have one host delete another's tree.
+  - **A second breaking change, disclosed:** `full_report()["skills"]` was an
+    object or `null` and is now a **list**, always present, `[]` when empty —
+    the same rule `discovery_failures` and `config` follow. An object could
+    only ever describe core, which is the defect this task fixes. Each entry
+    carries its own `distribution` and `version`.
+  - **A sabotage passed on the first attempt, and that was the real finding.**
+    Hard-coding `distribution="functualize"` inside the `materialize` command
+    changed nothing: every materialization test called `materialize_skills()`
+    directly, so the *callee* was covered and the wiring — which is the entire
+    task — was not. `test_the_materialize_command_stamps_each_source_separately`
+    drives the CLI, and that mutation now fails.
+  - **Reachability, by sabotage** (6 mutations): `path` answering with core
+    only → 2 failed; a shared materialization stamp → 2 failed (after the fix
+    above); `list` stamping a host with functualize's version → 2 failed;
+    `install` targeting core only → 2 failed; `info` reporting core only → 2
+    failed; `--prune` crossing distributions → 1 failed.
+  - The 4.1 test fixture faked `entry_points` too narrowly — it asserted the
+    group was the skills group, which raises as soon as a test drives the whole
+    CLI, since boot also scans the *plugin* entry-point group. Now it answers
+    for the skills group and defers everything else to the real implementation.
+  - Both published single-value consumers changed: `skills_path`'s docstring
+    now documents the loop and says why substitution is wrong, and `README.md`
+    replaced `cp -R "$(func builtin skills path)"/*` with a `while read` loop.
 
 ---
 

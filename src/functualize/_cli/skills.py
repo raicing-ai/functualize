@@ -35,10 +35,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 __all__ = [
+    "CORE_DIRECTORY_STEM",
     "SKILLS_ENTRY_POINT_GROUP",
     "SKILLS_PACKAGE_DIRNAME",
     "SkillInfo",
     "SkillsLocation",
+    "directory_stem",
     "list_skills",
     "materialize_skills",
     "materialized_root",
@@ -312,15 +314,36 @@ def list_skills(root: Path) -> list[SkillInfo]:
     return sorted(found, key=lambda s: s.name)
 
 
-def materialized_root(version: str) -> Path:
-    """Where ``materialize_skills`` writes for a given functualize version."""
+#: What core's own materialized tree is stamped with. Not ``functualize-``:
+#: agent configs already point at ``func-<version>``, and renaming it would
+#: break every one of them for no gain (`tasks.md` 4.2).
+CORE_DIRECTORY_STEM = "func"
+
+
+def directory_stem(distribution: str) -> str:
+    """The parent-directory prefix a distribution's skills materialize under.
+
+    Core keeps ``func-``; everyone else is stamped with their own name, so two
+    hosts shipping a skill of the same name land in different trees and the
+    version in the path is *that host's* version rather than functualize's.
+    """
+    return CORE_DIRECTORY_STEM if distribution == "functualize" else distribution
+
+
+def materialized_root(version: str, distribution: str = "functualize") -> Path:
+    """Where ``materialize_skills`` writes for a given distribution + version."""
     from functualize.app.utils import resolve_user_data_dir
 
-    return resolve_user_data_dir() / "skills" / f"func-{version}"
+    stem = directory_stem(distribution)
+    return resolve_user_data_dir() / "skills" / f"{stem}-{version}"
 
 
 def materialize_skills(
-    source: Path, version: str, *, prune: bool = False
+    source: Path,
+    version: str,
+    *,
+    prune: bool = False,
+    distribution: str = "functualize",
 ) -> tuple[Path, list[str]]:
     """Copy the packaged skills into the XDG data directory.
 
@@ -331,16 +354,19 @@ def materialize_skills(
     Args:
         source: Directory holding the skill directories (from
             :func:`resolve_skills_dir`).
-        version: The running functualize version, used to stamp the parent
-            directory so several installs coexist.
+        version: The version to stamp the parent directory with, so several
+            installs coexist. **The owning distribution's version**, not
+            functualize's — see :class:`SkillsLocation`.
         prune: Also delete materialized trees for *other* versions. Off by
             default — an older tree may still be referenced by a project whose
             agent config points at it.
+        distribution: Who owns these skills. Decides the directory stem, so a
+            third-party host never overwrites core's tree or another host's.
 
     Returns:
         The destination directory and the names of the skills written.
     """
-    destination = materialized_root(version)
+    destination = materialized_root(version, distribution)
     if destination.exists():
         shutil.rmtree(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -351,11 +377,15 @@ def materialize_skills(
         names.append(skill.name)
 
     if prune:
+        # Only this distribution's other versions. Pruning by a bare `func-`
+        # prefix would have one host delete another's tree, which is the
+        # failure per-source stamping exists to prevent.
+        prefix = f"{directory_stem(distribution)}-"
         for sibling in destination.parent.iterdir():
             if (
                 sibling.is_dir()
                 and sibling != destination
-                and sibling.name.startswith("func-")
+                and sibling.name.startswith(prefix)
             ):
                 shutil.rmtree(sibling)
 

@@ -345,7 +345,7 @@ def full_report(app: FunctualizeApp, cli_config: Any = None) -> dict[str, Any]:
     running four commands and parsing three prose formats.
     """
     from functualize import __version__
-    from functualize._cli.skills import list_skills, resolve_skills_dir
+    from functualize._cli.skills import list_skills, resolve_skills_locations
 
     report: dict[str, Any] = {
         "functualize": __version__,
@@ -379,16 +379,25 @@ def full_report(app: FunctualizeApp, cli_config: Any = None) -> dict[str, Any]:
 
     report["install"] = install_facts(include_manifest=True)
 
-    location = resolve_skills_dir()
-    report["skills"] = (
+    # A **list**, one entry per hosting distribution, and always present --
+    # `[]` when there are none, following the same rule as
+    # `discovery_failures` and `config` above. It was a single object or
+    # `null` until `third-party-host-seams`/4.2; a third-party distribution can
+    # now host its own skills, and an object could only ever describe core's.
+    #
+    # Each entry carries its *own* distribution and version rather than
+    # functualize's, which is the whole point of stamping per source: a skill
+    # read from a host's directory belongs to that host's release.
+    report["skills"] = [
         {
             "path": str(location.path),
             "origin": location.origin,
+            "distribution": location.distribution,
+            "version": location.version,
             "names": [s.name for s in list_skills(location.path)],
         }
-        if location is not None
-        else None
-    )
+        for location in resolve_skills_locations()
+    ]
 
     return report
 
@@ -443,9 +452,13 @@ def render_report_text(report: dict[str, Any]) -> list[str]:
             f"import_libs: {', '.join(import_libs) if import_libs else '(none)'}"
         )
 
-    skills = report.get("skills")
+    skills = report.get("skills") or []
     if skills:
-        lines.append(f"skills: {skills['path']} ({skills['origin']})")
+        for entry in skills:
+            stamp = entry.get("distribution") or "?"
+            if entry.get("version"):
+                stamp = f"{stamp} {entry['version']}"
+            lines.append(f"skills: {entry['path']} ({stamp}, {entry['origin']})")
     else:
         lines.append("skills: (none found)")
 

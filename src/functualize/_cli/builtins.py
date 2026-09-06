@@ -1491,51 +1491,79 @@ def register_builtin_commands(cli_group: Any) -> None:
         help="Locate and install the AI agent skills shipped with this version.",
     )
 
-    def _require_skills_location() -> Any:
-        from functualize._cli.skills import resolve_skills_dir
+    def _require_skills_locations() -> list[Any]:
+        """Core's location first, then every registered third-party host.
 
-        location = resolve_skills_dir()
-        if location is None:
+        Plural since `third-party-host-seams`/4.1: a distribution can host its
+        own skills through the `functualize.skills` entry point, and every
+        command below reports all of them rather than only core's.
+        """
+        from functualize._cli.skills import resolve_skills_locations
+
+        locations = resolve_skills_locations()
+        if not locations:
             click.echo(
                 "No skills directory found for this installation.",
                 err=True,
             )
             raise SystemExit(ExitCode.USAGE)
-        return location
+        return locations
 
     @skills_app.command("path")
     def skills_path() -> None:
-        """Print the directory holding this version's agent skills.
+        """Print each directory holding agent skills, one per line.
 
-        Machine-readable on purpose — one path, no decoration, so it composes:
-        `npx skills add "$(func builtin skills path)"`.
+        Machine-readable on purpose — bare paths, no decoration — but **one
+        line per location**, not one path. A third-party distribution can host
+        its own skills, so a single path could only ever be core's, and
+        answering with core's alone silently hides the rest.
+
+        That makes `"$(func builtin skills path)"` wrong: it substitutes a
+        multi-line string as one argument. Loop instead:
+
+            func builtin skills path | while read -r dir; do
+                npx skills add "$dir"
+            done
         """
-        click.echo(str(_require_skills_location().path))
+        for location in _require_skills_locations():
+            click.echo(str(location.path))
 
     @skills_app.command("list")
     def skills_list() -> None:
-        """List the shipped skills with their descriptions."""
-        from functualize import __version__
+        """List the available skills with their descriptions."""
         from functualize._cli.skills import list_skills
 
-        location = _require_skills_location()
-        skills = list_skills(location.path)
-        if not skills:
-            click.echo(f"No skills found in {location.path}")
-            return
+        locations = _require_skills_locations()
+        total = 0
+        for location in locations:
+            skills = list_skills(location.path)
+            if location.is_packaged:
+                origin = f"{location.distribution} {location.version} (packaged)"
+            elif location.origin == "entry-point":
+                origin = (
+                    f"{location.distribution} {location.version} (entry point)"
+                    if location.version
+                    else f"{location.distribution} (entry point)"
+                )
+            else:
+                origin = f"source checkout at {location.path} (not version-pinned)"
 
-        origin = (
-            f"functualize {__version__} (packaged)"
-            if location.is_packaged
-            else f"source checkout at {location.path} (not version-pinned)"
-        )
-        click.echo(f"Agent skills from {origin}")
-        click.echo("")
-        for skill in skills:
-            click.echo(f"  {skill.name}")
-            click.echo(f"    {skill.summary}")
-            click.echo(f"    {skill.path}")
+            click.echo(f"Agent skills from {origin}")
             click.echo("")
+            if not skills:
+                click.echo(f"  (none found in {location.path})")
+                click.echo("")
+                continue
+            for skill in skills:
+                total += 1
+                click.echo(f"  {skill.name}")
+                click.echo(f"    {skill.summary}")
+                click.echo(f"    {skill.path}")
+                click.echo("")
+
+        if total == 0:
+            click.echo("No skills found.")
+            return
         click.echo("Install into a project:  func builtin skills install")
 
     @skills_app.command("materialize")
@@ -1555,11 +1583,21 @@ def register_builtin_commands(cli_group: Any) -> None:
         from functualize import __version__
         from functualize._cli.skills import materialize_skills
 
-        location = _require_skills_location()
-        destination, names = materialize_skills(location.path, __version__, prune=prune)
-        for name in names:
-            click.echo(f"  {name}")
-        click.echo(f"{len(names)} skill(s) → {destination}")
+        for location in _require_skills_locations():
+            # The *owning* distribution's version, never functualize's. The
+            # whole promise of a version-stamped copy is that it describes the
+            # release it came from, and a shared stamp would make a third-party
+            # skill claim functualize's (`_cli/skills.py` docstring).
+            version = location.version or __version__
+            destination, names = materialize_skills(
+                location.path,
+                version,
+                prune=prune,
+                distribution=location.distribution,
+            )
+            for name in names:
+                click.echo(f"  {name}")
+            click.echo(f"{len(names)} skill(s) → {destination}")
 
     @skills_app.command("install")
     @click.option(
@@ -1576,29 +1614,39 @@ def register_builtin_commands(cli_group: Any) -> None:
         what lands is pinned to the installed functualize — not whatever
         master happens to say today.
         """
-        location = _require_skills_location()
-        command = ["npx", "skills", "add", str(location.path)]
-        rendered = " ".join(command)
+        locations = _require_skills_locations()
+        commands = [["npx", "skills", "add", str(loc.path)] for loc in locations]
+        rendered = [" ".join(command) for command in commands]
 
         if dry_run:
-            click.echo(rendered)
+            for line in rendered:
+                click.echo(line)
             return
 
         if shutil.which("npx") is None:
+            manual = "\n".join(
+                f"  cp -R {loc.path}/* .claude/skills/" for loc in locations
+            )
             click.echo(
                 "npx was not found on PATH. The skills CLI needs Node.\n"
                 "\n"
-                "Run this once Node is available:\n"
-                f"  {rendered}\n"
+                "Run these once Node is available:\n"
+                + "\n".join(f"  {line}" for line in rendered)
+                + "\n"
                 "\n"
-                "Or copy the directory into your agent's skills folder:\n"
-                f"  cp -R {location.path}/* .claude/skills/",
+                "Or copy the directories into your agent's skills folder:\n" + manual,
                 err=True,
             )
             raise SystemExit(ExitCode.USAGE)
 
-        click.echo(f"$ {rendered}")
-        raise SystemExit(subprocess.call(command))
+        # Stop at the first failure rather than pressing on: a half-installed
+        # skill set is harder to reason about than one that stopped and said so.
+        for command, line in zip(commands, rendered, strict=True):
+            click.echo(f"$ {line}")
+            code = subprocess.call(command)
+            if code != 0:
+                raise SystemExit(code)
+        raise SystemExit(0)
 
     _mount(builtin_app, skills_app, "skills")
 
@@ -1988,18 +2036,26 @@ def register_builtin_commands(cli_group: Any) -> None:
         # Agent skills. `info` is where the skills themselves tell an agent to
         # look first, so it is where the answer to "do skills exist, and
         # where?" belongs — the --help epilog only has room for the pointer.
-        from functualize._cli.skills import list_skills, resolve_skills_dir
+        from functualize._cli.skills import list_skills, resolve_skills_locations
 
-        location = resolve_skills_dir()
+        locations = resolve_skills_locations()
         click.echo("")
         click.echo("─── Agent Skills ───")
-        if location is None:
+        if not locations:
             click.echo("  (none found for this installation)")
         else:
-            names = ", ".join(s.name for s in list_skills(location.path)) or "(none)"
-            click.echo(f"  Path: {location.path}")
-            click.echo(f"  Origin: {location.origin}")
-            click.echo(f"  Skills: {names}")
+            for location in locations:
+                names = (
+                    ", ".join(s.name for s in list_skills(location.path)) or "(none)"
+                )
+                stamp = (
+                    f"{location.distribution} {location.version}"
+                    if location.version
+                    else location.distribution
+                )
+                click.echo(f"  {stamp} ({location.origin})")
+                click.echo(f"    Path: {location.path}")
+                click.echo(f"    Skills: {names}")
             click.echo("  Install: func builtin skills install")
 
         click.echo("")

@@ -936,10 +936,14 @@ func builtin skills install       # install into this project (uses npx skills)
 | `functualize-cli` | Installing, upgrading and configuring `func` itself |
 | `functualize-skill` | Authoring an agent skill whose scripts are functualize jobs |
 
-Without Node, copy them yourself:
+Without Node, copy them yourself. `skills path` prints **one directory per
+line** — a third-party package can host its own skills, so there is not always
+just one — which means it has to be looped over rather than substituted:
 
 ```bash
-cp -R "$(func builtin skills path)"/* .claude/skills/
+func builtin skills path | while read -r dir; do
+  cp -R "$dir"/* .claude/skills/
+done
 ```
 
 `func builtin skills materialize` writes a version-stamped copy under
