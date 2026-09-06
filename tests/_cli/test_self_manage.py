@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 
 from functualize._cli import manifest, package_ops
+from functualize.app import packaging
 
 
 @pytest.fixture
@@ -43,12 +44,12 @@ def calls(monkeypatch) -> list[list[str]]:
 @pytest.fixture
 def no_external_tools(monkeypatch) -> None:
     """Pin the manager paths, so a machine without uv still runs these tests."""
-    monkeypatch.setattr(package_ops, "resolve_uv", lambda: "/opt/uv")
-    monkeypatch.setattr(package_ops, "resolve_pipx", lambda: "/opt/pipx")
+    monkeypatch.setattr(packaging, "resolve_uv", lambda: "/opt/uv")
+    monkeypatch.setattr(packaging, "resolve_pipx", lambda: "/opt/pipx")
     # Standalone adds packages with the *bundled* interpreter's pip, not
     # uv: a binary is the install method for a machine with no Python
     # toolchain, and PyApp's distribution ships no uv.
-    monkeypatch.setattr(package_ops, "owned_python", lambda: "/opt/python")
+    monkeypatch.setattr(packaging, "owned_python", lambda: "/opt/python")
 
 
 DEGRADED = ("tool_pip", "unknown")
@@ -198,14 +199,14 @@ class TestTheConfirmationSeam:
         is exit 2, which `contracts.md` §2 assigns to an absent external tool."""
 
         def _absent() -> str:
-            raise package_ops.MissingToolError("pipx is required")
+            raise packaging.MissingToolError("pipx is required")
 
         # The mode's *own* manager has to be the one that is missing. Patching
         # a different one leaves the real `resolve_pipx` in play, and this then
         # asserts on whether the host happens to have pipx installed -- which
         # passes on a developer machine and fails on a GitHub runner, where it
         # is preinstalled.
-        monkeypatch.setattr(package_ops, "resolve_pipx", _absent)
+        monkeypatch.setattr(packaging, "resolve_pipx", _absent)
         result = cli_run(
             ["builtin", "self", "install", "requests", "--yes"],
             cwd=tmp_path,

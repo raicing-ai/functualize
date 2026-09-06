@@ -306,7 +306,7 @@ rather than waiting behind them.
     The meaningful version — `app/packaging.py` itself importing no `_cli` —
     is what the tests assert.
 
-- [ ] **3.2 — S2b: move the command builders**
+- [x] **3.2 — S2b: move the command builders**
   `Requirement`, `install_commands`, `update_commands`, `uninstall_commands`,
   `capture_environment`, `names_to_restore`, `normalize` and the three error
   types move. `announce`, `plan_or_exit`, `refuse` **stay** in `_cli` — every
@@ -317,6 +317,50 @@ rather than waiting behind them.
   - Second acceptance: `uv run lint-imports` green — `app/` must not acquire
     an import of any `_`-prefixed package.
   - The manifest API is **not** moved (`plan.md` §4).
+
+  **Done 2026-09-06.** 6 new tests in `tests/app/test_packaging.py` (19 in the
+  file); `_cli/package_ops.py` went 835 -> 279 lines.
+
+  - The split is **planning vs. deciding**, and that line turned out to be
+    sharper than the task's list. Everything that returns argv or reads the
+    environment moved -- the named eight plus `capture`, `Receipt`,
+    `read_receipt`, `merge_receipt`, `drop_from_receipt`, `_rebuild`,
+    `resolve_uv`, `resolve_pipx`, `owned_python`, `_bundled_pip`, which the
+    named functions call and which are equally terminal-free. What stays is
+    what needs a terminal: `announce`, `plan_or_exit`, `refuse`, plus `render`,
+    `script_name`, the `_call` seam, `run_commands`, and the pending-update
+    file, which is CLI config-directory bookkeeping rather than a fact about
+    the installation.
+  - Acceptance met: `grep -c "click" src/functualize/app/packaging.py` → **0**.
+  - Second acceptance met: `lint-imports` → 5 kept, 0 broken; mypy 317 files
+    clean. `app/packaging.py` imports only stdlib.
+  - **No shim**, matching 3.1. `self_cmd.py` and `plugin_cmd.py` import
+    `functualize.app.packaging` directly for the moved names and keep
+    `package_ops` for the interactive half.
+  - **Four test files monkeypatched the moved functions on the wrong module.**
+    `monkeypatch.setattr(package_ops, "resolve_uv", ...)` no longer reaches
+    `install_commands`, which now resolves the name in `packaging`'s globals —
+    so the patch would have become a silent no-op and the tests would have
+    reached for the real `uv`. Repointed in `test_package_ops.py`,
+    `test_self_manage.py`, `test_plugin_cmd.py`.
+  - **Two of 3.1's own assertions were broken by documentation, not by code.**
+    `assert "functualize._cli" not in source` and `assert "click" not in
+    source` are substring searches over a module that *explains what it
+    deliberately does not do* — the standalone-update docstring names
+    `functualize._cli.self_update`. Rewritten as AST import checks in both
+    `tests/app/test_packaging.py` and
+    `tests/_cli/test_no_installation_discovery.py`, each with its own
+    can-this-fail guard. A substring test cannot tell an import from a sentence
+    about one.
+  - The `grep -n "click" … returns 0` gate was literally 1 at first, from one
+    prose mention. Reworded rather than waived, and the real property is now
+    pinned structurally instead of by that grep.
+  - **Reachability, by sabotage**: a `click` import in the planner → 2 failed
+    (one in each file); the planner calling `subprocess.call` → 2 failed;
+    `announce` leaking into the public module → 2 failed.
+  - `tests/_cli/test_no_installation_discovery.py` follows the code again: the
+    two `which` holders are now asserted against `packaging.py`, and
+    `package_ops.py` joined the modules that must never touch `PATH`.
 
 ---
 

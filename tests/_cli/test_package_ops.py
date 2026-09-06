@@ -14,13 +14,15 @@ from pathlib import Path
 import pytest
 
 from functualize._cli import package_ops
-from functualize._cli.package_ops import (
+from functualize.app import packaging
+from functualize.app.packaging import (
+    Detection,
+    InstallMode,
     LossyReceiptError,
     MissingToolError,
     Receipt,
     Requirement,
 )
-from functualize.app.packaging import Detection, InstallMode
 
 
 def _detection(
@@ -37,21 +39,21 @@ def _detection(
 
 class TestNameNormalization:
     def test_underscores_and_hyphens_are_the_same_package(self) -> None:
-        assert package_ops.normalize("functualize_http") == package_ops.normalize(
+        assert packaging.normalize("functualize_http") == packaging.normalize(
             "Functualize-HTTP"
         )
 
     def test_runs_of_separators_collapse(self) -> None:
         """PEP 503 collapses `a__b` and `a.b` alike; a partial rule is worse
         than none, because it makes only *some* spellings compare equal."""
-        assert package_ops.normalize("zope..interface") == "zope-interface"
+        assert packaging.normalize("zope..interface") == "zope-interface"
 
 
 class TestCapture:
     def test_it_reads_dist_info_directory_names(self, tmp_path: Path) -> None:
         (tmp_path / "requests-2.31.0.dist-info").mkdir()
         (tmp_path / "functualize_http-0.1.2.dist-info").mkdir()
-        assert package_ops.capture([tmp_path]) == {
+        assert packaging.capture([tmp_path]) == {
             "requests": "2.31.0",
             "functualize-http": "0.1.2",
         }
@@ -65,26 +67,26 @@ class TestCapture:
         info = tmp_path / "requests-2.31.0.dist-info"
         info.mkdir()
         (info / "METADATA").write_bytes(b"\xff\xfe not utf-8 at all")
-        assert package_ops.capture([tmp_path]) == {"requests": "2.31.0"}
+        assert packaging.capture([tmp_path]) == {"requests": "2.31.0"}
 
     def test_a_directory_that_does_not_parse_is_skipped(self, tmp_path: Path) -> None:
         (tmp_path / "broken.dist-info").mkdir()
         (tmp_path / "requests-2.31.0.dist-info").mkdir()
-        assert package_ops.capture([tmp_path]) == {"requests": "2.31.0"}
+        assert packaging.capture([tmp_path]) == {"requests": "2.31.0"}
 
     def test_a_missing_directory_is_not_an_error(self, tmp_path: Path) -> None:
-        assert package_ops.capture([tmp_path / "nope"]) == {}
+        assert packaging.capture([tmp_path / "nope"]) == {}
 
     def test_the_live_environment_finds_functualize(self) -> None:
         """The production entry point, against the interpreter running us."""
-        assert "functualize" in package_ops.capture_environment()
+        assert "functualize" in packaging.capture_environment()
 
 
 class TestNamesToRestore:
     def test_a_package_the_update_removed_is_restored(self) -> None:
         before = {"functualize": "0.1.2", "requests": "2.31.0"}
         after = {"functualize": "0.2.0"}
-        assert package_ops.names_to_restore(before, after, ()) == ("requests",)
+        assert packaging.names_to_restore(before, after, ()) == ("requests",)
 
     def test_a_shipped_package_upgraded_in_place_is_not_pinned_back(self) -> None:
         """AC14g, and the reason the difference is over names alone.
@@ -96,13 +98,13 @@ class TestNamesToRestore:
         """
         before = {"functualize": "0.1.2", "certifi": "2024.2.2"}
         after = {"functualize": "0.2.0", "certifi": "2025.1.1"}
-        assert package_ops.names_to_restore(before, after, ()) == ()
+        assert packaging.names_to_restore(before, after, ()) == ()
 
     def test_an_escape_hatch_install_survives(self) -> None:
         """AC14f — never recorded, caught by the capture instead."""
         before = {"functualize": "0.1.2", "pandas": "2.2.0"}
         after = {"functualize": "0.2.0"}
-        assert "pandas" in package_ops.names_to_restore(before, after, ())
+        assert "pandas" in packaging.names_to_restore(before, after, ())
 
     def test_records_are_restored_when_the_capture_missed_them(self) -> None:
         """AC14b — the belt to the capture's braces.
@@ -110,15 +112,14 @@ class TestNamesToRestore:
         A capture that failed leaves `before` empty; the manifest's records are
         still enough to put the user's plugins back.
         """
-        assert package_ops.names_to_restore({}, {}, ("functualize-state-sqlite",)) == (
+        assert packaging.names_to_restore({}, {}, ("functualize-state-sqlite",)) == (
             "functualize-state-sqlite",
         )
 
     def test_a_record_still_present_after_the_update_is_not_reinstalled(self) -> None:
         """Reinstalling what is already there is noise, not safety."""
         assert (
-            package_ops.names_to_restore({}, {"requests": "2.31.0"}, ("requests",))
-            == ()
+            packaging.names_to_restore({}, {"requests": "2.31.0"}, ("requests",)) == ()
         )
 
     def test_the_two_sides_are_normalized_before_differencing(self) -> None:
@@ -130,7 +131,7 @@ class TestNamesToRestore:
         """
         before = {"functualize_http": "0.1.0"}
         after = {"functualize-http": "0.2.0"}
-        assert package_ops.names_to_restore(before, after, ()) == ()
+        assert packaging.names_to_restore(before, after, ()) == ()
 
 
 class TestPendingCapture:
@@ -214,7 +215,7 @@ class TestReceiptReading:
             'requirements = [{ name = "functualize", extras = ["cli"] }]\n'
             'entrypoints = [{ name = "func", from = "functualize" }]\n',
         )
-        receipt = package_ops.read_receipt(prefix)
+        receipt = packaging.read_receipt(prefix)
         assert receipt is not None
         assert [r.name for r in receipt.requirements] == ["functualize"]
 
@@ -224,16 +225,16 @@ class TestReceiptReading:
             tmp_path,
             '[tool]\nrequirements = [{ name = "a0" }]\npython = "3.11"\n',
         )
-        receipt = package_ops.read_receipt(prefix)
+        receipt = packaging.read_receipt(prefix)
         assert receipt is not None
         assert receipt.python == "3.11"
 
     def test_no_receipt_reads_as_none(self, tmp_path: Path) -> None:
-        assert package_ops.read_receipt(tmp_path) is None
+        assert packaging.read_receipt(tmp_path) is None
 
     def test_malformed_toml_reads_as_none(self, tmp_path: Path) -> None:
         prefix = self._write(tmp_path, "[tool\nbroken")
-        assert package_ops.read_receipt(prefix) is None
+        assert packaging.read_receipt(prefix) is None
 
 
 class TestReceiptMerge:
@@ -249,7 +250,7 @@ class TestReceiptMerge:
                 Requirement("functualize-http", {"name": "functualize-http"}),
             )
         )
-        args = package_ops.merge_receipt(
+        args = packaging.merge_receipt(
             receipt, "functualize", "functualize-state-sqlite"
         )
         assert args[:3] == ("tool", "install", "functualize[cli]")
@@ -260,7 +261,7 @@ class TestReceiptMerge:
         receipt = Receipt(
             requirements=(Requirement("functualize", {"name": "functualize"}),)
         )
-        args = package_ops.merge_receipt(receipt, "functualize", "requests")
+        args = packaging.merge_receipt(receipt, "functualize", "requests")
         assert args.index("functualize") == 2
         assert args.count("functualize") == 1
 
@@ -269,11 +270,11 @@ class TestReceiptMerge:
             requirements=(Requirement("functualize", {"name": "functualize"}),),
             python="3.11",
         )
-        args = package_ops.merge_receipt(receipt, "functualize", "requests")
+        args = packaging.merge_receipt(receipt, "functualize", "requests")
         assert args[-2:] == ("--python", "3.11")
 
     def test_no_receipt_still_produces_a_usable_command(self) -> None:
-        args = package_ops.merge_receipt(None, "functualize", "requests")
+        args = packaging.merge_receipt(None, "functualize", "requests")
         assert args == ("tool", "install", "functualize", "--with", "requests")
 
     def test_installing_something_already_present_does_not_duplicate_it(self) -> None:
@@ -283,7 +284,7 @@ class TestReceiptMerge:
                 Requirement("requests", {"name": "requests"}),
             )
         )
-        args = package_ops.merge_receipt(receipt, "functualize", "requests")
+        args = packaging.merge_receipt(receipt, "functualize", "requests")
         assert args.count("requests") == 1
 
     def test_a_lossy_entry_stops_the_merge(self) -> None:
@@ -294,7 +295,7 @@ class TestReceiptMerge:
             )
         )
         with pytest.raises(LossyReceiptError):
-            package_ops.merge_receipt(receipt, "functualize", "requests")
+            packaging.merge_receipt(receipt, "functualize", "requests")
 
     def test_dropping_removes_only_the_named_package(self) -> None:
         receipt = Receipt(
@@ -304,21 +305,21 @@ class TestReceiptMerge:
                 Requirement("requests", {"name": "requests"}),
             )
         )
-        args = package_ops.drop_from_receipt(receipt, "functualize", "functualize-http")
+        args = packaging.drop_from_receipt(receipt, "functualize", "functualize-http")
         assert "functualize-http" not in args
         assert "requests" in args
 
 
 class TestUpdateCommands:
     def test_uv_tool_mode(self, monkeypatch) -> None:
-        monkeypatch.setattr(package_ops, "resolve_uv", lambda: "/opt/uv")
-        assert package_ops.update_commands(
+        monkeypatch.setattr(packaging, "resolve_uv", lambda: "/opt/uv")
+        assert packaging.update_commands(
             _detection(InstallMode.TOOL_UV), "/bin/func"
         ) == (("/opt/uv", "tool", "upgrade", "functualize"),)
 
     def test_pipx_mode(self, monkeypatch) -> None:
-        monkeypatch.setattr(package_ops, "resolve_pipx", lambda: "/opt/pipx")
-        assert package_ops.update_commands(
+        monkeypatch.setattr(packaging, "resolve_pipx", lambda: "/opt/pipx")
+        assert packaging.update_commands(
             _detection(InstallMode.TOOL_PIPX), "/bin/func"
         ) == (("/opt/pipx", "upgrade", "functualize"),)
 
@@ -339,20 +340,20 @@ class TestUpdateCommands:
             InstallMode.STANDALONE, standalone_binary="/usr/local/bin/func"
         )
         with pytest.raises(
-            package_ops.StandaloneUpdateError, match="/usr/local/bin/func"
+            packaging.StandaloneUpdateError, match="/usr/local/bin/func"
         ):
-            package_ops.update_commands(detection, "/usr/local/bin/func")
+            packaging.update_commands(detection, "/usr/local/bin/func")
 
     def test_a_standalone_binary_that_cannot_name_itself_refuses(self) -> None:
         """There is nothing to replace, so this is a refusal, not an update."""
         detection = _detection(InstallMode.STANDALONE, standalone_binary=None)
         with pytest.raises(ValueError, match="their own path"):
-            package_ops.update_commands(detection, "/usr/local/bin/func")
+            packaging.update_commands(detection, "/usr/local/bin/func")
 
     def test_project_mode_moves_the_lock_before_syncing(self, monkeypatch) -> None:
         """`uv sync` alone reinstalls the pinned version — it is not an upgrade."""
-        monkeypatch.setattr(package_ops, "resolve_uv", lambda: "/opt/uv")
-        commands = package_ops.update_commands(
+        monkeypatch.setattr(packaging, "resolve_uv", lambda: "/opt/uv")
+        commands = packaging.update_commands(
             _detection(InstallMode.PROJECT), "/bin/func"
         )
         assert commands == (
@@ -370,11 +371,11 @@ class TestUpdateCommands:
         than hand back something runnable.
         """
         with pytest.raises(ValueError, match="not self-managing"):
-            package_ops.update_commands(_detection(mode), "/bin/func")
+            packaging.update_commands(_detection(mode), "/bin/func")
 
     def test_an_unknown_owner_produces_no_command_either(self) -> None:
         with pytest.raises(ValueError):
-            package_ops.update_commands(
+            packaging.update_commands(
                 _detection(InstallMode.TOOL_UV, owner=None), "/bin/func"
             )
 
@@ -384,9 +385,9 @@ class TestUpdateCommands:
         def _absent() -> str:
             raise MissingToolError("no uv")
 
-        monkeypatch.setattr(package_ops, "resolve_uv", _absent)
+        monkeypatch.setattr(packaging, "resolve_uv", _absent)
         with pytest.raises(MissingToolError):
-            package_ops.update_commands(_detection(InstallMode.TOOL_UV), "/bin/func")
+            packaging.update_commands(_detection(InstallMode.TOOL_UV), "/bin/func")
 
 
 class TestTheOwningDistributionIsNeverHardcoded:
@@ -406,10 +407,10 @@ class TestTheOwningDistributionIsNeverHardcoded:
         ],
     )
     def test_update_names_the_owner(self, monkeypatch, mode, patch) -> None:
-        monkeypatch.setattr(package_ops, patch, lambda: "/opt/tool")
+        monkeypatch.setattr(packaging, patch, lambda: "/opt/tool")
         flat = " ".join(
             token
-            for command in package_ops.update_commands(
+            for command in packaging.update_commands(
                 _detection(mode, owner="weather-app"), "/bin/weather-app"
             )
             for token in command
@@ -425,11 +426,11 @@ class TestTheOwningDistributionIsNeverHardcoded:
         ],
     )
     def test_install_names_the_owner(self, monkeypatch, mode, patch, tmp_path) -> None:
-        monkeypatch.setattr(package_ops, patch, lambda: "/opt/tool")
-        monkeypatch.setattr(package_ops.sys, "prefix", str(tmp_path))
+        monkeypatch.setattr(packaging, patch, lambda: "/opt/tool")
+        monkeypatch.setattr(packaging.sys, "prefix", str(tmp_path))
         flat = " ".join(
             token
-            for command in package_ops.install_commands(
+            for command in packaging.install_commands(
                 _detection(mode, owner="weather-app"), "requests"
             )
             for token in command
@@ -448,31 +449,31 @@ class TestInstallCommands:
         the `pip` script because the script's shebang points at the *build*
         machine's path.
         """
-        monkeypatch.setattr(package_ops, "owned_python", lambda: "/pyapp/bin/python")
+        monkeypatch.setattr(packaging, "owned_python", lambda: "/pyapp/bin/python")
         monkeypatch.setattr(
-            package_ops,
+            packaging,
             "resolve_uv",
             lambda: pytest.fail("standalone must not reach for uv"),
         )
-        assert package_ops.install_commands(
+        assert packaging.install_commands(
             _detection(InstallMode.STANDALONE), "requests"
         ) == (("/pyapp/bin/python", "-m", "pip", "install", "requests"),)
 
     def test_standalone_uninstall_uses_the_bundled_pip_too(self, monkeypatch) -> None:
-        monkeypatch.setattr(package_ops, "owned_python", lambda: "/pyapp/bin/python")
-        assert package_ops.uninstall_commands(
+        monkeypatch.setattr(packaging, "owned_python", lambda: "/pyapp/bin/python")
+        assert packaging.uninstall_commands(
             _detection(InstallMode.STANDALONE), "requests"
         ) == (("/pyapp/bin/python", "-m", "pip", "uninstall", "-y", "requests"),)
 
     def test_pipx_uses_its_real_injection_verb(self, monkeypatch) -> None:
-        monkeypatch.setattr(package_ops, "resolve_pipx", lambda: "/opt/pipx")
-        assert package_ops.install_commands(
+        monkeypatch.setattr(packaging, "resolve_pipx", lambda: "/opt/pipx")
+        assert packaging.install_commands(
             _detection(InstallMode.TOOL_PIPX), "requests"
         ) == (("/opt/pipx", "inject", "functualize", "requests"),)
 
     def test_project_mode_edits_the_project(self, monkeypatch) -> None:
-        monkeypatch.setattr(package_ops, "resolve_uv", lambda: "/opt/uv")
-        assert package_ops.install_commands(
+        monkeypatch.setattr(packaging, "resolve_uv", lambda: "/opt/uv")
+        assert packaging.install_commands(
             _detection(InstallMode.PROJECT), "requests"
         ) == (("/opt/uv", "add", "requests"),)
 
@@ -482,9 +483,9 @@ class TestInstallCommands:
             ' { name = "functualize-http" }]\n',
             encoding="utf-8",
         )
-        monkeypatch.setattr(package_ops, "resolve_uv", lambda: "/opt/uv")
-        monkeypatch.setattr(package_ops.sys, "prefix", str(tmp_path))
-        (command,) = package_ops.install_commands(
+        monkeypatch.setattr(packaging, "resolve_uv", lambda: "/opt/uv")
+        monkeypatch.setattr(packaging.sys, "prefix", str(tmp_path))
+        (command,) = packaging.install_commands(
             _detection(InstallMode.TOOL_UV), "requests"
         )
         assert "functualize-http" in command
@@ -493,7 +494,7 @@ class TestInstallCommands:
     @pytest.mark.parametrize("mode", [InstallMode.TOOL_PIP, InstallMode.UNKNOWN])
     def test_degraded_modes_plan_nothing(self, mode: InstallMode) -> None:
         with pytest.raises(ValueError):
-            package_ops.install_commands(_detection(mode), "requests")
+            packaging.install_commands(_detection(mode), "requests")
 
 
 class TestOwnedPython:
@@ -503,12 +504,10 @@ class TestOwnedPython:
         packages. The symlink *is* the environment."""
         import sys
 
-        assert package_ops.owned_python() == __import__("os").path.abspath(
-            sys.executable
-        )
+        assert packaging.owned_python() == __import__("os").path.abspath(sys.executable)
 
     def test_it_is_absolute(self) -> None:
-        assert Path(package_ops.owned_python()).is_absolute()
+        assert Path(packaging.owned_python()).is_absolute()
 
 
 class TestExecution:
@@ -564,7 +563,7 @@ class TestPathInstalls:
                 ),
             )
         )
-        args = package_ops.merge_receipt(receipt, "functualize", "functualize-http")
+        args = packaging.merge_receipt(receipt, "functualize", "functualize-http")
         assert args == (
             "tool",
             "install",
@@ -587,7 +586,7 @@ class TestPathInstalls:
                 Requirement("requests", {"name": "requests"}),
             )
         )
-        args = package_ops.merge_receipt(receipt, "functualize", "new-thing")
+        args = packaging.merge_receipt(receipt, "functualize", "new-thing")
         assert args[2] == "/src[cli]"
         assert "functualize" not in args
 
@@ -617,7 +616,7 @@ class TestEditableInstalls:
                 ),
             )
         )
-        args = package_ops.merge_receipt(receipt, "functualize", "requests")
+        args = packaging.merge_receipt(receipt, "functualize", "requests")
         assert args[:4] == ("tool", "install", "--editable", "/src[cli]")
 
     def test_a_non_owner_editable_uses_with_editable(self) -> None:
@@ -634,7 +633,7 @@ class TestEditableInstalls:
                 ),
             )
         )
-        args = package_ops.merge_receipt(receipt, "functualize", "requests")
+        args = packaging.merge_receipt(receipt, "functualize", "requests")
         assert "--with-editable" in args
         assert "/src/plugins/http" in args
 
@@ -661,7 +660,7 @@ class TestDropAndMergeShareOneRebuild:
                 Requirement("requests", {"name": "requests"}),
             )
         )
-        args = package_ops.drop_from_receipt(receipt, "functualize", "functualize-http")
+        args = packaging.drop_from_receipt(receipt, "functualize", "functualize-http")
         assert args[2] == "/src[cli]"
         assert "functualize-http" not in args
         assert "requests" in args
@@ -672,7 +671,7 @@ class TestDropAndMergeShareOneRebuild:
             python="3.11",
         )
         for args in (
-            package_ops.merge_receipt(receipt, "functualize", "x"),
-            package_ops.drop_from_receipt(receipt, "functualize", "x"),
+            packaging.merge_receipt(receipt, "functualize", "x"),
+            packaging.drop_from_receipt(receipt, "functualize", "x"),
         ):
             assert args[-2:] == ("--python", "3.11")

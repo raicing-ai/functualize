@@ -201,13 +201,14 @@ def install(package: str, assume_yes: bool) -> None:
     extension appears in `plugin list`, a plain dependency does not.
     """
     from functualize._cli import manifest, package_ops
+    from functualize.app import packaging
 
     detection = detect_from_process()
     if detection.degraded:
         package_ops.refuse(detection, f"install {package}")
 
     commands = package_ops.plan_or_exit(
-        lambda: package_ops.install_commands(detection, package)
+        lambda: packaging.install_commands(detection, package)
     )
     package_ops.announce(commands, assume_yes)
 
@@ -237,13 +238,14 @@ def install(package: str, assume_yes: bool) -> None:
 def uninstall(package: str, assume_yes: bool) -> None:
     """Remove an extension from this installation's environment."""
     from functualize._cli import manifest, package_ops
+    from functualize.app import packaging
 
     detection = detect_from_process()
     if detection.degraded:
         package_ops.refuse(detection, f"uninstall {package}")
 
     commands = package_ops.plan_or_exit(
-        lambda: package_ops.uninstall_commands(detection, package)
+        lambda: packaging.uninstall_commands(detection, package)
     )
     package_ops.announce(commands, assume_yes)
 

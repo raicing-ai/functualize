@@ -62,6 +62,23 @@ def trees() -> dict[str, ast.Module]:
     }
 
 
+def _imported_names(tree: ast.Module) -> set[str]:
+    """Top-level package name of every import, both spellings.
+
+    Read structurally rather than by searching the source text: the modules
+    here *document* what they deliberately do not do, so `"subprocess" in
+    source` is true of a file that explains why it never spawns one.
+    """
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                found.add(alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            found.add(node.module.split(".")[0])
+    return found
+
+
 def _called_names(tree: ast.Module) -> set[str]:
     found: set[str] = set()
     for node in ast.walk(tree):
@@ -97,8 +114,14 @@ class TestPathIsConsultedOnlyForAPackageManager:
     def test_which_is_called_only_from_the_two_resolvers(self) -> None:
         """`shutil.which` is legitimate for finding uv and pipx and for nothing
         else. Confined to two named functions so a third use has to be a
-        deliberate edit to this test."""
-        tree = ast.parse(_SUBSYSTEM["package_ops.py"].read_text(encoding="utf-8"))
+        deliberate edit to this test.
+
+        The two resolvers moved to `app/packaging.py` with the rest of command
+        planning (`third-party-host-seams`/3.2). The confinement matters more
+        there, not less: the module is public, so a third `which` would hand
+        the behaviour to every host.
+        """
+        tree = ast.parse(_SUBSYSTEM["packaging.py"].read_text(encoding="utf-8"))
         holders = {
             node.name
             for node in ast.walk(tree)
@@ -108,7 +131,7 @@ class TestPathIsConsultedOnlyForAPackageManager:
         assert holders == {"resolve_uv", "resolve_pipx"}
 
     @pytest.mark.parametrize(
-        "name", ["packaging.py", "manifest.py", "self_cmd.py", "plugin_cmd.py"]
+        "name", ["package_ops.py", "manifest.py", "self_cmd.py", "plugin_cmd.py"]
     )
     def test_no_other_module_touches_path(self, trees, name: str) -> None:
         assert "which" not in _called_names(trees[name])
@@ -126,8 +149,28 @@ class TestTheRegistryIsReadNeverDerived:
         assert "import subprocess" not in source
 
     def test_runtime_detection_spawns_nothing(self) -> None:
-        """Detection answers from `sys.prefix`, the environment and metadata.
-        A subprocess here would put a process spawn on the path of every
-        command that reports its own install mode."""
-        source = _SUBSYSTEM["packaging.py"].read_text(encoding="utf-8")
-        assert "subprocess" not in source
+        """Detection answers from `sys.prefix`, the environment and metadata,
+        and planning returns argv rather than running it. A subprocess here
+        would put a process spawn on the path of every command that reports its
+        own install mode -- and would make the public module something a host
+        cannot call without side effects."""
+        tree = ast.parse(_SUBSYSTEM["packaging.py"].read_text(encoding="utf-8"))
+        assert "subprocess" not in _imported_names(tree)
+        assert not _called_names(tree) & {"run", "call", "Popen", "check_output"}
+
+    def test_the_planner_imports_no_cli_framework(self) -> None:
+        """`app/packaging.py` is public and must stay importable by a host with
+        no terminal. A `click` import here is what would end that."""
+        tree = ast.parse(_SUBSYSTEM["packaging.py"].read_text(encoding="utf-8"))
+        assert "click" not in _imported_names(tree)
+
+    def test_the_import_check_can_actually_fail(self) -> None:
+        """The guard against a vacuous structural test, for `_imported_names`.
+
+        Both forms have to be seen: `import subprocess` and
+        `from subprocess import call`.
+        """
+        assert _imported_names(ast.parse("import subprocess\n")) == {"subprocess"}
+        assert "subprocess" in _imported_names(
+            ast.parse("from subprocess import call\n")
+        )
