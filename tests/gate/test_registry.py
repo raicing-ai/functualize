@@ -152,6 +152,76 @@ class TestWhatStillRaises:
             )
 
 
+class TestTheShippedAiPresetNeedsBothPlugins:
+    """A documented consequence (`docs/guides/ai.md`, "Gate Strategies") that
+    nothing else pins.
+
+    `functualize-ai` registers the `"ai"` preset, but that preset's first rung
+    is `ai_outbound`, which `functualize-mcp` registers. So installing only
+    `functualize-ai` and writing `gate_strategy="ai"` is an error, not a
+    degraded ladder -- the one place a missing plugin does not produce a
+    graceful block.
+
+    The preset definition is imported from the plugin rather than restated, so
+    the doc claim cannot drift from the list the plugin actually registers.
+    """
+
+    @staticmethod
+    def _with_functualize_ai() -> GateRegistry:
+        """A registry in the state `functualize-ai` alone leaves it.
+
+        The plugin registers its strategy *and* both presets in one call, so a
+        test that registered only the presets would fail for the wrong reason.
+        `functualize-mcp` is absent, which is the condition under test.
+        """
+        pytest.importorskip("functualize_ai")
+        from functualize_ai._gate_strategy import (
+            AI_INBOUND_PRESET_NAME,
+            AI_INBOUND_PRESET_STRATEGIES,
+            AI_INBOUND_STRATEGY_NAME,
+            AI_PRESET_NAME,
+            AI_PRESET_STRATEGIES,
+        )
+
+        registry = _registry()
+        # `prompt` and `resolve` are the two core strategies a real boot
+        # registers (verified: `FunctualizeApp("x")._gate_registry._strategies`
+        # is exactly `['prompt', 'resolve']`). Both must be here, because the
+        # preset branch raises on *any* unregistered rung, not only the first.
+        registry.register_strategy(GateStrategy.PROMPT.value, _Boom())
+        registry.register_strategy(AI_INBOUND_STRATEGY_NAME, _Boom())
+        registry.register_preset(AI_INBOUND_PRESET_NAME, AI_INBOUND_PRESET_STRATEGIES)
+        registry.register_preset(AI_PRESET_NAME, AI_PRESET_STRATEGIES)
+        return registry
+
+    def test_the_preset_raises_without_functualize_mcp(self) -> None:
+        registry = self._with_functualize_ai()
+        with pytest.raises(ValueError, match="'ai_outbound' referenced in preset 'ai'"):
+            registry.resolve_gate(
+                Answer,
+                gate_strategy="ai",
+                resolved_fields={"approved": True},
+                force_gate=True,
+                gate_name="triage",
+            )
+
+    def test_the_ai_inbound_preset_is_self_sufficient(self) -> None:
+        """The alternative the docs point at. Its only non-core rung is
+        `ai_inbound`, which the same plugin registers, so with `functualize-ai`
+        alone it degrades down to `resolve` instead of raising -- even when
+        `ai_inbound` itself fails.
+        """
+        registry = self._with_functualize_ai()
+        result = registry.resolve_gate(
+            Answer,
+            gate_strategy="ai_inbound",
+            resolved_fields={"approved": True},
+            force_gate=True,
+            gate_name="triage",
+        )
+        assert isinstance(result, Answer)
+
+
 class TestLastErrorNamesTheStrategies:
     """`last_error` is what fills the walk's `blocked_reason`, so it is the
     string an operator actually reads."""

@@ -453,7 +453,7 @@ docstring promises rather than being removed.)
 
 ## 5. Documentation
 
-- [ ] **5.1 — B6: state the gate-strategy constraints**
+- [x] **5.1 — B6: state the gate-strategy constraints**
   In `docs/guides/ai.md`, the "Gate Strategies" section says that a `Gate`
   accepts only the four bare names, that `Gate(strategy="ai")` raises, and
   that presets resolve only via `rc.invoke(..., gate_strategy=...)` and
@@ -464,6 +464,49 @@ docstring promises rather than being removed.)
     exits 0.
   - Not gated by the spec hook (`docs/` is exempt), but sequenced last so it
     describes the shipped behaviour.
+
+  **Done 2026-09-06.** The section was nine lines listing three names with no
+  statement of what accepts which. It is now six subsections: strategies vs.
+  presets (with the registered-by table from 3.2), the `Gate` constraint, the
+  two APIs that do reach presets, what a missing plugin does, and the
+  inbound/outbound axis collision.
+
+  - Acceptance met: **every snippet was executed**, not reviewed. The
+    `ValueError` text, the walker's expansion of `ai_inbound` into
+    `["ai_inbound", "prompt", "resolve"]`, `app.resolve_gate` with a preset
+    name, `rc.invoke(..., gate_strategy="ai")`, and the full
+    `result.metadata` block are all transcripts of real runs.
+  - `mkdocs build --strict` exits 0. The rendered HTML was checked, not just
+    the build: the first admonition title used `\"ai\"`, which mkdocs escapes
+    literally into `<code>\"ai\"</code>`. Fixed to `ai`.
+  - A6 met: `grep -n "preset" docs/guides/ai.md` reaches
+    "presets are unreachable from a `Gate`" plus the worked `ValueError`.
+  - `blocked_reason` is documented with its **real** value, both halves
+    included. The first draft showed only the install hint; the shipped string
+    also carries the last rung's own error after a `;`.
+
+  **A shipped defect found by executing the docs.** The `"ai"` preset — which
+  `functualize-ai` registers — has `ai_outbound` as its first rung, and
+  `functualize-mcp` registers that. Since 3.1 keeps the preset branch raising,
+  installing **only** `functualize-ai` and writing `gate_strategy="ai"` gives
+
+  ```
+  ValueError: Unregistered gate strategy 'ai_outbound' referenced in
+  preset 'ai'. Register the strategy before using the preset.
+  ```
+
+  — the one place a missing plugin is not a graceful block. Documented as a
+  warning admonition pointing at `"ai_inbound"` instead, and pinned by two
+  tests in `tests/gate/test_registry.py` that import the preset definitions
+  from the plugin rather than restating them, so the doc claim cannot drift
+  from what the plugin registers.
+
+  Writing those two tests corrected the claim twice, which is why they exist:
+  the `"ai_inbound"` preset is self-sufficient only because the same plugin
+  registers `ai_inbound` *and* the preset in one call, and only because core
+  registers `prompt` at boot (verified:
+  `FunctualizeApp("x")._gate_registry._strategies == ['prompt', 'resolve']`).
+  The preset branch raises on **any** unregistered rung, not just the first.
 
 ---
 
