@@ -1294,9 +1294,9 @@ def _handle_job(
     # spelling; without this it would route `func build_wheel` to a Click app
     # that only knows `build-wheel`, turning a recognized job into "no such
     # command" — recognized in one breath and denied in the next.
-    from functualize.app.utils import normalize_segment
+    from functualize.app.utils import normalize_name
 
-    job_name = ".".join(normalize_segment(part) for part in job_name.split("."))
+    job_name = normalize_name(job_name) or job_name
     remaining_args = args[1:]
 
     # Apply import_libs to sys.path before importing any job modules

@@ -62,6 +62,7 @@ from functualize._types.naming import (
     TrieResolution,
     group_ancestors,
     negative_flag_for,
+    normalize_name,
     normalize_segment,
     resolve_name,
 )
@@ -168,6 +169,7 @@ __all__ = [
     "merge_config_layers",
     "group_ancestors",
     "negative_flag_for",
+    "normalize_name",
     "normalize_segment",
     "resolve_name",
     "declared_config_values",

@@ -528,7 +528,7 @@ def explain_missing_job(
     import ast
     from pathlib import Path
 
-    from functualize._types.naming import normalize_name
+    from functualize.app.utils import normalize_name
 
     if _failures is not None:
         failures = _failures
