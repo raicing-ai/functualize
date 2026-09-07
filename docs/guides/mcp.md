@@ -80,24 +80,26 @@ Jobs are automatically translated to MCP tools:
 - **Tool name** → job name
 - **Tool description** → first paragraph of job's `__doc__`
 - **Input schema** → JSON Schema from Pydantic config model
-- **Annotations** → from `@job_metadata` tags
-- **Examples** → from `@job_metadata` examples
+- **Annotations** → from `@job` tags
+- **Examples** → from `@job` examples
 
 ### Controlling Visibility
 
 ```python
-@job_metadata(visibility="external")   # Exposed via MCP (default)
+@job(visibility="external")   # Exposed via MCP (default)
 def deploy(...): ...
 
-@job_metadata(visibility="internal")   # Hidden from MCP
+@job(visibility="internal")   # Hidden from MCP
 def _helper(...): ...
 ```
 
-CLI filtering:
+Configuration filtering — set in the `[mcp]` section of your config files:
 
-```bash
-func mcp serve --include-tags ai,safe      # Only expose tagged jobs
-func mcp serve --exclude-jobs internal-job  # Hide specific jobs
+```toml
+[mcp]
+include_tags = ["ai", "safe"]       # only expose jobs with one of these tags
+exclude_jobs = ["internal-job"]     # hide specific jobs
+enable_management = true            # expose the multi-server management tools
 ```
 
 ---
@@ -175,10 +177,11 @@ func mcp stop api      # Stop by name
 func mcp stop --all    # Stop all
 ```
 
-With `--enable-management`, expose management as MCP tools themselves:
+With `enable_management = true` in `[mcp]` config, management is exposed as MCP tools themselves:
 
-```bash
-func mcp serve --enable-management
+```toml
+[mcp]
+enable_management = true
 # Exposes: mcp_start_server, mcp_list_servers, mcp_stop_server, mcp_get_server_tools
 ```
 
@@ -186,13 +189,24 @@ func mcp serve --enable-management
 
 ## AI_OUTBOUND Gate Strategy
 
-When `functualize-mcp` is installed, workflows can pause and wait for an external AI agent:
+When `functualize-mcp` is installed, workflows can pause and wait for an external AI agent. Declare a `Gate` with the `ai_outbound` strategy:
 
 ```python
-Step(name="review", awaits_input=ReviewInput, force_gate=True)
+from functualize.workflow import Gate
+
+Gate(name="review", awaits=ReviewInput, tools=[search_docs], strategy="ai_outbound")
 ```
 
-The workflow pauses, becomes visible via `list_active_workflows()`, and resumes when the AI agent calls `resume_workflow(id, input)`.
+The workflow pauses, becomes visible via `list_active_workflows()`, and resumes when the AI agent calls `resume_workflow(id, input)`. `ai_outbound` always blocks — that is the mechanism, so no resolver is registered for it.
+
+`tools` names the jobs the agent may call *while* resolving the gate — a permission enforced at MCP dispatch, not a hint. See [Gates](workflows.md#gates-input-pauses).
+
+The same dispatch is available imperatively, without declaring a workflow:
+
+```python
+rc.invoke(review_job, awaits_input=ReviewInput, force_gate=True,
+          gate_strategy="ai_outbound")
+```
 
 ---
 

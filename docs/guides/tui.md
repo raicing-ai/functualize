@@ -130,7 +130,7 @@ class CountdownConfig(BaseModel):
 
 ## FunctualizeTUI — multi-screen container
 
-`FunctualizeTUI` (`functualize.app.adapters.FunctualizeTUI`) is a minimal
+`FunctualizeTUI` (in `functualize.app.adapters.tui`) is a minimal
 registry for cycling between full-screen [Textual](https://github.com/Textualize/textual)
 `Screen`s. It ships **no** built-in screens — you register your own — and it is
 deliberately small: a screen list plus a cycle action. For a fuller, job-owned
@@ -159,7 +159,7 @@ from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Static
 
-from functualize.app.adapters import FunctualizeTUI
+from functualize.app.adapters.tui import FunctualizeTUI
 
 
 class DashboardScreen(Screen):

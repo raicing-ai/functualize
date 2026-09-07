@@ -109,7 +109,7 @@ func builtin scaffold add job deploy
 ### Example
 
 ```python title="src/my_project/jobs/deploy.py"
-JOB_NAME = "deploy"
+JOB_GROUP = "deploy"
 
 def run(target: str, env: str = "staging", dry_run: bool = False):
     """Deploy the application."""
@@ -125,8 +125,8 @@ def rollback(target: str):
 my-project deploy run --target api --env production
 my-project deploy rollback --target api
 
-# Browse with TUI
-my-project tui
+# Browse with TUI (bare invocation launches the inline TUI on a TTY)
+my-project
 
 # Or use func in the project directory
 func deploy run --target api
@@ -136,9 +136,9 @@ func deploy run --target api
 
 Functualize discovers jobs through these conventions (checked in order):
 
-1. `jobs/` directory in the project root
-2. `[tool.functualize] job_directories` in `pyproject.toml`
-3. Python files with `JOB_NAME = "..."` markers
+1. `jobs_directories = ["jobs"]` in `pyproject.toml` (or `.functualize.toml`)
+2. `[discovery] scan_depth = 1` (or `--discovery-depth 1`) to recurse from CWD
+3. Python modules grouped with `JOB_GROUP = "group.name"`
 
 ### Limitations
 
@@ -257,7 +257,7 @@ Jobs access DI services via `RunContext`:
 from functualize.job import RunContext
 from my_tool.services import DatabasePool
 
-JOB_NAME = "db"
+JOB_GROUP = "db"
 
 def migrate(rc: RunContext):
     """Run database migrations."""
@@ -305,8 +305,9 @@ app = FunctualizeApp(
     config_sources=twelve_factor(),
 )
 
-adapter = HttpAdapter(app, host="0.0.0.0", port=8080)
-adapter.run()
+adapter = HttpAdapter()
+adapter(app)
+adapter.run(host="0.0.0.0", port=8080)
 ```
 
 Jobs are exposed as HTTP endpoints:
@@ -335,7 +336,8 @@ app = FunctualizeApp(
     config_sources=env_only(dotenv=False),
 )
 
-adapter = LambdaAdapter(app)
+adapter = LambdaAdapter()
+adapter(app)
 handler = adapter.make_handler()
 ```
 
@@ -355,11 +357,12 @@ def main():
         job_sources=JobSources(directories=["src/my_tool/jobs"]),
     )
 
-    adapter = TuiAdapter(app)
+    adapter = TuiAdapter()
+    adapter(app)
     adapter.run()
 ```
 
-Or launch from the CLI with `my-tool tui` (when using `CliAdapter`, TUI is available as a built-in sub-command).
+Or launch the inline TUI by running the app bare — `my-tool` with no arguments launches the inline TUI on a TTY.
 
 ### Limitations
 

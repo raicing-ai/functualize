@@ -11,14 +11,14 @@ from functualize.workflow import workflow, Step, Edge, END
 
 @workflow(
     steps=[
-        Step("fetch", job=fetch_data),
-        Step("transform", job=transform_data),
-        Step("load", job=load_data),
+        Step(fetch_data),
+        Step(transform_data),
+        Step(load_data),
     ],
     edges=[
-        Edge(source="fetch", target="transform"),
-        Edge(source="transform", target="load"),
-        Edge(source="load", target=END),
+        Edge(source="fetch-data", target="transform-data"),
+        Edge(source="transform-data", target="load-data"),
+        Edge(source="load-data", target=END),
     ],
 )
 def etl_pipeline():
@@ -35,10 +35,10 @@ Five names. No overlap with `@job`:
 
 | Name | Purpose |
 |------|---------|
-| `Step(name, job=...)` | References a registered job. The step is a job invocation — DI, config, `Deps`, `Guards`, `Fingerprint`, `Exec` all come from the referenced job. |
-| `Gate(name, awaits=Model, tools=[])` | First-class pause point. Waits for input matching a Pydantic model. |
+| `Step(job)` | References a registered job — by name or by the decorated function. A step takes nothing else: DI, config, `Deps`, `Guards`, `Fingerprint`, `Exec` all come from the referenced job. Its node name is the job's canonical name (`Step(fetch_data)` → `"fetch-data"`). |
+| `Gate(name, awaits=Model, tools=[], strategy=None)` | First-class pause point. Waits for input matching a Pydantic model. `strategy` is one of `"resolve"`, `"prompt"`, `"ai_inbound"`, `"ai_outbound"`, or a registered preset. |
 | `Edge(source, target)` | Unconditional transition. `END` is the sentinel for the walk's terminal node. |
-| `ConditionalEdge(source, condition, mapping)` | Runtime routing. `condition` is a callable; `mapping` maps return values to step names. |
+| `ConditionalEdge(source, condition, targets)` | Runtime routing. `condition` is called with the source step's return value; `targets` maps its return value to node names or `END`. |
 | `END` | Terminal node. Reaching `END` triggers the epilogue body. |
 
 ---
@@ -57,18 +57,18 @@ def route_by_status(result) -> str:
 
 @workflow(
     steps=[
-        Step("score", job=score_submission),
-        Step("approve", job=auto_approve),
-        Step("review", job=manual_review),
+        Step(score_submission),
+        Step(auto_approve),
+        Step(manual_review),
     ],
     edges=[
         ConditionalEdge(
-            source="score",
+            source="score-submission",
             condition=route_by_status,
-            mapping={"approve": "approve", "review": "review"},
+            targets={"approve": "auto-approve", "review": "manual-review"},
         ),
-        Edge(source="approve", target=END),
-        Edge(source="review", target=END),
+        Edge(source="auto-approve", target=END),
+        Edge(source="manual-review", target=END),
     ],
 )
 def review_pipeline():
@@ -93,14 +93,14 @@ class ApprovalInput(BaseModel):
 
 @workflow(
     steps=[
-        Step("prepare", job=prepare_deploy),
-        Gate("approve", awaits=ApprovalInput, tools=["search_hotels"]),
-        Step("deploy", job=execute_deploy),
+        Step(prepare_deploy),
+        Gate("approve", awaits=ApprovalInput, tools=[search_hotels]),
+        Step(execute_deploy),
     ],
     edges=[
-        Edge(source="prepare", target="approve"),
-        Edge(source="approve", target="deploy"),
-        Edge(source="deploy", target=END),
+        Edge(source="prepare-deploy", target="approve"),
+        Edge(source="approve", target="execute-deploy"),
+        Edge(source="execute-deploy", target=END),
     ],
 )
 def deploy_workflow():
@@ -206,12 +206,12 @@ def deploy(sh: Shell): ...
 
 # Consume: workflow's return value feeds a job
 @job
-def report(artifacts: FromJob["build_workflow"]): ...
+def report(artifacts: Annotated[list[Artifact], FromJob("build_workflow")]): ...
 
 # Nest: workflow as a step inside another workflow
 @workflow(
-    steps=[Step("build", job=build_workflow), Step("deploy", job=deploy)],
-    edges=[Edge(source="build", target="deploy"), Edge(source="deploy", target=END)],
+    steps=[Step(build_workflow), Step(deploy)],
+    edges=[Edge(source="build-workflow", target="deploy"), Edge(source="deploy", target=END)],
 )
 def full_pipeline(): ...
 ```
@@ -238,7 +238,7 @@ Resuming a paused workflow replays it with memoization:
 When `functualize-mcp` is installed, workflows are exposed as MCP tools:
 
 ```bash
-func builtin mcp serve
+func mcp serve
 ```
 
 AI agents can:

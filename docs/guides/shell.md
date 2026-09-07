@@ -56,17 +56,15 @@ Raw shell string. Only when the other forms cannot express what you need. `shell
 ```python
 result = sh(
     ["pytest", "-q"],
-
-    capture=True,       # Capture stdout/stderr into ShellResult
-    stream=False,       # Stream output to the surface (TUI/CLI)
-    check=True,         # Raise on non-zero exit (default: True)
-    pty=False,          # Use pseudo-terminal allocation
-    timeout=30.0,       # Subprocess timeout in seconds
-    cwd="/tmp",         # Working directory
-    env={"DEBUG": "1"}, # Additional environment variables
-
-    label="tests",      # Perf/EventBus label for observability
-    in_stream=b"data",  # Data piped to stdin
+    stream=None,        # or a callable receiving output chunks
+    check=True,         # raise on non-zero exit (default)
+    cwd="/tmp",
+    env={"DEBUG": "1"},
+    in_stream="data",   # str piped to stdin
+    timeout=30.0,
+    pty=False,
+    retry=None,
+    label="tests",
 )
 ```
 
@@ -101,12 +99,12 @@ Password from config (`[shell] sudo_password` or `FUNCTUALIZE_SUDO_PASSWORD`). F
 ## `sh.defer()` — cleanup on exit
 
 ```python
-cid = sh(["docker", "run", "-d", "nginx"]).stdout.strip()
-sh.defer(lambda: sh(["docker", "stop", cid]))
-# ... later, when the job exits or is cancelled, docker stop runs automatically
+cid = sh(["docker", "run", "-d", "nginx"], background=True).stdout.strip()
+sh.defer(["docker", "stop", cid])
+# ... on job exit (success, failure, Ctrl+C, timeout), the command runs automatically
 ```
 
-LIFO order (most recent deferred runs first). Signal-aware — `SIGINT`/`SIGTERM` triggers the defer stack. Use `sh.defer(fn, background=True)` for non-blocking cleanup.
+LIFO order (most recent deferred runs first). Signal-aware — `SIGINT`/`SIGTERM` triggers the defer stack. `sh.defer` takes a command (list or str), not a callable.
 
 ## ShellResult
 
@@ -134,18 +132,14 @@ In the TUI, these appear in the execution tree with timing data.
 
 ```python
 from functualize.testing import FakeShell
+from functualize._types.shell import ShellResult
 
-fake = FakeShell()
-fake.register("git status", ShellResult("git status", "clean\n", "", 0, 12.0, False, True))
-
-with fake:
-    sh = resolve(Shell)  # Get Shell from DI
-    r = sh(["git", "status"])
-    assert r.ok
-    assert r.stdout == "clean\n"
-
-# Inspect calls
-assert fake.calls == [(["git", "status"], {})]
+fake = FakeShell({
+    "git status": ShellResult(0, "clean\n", "", "git status", 12.0, None),
+})
+deploy(sh=fake)                 # inject the double for the Shell parameter
+assert fake.calls[0].argv == ["git", "status"]
+assert fake.calls[0].command == "git status"
 ```
 
 `FakeShell` is loud on unexpected commands — it raises with the full args list so you see exactly what went wrong.

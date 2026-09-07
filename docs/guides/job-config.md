@@ -204,7 +204,7 @@ from pydantic import BaseModel, Field
 from functualize.job import RunContext
 
 
-JOB_NAME = "deploy"  # (1)!
+JOB_GROUP = "deploy"  # (1)!
 
 
 class Environment(enum.Enum):
@@ -239,7 +239,7 @@ def run(rc: RunContext, config: DeployConfig):  # (3)!
         rc.log(f"Deploying {target}...", level="info")
 ```
 
-1. The `JOB_NAME` groups this module under the `deploy` sub-command and is used as the config section name and env var prefix.
+1. The `JOB_GROUP` groups this module under the `deploy` sub-command and is used as the config section name and env var prefix.
 2. `DeployConfig` subclasses `BaseModel` — Functualize detects it in the function signature and generates CLI options automatically.
 3. The job function receives both `RunContext` and the resolved `DeployConfig` instance.
 

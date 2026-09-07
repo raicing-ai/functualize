@@ -18,10 +18,6 @@ Defaults to `~/.config/functualize/` when `$XDG_CONFIG_HOME` is unset or empty.
 ~/.config/functualize/
 ├── config.toml           # CLI tool settings (discovery, output, aliases)
 ├── config.base.toml      # Global job-config defaults (per-job sections)
-├── jobs.d/               # Per-job config override files
-│   ├── deploy.toml
-│   ├── data.sync.toml    # group.function naming
-│   └── migrate.toml
 └── jobs/                 # User-global Python job definitions
     ├── backup.py
     └── cleanup.py
@@ -61,19 +57,7 @@ timeout = 300
 dry_run = true
 ```
 
-These values are the lowest priority in the job config resolution chain — project-level and CLI overrides take precedence.
-
-### `jobs.d/` — Per-Job Config Files
-
-Override config for specific jobs using individual TOML files:
-
-```toml
-# ~/.config/functualize/jobs.d/deploy.toml
-environment = "production"
-notify_slack = true
-```
-
-For jobs in groups, use dot-separated naming: `jobs.d/<group>.<function>.toml`.
+These values are the lowest priority in the job config resolution chain — project-level and CLI overrides take precedence. Per-job overrides are `[job_name]` sections in any config file on the ladder (project files outrank global).
 
 ### `jobs/` — User-Global Job Definitions
 
@@ -110,11 +94,7 @@ Job configuration resolves using this cascade (highest to lowest priority):
 ├────────────────────────────────────────────────────────┤
 │  3. Project config files                               │
 ├────────────────────────────────────────────────────────┤
-│  4. jobs.d/<group>.<function>.toml (most specific)     │
-├────────────────────────────────────────────────────────┤
-│  5. jobs.d/<job-name>.toml                             │
-├────────────────────────────────────────────────────────┤
-│  6. config.base.toml [<job-name>] section              │  ← Lowest priority
+│  4. Parent/global config.base.toml [<job-name>] sections│  ← Lowest priority
 └────────────────────────────────────────────────────────┘
 ```
 
@@ -123,18 +103,19 @@ Later sources provide defaults for keys not present in earlier sources.
 ### Example
 
 ```toml
-# jobs.d/deploy.toml
+# project config.base.toml
+[deploy]
 environment = "production"
 
-# config.base.toml
+# global config.base.toml
 [deploy]
-environment = "staging"    # overridden by jobs.d/deploy.toml
-timeout = 300              # not in jobs.d, so this value is used
+environment = "staging"    # overridden by project config.base.toml
+timeout = 300              # not in project file, so this value is used
 ```
 
 Resolved config for `deploy`:
-- `environment` = `"production"` (from `jobs.d/deploy.toml`)
-- `timeout` = `300` (from `config.base.toml`)
+- `environment` = `"production"` (from project `config.base.toml`)
+- `timeout` = `300` (from global `config.base.toml`)
 
 ---
 
@@ -144,7 +125,7 @@ The global config directory is **never auto-created** during normal CLI operatio
 
 - If the directory doesn't exist, the CLI proceeds with defaults
 - If `config.toml` is missing, the CLI proceeds with defaults
-- Subdirectories (`jobs.d/`, `jobs/`) are optional — missing ones are ignored
+- Subdirectories (`jobs/`) are optional — missing ones are ignored
 
 The **only** command that creates the directory is `func builtin config edit`:
 

@@ -11,7 +11,7 @@ Working examples for each step in the [README Quick Start](../../README.md#quick
 | `step3_invoke/` | Step 3 | Invoke + phase tracking — rc.invoke(), rc.track_phase() |
 | `step4_tui/` | Step 4 | Browse and run jobs interactively — the inline TUI (bare `func`) |
 | `step5_ai/` | Step 5 | AI with structured output — ai.complete() + response_model (MockAI, no keys) |
-| `step6_mcp/` | Step 6 | Expose jobs to AI agents — @job_metadata visibility + `func mcp serve` |
+| `step6_mcp/` | Step 6 | Expose jobs to AI agents — `@job(visibility=...)` + `func mcp serve` |
 | `step7_workflow/` | Step 7 | Workflow checkpoints — @workflow, Step, Edge, gates |
 | `step8_scaffold/` | Step 8 | Scaffold and distribute as a CLI (walkthrough — the generated result lives in [`examples/project/weather_app/`](../project/weather_app/)) |
 

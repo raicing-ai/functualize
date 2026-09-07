@@ -11,7 +11,7 @@ Jobs don't use hooks — hooks use jobs. A job is a plain function that the fram
 from pydantic import BaseModel, Field
 from functualize.job import RunContext
 
-JOB_NAME = "greet"
+JOB_GROUP = "greet"
 
 class GreetConfig(BaseModel):
     name: str = Field(description="Name of the person to greet")
@@ -49,7 +49,7 @@ class AuditPlugin:
     description = "Logs every job start for auditing"
 
     def __call__(self, app):
-        app.hook_app.hook_registry.register_global(HookEvent.BEFORE_JOB, self._on_start)
+        app.hook_registry.register_global(HookEvent.BEFORE_JOB, self._on_start)
 
     def _on_start(self, rc):
         rc.log(f"[audit] Job '{rc.name}' starting")
@@ -63,10 +63,10 @@ from functualize.plugin import HookEvent
 
 app = FunctualizeApp(name="my-app", job_sources=JobSources(directories=["jobs"]))
 
-app.hook_app.hook_registry.register_for_job(
+app.hook_registry.register_for_job(
     "data_sync", HookEvent.AFTER_FAILURE, send_alert
 )
-app.hook_app.hook_registry.register_global(HookEvent.ON_TEARDOWN, cleanup_temp_files)
+app.hook_registry.register_global(HookEvent.ON_TEARDOWN, cleanup_temp_files)
 ```
 
 ## Lifecycle Hook Events
@@ -200,8 +200,12 @@ app.hook_registry.register_global(HookEvent.BEFORE_JOB, new_before_hook)
 ### HookDecision
 
 ```python
-from functualize.plugin import HookEvent
+from functualize._events import HookDecision  # internal API
 ```
+
+> **Note:** `HookDecision` is exported from the internal `functualize._events`
+> package only. There is no public import path today — treat it as internal
+> and expect it to move if the public hook API grows one.
 
 | Factory | Effect |
 |---------|--------|
@@ -226,7 +230,7 @@ from functualize.job import RunContext
 
 def rate_limiter(rc: RunContext, kwargs: dict) -> HookDecision | None:
     """Block execution if rate limit exceeded."""
-    if is_rate_limited(rc.job_name):
+    if is_rate_limited(rc.name):
         return HookDecision.BLOCK("Rate limit exceeded for this job")
     return HookDecision.PROCEED()
 
@@ -239,8 +243,8 @@ def inject_defaults(rc: RunContext, kwargs: dict) -> HookDecision | None:
     return None  # None is treated as PROCEED
 
 
-app.hook_app.hook_registry.register_global(HookEvent.PRE_EXECUTE, rate_limiter)
-app.hook_app.hook_registry.register_global(HookEvent.PRE_EXECUTE, inject_defaults)
+app.hook_registry.register_global(HookEvent.PRE_EXECUTE, rate_limiter)
+app.hook_registry.register_global(HookEvent.PRE_EXECUTE, inject_defaults)
 ```
 
 ## Application-Level Hook Examples
@@ -254,7 +258,7 @@ def on_ready(app):
     """Run one-time initialization after all plugins and jobs are loaded."""
     print(f"App '{app.name}' ready with {len(app.job_registry)} jobs")
 
-app.hook_app.hook_registry.register_global(HookEvent.APP_READY, on_ready)
+app.hook_registry.register_global(HookEvent.APP_READY, on_ready)
 ```
 
 ### JOB_REGISTERED
@@ -267,7 +271,7 @@ def sync_to_orchestrator(metadata: dict) -> None:
     # metadata keys: name, group, config_schema, docstring
     post_to_orchestrator(metadata["name"], metadata["group"])
 
-app.hook_app.hook_registry.register_global(HookEvent.JOB_REGISTERED, sync_to_orchestrator)
+app.hook_registry.register_global(HookEvent.JOB_REGISTERED, sync_to_orchestrator)
 ```
 
 ### INVOKE_START / INVOKE_END
@@ -281,8 +285,8 @@ def trace_invoke_start(rc, child_job_name, kwargs, depth):
 def trace_invoke_end(rc, child_job_name, depth, result):
     rc.log(f"← '{child_job_name}' completed: {result.status.value}")
 
-app.hook_app.hook_registry.register_global(HookEvent.INVOKE_START, trace_invoke_start)
-app.hook_app.hook_registry.register_global(HookEvent.INVOKE_END, trace_invoke_end)
+app.hook_registry.register_global(HookEvent.INVOKE_START, trace_invoke_start)
+app.hook_registry.register_global(HookEvent.INVOKE_END, trace_invoke_end)
 ```
 
 ### ON_SCOPE_CREATED
@@ -296,7 +300,7 @@ def inject_persistent_store(scope):
     """Replace the default in-memory store with SQLite."""
     scope.replace_state_store(SQLiteStateStore(db_path="state.db"))
 
-app.hook_app.hook_registry.register_global(HookEvent.ON_SCOPE_CREATED, inject_persistent_store)
+app.hook_registry.register_global(HookEvent.ON_SCOPE_CREATED, inject_persistent_store)
 ```
 
 ### TUI_STARTED
@@ -307,7 +311,7 @@ Fires when the TUI launches:
 def on_tui(metadata: dict) -> None:
     print(f"TUI launched for '{metadata['app_name']}'")
 
-app.hook_app.hook_registry.register_global(HookEvent.TUI_STARTED, on_tui)
+app.hook_registry.register_global(HookEvent.TUI_STARTED, on_tui)
 ```
 
 ## Error Isolation
@@ -354,7 +358,7 @@ def capture_result(rc: RunContext, *, result):  # (3)!
 # (In practice this is done inside a plugin __call__ or app bootstrap)
 
 # Global hook fires BEFORE_JOB for every job
-app.hook_app.hook_registry.register_global(HookEvent.BEFORE_JOB, audit_start)  # (4)!
+app.hook_registry.register_global(HookEvent.BEFORE_JOB, audit_start)  # (4)!
 
 # Global hook fires AFTER_SUCCESS for every job
 app.hook_registry.register_global(HookEvent.AFTER_SUCCESS, capture_result)

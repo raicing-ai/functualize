@@ -69,7 +69,7 @@ func jobs.py healthcheck
 
 ## Mode 2: Project Directory with Auto-Discovery
 
-When you have multiple job files, organize them in a `jobs/` directory. Functualize auto-discovers everything inside it.
+When you have multiple job files, organize them in a `jobs/` directory. Functualize discovers the modules you point it at and registers each function as a CLI command.
 
 ### Create the structure
 
@@ -79,13 +79,13 @@ myproject/
 │   ├── deploy.py
 │   ├── migrate.py
 │   └── healthcheck.py
-└── pyproject.toml        # optional at this stage
+└── pyproject.toml
 ```
 
 ```python title="jobs/deploy.py"
 from functualize.job import RunContext, Log
 
-def run(rc: RunContext):
+def deploy(rc: RunContext):
     """Deploy the application."""
     rc.log("Deploying to production...")
 ```
@@ -93,10 +93,33 @@ def run(rc: RunContext):
 ```python title="jobs/migrate.py"
 from functualize.job import RunContext, Log
 
-def run(rc: RunContext):
+def migrate(rc: RunContext):
     """Run database migrations."""
     rc.log("Running migrations...")
 ```
+
+Tell functualize where the jobs live by declaring the directory in `pyproject.toml`:
+
+```toml title="pyproject.toml"
+[tool.functualize]
+jobs_directories = ["jobs"]
+```
+
+### How `func` finds jobs from the current directory
+
+By default `func` scans only the **current directory** (`scan_depth = 0`) — it does
+not recurse into subdirectories. Run from `myproject/`, the `jobs/` folder is therefore
+*not* discovered unless you tell functualize about it. There are three ways to make
+`func deploy` work from `myproject/`:
+
+1. **Declare the directory (recommended):** `jobs_directories = ["jobs"]` in
+   `pyproject.toml` (above), the same key in a `.functualize.toml`, or place the jobs
+   under a `.functualize/jobs/` convention directory.
+2. **Recurse the working directory:** set `[discovery] scan_depth = 1` in
+   `pyproject.toml`, or pass the flag `func --discovery-depth 1 deploy`. `scan_depth`
+   is clamped to the range `0`–`5`.
+3. **Run from inside `jobs/`:** `cd jobs && func deploy` — the `.py` files are then at
+   the top level of the current directory, so the default `scan_depth = 0` finds them.
 
 ### Run from the project directory
 
@@ -106,7 +129,12 @@ func deploy
 func migrate
 ```
 
-Functualize scans the `jobs/` directory, discovers modules, and registers each as a CLI command. The function name defaults to `run` when not specified.
+Functualize discovers the `jobs/` directory (via the `jobs_directories` setting above)
+and registers each public function as a CLI command. The command name is the function
+name, so `def deploy` becomes `func deploy` and `def migrate` becomes `func migrate`.
+
+(With the directory declared, `func healthcheck` also works if `healthcheck.py`
+defines a `healthcheck` function.)
 
 ### Scaffold a new job
 

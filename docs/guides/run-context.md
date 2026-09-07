@@ -1,6 +1,6 @@
 # RunContext Lifecycle
 
-The `RunContext` is the execution context injected into every job function. It is a thin facade (~500 LOC) that delegates to capability classes (`Log`, `Invoke`, `Prompt`, `Perf`, `State`, `WorkflowTracker`). It provides configuration access, logging, metadata tracking, phase tracking, job invocation, and event emission.
+The `RunContext` is the execution context injected into every job function. The public facade module is 32 lines; it re-exports a ~780-LOC capability class that delegates to per-capability classes (`Log`, `Invoke`, `Prompt`, `Perf`, `State`, `WorkflowTracker`). It provides configuration access, logging, metadata tracking, phase tracking, job invocation, and event emission.
 
 ```python
 from functualize.job import RunContext, Log, Invoke, Prompt, Perf, State, Sources
@@ -125,10 +125,16 @@ stateDiagram-v2
     RUNNING --> FAILURE
     RUNNING --> CANCELLED
     RUNNING --> TIMEOUT
+    RUNNING --> BLOCKED
+    RUNNING --> SKIPPED
+    RUNNING --> REFUSED
     SUCCESS --> [*]
     FAILURE --> [*]
     CANCELLED --> [*]
     TIMEOUT --> [*]
+    BLOCKED --> [*]
+    SKIPPED --> [*]
+    REFUSED --> [*]
 ```
 
 | Status | Terminal? | Description |
@@ -138,10 +144,13 @@ stateDiagram-v2
 | `FAILURE` | Yes | Job raised an exception |
 | `CANCELLED` | Yes | Job was cancelled |
 | `TIMEOUT` | Yes | Job exceeded its time limit |
+| `BLOCKED` | Yes | Job is blocked awaiting gate input |
+| `SKIPPED` | Yes | Job was skipped (downstream of a failure) |
+| `REFUSED` | Yes | Job refused to run (guard/precondition failed) |
 | `UNKNOWN` | No | Initial/indeterminate state |
 
 !!! warning
-    Terminal states (`SUCCESS`, `FAILURE`, `CANCELLED`, `TIMEOUT`) cannot be transitioned from. Attempting to change a terminal status raises `InvalidStateTransition`.
+    Terminal states (`SUCCESS`, `FAILURE`, `CANCELLED`, `TIMEOUT`, `BLOCKED`, `SKIPPED`, `REFUSED`) cannot be transitioned from. Attempting to change a terminal status raises `InvalidStateTransitionError`.
 
 Update the run status with `track_run_status`:
 
@@ -153,7 +162,7 @@ def my_job(rc: RunContext) -> None:
     # Status starts as RUNNING
     rc.track_run_status(RunStatus.SUCCESS)
 
-    # This would raise InvalidStateTransition:
+    # This would raise InvalidStateTransitionError:
     # rc.track_run_status(RunStatus.FAILURE)
 ```
 
@@ -187,7 +196,7 @@ def my_job(rc: RunContext) -> None:
     rc.on_log(lambda level, msg: None if level == "debug" else msg)
 
     # Register a transform that adds a prefix
-    rc.on_log(lambda level, msg: f"[{rc.job_name}] {msg}")
+    rc.on_log(lambda level, msg: f"[{rc.name}] {msg}")
 
     rc.log("This gets prefixed", level="info")  # → "[my_job] This gets prefixed"
     rc.log("This is suppressed", level="debug")  # → suppressed, never reaches logger
@@ -282,7 +291,7 @@ app.hook_registry.register_for_job("data_sync", HookEvent.ON_TEARDOWN, release_l
 
 # --- Job function with job phases ---
 
-JOB_NAME = "data_sync"
+JOB_GROUP = "data_sync"
 
 
 def sync(rc: RunContext) -> None:
