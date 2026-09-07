@@ -1881,9 +1881,22 @@ Items identified during development that are worth doing but not yet designed:
     `action_execute()`. If the worker had not started, the loop never iterated
     and reported zero — the same observation a genuinely frozen loop produces,
     so the failure was indistinguishable from the defect the test exists to
-    catch. It now waits for `_job_worker_running` first, the pattern its own
-    neighbour `test_reentry_guard_ignores_second_trigger_while_running`
-    already used, bounded by a deadline so the failure path stays fast.
+    catch.
+
+    The first repair waited for `_job_worker_running`, copying the pattern its
+    neighbour `test_reentry_guard_ignores_second_trigger_while_running` uses.
+    **That failed in CI too**, with *"the job worker never reached RUNNING"* —
+    because the deadline for reaching RUNNING was `BLOCK_SECONDS`, i.e. a guess
+    about how fast the machine starts a thread. That is precisely the class of
+    assertion `tests/_responsiveness.py` was written to get away from, and
+    swapping one arbitrary constant for another would have repeated it.
+
+    The fix that held takes the signal from the job itself: `slow_job` sets a
+    `threading.Event` as its first statement, and the test waits on that with a
+    deliberately generous 10s startup budget. Worker state is never consulted.
+    A job that never begins fails loudly; a job that begins late costs only
+    startup time and does not distort the measurement, because the window is
+    timed from the event.
 
     *The floor was compared against the wrong denominator.* `idle_polls` is
     measured over the full `BLOCK_SECONDS`, but the window actually polled
@@ -1895,11 +1908,12 @@ Items identified during development that are worth doing but not yet designed:
     elapsed time before `responsive_floor` is applied, so the comparison is
     between rates.
 
-    **Verified not to be a weakening.** With the real defect reintroduced — the
-    sync job called inline instead of through `run_worker(..., thread=True)` —
-    both the old and the new test fail. The new one fails with *"the job worker
-    never reached RUNNING — the job did not run in a worker at all"*, which
-    names the defect rather than describing a symptom. 5/5 clean runs locally.
+    **Verified not to be a weakening**, at both iterations. With the real defect
+    reintroduced — the sync job called inline instead of through
+    `run_worker(..., thread=True)` — the old and both new versions fail. The
+    final one fails on the responsiveness assertion: the job body runs, so the
+    start event is set, but the polling window is then empty and the scaled
+    floor is not met. 5/5 clean runs locally.
 
     An earlier sabotage attempt (freezing the loop at dispatch while the thread
     also ran) passed against **both** versions — worth recording, because it

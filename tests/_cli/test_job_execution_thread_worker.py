@@ -15,6 +15,7 @@ calling sync code directly) accumulates ~0.
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -31,7 +32,23 @@ TICK_INTERVAL = 0.02
 
 
 @pytest.fixture()
-def tui_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FunctualizeInlineTUI:
+def job_started() -> threading.Event:
+    """Set by the slow job's own body, the moment it begins executing.
+
+    The responsiveness test needs to know *exactly* when its measurement
+    window opens. Worker state is the wrong signal for that: a worker sits in
+    PENDING for an unbounded time on a loaded runner, so any deadline waiting
+    for RUNNING is a guess about the machine — which is the class of assertion
+    `tests/_responsiveness.py` exists to get away from. The job telling us it
+    has started is not a guess.
+    """
+    return threading.Event()
+
+
+@pytest.fixture()
+def tui_app(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, job_started: threading.Event
+) -> FunctualizeInlineTUI:
     """A real FunctualizeInlineTUI over a minimal app, isolated from $HOME/cwd."""
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     monkeypatch.chdir(tmp_path)
@@ -39,6 +56,7 @@ def tui_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FunctualizeInlin
     func_app = FunctualizeApp(name="jobexecapp")
 
     def slow_job() -> None:
+        job_started.set()
         time.sleep(BLOCK_SECONDS)
 
     func_app.register_dynamic_job("slowjob", slow_job)
@@ -53,6 +71,7 @@ def tui_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FunctualizeInlin
 
 async def test_ui_stays_responsive_while_job_executes(
     tui_app: FunctualizeInlineTUI,
+    job_started: threading.Event,
 ) -> None:
     """the event loop keeps ticking during job execution.
 
@@ -82,12 +101,16 @@ async def test_ui_stays_responsive_while_job_executes(
         # indistinguishable from the defect the test exists to catch.
         # `test_reentry_guard_ignores_second_trigger_while_running` below
         # already waits this way; this test did not.
-        start_deadline = time.monotonic() + BLOCK_SECONDS
-        while not _job_worker_running(tui_app):
+        # Generous, because this is a *startup* wait and not a measurement:
+        # how long Textual takes to get a thread going says nothing about
+        # whether the loop stays responsive once it has. Only a job that never
+        # runs at all should fail here.
+        start_deadline = time.monotonic() + 10.0
+        while not job_started.is_set():
             if time.monotonic() > start_deadline:
                 pytest.fail(
-                    "the job worker never reached RUNNING — the job did not "
-                    "run in a worker at all, which is the pre-migration defect"
+                    "the slow job never began executing — it did not run in a "
+                    "worker at all, which is the pre-migration defect"
                 )
             await pilot.pause()
 
