@@ -206,6 +206,40 @@ class TestTheWarningLine:
         assert result.exit_code == 0, result.stderr
         assert "hi" in result.stdout
 
+    def test_a_jobs_own_log_line_carries_no_prefix_either(
+        self, cli_run, project_tree
+    ) -> None:
+        """The first pass at A11 set the format in `_cli/main.py` only.
+
+        The discovery warning came out bare on both surfaces anyway — it is
+        emitted during app construction, before either entry point configures
+        logging, so `logging.lastResort` prints it with no prefix and this
+        class passed. A job's own `log()` runs *after* `basicConfig`, and
+        there the two surfaces disagreed: `func` printed `wrote report.md`
+        while a project's own `main.py` printed
+        `INFO:functualize.job.report:wrote report.md`. Same program, same
+        call, two formats — so this asserts on the line that actually goes
+        through the configured handler, which the warning never does.
+        """
+        root = project_tree(
+            jobs={
+                "speak.py": (
+                    "from functualize.job import Log\n"
+                    "\n"
+                    "\n"
+                    "def speak(log: Log) -> None:\n"
+                    '    """Log a line."""\n'
+                    '    log("the plain line")\n'
+                )
+            }
+        )
+
+        result = cli_run(["speak"], cwd=root)
+
+        combined = result.stdout + result.stderr
+        assert "the plain line" in combined
+        assert "INFO:functualize" not in combined
+
 
 class TestAttributionNeverImports:
     """A8, asserted on the helper rather than through the CLI.

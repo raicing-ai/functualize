@@ -919,7 +919,12 @@ class CliAdapter:
             _cli_parse_start = _time.perf_counter()
 
             level = log_level.upper()
-            logging.basicConfig(level=level, force=True)
+            # `format` matches `_cli/main.py`: a job's `log()` output is the
+            # program talking to its operator, so it reads as a line rather
+            # than as a logging record. The two entry points must agree —
+            # which surface you reached the program through does not change
+            # what its own output looks like.
+            logging.basicConfig(level=level, force=True, format="%(message)s")
 
             if dotenv_file is not None:
                 if not dotenv_file.exists() or not dotenv_file.is_file():

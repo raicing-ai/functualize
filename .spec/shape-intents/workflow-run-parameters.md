@@ -79,7 +79,32 @@ This is a correctness defect independent of any position on the design question
 below: the documented recipe for parameterizing a walk is unsound across the
 feature the walk exists to demonstrate.
 
-### Assertion 3 — A workflow job validates its launch arguments. **GAP**
+### Assertion 3 — A workflow job validates its launch arguments. **PASS since 2026-09-03** (`feat/workflow-run-params`)
+
+Re-measured 2026-09-08 against the lab, on the app surface:
+
+```python
+>>> app.execute('lab.release', zzz_nonsense=1)
+FAILURE  TypeError("release() got an unexpected keyword argument 'zzz_nonsense'")
+>>> app.execute('lab.release', strict=True)
+FAILURE  TypeError("release() got an unexpected keyword argument 'strict'")
+```
+
+Both in ~0.1 ms, before the prelude walks and with the state store
+untouched. The second is worth noting on its own: `strict` is a
+`GroupOptions` field, so it was one of the *silently deferred* spellings
+this assertion was written about, and it is now refused at the call
+site rather than at the epilogue.
+
+`unexpected_keyword_error` (`_engine/validation.py`) is called from
+`_engine/executor.py:859`, before `_run_workflow_prelude`. The remaining
+assertions are unaffected: **a launch argument the signature accepts
+still does not reach the steps**, which is Assertion 5, and a value that
+does reach them does not survive a gate, which is Assertion 2.
+
+The original finding follows, unchanged.
+
+#### As recorded
 
 ```python
 >>> app.execute('lab.release', strict=True)

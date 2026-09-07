@@ -31,8 +31,14 @@ Break by removing the panel and confirm A1 fails.
 ## 5.4 — the warning line
 
 - [x] One formatted line, no logger name, no internal path (A11).
+- [x] The same on both surfaces. A11 was implemented in `_cli/main.py`
+      alone, so `func` prints `wrote build/report.md` and a project's own
+      `main.py` prints `INFO:functualize.job.lab.report:wrote ...` for the
+      same `log()` call — a divergence this task introduced, since before
+      it the two agreed on carrying the prefix.
 
-**Gate:** `uv run pytest tests/discovery/ -q`.
+**Gate:** `uv run pytest tests/discovery/ -q` and the two-surface
+assertion in `tests/cli/test_discovery_failure_surfaces.py`.
 
 ## 5.3b — two things the criteria did not anticipate
 
