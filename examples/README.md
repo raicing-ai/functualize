@@ -29,7 +29,7 @@ each README a step-by-step verification checklist:
 - **showcase/** — the all-in-one project: CLI modes A/B/C, the full inline TUI
   (SmartBar, panels, completions, config inspector, displays), every rendering
   surface, unix-style args + stdin, and AI in both directions
-- **discovery_lab/** — all six discovery filters + global dirs, flipped per-run
+- **discovery_lab/** — all six discovery filters + global dirs, flipped per-run, plus a programmatic `pre_filter`
   via env vars / CLI flags over one jobs tree
 - **config_lab/** — the config precedence chain (CLI > env > project > global > defaults)
 - **secrets_lab/** — declaring a credential with `Secret[str]`, what `func builtin

@@ -11,15 +11,18 @@
 | `ConfigSources` | `app/config.py` | Frozen dataclass: where config comes from |
 | `PluginSources` | `app/config.py` | Frozen dataclass: plugin discovery settings |
 | `ExecutionConfig` | `app/config.py` | Frozen dataclass: execution params (max_invoke_depth) |
+| `DiscoveryConfig` | `app/config.py` | Frozen dataclass: the ten discovery settings. `pre_filter` takes a caller-supplied `ModulePreFilter`, ANDed onto the `require_*` stack; its `fingerprint()` — never the object — joins the cache digest |
 | `classic()` | `app/presets.py` | Preset: CLI → Env → Files → Defaults |
 | `twelve_factor()` | `app/presets.py` | Preset: CLI → Env → Defaults (no files) |
 | `env_only()` | `app/presets.py` | Preset: CLI → Env → Defaults (minimal) |
-| `remote_first()` | `app/presets.py` | Preset: CLI → Env → Files → Defaults. Named for an unwired capability — nothing constructs `RemoteSource`, so this resolves as `classic()` with a different file pattern |
+| `remote_first()` | `app/presets.py` | Preset: CLI → Vault → Env → Files → Defaults. `provider://reference` values resolve from the project's encrypted local vault, filled by `func builtin vault sync`; reads never touch the network. Raises at construction when no remote provider is registered, rather than degrading to `classic()` (ADR-016) |
 | `coerce_kwargs()` | `app/utils.py` | String → Python type coercion via Pydantic |
 | `import_job()` | `app/utils.py` | Import job function(s) from a file path |
 | `auto_discover()` | `app/utils.py` | Scan CWD for job directories |
 | `CliAdapter` | `app/adapters/cli.py` | Built-in CLI delivery (Click wiring) |
 | `TuiAdapter` | `app/adapters/tui.py` | Built-in TUI delivery (inline Textual TUI) |
+| `detect_from_process()` | `app/packaging.py` | How this program was installed and which distribution owns it (`InstallMode`, `Detection`). Stdlib only, every input a parameter |
+| `update_commands()` | `app/packaging.py` | The argv that upgrades this installation — also `install_commands`, `uninstall_commands`. Returns commands or raises; never prints, prompts or spawns |
 
 ### `job/` — Job Author API
 
@@ -182,9 +185,8 @@ Zero function bodies beyond `...`, `pass`, or trivial property accessors.
 | `scaffold/` | scaffold sub-command (Click + Jinja2) |
 | `orchestrator.py` | Surface-resolution ladder (`resolve_surface`, `RenderSurface`) |
 | `inline_tui.py` | Inline-TUI launch + the EXCLUSIVE handoff loop |
-| `runtime.py` | How this `func` was installed and which distribution owns it (`InstallMode`, `detect`) — stdlib only, every input a parameter |
 | `manifest.py` | The user-global registry of every `func` that has run (`install.json`). Voluntary, append-only, never discovers anything |
-| `package_ops.py` | Mode → command planning, environment capture/reconciliation, the uv receipt merge, and `_call` — the one place this subsystem executes anything |
+| `package_ops.py` | The half of self-management that needs a terminal: `refuse`, `announce`, `plan_or_exit`, the pending-update file, and `_call` — the one place this subsystem executes anything. Detection and command *planning* are public, in `app/packaging.py` |
 | `self_cmd.py` | `builtin self` — `doctor`, `update`, `install`, `python`, `uv` |
 | `plugin_cmd.py` | `builtin plugin` — `list`, `install`, `uninstall`; extension discovery across `functualize.*` entry-point groups |
 

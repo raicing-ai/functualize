@@ -112,6 +112,43 @@ require_file_prefix = "job_"
 or the global `~/.config/functualize/config.toml` (see
 [`../config_lab/`](../config_lab/) for how the layers interact).
 
+## The tenth filter: `pre_filter`
+
+The nine settings above are all *declarative* — a prefix, a postfix, an import,
+a marker, a decorator. When none of them can describe your jobs, you supply the
+predicate yourself.
+
+It is the one filter with no env var and no CLI flag, because it takes a
+callable: it is set when the app is constructed. `pre_filter_demo.py` is this
+lab's `main.py` for it, running against the same jobs tree:
+
+```bash
+cd examples/standalone/discovery_lab
+uv run python pre_filter_demo.py
+```
+
+```
+no pre_filter : audit, build, cleanup, deploy, helper-info, rollback
+with pre_filter: deploy, rollback
+
+dropped        : audit, build, cleanup, helper-info
+```
+
+The predicate admits a module when an underscore-separated word in its filename
+ends in `y` — neither a prefix nor a postfix, so no `require_*` setting can
+express it. Only `jobs/job_deploy.py` qualifies, and the other four files are
+skipped **before** being imported.
+
+Two things to copy from it:
+
+- **`fingerprint()` is required, not optional.** The discovery cache stores
+  which files your filter rejected and replays those decisions while the stamp
+  matches. Return the same string across processes for the same behaviour, and
+  a new one when the logic changes. Identity cannot stand in — `str()` of an
+  object carries its memory address, so the digest would differ every boot.
+- **It composes.** Setting `require_file_prefix="job_"` alongside gives the
+  intersection, not a replacement.
+
 ## Tests
 
 ```bash
@@ -121,4 +158,6 @@ uv run pytest examples/standalone/discovery_lab/ -v
 ## Related documentation
 
 - [Discovery Filtering](../../../docs/cli/discovery.md) — full filter reference
+- [Jobs and Auto-Discovery](../../../docs/guides/jobs-discovery.md) — `pre_filter` in full
+- [Hosting Functualize](../../../docs/guides/hosting.md) — the other host seams
 - [CLI Modes](../../../docs/cli/modes.md) · [Global Config Directory](../../../docs/cli/global-config-directory.md)

@@ -818,13 +818,20 @@ Dynamic jobs are fully functional — invocable via `rc.invoke("health-check")`,
 | Package | Purpose |
 |---------|---------|
 | `functualize.app` | `FunctualizeApp` constructor, config presets, adapters |
+| `functualize.app.packaging` | How this program was installed, who owns it, and the argv that would change it |
 | `functualize.job` | `RunContext`, capabilities (`Log`, `Invoke`, `Prompt`, `Perf`, `State`), `@job` decorator |
-| `functualize.plugin` | `EventBus`, `JobProvider`, `AdapterPlugin` |
+| `functualize.plugin` | `EventBus`, `JobProvider`, `AdapterPlugin`, `ModulePreFilter` |
 | `functualize.types` | `JobResult`, `JobDescriptor`, enums |
 | `functualize.workflow` | `@workflow`, `Step`, `Gate`, `Edge`, `ConditionalEdge`, `END` |
 | `functualize.testing` | `TestRunContext`, `CapturingLog`, `MockInvoke` |
 
 See the [full plugin and extension docs](https://raicing-ai.github.io/functualize/guides/plugins/) for lifecycle hooks, middleware, event bus, custom providers, and more.
+
+Building a distribution *on* functualize — where your package is what the user
+installs and `func`'s `builtin` subtree is mounted into your CLI — is covered in
+[Hosting Functualize](https://raicing-ai.github.io/functualize/guides/hosting/):
+install detection and command planning, shipping your own agent skills, and
+supplying a discovery pre-filter.
 
 ## Plugin Ecosystem
 
