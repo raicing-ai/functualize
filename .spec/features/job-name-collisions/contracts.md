@@ -27,27 +27,30 @@ this widens a set that was never closed.
 **No key is added or removed, and the list stays always-present** — `[]` when
 empty, the rule `config` and `skills` follow.
 
-## C2 — the collision record is carried on the app, read by attribute
+## C2 — the collision record is carried where the reader already looks
 
-`register_descriptors` records collisions it detects. `_cli/info.py` reads them
-the way it already reads provider failures and group options: by attribute
-access, never by import, because `_cli` may not import `_discovery` or `_app`.
+**Revised during execution.** The plan expected an app field
+(`app._job_name_collisions`). Two of the three detection sites turned out to
+have a better home, and the third needs no new surface at all:
+
+| Detection site | Where the record lives | Reaches `builtin info` by |
+|---|---|---|
+| cached provider's name index | the provider's own `discovery_failures` | the existing per-provider read — **no change to `info.py` needed** |
+| resolution pipeline (providers built by hand) | `ResolutionPipeline.collisions` | one new attribute read off the pipeline |
+| eager registry scan | nowhere yet — logged only | nothing; disclosed as TRANSITIONAL, resolved by `eager-boot-provider` |
 
 ```python
-# _app/boot.py — set during registration
-app._job_name_collisions: list[DiscoveryFailure]
-
-# _cli/info.py — read defensively, same shape as the existing provider read
-for failure in getattr(app, "_job_name_collisions", ()) or ():
-    failures.append(failure.as_dict())
+# _cli/info.py — the same attribute-access shape as the existing provider read
+for collision in getattr(pipeline, "collisions", ()) or ():
+    ...
 ```
 
-An app field is current for this finding, unlike for scan failures: collisions
-are detected while registering an already-materialized descriptor list, so
-boot has the answer by the time the field is read. That difference is why the
-existing provider read exists and why this one may be a field — the comment in
-`discovery_failures()` says a boot-time field would be stale for *scan*
-failures, which remains true and unchanged.
+`_cli` may not import `_discovery` or `_app` (constitution), so both reads are
+by attribute and neither adds an import edge. `lint-imports` reports 5 kept, 0
+broken.
+
+No app field is added. The one the plan proposed would have been a third place
+to keep in sync for no gain.
 
 ## C3 — the eager path's `ValueError` is withdrawn
 

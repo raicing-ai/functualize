@@ -20,18 +20,18 @@ verify it by breaking the call.
 Revised after probing: the cached provider collapses a collision before
 registration sees it, and the loser was never persisted. See `plan.md`.
 
-- [ ] Key retained entries by `source_file::python_name` in
+- [x] Key retained entries by `source_file::python_name` in
       `_discovery/cached_provider.py`, so both claimants survive a scan and a
       cache write.
-- [ ] Bump `CACHE_VERSION` 19 → 20 in `_primitives/cache_format.py`.
-- [ ] Add `_reindex_by_name()` as the **sole** writer of the name index: last
+- [x] Bump `CACHE_VERSION` 19 → 20 in `_primitives/cache_format.py`.
+- [x] Add `_reindex_by_name()` as the **sole** writer of the name index: last
       claimant wins, displaced claimants recorded through the discovery-failure
       collector. Call it after scan, after cache load, and after refresh.
-- [ ] Add a way to record a prebuilt finding to `_types/discovery_report.py`
+- [x] Add a way to record a prebuilt finding to `_types/discovery_report.py`
       (the existing entry point takes an exception; a collision has none).
-- [ ] Tests: shape A and shape B on the default path — one job, one collision,
+- [x] Tests: shape A and shape B on the default path — one job, one collision,
       **surviving function asserted by identity** (A1–A4).
-- [ ] Test: a clean project reports no collisions, job list unchanged (A10).
+- [x] Test: a clean project reports no collisions, job list unchanged (A10).
 
 **Reachability (cold and warm, per `contributor/guides/wiring-discipline.md`):**
 cold — `FunctualizeApp.__init__` → `boot_standard` → `resolve_and_register_jobs`
@@ -44,21 +44,29 @@ each by making the reindex a plain dict assignment and confirm A1 fails cold
 
 ## 1.3 — the eager path stops raising
 
-- [ ] Remove the `ValueError` from `_discovery/registry.py`; record through the
+- [x] Remove the `ValueError` from `_discovery/registry.py`; record through the
       builder from 1.1.
-- [ ] Rewrite the tests that pin the raise to pin the reported outcome —
+- [x] Rewrite the tests that pin the raise to pin the reported outcome —
       inverted, not deleted, so the old behavior stays on the record.
-- [ ] Tests: eager shape A reports and skips (A7); eager shape B registers one
+      **Nothing to invert: no test pinned the raise.** The diagnostic it
+      produced was itself untested, which is recorded in the new suite's
+      docstring and is why `TestTheEagerPathAgrees` exists.
+- [x] Tests: eager shape A reports and skips (A7); eager shape B registers one
       entry, not two (A8); both paths agree on the job-name set (A9).
 
 **Gate:** `uv run pytest tests/discovery/ tests/app/ -q` green.
 
 ## 1.4 — the guard for uncached providers, and the report surface
 
-- [ ] `register_descriptors` (`_app/boot.py`): same rule for descriptors from a
-      provider the cache does not front (`StaticProvider`, a plugin's own).
-- [ ] Test: identical function object registered twice stays silent (A11).
-- [ ] Tests: `builtin info --json` publishes the collision with
+- [x] Same rule for descriptors from a provider the cache does not front
+      (`StaticProvider`, a plugin's own). **Landed in
+      `_discovery/pipeline.py`, not `_app/boot.py`:** the pipeline is where
+      such descriptors meet, and it was *raising* on a duplicate while
+      `_app/boot.py` caught the exception and returned — so every job
+      vanished, not just the collider. Fixing the raise is what makes the
+      guard unnecessary further down.
+- [x] Test: identical function object registered twice stays silent (A11).
+- [x] Tests: `builtin info --json` publishes the collision with
       `error_type: "JobNameCollision"` (A5); the same invocation repeated with
       no cache clear still reports it (A6); `func --help` and `builtin info`
       both work with a collision present (A12).

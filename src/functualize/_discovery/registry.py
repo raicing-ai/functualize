@@ -29,6 +29,10 @@ from functualize._discovery.naming import (
 from functualize._discovery.schema_extractor import extract_field_descriptors
 from functualize._primitives.config_class_detection import detect_config_class
 from functualize._types.descriptors import JobDescriptor, RegisteredJob
+from functualize._types.discovery_report import (
+    job_name_collision,
+    record_discovery_finding,
+)
 from functualize._types.errors import JobNotFoundError
 from functualize._types.from_job import declared_dependency_names
 from functualize._types.naming import is_valid_job_group
@@ -434,9 +438,18 @@ class JobRegistry:
             )
             # Normalization can map two distinct functions onto one name —
             # `build_wheel` and `buildWheel` both become `build-wheel`. Without
-            # this the second silently replaces the first and one job vanishes
-            # with no diagnostic anywhere. Two functions cannot share an
-            # address, so this is an authoring error and says so.
+            # a diagnostic the second silently replaces the first and one job
+            # vanishes.
+            #
+            # This used to `raise ValueError`, which made a single authoring
+            # mistake fatal to app construction while the *default* boot path
+            # dropped the same job in silence — two answers to one question.
+            # Both paths now keep one claimant and report the rest.
+            #
+            # Unlike shape A, the same spelling arriving from two modules is
+            # not caught here: it produces one `registry_key` per module name
+            # and is recorded once by the command tracker above. It is reported
+            # by the collision-aware name index on the default path.
             existing = self._registered_jobs.get(registry_key)
             existing_raw = getattr(
                 getattr(existing, "function", None), "__name__", None
@@ -444,20 +457,27 @@ class JobRegistry:
             if (
                 existing is not None
                 and existing.function is not attr
-                # Same spelling from two modules is the *pre-existing* duplicate
-                # case, which warns and skips further down. Only a collision
-                # normalization itself created — two different spellings landing
-                # on one address — is new, and only that is an error here.
                 and existing_raw != attr_name
             ):
-                raise ValueError(
-                    f"Two jobs normalize to the same name {registry_key!r}: "
-                    f"{getattr(existing.function, '__name__', existing.function)!r} "
-                    f"(from {existing.module_path}) and {attr_name!r} "
-                    f"(from {module.__name__}). Job names are normalized to "
-                    f"lowercase-hyphenated form, so these are the same address. "
-                    f"Rename one."
+                failure = job_name_collision(
+                    canonical_name=registry_key,
+                    kept_module=module.__name__,
+                    kept_python_name=attr_name,
+                    dropped_module=existing.module_path or "<unknown>",
+                    dropped_python_name=existing_raw or registry_key,
+                    dropped_path=getattr(module, "__file__", "") or "<unknown>",
                 )
+                # TRANSITIONAL(eager-boot-provider): the structured report has
+                # no route to `builtin info` from here — that surface reads
+                # discovery failures off the *providers* in the resolution
+                # pipeline, and this eager scanner is not one. Recording into
+                # the collection scope is therefore a no-op today and becomes
+                # live when `eager-boot-provider` deletes this branch in favour
+                # of the provider boot already builds. The warning is what
+                # carries the diagnostic in the meantime, so the behaviour
+                # change here is raise -> warn, not raise -> report.
+                record_discovery_finding(failure)
+                logger.warning("%s", failure.message)
             self._registered_jobs[registry_key] = entry
 
             # Emit JOB_REGISTERED hook event
@@ -517,7 +537,14 @@ class JobRegistry:
                     **extract_capability_markers(attr),
                 )
                 descriptors.append(descriptor)
-                self._job_descriptors.append(descriptor)
+                # One descriptor per job name, matching the registry dict this
+                # method also writes. Appending unconditionally published the
+                # *same* name twice whenever two modules declared it — the
+                # registry kept one entry and the descriptor list carried both,
+                # so `get_jobs()` listed a duplicate and which one a consumer
+                # picked was undefined. The default path admits one.
+                if not any(d.name == descriptor.name for d in self._job_descriptors):
+                    self._job_descriptors.append(descriptor)
 
         return descriptors
 
