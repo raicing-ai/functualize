@@ -13,19 +13,28 @@ Public API:
 
 from __future__ import annotations
 
-import enum
 import inspect
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, get_args, get_origin
 
-from functualize.app.utils import INJECTED_PARAM_TYPE_NAMES
+from functualize.app.utils import (
+    CLI_MARKER_TYPE_NAMES,
+    INJECTED_PARAM_TYPE_NAMES,
+    is_cli_value_type,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
 #: Types that Click can natively convert to CLI parameters.
+#:
+#: Kept for the callers that ask "is this one of the builtins"; the *decision*
+#: is `is_cli_value_type`, which also admits the standard-library value types
+#: (`UUID`, `date`, `Decimal`, ...). This tuple used to be the whole answer, and
+#: a job taking `u: UUID` therefore published no parameter at all — the CLI
+#: accepted the job and then rejected its argument as unexpected.
 CLI_COMPATIBLE_TYPES: tuple[type, ...] = (str, int, float, bool, Path)
 
 #: DI capability type names that are injected by the execution engine.
@@ -108,8 +117,13 @@ def _is_field_info(obj: Any) -> bool:
 
 
 def _is_cli_marker(obj: Any) -> bool:
-    """Check if an object is a CLI marker (Arg, Option, or Stdin)."""
-    return type(obj).__name__ in ("Arg", "Option", "Stdin")
+    """Check if an object is a CLI marker (Arg, Option, or Stdin).
+
+    Reads the shared list rather than repeating the three names — this was the
+    fifth copy of a job-signature classification in the codebase, and the
+    other four had already drifted apart.
+    """
+    return type(obj).__name__ in CLI_MARKER_TYPE_NAMES
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +200,24 @@ def parse_annotation(annotation: Any) -> AnnotationInfo:
                 is_cli_compatible=False,
             )
 
+    # Case 3b: an explicit CLI marker outranks any type-based guess.
+    #
+    # Before this, `Annotated[Widget, Option(...)]` was classified DI by Case 4
+    # below and dropped from the CLI entirely — the author said "this is a
+    # command-line option" in as many words and the framework overruled them,
+    # then reported the value they passed as an unexpected argument. `Provide`
+    # stays ahead of this, because it is the equally explicit statement in the
+    # other direction.
+    if any(_is_cli_marker(meta) for meta in metadata):
+        return AnnotationInfo(
+            base_type=base_type,
+            is_annotated=is_annotated,
+            cli_markers=[m for m in metadata if _is_cli_marker(m)],
+            field_metadata=None,
+            is_di_param=False,
+            is_cli_compatible=True,
+        )
+
     # Case 4: Check if base type is a DI-registered type
     if _is_di_type(base_type):
         return AnnotationInfo(
@@ -213,9 +245,13 @@ def parse_annotation(annotation: Any) -> AnnotationInfo:
     field_meta = next((m for m in metadata if _is_field_info(m)), None)
 
     # Determine CLI compatibility from base type
-    is_compatible = base_type in CLI_COMPATIBLE_TYPES or (
-        isinstance(base_type, type) and issubclass(base_type, enum.Enum)
-    )
+    # One list, reached through the public re-export because `_cli` may import
+    # public folders only — the same route, and the same reason, as the
+    # injected-capability names above. Four layers classified a job signature
+    # and each kept its own answer: this one decided a `UUID` parameter did not
+    # exist, while the extractor published it and the DI gate demanded a
+    # provider for it.
+    is_compatible = base_type in CLI_COMPATIBLE_TYPES or is_cli_value_type(base_type)
 
     return AnnotationInfo(
         base_type=base_type,

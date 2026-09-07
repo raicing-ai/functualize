@@ -339,6 +339,15 @@ def discovery_failures(app: FunctualizeApp) -> list[dict[str, str]]:
     # -- `StaticProvider`, a plugin's own -- has no `discovery_failures` to
     # report through, so a collision between two such jobs surfaces only here.
     # Same attribute-access read as above: `_cli` may not import `_discovery`.
+    # Jobs whose dependencies could not be resolved. Same reasoning as the
+    # collisions above: the job the user wrote is not in the CLI, so it belongs
+    # in the one list that answers "why is my job missing?".
+    for unsatisfiable in getattr(app, "_unsatisfiable_jobs", ()) or ():
+        with contextlib.suppress(Exception):
+            payload = unsatisfiable.as_dict()
+            if payload not in failures:
+                failures.append(payload)
+
     for collision in getattr(pipeline, "collisions", ()) or ():
         with contextlib.suppress(Exception):
             payload = collision.as_dict()

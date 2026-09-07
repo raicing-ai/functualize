@@ -332,16 +332,30 @@ class TestFiltersAreHonoured:
 class TestTheBootTimePromisesSurvive:
     """What `lazy=False` is *for*. These are "must keep holding", not new."""
 
-    def test_a_di_error_still_raises_at_construction(self, tmp_path: Path) -> None:
-        """A10. If eager descriptors took the lazy-proxy branch in
-        `register_descriptors`, this would move to first use and the escape
-        hatch would lose the guarantee it exists for."""
+    def test_a_di_error_is_still_found_at_construction(self, tmp_path: Path) -> None:
+        """A10, as amended by `parameter-type-support`.
+
+        The substance is unchanged and is what this criterion is for: if eager
+        descriptors took the lazy-proxy branch in `register_descriptors`, the
+        error would move to first use and the escape hatch would lose the
+        guarantee it exists for. So it is still *found* while constructing.
+
+        What changed is the disposition. It used to raise for the whole app,
+        which took down every other job and both diagnostic commands; ADR-018
+        records the decision to report instead. Asserting the report rather
+        than the raise keeps this criterion honest instead of pinning a
+        behaviour a later feature deliberately replaced.
+        """
         jobs_dir = _jobs(tmp_path, bad=UNSATISFIABLE_DEPENDENCY)
 
-        with pytest.raises(Exception, match="No provider for Unprovided"):
-            FunctualizeApp(
-                "e", job_sources=JobSources(directories=[str(jobs_dir)], lazy=False)
-            )
+        app = FunctualizeApp(
+            "e", job_sources=JobSources(directories=[str(jobs_dir)], lazy=False)
+        )
+
+        messages = [f.message for f in app._unsatisfiable_jobs]
+        assert len(messages) == 1
+        assert "No provider for Unprovided" in messages[0]
+        assert "'dep'" in messages[0]
 
     def test_descriptors_carry_a_live_function(self, tmp_path: Path) -> None:
         """The mechanism behind the criterion above, asserted directly so a

@@ -308,7 +308,7 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
             logger.warning(f"APP_READY hook {hook_name!r} raised: {exc}")
 
     # Validate DI bindings
-    app._execution_engine.validate_di_bindings()
+    report_unsatisfiable_jobs(app)
 
     # Freeze DI registry
     app._di_registry.freeze()
@@ -692,7 +692,7 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
 
     # 9b. Validate DI bindings
     perf_timeline.mark("boot.di_validation.start")
-    app._execution_engine.validate_di_bindings()
+    report_unsatisfiable_jobs(app)
     perf_timeline.mark("boot.di_validation.end")
 
     # 10. Freeze DI registry and emit REGISTRY_FROZEN event
@@ -1183,6 +1183,61 @@ def resolve_and_register_jobs(app: Any) -> None:
 
         if new_descriptors:
             register_descriptors(app, new_descriptors)
+
+
+def report_unsatisfiable_jobs(app: Any) -> None:
+    """Record jobs whose dependencies cannot be resolved. Do not abort boot.
+
+    Boot used to let ``validate_di_bindings`` raise for the whole app. One job
+    with an unregistered dependency then took down *every* command on a cold
+    boot — unrelated jobs, ``builtin info`` and ``builtin self doctor``
+    included — as an unhandled ``DIValidationError`` traceback. Measured: five
+    commands, four dead, only ``--help`` surviving. Warm boots masked it,
+    because cached jobs register as lazy proxies and validation skips those, so
+    it presented as intermittent.
+
+    The failure stays loud and early — it is published in the same list that
+    answers "why is my job missing?" — but it stops being contagious. See
+    ADR-018 for the departure from `CONSTITUTION.md` "Boot & Config".
+
+    **The job is left registered on purpose.** Unregistering it would make the
+    cold boot disagree with the warm one, where validation is skipped for lazy
+    proxies and the job necessarily still exists; and the error a caller gets
+    from invoking it names the job and the parameter, which is more use than
+    "no such command". So the guarantee that holds on both paths is *invoking
+    it explains itself*, and the report is the extra the cold boot can offer.
+    """
+    from functualize._types.discovery_report import DiscoveryFailure
+
+    failures = app._execution_engine.validate_di_bindings()
+    if not failures:
+        return
+
+    reported: list[DiscoveryFailure] = list(getattr(app, "_unsatisfiable_jobs", []))
+    known = {f.message for f in reported}
+    for job_name, errors in failures.items():
+        entry = app.job_registry._registered_jobs.get(job_name)
+        module_path = getattr(entry, "module_path", "") or "<unknown>"
+        message = (
+            f"Job {job_name!r} is registered but cannot run: "
+            + "; ".join(str(e) for e in errors)
+            + ". Register a provider for the type, or annotate the parameter "
+            "with Arg()/Option() to take its value from the caller."
+        )
+        if message in known:
+            continue
+        known.add(message)
+        reported.append(
+            DiscoveryFailure(
+                module=module_path,
+                path=module_path,
+                error_type="UnsatisfiableParameter",
+                message=message,
+            )
+        )
+        logger.warning("%s", message)
+
+    app._unsatisfiable_jobs = reported
 
 
 def _register_jobs_eager(app: Any) -> None:

@@ -241,7 +241,7 @@ module-level side-effect counter.
 | A7 | `lazy=False` honours `exclude_patterns`, every `require_*`, and `pre_filter` | ignored |
 | A8 | The eager and lazy paths return the **same** job-name set for the same `DiscoveryConfig` | differ whenever any filter is set |
 | A9 | A module excluded by config is **not imported** on the eager path (asserted by side effect, not by the job list) | imported |
-| A10 | A DI-binding error in an admitted job still raises at boot under `lazy=False` | holds; must keep holding |
+| A10 | A DI-binding error in an admitted job is still **found while constructing** under `lazy=False`, rather than deferring to first use | holds; must keep holding. **Amended by `parameter-type-support`:** the disposition changed from raising for the whole app to reporting per job (ADR-018). The substance — eager boot validates rather than defers — is what this criterion protects, and it is unchanged |
 | A11 | `grep -rn "scan_and_register_headless(" src/` — the eager branch no longer calls it | **2** (`boot.py:1144` eager, `boot.py:1452` defensive fallback) |
 | A12 | `TestTheEagerPathFiltersNothing` is inverted, not deleted — the class still documents the defect and now asserts the fixed behaviour | pins the broken behaviour |
 | A13 | Full gates green, `lint-imports` included | — |

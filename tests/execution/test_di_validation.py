@@ -17,8 +17,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 from unittest.mock import MagicMock
 
-import pytest
-
 from functualize._engine.executor import JobExecutionEngine
 from functualize._engine.result import RegisteredJob
 from functualize._primitives.di import (
@@ -102,6 +100,20 @@ def _register_job(
 # ---------------------------------------------------------------------------
 
 
+def _as_aggregate(failures: dict[str, list[object]]) -> DIValidationError:
+    """The aggregate error the boot gate used to raise, rebuilt for assertions.
+
+    `validate_di_bindings` returns per-job errors now rather than raising for
+    the whole app: one unsatisfiable job used to take down every command,
+    including the two an operator would use to diagnose it (see ADR-018). The
+    error *contents* are unchanged, so these tests keep asserting them — this
+    helper is the two-line adapter, rather than 15 rewritten assertions that
+    would obscure what actually changed.
+    """
+    flat = [error for errors in failures.values() for error in errors]
+    return DIValidationError(flat)  # type: ignore[arg-type]
+
+
 class TestValidateDIBindings:
     """Tests for validate_di_bindings() method."""
 
@@ -109,7 +121,7 @@ class TestValidateDIBindings:
         """Empty engine with no registered jobs should pass validation."""
         engine = _make_engine()
         # Should not raise
-        engine.validate_di_bindings()
+        assert engine.validate_di_bindings() == {}
 
     def test_all_bindings_satisfied_passes(self) -> None:
         """If all DI bindings are satisfied, validation passes."""
@@ -123,7 +135,7 @@ class TestValidateDIBindings:
 
         _register_job(engine, "my_job", my_job)
         # Should not raise
-        engine.validate_di_bindings()
+        assert engine.validate_di_bindings() == {}
 
     def test_missing_provider_raises_error(self) -> None:
         """A job with a missing DI type raises DIValidationError."""
@@ -134,10 +146,9 @@ class TestValidateDIBindings:
 
         _register_job(engine, "my_job", my_job)
 
-        with pytest.raises(DIValidationError) as exc_info:
-            engine.validate_di_bindings()
+        failures = engine.validate_di_bindings()
 
-        err = exc_info.value
+        err = _as_aggregate(failures)
         assert len(err.errors) == 1
         assert isinstance(err.errors[0], MissingProviderError)
         assert err.errors[0].type_ is DatabaseService
@@ -156,10 +167,9 @@ class TestValidateDIBindings:
 
         _register_job(engine, "my_job", my_job)
 
-        with pytest.raises(DIValidationError) as exc_info:
-            engine.validate_di_bindings()
+        failures = engine.validate_di_bindings()
 
-        err = exc_info.value
+        err = _as_aggregate(failures)
         assert len(err.errors) == 1
         assert isinstance(err.errors[0], AmbiguousProviderError)
         assert err.errors[0].type_ is CacheService
@@ -185,10 +195,9 @@ class TestValidateDIBindings:
         _register_job(engine, "job_b", job_b)
         _register_job(engine, "job_c", job_c)
 
-        with pytest.raises(DIValidationError) as exc_info:
-            engine.validate_di_bindings()
+        failures = engine.validate_di_bindings()
 
-        err = exc_info.value
+        err = _as_aggregate(failures)
         assert len(err.errors) == 3
         # All should be MissingProviderError
         for e in err.errors:
@@ -203,10 +212,9 @@ class TestValidateDIBindings:
 
         _register_job(engine, "my_job", my_job)
 
-        with pytest.raises(DIValidationError) as exc_info:
-            engine.validate_di_bindings()
+        failures = engine.validate_di_bindings()
 
-        err = exc_info.value
+        err = _as_aggregate(failures)
         assert len(err.errors) == 2
 
     # -----------------------------------------------------------------------
@@ -222,7 +230,7 @@ class TestValidateDIBindings:
 
         _register_job(engine, "my_job", my_job)
         # Should not raise
-        engine.validate_di_bindings()
+        assert engine.validate_di_bindings() == {}
 
     def test_optional_and_required_mixed(self) -> None:
         """Only required params with missing providers trigger errors."""
@@ -236,10 +244,9 @@ class TestValidateDIBindings:
 
         _register_job(engine, "my_job", my_job)
 
-        with pytest.raises(DIValidationError) as exc_info:
-            engine.validate_di_bindings()
+        failures = engine.validate_di_bindings()
 
-        err = exc_info.value
+        err = _as_aggregate(failures)
         assert len(err.errors) == 1
         assert isinstance(err.errors[0], MissingProviderError)
         assert err.errors[0].type_ is CacheService
@@ -264,10 +271,9 @@ class TestValidateDIBindings:
 
         _register_job(engine, "my_job", my_job)
 
-        with pytest.raises(DIValidationError) as exc_info:
-            engine.validate_di_bindings()
+        failures = engine.validate_di_bindings()
 
-        err = exc_info.value
+        err = _as_aggregate(failures)
         assert len(err.errors) == 1
         assert isinstance(err.errors[0], ResolutionError)
         assert err.errors[0].__cause__ is not None
@@ -287,7 +293,7 @@ class TestValidateDIBindings:
 
         _register_job(engine, "my_job", my_job)
         # Should not raise - Log is a per-invocation type
-        engine.validate_di_bindings()
+        assert engine.validate_di_bindings() == {}
 
     # -----------------------------------------------------------------------
     # Qualified bindings
@@ -305,7 +311,7 @@ class TestValidateDIBindings:
 
         _register_job(engine, "my_job", my_job)
         # Should not raise
-        engine.validate_di_bindings()
+        assert engine.validate_di_bindings() == {}
 
     def test_qualified_binding_missing(self) -> None:
         """A qualified binding that isn't registered raises an error."""
@@ -319,10 +325,9 @@ class TestValidateDIBindings:
 
         _register_job(engine, "my_job", my_job)
 
-        with pytest.raises(DIValidationError) as exc_info:
-            engine.validate_di_bindings()
+        failures = engine.validate_di_bindings()
 
-        err = exc_info.value
+        err = _as_aggregate(failures)
         assert len(err.errors) == 1
 
     # -----------------------------------------------------------------------
@@ -338,7 +343,7 @@ class TestValidateDIBindings:
 
         _register_job(engine, "my_job", my_job)
         # Should not raise - unannotated params are skipped
-        engine.validate_di_bindings()
+        assert engine.validate_di_bindings() == {}
 
     # -----------------------------------------------------------------------
     # DIValidationError message quality
@@ -357,10 +362,10 @@ class TestValidateDIBindings:
         _register_job(engine, "job_a", job_a)
         _register_job(engine, "job_b", job_b)
 
-        with pytest.raises(DIValidationError) as exc_info:
-            engine.validate_di_bindings()
+        failures = engine.validate_di_bindings()
+        err = _as_aggregate(failures)
 
-        msg = str(exc_info.value)
+        msg = str(err)
         assert "2 error(s)" in msg
         assert "DatabaseService" in msg
         assert "CacheService" in msg
