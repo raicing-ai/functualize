@@ -74,21 +74,48 @@ async def test_ui_stays_responsive_while_job_executes(
         tui_app.action_execute()
         await pilot.pause()
 
+        # Wait until the worker is genuinely RUNNING before counting anything.
+        # Without this the poll loop can be reached after the job has already
+        # finished -- `tui_app.workers` is then falsy, the loop never iterates,
+        # and zero ticks is reported as "the sync call blocked the loop". That
+        # is the *same* observation a frozen loop produces, so the failure was
+        # indistinguishable from the defect the test exists to catch.
+        # `test_reentry_guard_ignores_second_trigger_while_running` below
+        # already waits this way; this test did not.
+        start_deadline = time.monotonic() + BLOCK_SECONDS
+        while not _job_worker_running(tui_app):
+            if time.monotonic() > start_deadline:
+                pytest.fail(
+                    "the job worker never reached RUNNING — the job did not "
+                    "run in a worker at all, which is the pre-migration defect"
+                )
+            await pilot.pause()
+
         ticks = 0
-        deadline = time.monotonic() + BLOCK_SECONDS + 1.0
+        started = time.monotonic()
+        deadline = started + BLOCK_SECONDS + 1.0
         while tui_app.workers and time.monotonic() < deadline:
             await asyncio.sleep(TICK_INTERVAL)
             ticks += 1
+        elapsed = time.monotonic() - started
 
         await tui_app.workers.wait_for_complete()
         await pilot.pause()
 
-    floor = responsive_floor(idle_polls)
+    # Compare *rates*, not counts. `idle_polls` was measured over the full
+    # BLOCK_SECONDS, but the window actually polled starts once the worker is
+    # running and ends when it finishes -- shorter, and by a margin that varies
+    # with how fast the machine got the thread going. Comparing a short window's
+    # count against a full window's ceiling asks the loop to do more work in
+    # less time, which is how a responsive run reported 3 polls against a floor
+    # of 6 on a loaded CI runner.
+    scaled_ceiling = max(1, round(idle_polls * (elapsed / BLOCK_SECONDS)))
+    floor = responsive_floor(scaled_ceiling)
     assert ticks >= floor, (
         f"expected a responsive event loop (thread worker): got {ticks} "
-        f"polls while the job ran against an idle ceiling of {idle_polls} "
-        f"(floor {floor}) — the sync call is still "
-        "blocking the event loop"
+        f"polls in {elapsed:.3f}s against an idle ceiling of {idle_polls} "
+        f"per {BLOCK_SECONDS}s (scaled to {scaled_ceiling}, floor {floor}) — "
+        "the sync call is still blocking the event loop"
     )
 
 

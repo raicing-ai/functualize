@@ -1782,8 +1782,22 @@ Items identified during development that are worth doing but not yet designed:
     jobs at all". Both are solvable; neither is solved. Decide #32 first.
 
 
-31. **`ModulePreFilter` ships as `should_import`, not `accepts` — for the
-    maintainer to confirm.** `third-party-host-seams`/`contracts.md` §S1
+31. **`ModulePreFilter` ships as `should_import`, not `accepts` — RESOLVED
+    2026-09-07, see [ADR-017](../contributor/adr/017-module-pre-filter-signature.md).**
+    Decision: keep `should_import(source_file)`, reject `accepts(path, source)`.
+
+    The sketch bundled a rename with a signature change, and they have opposite
+    answers. `source` eliminates the redundant *reads* (0.6–7% of the measured
+    cost) and leaves the redundant *parses* (27–91%) untouched, and an eager
+    `source` would force every candidate to be read before any filter runs —
+    inverting the cheapest-first ordering and making a filename rejection
+    20–200× more expensive. The name keeps the `should_register` /
+    `should_import` symmetry and names the consequence that matters: returning
+    `True` runs a module's import-time side effects.
+
+    The original finding follows.
+
+    **`ModulePreFilter` ships as `should_import`, not `accepts`.** `third-party-host-seams`/`contracts.md` §S1
     sketches the promoted Protocol as `accepts(self, path: Path, source: str)
     -> bool`. What shipped is `should_import(self, source_file: Path) -> bool`.
 
@@ -1847,8 +1861,54 @@ Items identified during development that are worth doing but not yet designed:
     Not done: the maintainer paused this work on 2026-09-07 to reassess
     priorities across all five defects rather than fix them in discovery order.
 
-33. **`test_ui_stays_responsive_while_job_executes` is flaky on a loaded CI
-    runner.** Observed 2026-09-07 on PR #29: `test-fast` failed on Python 3.11
+33. **`test_ui_stays_responsive_while_job_executes` was flaky on a loaded CI
+    runner — FIXED 2026-09-07.** Two failures in three runs on PR #29, on
+    Python 3.11: once with `got 0 polls`, once with `got 3 polls`, both against
+    an idle ceiling of 20 and a floor of 6, with a clean pass in between on an
+    unchanged tree.
+
+    **Two causes, both measurement bugs rather than flakiness in the code
+    under test.**
+
+    *The window was not guaranteed to contain the job.* The test polled while
+    `tui_app.workers` was non-empty, starting immediately after
+    `action_execute()`. If the worker had not started, the loop never iterated
+    and reported zero — the same observation a genuinely frozen loop produces,
+    so the failure was indistinguishable from the defect the test exists to
+    catch. It now waits for `_job_worker_running` first, the pattern its own
+    neighbour `test_reentry_guard_ignores_second_trigger_while_running`
+    already used, bounded by a deadline so the failure path stays fast.
+
+    *The floor was compared against the wrong denominator.* `idle_polls` is
+    measured over the full `BLOCK_SECONDS`, but the window actually polled
+    starts when the worker is running and ends when it finishes — shorter, by a
+    margin that varies with how quickly the machine got the thread going.
+    Comparing a short window's count against a full window's ceiling asks the
+    loop for more work in less time, which is how a responsive run reported 3
+    polls against a floor of 6. The ceiling is now scaled by the observed
+    elapsed time before `responsive_floor` is applied, so the comparison is
+    between rates.
+
+    **Verified not to be a weakening.** With the real defect reintroduced — the
+    sync job called inline instead of through `run_worker(..., thread=True)` —
+    both the old and the new test fail. The new one fails with *"the job worker
+    never reached RUNNING — the job did not run in a worker at all"*, which
+    names the defect rather than describing a symptom. 5/5 clean runs locally.
+
+    An earlier sabotage attempt (freezing the loop at dispatch while the thread
+    also ran) passed against **both** versions — worth recording, because it
+    means neither the old nor the new test covers a dispatch-time freeze that
+    overlaps the job's own duration. That gap predates this fix and is not
+    closed by it.
+
+    Two sibling tests share the un-scaled comparison —
+    `tests/_cli/test_display_refresh_thread_worker.py` and
+    `tests/tui_audit/test_blocking_worker.py`. Neither is currently failing, so
+    both were left alone; if either starts flaking, this is the reason.
+
+    The original finding follows.
+
+    Observed 2026-09-07 on PR #29: `test-fast` failed on Python 3.11
     with `got 0 polls ... against an idle ceiling of 20 (floor 6)`, then
     **passed on a re-run of the same commit**, with no code change between.
     The previous CI run had passed on a tree differing only in two unrelated
@@ -1872,8 +1932,49 @@ Items identified during development that are worth doing but not yet designed:
     thread-worker migration exists to close), and a weakened assertion would
     stop catching it. The right repair is to make the test wait until the
     worker is observably running before it starts counting, so the measurement
-    cannot begin after the work has finished. Left undone — it is a test-timing
-    fix in a file this branch does not otherwise touch.
+    cannot begin after the work has finished. **Done, plus the rate scaling the
+    second failure mode needed — see the head of this entry.**
+
+34. **The pre-filter stack parses each candidate file three to four times.**
+    Measured while deciding ADR-017; recorded because the cost is real even
+    though the protocol change proposed for it was the wrong fix.
+
+    Seven of the thirteen built-in filters each do their own `read_text()` +
+    `ast.parse()`, and the baseline stack — `AnyOf(AST, DisplayClass,
+    GroupOptions)` at position 5 plus `AnyOf(Default, GroupOptions)` at
+    position 2 — reaches the same file three or four times with no filter
+    configured at all.
+
+    | | small job file (905 B) | `_cli/builtins.py` (85 KB) |
+    |---|---|---|
+    | three filters, as shipped | 568.6 µs | 52,347 µs |
+    | of which redundant reads | 39.7 µs — 7.0% | 303 µs — 0.6% |
+    | of which redundant parses | 151 µs — **26.6%** | 47,473 µs — **90.7%** |
+
+    **The fix is a parse memoized per `(path, mtime)`, not a protocol change.**
+    Keyed that way it is correct across a `refresh()` (the file changes, the key
+    changes) and needs no signature change, so it costs nothing at the public
+    seam ADR-017 just settled. `mtime` alone is the same validity tier the
+    discovery cache already trusts for its negative decisions, so it introduces
+    no new staleness assumption.
+
+    Deliberately not done, for two reasons worth stating rather than leaving
+    implicit:
+
+    - **It is a cold-boot cost only.** `CachedDirectoryScanProvider._list_jobs`
+      runs the filter only for `on_disk - cached_files`, and rejections persist
+      as decisions keyed by mtime. A warm boot over an unchanged tree parses
+      nothing. The 90.7% figure is the worst case on the largest file in the
+      repository, on the one path that already accepts a multi-second budget.
+    - **The memo needs an owner and a lifetime.** A module-level cache would
+      outlive a `refresh()` and leak across `FunctualizeApp` instances in a
+      long-lived process (TUI, MCP server) — the same shape as #30's phantom
+      entries. Doing it properly means threading a per-scan cache through
+      `build_pre_filter_from_config`, which is a design change rather than an
+      optimization.
+
+    Close this by adding that per-scan memo, or by deciding the cold-boot cost
+    is acceptable and saying so.
 
 ## Recently Completed (2026-08)
 
