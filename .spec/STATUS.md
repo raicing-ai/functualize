@@ -566,7 +566,7 @@ Committed design documents with per-assertion PASS/GAP verification against the 
 | Shape intent | Scope |
 |---|---|
 | [`remote-config-source.md`](shape-intents/remote-config-source.md) — **RESOLVED 2026-09-06, wired; see ADR-016** | `RemoteSource` is defined, exported and documented with **zero construction sites in `src/`**, and the `remote_first` preset's docstring promises a chain the boot path does not build. Wire it or remove it — correcting only the docstrings is explicitly not an option. Carries the finding that the original gate passed *because of* its `--include="*.md"` scoping. |
-| [`eager-boot-uses-the-provider-it-builds.md`](shape-intents/eager-boot-uses-the-provider-it-builds.md) | `JobSources(lazy=False)` registers jobs through a second directory scanner instead of the filtered provider `boot_standard` already built and added to the pipeline. Four defects follow: every job module **imported twice** whenever a second provider exists (measured 2 modules → 4 imports, and a regression introduced by wiring `JobSources.functions`), `_registered_commands` keyed by the Python name so `refresh()` leaves phantom entries, discovery filters ignored, and filters half-applied. None reachable from `func`. Read STATUS #32 first — its fix unblocks this one. |
+| [`eager-boot-uses-the-provider-it-builds.md`](shape-intents/eager-boot-uses-the-provider-it-builds.md) — **RESOLVED 2026-09-08 by `eager-boot-provider`** | `JobSources(lazy=False)` registers jobs through a second directory scanner instead of the filtered provider `boot_standard` already built and added to the pipeline. Four defects follow: every job module **imported twice** whenever a second provider exists (measured 2 modules → 4 imports, and a regression introduced by wiring `JobSources.functions`), `_registered_commands` keyed by the Python name so `refresh()` leaves phantom entries, discovery filters ignored, and filters half-applied. None reachable from `func`. Read STATUS #32 first — its fix unblocks this one. |
 | [`workflow-run-parameters.md`](shape-intents/workflow-run-parameters.md) | A `@workflow` job **silently discards** the arguments `app.execute()` is given, then fails at the epilogue after the gate has been approved — while a plain job rejects the same argument at launch. Underneath it: no run-scoped parameter layer exists at all, so a value set for a walk does **not survive a gate** (one `scope_id`, two answers, selected by the resuming shell). The three trigger plugins can parameterize a single job and not a walk. Implement a run-scoped layer or declare walks unparameterizable and enforce it; the silent-drop fix is separable and lands first either way. |
 
 ## Open Features
@@ -1099,7 +1099,7 @@ it works).
 
 ## Potential Follow-ups
 
-34. **The unknown-command explanation does not reach a project's own
+37. **The unknown-command explanation does not reach a project's own
     `main.py`.** `explain_missing_job` (`_cli/info.py`) is called from both
     reporters — `func`'s unknown-command path and the CLI adapter's
     `_show_command_not_found` — but a project's own entry point invokes click
@@ -1117,7 +1117,7 @@ it works).
     vacuously on the app surface by matching the discovery warning line
     instead of the explanation.
 
-35. **An `Enum` job parameter arrives as its member's `str` value, not the
+38. **An `Enum` job parameter arrives as its member's `str` value, not the
     member.** `_click_type_for` renders `click.Choice` of member values and
     nothing converts back, so `def paint(c: Color)` invoked as `func paint
     red` receives `"red"` rather than `Color.RED`. Pre-existing, and left
@@ -1125,7 +1125,7 @@ it works).
     the string works today and would break. The choice validation is correct,
     so the surface is right and only the conversion is missing.
 
-36. **`tests/_cli/test_self_doctor.py::test_a_recognised_installation_reports_ok`
+39. **`tests/_cli/test_self_doctor.py::test_a_recognised_installation_reports_ok`
     fails on any machine whose global install manifest holds stale records.**
     It reads the real `~/.config/functualize/install.json`, so a developer with
     deleted worktrees registered there sees a failure unrelated to their
@@ -1413,7 +1413,15 @@ Items identified during development that are worth doing but not yet designed:
     `docs/guides/group-options.md`, so the documentation is correct either way — this
     is a capability decision, not a drift fix.
 
-18. **`exclude_patterns` cannot reach any scan root but the first.** Surfaced while
+18. **RESOLVED — `exclude_patterns` cannot reach any scan root but the first.**
+    Closed in two halves: [ADR-011](../contributor/adr/011-discovery-fingerprint-completeness.md)
+    gave `GlobExcludePreFilter` every scan root (deepest containing root wins),
+    and `job-name-collisions`/`eager-boot-provider` resolved both sides of the
+    comparison, without which a relative root such as `directories=["jobs"]`
+    matched nothing and every pattern was ignored. One construction site
+    (`_discovery/filter_factory.py:96`), and it passes the roots.
+
+    The original finding, as recorded. Surfaced while
     giving `examples/plugins/file_based_plugin` the config file its README assumed.
     The setting is documented as "exclude files matching glob patterns before any
     other filter runs" (`docs/cli/discovery.md:101-114`), with the qualifier that
@@ -1737,8 +1745,9 @@ Items identified during development that are worth doing but not yet designed:
     by wiring the value to whatever reads it, or by removing the key if no
     consumer arrives.
 
-30. **The eager boot path bypasses the provider it just built — four defects,
-    one root cause.** Supersedes the original narrower note. Audited 2026-09-07;
+30. **RESOLVED 2026-09-08 by `eager-boot-provider`.** The eager boot path
+    bypasses the provider it just built — four defects, one root cause.
+    Supersedes the original narrower note. Audited 2026-09-07;
     every number below was measured, not inferred. The verified analysis lives
     in
     [`.spec/shape-intents/eager-boot-uses-the-provider-it-builds.md`](shape-intents/eager-boot-uses-the-provider-it-builds.md)
@@ -1862,9 +1871,10 @@ Items identified during development that are worth doing but not yet designed:
     difference between the spec and the code. **No action needed if the shipped
     name is right; this exists so the choice is visible.**
 
-32. **A job silently disappears when two functions normalize to the same name —
-    on the *default* path.** Found 2026-09-07 while auditing #30, and it is the
-    only defect in that audit a `func` user can hit.
+32. **RESOLVED 2026-09-08 by `job-name-collisions`.** A job silently disappears
+    when two functions normalize to the same name — on the *default* path.
+    Found 2026-09-07 while auditing #30, and it is the only defect in that
+    audit a `func` user can hit.
 
     Canonical identity lowercases and hyphenates, so `build_wheel` and
     `buildWheel` in one module both become `build-wheel`. The eager registry
