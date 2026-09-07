@@ -53,7 +53,14 @@ cd /tmp
 # machine contains no Python at all. This is the failure that produced
 # v0.2.1's seven dead binaries.
 uv python install 3.12
-src_root=$(uv python find 3.12 | xargs -I{} {} -c 'import sys; print(sys.prefix)')
+# Two statements, not `... | xargs -I{} {} -c ...`. `-I` substitutes into
+# *arguments* and never into argv[0], so that pipeline asked the shell to run a
+# program literally named `{}` and exited 127 -- failing this scenario on every
+# run, ~21s in, with an error that looked like a broken toolchain rather than a
+# broken recipe. (STATUS #28.)
+python_bin=$(uv python find 3.12)
+src_root=$("$python_bin" -c 'import sys; print(sys.prefix)')
+test -n "$src_root" || { echo "could not resolve the baked interpreter"; exit 1; }
 mkdir -p /tmp/dist
 # `"$src_root"/.` -- uv's unversioned path is a symlink to the patch-versioned
 # directory, and copying it makes /tmp/dist a link back into uv's own store.

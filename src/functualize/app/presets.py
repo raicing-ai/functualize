@@ -93,16 +93,34 @@ def remote_first(
     *,
     file_pattern: str = "config.*",
     dotenv: bool = False,
+    max_age: str | None = None,
 ) -> ConfigSources:
-    """CLI → Remote → Env → Files → Defaults.
+    """CLI → Vault → Env → Files → Defaults.
 
-    Leaves ``config_resolution_chain`` as None so that the boot path
-    can wire up RemoteSource and FileSource with the discovered
-    ResourceLocator and ProviderRegistry.
+    Values declared as ``provider://reference`` annotations resolve from the
+    project's encrypted local vault, which ``func builtin vault sync`` fills
+    from the registered remote providers. Reads never touch the network
+    (ADR-016).
+
+    Requires at least one remote provider to be registered through the
+    ``functualize.remote_providers`` entry-point group — install
+    ``functualize-aws`` or another provider plugin. An app selecting this
+    preset with none registered raises at construction rather than quietly
+    resolving from local files.
+
+    .. note::
+        Before 0.2.4 this preset **silently behaved as** :func:`classic`: it
+        returned ``config_resolution_chain=None`` and no boot path built a
+        remote source, so an operator choosing it for AWS Secrets Manager got
+        local files and environment variables with no warning. ``remote=True``
+        is what makes the intent legible to boot.
 
     Args:
         file_pattern: Glob pattern for config file matching.
         dotenv: Whether to load .env files.
+        max_age: How old the vault may be before every run warns, e.g.
+            ``"7d"``. Default ``"24h"``. Exceeding it never fails a run;
+            ``$FUNCTUALIZE_VAULT_MAX_AGE`` overrides it.
 
     Returns:
         A ConfigSources instance configured for remote-first resolution.
@@ -111,4 +129,6 @@ def remote_first(
         file_pattern=file_pattern,
         dotenv=dotenv,
         config_resolution_chain=None,
+        remote=True,
+        vault_max_age=max_age,
     )

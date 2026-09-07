@@ -1,0 +1,47 @@
+[project]
+name = "functualize-aws"
+version = "0.2.3"
+description = "AWS Secrets Manager and SSM Parameter Store providers for functualize"
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "Mohammad Hakim Adiprasetya", email = "viltohmyst@gmail.com" }
+]
+requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
+]
+dependencies = [
+    "functualize>=0.1.0,<1.0.0",
+    # The reason this is a plugin at all: boto3 and botocore are ~20MB of
+    # wheel and a hard AWS coupling. `grep -rn boto3 src/functualize/` must
+    # stay at 0 (remote-source-activation/5.1).
+    "boto3>=1.34.0",
+]
+
+# Two providers, two identifiers. Registered separately so a project using
+# only Parameter Store never constructs a Secrets Manager client.
+[project.entry-points."functualize.remote_providers"]
+aws-sm = "functualize_aws:SecretsManagerProvider"
+aws-ssm = "functualize_aws:ParameterStoreProvider"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+functualize = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/functualize_aws"]

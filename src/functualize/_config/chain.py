@@ -101,22 +101,34 @@ class ResolutionChain:
         Raises:
             MissingKeyError: If no source provides a value for the key.
         """
+        return self._walk(key, section)
+
+    def _walk(self, key: str, section: str | None) -> ResolvedValue:
+        """Consult every source in order and record provenance.
+
+        Shared by :meth:`resolve` and :meth:`introspect`, whose bodies were
+        identical. One body means the fall-through notification below cannot
+        exist on one path and be missing from the other.
+        """
         winner_value: Any = None
         winner_source_type: str | None = None
         winner_source_id: str | None = None
         alternatives: list[tuple[str, str, Any]] = []
+        silent: list[Any] = []
         found = False
 
         for source in self._sources:
             value = source.get(key, section)
-            if value is not None:
-                if not found:
-                    winner_value = value
-                    winner_source_type = source.source_type
-                    winner_source_id = source.source_id
-                    found = True
-                else:
-                    alternatives.append((source.source_type, source.source_id, value))
+            if value is None:
+                silent.append(source)
+                continue
+            if not found:
+                winner_value = value
+                winner_source_type = source.source_type
+                winner_source_id = source.source_id
+                found = True
+            else:
+                alternatives.append((source.source_type, source.source_id, value))
 
         if not found:
             consulted = [source.source_id for source in self._sources]
@@ -125,13 +137,37 @@ class ResolutionChain:
         assert winner_source_type is not None
         assert winner_source_id is not None
 
-        return ResolvedValue(
+        resolved = ResolvedValue(
             value=winner_value,
             source_type=winner_source_type,
             source_id=winner_source_id,
             key=key,
             alternatives=alternatives,
         )
+        self._notify_fallthrough(silent, resolved, section)
+        return resolved
+
+    @staticmethod
+    def _notify_fallthrough(
+        silent: list[Any], resolved: ResolvedValue, section: str | None
+    ) -> None:
+        """Tell a source that answered nothing which source answered instead.
+
+        Opt-in and duck-typed: a source participates by defining
+        ``note_fallthrough(resolved, section)``. Only ``VaultSource`` does,
+        because only it has cause to speak — a key it does not hold may be a
+        secret that was *meant* to arrive from a remote store and did not
+        (ADR-016). The chain stays generic and still knows nothing about
+        vaults.
+
+        Nothing is notified when no source answered at all: the caller
+        already receives a :class:`MissingKeyError`, which is louder than any
+        warning this could emit.
+        """
+        for source in silent:
+            notify = getattr(source, "note_fallthrough", None)
+            if notify is not None:
+                notify(resolved, section)
 
     def resolve_section(self, section: str) -> dict[str, ResolvedValue]:
         """Resolve all keys in a section by querying each source.
@@ -190,34 +226,4 @@ class ResolutionChain:
         Raises:
             MissingKeyError: If no source provides a value for the key.
         """
-        winner_value: Any = None
-        winner_source_type: str | None = None
-        winner_source_id: str | None = None
-        alternatives: list[tuple[str, str, Any]] = []
-        found = False
-
-        for source in self._sources:
-            value = source.get(key, section)
-            if value is not None:
-                if not found:
-                    winner_value = value
-                    winner_source_type = source.source_type
-                    winner_source_id = source.source_id
-                    found = True
-                else:
-                    alternatives.append((source.source_type, source.source_id, value))
-
-        if not found:
-            consulted = [source.source_id for source in self._sources]
-            raise MissingKeyError(key=key, consulted_sources=consulted)
-
-        assert winner_source_type is not None
-        assert winner_source_id is not None
-
-        return ResolvedValue(
-            value=winner_value,
-            source_type=winner_source_type,
-            source_id=winner_source_id,
-            key=key,
-            alternatives=alternatives,
-        )
+        return self._walk(key, section)

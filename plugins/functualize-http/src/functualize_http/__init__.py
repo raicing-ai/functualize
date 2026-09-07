@@ -27,6 +27,8 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from functualize.types import http_status_for_status
+
 if TYPE_CHECKING:
     from asyncio import AbstractEventLoop
 
@@ -173,13 +175,22 @@ class HttpServerCore:
         # Execute via asyncio.to_thread (async-to-sync bridge)
         try:
             result = await asyncio.to_thread(self._app.execute, job_name, **kwargs)
-            return 200, {
+            body: dict[str, Any] = {
                 "status": result.status.value
                 if hasattr(result.status, "value")
                 else str(result.status),
                 "duration_ms": result.duration_ms,
                 "return_value": self._serialize_return_value(result.return_value),
             }
+            exception = getattr(result, "exception", None)
+            if exception is not None:
+                body["error"] = str(exception)
+            # The body already carried the status name; the *code* still said
+            # 200 for every outcome, so anything reading the status line --
+            # a load balancer, a retry policy, `curl -f` -- saw success on a
+            # failed run. One table (`functualize.types`) answers this for
+            # every delivery surface.
+            return http_status_for_status(result.status), body
         except Exception as e:
             logger.exception(f"Error executing job '{job_name}'")
             return 500, {"error": str(e)}
@@ -266,11 +277,16 @@ class HttpServerCore:
         body: dict[str, Any],
     ) -> None:
         """Send an HTTP response with JSON body."""
+        # Every code the status table can produce must have a reason phrase,
+        # or a correct 202 goes out on the wire as "HTTP/1.1 202 Unknown".
         status_messages = {
             200: "OK",
+            202: "Accepted",
             400: "Bad Request",
             404: "Not Found",
+            412: "Precondition Failed",
             500: "Internal Server Error",
+            504: "Gateway Timeout",
         }
         status_text = status_messages.get(status_code, "Unknown")
         body_bytes = json.dumps(body).encode("utf-8")

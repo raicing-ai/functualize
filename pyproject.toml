@@ -23,6 +23,12 @@ dependencies = [
     "pydantic>=2.0.0",
     "python-dotenv>=1.0.0",
     "jinja2>=3.1.0",
+    # Encrypts the local secrets vault (ADR-016). Core rather than an extra:
+    # `remote_first()` is public API, and a preset whose behaviour depends on
+    # whether an optional package happens to be installed is the class of
+    # surprise that ADR exists to remove. Cost is the standalone binary across
+    # seven build targets, accepted deliberately and measured at checkpoint.
+    "cryptography>=42.0.0",
 ]
 
 [project.urls]
@@ -39,6 +45,10 @@ func = "functualize._cli.main:main"
 
 [project.entry-points."functualize.format_providers"]
 toml = "functualize._config.providers.toml:TomlFormatProvider"
+
+[project.entry-points."functualize.vault_key_providers"]
+env = "functualize._config.vault_keys:EnvKeyProvider"
+keychain = "functualize._config.vault_keys:KeychainKeyProvider"
 
 [project.entry-points."functualize.remote_providers"]
 
@@ -57,6 +67,12 @@ dev = [
     "import-linter>=2.0",
     "invoke>=2.2.0",
     "debugpy>=1.8.21",
+    # Not in the `all` extra -- see the comment there: `bitwarden-sdk>=2.0.0`
+    # has no musl wheel and no sdist, so shipping it in `all` makes two of the
+    # seven build targets unresolvable. It is still a first-party plugin with
+    # its own suite, so it belongs in the development environment, and
+    # `uv sync --all-extras` keeps installing it from here.
+    "functualize-bitwarden",
 ]
 docs = [
     "mkdocs>=1.6.0",
@@ -85,6 +101,24 @@ all = [
     "functualize-tasks",
     "functualize-tasks-local",
     "functualize-mcp",
+    # Pulls boto3/botocore (~20MB of wheel). `all` means every plugin, and it
+    # is itself opt-in, so the cost lands only on someone who asked for
+    # everything -- but it is the one entry here that is not small. Measured
+    # at the 7.1 checkpoint.
+    "functualize-aws",
+    # `functualize-bitwarden` is deliberately NOT here. `bitwarden-sdk>=2.0.0`
+    # publishes wheels for glibc, macOS and Windows only, with no sdist, so
+    # including it makes `functualize[all]` **unresolvable** on both musl
+    # targets -- and `all` is what the standalone binary bakes
+    # (PYAPP_PROJECT_FEATURES=all), so the Alpine/distroless binaries could not
+    # be built at all. Measured at the 7.1 checkpoint; `uv pip compile
+    # --python-platform x86_64-unknown-linux-musl --extra all` fails outright.
+    #
+    # There is no PEP 508 marker for musl vs glibc, so it cannot be excluded
+    # conditionally. The plugin stays first-class and directly installable
+    # (`pip install functualize-bitwarden`), which is what the docs already
+    # tell people to do; it simply is not part of "everything", because on two
+    # of the seven shipped targets it cannot be.
 ]
 
 [build-system]
@@ -106,6 +140,8 @@ functualize-ai-pydantic = { workspace = true }
 functualize-tasks = { workspace = true }
 functualize-tasks-local = { workspace = true }
 functualize-mcp = { workspace = true }
+functualize-aws = { workspace = true }
+functualize-bitwarden = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/functualize"]

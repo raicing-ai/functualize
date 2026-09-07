@@ -39,7 +39,7 @@ from pathlib import Path
 
 import click
 
-from functualize._cli.runtime import Detection, InstallMode, detect_from_process
+from functualize.app.packaging import Detection, InstallMode, detect_from_process
 from functualize.app.utils import ExitCode
 
 # `manifest` and `package_ops` are imported *inside* the commands that need
@@ -524,6 +524,7 @@ def _config_dir() -> Path:
 def update(assume_yes: bool) -> None:
     """Upgrade this installation, then put back what you added to it."""
     from functualize._cli import package_ops
+    from functualize.app import packaging
 
     detection = detect_from_process()
     if detection.degraded:
@@ -532,9 +533,9 @@ def update(assume_yes: bool) -> None:
     binary = _this_binary()
     try:
         commands = package_ops.plan_or_exit(
-            lambda: package_ops.update_commands(detection, binary)
+            lambda: packaging.update_commands(detection, binary)
         )
-    except package_ops.StandaloneUpdateError:
+    except packaging.StandaloneUpdateError:
         # A standalone binary has no package manager to delegate to: updating
         # it means fetching a release and replacing one file, which happens
         # in-process. Raised rather than returned as an empty command list, so
@@ -557,7 +558,7 @@ def update(assume_yes: bool) -> None:
         click.echo("Resuming: an earlier update did not finish reconciling.")
         before = resumed
     else:
-        before = package_ops.capture_environment()
+        before = packaging.capture_environment()
         package_ops.save_pending(config_dir, before)
 
     code = package_ops.run_commands(commands)
@@ -638,10 +639,11 @@ def _reconcile(
     update would misdescribe the state of the installation.
     """
     from functualize._cli import manifest, package_ops
+    from functualize.app import packaging
 
-    after = package_ops.capture_environment()
+    after = packaging.capture_environment()
     recorded = manifest.recorded_additions(config_dir, binary)
-    names = package_ops.names_to_restore(before, after, recorded)
+    names = packaging.names_to_restore(before, after, recorded)
 
     if not names:
         click.echo("Up to date. Nothing needed restoring.")
@@ -652,10 +654,10 @@ def _reconcile(
     failures: list[tuple[str, str]] = []
     for name in names:
         try:
-            commands = package_ops.install_commands(detection, name)
+            commands = packaging.install_commands(detection, name)
         except (
-            package_ops.MissingToolError,
-            package_ops.LossyReceiptError,
+            packaging.MissingToolError,
+            packaging.LossyReceiptError,
             ValueError,
         ) as exc:
             failures.append((name, str(exc)))
@@ -695,13 +697,14 @@ def install(package: str, assume_yes: bool) -> None:
     them.
     """
     from functualize._cli import manifest, package_ops
+    from functualize.app import packaging
 
     detection = detect_from_process()
     if detection.degraded:
         package_ops.refuse(detection, f"install {package}")
 
     commands = package_ops.plan_or_exit(
-        lambda: package_ops.install_commands(detection, package)
+        lambda: packaging.install_commands(detection, package)
     )
     package_ops.announce(commands, assume_yes)
 
@@ -743,11 +746,12 @@ def python_(args: tuple[str, ...]) -> None:
     so it stays capturable.
     """
     from functualize._cli import package_ops
+    from functualize.app import packaging
 
     detection = detect_from_process()
     _owned_environment(detection, "python")
 
-    interpreter = package_ops.owned_python()
+    interpreter = packaging.owned_python()
     if not args:
         click.echo(interpreter)
         return
@@ -772,13 +776,14 @@ def uv_(args: tuple[str, ...]) -> None:
     still do by driving uv yourself.
     """
     from functualize._cli import package_ops
+    from functualize.app import packaging
 
     detection = detect_from_process()
     _owned_environment(detection, "uv")
 
     try:
-        uv = package_ops.resolve_uv()
-    except package_ops.MissingToolError as exc:
+        uv = packaging.resolve_uv()
+    except packaging.MissingToolError as exc:
         click.echo(str(exc), err=True)
         raise SystemExit(ExitCode.USAGE) from None
 

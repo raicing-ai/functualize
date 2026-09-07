@@ -59,7 +59,7 @@ pip install "functualize[cli]"
 ```
 
 **No Python on the machine?** Download the standalone binary — one executable with Python
-and every first-party plugin already inside it. Its first run needs no network:
+and every first-party plugin `[all]` carries already inside it. Its first run needs no network:
 
 ```bash
 curl -LsSf https://raw.githubusercontent.com/raicing-ai/functualize/master/install.sh | sh
@@ -664,15 +664,22 @@ ENVIRONMENT=prod func data-sync
 | `classic()` | CLI → Env → Config files → Defaults | Local dev, desktop tools |
 | `twelve_factor()` | CLI → Env → Defaults | Docker, Kubernetes |
 | `env_only(dotenv=True)` | CLI → Env → Defaults | Serverless, minimal setups |
-| `remote_first()` | CLI → Env → Files → Defaults — **remote resolution is not wired**; see below | — |
+| `remote_first()` | CLI → Vault → Env → Files → Defaults | AWS Secrets Manager, Bitwarden |
 
-> **`remote_first()` does not resolve anything remotely.** The preset exists and is
-> exported, but nothing in the shipped package constructs a `RemoteSource`, and
-> `remote_first()` returns `config_resolution_chain=None` — which boot turns into the
-> classic chain `[CliSource, EnvSource, FileSource, DefaultSource]`. It is `classic()`
-> with a different file pattern and `dotenv=False`. Pick it for Vault or AWS Secrets
-> Manager and your credentials come from a local file or the environment instead, with
-> nothing to say so.
+> **`remote_first()` needs a provider plugin.** A config value declared as
+> `password = "aws-sm://prod/db-password"` names *where* a credential lives and never
+> carries it. `func builtin vault sync` fetches those values into a per-project
+> encrypted vault, and job runs read the vault — never the network. Selecting the
+> preset with no remote provider registered raises at construction rather than quietly
+> resolving from local files.
+>
+> ```bash
+> pip install functualize-aws
+> export FUNCTUALIZE_VAULT_KEY=$(func builtin vault keygen)
+> func builtin vault sync
+> ```
+>
+> Full guide: [Remote Configuration](docs/guides/configuration.md#remote-configuration).
 
 Presets are selected in your project's `main.py` when constructing `FunctualizeApp`:
 
@@ -811,13 +818,20 @@ Dynamic jobs are fully functional — invocable via `rc.invoke("health-check")`,
 | Package | Purpose |
 |---------|---------|
 | `functualize.app` | `FunctualizeApp` constructor, config presets, adapters |
+| `functualize.app.packaging` | How this program was installed, who owns it, and the argv that would change it |
 | `functualize.job` | `RunContext`, capabilities (`Log`, `Invoke`, `Prompt`, `Perf`, `State`), `@job` decorator |
-| `functualize.plugin` | `EventBus`, `JobProvider`, `AdapterPlugin` |
+| `functualize.plugin` | `EventBus`, `JobProvider`, `AdapterPlugin`, `ModulePreFilter` |
 | `functualize.types` | `JobResult`, `JobDescriptor`, enums |
 | `functualize.workflow` | `@workflow`, `Step`, `Gate`, `Edge`, `ConditionalEdge`, `END` |
 | `functualize.testing` | `TestRunContext`, `CapturingLog`, `MockInvoke` |
 
 See the [full plugin and extension docs](https://raicing-ai.github.io/functualize/guides/plugins/) for lifecycle hooks, middleware, event bus, custom providers, and more.
+
+Building a distribution *on* functualize — where your package is what the user
+installs and `func`'s `builtin` subtree is mounted into your CLI — is covered in
+[Hosting Functualize](https://raicing-ai.github.io/functualize/guides/hosting/):
+install detection and command planning, shipping your own agent skills, and
+supplying a discovery pre-filter.
 
 ## Plugin Ecosystem
 
@@ -825,12 +839,15 @@ Install the full plugin ecosystem with a single command:
 
 ```bash
 pip install "functualize[all]"
+pip install functualize-bitwarden   # not in [all] -- see the note below
 ```
 
 | Plugin | Purpose |
 |--------|---------|
 | `functualize-ai` | Provider-agnostic LLM interaction with budget enforcement and tool scoping |
 | `functualize-ai-pydantic` | PydanticAI-backed AI provider with LiteLLM routing and structured output |
+| `functualize-aws` | AWS Secrets Manager and Parameter Store as remote config providers (`aws-sm`, `aws-ssm`) |
+| `functualize-bitwarden` | Bitwarden Secrets Manager as a remote config provider (`bws`) — **install separately** |
 | `functualize-flow-viz` | Live inline execution tree visualization with step status and durations |
 | `functualize-http` | HTTP delivery adapter exposing jobs as API endpoints via stdlib asyncio |
 | `functualize-inline` | Textual-based inline terminal widgets for prompts, selections, and progress |
@@ -840,6 +857,14 @@ pip install "functualize[all]"
 | `functualize-state-sqlite` | SQLite-backed state persistence and execution history in WAL mode |
 | `functualize-tasks` | Task management domain SDK with status tracking and event emission |
 | `functualize-tasks-local` | Local state-backed task storage provider for the tasks domain |
+
+> **Why `functualize-bitwarden` is not in `[all]`.** Its `bitwarden-sdk`
+> dependency is a Rust extension published as wheels for glibc, macOS and
+> Windows only, with no source fallback — so including it makes
+> `functualize[all]` impossible to resolve on musl (Alpine, distroless), and
+> `[all]` is what the standalone binaries bake. There is no PEP 508 marker for
+> musl, so it cannot be excluded conditionally. Install it directly on a
+> platform its SDK supports.
 
 Every plugin ships runnable examples in its own folder: [`plugins/<name>/examples/`](https://github.com/raicing-ai/functualize/tree/master/plugins).
 
@@ -918,10 +943,14 @@ func builtin skills install       # install into this project (uses npx skills)
 | `functualize-cli` | Installing, upgrading and configuring `func` itself |
 | `functualize-skill` | Authoring an agent skill whose scripts are functualize jobs |
 
-Without Node, copy them yourself:
+Without Node, copy them yourself. `skills path` prints **one directory per
+line** — a third-party package can host its own skills, so there is not always
+just one — which means it has to be looped over rather than substituted:
 
 ```bash
-cp -R "$(func builtin skills path)"/* .claude/skills/
+func builtin skills path | while read -r dir; do
+  cp -R "$dir"/* .claude/skills/
+done
 ```
 
 `func builtin skills materialize` writes a version-stamped copy under

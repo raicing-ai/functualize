@@ -123,6 +123,17 @@ class WalkReport:
     failed_node: str | None = None
     error: str = ""
     results: dict[str, Any] = field(default_factory=dict)
+    blocked_reason: str = ""
+    """Why the gate could not be resolved, when there is something to say.
+
+    Empty for the ordinary block — a gate with no strategy, waiting for a
+    human. Populated when a strategy ladder was tried and every rung failed,
+    which is the case an operator cannot diagnose from ``blocked_on`` alone:
+    "blocked on triage" reads the same whether the gate is waiting by design
+    or because ``functualize-ai`` is not installed.
+
+    Additive and optional. Consumers reading ``blocked_on`` are unaffected.
+    """
 
     @property
     def ok(self) -> bool:
@@ -249,6 +260,7 @@ class WorkflowWalker:
 
             if isinstance(node, Gate):
                 payload = self._walk.gate_payload(node.name)
+                blocked_reason = ""
                 if payload is None:
                     strategies = _gate_strategy_list(node, self._prompt_gates)
                     if strategies is not None and self._gate_registry is not None:
@@ -275,8 +287,16 @@ class WorkflowWalker:
                             self._store.deposit_gate_payload(
                                 self._scope_id, node.name, payload
                             )
-                        except GateResolutionError:
-                            pass
+                        except GateResolutionError as exc:
+                            # Every rung of the ladder failed. That is a block,
+                            # not a crash — but "blocked on triage" alone reads
+                            # identically to a gate waiting by design, so carry
+                            # the reason. `last_error` names the unregistered
+                            # strategies and the package each one needs
+                            # (`_gate/_strategy.STRATEGY_PROVIDERS`), which is
+                            # the difference between "wait for a human" and
+                            # "pip install functualize-ai".
+                            blocked_reason = exc.last_error
                 if payload is None:
                     self._block(node)
                     return WalkReport(
@@ -284,6 +304,7 @@ class WorkflowWalker:
                         self._scope_id,
                         tuple(executed),
                         tuple(replayed),
+                        blocked_reason=blocked_reason,
                         blocked_on=node.name,
                         results=results,
                     )

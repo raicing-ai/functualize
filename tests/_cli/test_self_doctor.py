@@ -15,12 +15,12 @@ from pathlib import Path
 
 import pytest
 
-from functualize._cli.runtime import Detection, InstallMode
 from functualize._cli.self_cmd import (
     CheckStatus,
     build_report,
     render_report_text,
 )
+from functualize.app.packaging import Detection, InstallMode
 
 
 def _names(report: object) -> list[str]:

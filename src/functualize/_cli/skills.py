@@ -35,15 +35,19 @@ from dataclasses import dataclass
 from pathlib import Path
 
 __all__ = [
+    "CORE_DIRECTORY_STEM",
+    "SKILLS_ENTRY_POINT_GROUP",
     "SKILLS_PACKAGE_DIRNAME",
     "SkillInfo",
     "SkillsLocation",
+    "directory_stem",
     "list_skills",
     "materialize_skills",
     "materialized_root",
     "parse_frontmatter",
     "read_skill",
     "resolve_skills_dir",
+    "resolve_skills_locations",
 ]
 
 #: Directory name the skills are force-included under inside the wheel.
@@ -71,13 +75,23 @@ class SkillInfo:
 class SkillsLocation:
     """Where the skills came from, and whether that is the packaged copy.
 
-    ``origin`` is reported rather than inferred by the caller because the two
+    ``origin`` is reported rather than inferred by the caller because the
     cases have different guarantees: ``package`` is pinned to the running
-    version, ``checkout`` is whatever the working tree currently says.
+    version, ``checkout`` is whatever the working tree currently says, and
+    ``entry-point`` belongs to somebody else's distribution entirely.
+
+    ``distribution`` and ``version`` exist for the last of those. The module
+    docstring's promise -- *a skill read from here can never describe a
+    different release* -- has to hold for a third-party skill too, and it only
+    does if the stamp comes from **that** package's version rather than from
+    functualize's. A shared stamp would quietly break the one guarantee this
+    module is for.
     """
 
     path: Path
-    origin: str  # "package" | "checkout"
+    origin: str  # "package" | "checkout" | "entry-point"
+    distribution: str = "functualize"
+    version: str = ""
 
     @property
     def is_packaged(self) -> bool:
@@ -109,6 +123,96 @@ def resolve_skills_dir() -> SkillsLocation | None:
         return SkillsLocation(checkout, "checkout")
 
     return None
+
+
+#: The entry-point group a third-party distribution declares to host skills:
+#:
+#:     [project.entry-points."functualize.skills"]
+#:     mypackage = "mypackage._skills"
+#:
+#: The value is an importable package whose directory holds skill directories
+#: -- the same shape as functualize's own ``_skills/``.
+SKILLS_ENTRY_POINT_GROUP = "functualize.skills"
+
+
+def _functualize_version() -> str:
+    from functualize import __version__
+
+    return __version__
+
+
+def _entry_point_locations() -> list[SkillsLocation]:
+    """Every third-party skills directory declared through the entry point.
+
+    A malformed or missing entry is **warned about and skipped**, never fatal.
+    This path is reachable from ``func --help``, so one broken third-party
+    package must not be able to take the whole CLI down.
+
+    Resolution uses ``importlib.resources`` rather than a path relative to
+    ``__file__``: the target package may be zipped, and a host has no reason to
+    replicate functualize's own layout assumptions.
+    """
+    import logging
+    from importlib.metadata import entry_points, version
+
+    logger = logging.getLogger(__name__)
+    locations: list[SkillsLocation] = []
+
+    try:
+        found = entry_points(group=SKILLS_ENTRY_POINT_GROUP)
+    except Exception as exc:  # pragma: no cover - importlib is very stable
+        logger.warning(
+            "Could not read %s entry points: %s", SKILLS_ENTRY_POINT_GROUP, exc
+        )
+        return locations
+
+    for entry in sorted(found, key=lambda e: e.name):
+        try:
+            from importlib.resources import files
+
+            directory = Path(str(files(entry.value)))
+            if not directory.is_dir():
+                raise NotADirectoryError(directory)
+            distribution = (
+                getattr(getattr(entry, "dist", None), "name", None) or entry.name
+            )
+            locations.append(
+                SkillsLocation(
+                    directory,
+                    "entry-point",
+                    distribution=distribution,
+                    version=version(distribution),
+                )
+            )
+        except Exception as exc:
+            logger.warning(
+                "Skipping skills entry point %r (%s): %s", entry.name, entry.value, exc
+            )
+
+    return locations
+
+
+def resolve_skills_locations() -> list[SkillsLocation]:
+    """Core's own location first, then every registered entry point.
+
+    Core first because it is the one location with a guaranteed shape, and
+    because ``list``/``path``/``materialize`` all present it as the primary
+    answer. An empty list is a real state: a stripped-down install with no
+    third-party hosts.
+    """
+    locations: list[SkillsLocation] = []
+    own = resolve_skills_dir()
+    if own is not None:
+        locations.append(
+            SkillsLocation(
+                own.path,
+                own.origin,
+                distribution="functualize",
+                version=_functualize_version(),
+            )
+        )
+    locations.extend(_entry_point_locations())
+    return locations
 
 
 def parse_frontmatter(text: str) -> dict[str, object]:
@@ -210,15 +314,36 @@ def list_skills(root: Path) -> list[SkillInfo]:
     return sorted(found, key=lambda s: s.name)
 
 
-def materialized_root(version: str) -> Path:
-    """Where ``materialize_skills`` writes for a given functualize version."""
+#: What core's own materialized tree is stamped with. Not ``functualize-``:
+#: agent configs already point at ``func-<version>``, and renaming it would
+#: break every one of them for no gain (`tasks.md` 4.2).
+CORE_DIRECTORY_STEM = "func"
+
+
+def directory_stem(distribution: str) -> str:
+    """The parent-directory prefix a distribution's skills materialize under.
+
+    Core keeps ``func-``; everyone else is stamped with their own name, so two
+    hosts shipping a skill of the same name land in different trees and the
+    version in the path is *that host's* version rather than functualize's.
+    """
+    return CORE_DIRECTORY_STEM if distribution == "functualize" else distribution
+
+
+def materialized_root(version: str, distribution: str = "functualize") -> Path:
+    """Where ``materialize_skills`` writes for a given distribution + version."""
     from functualize.app.utils import resolve_user_data_dir
 
-    return resolve_user_data_dir() / "skills" / f"func-{version}"
+    stem = directory_stem(distribution)
+    return resolve_user_data_dir() / "skills" / f"{stem}-{version}"
 
 
 def materialize_skills(
-    source: Path, version: str, *, prune: bool = False
+    source: Path,
+    version: str,
+    *,
+    prune: bool = False,
+    distribution: str = "functualize",
 ) -> tuple[Path, list[str]]:
     """Copy the packaged skills into the XDG data directory.
 
@@ -229,16 +354,19 @@ def materialize_skills(
     Args:
         source: Directory holding the skill directories (from
             :func:`resolve_skills_dir`).
-        version: The running functualize version, used to stamp the parent
-            directory so several installs coexist.
+        version: The version to stamp the parent directory with, so several
+            installs coexist. **The owning distribution's version**, not
+            functualize's — see :class:`SkillsLocation`.
         prune: Also delete materialized trees for *other* versions. Off by
             default — an older tree may still be referenced by a project whose
             agent config points at it.
+        distribution: Who owns these skills. Decides the directory stem, so a
+            third-party host never overwrites core's tree or another host's.
 
     Returns:
         The destination directory and the names of the skills written.
     """
-    destination = materialized_root(version)
+    destination = materialized_root(version, distribution)
     if destination.exists():
         shutil.rmtree(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -249,11 +377,15 @@ def materialize_skills(
         names.append(skill.name)
 
     if prune:
+        # Only this distribution's other versions. Pruning by a bare `func-`
+        # prefix would have one host delete another's tree, which is the
+        # failure per-source stamping exists to prevent.
+        prefix = f"{directory_stem(distribution)}-"
         for sibling in destination.parent.iterdir():
             if (
                 sibling.is_dir()
                 and sibling != destination
-                and sibling.name.startswith("func-")
+                and sibling.name.startswith(prefix)
             ):
                 shutil.rmtree(sibling)
 

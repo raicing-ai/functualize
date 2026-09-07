@@ -49,6 +49,10 @@ class WorkflowRun:
         outcome: How the walk ended.
         scope_id: The scope this invocation ran in — the handle a resume needs.
         blocked_on: Gate name, when the walk stopped for input.
+        blocked_reason: Why the gate could not be resolved, when a strategy
+            ladder was tried and every rung failed. Empty for a gate waiting
+            by design — the two are indistinguishable from ``blocked_on``
+            alone, which is the whole point of carrying it.
         error: Failure detail, when a step raised.
         body_done: True when this scope already ran its body; ``body_value``
             holds what it returned. The body must not run a second time.
@@ -61,6 +65,7 @@ class WorkflowRun:
     error: str = ""
     body_done: bool = False
     body_value: Any = None
+    blocked_reason: str = ""
 
     @property
     def should_run_body(self) -> bool:
@@ -114,6 +119,7 @@ class WorkflowRunner:
                 self._scope_id,
                 blocked_on=report.blocked_on,
                 error=report.error,
+                blocked_reason=report.blocked_reason,
             )
 
         recorded = self._store.get_epilogue(self._scope_id)

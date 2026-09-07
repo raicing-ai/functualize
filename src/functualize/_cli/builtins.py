@@ -198,6 +198,21 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
         terminal_subcommands=("update", "install", "python", "uv"),
     ),
     BuiltinCommand(
+        "vault",
+        "Sync and inspect this project's encrypted secrets vault",
+        (
+            ("sync", "Fetch every declared annotation and store it"),
+            ("list", "List what is stored — names and freshness, never values"),
+            ("status", "Show the key provider in use, the age, and the count"),
+            ("clear", "Delete this project's vault"),
+            ("keygen", "Print a fresh vault key"),
+        ),
+        requires_subcommand=True,
+        # None of the five takes the terminal. `keygen` writes to stdout so it
+        # can be piped, and the interactive key provider is the *keychain*,
+        # which prompts through the OS rather than through this process.
+    ),
+    BuiltinCommand(
         "info",
         "Display app state, discovered jobs, and config",
         (
@@ -1476,51 +1491,79 @@ def register_builtin_commands(cli_group: Any) -> None:
         help="Locate and install the AI agent skills shipped with this version.",
     )
 
-    def _require_skills_location() -> Any:
-        from functualize._cli.skills import resolve_skills_dir
+    def _require_skills_locations() -> list[Any]:
+        """Core's location first, then every registered third-party host.
 
-        location = resolve_skills_dir()
-        if location is None:
+        Plural since `third-party-host-seams`/4.1: a distribution can host its
+        own skills through the `functualize.skills` entry point, and every
+        command below reports all of them rather than only core's.
+        """
+        from functualize._cli.skills import resolve_skills_locations
+
+        locations = resolve_skills_locations()
+        if not locations:
             click.echo(
                 "No skills directory found for this installation.",
                 err=True,
             )
             raise SystemExit(ExitCode.USAGE)
-        return location
+        return locations
 
     @skills_app.command("path")
     def skills_path() -> None:
-        """Print the directory holding this version's agent skills.
+        """Print each directory holding agent skills, one per line.
 
-        Machine-readable on purpose — one path, no decoration, so it composes:
-        `npx skills add "$(func builtin skills path)"`.
+        Machine-readable on purpose — bare paths, no decoration — but **one
+        line per location**, not one path. A third-party distribution can host
+        its own skills, so a single path could only ever be core's, and
+        answering with core's alone silently hides the rest.
+
+        That makes `"$(func builtin skills path)"` wrong: it substitutes a
+        multi-line string as one argument. Loop instead:
+
+            func builtin skills path | while read -r dir; do
+                npx skills add "$dir"
+            done
         """
-        click.echo(str(_require_skills_location().path))
+        for location in _require_skills_locations():
+            click.echo(str(location.path))
 
     @skills_app.command("list")
     def skills_list() -> None:
-        """List the shipped skills with their descriptions."""
-        from functualize import __version__
+        """List the available skills with their descriptions."""
         from functualize._cli.skills import list_skills
 
-        location = _require_skills_location()
-        skills = list_skills(location.path)
-        if not skills:
-            click.echo(f"No skills found in {location.path}")
-            return
+        locations = _require_skills_locations()
+        total = 0
+        for location in locations:
+            skills = list_skills(location.path)
+            if location.is_packaged:
+                origin = f"{location.distribution} {location.version} (packaged)"
+            elif location.origin == "entry-point":
+                origin = (
+                    f"{location.distribution} {location.version} (entry point)"
+                    if location.version
+                    else f"{location.distribution} (entry point)"
+                )
+            else:
+                origin = f"source checkout at {location.path} (not version-pinned)"
 
-        origin = (
-            f"functualize {__version__} (packaged)"
-            if location.is_packaged
-            else f"source checkout at {location.path} (not version-pinned)"
-        )
-        click.echo(f"Agent skills from {origin}")
-        click.echo("")
-        for skill in skills:
-            click.echo(f"  {skill.name}")
-            click.echo(f"    {skill.summary}")
-            click.echo(f"    {skill.path}")
+            click.echo(f"Agent skills from {origin}")
             click.echo("")
+            if not skills:
+                click.echo(f"  (none found in {location.path})")
+                click.echo("")
+                continue
+            for skill in skills:
+                total += 1
+                click.echo(f"  {skill.name}")
+                click.echo(f"    {skill.summary}")
+                click.echo(f"    {skill.path}")
+                click.echo("")
+
+        if total == 0:
+            click.echo("No skills found.")
+            return
         click.echo("Install into a project:  func builtin skills install")
 
     @skills_app.command("materialize")
@@ -1540,11 +1583,21 @@ def register_builtin_commands(cli_group: Any) -> None:
         from functualize import __version__
         from functualize._cli.skills import materialize_skills
 
-        location = _require_skills_location()
-        destination, names = materialize_skills(location.path, __version__, prune=prune)
-        for name in names:
-            click.echo(f"  {name}")
-        click.echo(f"{len(names)} skill(s) → {destination}")
+        for location in _require_skills_locations():
+            # The *owning* distribution's version, never functualize's. The
+            # whole promise of a version-stamped copy is that it describes the
+            # release it came from, and a shared stamp would make a third-party
+            # skill claim functualize's (`_cli/skills.py` docstring).
+            version = location.version or __version__
+            destination, names = materialize_skills(
+                location.path,
+                version,
+                prune=prune,
+                distribution=location.distribution,
+            )
+            for name in names:
+                click.echo(f"  {name}")
+            click.echo(f"{len(names)} skill(s) → {destination}")
 
     @skills_app.command("install")
     @click.option(
@@ -1561,29 +1614,39 @@ def register_builtin_commands(cli_group: Any) -> None:
         what lands is pinned to the installed functualize — not whatever
         master happens to say today.
         """
-        location = _require_skills_location()
-        command = ["npx", "skills", "add", str(location.path)]
-        rendered = " ".join(command)
+        locations = _require_skills_locations()
+        commands = [["npx", "skills", "add", str(loc.path)] for loc in locations]
+        rendered = [" ".join(command) for command in commands]
 
         if dry_run:
-            click.echo(rendered)
+            for line in rendered:
+                click.echo(line)
             return
 
         if shutil.which("npx") is None:
+            manual = "\n".join(
+                f"  cp -R {loc.path}/* .claude/skills/" for loc in locations
+            )
             click.echo(
                 "npx was not found on PATH. The skills CLI needs Node.\n"
                 "\n"
-                "Run this once Node is available:\n"
-                f"  {rendered}\n"
+                "Run these once Node is available:\n"
+                + "\n".join(f"  {line}" for line in rendered)
+                + "\n"
                 "\n"
-                "Or copy the directory into your agent's skills folder:\n"
-                f"  cp -R {location.path}/* .claude/skills/",
+                "Or copy the directories into your agent's skills folder:\n" + manual,
                 err=True,
             )
             raise SystemExit(ExitCode.USAGE)
 
-        click.echo(f"$ {rendered}")
-        raise SystemExit(subprocess.call(command))
+        # Stop at the first failure rather than pressing on: a half-installed
+        # skill set is harder to reason about than one that stopped and said so.
+        for command, line in zip(commands, rendered, strict=True):
+            click.echo(f"$ {line}")
+            code = subprocess.call(command)
+            if code != 0:
+                raise SystemExit(code)
+        raise SystemExit(0)
 
     _mount(builtin_app, skills_app, "skills")
 
@@ -1601,6 +1664,259 @@ def register_builtin_commands(cli_group: Any) -> None:
         click.echo(f"functualize {__version__}")
 
     _mount(builtin_app, version_command, "version")
+
+    # --- Vault sub-group (ADR-016) ---
+    # Everything here reaches the store through `app.utils`, never `_config`:
+    # `_cli` may import only the public API, and more to the point the CLI must
+    # not grow its own opinion about which key wins or what an annotation is.
+    #
+    # Only `sync` needs an app. `list`, `status`, `clear` and `keygen` answer
+    # from the filesystem, which is deliberate -- the moment you most want to
+    # ask "what is in my vault?" is when the app will not boot.
+    vault_app = click.Group(
+        name="vault",
+        help="Sync and inspect this project's encrypted secrets vault.",
+    )
+
+    def _vault_app(ctx: click.Context) -> Any:
+        obj = ctx.find_root().obj
+        if obj is None or "app" not in obj:
+            click.echo(
+                "Error: `vault sync` needs the application, and no app context "
+                "is available here.",
+                err=True,
+            )
+            raise SystemExit(ExitCode.USAGE)
+        return obj["app"]
+
+    def _vault_json(payload: Any) -> None:
+        import json
+
+        click.echo(json.dumps(payload, indent=2, default=str))
+
+    @vault_app.command("keygen")
+    def vault_keygen() -> None:
+        """Print a fresh 32-byte vault key, hex-encoded.
+
+        Written to stdout alone so it can be piped or captured. Nothing is
+        stored: where the key lives is the operator's decision, and a command
+        that quietly wrote one into a dotfile would be making it for them.
+        """
+        from functualize.app.utils import generate_vault_key
+
+        click.echo(generate_vault_key())
+
+    @vault_app.command("list")
+    @click.option(
+        "--json",
+        "json_out",
+        is_flag=True,
+        default=False,
+        help="Emit the entry list as JSON.",
+    )
+    def vault_list(json_out: bool) -> None:
+        """List what the vault holds — names and freshness, never values.
+
+        Needs no key. `key`, `annotation`, `provider` and `synced_at` are
+        stored in clear on purpose so this command works on a machine that
+        cannot open the store; only the value is encrypted.
+        """
+        from functualize.app.utils import vault_entries, vault_location
+
+        entries = vault_entries()
+        if json_out:
+            _vault_json(
+                {
+                    "path": str(vault_location()),
+                    "entries": [
+                        {
+                            "key": e.key,
+                            "annotation": e.annotation,
+                            "provider": e.provider,
+                            "synced_at": e.synced_at.isoformat(),
+                        }
+                        for e in entries
+                    ],
+                }
+            )
+            return
+
+        if not entries:
+            click.echo("The vault is empty. Run `func builtin vault sync` to fill it.")
+            return
+
+        key_width = max(len(e.key) for e in entries)
+        provider_width = max(len(e.provider) for e in entries)
+        for entry in entries:
+            click.echo(
+                f"{entry.key:<{key_width}}  "
+                f"{entry.provider:<{provider_width}}  "
+                f"{entry.synced_at.isoformat(timespec='seconds')}  {entry.annotation}"
+            )
+
+    @vault_app.command("status")
+    @click.option(
+        "--json",
+        "json_out",
+        is_flag=True,
+        default=False,
+        help="Emit the status report as JSON.",
+    )
+    @click.pass_context
+    def vault_status_command(ctx: click.Context, json_out: bool) -> None:
+        """Show the key provider in use, the vault's age, and what it holds.
+
+        Answers even when the app cannot boot — that is when it is worth
+        asking. The key is resolved non-interactively, so this never raises a
+        keychain prompt.
+        """
+        from functualize.app.utils import vault_status
+
+        obj = ctx.find_root().obj
+        app = obj.get("app") if isinstance(obj, dict) else None
+        report = vault_status(app)
+
+        if json_out:
+            _vault_json(
+                {
+                    "path": str(report.path),
+                    "exists": report.exists,
+                    "entries": report.entry_count,
+                    "key_provider": report.key_provider,
+                    "oldest_sync": (
+                        report.oldest_sync.isoformat() if report.oldest_sync else None
+                    ),
+                    "age_seconds": (
+                        int(report.age.total_seconds()) if report.age else None
+                    ),
+                    "max_age_seconds": int(report.max_age.total_seconds()),
+                    "stale": report.stale,
+                    "providers": list(report.providers),
+                }
+            )
+            return
+
+        from functualize.app.utils import vault_duration
+
+        click.echo(f"Path:         {report.path}")
+        click.echo(f"Exists:       {'yes' if report.exists else 'no'}")
+        click.echo(f"Entries:      {report.entry_count}")
+        click.echo(f"Key provider: {report.key_provider or '(none available)'}")
+        if report.age is not None:
+            marker = "  ← stale" if report.stale else ""
+            click.echo(f"Last synced:  {vault_duration(report.age)} ago{marker}")
+        else:
+            click.echo("Last synced:  never")
+        click.echo(f"Max age:      {vault_duration(report.max_age)}")
+        click.echo(
+            "Providers:    " + (", ".join(report.providers) or "(none registered)")
+        )
+        if report.stale:
+            click.echo("")
+            click.echo("Run `func builtin vault sync` to refresh it.")
+
+    @vault_app.command("clear")
+    @click.option(
+        "--yes",
+        "assume_yes",
+        is_flag=True,
+        default=False,
+        help="Do not ask for confirmation.",
+    )
+    def vault_clear_command(assume_yes: bool) -> None:
+        """Delete this project's vault.
+
+        Confirms first. The values live authoritatively in the remote store and
+        a sync refills the vault, but a secret whose remote entry has since
+        been deleted is gone -- and this command cannot tell the two apart.
+        """
+        from functualize.app.utils import vault_clear, vault_location
+
+        path = vault_location()
+        if not path.exists():
+            click.echo(f"No vault to clear at {path}")
+            return
+        if not assume_yes and not click.confirm(f"Delete {path}?", default=False):
+            click.echo("Left alone.")
+            return
+        vault_clear()
+        click.echo(f"Cleared {path}")
+
+    @vault_app.command("sync")
+    @click.option(
+        "--json",
+        "json_out",
+        is_flag=True,
+        default=False,
+        help="Emit the sync report as JSON.",
+    )
+    @click.pass_context
+    def vault_sync_command(ctx: click.Context, json_out: bool) -> None:
+        """Fetch every declared annotation from its provider and store it.
+
+        The only command that contacts a remote configuration provider. A job
+        run reads the vault and never the network (ADR-016), so the network
+        cost and the credentials live here and nowhere else.
+
+        Individual failures are reported and the rest still sync: one
+        unreachable provider must not abandon the twelve secrets that would
+        have worked. The exit code is non-zero when anything was declared and
+        did not land, so a pipeline still notices.
+        """
+        from functualize.app.utils import VaultKeyUnavailableError, vault_sync
+
+        app = _vault_app(ctx)
+        try:
+            report = vault_sync(app)
+        except VaultKeyUnavailableError as exc:
+            click.echo(f"Error: {exc}", err=True)
+            raise SystemExit(ExitCode.REFUSED) from exc
+
+        if json_out:
+            _vault_json(
+                {
+                    "path": str(report.path),
+                    "scanned": report.scanned,
+                    "synced": [{"key": k, "provider": p} for k, p in report.synced],
+                    "failed": [{"key": k, "reason": r} for k, r in report.failed],
+                    "unresolved": [
+                        {
+                            "key": u.key,
+                            "value": u.value,
+                            "providers": list(u.providers),
+                        }
+                        for u in report.unresolved
+                    ],
+                    "ok": report.ok,
+                }
+            )
+        else:
+            for key, provider in report.synced:
+                click.echo(f"  synced   {key}  ({provider})")
+            for key, reason in report.failed:
+                click.echo(f"  FAILED   {key}  — {reason}", err=True)
+            for item in report.unresolved:
+                click.echo(
+                    f"  MISSING  {item.key}  — no plugin registers "
+                    f"{', '.join(item.providers)}",
+                    err=True,
+                )
+            if not report.synced and not report.failed and not report.unresolved:
+                click.echo(
+                    f"Nothing declared remotely in {report.scanned} config "
+                    f"values. Nothing to sync."
+                )
+            else:
+                click.echo("")
+                click.echo(
+                    f"{len(report.synced)} synced, {len(report.failed)} failed, "
+                    f"{len(report.unresolved)} unresolvable → {report.path}"
+                )
+
+        if not report.ok:
+            raise SystemExit(ExitCode.REFUSED)
+
+    _mount(builtin_app, vault_app, "vault")
 
     # --- Info sub-group (resolves app lazily from ctx.obj) ---
     # A group rather than a command, with `invoke_without_command=True`, so
@@ -1720,18 +2036,26 @@ def register_builtin_commands(cli_group: Any) -> None:
         # Agent skills. `info` is where the skills themselves tell an agent to
         # look first, so it is where the answer to "do skills exist, and
         # where?" belongs — the --help epilog only has room for the pointer.
-        from functualize._cli.skills import list_skills, resolve_skills_dir
+        from functualize._cli.skills import list_skills, resolve_skills_locations
 
-        location = resolve_skills_dir()
+        locations = resolve_skills_locations()
         click.echo("")
         click.echo("─── Agent Skills ───")
-        if location is None:
+        if not locations:
             click.echo("  (none found for this installation)")
         else:
-            names = ", ".join(s.name for s in list_skills(location.path)) or "(none)"
-            click.echo(f"  Path: {location.path}")
-            click.echo(f"  Origin: {location.origin}")
-            click.echo(f"  Skills: {names}")
+            for location in locations:
+                names = (
+                    ", ".join(s.name for s in list_skills(location.path)) or "(none)"
+                )
+                stamp = (
+                    f"{location.distribution} {location.version}"
+                    if location.version
+                    else location.distribution
+                )
+                click.echo(f"  {stamp} ({location.origin})")
+                click.echo(f"    Path: {location.path}")
+                click.echo(f"    Skills: {names}")
             click.echo("  Install: func builtin skills install")
 
         click.echo("")

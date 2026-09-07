@@ -7,6 +7,136 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — the remote configuration layer
+
+`remote_first()` stops being a lie. It returned `config_resolution_chain=None`
+for its whole shipped life, which boot turned into the classic chain, so an
+operator selecting it for AWS Secrets Manager got local files and environment
+variables with no warning. Selecting it with no remote provider registered now
+**raises at construction** rather than degrading (ADR-016).
+
+A config value can name where a credential lives instead of carrying it:
+
+```toml
+[data-sync]
+password = "aws-sm://prod/db-password"
+```
+
+Those are fetched by `func builtin vault sync` and written to a per-project
+encrypted vault (AES-256-GCM, one file per project). **Job runs read the vault
+and never the network** — resolving live would put a 30-second timeout between
+the operator and every run, including runs of jobs that use no secret, and
+would end offline work.
+
+- **`func builtin vault`** — `sync`, `list`, `status`, `clear`, `keygen`.
+  `list` and `status` need no key: `key`, `annotation`, `provider` and
+  `synced_at` are stored in clear on purpose, and only the value is encrypted.
+  No surface renders a value.
+- **`functualize-aws`** — `aws-sm` (Secrets Manager) and `aws-ssm` (Parameter
+  Store, including `SecureString`), with per-value `?profile=`, `?role=`,
+  `?region=` and `?account=` overrides.
+- **`functualize-bitwarden`** — `bws` (Bitwarden **Secrets Manager**, not
+  Password Manager; Vaultwarden cannot serve it).
+- **Vault keys** through a new `VaultKeyProvider` protocol:
+  `$FUNCTUALIZE_VAULT_KEY` first, the OS keyring only on a real terminal. With
+  no key the vault does not open, and there is no plaintext fallback.
+- **Three loud degradations, none of them fatal.** A key declared remotely with
+  nothing synced falls through and warns, naming which source answered instead.
+  A vault older than `[vault] max_age` (default `24h`) warns and still runs. An
+  annotation whose plugin is not installed is reported rather than read as a
+  literal.
+- `functualize.types.http_status_for_status` — the one `RunStatus` → HTTP
+  mapping, now consumed by the Lambda and HTTP trigger plugins, which both
+  returned a constant `200` regardless of outcome.
+
+`cryptography` is now a core dependency. For `functualize[all]` that costs
+nothing — Authlib, SecretStorage, google-auth and joserfc already required it
+unconditionally, on every one of the seven build targets. For a bare
+`pip install functualize` it is new, and it is not small: 15.9 MB of the
+27.1 MB installed footprint.
+
+**`functualize-bitwarden` is not part of `functualize[all]`.** Its
+`bitwarden-sdk` dependency is a Rust extension published as wheels for glibc,
+macOS and Windows only, with no source fallback, so including it makes `[all]`
+impossible to resolve on musl — and `[all]` is what the standalone binaries
+bake, so both Alpine/distroless targets could not have been built. There is no
+PEP 508 marker for musl, so it cannot be excluded conditionally. Install it
+directly: `pip install functualize-bitwarden`.
+
+### Changed — two breaking changes to the skills surface
+
+**`func builtin skills path` prints one directory per line.** It printed
+exactly one path, so it composed by substitution:
+
+```bash
+npx skills add "$(func builtin skills path)"          # no longer correct
+```
+
+A third-party distribution can now host its own skills, so a single path could
+only ever be core's, and answering with core's alone silently hid the rest.
+Substituting a multi-line string passes it as one argument and fails with a
+confusing "No such file or directory". Loop instead:
+
+```bash
+func builtin skills path | while read -r dir; do
+  npx skills add "$dir"
+done
+```
+
+**`builtin info --json`'s `skills` key is a list, not an object.** It was an
+object or `null`; it is now always a list, `[]` when empty — the same rule
+`config` and `discovery_failures` follow. Each entry carries its own
+`distribution` and `version`, because a skill read from a host's directory
+describes *that host's* release.
+
+### Added — seams for building on functualize
+
+Five places a host distribution could not reach before. `docs/guides/hosting.md`
+covers them end to end.
+
+- **`functualize.app.packaging`** is public: how this program was installed
+  (`detect_from_process()`, `InstallMode`, `Detection`) and what argv would
+  change it (`update_commands`, `install_commands`, `uninstall_commands`).
+  Planning returns commands or raises — it never prints, prompts, or spawns —
+  so a host with no terminal can call it. The owning distribution is resolved
+  rather than assumed, so an application built on functualize upgrades
+  *itself*.
+- **A distribution can ship its own agent skills** through the
+  `functualize.skills` entry point. Every `builtin skills` command reports them
+  alongside core's, stamped with their own distribution and version;
+  materialization writes `<distribution>-<version>` while core keeps
+  `func-<version>`. A broken entry point warns and is skipped — this path is
+  reachable from `--help`.
+- **`functualize.plugin.ModulePreFilter`** and `DiscoveryConfig.pre_filter`: a
+  host whose jobs no `require_*` setting can describe supplies its own
+  pre-import predicate. It is ANDed onto the built-in stack rather than
+  replacing it. `fingerprint()` is part of the contract — the discovery cache
+  replays negative decisions, and hashing the object would rescan every boot
+  because `str()` carries its address. A filter without one is refused.
+- **`builtin info --job <name>`** now reports what `@job` declared: `category`,
+  `tags`, `examples`, `extra_description`. A job declared by convention renders
+  the same shape with empty values, so a consumer never branches on which kind
+  it is looking at.
+- **`[tool.functualize] skill`** in a PEP 723 block is a known key. Parsed and
+  exposed on `ScriptMetadata`; nothing consumes it yet.
+
+### Fixed — discovery and gates
+
+- **`JobSources.job_providers` and `functions` are honoured on both boot
+  paths.** A caller who declared a provider there got an empty job list and no
+  diagnostic; both boot paths now wire them.
+- **`builtin info` reports what discovery could not read.** Modules that failed
+  to import, parse, or scan are retained and published under
+  `discovery_failures`, above the job list — so a short job list explains
+  itself instead of looking correct.
+- **An unresolvable gate blocks with a reason instead of raising.** The run
+  reports `blocked_reason` rather than surfacing a `ValueError` from the
+  strategy registry.
+- **A dynamically registered job reports its config fields.** `register_dynamic_job`
+  now extracts parameters and field descriptors, so such a job renders like a
+  discovered one.
+
+
 ## [0.2.3] - 2026-09-04
 
 ### Fixed — the seventh binary

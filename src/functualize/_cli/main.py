@@ -1777,7 +1777,7 @@ def _register_this_installation() -> None:
             return  # already recorded — nothing imported, nothing parsed
 
         from functualize._cli import manifest as _manifest
-        from functualize._cli.runtime import detect_from_process
+        from functualize.app.packaging import detect_from_process
 
         # Nothing recorded yet at all means this is the very first run of any
         # functualize on this machine — the one moment the hint is useful.

@@ -15,9 +15,12 @@ gets a StdoutSurface that would fight it for the terminal.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from functualize._types.enums import RunStatus
 from functualize.app.adapters.surface_gate import wants_stdout_surface
@@ -37,6 +40,44 @@ def _descriptor(**overrides: Any) -> SimpleNamespace:
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
+
+
+@pytest.fixture
+def settings_catalog() -> Iterator[Callable[[bool], None]]:
+    """Take the process-global settings catalog under test control.
+
+    `tui.*` is not in the base catalog; the shell registers it as an import
+    side effect of `_cli.tui`. A test that reads the catalog is therefore
+    coupled to every import any *other* test performed in the same process.
+    Under `-n auto` xdist balances dynamically, so which worker runs this file
+    -- and what that worker imported first -- varies between runs: the
+    env-override test below passed for a long time and then began failing with
+    no relevant change. Verified directly: it fails run alone and passes when
+    preceded by `tests/tui_audit`. Both tests now state which catalog they
+    mean.
+
+    Yields a callable: pass True to register the shell's settings, False for
+    an empty catalog. The prior contents are restored either way.
+    """
+    from functualize._cli.data.func_settings import (
+        clear_registered_settings,
+        register_settings,
+        registered_settings,
+        tui_settings,
+    )
+
+    saved = registered_settings()
+
+    def use(with_shell: bool) -> None:
+        clear_registered_settings()
+        if with_shell:
+            register_settings(*tui_settings())
+
+    try:
+        yield use
+    finally:
+        clear_registered_settings()
+        register_settings(*saved)
 
 
 class _NoSettingsStore:
@@ -92,12 +133,57 @@ class TestWantsStdoutSurface:
         with _patch_settings(_StdoutSettingsStore):
             assert wants_stdout_surface(object(), _descriptor(), uses_live=False)
 
-    def test_env_override_opens_the_gate(self, monkeypatch: Any, tmp_path: Any) -> None:
+    def test_env_override_opens_the_gate(
+        self, monkeypatch: Any, tmp_path: Any, settings_catalog: Any
+    ) -> None:
         """FUNCTUALIZE_TUI_DEFAULT_SURFACE=stdout flows through the real
-        settings store's env layer."""
+        settings store's env layer.
+
+        The registration is explicit because it is a *precondition*, not
+        scenery. `tui.*` is not in the base catalog — the shell registers it
+        as an import side effect of `_cli.tui` — so without this line the
+        assertion turns on whether some earlier test in the same worker
+        happened to import the shell, which under `-n auto` is not stable
+        between runs.
+        """
         monkeypatch.chdir(tmp_path)  # no project config layers interfering
         monkeypatch.setenv("FUNCTUALIZE_TUI_DEFAULT_SURFACE", "stdout")
+        settings_catalog(with_shell=True)
         assert wants_stdout_surface(object(), _descriptor(), uses_live=False)
+
+    def test_the_setting_is_inert_until_the_shell_registers_it(
+        self, monkeypatch: Any, tmp_path: Any, settings_catalog: Any
+    ) -> None:
+        """Pins a **known gap**, not a desired behaviour.
+
+        A direct `func <job>` run under true-lazy boot never imports
+        `_cli.tui`, so `tui.default_surface` is never registered, so neither
+        the env override nor a `tui.default_surface` line in a config file
+        reaches the gate this module exists to drive. `.get()` returns None
+        and `_explicit_stdout_preference`'s broad `except Exception` would
+        hide any difference anyway.
+
+        Recorded here so the gap is visible rather than latent. When the owner
+        fixes it — by registering the shell's settings on the direct-run path,
+        or by moving `default_surface` into the base catalog — this test fails
+        and should be deleted.
+
+        The first assertion is what gives the test teeth. Without it, "an
+        empty catalog yields no preference" is true by construction and stays
+        green even after the gap is closed; it is `_BASE_SETTINGS` — the
+        catalog a process that never launched the shell actually has — that
+        makes this a statement about the product.
+        """
+        from functualize._cli.data.func_settings import _BASE_SETTINGS
+
+        assert not any(s.name == "tui.default_surface" for s in _BASE_SETTINGS), (
+            "tui.default_surface reached the base catalog: the gap below is "
+            "closed and this test should be deleted"
+        )
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("FUNCTUALIZE_TUI_DEFAULT_SURFACE", "stdout")
+        settings_catalog(with_shell=False)
+        assert not wants_stdout_surface(object(), _descriptor(), uses_live=False)
 
     def test_requires_tty_outranks_stdout_preference(self) -> None:
         """HARD rung wins: an EXCLUSIVE job never gets a StdoutSurface."""

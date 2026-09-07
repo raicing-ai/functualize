@@ -355,6 +355,8 @@ Each plugin directory contains its own `pyproject.toml` with entry point declara
 |--------|-------------|
 | `functualize-ai` | AI Domain SDK for functualize — LLM interaction capabilities |
 | `functualize-ai-pydantic` | PydanticAI-backed AI implementation plugin for functualize |
+| `functualize-aws` | AWS Secrets Manager and Parameter Store remote configuration providers (`aws-sm`, `aws-ssm`) |
+| `functualize-bitwarden` | Bitwarden Secrets Manager remote configuration provider (`bws`). **Not in `[all]`** — its SDK ships no musl wheel, which would make `[all]` unresolvable on Alpine |
 | `functualize-http` | HTTP delivery adapter plugin for functualize using asyncio |
 | `functualize-lambda` | AWS Lambda adapter plugin for functualize - supports fat and thin Lambda deployment patterns |
 | `functualize-mcp` | MCP delivery adapter plugin for functualize — exposes jobs as MCP tools via FastMCP |

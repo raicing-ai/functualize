@@ -7,12 +7,17 @@ from typing import Any
 
 import pytest
 
+from functualize.types import RunStatus
+
 
 @dataclass
 class FakeJobResult:
-    status: str = "success"
+    """Carries a real ``RunStatus``; see the note in ``plugins/conftest.py``."""
+
+    status: RunStatus = RunStatus.SUCCESS
     return_value: Any = None
     duration_ms: float = 10.0
+    exception: BaseException | None = None
 
 
 class FakeApp:

@@ -22,6 +22,8 @@ from functualize_lambda import LambdaAdapter
 from hypothesis import given
 from hypothesis import strategies as st
 
+from functualize.types import RunStatus
+
 # =============================================================================
 # Test Doubles
 # =============================================================================
@@ -29,9 +31,21 @@ from hypothesis import strategies as st
 
 @dataclass(frozen=True)
 class FakeJobResult:
-    """Minimal stand-in for JobResult to track execution."""
+    """Minimal stand-in for JobResult to track execution.
 
-    status: str = "success"
+    ``status`` is a real :class:`RunStatus`, not the string it used to be.
+    That was harmless while the adapter never read it -- its own docstring
+    recorded that every response was ``{"statusCode": 200}`` regardless -- but
+    the adapter now maps the status through `http_status_for_status`, whose
+    table is keyed by the enum. A lowercase ``"success"`` string missed every
+    key and fell through to the unmapped default, so the fake reported 500 for
+    a job that had succeeded, with the correct return value in the body.
+
+    A double that lies about a type is worse than no double: this one passed
+    for as long as the field was ignored.
+    """
+
+    status: RunStatus = RunStatus.SUCCESS
     duration_ms: float = 1.0
     return_value: Any = None
     exception: BaseException | None = None

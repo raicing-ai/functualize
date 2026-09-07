@@ -290,7 +290,16 @@ sound and does not need re-auditing. What follows is what it did **not** cover.
 
 #### Ship-blocking
 
-7. **DEFERRED to a shape intent (2026-08-29).** Taken out of the 0.1.1 cut by
+7. **CLOSED (2026-09-06) — the shape intent was resolved the "wire it" way.**
+   See follow-up **16** below and ADR-016. Both docstrings this entry names are
+   corrected: `presets.py` states the real chain, and
+   `_cli/tui/panels/config_table.py:50` said `CLI -> Env -> File -> Remote ->
+   Default`, which was never the order and is now `CLI -> Env -> File ->
+   Default` with the vault noted between CLI and Env. Re-running the gate
+   **without** `--include="*.md"` is what found the second one. The deferral
+   and the finding as originally written follow, unchanged.
+
+   **DEFERRED to a shape intent (2026-08-29).** Taken out of the 0.1.1 cut by
    decision; the full evidence and the two coherent end states now live in
    [`.spec/shape-intents/remote-config-source.md`](shape-intents/remote-config-source.md),
    which is committed and self-contained. The finding as originally written
@@ -556,7 +565,8 @@ Committed design documents with per-assertion PASS/GAP verification against the 
 
 | Shape intent | Scope |
 |---|---|
-| [`remote-config-source.md`](shape-intents/remote-config-source.md) | `RemoteSource` is defined, exported and documented with **zero construction sites in `src/`**, and the `remote_first` preset's docstring promises a chain the boot path does not build. Wire it or remove it — correcting only the docstrings is explicitly not an option. Carries the finding that the original gate passed *because of* its `--include="*.md"` scoping. |
+| [`remote-config-source.md`](shape-intents/remote-config-source.md) — **RESOLVED 2026-09-06, wired; see ADR-016** | `RemoteSource` is defined, exported and documented with **zero construction sites in `src/`**, and the `remote_first` preset's docstring promises a chain the boot path does not build. Wire it or remove it — correcting only the docstrings is explicitly not an option. Carries the finding that the original gate passed *because of* its `--include="*.md"` scoping. |
+| [`eager-boot-uses-the-provider-it-builds.md`](shape-intents/eager-boot-uses-the-provider-it-builds.md) | `JobSources(lazy=False)` registers jobs through a second directory scanner instead of the filtered provider `boot_standard` already built and added to the pipeline. Four defects follow: every job module **imported twice** whenever a second provider exists (measured 2 modules → 4 imports, and a regression introduced by wiring `JobSources.functions`), `_registered_commands` keyed by the Python name so `refresh()` leaves phantom entries, discovery filters ignored, and filters half-applied. None reachable from `func`. Read STATUS #32 first — its fix unblocks this one. |
 | [`workflow-run-parameters.md`](shape-intents/workflow-run-parameters.md) | A `@workflow` job **silently discards** the arguments `app.execute()` is given, then fails at the epilogue after the gate has been approved — while a plain job rejects the same argument at launch. Underneath it: no run-scoped parameter layer exists at all, so a value set for a walk does **not survive a gate** (one `scope_id`, two answers, selected by the resuming shell). The three trigger plugins can parameterize a single job and not a walk. Implement a run-scoped layer or declare walks unparameterizable and enforce it; the silent-drop fix is separable and lands first either way. |
 
 ## Open Features
@@ -1221,11 +1231,26 @@ Items identified during development that are worth doing but not yet designed:
     rather than waiting out the timeout, and an in-flight run is waited on for up to 45
     minutes. CONTRIBUTING carries the two consequences a releaser needs before tagging.
 
-12. **A job module with a `SyntaxError` vanishes silently.** No warning, no
-    diagnostic, exit 0 — the job simply is not listed. Cost ~20 minutes on a
-    test fixture during the secrets work, and would cost a user far more, since
-    they have no reason to suspect the file was even considered. Discovery
-    should report a module it failed to parse.
+12. **CLOSED (2026-09-06) by `discovery-and-gate-defects`/4.1 and /4.2.**
+    A job module with a `SyntaxError` no longer vanishes silently.
+
+    `func builtin info --json` carries `discovery_failures` — always present,
+    `[]` when there are none — with `{module, path, error_type, message}` per
+    entry, and the plain rendering prints them above the job list. Both stages
+    that can reject a module now record: the AST/pre-filter pass (where a
+    `SyntaxError` actually lands) and the import pass.
+
+    The original framing was half the problem. Covering imports alone would
+    have published `discovery_failures: []` for a syntactically broken tree — a
+    report that actively says "nothing is wrong", which is worse than the
+    silence it replaced. A `SyntaxError` never reaches the import path; it was
+    swallowed earlier, at eight sites (seven in `_primitives/pre_filter.py`,
+    one in `_discovery/ast_extractor.py`). All eight still swallow — a broken
+    module must stay non-fatal to the scan — they just stop being invisible.
+
+    Verified against the shipped `func` on a real tree: one healthy job
+    discovered, one `SyntaxError` and one `ModuleNotFoundError` reported. See
+    #27 for the one case that is still invisible.
 
 13. **A second, unreachable "what's missing?" implementation** —
     `get_missing_required_args` (`_cli/tui/missing_args.py`) answers "which required
@@ -1269,7 +1294,21 @@ Items identified during development that are worth doing but not yet designed:
     The example project and `collision_tui` already supply the project shapes; what is
     missing is the value axis.
 
-16. **`remote_first()` is a public preset that resolves nothing remotely.** The
+16. **CLOSED (2026-09-06) by ADR-016 / `remote-source-activation`.**
+    `remote_first()` now builds CLI -> Vault -> Env -> Files -> Defaults, and
+    **raises** at construction when no remote provider is registered rather
+    than degrading to `classic()`. `parse_annotation` has a production caller
+    (`_config/annotations.py`), the encrypted per-project vault and its key
+    seam exist, `func builtin vault sync|list|status|clear|keygen` fill and
+    inspect it, and `functualize-aws` / `functualize-bitwarden` provide
+    `aws-sm`, `aws-ssm` and `bws`. The decision the entry asked for was made
+    the "wire it" way; see `contributor/adr/016-remote-source-activation.md`.
+
+    Two contracts found on the way and **not** closed, carried forward as
+    follow-up **26** below. The finding as originally written follows,
+    unchanged.
+
+    **`remote_first()` is a public preset that resolves nothing remotely.** The
     preset is exported, documented and unit-tested, and the boot wiring behind it
     does not exist. `remote_first()` returns `config_resolution_chain=None`, which
     `app/config.py:74-77` documents as boot building the *classic* chain — so it is
@@ -1385,7 +1424,22 @@ Items identified during development that are worth doing but not yet designed:
     rush. But it is the failure class `AGENTS.md:82` names: shipped, unit-tested,
     and unreachable on the path that matters.
 
-21. **`functualize-lambda` reports every failure as HTTP 200 with a null body.**
+21. **CLOSED (2026-09-06) by `remote-source-activation`/4.2.** Both trigger
+    plugins now read the one `RunStatus` -> HTTP table
+    (`functualize.types.http_status_for_status`, declared in
+    `_types/http_status.py`), parameterized over every enum member so a tenth
+    status fails rather than defaulting. `functualize-http` had the same defect
+    in a subtler form — its JSON body said `"status": "failure"` while the
+    status *line* said `200 OK`, so anything reading only the line saw success.
+    Its reason-phrase map knew four codes and would have emitted
+    `HTTP/1.1 202 Unknown`; it now covers every code the table can produce.
+
+    Four `FakeJobResult`s typed `status` as a `str` is why this could hide, and
+    one test asserted `response["status"] == "success"` when the real value is
+    `"Success"` — documenting the fake rather than the wire. The finding as
+    originally written follows, unchanged.
+
+    **`functualize-lambda` reports every failure as HTTP 200 with a null body.**
     The generated handler
     (`plugins/functualize-lambda/src/functualize_lambda/__init__.py:126`) does
 
@@ -1420,7 +1474,29 @@ Items identified during development that are worth doing but not yet designed:
     a success nor an error, and that is the case the mapping has to name rather
     than round off.
 
-22. **`test_env_override_opens_the_gate` passes only under xdist sharding.**
+22. **AMENDED (2026-09-06) — the cause is a product defect, and it is proven.**
+    `tui.default_surface` is **not** in `_BASE_SETTINGS`; the shell registers it
+    as an import side effect of `_cli/tui/__init__.py:88`, and a direct
+    `func <job>` run under true-lazy boot never imports that package. So
+    neither `FUNCTUALIZE_TUI_DEFAULT_SURFACE` nor a `tui.default_surface` line
+    in a config file reaches the gate that exists to serve the direct-run path,
+    and `_explicit_stdout_preference`'s broad `except Exception` hides the
+    difference. Verified directly: with the env var set, the gate returns False
+    in a clean process and True immediately after
+    `register_settings(*tui_settings())`. Under `-n auto` xdist balances
+    dynamically, so whether the worker had already imported the shell varied
+    run to run — the sharding was the symptom, not the cause.
+
+    `remote-source-activation`/4.2 made both tests state which catalog they
+    mean and added
+    `test_the_setting_is_inert_until_the_shell_registers_it`, which asserts
+    against `_BASE_SETTINGS` so that **closing the gap fails the test** and
+    prompts its deletion. A `strict=True` xfail was tried and rejected: it
+    XPASSes once the shell has been imported, swapping one order-dependent
+    outcome for another. The fix belongs to the surface/settings owner. The
+    finding as originally written follows, unchanged.
+
+    **`test_env_override_opens_the_gate` passes only under xdist sharding.**
     `tests/adapters/test_surface_gate.py::TestWantsStdoutSurface::test_env_override_opens_the_gate`
     **fails when `tests/adapters/` is run on its own** and passes in the full
     suite under `-n auto`. Verified against `f9fe1ba` in a throwaway worktree,
@@ -1498,6 +1574,427 @@ Items identified during development that are worth doing but not yet designed:
     fix is in `.agents/skills/release/SKILL.md` Phase 0, which now enumerates
     the sites, gives the verification grep, and says plainly not to trust a
     count written in prose — including this file's.
+
+26. **`RemoteProvider`'s docstring names two exceptions that do not exist, and
+    a 12-factor clause one shipped provider cannot honour.** Found while
+    building the two provider plugins (`remote-source-activation` 5.1/5.2) and
+    deliberately not fixed there — both are core contracts, and a plugin task
+    changing the protocol its own plugins implement is the wrong direction.
+
+    - The docstring tells an implementor to raise `RemoteKeyNotFoundError` and
+      `RemoteConnectionError`. **Neither exists.** Only `RemoteTimeoutError`
+      does, and none of the three is publicly exported, so `functualize-aws`
+      and `functualize-bitwarden` each define their own `SecretNotFoundError`.
+      Two plugins, two private hierarchies, and a caller cannot catch "not
+      found" generically. Either export the family or delete the promise.
+    - *"Credentials MUST be resolved from environment variables only, following
+      12-Factor App principles."* `functualize-bitwarden` honours it;
+      `functualize-aws` cannot, because the maintainer's per-value override
+      requirement (`?profile=`, `?role=`, `?account=`, `?region=`) is
+      something environment variables cannot express — different secrets in one
+      config file may need different accounts. The clause is now half-false by
+      design and should say what it actually means: the *ambient credential
+      chain* comes from the environment; an annotation may redirect which
+      identity is used, and never carries a credential itself.
+
+27. **A parse failure disappears on the second run.** The remaining half of
+    #12, left open deliberately rather than missed.
+
+    `discovery_failures` is **per scan**: it answers "what did this pass fail
+    to read". The two stages behave differently under the cache, and only one
+    of them keeps reporting:
+
+    - **Import failures repeat.** A module that fails to import writes no cache
+      entry, so it stays in the "new files" set and is retried — and reported —
+      on every run.
+    - **Parse failures do not.** `_should_import_with_cache` persists a
+      *negative* pre-filter decision keyed by mtime, so a file rejected for a
+      `SyntaxError` is judged once and skipped thereafter. A skipped file
+      records nothing.
+
+    Verified against the shipped `func` with a warm cache: run one reports both
+    the `SyntaxError` and the `ModuleNotFoundError`; run two reports only the
+    `ModuleNotFoundError`. So the operator most likely to be confused — someone
+    who has run the tool before, fixes nothing, and runs it again — sees the
+    typo reported once and then never again.
+
+    Both behaviours are asserted in `tests/discovery/test_discovery_failures.py`
+    so neither can change silently. Making the parse failure survive means
+    writing it into the cache entry, which turns a per-scan report into a
+    standing inventory of broken files — a different feature with its own
+    invalidation question (when does a recorded failure stop being true?), and
+    not one to fold into a defect fix.
+
+28. **`l-standalone-binary` cannot pass: its own recipe has a broken `xargs`.**
+    **FIXED 2026-09-07.** The recipe now resolves the interpreter in two
+    statements — `python_bin=$(uv python find 3.12)` then
+    `src_root=$("$python_bin" -c 'import sys; print(sys.prefix)')` — with an
+    explicit non-empty check, so a future resolution failure says so instead of
+    producing an empty `cp -a "$src_root"/.`.
+
+    Verified in a real `rust:1-slim-bookworm` container up to the resolution
+    step: `src_root` comes back as
+    `/root/.local/share/uv/python/cpython-3.12.14-linux-x86_64-gnu` with an
+    executable `bin/python`. The ten-minute `cargo install pyapp` beyond it is
+    unchanged and still runs only on demand. Note the resolved prefix is the
+    *patch-versioned* directory, which is why the next line copies
+    `"$src_root"/.` rather than the symlink.
+
+    The original finding follows.
+
+    Found at the `discovery-and-gate-defects`/6.1 checkpoint, where the full
+    scenario suite was run. 15 of 16 doc pages verified; this is the one that
+    did not, and it fails for a reason inside the scenario rather than in the
+    documentation it is supposed to check.
+
+    `examples/docs/scenarios/l-standalone-binary.toml:56`:
+
+    ```sh
+    src_root=$(uv python find 3.12 | xargs -I{} {} -c 'import sys; print(sys.prefix)')
+    ```
+
+    In the `rust:1-slim-bookworm` container this prints
+    `xargs: {}: No such file or directory` — the `-I` replacement is not applied
+    to `argv[0]`, so xargs tries to exec the literal string `{}`. Under
+    `set -e` the step exits **127** at ~21s, long before the ten-minute
+    `cargo install pyapp` it exists to run.
+
+    Reproduced directly: `uv python find 3.12` prints a valid path
+    (`/root/.local/share/uv/python/cpython-3.12-linux-x86_64-gnu/bin/python3.12`)
+    and exits 0, and uv installs correctly — so neither the network, the
+    image, nor `docs/getting-started/installation.md` is at fault. The string
+    `xargs` appears **only** in the scenario; the documented commands do not
+    use it.
+
+    Consequence: `docs/getting-started/installation.md:52-155` is **not
+    verified**, and has not been since this recipe was written. That is the
+    same class of failure STATUS already records for this scenario — *"a
+    verification step that has not been run is not evidence"* — recurring one
+    layer down, in a step that now runs and fails fast rather than never
+    running at all.
+
+    Fix is one line: `src_root=$("$(uv python find 3.12)" -c 'import sys;
+    print(sys.prefix)')`. ~~Left undone deliberately — it belongs to the
+    standalone-distribution work, and verifying it costs a full ten-minute
+    container build.~~ Done as above; verifying the *resolution* turned out to
+    cost about a minute, not ten — only the `cargo` build beyond it is
+    expensive, and the fix does not reach it.
+
+29. **`[tool.functualize] skill` is accepted, validated, and read by nothing.**
+    Shipped knowingly by `third-party-host-seams`/1.2, and recorded here
+    because that task required it to be — this is the fourth member of a class
+    this file already calls *"the worst of the three states"*.
+
+    `_KNOWN_TOOL_KEYS` now holds `{"job", "skill"}`, so a single-file script
+    declaring the skill it belongs to no longer earns a warning on every run.
+    `ScriptMetadata.skill` is parsed and exposed. **Nothing consumes it**, and
+    `spec.md` puts consuming it out of scope.
+
+    Shipping the key ahead of a consumer is deliberate: the file format should
+    settle before anything depends on it, and a host package can start writing
+    the field now. But the pattern has a track record here — `omit_defaults`
+    (#14) and `remote_first()` (#16) are the same shape, and the second of
+    those resolved silently as `classic()` for its entire shipped life. The
+    difference is that this one is counted from the day it landed.
+
+    The site is marked `# TRANSITIONAL(third-party-host-seams/1.2)`. Close this
+    by wiring the value to whatever reads it, or by removing the key if no
+    consumer arrives.
+
+30. **The eager boot path bypasses the provider it just built — four defects,
+    one root cause.** Supersedes the original narrower note. Audited 2026-09-07;
+    every number below was measured, not inferred. The verified analysis lives
+    in
+    [`.spec/shape-intents/eager-boot-uses-the-provider-it-builds.md`](shape-intents/eager-boot-uses-the-provider-it-builds.md)
+    (spec + contracts, no tasks — the work is **parked**, see the end of this
+    entry). It lived under `.spec/features/` until that directory was cleared
+    for the PR #29 merge, and was migrated rather than deleted: the 13
+    acceptance criteria carry authoring-time measurements that would be
+    expensive to re-derive.
+
+    `_app/boot.py` `boot_standard` builds a `DirectoryScanProvider` from the
+    resolved `DiscoveryConfig` — with `pre_filter` and `job_filter` — and adds it
+    to the pipeline (`boot.py:499`). `resolve_and_register_jobs` (`:1140`) then
+    registers the eager path by a different route entirely,
+    `JobRegistry.scan_and_register_headless`, which enumerates with
+    `pkgutil.iter_modules` and takes no discovery filter. One provider is built
+    and bypassed; a second scanner runs instead.
+
+    **D1 — every job module is imported twice.** Whenever `provider_count > 1`
+    the guard at `:1149` opens and `resolve_all()` calls `list_jobs()` on every
+    provider, including the directory provider whose work has already been done.
+    Measured with a module-level side-effect counter, two job modules, no
+    `DiscoveryConfig`:
+
+    | Second provider | `lazy=False` | `lazy=True` |
+    |---|---|---|
+    | none | 2 — correct | 2 — correct |
+    | `functions=[...]` | **4** | 2 — correct |
+    | a child project | **4** | 2 — correct |
+
+    Import-time side effects therefore run **twice**, on the one path
+    `contributor/architecture/developer-modes.md:48` documents as *"the escape
+    hatch for users who need import-time side effects"*. It also doubles a path
+    whose measured budget is already ~2000 ms against ~125 ms.
+
+    **This regressed in this branch.** Before `1f24356`, `boot_standard` added
+    exactly one provider (verified: no other `add_provider` call in that
+    function), so the guard could never open without a child project.
+    `wire_declared_job_sources` fixed `JobSources.functions` being silently
+    ignored and, in doing so, gave `boot_standard` a second provider. The fix
+    was right; this consequence was not noticed at the time.
+
+    **D2 — `_registered_commands` is keyed by the Python name, and goes stale.**
+    The eager path writes `f"{job_group or '__top__'}::{attr_name}"`. Every
+    consumer expects the canonical descriptor name — `app/core.py:496`
+    (`refresh()` eviction) and `app/adapters/cli.py:1262-1265`
+    (`_show_job_config`). Measured for `deploy_thing` (canonical
+    `deploy-thing`):
+
+    ```
+    lazy=False   descriptor: deploy-thing   key: __top__::deploy_thing
+    lazy=True    descriptor: deploy-thing   key: __top__::deploy-thing
+    ```
+
+    Not unbounded growth — the write is idempotent — but staleness: after the
+    job file is deleted and `refresh()` runs, `lazy=False` still reports
+    `__top__::deploy_thing` while `get_jobs()` returns nothing. `refresh()`
+    exists for exactly the long-lived consumers (TUI, MCP) that would see it.
+
+    **D3 — discovery filters are ignored.** `exclude_patterns`, every
+    `require_*`, and `DiscoveryConfig.pre_filter` have no effect.
+
+    **D4 — …except partially.** With the guard open *and* a filter set, the
+    provider half does filter (3 imports rather than 4, against `lazy=True`'s 1)
+    but its descriptors are discarded by the `already_registered` dedupe. The
+    filter changes which modules are imported and not which jobs exist — so the
+    symptom depends on whether an unrelated second provider happens to exist.
+
+    **Reach — narrower than first recorded.** `lazy` is a `JobSources` field and
+    nothing else. All three `JobSources(...)` in `_cli` hardcode `lazy=True`
+    (`main.py:509`, `:1210`, `:1330`); there is no flag, config key or env var,
+    so the CLI's eight discovery flags only ever reach the *correct* path. And
+    `app/core.py:169` is the sole assignment of `_discovery_config` in the tree
+    — nothing merges `[tool.functualize.discovery]` into a library app. So
+    D1/D2 need `lazy=False` alone; D3/D4 need `lazy=False` **and** a hand-passed
+    `DiscoveryConfig`. **No `func` invocation can reach any of them.**
+
+    **Why it is parked rather than fixed.** The obvious fix — route the eager
+    branch through the provider — would delete the only place #32 below is
+    caught, trading a CLI-invisible bug for the loss of a real diagnostic. It
+    also has a second edge: `resolve_all()` raises on duplicate names across
+    providers and the caller catches it and `return`s, so making eager purely
+    pipeline-driven turns a name collision from "partial registration" into "no
+    jobs at all". Both are solvable; neither is solved. Decide #32 first.
+
+
+31. **`ModulePreFilter` ships as `should_import`, not `accepts` — RESOLVED
+    2026-09-07, see [ADR-017](../contributor/adr/017-module-pre-filter-signature.md).**
+    Decision: keep `should_import(source_file)`, reject `accepts(path, source)`.
+
+    The sketch bundled a rename with a signature change, and they have opposite
+    answers. `source` eliminates the redundant *reads* (0.6–7% of the measured
+    cost) and leaves the redundant *parses* (27–91%) untouched, and an eager
+    `source` would force every candidate to be read before any filter runs —
+    inverting the cheapest-first ordering and making a filename rejection
+    20–200× more expensive. The name keeps the `should_register` /
+    `should_import` symmetry and names the consequence that matters: returning
+    `True` runs a module's import-time side effects.
+
+    The original finding follows.
+
+    **`ModulePreFilter` ships as `should_import`, not `accepts`.** `third-party-host-seams`/`contracts.md` §S1
+    sketches the promoted Protocol as `accepts(self, path: Path, source: str)
+    -> bool`. What shipped is `should_import(self, source_file: Path) -> bool`.
+
+    The implementation followed the code rather than the contract, deliberately
+    and on the contract's own reasoning: §S1 says this seam *"promotes the
+    existing shape rather than inventing one"*, and the existing shape is
+    `should_import(source_file)` — the method all thirteen built-in filters in
+    `_primitives/pre_filter.py` implement and every call site in discovery
+    invokes. Shipping `accepts` would have meant either renaming thirteen
+    filters and their call sites, or publishing a public method name that
+    disagrees with every internal one.
+
+    The `source` parameter is also absent: filters read the file themselves
+    (and the AST ones parse it), so a caller-supplied `source` string would be
+    a second, possibly-stale copy of what the filter is about to read.
+
+    This is now the public surface, exported from `functualize.plugin` and
+    documented in `docs/guides/jobs-discovery.md`. Renaming it later is a
+    breaking change, so it is flagged here rather than left as an unremarked
+    difference between the spec and the code. **No action needed if the shipped
+    name is right; this exists so the choice is visible.**
+
+32. **A job silently disappears when two functions normalize to the same name —
+    on the *default* path.** Found 2026-09-07 while auditing #30, and it is the
+    only defect in that audit a `func` user can hit.
+
+    Canonical identity lowercases and hyphenates, so `build_wheel` and
+    `buildWheel` in one module both become `build-wheel`. The eager registry
+    path detects that and raises. The provider path — which `lazy=True` uses,
+    and `lazy=True` is what all three `JobSources(...)` in `_cli` hardcode —
+    does not:
+
+    ```
+    build_wheel() + buildWheel() in one module
+
+    lazy=False  ->  ValueError: Two jobs normalize to the same name 'build-wheel'
+    lazy=True   ->  ['build-wheel']        # one job vanished, no diagnostic
+    ```
+
+    Measured on a cold boot in a fresh directory, so it is not a cache artifact.
+
+    `_discovery/registry.py` carries the check and says exactly why it exists:
+    *"Normalization can map two distinct functions onto one name … Without this
+    the second silently replaces the first and one job vanishes with no
+    diagnostic anywhere. Two functions cannot share an address, so this is an
+    authoring error and says so."* That reasoning applies verbatim to the path
+    that lacks it, and the path that lacks it is the one everybody runs.
+
+    Note the *other* two registry-only behaviours turned out not to be losses,
+    which is why this is the only entry: invalid `JOB_GROUP` warns and skips on
+    **both** paths (verified by probe — a grep count suggested otherwise and was
+    wrong), and `_config_validator` is dead code, never assigned anywhere in the
+    tree.
+
+    **Where the fix belongs.** `register_descriptors` (`_app/boot.py:1218`) is
+    called by both boot paths, so putting the check there fixes `lazy=True` and
+    simultaneously preserves the diagnostic the eager path already has — which
+    is what unblocks #30, since routing eager through the provider would
+    otherwise delete it. One change, two entries closed.
+
+    Not done: the maintainer paused this work on 2026-09-07 to reassess
+    priorities across all five defects rather than fix them in discovery order.
+
+33. **`test_ui_stays_responsive_while_job_executes` was flaky on a loaded CI
+    runner — FIXED 2026-09-07.** Two failures in three runs on PR #29, on
+    Python 3.11: once with `got 0 polls`, once with `got 3 polls`, both against
+    an idle ceiling of 20 and a floor of 6, with a clean pass in between on an
+    unchanged tree.
+
+    **Two causes, both measurement bugs rather than flakiness in the code
+    under test.**
+
+    *The window was not guaranteed to contain the job.* The test polled while
+    `tui_app.workers` was non-empty, starting immediately after
+    `action_execute()`. If the worker had not started, the loop never iterated
+    and reported zero — the same observation a genuinely frozen loop produces,
+    so the failure was indistinguishable from the defect the test exists to
+    catch.
+
+    The first repair waited for `_job_worker_running`, copying the pattern its
+    neighbour `test_reentry_guard_ignores_second_trigger_while_running` uses.
+    **That failed in CI too**, with *"the job worker never reached RUNNING"* —
+    because the deadline for reaching RUNNING was `BLOCK_SECONDS`, i.e. a guess
+    about how fast the machine starts a thread. That is precisely the class of
+    assertion `tests/_responsiveness.py` was written to get away from, and
+    swapping one arbitrary constant for another would have repeated it.
+
+    The fix that held takes the signal from the job itself: `slow_job` sets a
+    `threading.Event` as its first statement, and the test waits on that with a
+    deliberately generous 10s startup budget. Worker state is never consulted.
+    A job that never begins fails loudly; a job that begins late costs only
+    startup time and does not distort the measurement, because the window is
+    timed from the event.
+
+    *The floor was compared against the wrong denominator.* `idle_polls` is
+    measured over the full `BLOCK_SECONDS`, but the window actually polled
+    starts when the worker is running and ends when it finishes — shorter, by a
+    margin that varies with how quickly the machine got the thread going.
+    Comparing a short window's count against a full window's ceiling asks the
+    loop for more work in less time, which is how a responsive run reported 3
+    polls against a floor of 6. The ceiling is now scaled by the observed
+    elapsed time before `responsive_floor` is applied, so the comparison is
+    between rates.
+
+    **Verified not to be a weakening**, at both iterations. With the real defect
+    reintroduced — the sync job called inline instead of through
+    `run_worker(..., thread=True)` — the old and both new versions fail. The
+    final one fails on the responsiveness assertion: the job body runs, so the
+    start event is set, but the polling window is then empty and the scaled
+    floor is not met. 5/5 clean runs locally.
+
+    An earlier sabotage attempt (freezing the loop at dispatch while the thread
+    also ran) passed against **both** versions — worth recording, because it
+    means neither the old nor the new test covers a dispatch-time freeze that
+    overlaps the job's own duration. That gap predates this fix and is not
+    closed by it.
+
+    Two sibling tests share the un-scaled comparison —
+    `tests/_cli/test_display_refresh_thread_worker.py` and
+    `tests/tui_audit/test_blocking_worker.py`. Neither is currently failing, so
+    both were left alone; if either starts flaking, this is the reason.
+
+    The original finding follows.
+
+    Observed 2026-09-07 on PR #29: `test-fast` failed on Python 3.11
+    with `got 0 polls ... against an idle ceiling of 20 (floor 6)`, then
+    **passed on a re-run of the same commit**, with no code change between.
+    The previous CI run had passed on a tree differing only in two unrelated
+    test files, and it passes 3/3 locally.
+
+    `tests/_cli/test_job_execution_thread_worker.py:87`. The test blocks a job
+    for `BLOCK_SECONDS = 0.4` and polls the event loop every
+    `TICK_INTERVAL = 0.02`, requiring a floor derived from an idle measurement
+    taken on the same machine moments earlier — so it is already
+    self-calibrating, and calibration is not what fails.
+
+    **The failure mode is not the one the message names.** `ticks == 0` means
+    the `while tui_app.workers and ...` loop never iterated *even once*, i.e.
+    `tui_app.workers` was already falsy when the poll loop was reached. That is
+    a race between the worker starting and the polling beginning, not the
+    "sync call is still blocking the event loop" the assertion reports. A
+    genuinely blocked loop would still tick at least once before the deadline.
+
+    Not "fixed" by widening the tolerance: the property it guards is real and
+    load-bearing (a sync job must not freeze the TUI, the defect the
+    thread-worker migration exists to close), and a weakened assertion would
+    stop catching it. The right repair is to make the test wait until the
+    worker is observably running before it starts counting, so the measurement
+    cannot begin after the work has finished. **Done, plus the rate scaling the
+    second failure mode needed — see the head of this entry.**
+
+34. **The pre-filter stack parses each candidate file three to four times.**
+    Measured while deciding ADR-017; recorded because the cost is real even
+    though the protocol change proposed for it was the wrong fix.
+
+    Seven of the thirteen built-in filters each do their own `read_text()` +
+    `ast.parse()`, and the baseline stack — `AnyOf(AST, DisplayClass,
+    GroupOptions)` at position 5 plus `AnyOf(Default, GroupOptions)` at
+    position 2 — reaches the same file three or four times with no filter
+    configured at all.
+
+    | | small job file (905 B) | `_cli/builtins.py` (85 KB) |
+    |---|---|---|
+    | three filters, as shipped | 568.6 µs | 52,347 µs |
+    | of which redundant reads | 39.7 µs — 7.0% | 303 µs — 0.6% |
+    | of which redundant parses | 151 µs — **26.6%** | 47,473 µs — **90.7%** |
+
+    **The fix is a parse memoized per `(path, mtime)`, not a protocol change.**
+    Keyed that way it is correct across a `refresh()` (the file changes, the key
+    changes) and needs no signature change, so it costs nothing at the public
+    seam ADR-017 just settled. `mtime` alone is the same validity tier the
+    discovery cache already trusts for its negative decisions, so it introduces
+    no new staleness assumption.
+
+    Deliberately not done, for two reasons worth stating rather than leaving
+    implicit:
+
+    - **It is a cold-boot cost only.** `CachedDirectoryScanProvider._list_jobs`
+      runs the filter only for `on_disk - cached_files`, and rejections persist
+      as decisions keyed by mtime. A warm boot over an unchanged tree parses
+      nothing. The 90.7% figure is the worst case on the largest file in the
+      repository, on the one path that already accepts a multi-second budget.
+    - **The memo needs an owner and a lifetime.** A module-level cache would
+      outlive a `refresh()` and leak across `FunctualizeApp` instances in a
+      long-lived process (TUI, MCP server) — the same shape as #30's phantom
+      entries. Doing it properly means threading a per-scan cache through
+      `build_pre_filter_from_config`, which is a design change rather than an
+      optimization.
+
+    Close this by adding that per-scan memo, or by deciding the cold-boot cost
+    is acceptable and saying so.
 
 ## Recently Completed (2026-08)
 

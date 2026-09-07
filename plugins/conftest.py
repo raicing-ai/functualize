@@ -13,6 +13,8 @@ from typing import Any
 
 import pytest
 
+from functualize.types import RunStatus
+
 # ---------------------------------------------------------------------------
 # Fake descriptors / app — reusable across all plugin tests
 # ---------------------------------------------------------------------------
@@ -50,18 +52,24 @@ class FakeDescriptor:
     )
 
 
+#: The fakes below carry a real ``RunStatus``, not the string they once used.
+#: A fake that mistypes the field under test is how ``functualize-lambda``
+#: could return 200 for every outcome with a green suite: `result.status` was
+#: never read, and nothing in these fakes could have noticed.
 class FakeJobResult:
     """Fake result from app.execute()."""
 
     def __init__(
         self,
-        status: str = "success",
+        status: RunStatus = RunStatus.SUCCESS,
         return_value: Any = None,
         duration_ms: float = 42.0,
+        exception: BaseException | None = None,
     ):
         self.status = status
         self.return_value = return_value
         self.duration_ms = duration_ms
+        self.exception = exception
 
 
 class FakeApp:
@@ -95,7 +103,7 @@ class FakeApp:
             raise self._execute_error
         if job_name in self._execute_results:
             return self._execute_results[job_name]
-        return FakeJobResult(status="success", return_value=f"executed {job_name}")
+        return FakeJobResult(return_value=f"executed {job_name}")
 
 
 # ---------------------------------------------------------------------------

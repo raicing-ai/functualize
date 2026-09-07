@@ -239,9 +239,7 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
     # Resolution pipeline with StaticProvider (zero I/O)
     app._resolution_pipeline = ResolutionPipeline()
     app._jobs_memo = None
-    if app._job_sources.functions:
-        static_provider = StaticProvider(app._job_sources.functions)
-        app._resolution_pipeline.add_provider(static_provider)
+    wire_declared_job_sources(app)
 
     perf_timeline.mark("boot.core_infra.end")
 
@@ -506,6 +504,8 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
                 )
             )
 
+    wire_declared_job_sources(app)
+
     perf_timeline.mark("boot.core_infra.end")
 
     # 2. Initialize ProviderRegistry with the one built-in format (ADR-007).
@@ -614,6 +614,7 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
             file_regex=custom_regex,
             environment=app._environment,
             event_bus=app.event_bus,
+            remote_source=build_remote_source(app),
         )
     perf_timeline.mark("boot.config_resolution.end")
 
@@ -761,6 +762,71 @@ def discover_config_path(
     return str(Path.home() / ".config" / app_name)
 
 
+def build_remote_source(app: Any) -> Any:
+    """Build the vault-backed source for a ``remote_first()`` app, or None.
+
+    Returns None for every other preset, so ``classic()`` builds exactly the
+    chain it always did.
+
+    Raises:
+        RuntimeError: If the app asked for remote resolution and no remote
+            provider is registered. **This must not degrade to the classic
+            chain.** Silently resolving from local files while the caller
+            believes they are reading AWS Secrets Manager is the defect
+            ADR-016 exists to close; refusing is the whole point.
+    """
+    if not getattr(app._config_sources, "remote", False):
+        return None
+
+    registered = app.config_registry.list_remote_providers()
+    if not registered:
+        msg = (
+            "This app selects remote_first(), but no remote configuration "
+            "provider is registered, so nothing could resolve remotely.\n\n"
+            "Install a provider plugin — for example `pip install "
+            "functualize-aws` — or register one through the "
+            "'functualize.remote_providers' entry-point group.\n\n"
+            "Refusing rather than falling back to local files: resolving from "
+            "config while you believe you are reading a secret store is the "
+            "failure this preset exists to prevent."
+        )
+        raise RuntimeError(msg)
+
+    from functualize._config.vault import resolve_max_age, vault_path_for_project
+    from functualize._config.vault_keys import resolve_vault_key
+    from functualize._config.vault_source import VaultSource
+    from functualize._primitives.locator import compute_project_id
+
+    project_id = compute_project_id(Path.cwd())
+    resolution = resolve_vault_key(project_id)
+    if resolution is None:
+        # Inert, not fatal: this path is reachable from `func --help`, and a
+        # missing key must not make the tool unusable. One warning here rather
+        # than one per key: with no key *every* lookup falls through, so the
+        # per-key warning would drown this message instead of sharpening it.
+        logger.warning(
+            "remote_first() is active but no vault key is available. Declared "
+            "remote values will fall back to local sources. Set "
+            "$FUNCTUALIZE_VAULT_KEY (see `func builtin vault keygen`)."
+        )
+        return VaultSource(
+            vault_path_for_project(), encryption_key=None, providers=registered
+        )
+
+    return VaultSource(
+        vault_path_for_project(),
+        encryption_key=resolution.key,
+        key_provider_id=resolution.provider_id,
+        # The identifiers, so a fall-through can tell an annotation naming an
+        # installed provider from an ordinary URL that merely looks like one.
+        providers=registered,
+        # Resolved only on the path that can actually read: an unusable vault
+        # never checks its age, so parsing the threshold there would risk
+        # warning about a misspelled setting that was never going to be used.
+        max_age=resolve_max_age(getattr(app._config_sources, "vault_max_age", None)),
+    )
+
+
 def build_resolution_chain(
     config_path: str,
     app_name: str,
@@ -769,11 +835,14 @@ def build_resolution_chain(
     file_regex: str | None = None,
     environment: str | None = None,
     event_bus: Any = None,
+    remote_source: Any = None,
 ) -> ResolutionChain:
     """Build a ResolutionChain with source precedence: CLI → Env → Files → Defaults.
 
     This is the "classic" resolution order — identical to what the
-    `classic()` preset produces when the boot path discovers files.
+    `classic()` preset produces when the boot path discovers files. Passing
+    ``remote_source`` slots the vault between CLI and Env, which is the only
+    difference between this chain and ``remote_first()``'s.
 
     Args:
         config_path: Path to the directory containing config files.
@@ -789,6 +858,10 @@ def build_resolution_chain(
             banding (every discovered file merges in discovery order).
         event_bus: Optional EventBus, so FileSource can report which
             overlay slots matched and which were inert.
+        remote_source: A vault-backed source to slot between CLI and Env, or
+            None. Only ``remote_first()`` supplies one — one builder serves
+            both presets so they cannot drift, which is how ``remote_first()``
+            came to silently *be* ``classic()`` in the first place (ADR-016).
 
     Returns:
         Configured ResolutionChain instance.
@@ -800,8 +873,16 @@ def build_resolution_chain(
         .search_platform_user(app_name=app_name)
     )
     filename_regex = file_regex
-    sources: list[CliSource | EnvSource | FileSource | DefaultSource] = [
+    sources: list[Any] = [
         CliSource({}),
+    ]
+    # The vault slots between CLI and Env: a synced remote value outranks the
+    # environment and the config file, while an explicit CLI argument still
+    # wins. `remote_source` is None for every preset but `remote_first()`, so
+    # `classic()` builds exactly the chain it always did.
+    if remote_source is not None:
+        sources.append(remote_source)
+    sources += [
         EnvSource(),
         FileSource(
             resolver,
@@ -818,7 +899,77 @@ def build_resolution_chain(
         ),
         DefaultSource({}),
     ]
-    return ResolutionChain(sources)  # type: ignore[arg-type]
+    return ResolutionChain(sources)
+
+
+def wire_declared_job_sources(app: Any) -> None:
+    """Add ``JobSources.functions`` and ``.job_providers`` to the pipeline.
+
+    Called by **both** boot paths, immediately after each has added whatever
+    providers it derives from ``directories``, so the resulting pipeline order
+    matches the order the fields are declared in ``JobSources``: directories,
+    then functions, then ``job_providers``.
+
+    Both fields were silent-drop defects, for the same reason and with the
+    same symptom -- an empty job list and no diagnostic -- so both are fixed
+    here, in one function, rather than in two that would drift:
+
+    * ``functions`` reached ``StaticProvider`` only inside ``boot_static``,
+      which runs only when ``is_fully_explicit()`` holds. That additionally
+      requires no directories, no children, an explicit resolution chain and
+      explicit plugins with an empty entry-point group, so
+      ``FunctualizeApp("a", job_sources=JobSources(functions=[alpha]))``
+      discovered zero jobs and said nothing.
+    * ``job_providers`` was read by nothing at all on either path.
+
+    ``job_providers`` accepts either a bare provider or a
+    ``(provider, [transforms])`` pair -- the form its docstring has always
+    promised. Both reach ``ResolutionPipeline.add_provider``, which is also
+    what ``app.add_job_provider()`` calls, so a declared provider and an
+    imperative one are indistinguishable downstream.
+
+    Malformed entries raise here rather than being skipped: silence is what
+    this function exists to end, so it must not start its own.
+
+    Args:
+        app: The FunctualizeApp instance being booted.
+
+    Raises:
+        TypeError: If a ``job_providers`` entry is neither a provider nor a
+            two-element ``(provider, transforms)`` pair, or if the provider or
+            transforms inside a pair fail their protocol check.
+    """
+    if app._job_sources.functions:
+        app._resolution_pipeline.add_provider(
+            StaticProvider(app._job_sources.functions)
+        )
+        app._jobs_memo = None
+
+    declared = getattr(app._job_sources, "job_providers", None)
+    if not declared:
+        return
+
+    for index, entry in enumerate(declared):
+        if isinstance(entry, tuple):
+            if len(entry) != 2:
+                raise TypeError(
+                    f"job_providers[{index}] is a {len(entry)}-tuple. The tuple "
+                    "form is (provider, [transform, ...]) -- exactly two items."
+                )
+            provider, transforms = entry
+            if transforms is not None and not isinstance(transforms, list):
+                raise TypeError(
+                    f"job_providers[{index}] pairs a provider with "
+                    f"{type(transforms).__name__}. The second item is a list of "
+                    "JobTransform instances."
+                )
+        else:
+            provider, transforms = entry, None
+        # add_provider does the protocol checks for both halves and raises a
+        # TypeError naming the missing members, so it is left to do that here.
+        app._resolution_pipeline.add_provider(provider, transforms)
+
+    app._jobs_memo = None
 
 
 def wire_children_to_pipeline(app: Any) -> None:

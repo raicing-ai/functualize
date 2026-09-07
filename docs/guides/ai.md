@@ -194,11 +194,130 @@ def log_usage(event):
 
 ## Gate Strategies
 
-The AI SDK registers gate strategies for workflow integration:
+The AI SDK registers one gate **strategy** and two gate **presets**. They are
+different things, they are reached through different APIs, and mixing them up
+is a `ValueError` at import time — so the distinction comes first.
 
-- **`ai_inbound`** — LLM resolves gate inputs from conversation context
-- **Gate preset `"ai_inbound"`** — Tries: `ai_inbound` → `prompt` → `resolve`
-- **Gate preset `"ai"`** — Tries: `ai_outbound` → `ai_inbound` → `prompt` → `resolve`
+### Strategies vs. presets
+
+A **strategy** is one way to resolve a gate. A **preset** is a named fallback
+ladder over several strategies.
+
+| Name | Kind | Registered by |
+|---|---|---|
+| `resolve` | strategy | core, at boot |
+| `prompt` | strategy | core, at boot |
+| `ai_inbound` | strategy | `functualize-ai` |
+| `ai_outbound` | strategy | `functualize-mcp` |
+| `"ai_inbound"` | preset → `ai_inbound` → `prompt` → `resolve` | `functualize-ai` |
+| `"ai"` | preset → `ai_outbound` → `ai_inbound` → `prompt` → `resolve` | `functualize-ai` |
+
+Note that `"ai_inbound"` names **both** a strategy and a preset. Which one you
+get depends on where you write it, and that is the trap the next section is
+about.
+
+### `Gate(strategy=...)` accepts only the four bare strategy names
+
+```python
+Gate(name="triage", awaits=Approval, strategy="ai_inbound")   # ok
+Gate(name="triage", awaits=Approval, strategy="ai")           # ValueError
+```
+
+```
+ValueError: Gate strategy must be one of
+['ai_inbound', 'ai_outbound', 'prompt', 'resolve'], got 'ai'
+```
+
+`Gate` validates in `__post_init__`, against a fixed set — not against the
+registry. That is deliberate: a `Gate` is part of a declaration that is read at
+import time, long before any plugin has registered anything, so it cannot know
+which presets exist. The cost is that presets are unreachable from a `Gate`.
+
+A gate that names `ai_inbound` still gets the *ladder*, because the walker
+expands it: `Gate(strategy="ai_inbound")` is walked as
+`["ai_inbound", "prompt", "resolve"]`. So the common case needs no preset.
+
+### Presets resolve through two APIs, neither of them `Gate`
+
+```python
+# From inside a job, via the Invoke capability
+result = rc.invoke(review, awaits_input=Approval, force_gate=True, gate_strategy="ai")
+
+# Directly on the app
+approval = app.resolve_gate(Approval, gate_strategy="ai", gate_name="triage")
+```
+
+Both accept a strategy name, a preset name, or an explicit list of strategy
+names.
+
+!!! warning "The `ai` preset needs **both** plugins, and fails hard without them"
+
+    `functualize-ai` registers the `"ai"` preset, but that preset's first rung
+    is `ai_outbound` — which `functualize-mcp` registers. A preset referencing
+    an unregistered strategy raises rather than falling through:
+
+    ```
+    ValueError: Unregistered gate strategy 'ai_outbound' referenced in
+    preset 'ai'. Register the strategy before using the preset.
+    ```
+
+    So with only `functualize-ai` installed, `gate_strategy="ai"` is an error,
+    not a degraded ladder. Use `gate_strategy="ai_inbound"` — its preset
+    references nothing `functualize-ai` does not itself register.
+
+    This is the one place a missing plugin is *not* a graceful block, and it is
+    intentional: a preset is a registry entry, so a dangling reference in one
+    is a wiring mistake in the application rather than a capability that
+    happens to be absent at this gate.
+
+### What happens when the plugin is not installed
+
+`ai_inbound` resolves to nothing until `functualize-ai` is installed, and
+`ai_outbound` until `functualize-mcp` is. The walk **blocks** rather than
+raising, and says which package it wanted:
+
+```python
+result = app.execute("review")
+
+result.status                      # RunStatus.BLOCKED
+result.metadata["blocked_on"]      # 'triage'
+result.metadata["blocked_reason"]
+# "unregistered gate strategy 'ai_inbound' (install functualize-ai to register
+#  it); Cannot resolve model Approval from config chain: unresolved fields:
+#  ['approved']"
+```
+
+The reason has two halves, `;`-separated: the unregistered strategies come
+first because they are the actionable part, followed by the last rung's own
+error. Here `resolve` was the last rung, and it failed for the ordinary reason
+a gate exists — nothing had supplied `approved` yet.
+
+`blocked_reason` appears only when there is something to say. A gate waiting
+for a human by design carries `blocked_on` and no reason at all.
+
+Two cases still raise instead of blocking, and both are deliberate:
+
+- **A single explicitly-named strategy** — `gate_strategy="ai_inbund"` has no
+  ladder to fall down, so a typo stays loud rather than becoming a silent
+  block.
+- **A preset referencing an unregistered strategy** — a preset is a registry
+  entry, so a dangling reference in one is a wiring mistake in the
+  application, not a missing capability at this gate.
+
+### A note on *inbound* and *outbound*
+
+This page uses the two words on **two different axes**, and any prose touching
+both has to say which it means.
+
+- **The scenario**, used everywhere else in this guide: *outbound* is a job
+  calling an LLM; *inbound* is an external agent driving a job.
+- **The gate strategy**, used in the table above: the direction the *answer*
+  travels. `ai_inbound` is implemented by calling an LLM — which is the
+  *outbound* scenario — because the resolved value comes back **in** to the
+  gate.
+
+Both namings are internally coherent. They collide only where the two axes
+meet, which is exactly here.
 
 ---
 

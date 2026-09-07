@@ -1,0 +1,76 @@
+[scenario]
+name = "q-skills-hosting"
+version = 1
+description = "Verify the README's skills-copying idiom after `skills path` became multi-line"
+
+# `func builtin skills path` used to print exactly one path, so README.md
+# substituted it: `cp -R "$(func builtin skills path)"/* .claude/skills/`.
+# `third-party-host-seams`/4.2 made it print one directory per line, because a
+# third-party distribution can host its own skills and a single path could only
+# ever be core's. The substitution now passes a multi-line string as one
+# argument and fails with a confusing "No such file or directory".
+#
+# The README was changed to a loop in the same task. This scenario exists so
+# the replacement is *executed* rather than only written down -- a documented
+# shell idiom nobody runs is exactly how the broken one survived.
+[source]
+file = "README.md"
+lines = "939-949"
+description = "Copying the shipped agent skills without Node"
+
+requires = []
+
+[[steps]]
+engine = "shell"
+description = "skills path prints at least one directory, one per line"
+command = "func builtin skills path"
+expected = { exit_code = 0, stdout_regex = "^/.+" }
+timeout = 20
+
+[[steps]]
+engine = "shell"
+description = "every line it prints is a real directory"
+command = "func builtin skills path | while read -r dir; do test -d \"$dir\" || exit 1; done"
+expected = { exit_code = 0 }
+timeout = 20
+
+[[steps]]
+engine = "shell"
+description = "the README's loop copies the skills into a project folder"
+command = "mkdir -p /tmp/q-skills/.claude/skills && func builtin skills path | while read -r dir; do cp -R \"$dir\"/* /tmp/q-skills/.claude/skills/; done && ls /tmp/q-skills/.claude/skills"
+expected = { exit_code = 0, stdout_contains = "functualize" }
+timeout = 30
+
+[[steps]]
+engine = "shell"
+description = "what was copied is a real skill, not an empty directory"
+command = "test -f /tmp/q-skills/.claude/skills/functualize/SKILL.md"
+expected = { exit_code = 0 }
+timeout = 10
+
+[[steps]]
+engine = "shell"
+description = "skills list names its source, and the skills that source holds"
+command = "func builtin skills list"
+# Deliberately not asserting a version here. `list` labels a packaged install
+# `functualize <version> (packaged)` and a source checkout `source checkout at
+# … (not version-pinned)`, and which one runs depends on how the verifying
+# environment installed functualize. The per-source *stamp* is asserted where
+# it can be pinned exactly: `tests/cli/test_skills_hosting.py` and the
+# `materialized_root` step in `r-hosting-guide.toml`.
+expected = { exit_code = 0, stdout_contains = "Agent skills from" }
+timeout = 20
+
+[[steps]]
+engine = "shell"
+description = "and the skills it lists are the ones on disk"
+command = "func builtin skills list"
+expected = { exit_code = 0, stdout_contains = "functualize-cli" }
+timeout = 20
+
+[[steps]]
+engine = "shell"
+description = "cleanup"
+command = "rm -rf /tmp/q-skills"
+expected = { exit_code = 0 }
+timeout = 10

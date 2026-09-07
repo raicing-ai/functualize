@@ -101,6 +101,102 @@ class DataProcessor:  # (4)!
 3. `_validate_row` is **not** registered — it starts with an underscore.
 4. `DataProcessor` is **not** registered — it's a class, not a function.
 
+## When the built-in filters cannot describe your jobs
+
+The `require_*` settings describe a module by its filename, its imports, a
+marker, or a decorator. That covers most projects. It does not cover a host
+whose jobs are, say, methods on a class, or are chosen by a rule that only that
+host knows.
+
+`DiscoveryConfig.pre_filter` takes your own predicate, asked **before the module
+is imported**:
+
+```python
+from pathlib import Path
+
+from functualize.app import FunctualizeApp, JobSources
+from functualize.app.config import DiscoveryConfig
+
+
+class HasJobSuffix:
+    """Admit a module only when its name ends in `_tasks` or `_ops`."""
+
+    def should_import(self, source_file: Path) -> bool:
+        return source_file.stem.endswith(("_tasks", "_ops"))
+
+    def fingerprint(self) -> str:
+        return "has-job-suffix:v1"
+
+
+app = FunctualizeApp(
+    "myapp",
+    job_sources=JobSources(directories=["./jobs"]),
+    discovery_config=DiscoveryConfig(pre_filter=HasJobSuffix()),
+)
+```
+
+Two things about it are worth knowing before you write one.
+
+### It composes; it does not replace
+
+Your filter is **ANDed** onto the stack the `require_*` settings build. Setting
+both means a module has to satisfy both:
+
+```python
+DiscoveryConfig(
+    require_file_prefix="job_",     # filename starts with job_
+    pre_filter=HasJobSuffix(),      # ...and ends with _tasks or _ops
+)
+```
+
+It runs last, after the cheap filename checks, so an expensive predicate sees
+the fewest possible files.
+
+### `fingerprint()` is not optional
+
+The discovery cache stores which files your filter *rejected* and replays those
+decisions on the next boot, so a scan does not re-read a file it already ruled
+out. That is only safe while the cache can tell that your filter still behaves
+the same way.
+
+`fingerprint()` returns a stable string that you change when the filter's logic
+changes. Return the same value across processes for the same behaviour, and a
+new value when you edit the predicate:
+
+```python
+    def fingerprint(self) -> str:
+        return "has-job-suffix:v2"   # bumped when the suffixes changed
+```
+
+Identity cannot be used instead. An object's `str()` carries its memory
+address, so a digest built from the object itself would differ on every boot —
+invalidating the cache on every run while appearing to work. A filter with no
+`fingerprint()` is refused with a `TypeError` rather than silently cached
+wrong.
+
+Forgetting to bump it gives you a stale cache: the same contract, and the same
+failure mode, as editing a `require_*` setting without invalidating.
+
+!!! warning "`lazy=False` applies no discovery filter at all"
+
+    `JobSources(lazy=False)` opts out of the cached provider and, with it, out
+    of filtering entirely — not just `pre_filter`, but `exclude_patterns` and
+    every `require_*` setting too. This is a known defect, not a design; the
+    default (`lazy=True`) is the filtered path.
+
+### The protocol
+
+`ModulePreFilter` is exported from `functualize.plugin` if you want to declare
+the type. There is nothing to inherit — it is satisfied structurally:
+
+```python
+from functualize.plugin import ModulePreFilter
+
+
+def check(candidate: ModulePreFilter) -> bool:
+    return isinstance(candidate, ModulePreFilter)   # both methods required
+```
+
 ## JOB_GROUP and sub-command grouping
 
 The `JOB_GROUP` module-level variable controls how functions are organized in the CLI hierarchy.

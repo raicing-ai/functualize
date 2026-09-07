@@ -10,13 +10,30 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from functualize._gate._context import GateContext
-from functualize._gate._strategy import GateStrategy
+from functualize._gate._strategy import GateStrategy, missing_strategy_hint
 from functualize._types.errors import GateResolutionError
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
 
     from functualize._gate._resolver import GateResolver
+
+
+def _unregistered_message(names: list[str]) -> str:
+    """Name the unregistered strategies, and the package each one needs.
+
+    This is the string that reaches ``GateResolutionError.last_error``, and
+    from there the walk's ``blocked_reason`` -- so it is what an operator
+    actually reads when a gate blocks for this cause. The bare name alone
+    ("unregistered gate strategy 'ai_inbound'") is not enough to act on;
+    which package registers it is the missing half.
+    """
+    described = []
+    for name in names:
+        hint = missing_strategy_hint(name)
+        described.append(f"'{name}' ({hint})" if hint else f"'{name}'")
+    plural = "strategies" if len(described) > 1 else "strategy"
+    return f"unregistered gate {plural} {', '.join(described)}"
 
 
 class GateRegistry:
@@ -158,27 +175,54 @@ class GateRegistry:
 
         # Step 5: Try each strategy in order
         last_exc: BaseException | None = None
+        unregistered: list[str] = []
         for strategy_name, preset_source in strategy_entries:
             resolver = self._strategies.get(strategy_name)
             if resolver is None:
                 if preset_source is not None:
+                    # A preset is a *registry* entry, so a name it references
+                    # that nobody registered is a wiring mistake in the app,
+                    # not a missing capability at this gate. Keep it loud.
                     raise ValueError(
                         f"Unregistered gate strategy '{strategy_name}' "
                         f"referenced in preset '{preset_source}'. "
                         f"Register the strategy before using the preset."
                     )
-                raise ValueError(
-                    f"Unregistered gate strategy '{strategy_name}' "
-                    f"referenced during resolution of gate '{gate_name}'"
-                )
+                if len(strategy_entries) == 1:
+                    # One strategy, named explicitly, and it does not exist:
+                    # there is no ladder to fall down, and a typo in
+                    # `gate_strategy="ai_inbund"` must not be swallowed.
+                    raise ValueError(
+                        f"Unregistered gate strategy '{strategy_name}' "
+                        f"referenced during resolution of gate '{gate_name}'"
+                    )
+                # A ladder should behave like a ladder. An unregistered rung
+                # is a *failed* rung: record it and try the next one.
+                #
+                # This is what made a forgotten `pip install functualize-ai`
+                # harsher than a broken API key. A registered resolver that
+                # raised fell through to `prompt` and then `resolve`, and the
+                # walk ended BLOCKED and resumable; an unregistered name raised
+                # a bare ValueError out of `resolve_gate`, past the walker's
+                # `except GateResolutionError`, and out of `app.execute()`.
+                unregistered.append(strategy_name)
+                continue
             try:
                 return resolver.resolve(ctx)
             except Exception as exc:
                 last_exc = exc
                 continue
 
-        # All strategies failed
-        last_error_msg = str(last_exc) if last_exc else "no strategies attempted"
+        # All strategies failed. Both causes are reported, and the
+        # unregistered ones go first: "install functualize-ai" is actionable,
+        # whereas the resolver error is usually a downstream symptom of having
+        # fallen this far in the first place.
+        parts = []
+        if unregistered:
+            parts.append(_unregistered_message(unregistered))
+        if last_exc is not None:
+            parts.append(str(last_exc))
+        last_error_msg = "; ".join(parts) if parts else "no strategies attempted"
         raise GateResolutionError(
             gate_name=gate_name,
             strategies_attempted=len(strategy_entries),

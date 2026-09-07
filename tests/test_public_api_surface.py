@@ -136,12 +136,17 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "PromptChoice",
         "PluginMetadata",
         "PluginWithShutdown",
+        # Pre-import discovery predicate (third-party-host-seams/1.3). Promoted
+        # from _primitives so a host can supply one; `fingerprint()` is part of
+        # the contract because the discovery cache replays negative decisions.
+        "ModulePreFilter",
         "SessionState",
         "SignatureProvider",
         "Source",
         "StatusBarItemProvider",
         "FormatProvider",
         "ThemeProvider",
+        "VaultKeyProvider",
         "discover_domains",
         "scan_domain_providers",
         "validate_extension_id",
@@ -158,6 +163,9 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "ConfigFileRole",
         "EnvironmentSource",
         "Secret",
+        # The one RunStatus -> HTTP table, beside RunStatus itself, so a
+        # trigger plugin consumes it instead of writing a second opinion.
+        "http_status_for_status",
     },
     "functualize.workflow": {
         # A gate offers jobs; Tool narrows which of their arguments the

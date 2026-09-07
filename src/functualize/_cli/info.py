@@ -13,6 +13,7 @@ than by review.
 
 from __future__ import annotations
 
+import contextlib
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -29,6 +30,7 @@ BUILTIN_ROOT_SEGMENT = "builtin"
 
 __all__ = [
     "RENDERERS",
+    "discovery_failures",
     "full_report",
     "job_catalog",
     "job_detail",
@@ -126,13 +128,24 @@ def job_catalog(app: FunctualizeApp) -> list[dict[str, Any]]:
 
 
 def job_detail(app: FunctualizeApp, name: str) -> dict[str, Any] | None:
-    """One job in full, or None when no job resolves to ``name``."""
+    """One job in full, or None when no job resolves to ``name``.
+
+    Includes the four descriptive fields ``@job`` carries. They survive
+    discovery *and* the cache onto ``descriptor.declaration``, and this
+    payload — which both the CLI and the MCP tool list render — used to drop
+    them. That made the one direction that matters impossible: an agent that
+    has found a job could not walk from it to the judgment that explains it.
+    """
     from functualize.app.utils import job_input_schema
 
     descriptor = next((d for d in app.get_jobs() if d.name == name), None)
     if descriptor is None:
         return None
 
+    # A job discovered by convention has no declaration at all. It renders as
+    # empty rather than absent, so a consumer never branches on which kind of
+    # job it is looking at.
+    declaration = getattr(descriptor, "declaration", None)
     fields = descriptor.config_fields or descriptor.parameters
     return {
         "name": descriptor.name,
@@ -146,6 +159,13 @@ def job_detail(app: FunctualizeApp, name: str) -> dict[str, Any] | None:
         "source_file": getattr(descriptor, "source_file", None),
         "module_path": getattr(descriptor, "module_path", None),
         "python_name": getattr(descriptor, "python_name", None),
+        # `tags` and `examples` are lists, never None -- empty when the job has
+        # none, so a consumer need not guard. `extra_description` and
+        # `category` are None when unset, matching `JobDeclaration`'s defaults.
+        "tags": list(getattr(declaration, "tags", ()) or ()),
+        "examples": list(getattr(declaration, "examples", ()) or ()),
+        "extra_description": getattr(declaration, "extra_description", None),
+        "category": getattr(declaration, "category", None),
         "inputSchema": job_input_schema(
             descriptor,
             group_options_class_names=_group_options_class_names(app),
@@ -256,7 +276,7 @@ def install_facts(*, include_manifest: bool) -> dict[str, Any]:
     reading the registry is cheap (~39us), but the overview is a summary and a
     list of every installation on the machine is not part of it.
     """
-    from functualize._cli.runtime import detect_from_process
+    from functualize.app.packaging import detect_from_process
 
     try:
         detection = detect_from_process()
@@ -289,6 +309,35 @@ def install_facts(*, include_manifest: bool) -> dict[str, Any]:
     return facts
 
 
+def discovery_failures(app: FunctualizeApp) -> list[dict[str, str]]:
+    """Modules discovery could not parse or import, as report payloads.
+
+    Read from the providers themselves rather than from a field on the app,
+    because that is where the answer is *current*: discovery is lazy, so the
+    scan behind a given set of descriptors may not have happened at boot. A
+    field set during boot would report an empty list for a tree whose failures
+    had not been found yet.
+
+    Reached by attribute access, not by import. ``_cli`` may not import
+    ``_discovery`` (constitution), and B5 is explicitly not allowed to add
+    public API -- that belongs to the sibling feature ``third-party-host-seams``,
+    which is where a host-facing seam for this would go if one is wanted. The
+    same shape as the existing ``_group_options`` read a few lines above.
+
+    Providers that do not scan -- ``StaticProvider``, anything a plugin adds --
+    have no such attribute and contribute nothing.
+    """
+    pipeline = getattr(app, "_resolution_pipeline", None)
+    entries = getattr(pipeline, "_providers", ()) or ()
+    failures: list[dict[str, str]] = []
+    for entry in entries:
+        provider = getattr(entry, "provider", entry)
+        for failure in getattr(provider, "discovery_failures", ()) or ():
+            with contextlib.suppress(Exception):
+                failures.append(failure.as_dict())
+    return failures
+
+
 def full_report(app: FunctualizeApp, cli_config: Any = None) -> dict[str, Any]:
     """Everything ``info`` knows, as one document.
 
@@ -296,7 +345,7 @@ def full_report(app: FunctualizeApp, cli_config: Any = None) -> dict[str, Any]:
     running four commands and parsing three prose formats.
     """
     from functualize import __version__
-    from functualize._cli.skills import list_skills, resolve_skills_dir
+    from functualize._cli.skills import list_skills, resolve_skills_locations
 
     report: dict[str, Any] = {
         "functualize": __version__,
@@ -306,6 +355,14 @@ def full_report(app: FunctualizeApp, cli_config: Any = None) -> dict[str, Any]:
         },
         "jobs": [job_detail(app, entry["name"]) for entry in job_catalog(app)],
     }
+
+    # After the jobs key, deliberately: building it is what forces the scan
+    # under a lazy boot, and the failures only exist once something has tried
+    # to read the tree.
+    #
+    # Always present, `[]` when there are none, so a consumer never has to
+    # guard for the key -- the same rule the `config` block below follows.
+    report["discovery_failures"] = discovery_failures(app)
 
     # Always present, even with no store to read. This is a document an agent
     # parses, so its *shape* must not depend on which entry point produced it:
@@ -322,16 +379,25 @@ def full_report(app: FunctualizeApp, cli_config: Any = None) -> dict[str, Any]:
 
     report["install"] = install_facts(include_manifest=True)
 
-    location = resolve_skills_dir()
-    report["skills"] = (
+    # A **list**, one entry per hosting distribution, and always present --
+    # `[]` when there are none, following the same rule as
+    # `discovery_failures` and `config` above. It was a single object or
+    # `null` until `third-party-host-seams`/4.2; a third-party distribution can
+    # now host its own skills, and an object could only ever describe core's.
+    #
+    # Each entry carries its *own* distribution and version rather than
+    # functualize's, which is the whole point of stamping per source: a skill
+    # read from a host's directory belongs to that host's release.
+    report["skills"] = [
         {
             "path": str(location.path),
             "origin": location.origin,
+            "distribution": location.distribution,
+            "version": location.version,
             "names": [s.name for s in list_skills(location.path)],
         }
-        if location is not None
-        else None
-    )
+        for location in resolve_skills_locations()
+    ]
 
     return report
 
@@ -386,11 +452,26 @@ def render_report_text(report: dict[str, Any]) -> list[str]:
             f"import_libs: {', '.join(import_libs) if import_libs else '(none)'}"
         )
 
-    skills = report.get("skills")
+    skills = report.get("skills") or []
     if skills:
-        lines.append(f"skills: {skills['path']} ({skills['origin']})")
+        for entry in skills:
+            stamp = entry.get("distribution") or "?"
+            if entry.get("version"):
+                stamp = f"{stamp} {entry['version']}"
+            lines.append(f"skills: {entry['path']} ({stamp}, {entry['origin']})")
     else:
         lines.append("skills: (none found)")
+
+    # Before the job list, not after: this is the explanation for a job list
+    # that looks shorter than it should, and an explanation printed below the
+    # thing it explains gets scrolled past.
+    failures = report.get("discovery_failures") or []
+    if failures:
+        lines.append("")
+        lines.append(f"discovery failures ({len(failures)}):")
+        for failure in failures:
+            lines.append(f"  {failure['path']}")
+            lines.append(f"    {failure['error_type']}: {failure['message']}")
 
     jobs = report.get("jobs") or []
     lines.append("")

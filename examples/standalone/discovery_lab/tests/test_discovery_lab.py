@@ -57,3 +57,42 @@ def test_helper():
 def test_snippets():
     assert _snippets.snippet_hello("Lab") == "Hello, Lab!"
     assert len(_snippets.snippet_date()) == 10  # YYYY-MM-DD
+
+
+# ---------------------------------------------------------------------------
+# The tenth filter: `pre_filter`, which has no env var or CLI flag
+# ---------------------------------------------------------------------------
+#
+# Unlike the nine `require_*` settings, this one takes a predicate, so it can
+# only be set programmatically. That makes it the one filter the README table
+# cannot demonstrate, and the one worth asserting here rather than by hand.
+
+_demo = _load("lab_pre_filter_demo", "pre_filter_demo.py")
+
+
+def test_the_predicate_selects_by_a_rule_no_setting_can_express():
+    """A word ending in 'y' anywhere in the stem — neither prefix nor postfix."""
+    check = _demo.NameContainsWordEndingInY().should_import
+    assert check(Path("jobs/job_deploy.py")) is True
+    assert check(Path("jobs/cleanup_task.py")) is False
+    assert check(Path("jobs/helpers.py")) is False
+
+
+def test_the_fingerprint_is_stable_across_instances():
+    """Two filters with the same logic must produce the same stamp.
+
+    The discovery cache replays this filter's negative decisions while the
+    stamp matches, so a stamp that varied per instance would rescan every boot.
+    """
+    a = _demo.NameContainsWordEndingInY()
+    b = _demo.NameContainsWordEndingInY()
+    assert a.fingerprint() == b.fingerprint()
+    assert str(a) != str(b), "distinct objects — so identity is not the stamp"
+
+
+def test_the_demo_narrows_the_job_list():
+    """End to end: the filter drops four files and keeps one."""
+    baseline = _demo.jobs_with(None)
+    filtered = _demo.jobs_with(_demo.NameContainsWordEndingInY())
+    assert set(filtered) == {"deploy", "rollback"}
+    assert set(baseline) - set(filtered) == {"audit", "build", "cleanup", "helper-info"}

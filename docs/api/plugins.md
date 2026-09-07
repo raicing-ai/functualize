@@ -30,6 +30,7 @@ from functualize.plugin import (
     PluginWithShutdown,
     Source,
     FormatProvider,
+    ModulePreFilter,
 )
 ```
 
@@ -150,6 +151,48 @@ class MyPlugin:
 ```
 
 Shutdown methods are called in **reverse loading order** with a **5-second per-plugin timeout**.
+
+---
+
+## `ModulePreFilter`
+
+Decides whether a module is worth importing, **before** discovery imports it.
+The built-in filters express the `require_*` settings; a host whose jobs no
+setting can describe supplies its own.
+
+```python
+from pathlib import Path
+
+from functualize.plugin import ModulePreFilter
+
+
+class HasJobSuffix:
+    def should_import(self, source_file: Path) -> bool:
+        return source_file.stem.endswith(("_tasks", "_ops"))
+
+    def fingerprint(self) -> str:
+        return "has-job-suffix:v1"
+```
+
+Satisfied structurally — there is nothing to inherit. Supply it through
+`DiscoveryConfig(pre_filter=...)`, where it is **ANDed** onto the built-in
+stack rather than replacing it, and runs last because its cost is unknown.
+
+!!! warning "`fingerprint()` is not optional"
+    The discovery cache persists *negative* pre-filter decisions and replays
+    them while the fingerprint matches. Identity cannot stand in for it:
+    `str()` of an object carries its memory address, so a digest built from the
+    object would differ on every boot — invalidating the cache on every run
+    while appearing to work. A filter with no `fingerprint()` is refused with a
+    `TypeError` rather than cached wrongly.
+
+    Return the same string across processes for the same behaviour, and a new
+    one when the predicate changes. Forgetting to bump it gives a stale cache —
+    the same contract as any cache key.
+
+See [Jobs and Auto-Discovery](../guides/jobs-discovery.md) for the full
+treatment and [Hosting Functualize](../guides/hosting.md) for the other host
+seams.
 
 ---
 

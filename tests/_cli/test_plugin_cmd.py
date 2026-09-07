@@ -25,6 +25,7 @@ from functualize._cli.plugin_cmd import (
     extensions_from,
     render_extensions,
 )
+from functualize.app import packaging
 
 
 @pytest.fixture
@@ -36,12 +37,12 @@ def calls(monkeypatch) -> list[list[str]]:
 
 @pytest.fixture
 def no_external_tools(monkeypatch) -> None:
-    monkeypatch.setattr(package_ops, "resolve_uv", lambda: "/opt/uv")
-    monkeypatch.setattr(package_ops, "resolve_pipx", lambda: "/opt/pipx")
+    monkeypatch.setattr(packaging, "resolve_uv", lambda: "/opt/uv")
+    monkeypatch.setattr(packaging, "resolve_pipx", lambda: "/opt/pipx")
     # Standalone adds packages with the *bundled* interpreter's pip, not
     # uv: a binary is the install method for a machine with no Python
     # toolchain, and PyApp's distribution ships no uv.
-    monkeypatch.setattr(package_ops, "owned_python", lambda: "/opt/python")
+    monkeypatch.setattr(packaging, "owned_python", lambda: "/opt/python")
 
 
 class TestDiscovery:
@@ -291,12 +292,12 @@ class TestSecondInstallKeepsTheFirst:
             '{ name = "functualize-http" }]\n',
             encoding="utf-8",
         )
-        monkeypatch.setattr(package_ops, "resolve_uv", lambda: "/opt/uv")
-        monkeypatch.setattr(package_ops.sys, "prefix", str(tmp_path))
+        monkeypatch.setattr(packaging, "resolve_uv", lambda: "/opt/uv")
+        monkeypatch.setattr(packaging.sys, "prefix", str(tmp_path))
 
-        from functualize._cli.runtime import Detection, InstallMode
+        from functualize.app.packaging import Detection, InstallMode
 
-        (command,) = package_ops.install_commands(
+        (command,) = packaging.install_commands(
             Detection(mode=InstallMode.TOOL_UV, owning_distribution="functualize"),
             "functualize-mcp",
         )
@@ -353,7 +354,7 @@ _NAMES = st.text(
 
 
 @st.composite
-def _requirements(draw) -> package_ops.Requirement:
+def _requirements(draw) -> packaging.Requirement:
     """A receipt entry in one of the shapes uv actually writes."""
     name = draw(_NAMES)
     fields: dict[str, object] = {"name": name}
@@ -368,7 +369,7 @@ def _requirements(draw) -> package_ops.Requirement:
         )
     elif shape == "marker":
         fields["marker"] = "sys_platform == 'win32'"
-    return package_ops.Requirement(name, fields)
+    return packaging.Requirement(name, fields)
 
 
 @pytest.mark.slow
@@ -381,16 +382,16 @@ class TestTheMergeRoundTrips:
         held has to reappear in the command, or installing one extension
         uninstalls the others.
         """
-        receipt = package_ops.Receipt(requirements=tuple(requirements))
-        args = package_ops.merge_receipt(receipt, "functualize", "new-package")
+        receipt = packaging.Receipt(requirements=tuple(requirements))
+        args = packaging.merge_receipt(receipt, "functualize", "new-package")
         flat = " ".join(args)
         for requirement in requirements:
             assert requirement.name in flat
 
     @given(requirements=st.lists(_requirements(), min_size=1, max_size=6))
     def test_the_new_package_is_always_added(self, requirements) -> None:
-        receipt = package_ops.Receipt(requirements=tuple(requirements))
-        args = package_ops.merge_receipt(receipt, "functualize", "brand-new")
+        receipt = packaging.Receipt(requirements=tuple(requirements))
+        args = packaging.merge_receipt(receipt, "functualize", "brand-new")
         assert "brand-new" in args
 
     @given(
@@ -407,8 +408,8 @@ class TestTheMergeRoundTrips:
         without it" — that removes the constraint from the environment.
         """
         fields = {**requirement.fields, unknown: "something"}
-        lossy = package_ops.Requirement(requirement.name, fields)
-        with pytest.raises(package_ops.LossyReceiptError):
+        lossy = packaging.Requirement(requirement.name, fields)
+        with pytest.raises(packaging.LossyReceiptError):
             lossy.to_pep508()
 
     @given(requirement=_requirements())

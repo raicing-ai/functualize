@@ -11,6 +11,8 @@ members = [
     "functualize",
     "functualize-ai",
     "functualize-ai-pydantic",
+    "functualize-aws",
+    "functualize-bitwarden",
     "functualize-flow-viz",
     "functualize-http",
     "functualize-inline",
@@ -345,6 +347,21 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/c7/94/1009e248bbfbab11397abca7193bea6626806be9a327d399810d523a07cb/beartype-0.22.9.tar.gz", hash = "sha256:8f82b54aa723a2848a56008d18875f91c1db02c32ef6a62319a002e3e25a975f", size = 1608866, upload-time = "2025-12-13T06:50:30.72Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/71/cc/18245721fa7747065ab478316c7fea7c74777d07f37ae60db2e84f8172e8/beartype-0.22.9-py3-none-any.whl", hash = "sha256:d16c9bbc61ea14637596c5f6fbff2ee99cbe3573e46a716401734ef50c3060c2", size = 1333658, upload-time = "2025-12-13T06:50:28.266Z" },
+]
+
+[[package]]
+name = "bitwarden-sdk"
+version = "2.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "python-dateutil" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9a/8b/561140803e14f5fcb461814af08efe686ff4f07eb0fe8d6721cb887008bf/bitwarden_sdk-2.1.0-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:659b7e3faaab067f38556ffaaa7edf217e581047234f9a748770fa2926d2664c", size = 3720715, upload-time = "2026-05-21T22:39:54.125Z" },
+    { url = "https://files.pythonhosted.org/packages/f4/7c/b4d87586010d365c01cffe2e1b28814072fae3c7a59dcfd85c7a51d11b7e/bitwarden_sdk-2.1.0-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:8374ef97e481c17a0b65e1b8d700df492cb384ff5a4888bd2c697c37457fc332", size = 3516944, upload-time = "2026-05-21T22:39:56.418Z" },
+    { url = "https://files.pythonhosted.org/packages/cf/56/44bdc84935648f735ce80df7e88cdaa133fb45a2fee745343ea2dfa26095/bitwarden_sdk-2.1.0-cp39-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:cdf85d309aecf21c563c9245322d49a344135761d03cffa43b8703f509bc0df7", size = 3315068, upload-time = "2026-05-21T22:39:58.075Z" },
+    { url = "https://files.pythonhosted.org/packages/7e/f4/ccdcadee82f88ec3c52a3b6e0db11df4c5587db171a2c979e4e9eb76b1d4/bitwarden_sdk-2.1.0-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:b6f6b2624e340307891edc20a2860ec0b7c2140683eec2ce2e20d1076ffe9268", size = 3519632, upload-time = "2026-05-21T22:39:59.861Z" },
+    { url = "https://files.pythonhosted.org/packages/58/49/cb3ed348f7bd35cc323021c11bee70304e446f3d5a6fca678987b4c47d23/bitwarden_sdk-2.1.0-cp39-abi3-win_amd64.whl", hash = "sha256:2c5de50af003b7b2d16a9a690d3111480d1b1962eb25f39e416812d6d9d4e4d6", size = 3453431, upload-time = "2026-05-21T22:40:01.481Z" },
 ]
 
 [[package]]
@@ -1203,6 +1220,7 @@ name = "functualize"
 version = "0.2.3"
 source = { editable = "." }
 dependencies = [
+    { name = "cryptography" },
     { name = "jinja2" },
     { name = "pydantic" },
     { name = "python-dotenv" },
@@ -1213,6 +1231,7 @@ all = [
     { name = "click" },
     { name = "functualize-ai" },
     { name = "functualize-ai-pydantic" },
+    { name = "functualize-aws" },
     { name = "functualize-flow-viz" },
     { name = "functualize-http" },
     { name = "functualize-inline" },
@@ -1236,6 +1255,7 @@ cli = [
 [package.dev-dependencies]
 dev = [
     { name = "debugpy" },
+    { name = "functualize-bitwarden" },
     { name = "hypothesis" },
     { name = "import-linter" },
     { name = "invoke" },
@@ -1258,9 +1278,11 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "click", marker = "extra == 'cli'", specifier = ">=8.0.0" },
+    { name = "cryptography", specifier = ">=42.0.0" },
     { name = "functualize", extras = ["cli"], marker = "extra == 'all'" },
     { name = "functualize-ai", marker = "extra == 'all'", editable = "plugins/functualize-ai" },
     { name = "functualize-ai-pydantic", marker = "extra == 'all'", editable = "plugins/functualize-ai-pydantic" },
+    { name = "functualize-aws", marker = "extra == 'all'", editable = "plugins/functualize-aws" },
     { name = "functualize-flow-viz", marker = "extra == 'all'", editable = "plugins/functualize-flow-viz" },
     { name = "functualize-http", marker = "extra == 'all'", editable = "plugins/functualize-http" },
     { name = "functualize-inline", marker = "extra == 'all'", editable = "plugins/functualize-inline" },
@@ -1283,6 +1305,7 @@ provides-extras = ["cli", "all"]
 [package.metadata.requires-dev]
 dev = [
     { name = "debugpy", specifier = ">=1.8.21" },
+    { name = "functualize-bitwarden", editable = "plugins/functualize-bitwarden" },
     { name = "hypothesis", specifier = ">=6.82.0" },
     { name = "import-linter", specifier = ">=2.0" },
     { name = "invoke", specifier = ">=2.2.0" },
@@ -1347,6 +1370,54 @@ requires-dist = [
     { name = "functualize-ai", editable = "plugins/functualize-ai" },
     { name = "litellm", specifier = ">=1.0.0" },
     { name = "pydantic-ai", specifier = ">=0.1.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "functualize-aws"
+version = "0.2.3"
+source = { editable = "plugins/functualize-aws" }
+dependencies = [
+    { name = "boto3" },
+    { name = "functualize" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-cov" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3", specifier = ">=1.34.0" },
+    { name = "functualize", editable = "." },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "functualize-bitwarden"
+version = "0.2.3"
+source = { editable = "plugins/functualize-bitwarden" }
+dependencies = [
+    { name = "bitwarden-sdk" },
+    { name = "functualize" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-cov" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "bitwarden-sdk", specifier = ">=2.0.0" },
+    { name = "functualize", editable = "." },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
 ]

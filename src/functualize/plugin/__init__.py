@@ -31,8 +31,10 @@ from functualize._types.protocols import (
     FormatProvider,
     JobProvider,
     JobTransform,
+    ModulePreFilter,
     PluginWithShutdown,
     Source,
+    VaultKeyProvider,
 )
 from functualize._types.settings import (
     AppSettingsSchema,
@@ -62,6 +64,8 @@ __all__ = [
     "JobProvider",
     "JobTransform",
     "Job",
+    # Discovery: decide what to import, without importing it
+    "ModulePreFilter",
     # Adapter and plugin protocols
     "AdapterPlugin",
     "AppSettingsSchema",
@@ -87,6 +91,7 @@ __all__ = [
     "PluginWithShutdown",
     "Source",
     "FormatProvider",
+    "VaultKeyProvider",
     # Domain discovery
     "discover_domains",
     "scan_domain_providers",

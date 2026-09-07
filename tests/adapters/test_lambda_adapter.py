@@ -20,6 +20,7 @@ import pytest
 from functualize_lambda import LambdaAdapter
 
 from functualize.app.adapters import AdapterPlugin, validate_adapter
+from functualize.types import RunStatus
 
 # =============================================================================
 # Helpers
@@ -30,7 +31,11 @@ from functualize.app.adapters import AdapterPlugin, validate_adapter
 class FakeJobResult:
     """Minimal stand-in for JobResult."""
 
-    status: str = "success"
+    # `status` carries a real `RunStatus`, not a look-alike. A fake that mistypes
+    # the field under test is how the adapter could report 200 for every outcome
+    # with a green suite: `result.status` was never read, and nothing here could
+    # have noticed. See remote-source-activation/4.2.
+    status: RunStatus = RunStatus.SUCCESS
     duration_ms: float = 1.0
     return_value: Any = None
     exception: BaseException | None = None

@@ -23,6 +23,7 @@ from functualize._types.enums import (
     RunStatus,
     RunType,
 )
+from functualize._types.http_status import http_status_for_status
 
 __all__ = [
     "JobResult",
@@ -36,4 +37,8 @@ __all__ = [
     "ConfigFileRole",
     "EnvironmentSource",
     "Secret",
+    # Every delivery surface that answers over HTTP maps a terminal RunStatus
+    # to a status code. Exported here, beside RunStatus itself, so a trigger
+    # plugin consumes the one table instead of writing a second opinion.
+    "http_status_for_status",
 ]

@@ -54,6 +54,11 @@ from functualize._types.descriptors import (
     GroupOptionsSpec,
     JobDescriptor,
 )
+from functualize._types.discovery_report import (
+    DiscoveryFailure,
+    collecting_discovery_failures,
+    record_discovery_failure,
+)
 from functualize._types.errors import GroupOptionsConflictError
 
 if TYPE_CHECKING:
@@ -132,6 +137,7 @@ class CachedDirectoryScanProvider:
         # Pre-filter decision cache: source_file -> PreFilterDecision
         # Only negative decisions (eligible=False) are stored
         self._pre_filter_decisions: dict[str, PreFilterDecision] = {}
+        self._discovery_failures: list[DiscoveryFailure] = []
 
         # Display-provider records: source_file -> DisplayCacheEntry.
         # Written by the scan's display-detection pass; read (via the raw
@@ -165,6 +171,26 @@ class CachedDirectoryScanProvider:
         4. Remove entries for deleted files.
         5. Persist updated cache to disk.
         """
+        with collecting_discovery_failures() as failures:
+            jobs = self._list_jobs()
+        # Only what *this* pass examined. A warm boot re-reads nothing, so it
+        # reports nothing — including for a file whose negative pre-filter
+        # decision was cached from an earlier pass. That is the honest answer
+        # to "what did this scan fail to read", and it is why the failure list
+        # is documented as per-scan rather than as a standing inventory of
+        # broken files.
+        self._discovery_failures = list(failures)
+        return jobs
+
+    @property
+    def discovery_failures(self) -> list[DiscoveryFailure]:
+        """Modules this provider's last pass could not parse or import.
+
+        Empty when the pass read nothing new — see ``list_jobs``.
+        """
+        return list(self._discovery_failures)
+
+    def _list_jobs(self) -> Sequence[JobDescriptor]:
         on_disk = self._discover_module_files()
 
         cached_files = self._known_source_files()
@@ -773,6 +799,7 @@ class CachedDirectoryScanProvider:
             extraction = extract_module(source_file, self._project_root)
         except Exception as e:
             logger.warning("Failed to import and extract from '%s': %s", source_file, e)
+            record_discovery_failure(source_file, e)
             return []
 
         self._record_display_entry(source_file, extraction)

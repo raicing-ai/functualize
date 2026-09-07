@@ -99,6 +99,7 @@ nav:
     - Shell Capability: guides/shell.md
     - Task Runner: guides/task-runner.md
     - Composing Capabilities: guides/composition.md
+    - Hosting Functualize: guides/hosting.md
   - API Reference:
     - api/index.md
     - Config: api/config.md

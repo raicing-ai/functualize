@@ -27,15 +27,22 @@ from pathlib import Path
 
 import pytest
 
-_SUBSYSTEM = (
-    "runtime.py",
-    "manifest.py",
-    "package_ops.py",
-    "self_cmd.py",
-    "plugin_cmd.py",
-)
+#: Files keyed by name, because the property follows the *code*, not the
+#: directory. `runtime.py` moved to `functualize/app/packaging.py` when install
+#: detection became public (`third-party-host-seams`/3.1) and the invariant
+#: applies at least as strongly there: a public module that crawled the
+#: filesystem would hand the behaviour to every host as well.
+_ROOT = Path(__file__).resolve().parents[2] / "src" / "functualize"
 
-_SRC = Path(__file__).resolve().parents[2] / "src" / "functualize" / "_cli"
+_SUBSYSTEM = {
+    "packaging.py": _ROOT / "app" / "packaging.py",
+    "manifest.py": _ROOT / "_cli" / "manifest.py",
+    "package_ops.py": _ROOT / "_cli" / "package_ops.py",
+    "self_cmd.py": _ROOT / "_cli" / "self_cmd.py",
+    "plugin_cmd.py": _ROOT / "_cli" / "plugin_cmd.py",
+}
+
+_SRC = _ROOT / "_cli"
 
 #: Calls that would be discovery wherever they appeared in this subsystem.
 #: `which` is absent on purpose -- see the module docstring.
@@ -50,9 +57,26 @@ _FORBIDDEN = {
 @pytest.fixture(scope="module")
 def trees() -> dict[str, ast.Module]:
     return {
-        name: ast.parse((_SRC / name).read_text(encoding="utf-8"))
-        for name in _SUBSYSTEM
+        name: ast.parse(path.read_text(encoding="utf-8"))
+        for name, path in _SUBSYSTEM.items()
     }
+
+
+def _imported_names(tree: ast.Module) -> set[str]:
+    """Top-level package name of every import, both spellings.
+
+    Read structurally rather than by searching the source text: the modules
+    here *document* what they deliberately do not do, so `"subprocess" in
+    source` is true of a file that explains why it never spawns one.
+    """
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                found.add(alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            found.add(node.module.split(".")[0])
+    return found
 
 
 def _called_names(tree: ast.Module) -> set[str]:
@@ -68,7 +92,7 @@ def _called_names(tree: ast.Module) -> set[str]:
 
 
 class TestNothingCrawlsTheFilesystem:
-    @pytest.mark.parametrize("name", _SUBSYSTEM)
+    @pytest.mark.parametrize("name", sorted(_SUBSYSTEM))
     def test_no_forbidden_call(self, trees, name: str) -> None:
         offenders = _called_names(trees[name]) & _FORBIDDEN
         assert not offenders, (
@@ -90,8 +114,14 @@ class TestPathIsConsultedOnlyForAPackageManager:
     def test_which_is_called_only_from_the_two_resolvers(self) -> None:
         """`shutil.which` is legitimate for finding uv and pipx and for nothing
         else. Confined to two named functions so a third use has to be a
-        deliberate edit to this test."""
-        tree = ast.parse((_SRC / "package_ops.py").read_text(encoding="utf-8"))
+        deliberate edit to this test.
+
+        The two resolvers moved to `app/packaging.py` with the rest of command
+        planning (`third-party-host-seams`/3.2). The confinement matters more
+        there, not less: the module is public, so a third `which` would hand
+        the behaviour to every host.
+        """
+        tree = ast.parse(_SUBSYSTEM["packaging.py"].read_text(encoding="utf-8"))
         holders = {
             node.name
             for node in ast.walk(tree)
@@ -101,7 +131,7 @@ class TestPathIsConsultedOnlyForAPackageManager:
         assert holders == {"resolve_uv", "resolve_pipx"}
 
     @pytest.mark.parametrize(
-        "name", ["runtime.py", "manifest.py", "self_cmd.py", "plugin_cmd.py"]
+        "name", ["package_ops.py", "manifest.py", "self_cmd.py", "plugin_cmd.py"]
     )
     def test_no_other_module_touches_path(self, trees, name: str) -> None:
         assert "which" not in _called_names(trees[name])
@@ -115,12 +145,32 @@ class TestTheRegistryIsReadNeverDerived:
         assert not called & {"run", "call", "Popen", "check_output"}
 
     def test_manifest_imports_no_subprocess(self) -> None:
-        source = (_SRC / "manifest.py").read_text(encoding="utf-8")
+        source = _SUBSYSTEM["manifest.py"].read_text(encoding="utf-8")
         assert "import subprocess" not in source
 
     def test_runtime_detection_spawns_nothing(self) -> None:
-        """Detection answers from `sys.prefix`, the environment and metadata.
-        A subprocess here would put a process spawn on the path of every
-        command that reports its own install mode."""
-        source = (_SRC / "runtime.py").read_text(encoding="utf-8")
-        assert "subprocess" not in source
+        """Detection answers from `sys.prefix`, the environment and metadata,
+        and planning returns argv rather than running it. A subprocess here
+        would put a process spawn on the path of every command that reports its
+        own install mode -- and would make the public module something a host
+        cannot call without side effects."""
+        tree = ast.parse(_SUBSYSTEM["packaging.py"].read_text(encoding="utf-8"))
+        assert "subprocess" not in _imported_names(tree)
+        assert not _called_names(tree) & {"run", "call", "Popen", "check_output"}
+
+    def test_the_planner_imports_no_cli_framework(self) -> None:
+        """`app/packaging.py` is public and must stay importable by a host with
+        no terminal. A `click` import here is what would end that."""
+        tree = ast.parse(_SUBSYSTEM["packaging.py"].read_text(encoding="utf-8"))
+        assert "click" not in _imported_names(tree)
+
+    def test_the_import_check_can_actually_fail(self) -> None:
+        """The guard against a vacuous structural test, for `_imported_names`.
+
+        Both forms have to be seen: `import subprocess` and
+        `from subprocess import call`.
+        """
+        assert _imported_names(ast.parse("import subprocess\n")) == {"subprocess"}
+        assert "subprocess" in _imported_names(
+            ast.parse("from subprocess import call\n")
+        )

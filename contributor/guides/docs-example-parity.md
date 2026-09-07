@@ -57,7 +57,7 @@ pass **runs** things where the audit **reads** them.
 | A scenario that fails open, or asserts nothing | `h-workflow` asserted a sentinel (`WORKFLOW_SETUP_OK`) its own command never printed, so it had never passed — and its body declared no `@workflow`, reached no gate and resumed nothing, despite its description | Reading the scenario against its own description |
 | Index drift — a new example invisible to readers | 4 examples missing from 3 indexes; one README said "Five directories" above a six-row table | Count the directories, count the rows |
 | The same stale fact copied into N files | The boot provider row — it named two format providers where boot registers one — stood in 3 files; `remote_first()`'s promise in 6 | `grep` the *claim*, never the file. Quote the stale string in a guide and you become the hit that breaks your own gate, so describe it instead |
-| A dead capability the docs present as working | `remote_first()` — `RemoteSource` is constructed nowhere, so the preset resolves as `classic()` while the docs recommended it for Vault | Read the call path, not the symbol: a symbol that exists proves nothing about it being reached |
+| A dead capability the docs present as working | `remote_first()` — `RemoteSource` was constructed nowhere, so the preset resolved as `classic()` while the docs recommended it for Vault | Read the call path, not the symbol: a symbol that exists proves nothing about it being reached |
 | Harness environment noise read as documentation drift | `exit 127` on every step, with no `.venv/bin` on `PATH` | Run a known-good scenario **first** |
 | A doc that publishes a red command | `docs/examples/index.md:48` published `uv run pytest examples/ -v`, which was red | Run the command the doc tells the reader to run |
 | A test that pins a claim nothing satisfies | `test_file_plugin.py` requires subscriptions to `job.execute.success` / `.failure`; the engine emits one terminal `job.execute.end` carrying the outcome as a field | Grep the event names the product actually emits |
@@ -115,6 +115,14 @@ third. Skipping this has silently discarded completed work more than once
 
 - [`wiring-discipline.md`](wiring-discipline.md) — a capability that is built,
   unit-tested and unreachable. `remote_first()` is a worked instance.
+
+  **Both `remote_first()` instances above are past tense.** ADR-016 wired the
+  preset and the six stale promises were corrected; they are kept here because
+  the drift classes they illustrate are not fixed by fixing one instance, and a
+  worked example with a known ending is the useful kind. The finding that closed
+  them is also the reason the preset now *raises* with no provider registered:
+  the class of defect is a capability that degrades silently, so the repair had
+  to remove the silence, not just the degradation.
 - [`tui-panels.md`](tui-panels.md) §14 — the `secret=` contract every panel must
   carry.
 - `.agents/skills/doc-verify/SKILL.md` — the harness itself.

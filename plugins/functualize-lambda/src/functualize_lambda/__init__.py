@@ -36,8 +36,41 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from functualize.types import http_status_for_status
+
 if TYPE_CHECKING:
     from functualize.app.core import FunctualizeApp
+
+
+def _response(result: Any) -> dict[str, Any]:
+    """Turn a finished run into a Lambda proxy response.
+
+    Both handler shapes -- fat (``_handle_event``) and thin
+    (``make_handler``) -- go through here, because two copies is how the two
+    drifted from the status table in the first place.
+
+    Before this, every outcome the engine *returned* was reported as
+    ``{"statusCode": 200, "body": None}``: ``result.status`` was never read.
+    A failure, a refusal, and a workflow paused at a gate were all
+    indistinguishable from a job that succeeded and returned nothing. Only an
+    exception escaping ``execute()`` became a 500 -- and the engine's whole
+    design is that failures do *not* escape, so the one branch that reported
+    failure was the branch the engine tries hardest never to take.
+
+    ``status`` and ``error`` are added rather than substituted: a caller
+    reading ``body`` on success keeps reading exactly what it read before.
+    """
+    status = result.status
+    payload: dict[str, Any] = {
+        "statusCode": http_status_for_status(status),
+        "status": status.value if hasattr(status, "value") else str(status),
+        "body": result.return_value,
+    }
+    exception = getattr(result, "exception", None)
+    if exception is not None:
+        # A 500 whose body is `null` tells a caller nothing at all.
+        payload["error"] = str(exception)
+    return payload
 
 
 class LambdaAdapter:
@@ -123,8 +156,7 @@ class LambdaAdapter:
             """Thin Lambda handler for job '{job_name}'."""
             job_kwargs = event.get("kwargs", {})
             try:
-                result = app.execute(job_name, **job_kwargs)
-                return {"statusCode": 200, "body": result.return_value}
+                return _response(app.execute(job_name, **job_kwargs))
             except Exception as exc:
                 return {"statusCode": 500, "body": str(exc)}
 
@@ -162,8 +194,7 @@ class LambdaAdapter:
         job_kwargs = event.get("kwargs", {})
 
         try:
-            result = self._app.execute(job_name, **job_kwargs)
-            return {"statusCode": 200, "body": result.return_value}
+            return _response(self._app.execute(job_name, **job_kwargs))
         except Exception as exc:
             return {"statusCode": 500, "body": str(exc)}
 
