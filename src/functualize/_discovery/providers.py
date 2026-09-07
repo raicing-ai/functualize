@@ -13,22 +13,18 @@ Only imports from `_types/`, `_primitives/`, `_events/`, and Python stdlib.
 
 from __future__ import annotations
 
-import contextlib
 import enum
-import importlib.util
 import inspect
 import logging
-import os
-import sys
 import types as builtin_types
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, get_args, get_origin
 
+from functualize._discovery.collisions import resolve_name_collisions
 from functualize._primitives import JobFilter, ModulePreFilter, iter_module_files
 from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
-from functualize._primitives.config_class_detection import detect_config_class
 from functualize._primitives.entry_points import entry_points
 from functualize._primitives.group_options_detection import (
     is_group_options_subclass,
@@ -475,12 +471,21 @@ class DirectoryScanProvider:
         directories: list[str],
         pre_filter: ModulePreFilter | None = None,
         job_filter: JobFilter | None = None,
+        project_root: Path | None = None,
     ) -> None:
         if not directories:
             raise ValueError("At least one directory path is required")
         self._directories = directories
         self._pre_filter = pre_filter
         self._job_filter = job_filter
+        # Needed by the shared extraction pass, for first-level dependency
+        # hashing. Defaulted the same way the cached provider defaults it, so
+        # a caller that does not know the root behaves identically to one that
+        # relies on the convention.
+        if project_root is not None:
+            self._project_root = Path(project_root)
+        else:
+            self._project_root = Path(directories[0]).parent
         self._cache: list[JobDescriptor] | None = None
         self._discovery_failures: list[DiscoveryFailure] = []
 
@@ -498,6 +503,18 @@ class DirectoryScanProvider:
             # happen once, so does this.
             self._discovery_failures = list(failures)
         return self._cache
+
+    def invalidate(self) -> None:
+        """Drop the memoized scan so the next ``list_jobs`` re-reads the disk.
+
+        ``list_jobs`` memoizes, which is what keeps one boot to one import per
+        module even when several consumers ask for the job list. But
+        ``FunctualizeApp.refresh()`` exists precisely to observe a file that
+        was added, edited or deleted since boot, and a memo serves the state
+        before the change. Boot leaves the memo empty, so invalidating on the
+        registration path costs nothing there and makes refresh honest.
+        """
+        self._cache = None
 
     @property
     def discovery_failures(self) -> list[DiscoveryFailure]:
@@ -534,7 +551,10 @@ class DirectoryScanProvider:
                 logger.warning("Directory not found or not readable: %s", dir_path)
                 continue
             results.extend(self._scan_directory(path))
-        return results
+        # One job name, one function — the same rule the cached provider and
+        # the pipeline apply. Without it this provider returned two entries
+        # under one name and left which of them ran undefined.
+        return resolve_name_collisions(results)
 
     def _scan_directory(self, directory: Path) -> list[JobDescriptor]:
         """Scan a single directory for job modules and extract descriptors."""
@@ -554,117 +574,38 @@ class DirectoryScanProvider:
         return results
 
     def _import_and_extract(self, source_file: Path) -> list[JobDescriptor]:
-        """Import a module and extract all public job descriptors."""
+        """Import a module and extract its job descriptors.
+
+        Delegates to ``_discovery/sync.extract_module`` — the same pass the
+        cached provider uses. This class used to carry a second
+        implementation, and the two disagreed about a **grouped job's name**:
+
+            JOB_GROUP = "mcp"; def provision(): ...
+
+            this provider      -> name "provision"      (bare)
+            cached provider    -> name "mcp.provision"  (qualified)
+
+        Nothing on a boot path noticed while the eager branch bypassed this
+        provider entirely, but the pipeline reaches it whenever a second job
+        source exists — so a grouped job registered under a bare name there,
+        and `func mcp provision` could not find it. Two implementations of
+        "import a module and extract descriptors" is the same duplication that
+        produced the four defects `eager-boot-provider` closes; one of them had
+        to go.
+
+        ``extract_module`` also yields display classes and group-options
+        specs, which this provider has no cache to record them in and so
+        drops. That is unchanged behaviour: the previous implementation never
+        collected them either.
+        """
+        from functualize._discovery.sync import extract_module
+
         try:
-            module_name = source_file.stem
-            unique_name = f"_functualize_discovery_.{module_name}_{id(source_file)}"
-
-            spec = importlib.util.spec_from_file_location(unique_name, str(source_file))
-            if spec is None or spec.loader is None:
-                return []
-
-            module = importlib.util.module_from_spec(spec)
-
-            # Temporarily add module directory to sys.path
-            module_dir = str(source_file.parent)
-            path_added = False
-            if module_dir not in sys.path:
-                sys.path.insert(0, module_dir)
-                path_added = True
-
-            try:
-                spec.loader.exec_module(module)
-            finally:
-                if path_added and module_dir in sys.path:
-                    sys.path.remove(module_dir)
-
-            return self._extract_descriptors(module, source_file)
+            return extract_module(str(source_file), self._project_root).jobs
         except Exception as e:
             logger.warning("Failed to import and extract from '%s': %s", source_file, e)
             record_discovery_failure(source_file, e)
             return []
-
-    def _extract_descriptors(
-        self, module: Any, source_file: Path
-    ) -> list[JobDescriptor]:
-        """Extract JobDescriptors from all public functions in a module."""
-
-        from functualize._discovery.schema_extractor import extract_field_descriptors
-        from functualize._primitives.pre_filter import extract_function_decorators
-
-        results: list[JobDescriptor] = []
-        module_file = getattr(module, "__file__", None)
-        job_group_attr: str | None = getattr(module, "JOB_GROUP", None)
-        # Decorators must come from the source AST: a transparent decorator
-        # leaves nothing on the imported function to introspect.
-        decorators_by_func = extract_function_decorators(source_file)
-
-        for attr_name in dir(module):
-            if attr_name.startswith("_"):
-                continue
-
-            attr = getattr(module, attr_name, None)
-            if attr is None or not callable(attr) or not inspect.isfunction(attr):
-                continue
-
-            # Verify function is defined in this module
-            attr_module = inspect.getmodule(attr)
-            if attr_module is not None and attr_module is not module:
-                continue
-            if attr_module is None and module_file is not None:
-                try:
-                    func_file = inspect.getfile(attr)
-                    if os.path.abspath(func_file) != os.path.abspath(module_file):
-                        continue
-                except (TypeError, OSError):
-                    continue
-
-            # Extract parameters from function signature
-            parameters = self._extract_parameters(attr)
-
-            # Config fields come from the job's config class, resolved through
-            # the one shared rule (_primitives/config_class_detection) rather
-            # than a local copy of it.
-            config_fields: list[FieldDescriptor] = []
-            config_class = detect_config_class(attr)
-            if config_class is not None:
-                with contextlib.suppress(Exception):
-                    config_fields = extract_field_descriptors(config_class)
-
-            declaration = getattr(attr, "__functualize_job__", None)
-            workflow_shape = workflow_shape_of(attr)
-            from_job_deps = from_job_names(attr)
-            effective_group = (
-                declaration.group
-                if declaration is not None and declaration.group is not None
-                else job_group_attr
-            )
-            # `@job(name=)` is gone: the address derives from `__name__` and
-            # is normalized here so this provider agrees with the cached and
-            # registry paths. Leaving it raw made the same job `test_suite`
-            # through one door and `test-suite` through another.
-            effective_name = normalize_segment(attr_name)
-
-            results.append(
-                JobDescriptor(
-                    name=effective_name,
-                    group=normalize_name(effective_group),
-                    python_name=attr_name,
-                    function=attr,
-                    docstring=getattr(attr, "__doc__", None),
-                    parameters=parameters,
-                    source=str(source_file),
-                    metadata=extract_ext_metadata(attr),
-                    config_fields=config_fields if config_fields else parameters,
-                    decorators=decorators_by_func.get(attr_name, ()),
-                    declaration=declaration,
-                    from_job_deps=from_job_deps,
-                    workflow=workflow_shape,
-                    **extract_capability_markers(attr),
-                )
-            )
-
-        return results
 
     def _extract_parameters(self, func: Callable[..., Any]) -> list[FieldDescriptor]:
         """Extract FieldDescriptors from function signature via shared introspection."""

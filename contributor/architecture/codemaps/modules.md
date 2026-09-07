@@ -79,7 +79,7 @@ Only frozen dataclasses, Enums, Protocol definitions. `descriptors.py` (`JobDesc
 
 ### `_discovery/` — Job Finding
 
-`providers.py` (`DirectoryScanProvider`, `StaticProvider`, `EntryPointProvider`), `transforms.py` (`NamespaceTransform`, `GroupByModuleAttributeTransform`), `cached_provider.py` (`CachedDirectoryScanProvider` — the single persisted discovery cache; format shared via `_primitives/cache_format.py`), `sync.py` (`extract_module` — the import+extract pass the cached provider uses), `filter_factory.py` (`build_pre_filter_from_config` file level, `build_job_filter_from_config` job level), `hierarchy.py` (child-project composition), `pipeline.py` (`ResolutionPipeline`).
+`providers.py` (`DirectoryScanProvider`, `StaticProvider`, `EntryPointProvider`), `transforms.py` (`NamespaceTransform`, `GroupByModuleAttributeTransform`), `cached_provider.py` (`CachedDirectoryScanProvider` — the single persisted discovery cache; format shared via `_primitives/cache_format.py`), `sync.py` (`extract_module` — the import+extract pass the cached provider uses), `filter_factory.py` (`build_pre_filter_from_config` file level, `build_job_filter_from_config` job level), `hierarchy.py` (child-project composition), `pipeline.py` (`ResolutionPipeline`), `collisions.py` (`resolve_name_collisions` — one job name addresses one function; imported by both provider modules and the pipeline, because four registration paths previously carried four different answers to the same question).
 
 ### `_config/` — Configuration Resolution
 

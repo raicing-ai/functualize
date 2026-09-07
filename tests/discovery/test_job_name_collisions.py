@@ -305,17 +305,28 @@ class TestTheEagerPathAgrees:
 
         assert app is not None
 
-    def test_it_warns_instead(
-        self, tmp_path: Path, jobs_dir: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_it_reports_instead(self, tmp_path: Path, jobs_dir: Path) -> None:
+        """Reports *structurally*, not just in a log line.
+
+        When this feature landed the eager scan had no route to `builtin info`
+        — that surface reads discovery failures off the providers, and the
+        eager registry scanner was not one — so the diagnostic was a warning,
+        disclosed as TRANSITIONAL. `eager-boot-provider` then routed the
+        branch through a real provider and the transitional state closed, so
+        this asserts the report rather than the log.
+        """
         (jobs_dir / "wheels.py").write_text(TWO_SPELLINGS)
 
-        with caplog.at_level("WARNING"):
-            FunctualizeApp(
-                "eager", job_sources=JobSources(directories=[str(jobs_dir)], lazy=False)
-            )
+        app = FunctualizeApp(
+            "eager", job_sources=JobSources(directories=[str(jobs_dir)], lazy=False)
+        )
 
-        assert any("build-wheel" in record.message for record in caplog.records)
+        provider = app._eager_provider
+        assert [
+            f.message
+            for f in provider.discovery_failures
+            if f.error_type == JOB_NAME_COLLISION
+        ]
 
     def test_one_job_is_registered_not_two(
         self, tmp_path: Path, jobs_dir: Path

@@ -562,17 +562,30 @@ class GlobExcludePreFilter:
         self._base_dir = base_dir
         # Deepest-first, de-duplicated: the first root that is an ancestor of a
         # candidate is the one it is judged against.
+        #
+        # **Resolved.** Containment is decided by `Path.relative_to`, which is
+        # textual: a relative root can never contain an absolute candidate, and
+        # vice versa. So a caller passing `directories=["jobs"]` — the natural
+        # spelling, and what a library-mode host writes — produced roots that
+        # matched nothing, `should_import` fell through to its permissive
+        # default, and **every `exclude_patterns` entry was silently ignored**.
+        # `func --exclude` was unaffected only because the CLI happens to
+        # resolve its roots first. Resolving both sides here makes the filter
+        # independent of how its caller spelled the path, rather than making
+        # every caller responsible for spelling it one way.
         ordered: list[Path] = []
         for root in (Path(base_dir), *(Path(r) for r in scan_roots)):
-            if root not in ordered:
-                ordered.append(root)
+            resolved = root.resolve()
+            if resolved not in ordered:
+                ordered.append(resolved)
         self._roots = tuple(sorted(ordered, key=lambda r: len(r.parts), reverse=True))
 
     def should_import(self, source_file: Path) -> bool:
         """Return False if the file matches any exclusion pattern."""
+        candidate = source_file.resolve()
         for root in self._roots:
             try:
-                rel_str = str(source_file.relative_to(root))
+                rel_str = str(candidate.relative_to(root))
             except ValueError:
                 continue
             return all(

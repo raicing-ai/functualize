@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
+import importlib
 import json
 import logging
 import os
@@ -41,6 +42,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from functualize._discovery.collisions import resolve_name_collisions
 from functualize._primitives.cache_format import (
     CACHE_FILENAME,
     CACHE_VERSION,
@@ -57,9 +59,7 @@ from functualize._types.descriptors import (
 from functualize._types.discovery_report import (
     DiscoveryFailure,
     collecting_discovery_failures,
-    job_name_collision,
     record_discovery_failure,
-    record_discovery_finding,
 )
 from functualize._types.errors import GroupOptionsConflictError
 
@@ -566,42 +566,14 @@ class CachedDirectoryScanProvider:
     def _reindex_by_name(self) -> None:
         """Rebuild the name index from retained entries, reporting collisions.
 
-        One job name addresses one function. When more than one retained entry
-        claims a name, the **last** one wins — which is what happened before
-        this index was collision-aware, so no project's surviving job moves —
-        and every displaced claimant is reported as a discovery failure.
-
-        **Sorted by entry key, because insertion order is not stable.**
-        ``_list_jobs`` imports new files while iterating ``on_disk -
-        cached_files``, a *set* difference, so entry insertion order follows
-        set iteration — which string-hash randomization makes differ between
-        processes. Measured on 0.2.3 before this method existed: two files each
-        declaring ``build_wheel``, eight cold boots, winner ``b b a b b a a
-        a``. The surviving job was a coin flip per invocation, which is worse
-        than one job vanishing, because the *behaviour* of the job that stayed
-        changed without anything changing on disk.
-
-        Sorting the key — ``source_file`` then Python name — makes it
-        well-defined, and preserves the outcome in the case that *was* already
-        deterministic: two spellings in one file arrive from a single import in
-        ``dir()`` order, and sorting reproduces that order exactly.
+        Delegates the rule to `_discovery/collisions.py`, which the uncached
+        provider and the resolution pipeline also use — four registration
+        paths gave four different answers to "two functions want one job name"
+        because each carried its own.
         """
-        rebuilt: dict[str, JobDescriptor] = {}
-        for _key, descriptor in sorted(self._entries.items()):
-            previous = rebuilt.get(descriptor.name)
-            if previous is not None and previous is not descriptor:
-                record_discovery_finding(
-                    job_name_collision(
-                        canonical_name=descriptor.name,
-                        kept_module=descriptor.module_path or descriptor.source_file,
-                        kept_python_name=descriptor.python_name or descriptor.name,
-                        dropped_module=previous.module_path or previous.source_file,
-                        dropped_python_name=previous.python_name or previous.name,
-                        dropped_path=previous.source_file,
-                    )
-                )
-            rebuilt[descriptor.name] = descriptor
-        self._by_name = rebuilt
+        self._by_name = {
+            d.name: d for d in resolve_name_collisions(self._entries.values())
+        }
 
     def _remove_entries_for_file(self, source_file: str) -> None:
         """Remove all entries (jobs, displays, group options) for a source file."""
@@ -795,7 +767,21 @@ class CachedDirectoryScanProvider:
         """Scan configured directories for Python module files (no imports).
 
         Returns absolute file paths for all discovered non-package modules.
+
+        Invalidates the import system's finder caches first. ``pkgutil`` reads
+        directory contents through ``FileFinder``, which memoizes a listing and
+        re-reads it only when the directory's mtime changes — so a job module
+        added since a previous listing, in the same mtime tick, is **invisible
+        to discovery**. Reproduced: a file written after one boot, then a
+        second boot in the same process, and the new module was absent from
+        this set entirely while importing it directly worked and no discovery
+        failure was recorded.
+
+        That is precisely the case ``FunctualizeApp.refresh()`` exists to
+        serve — a long-lived TUI or MCP server observing a file the user just
+        added — so the invalidation belongs here rather than at any one caller.
         """
+        importlib.invalidate_caches()
         on_disk: set[str] = set()
 
         for dir_path in self._directories:

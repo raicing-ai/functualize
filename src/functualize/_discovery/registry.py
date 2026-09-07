@@ -467,15 +467,13 @@ class JobRegistry:
                     dropped_python_name=existing_raw or registry_key,
                     dropped_path=getattr(module, "__file__", "") or "<unknown>",
                 )
-                # TRANSITIONAL(eager-boot-provider): the structured report has
-                # no route to `builtin info` from here — that surface reads
-                # discovery failures off the *providers* in the resolution
-                # pipeline, and this eager scanner is not one. Recording into
-                # the collection scope is therefore a no-op today and becomes
-                # live when `eager-boot-provider` deletes this branch in favour
-                # of the provider boot already builds. The warning is what
-                # carries the diagnostic in the meantime, so the behaviour
-                # change here is raise -> warn, not raise -> report.
+                # This scanner is no longer on either boot path: the eager
+                # branch registers the provider's descriptors, and the two
+                # remaining callers are defensive fallbacks. Kept in agreement
+                # with `_discovery/collisions.py` anyway — the reason there
+                # were four different answers to this question is that each
+                # path carried its own, and a fallback that disagrees is how a
+                # fifth would appear.
                 record_discovery_finding(failure)
                 logger.warning("%s", failure.message)
             self._registered_jobs[registry_key] = entry
