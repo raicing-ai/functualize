@@ -57,7 +57,9 @@ from functualize._types.descriptors import (
 from functualize._types.discovery_report import (
     DiscoveryFailure,
     collecting_discovery_failures,
+    job_name_collision,
     record_discovery_failure,
+    record_discovery_finding,
 )
 from functualize._types.errors import GroupOptionsConflictError
 
@@ -129,9 +131,13 @@ class CachedDirectoryScanProvider:
         else:
             self._project_root = Path.cwd()
 
-        # In-memory cache: keyed by composite "source_file::job_name"
+        # In-memory cache: keyed by composite "source_file::python_name" —
+        # one entry per function, so two functions normalizing onto one job
+        # name both survive. See `_entry_key`.
         self._entries: dict[str, JobDescriptor] = {}
-        # O(1) name-based index: job_name -> JobDescriptor
+        # O(1) name-based index: job_name -> JobDescriptor. Derived from
+        # `_entries` by `_reindex_by_name`, which is where the one-name-one-
+        # function rule and its diagnostic live.
         self._by_name: dict[str, JobDescriptor] = {}
 
         # Pre-filter decision cache: source_file -> PreFilterDecision
@@ -173,10 +179,17 @@ class CachedDirectoryScanProvider:
         """
         with collecting_discovery_failures() as failures:
             jobs = self._list_jobs()
-        # Only what *this* pass examined. A warm boot re-reads nothing, so it
-        # reports nothing — including for a file whose negative pre-filter
-        # decision was cached from an earlier pass. That is the honest answer
-        # to "what did this scan fail to read", and it is why the failure list
+        # Only what *this* pass examined, for the read failures: a warm boot
+        # re-reads nothing, so it reports nothing — including for a file whose
+        # negative pre-filter decision was cached from an earlier pass. That is
+        # the honest answer to "what did this scan fail to read".
+        #
+        # A job-name collision is the one finding here that is *not* about a
+        # read: it is derived from the retained entries, which a warm boot has
+        # in full, so it is reported on every pass. Reporting it only on a cold
+        # boot would make it vanish on the second invocation, which is the
+        # intermittent shape this project treats as worse than silence.
+        # That is why the failure list
         # is documented as per-scan rather than as a standing inventory of
         # broken files.
         self._discovery_failures = list(failures)
@@ -226,6 +239,12 @@ class CachedDirectoryScanProvider:
 
         if changed or self._dirty:
             self._persist_cache()
+
+        # Authoritative index build, inside the collection scope `list_jobs`
+        # opens, so a name collision is reported on a warm boot too: the
+        # evidence is the retained entries, which a warm boot has, rather than
+        # an import it did not perform.
+        self._reindex_by_name()
 
         return [d for d in self._by_name.values() if self._admits(d)]
 
@@ -318,7 +337,7 @@ class CachedDirectoryScanProvider:
                 try:
                     descriptor = JobDescriptor.from_dict(entry_data)
                     self._entries[key] = descriptor
-                    self._by_name[descriptor.name] = descriptor
+                    self._claim_name(descriptor)
                 except (ValueError, TypeError, KeyError) as e:
                     logger.warning("Failed to deserialize cache entry '%s': %s", key, e)
 
@@ -500,11 +519,89 @@ class CachedDirectoryScanProvider:
     # Entry management
     # =========================================================================
 
+    @staticmethod
+    def _entry_key(descriptor: JobDescriptor) -> str:
+        """The retention key: one entry per *function*, not per job name.
+
+        Keyed by the Python name rather than the job name because two
+        functions in one file can normalize onto one job name (``build_wheel``
+        and ``buildWheel`` both become ``build-wheel``). Keyed by job name,
+        the second overwrote the first here and the collision became
+        unobservable — including on a warm boot, where the loser had never
+        been persisted and so could not be re-derived.
+
+        Retaining both is what lets :meth:`_reindex_by_name` report the
+        collision on every boot from cached evidence, with no separate record
+        to keep in sync. ``python_name`` is empty on descriptors built by hand
+        (a static provider, a dynamic registration), so the job name is the
+        fallback and behaviour for those is unchanged.
+        """
+        return f"{descriptor.source_file}::{descriptor.python_name or descriptor.name}"
+
     def _add_entry(self, descriptor: JobDescriptor) -> None:
         """Add a descriptor to both the entries dict and the name index."""
-        key = f"{descriptor.source_file}::{descriptor.name}"
-        self._entries[key] = descriptor
+        self._entries[self._entry_key(descriptor)] = descriptor
+        self._claim_name(descriptor)
+
+    def _claim_name(self, descriptor: JobDescriptor) -> None:
+        """Point the name index at ``descriptor`` if it outranks the incumbent.
+
+        The index write on its own, with no reporting: this runs during a
+        cache load and during the lazy single-job path, neither of which is
+        inside a discovery-failure collection scope, so a report from here
+        would be silently dropped. :meth:`_reindex_by_name` is what reports.
+
+        Rank is the entry key, so an incremental write picks the same winner
+        the authoritative rebuild would. Without the comparison the two
+        disagreed whenever a collision was resolved incrementally, which is
+        reachable through ``get_job``'s single-module import path.
+        """
+        incumbent = self._by_name.get(descriptor.name)
+        if incumbent is not None and self._entry_key(incumbent) > self._entry_key(
+            descriptor
+        ):
+            return
         self._by_name[descriptor.name] = descriptor
+
+    def _reindex_by_name(self) -> None:
+        """Rebuild the name index from retained entries, reporting collisions.
+
+        One job name addresses one function. When more than one retained entry
+        claims a name, the **last** one wins — which is what happened before
+        this index was collision-aware, so no project's surviving job moves —
+        and every displaced claimant is reported as a discovery failure.
+
+        **Sorted by entry key, because insertion order is not stable.**
+        ``_list_jobs`` imports new files while iterating ``on_disk -
+        cached_files``, a *set* difference, so entry insertion order follows
+        set iteration — which string-hash randomization makes differ between
+        processes. Measured on 0.2.3 before this method existed: two files each
+        declaring ``build_wheel``, eight cold boots, winner ``b b a b b a a
+        a``. The surviving job was a coin flip per invocation, which is worse
+        than one job vanishing, because the *behaviour* of the job that stayed
+        changed without anything changing on disk.
+
+        Sorting the key — ``source_file`` then Python name — makes it
+        well-defined, and preserves the outcome in the case that *was* already
+        deterministic: two spellings in one file arrive from a single import in
+        ``dir()`` order, and sorting reproduces that order exactly.
+        """
+        rebuilt: dict[str, JobDescriptor] = {}
+        for _key, descriptor in sorted(self._entries.items()):
+            previous = rebuilt.get(descriptor.name)
+            if previous is not None and previous is not descriptor:
+                record_discovery_finding(
+                    job_name_collision(
+                        canonical_name=descriptor.name,
+                        kept_module=descriptor.module_path or descriptor.source_file,
+                        kept_python_name=descriptor.python_name or descriptor.name,
+                        dropped_module=previous.module_path or previous.source_file,
+                        dropped_python_name=previous.python_name or previous.name,
+                        dropped_path=previous.source_file,
+                    )
+                )
+            rebuilt[descriptor.name] = descriptor
+        self._by_name = rebuilt
 
     def _remove_entries_for_file(self, source_file: str) -> None:
         """Remove all entries (jobs, displays, group options) for a source file."""
@@ -580,8 +677,7 @@ class CachedDirectoryScanProvider:
         if current_hash == entry.content_hash:
             # Content unchanged despite mtime change — refresh mtime in memory
             updated = dataclasses.replace(entry, source_mtime=current_mtime)
-            key = f"{entry.source_file}::{entry.name}"
-            self._entries[key] = updated
+            self._entries[self._entry_key(entry)] = updated
             if self._by_name.get(entry.name) is entry:
                 self._by_name[entry.name] = updated
             self._dirty = True
