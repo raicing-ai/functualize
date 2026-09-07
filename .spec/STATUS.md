@@ -1847,6 +1847,34 @@ Items identified during development that are worth doing but not yet designed:
     Not done: the maintainer paused this work on 2026-09-07 to reassess
     priorities across all five defects rather than fix them in discovery order.
 
+33. **`test_ui_stays_responsive_while_job_executes` is flaky on a loaded CI
+    runner.** Observed 2026-09-07 on PR #29: `test-fast` failed on Python 3.11
+    with `got 0 polls ... against an idle ceiling of 20 (floor 6)`, then
+    **passed on a re-run of the same commit**, with no code change between.
+    The previous CI run had passed on a tree differing only in two unrelated
+    test files, and it passes 3/3 locally.
+
+    `tests/_cli/test_job_execution_thread_worker.py:87`. The test blocks a job
+    for `BLOCK_SECONDS = 0.4` and polls the event loop every
+    `TICK_INTERVAL = 0.02`, requiring a floor derived from an idle measurement
+    taken on the same machine moments earlier — so it is already
+    self-calibrating, and calibration is not what fails.
+
+    **The failure mode is not the one the message names.** `ticks == 0` means
+    the `while tui_app.workers and ...` loop never iterated *even once*, i.e.
+    `tui_app.workers` was already falsy when the poll loop was reached. That is
+    a race between the worker starting and the polling beginning, not the
+    "sync call is still blocking the event loop" the assertion reports. A
+    genuinely blocked loop would still tick at least once before the deadline.
+
+    Not "fixed" by widening the tolerance: the property it guards is real and
+    load-bearing (a sync job must not freeze the TUI, the defect the
+    thread-worker migration exists to close), and a weakened assertion would
+    stop catching it. The right repair is to make the test wait until the
+    worker is observably running before it starts counting, so the measurement
+    cannot begin after the work has finished. Left undone — it is a test-timing
+    fix in a file this branch does not otherwise touch.
+
 ## Recently Completed (2026-08)
 
 | Feature | Description |
