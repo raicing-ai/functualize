@@ -1700,35 +1700,87 @@ Items identified during development that are worth doing but not yet designed:
     by wiring the value to whatever reads it, or by removing the key if no
     consumer arrives.
 
-30. **`lazy=False` applies no discovery filter at all.** Not `pre_filter`, and
-    not the nine `require_*` settings either — `exclude_patterns`,
-    `require_file_prefix`, `require_job_decorators`, all of them are silently
-    ignored on the eager boot path. Found by `third-party-host-seams`/2.1 while
-    testing a field it had just added; the defect long predates that field.
+30. **The eager boot path bypasses the provider it just built — four defects,
+    one root cause.** Supersedes the original narrower note. Audited 2026-09-07;
+    every number below was measured, not inferred. The verified analysis lives
+    in `.spec/features/eager-boot-uses-the-provider-it-builds/` (spec +
+    contracts, no tasks — the work is **parked**, see the end of this entry).
 
-    `_app/boot.py` builds the pre-filter and job-filter stack from the config
-    and hands them to a provider — and then `resolve_and_register_jobs` does
-    not use that provider. For `lazy=False` it calls
-    `JobRegistry.scan_and_register_headless(app._jobs_directories)` instead,
-    and `_scan_directory_headless` enumerates with `pkgutil.iter_modules` and
-    accepts no filter argument. The filters are built and dropped.
+    `_app/boot.py` `boot_standard` builds a `DirectoryScanProvider` from the
+    resolved `DiscoveryConfig` — with `pre_filter` and `job_filter` — and adds it
+    to the pipeline (`boot.py:499`). `resolve_and_register_jobs` (`:1140`) then
+    registers the eager path by a different route entirely,
+    `JobRegistry.scan_and_register_headless`, which enumerates with
+    `pkgutil.iter_modules` and takes no discovery filter. One provider is built
+    and bypassed; a second scanner runs instead.
 
-    Why it stayed invisible: `JobSources.lazy` defaults to `True`, so the
-    default path is the cached provider, which does apply them. Only a caller
-    who explicitly opts out of the cache gets an unfiltered scan — and gets it
-    with no warning, so a `require_file_prefix` that quietly stopped applying
-    looks like a discovery bug rather than a boot-path one.
+    **D1 — every job module is imported twice.** Whenever `provider_count > 1`
+    the guard at `:1149` opens and `resolve_all()` calls `list_jobs()` on every
+    provider, including the directory provider whose work has already been done.
+    Measured with a module-level side-effect counter, two job modules, no
+    `DiscoveryConfig`:
 
-    Not fixed by 2.1, which adds a field rather than reworking eager boot. It
-    is pinned instead: `TestTheEagerPathFiltersNothing` in
-    `tests/discovery/test_pre_filter_hook.py` characterizes the gap on
-    `pre_filter` *and* on `require_file_prefix`, with a failure message saying
-    to delete the class. A fix therefore fails loudly and findably rather than
-    landing against a green suite that never covered it.
+    | Second provider | `lazy=False` | `lazy=True` |
+    |---|---|---|
+    | none | 2 — correct | 2 — correct |
+    | `functions=[...]` | **4** | 2 — correct |
+    | a child project | **4** | 2 — correct |
 
-    Close this by routing eager boot through the provider it already builds,
-    or by deciding the eager path is deprecated and saying so — but not by
-    leaving the filters built and discarded.
+    Import-time side effects therefore run **twice**, on the one path
+    `contributor/architecture/developer-modes.md:48` documents as *"the escape
+    hatch for users who need import-time side effects"*. It also doubles a path
+    whose measured budget is already ~2000 ms against ~125 ms.
+
+    **This regressed in this branch.** Before `1f24356`, `boot_standard` added
+    exactly one provider (verified: no other `add_provider` call in that
+    function), so the guard could never open without a child project.
+    `wire_declared_job_sources` fixed `JobSources.functions` being silently
+    ignored and, in doing so, gave `boot_standard` a second provider. The fix
+    was right; this consequence was not noticed at the time.
+
+    **D2 — `_registered_commands` is keyed by the Python name, and goes stale.**
+    The eager path writes `f"{job_group or '__top__'}::{attr_name}"`. Every
+    consumer expects the canonical descriptor name — `app/core.py:496`
+    (`refresh()` eviction) and `app/adapters/cli.py:1262-1265`
+    (`_show_job_config`). Measured for `deploy_thing` (canonical
+    `deploy-thing`):
+
+    ```
+    lazy=False   descriptor: deploy-thing   key: __top__::deploy_thing
+    lazy=True    descriptor: deploy-thing   key: __top__::deploy-thing
+    ```
+
+    Not unbounded growth — the write is idempotent — but staleness: after the
+    job file is deleted and `refresh()` runs, `lazy=False` still reports
+    `__top__::deploy_thing` while `get_jobs()` returns nothing. `refresh()`
+    exists for exactly the long-lived consumers (TUI, MCP) that would see it.
+
+    **D3 — discovery filters are ignored.** `exclude_patterns`, every
+    `require_*`, and `DiscoveryConfig.pre_filter` have no effect.
+
+    **D4 — …except partially.** With the guard open *and* a filter set, the
+    provider half does filter (3 imports rather than 4, against `lazy=True`'s 1)
+    but its descriptors are discarded by the `already_registered` dedupe. The
+    filter changes which modules are imported and not which jobs exist — so the
+    symptom depends on whether an unrelated second provider happens to exist.
+
+    **Reach — narrower than first recorded.** `lazy` is a `JobSources` field and
+    nothing else. All three `JobSources(...)` in `_cli` hardcode `lazy=True`
+    (`main.py:509`, `:1210`, `:1330`); there is no flag, config key or env var,
+    so the CLI's eight discovery flags only ever reach the *correct* path. And
+    `app/core.py:169` is the sole assignment of `_discovery_config` in the tree
+    — nothing merges `[tool.functualize.discovery]` into a library app. So
+    D1/D2 need `lazy=False` alone; D3/D4 need `lazy=False` **and** a hand-passed
+    `DiscoveryConfig`. **No `func` invocation can reach any of them.**
+
+    **Why it is parked rather than fixed.** The obvious fix — route the eager
+    branch through the provider — would delete the only place #32 below is
+    caught, trading a CLI-invisible bug for the loss of a real diagnostic. It
+    also has a second edge: `resolve_all()` raises on duplicate names across
+    providers and the caller catches it and `return`s, so making eager purely
+    pipeline-driven turns a name collision from "partial registration" into "no
+    jobs at all". Both are solvable; neither is solved. Decide #32 first.
+
 
 31. **`ModulePreFilter` ships as `should_import`, not `accepts` — for the
     maintainer to confirm.** `third-party-host-seams`/`contracts.md` §S1
@@ -1753,6 +1805,47 @@ Items identified during development that are worth doing but not yet designed:
     breaking change, so it is flagged here rather than left as an unremarked
     difference between the spec and the code. **No action needed if the shipped
     name is right; this exists so the choice is visible.**
+
+32. **A job silently disappears when two functions normalize to the same name —
+    on the *default* path.** Found 2026-09-07 while auditing #30, and it is the
+    only defect in that audit a `func` user can hit.
+
+    Canonical identity lowercases and hyphenates, so `build_wheel` and
+    `buildWheel` in one module both become `build-wheel`. The eager registry
+    path detects that and raises. The provider path — which `lazy=True` uses,
+    and `lazy=True` is what all three `JobSources(...)` in `_cli` hardcode —
+    does not:
+
+    ```
+    build_wheel() + buildWheel() in one module
+
+    lazy=False  ->  ValueError: Two jobs normalize to the same name 'build-wheel'
+    lazy=True   ->  ['build-wheel']        # one job vanished, no diagnostic
+    ```
+
+    Measured on a cold boot in a fresh directory, so it is not a cache artifact.
+
+    `_discovery/registry.py` carries the check and says exactly why it exists:
+    *"Normalization can map two distinct functions onto one name … Without this
+    the second silently replaces the first and one job vanishes with no
+    diagnostic anywhere. Two functions cannot share an address, so this is an
+    authoring error and says so."* That reasoning applies verbatim to the path
+    that lacks it, and the path that lacks it is the one everybody runs.
+
+    Note the *other* two registry-only behaviours turned out not to be losses,
+    which is why this is the only entry: invalid `JOB_GROUP` warns and skips on
+    **both** paths (verified by probe — a grep count suggested otherwise and was
+    wrong), and `_config_validator` is dead code, never assigned anywhere in the
+    tree.
+
+    **Where the fix belongs.** `register_descriptors` (`_app/boot.py:1218`) is
+    called by both boot paths, so putting the check there fixes `lazy=True` and
+    simultaneously preserves the diagnostic the eager path already has — which
+    is what unblocks #30, since routing eager through the provider would
+    otherwise delete it. One change, two entries closed.
+
+    Not done: the maintainer paused this work on 2026-09-07 to reassess
+    priorities across all five defects rather than fix them in discovery order.
 
 ## Recently Completed (2026-08)
 
