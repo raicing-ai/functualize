@@ -15,11 +15,24 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from functualize._types import JobDescriptor, JobProvider, JobTransform
+from functualize._types.discovery_report import DiscoveryFailure, job_name_collision
 
 if TYPE_CHECKING:
     from functualize._events import EventBus
 
 logger = logging.getLogger(__name__)
+
+
+def _module_of(descriptor: JobDescriptor) -> str:
+    """Best available module name for a descriptor, for a diagnostic.
+
+    A descriptor built by a directory scan carries `module_path`. One built by
+    hand — `StaticProvider` over plain callables, a plugin's own provider —
+    often does not, and then the live function still knows where it came from.
+    """
+    if descriptor.module_path:
+        return descriptor.module_path
+    return getattr(descriptor.function, "__module__", "") or "<provider>"
 
 
 def _missing_protocol_members(obj: Any, required: list[str]) -> list[str]:
@@ -55,6 +68,12 @@ class ResolutionPipeline:
         self._providers: list[ProviderEntry] = []
         self._app_transforms: list[JobTransform] = []
         self._event_bus = event_bus
+        # Name collisions the last `resolve_all` resolved. Read by
+        # `_cli/info.py` off the pipeline, the way it already reads
+        # `_providers` — a provider assembled by hand (`StaticProvider`, a
+        # plugin's own) has no `discovery_failures` of its own to report
+        # through, so the pipeline is the only place these can surface.
+        self._collisions: list[DiscoveryFailure] = []
 
     def add_provider(
         self,
@@ -112,29 +131,45 @@ class ResolutionPipeline:
             )
         self._app_transforms.append(transform)
 
+    @property
+    def collisions(self) -> list[DiscoveryFailure]:
+        """Job-name collisions resolved by the last :meth:`resolve_all`."""
+        return list(self._collisions)
+
     def resolve_all(self) -> list[JobDescriptor]:
         """Execute full list_jobs resolution pipeline.
 
         Pipeline order:
         1. Each provider's list_jobs() → provider-level transforms in order
         2. Concatenate results from all providers
-        3. Detect duplicate names across providers (raise ValueError)
+        3. Resolve duplicate names — first claimant wins, rest reported
         4. Apply app-level transforms in registration order
+
+        A duplicate name used to raise ``ValueError`` here, and the caller in
+        ``_app/boot.py`` catches that and returns — so **every** job vanished,
+        not just the collider. Measured: an app declaring ``build_wheel`` and
+        ``buildWheel`` through ``JobSources(functions=[...])`` booted with
+        ``get_jobs() == []`` and an empty registry, behind one logged line.
+        That is the third distinct answer this codebase gave to "two functions
+        want one job name", and the worst of them.
+
+        Provider order is a declared precedence — ``boot_standard`` adds the
+        directory provider before the static one, and which side a name lands
+        on is load-bearing — so here the **first** claimant wins, unlike the
+        within-a-scan rule where order is alphabetical and arbitrary and the
+        pre-existing last-wins outcome was preserved instead.
 
         Returns:
             Final list of job descriptors after all transforms.
-
-        Raises:
-            ValueError: If duplicate job names are detected after provider-level
-                transforms across different providers.
         """
         start = time.perf_counter()
 
         # Phase 1: Each provider's list_jobs → provider-level transforms
         all_jobs: list[JobDescriptor] = []
-        seen_names: dict[str, int] = {}  # name → provider index
+        seen: dict[str, JobDescriptor] = {}
+        self._collisions = []
 
-        for idx, entry in enumerate(self._providers):
+        for entry in self._providers:
             provider_jobs = list(entry.provider.list_jobs())
 
             # Apply provider-level transforms in order
@@ -142,15 +177,22 @@ class ResolutionPipeline:
             for transform in entry.transforms:
                 current = transform.transform_list(current)
 
-            # Check for duplicates across providers
             for job in current:
-                if job.name in seen_names:
-                    conflicting_idx = seen_names[job.name]
-                    raise ValueError(
-                        f"Duplicate job name '{job.name}' from provider index "
-                        f"{conflicting_idx} and {idx}"
-                    )
-                seen_names[job.name] = idx
+                incumbent = seen.get(job.name)
+                if incumbent is not None:
+                    if incumbent is not job:
+                        self._collisions.append(
+                            job_name_collision(
+                                canonical_name=job.name,
+                                kept_module=_module_of(incumbent),
+                                kept_python_name=incumbent.python_name or job.name,
+                                dropped_module=_module_of(job),
+                                dropped_python_name=job.python_name or job.name,
+                                dropped_path=job.source_file or "<provider>",
+                            )
+                        )
+                    continue
+                seen[job.name] = job
                 all_jobs.append(job)
 
         # Phase 2: App-level transforms in pipeline order

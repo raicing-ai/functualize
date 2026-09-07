@@ -308,7 +308,7 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
             logger.warning(f"APP_READY hook {hook_name!r} raised: {exc}")
 
     # Validate DI bindings
-    app._execution_engine.validate_di_bindings()
+    report_unsatisfiable_jobs(app)
 
     # Freeze DI registry
     app._di_registry.freeze()
@@ -480,7 +480,20 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
             # unjudged, and made the cache digest incomplete: the root is not a
             # DiscoveryConfig field, so reordering `jobs_directories` changed
             # what the cache should hold while the fingerprint stayed equal.
-            scan_roots = [Path(d) for d in app._jobs_directories]
+            # Resolved, not as written. `GlobExcludePreFilter` matches a
+            # candidate against whichever root contains it, and the candidates
+            # arrive absolute — so a *relative* root (the natural way to write
+            # one: `directories=["jobs"]`) contains nothing, the match never
+            # fires, and every `exclude_patterns` entry is silently ignored.
+            # Probed: relative root admits `skipme.py`, absolute root excludes
+            # it, same config. `func --exclude` was never affected because the
+            # CLI resolves its roots before this point; a library-mode host
+            # writing the obvious thing was.
+            #
+            # It also makes the cache digest describe one directory rather than
+            # two spellings of it, so a run under one spelling can no longer
+            # serve stale results to the other.
+            scan_roots = [Path(d).resolve() for d in app._jobs_directories]
             base_dir = scan_roots[0]
             pre_filter = build_pre_filter_from_config(
                 app._discovery_config, base_dir, scan_roots
@@ -496,13 +509,21 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
             )
             app._resolution_pipeline.add_provider(app._cached_provider)
         else:
-            app._resolution_pipeline.add_provider(
-                DirectoryScanProvider(
-                    app._jobs_directories,
-                    pre_filter=pre_filter,
-                    job_filter=job_filter,
-                )
+            # Retained, not only added: the eager registration step registers
+            # *this* provider's descriptors. It used to reach for a second
+            # directory scanner instead, which took no discovery filter and
+            # ran in addition to this one — so every job module was imported
+            # twice whenever any other provider existed, and every filter this
+            # object carries was discarded.
+            app._eager_provider = DirectoryScanProvider(
+                app._jobs_directories,
+                pre_filter=pre_filter,
+                job_filter=job_filter,
+                project_root=app._project_root
+                if getattr(app, "_project_root", None) is not None
+                else None,
             )
+            app._resolution_pipeline.add_provider(app._eager_provider)
 
     wire_declared_job_sources(app)
 
@@ -671,7 +692,7 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
 
     # 9b. Validate DI bindings
     perf_timeline.mark("boot.di_validation.start")
-    app._execution_engine.validate_di_bindings()
+    report_unsatisfiable_jobs(app)
     perf_timeline.mark("boot.di_validation.end")
 
     # 10. Freeze DI registry and emit REGISTRY_FROZEN event
@@ -1141,15 +1162,17 @@ def resolve_and_register_jobs(app: Any) -> None:
         if app._lazy_boot:
             _register_jobs_lazy(app)
         else:
-            app.job_registry.scan_and_register_headless(app._jobs_directories)
-            # Sync registered jobs from JobRegistry to execution engine
-            _sync_registry_to_engine(app)
+            _register_jobs_eager(app)
 
     # Pipeline-based registration for non-directory providers
     if app._resolution_pipeline.provider_count > (1 if app._jobs_directories else 0):
         try:
             all_descriptors = app._resolution_pipeline.resolve_all()
         except ValueError as e:
+            # A duplicate job name no longer raises here — the pipeline keeps
+            # the first claimant and reports the rest. What remains reachable
+            # is a provider or transform of the host's own raising, which is
+            # its bug and not something boot can resolve.
             logger.warning("Resolution pipeline error: %s", e)
             return
 
@@ -1160,6 +1183,148 @@ def resolve_and_register_jobs(app: Any) -> None:
 
         if new_descriptors:
             register_descriptors(app, new_descriptors)
+
+
+def report_unsatisfiable_jobs(app: Any) -> None:
+    """Record jobs whose dependencies cannot be resolved. Do not abort boot.
+
+    Boot used to let ``validate_di_bindings`` raise for the whole app. One job
+    with an unregistered dependency then took down *every* command on a cold
+    boot — unrelated jobs, ``builtin info`` and ``builtin self doctor``
+    included — as an unhandled ``DIValidationError`` traceback. Measured: five
+    commands, four dead, only ``--help`` surviving. Warm boots masked it,
+    because cached jobs register as lazy proxies and validation skips those, so
+    it presented as intermittent.
+
+    The failure stays loud and early — it is published in the same list that
+    answers "why is my job missing?" — but it stops being contagious. See
+    ADR-018 for the departure from `CONSTITUTION.md` "Boot & Config".
+
+    **The job is left registered on purpose.** Unregistering it would make the
+    cold boot disagree with the warm one, where validation is skipped for lazy
+    proxies and the job necessarily still exists; and the error a caller gets
+    from invoking it names the job and the parameter, which is more use than
+    "no such command". So the guarantee that holds on both paths is *invoking
+    it explains itself*, and the report is the extra the cold boot can offer.
+    """
+    from functualize._types.discovery_report import DiscoveryFailure
+
+    failures = app._execution_engine.validate_di_bindings()
+    if not failures:
+        return
+
+    reported: list[DiscoveryFailure] = list(getattr(app, "_unsatisfiable_jobs", []))
+    known = {f.message for f in reported}
+    for job_name, errors in failures.items():
+        entry = app.job_registry._registered_jobs.get(job_name)
+        module_path = getattr(entry, "module_path", "") or "<unknown>"
+        message = (
+            f"Job {job_name!r} is registered but cannot run: "
+            + "; ".join(str(e) for e in errors)
+            + ". Register a provider for the type, or annotate the parameter "
+            "with Arg()/Option() to take its value from the caller."
+        )
+        if message in known:
+            continue
+        known.add(message)
+        reported.append(
+            DiscoveryFailure(
+                module=module_path,
+                path=module_path,
+                error_type="UnsatisfiableParameter",
+                message=message,
+            )
+        )
+        logger.warning("%s", message)
+
+    app._unsatisfiable_jobs = reported
+
+
+def _register_jobs_eager(app: Any) -> None:
+    """Register jobs from the provider boot built, importing every module now.
+
+    ``JobSources(lazy=False)`` is the escape hatch for a host that needs its
+    job modules imported at boot — for import-time side effects, and so a
+    binding error surfaces at construction rather than at first use.
+
+    It used to reach past the provider ``boot_standard`` had already built and
+    added to the pipeline, and scan the directories a second time through
+    ``JobRegistry.scan_and_register_headless``. Four defects came out of that
+    one substitution, measured rather than inferred:
+
+    * every job module imported **twice** whenever a second provider existed
+      (2 modules -> 4 imports with ``functions=[...]`` or a child project), on
+      the one path whose purpose is running import-time side effects;
+    * ``_registered_commands`` keyed by the Python name (``deploy_thing``)
+      where every consumer expects the canonical one (``deploy-thing``), so
+      ``refresh()`` left a phantom entry behind a deleted file;
+    * discovery filters ignored entirely;
+    * and half-applied when a second provider was present, so the symptom
+      depended on something unrelated being configured.
+
+    Registering the provider's own descriptors removes the second scanner, and
+    with it all four. The boot-time promises are kept by construction:
+    ``DirectoryScanProvider`` imports each admitted module to extract
+    descriptors, and sets ``function`` on them — so ``register_descriptors``
+    takes its live-function branch and ``validate_di_bindings`` still validates
+    at boot, since that step skips only lazy proxies.
+
+    One promise is withdrawn deliberately: a module the configuration
+    **excludes** is no longer imported, so its import-time side effects no
+    longer run. That is the filter fix, not a regression.
+    """
+    provider = getattr(app, "_eager_provider", None)
+    if provider is None:
+        # Defensive: no provider was wired. Scan directly rather than boot with
+        # no jobs — but through the same filters, so a fallback cannot silently
+        # reintroduce the unfiltered discovery this function exists to remove.
+        app.job_registry.scan_and_register_headless(
+            app._jobs_directories, module_filter=admitted_module_names(app)
+        )
+        _sync_registry_to_engine(app)
+        return
+
+    # Re-read the disk. `list_jobs` memoizes, and this function is also the
+    # registration step `FunctualizeApp.refresh()` re-runs — which exists to
+    # observe a job file added, edited or deleted since boot. Without this the
+    # memo would serve the pre-change state and refresh would silently do
+    # nothing on this path. On the boot call the memo is empty, so the cost is
+    # zero there; the pipeline's own later `list_jobs` reuses the memo this
+    # call fills, which is what keeps one boot to one import per module.
+    provider.invalidate()
+    register_descriptors(app, list(provider.list_jobs()))
+
+
+def admitted_module_names(app: Any) -> set[str] | None:
+    """Module names the discovery config admits, or None when unconfigured.
+
+    ``scan_and_register_headless`` takes a set of module names rather than a
+    ``ModulePreFilter``, so this projects one onto the other. It exists for the
+    two defensive scan paths that remain: without it a fallback discovers
+    *unfiltered*, which is the silent-drift bug class this area already
+    produced four times.
+
+    None means "no constraint", which is what the callee already expects, so a
+    project with no discovery config keeps scanning everything.
+    """
+    discovery_config = getattr(app, "_discovery_config", None)
+    directories = getattr(app, "_jobs_directories", None)
+    if discovery_config is None or not directories:
+        return None
+
+    from functualize._discovery.filter_factory import build_pre_filter_from_config
+    from functualize._primitives.modules import iter_module_files
+
+    scan_roots = [Path(d).resolve() for d in directories]
+    pre_filter = build_pre_filter_from_config(
+        discovery_config, scan_roots[0], scan_roots
+    )
+    return {
+        module_file.stem
+        for root in scan_roots
+        for module_file in iter_module_files(root)
+        if pre_filter.should_import(module_file)
+    }
 
 
 def _sync_registry_to_engine(app: Any) -> None:
@@ -1448,8 +1613,13 @@ def _register_jobs_lazy(app: Any) -> None:
     """
     provider = getattr(app, "_cached_provider", None)
     if provider is None:
-        # No cached provider was wired (defensive) — fall back to eager scan
-        app.job_registry.scan_and_register_headless(app._jobs_directories)
+        # No cached provider was wired (defensive) — fall back to eager scan,
+        # through the same filters. Scanning unfiltered here would mean a
+        # fallback silently discovering modules the configuration excludes,
+        # which is the drift this area has already produced four times.
+        app.job_registry.scan_and_register_headless(
+            app._jobs_directories, module_filter=admitted_module_names(app)
+        )
         _sync_registry_to_engine(app)
         return
 

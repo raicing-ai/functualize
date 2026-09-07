@@ -431,34 +431,47 @@ class JobExecutionEngine:
             return self._resolution_chain
         return None
 
-    def validate_di_bindings(self) -> None:
-        """Validate that all registered jobs have satisfiable DI bindings.
+    def validate_di_bindings(self) -> dict[str, list[Any]]:
+        """Which registered jobs have unsatisfiable DI bindings, and why.
 
         Inspects each registered job's function signature and tries to resolve
         each class-typed parameter from the DI registry. Collects ALL errors
-        (doesn't fail-fast) and raises DIValidationError if any are found.
+        rather than failing fast.
 
-        Per-invocation types (RunContext, Log, etc.) are excluded from validation.
-        Optional[T] parameters are excluded (they resolve to None gracefully).
+        Per-invocation types (RunContext, Log, etc.) are excluded, as are
+        ``Optional[T]`` (resolves to None gracefully), values the caller
+        supplies (``Path``, ``UUID``, an ``Enum`` — see
+        ``_primitives/parameter_types.py``) and anything carrying an explicit
+        CLI marker.
 
-        Lazily-registered jobs (LazyJobFunction entries, warm-cache boot)
-        are skipped here; their validation runs at materialization
-        (first use) via _ensure_materialized.
+        Lazily-registered jobs (LazyJobFunction entries, warm-cache boot) are
+        skipped here; their validation runs at materialization (first use) via
+        ``_ensure_materialized``, which still raises — at that point the caller
+        has asked for that job specifically.
 
-        Raises:
-            DIValidationError: If any job has unsatisfiable DI bindings.
+        **Returns rather than raises.** It used to raise ``DIValidationError``
+        for the whole app, which made one unsatisfiable job fatal to every
+        other job *and* to ``builtin info`` and ``builtin self doctor`` — the
+        two commands an operator would reach for to find out what was wrong.
+        The caller decides the disposition; ``_app/boot.py`` unregisters the
+        affected jobs and reports them. This is a deliberate departure from
+        `CONSTITUTION.md` "Boot & Config", approved by the maintainer and
+        recorded in ADR-018: the failure stays loud and early, it stops being
+        contagious.
+
+        Returns:
+            Job name -> its binding errors. Empty when everything binds.
         """
-        from functualize._primitives.di import DIValidationError, ResolutionError
-
-        errors: list[ResolutionError] = []
+        by_job: dict[str, list[Any]] = {}
 
         for name, entry in self._registered_jobs.items():
             if getattr(entry.function, "__functualize_lazy__", False):
                 continue
-            errors.extend(self._di_binding_errors(name, entry.function))
+            errors = self._di_binding_errors(name, entry.function)
+            if errors:
+                by_job[name] = errors
 
-        if errors:
-            raise DIValidationError(errors)
+        return by_job
 
     def _di_binding_errors(self, name: str, func: Callable[..., Any]) -> list[Any]:
         """Collect DI binding errors for a single job function.
@@ -476,6 +489,10 @@ class JobExecutionEngine:
             AmbiguousProviderError,
             MissingProviderError,
             ResolutionError,
+        )
+        from functualize._primitives.parameter_types import (
+            has_explicit_cli_marker,
+            is_cli_value_type,
         )
 
         errors: list[ResolutionError] = []
@@ -536,6 +553,21 @@ class JobExecutionEngine:
             # Extract qualifier from Annotated
             base_type, qualifier = _extract_provide_qualifier(annotation)
 
+            # Skip a parameter the caller supplies rather than the registry.
+            #
+            # This used to be "skip builtins", which is a different question:
+            # `pathlib.Path` is not a builtin, so `def backup(to: Path)` --
+            # about the most ordinary thing a task runner is asked to do --
+            # failed with `No provider for Path`. Because this gate raised for
+            # the whole app, one such job took down *every* command on a cold
+            # boot, including `builtin info`, and an explicit
+            # `Annotated[Path, Option(...)]` did not help either. The
+            # rest of the stack already had it right: parameter extraction
+            # publishes these as CLI parameters and `build_resolution_plan`
+            # never injects them.
+            if has_explicit_cli_marker(annotation) or is_cli_value_type(annotation):
+                continue
+
             # Skip non-class types (int, str, etc.)
             if not isinstance(base_type, type):
                 continue
@@ -564,7 +596,7 @@ class JobExecutionEngine:
                     qualifier=qualifier,
                 )
             except MissingProviderError as e:
-                e.job_name = name
+                e.relabel(job_name=name, param_name=param_name)
                 errors.append(e)
             except AmbiguousProviderError as e:
                 e.job_name = name

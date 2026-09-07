@@ -225,9 +225,15 @@ class TestDeferredDiValidation:
         jobs_dir.mkdir()
         self._write_bad_di_job(jobs_dir)
 
-        # Cold boot registers live functions → boot-time validation fires
-        with pytest.raises(DIValidationError):
-            _boot(jobs_dir)
+        # Cold boot registers live functions, so boot-time validation runs —
+        # but it no longer raises for the whole app. One unsatisfiable job used
+        # to take down every command, `builtin info` and `self doctor`
+        # included; ADR-018 records the decision. The failure is still found at
+        # boot, and now it is *reported* rather than fatal.
+        app = _boot(jobs_dir)
+
+        reported = [f.error_type for f in app._unsatisfiable_jobs]
+        assert reported == ["UnsatisfiableParameter"]
 
     def test_warm_boot_defers_validation_to_first_invocation(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -237,9 +243,8 @@ class TestDeferredDiValidation:
         jobs_dir.mkdir()
         self._write_bad_di_job(jobs_dir)
 
-        # Cold boot fails at validation, but the cache was persisted first
-        with pytest.raises(DIValidationError):
-            _boot(jobs_dir)
+        # Cold boot finds and reports the failure, and persists the cache
+        _boot(jobs_dir)
 
         _purge_job_modules()
         # Warm boot succeeds: lazy entry, validation deferred
@@ -258,5 +263,11 @@ class TestDeferredDiValidation:
         jobs_dir.mkdir()
         self._write_bad_di_job(jobs_dir)
 
-        with pytest.raises(DIValidationError):
-            _boot(jobs_dir, lazy=False)
+        app = _boot(jobs_dir, lazy=False)
+
+        # The escape hatch still validates at boot — it imports every module,
+        # so there is no proxy to defer behind. What changed is the
+        # disposition: reported, not raised.
+        assert [f.error_type for f in app._unsatisfiable_jobs] == [
+            "UnsatisfiableParameter"
+        ]

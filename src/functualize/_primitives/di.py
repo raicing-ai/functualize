@@ -28,15 +28,38 @@ class ResolutionError(Exception):
 class MissingProviderError(ResolutionError):
     """No provider registered for the requested type."""
 
+    #: Attached by boot-time validation once the owning parameter is known.
+    param_name: str | None = None
+
     def __init__(self, type_: type, job_name: str, available: list[type]) -> None:
         self.type_ = type_
         self.job_name = job_name
         self.available = available
-        available_names = [t.__name__ for t in available]
-        super().__init__(
-            f"No provider for {type_.__name__} "
-            f"(job: {job_name!r}, available: {available_names})"
+        super().__init__(self._render())
+
+    def _render(self) -> str:
+        available_names = [t.__name__ for t in self.available]
+        where = f"job {self.job_name!r}" if self.job_name else "an unknown job"
+        if self.param_name:
+            where = f"parameter {self.param_name!r} of {where}"
+        return (
+            f"No provider for {self.type_.__name__} ({where}, "
+            f"available: {available_names})"
         )
+
+    def relabel(self, *, job_name: str, param_name: str) -> None:
+        """Name the job and parameter, once the caller knows them.
+
+        The error is constructed inside ``DIRegistry.resolve``, which is handed
+        a type and nothing else — so its message said ``job: '<unknown>'`` even
+        when the validator walking the signature knew exactly which parameter
+        of which job had asked. The message is rebuilt rather than only the
+        attributes set, because the attributes were already being set and the
+        rendered text still said ``<unknown>``.
+        """
+        self.job_name = job_name
+        self.param_name = param_name
+        self.args = (self._render(),)
 
 
 class AmbiguousProviderError(ResolutionError):

@@ -178,3 +178,81 @@ def test_both_stages_arrive_under_one_key(cli_run, project_tree, modules) -> Non
     report = _report(cli_run, project_tree(jobs={"jobs.py": GOOD, **modules}))
     kinds = {f["error_type"] for f in report["discovery_failures"]}
     assert kinds == {"SyntaxError", "ModuleNotFoundError"}
+
+
+TWO_SPELLINGS = (
+    '"""Two functions, one job name."""\n'
+    "\n"
+    "\n"
+    "def build_wheel() -> None:\n"
+    '    """Build the wheel (snake_case spelling)."""\n'
+    "\n"
+    "\n"
+    "def buildWheel() -> None:  # noqa: N802\n"
+    '    """Build the wheel (camelCase spelling)."""\n'
+)
+
+
+class TestAJobNameCollisionIsReportedHereToo:
+    """A collision is the same user-visible fact as a failed import — a job
+    the user wrote is not in the CLI — so it is published through the same key
+    rather than a second report type.
+    """
+
+    def test_it_appears_with_its_own_error_type(self, cli_run, project_tree) -> None:
+        """A5. `error_type` is not an exception class name here, because
+        nothing is raised; every other value in the field is one."""
+        root = project_tree(jobs={"wheels.py": TWO_SPELLINGS})
+
+        report = _report(cli_run, root)
+
+        collisions = [
+            f
+            for f in report["discovery_failures"]
+            if f["error_type"] == "JobNameCollision"
+        ]
+        assert len(collisions) == 1
+        assert "build-wheel" in collisions[0]["message"]
+
+    def test_the_job_list_is_not_shortened_further(self, cli_run, project_tree) -> None:
+        """One claimant still registers. Reporting must not cost the survivor."""
+        root = project_tree(jobs={"wheels.py": TWO_SPELLINGS})
+
+        report = _report(cli_run, root)
+
+        assert [j["name"] for j in report["jobs"]] == ["build-wheel"]
+
+    def test_it_is_still_reported_on_a_second_invocation(
+        self, cli_run, project_tree
+    ) -> None:
+        """A6, the criterion that shaped the design. Import failures survive a
+        warm boot only because a module that fails to import is retried every
+        boot. A file that parses is cached and never re-read, so a collision
+        had to be re-derivable from the cache — which is why both claimants
+        are now persisted rather than one overwriting the other on write."""
+        root = project_tree(jobs={"wheels.py": TWO_SPELLINGS})
+        _report(cli_run, root)
+
+        warm = _report(cli_run, root)
+
+        assert [
+            f
+            for f in warm["discovery_failures"]
+            if f["error_type"] == "JobNameCollision"
+        ]
+
+    def test_the_cli_still_works(self, cli_run, project_tree) -> None:
+        """A12. The alternative design raised at boot, which takes down every
+        command — including the two an operator would reach for to find out
+        what is wrong."""
+        root = project_tree(jobs={"wheels.py": TWO_SPELLINGS})
+
+        assert cli_run(["builtin", "info"], cwd=root).exit_code == 0
+        assert cli_run(["build-wheel"], cwd=root).exit_code == 0
+
+    def test_a_clean_tree_reports_no_collision(self, cli_run, project_tree) -> None:
+        root = project_tree(jobs={"jobs.py": GOOD})
+
+        report = _report(cli_run, root)
+
+        assert report["discovery_failures"] == []

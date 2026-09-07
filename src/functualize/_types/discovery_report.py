@@ -47,8 +47,15 @@ if TYPE_CHECKING:
 __all__ = [
     "DiscoveryFailure",
     "collecting_discovery_failures",
+    "job_name_collision",
     "record_discovery_failure",
+    "record_discovery_finding",
 ]
+
+#: ``DiscoveryFailure.error_type`` for a job-name collision. Not an exception
+#: class name -- the other values in that field are, and a collision is not
+#: raised anywhere -- so it is named here rather than spelled at each site.
+JOB_NAME_COLLISION = "JobNameCollision"
 
 
 @dataclass(frozen=True)
@@ -102,6 +109,76 @@ def collecting_discovery_failures() -> Generator[list[DiscoveryFailure]]:
         yield collected
     finally:
         _ACTIVE.reset(token)
+
+
+def record_discovery_finding(failure: DiscoveryFailure) -> None:
+    """Record an already-built finding, if anyone is collecting.
+
+    :func:`record_discovery_failure` takes an exception, because every site
+    that calls it is inside an ``except`` block. A job-name collision has no
+    exception -- nothing is raised for it -- so it arrives here already shaped.
+
+    Same contract otherwise: a no-op outside a collection scope, never raises,
+    and identical records collapse so one fact is reported once however many
+    times it is observed in a scan.
+    """
+    collected = _ACTIVE.get()
+    if collected is None:
+        return
+    try:
+        if failure not in collected:
+            collected.append(failure)
+    except Exception:  # pragma: no cover - defensive; see record_discovery_failure
+        return
+
+
+def job_name_collision(
+    *,
+    canonical_name: str,
+    kept_module: str,
+    kept_python_name: str,
+    dropped_module: str,
+    dropped_python_name: str,
+    dropped_path: str,
+) -> DiscoveryFailure:
+    """The record for two functions resolving to one canonical job name.
+
+    A collision is a discovery finding like any other -- a job the user wrote
+    that is not in the CLI -- so it is reported through ``DiscoveryFailure``
+    rather than through a second report type. It is *not* an exception: both
+    registration paths keep the last claimant and skip the rest, so nothing
+    is raised and ``error_type`` carries :data:`JOB_NAME_COLLISION` instead of
+    a class name.
+
+    Built here rather than at the two detection sites so the message is
+    written once. The record describes the *dropped* claimant, because that is
+    the file an operator has to edit.
+
+    Args:
+        canonical_name: The single address both claimants resolved to.
+        kept_module: Module of the claimant that is registered.
+        kept_python_name: Python name of the claimant that is registered.
+        dropped_module: Module of the claimant that is unavailable.
+        dropped_python_name: Python name of the claimant that is unavailable.
+        dropped_path: Path to the dropped claimant's file, or any stand-in
+            when no file exists (a dynamically registered function).
+
+    Returns:
+        The failure record, ready to publish.
+    """
+    return DiscoveryFailure(
+        module=dropped_module,
+        path=dropped_path,
+        error_type=JOB_NAME_COLLISION,
+        message=(
+            f"{dropped_python_name!r} (in {dropped_module!r}) and "
+            f"{kept_python_name!r} (in {kept_module!r}) both resolve to the job "
+            f"{canonical_name!r}. Job names are normalized to "
+            f"lowercase-hyphenated form, so these are one address: "
+            f"{kept_python_name!r} is registered and {dropped_python_name!r} is "
+            f"not available. Rename one."
+        ),
+    )
 
 
 def record_discovery_failure(source_file: Path | str, exc: BaseException) -> None:

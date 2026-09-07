@@ -122,7 +122,17 @@ from functualize._primitives.locator import _xdg_cache_dir, compute_project_id
 # argument and the app answered `Missing argument 'TOKEN'` from its second run
 # onward. A v18 entry has no such key, so it would resolve `False` for every
 # field and reproduce exactly that; the bump forces a one-time rebuild.
-CACHE_VERSION = 19
+# v20 (2026-09-07): the entry key changed from `source_file::job_name` to
+# `source_file::python_name`. Two functions in one file can normalize onto one
+# job name (`build_wheel` and `buildWheel` both become `build-wheel`), and the
+# old key made the second overwrite the first at *write* time — so one job
+# vanished with no diagnostic, and the loser was never persisted, which put the
+# collision beyond re-derivation on a warm boot. Keying by function retains
+# both, and the name index reports the collision on every boot from cached
+# evidence. `from_dict` reads fields by name and the keys are only a retention
+# index, so a v19 cache would not raise: it would silently key old entries the
+# old way and under-report. The bump forces a one-time rebuild instead.
+CACHE_VERSION = 20
 
 # Cache file name within the resolved cache directory.
 CACHE_FILENAME = "cache.json"

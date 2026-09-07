@@ -79,7 +79,9 @@ Only frozen dataclasses, Enums, Protocol definitions. `descriptors.py` (`JobDesc
 
 ### `_discovery/` — Job Finding
 
-`providers.py` (`DirectoryScanProvider`, `StaticProvider`, `EntryPointProvider`), `transforms.py` (`NamespaceTransform`, `GroupByModuleAttributeTransform`), `cached_provider.py` (`CachedDirectoryScanProvider` — the single persisted discovery cache; format shared via `_primitives/cache_format.py`), `sync.py` (`extract_module` — the import+extract pass the cached provider uses), `filter_factory.py` (`build_pre_filter_from_config` file level, `build_job_filter_from_config` job level), `hierarchy.py` (child-project composition), `pipeline.py` (`ResolutionPipeline`).
+`providers.py` (`DirectoryScanProvider`, `StaticProvider`, `EntryPointProvider`), `transforms.py` (`NamespaceTransform`, `GroupByModuleAttributeTransform`), `cached_provider.py` (`CachedDirectoryScanProvider` — the single persisted discovery cache; format shared via `_primitives/cache_format.py`), `sync.py` (`extract_module` — the import+extract pass the cached provider uses), `filter_factory.py` (`build_pre_filter_from_config` file level, `build_job_filter_from_config` job level), `hierarchy.py` (child-project composition), `pipeline.py` (`ResolutionPipeline`), `collisions.py` (`resolve_name_collisions` — one job name addresses one function; imported by both provider modules and the pipeline, because four registration paths previously carried four different answers to the same question).
+
+`_primitives/parameter_types.py` (`CLI_VALUE_TYPE_NAMES`, `is_cli_value_type`, `has_explicit_cli_marker` — whether a job parameter is a value the caller supplies or a dependency to inject; beside `capability_names.py` and for the same reason, since four layers classified a signature and each kept its own answer).
 
 ### `_config/` — Configuration Resolution
 
