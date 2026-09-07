@@ -566,6 +566,7 @@ Committed design documents with per-assertion PASS/GAP verification against the 
 | Shape intent | Scope |
 |---|---|
 | [`remote-config-source.md`](shape-intents/remote-config-source.md) — **RESOLVED 2026-09-06, wired; see ADR-016** | `RemoteSource` is defined, exported and documented with **zero construction sites in `src/`**, and the `remote_first` preset's docstring promises a chain the boot path does not build. Wire it or remove it — correcting only the docstrings is explicitly not an option. Carries the finding that the original gate passed *because of* its `--include="*.md"` scoping. |
+| [`eager-boot-uses-the-provider-it-builds.md`](shape-intents/eager-boot-uses-the-provider-it-builds.md) | `JobSources(lazy=False)` registers jobs through a second directory scanner instead of the filtered provider `boot_standard` already built and added to the pipeline. Four defects follow: every job module **imported twice** whenever a second provider exists (measured 2 modules → 4 imports, and a regression introduced by wiring `JobSources.functions`), `_registered_commands` keyed by the Python name so `refresh()` leaves phantom entries, discovery filters ignored, and filters half-applied. None reachable from `func`. Read STATUS #32 first — its fix unblocks this one. |
 | [`workflow-run-parameters.md`](shape-intents/workflow-run-parameters.md) | A `@workflow` job **silently discards** the arguments `app.execute()` is given, then fails at the epilogue after the gate has been approved — while a plain job rejects the same argument at launch. Underneath it: no run-scoped parameter layer exists at all, so a value set for a walk does **not survive a gate** (one `scope_id`, two answers, selected by the resuming shell). The three trigger plugins can parameterize a single job and not a walk. Implement a run-scoped layer or declare walks unparameterizable and enforce it; the silent-drop fix is separable and lands first either way. |
 
 ## Open Features
@@ -1703,8 +1704,13 @@ Items identified during development that are worth doing but not yet designed:
 30. **The eager boot path bypasses the provider it just built — four defects,
     one root cause.** Supersedes the original narrower note. Audited 2026-09-07;
     every number below was measured, not inferred. The verified analysis lives
-    in `.spec/features/eager-boot-uses-the-provider-it-builds/` (spec +
-    contracts, no tasks — the work is **parked**, see the end of this entry).
+    in
+    [`.spec/shape-intents/eager-boot-uses-the-provider-it-builds.md`](shape-intents/eager-boot-uses-the-provider-it-builds.md)
+    (spec + contracts, no tasks — the work is **parked**, see the end of this
+    entry). It lived under `.spec/features/` until that directory was cleared
+    for the PR #29 merge, and was migrated rather than deleted: the 13
+    acceptance criteria carry authoring-time measurements that would be
+    expensive to re-derive.
 
     `_app/boot.py` `boot_standard` builds a `DirectoryScanProvider` from the
     resolved `DiscoveryConfig` — with `pre_filter` and `job_filter` — and adds it
