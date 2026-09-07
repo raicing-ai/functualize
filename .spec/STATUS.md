@@ -1625,6 +1625,22 @@ Items identified during development that are worth doing but not yet designed:
     not one to fold into a defect fix.
 
 28. **`l-standalone-binary` cannot pass: its own recipe has a broken `xargs`.**
+    **FIXED 2026-09-07.** The recipe now resolves the interpreter in two
+    statements — `python_bin=$(uv python find 3.12)` then
+    `src_root=$("$python_bin" -c 'import sys; print(sys.prefix)')` — with an
+    explicit non-empty check, so a future resolution failure says so instead of
+    producing an empty `cp -a "$src_root"/.`.
+
+    Verified in a real `rust:1-slim-bookworm` container up to the resolution
+    step: `src_root` comes back as
+    `/root/.local/share/uv/python/cpython-3.12.14-linux-x86_64-gnu` with an
+    executable `bin/python`. The ten-minute `cargo install pyapp` beyond it is
+    unchanged and still runs only on demand. Note the resolved prefix is the
+    *patch-versioned* directory, which is why the next line copies
+    `"$src_root"/.` rather than the symlink.
+
+    The original finding follows.
+
     Found at the `discovery-and-gate-defects`/6.1 checkpoint, where the full
     scenario suite was run. 15 of 16 doc pages verified; this is the one that
     did not, and it fails for a reason inside the scenario rather than in the
@@ -1657,9 +1673,11 @@ Items identified during development that are worth doing but not yet designed:
     running at all.
 
     Fix is one line: `src_root=$("$(uv python find 3.12)" -c 'import sys;
-    print(sys.prefix)')`. Left undone deliberately — it belongs to the
+    print(sys.prefix)')`. ~~Left undone deliberately — it belongs to the
     standalone-distribution work, and verifying it costs a full ten-minute
-    container build.
+    container build.~~ Done as above; verifying the *resolution* turned out to
+    cost about a minute, not ten — only the `cargo` build beyond it is
+    expensive, and the fix does not reach it.
 
 29. **`[tool.functualize] skill` is accepted, validated, and read by nothing.**
     Shipped knowingly by `third-party-host-seams`/1.2, and recorded here
