@@ -184,20 +184,31 @@ class TestProtocolStructuralTypingCorrectness:
 
     # --- ModulePreFilter Protocol ---
 
-    @given(has_should_import=st.booleans())
-    def test_module_pre_filter_structural_typing(self, has_should_import: bool):
-        """Classes with should_import satisfy ModulePreFilter; missing method fails.
+    @given(has_should_import=st.booleans(), has_fingerprint=st.booleans())
+    def test_module_pre_filter_structural_typing(
+        self, has_should_import: bool, has_fingerprint: bool
+    ):
+        """ModulePreFilter needs **both** methods; either alone is not enough.
+
+        `should_import` was the whole contract until
+        `third-party-host-seams`/1.3 promoted the Protocol for third-party use.
+        `fingerprint()` joined it because the discovery cache replays this
+        filter's negative decisions, and a filter with no stable identity
+        replays decisions its own logic no longer makes.
 
         **Validates: Requirements 9.3, 9.4**
         """
         methods: dict[str, Any] = {}
         if has_should_import:
             methods["should_import"] = lambda self, source_file: True
+        if has_fingerprint:
+            methods["fingerprint"] = lambda self: "v1"
 
         cls = _make_class_with_methods(methods)
         instance = cls()
 
-        assert isinstance(instance, ModulePreFilter) == has_should_import
+        expected = has_should_import and has_fingerprint
+        assert isinstance(instance, ModulePreFilter) == expected
 
     @given(data=st.data())
     def test_module_pre_filter_concrete_implementation(self, data: Any):
@@ -210,6 +221,9 @@ class TestProtocolStructuralTypingCorrectness:
             def should_import(self, source_file: Path) -> bool:
                 return source_file.suffix == ".py"
 
+            def fingerprint(self) -> str:
+                return "py-only:v1"
+
         f = MyFilter()
         assert isinstance(f, ModulePreFilter)
 
@@ -219,9 +233,14 @@ class TestProtocolStructuralTypingCorrectness:
         has_list_jobs=st.booleans(),
         has_get_job=st.booleans(),
         has_should_import=st.booleans(),
+        has_fingerprint=st.booleans(),
     )
     def test_class_can_satisfy_multiple_protocols(
-        self, has_list_jobs: bool, has_get_job: bool, has_should_import: bool
+        self,
+        has_list_jobs: bool,
+        has_get_job: bool,
+        has_should_import: bool,
+        has_fingerprint: bool,
     ):
         """A class can satisfy multiple protocols simultaneously via structural typing.
 
@@ -234,12 +253,14 @@ class TestProtocolStructuralTypingCorrectness:
             methods["get_job"] = lambda self, name: None
         if has_should_import:
             methods["should_import"] = lambda self, source_file: True
+        if has_fingerprint:
+            methods["fingerprint"] = lambda self: "v1"
 
         cls = _make_class_with_methods(methods)
         instance = cls()
 
         is_provider = has_list_jobs and has_get_job
-        is_filter = has_should_import
+        is_filter = has_should_import and has_fingerprint
 
         assert isinstance(instance, JobProvider) == is_provider
         assert isinstance(instance, ModulePreFilter) == is_filter
