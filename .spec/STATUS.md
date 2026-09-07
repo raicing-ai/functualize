@@ -639,6 +639,82 @@ who wrote it got neither an error nor an expansion.
 
 ## Completed
 
+### Discovery correctness and job parameter types (2026-09-08, `feat/discovery-and-parameter-fixes`)
+
+Five features, one branch. The `.spec/features/` artifacts are cleared; the
+durable half is here and in
+[ADR-018](../contributor/adr/018-unsatisfiable-jobs-are-reported-not-fatal.md).
+
+Closes **#30**, **#32**, the
+[`eager-boot-uses-the-provider-it-builds`](shape-intents/eager-boot-uses-the-provider-it-builds.md)
+shape intent, and the remainder of **#18**.
+
+| Feature | What it closed |
+|---|---|
+| `job-name-collisions` | #32, plus a same-name-in-two-files half and a **non-deterministic winner** |
+| `eager-boot-provider` | #30's four defects, plus three found while fixing them |
+| `parameter-type-support` | a `Path`/`UUID`/`date`/`Decimal` parameter was unusable and took the CLI down |
+| `public-provider-seam` | `StaticProvider` is public; the Subjects guide landed |
+| `discovery-failure-surfaces` | a missing job now says why, on every surface a user looks at |
+
+#### The root cause worth remembering
+
+**Six separate classifiers of a job signature, each with its own answer.** A
+`Path` parameter was a CLI value to one, a dependency to inject to another, and
+`str` to a third. The consolidation is `_primitives/parameter_types.py`
+(`is_cli_value_type`, `has_explicit_cli_marker`) and
+`_discovery/collisions.py` (`resolve_name_collisions`), and both are imported
+by every path that used to decide for itself. `tests/cli/test_parameter_types.py`
+drives the outcome through the real CLI so a seventh cannot appear quietly.
+
+#### Four defects found that nothing had recorded
+
+1. **A newly added job module could be invisible to discovery.** `pkgutil` reads
+   directories through `FileFinder`, which re-reads only when the directory
+   mtime changes, so a file added in the same tick was absent from the scan
+   while importing it directly worked — the exact case `refresh()` exists for.
+   Fixed with `importlib.invalidate_caches()` in `_discover_module_files`.
+2. **The collision winner was never deterministic.** Two files claiming one job
+   name gave `b b a b b a a a` over eight cold boots of unmodified 0.2.3 — the
+   *surviving* job's behaviour changed with nothing changing on disk. The
+   acceptance criterion "preserve today's winner" was therefore unsatisfiable as
+   written; the entry key is now sorted, which makes it well-defined and
+   preserves the case that was deterministic.
+3. **`exclude_patterns` was silently ignored for a relative scan root**, on both
+   paths. `Path.relative_to` is textual, so a relative root can never contain an
+   absolute candidate; `func --exclude` was unaffected only because the CLI
+   resolves its roots first. This is the remaining half of #18.
+4. **The two providers disagreed on a grouped job's name** — bare `provision`
+   vs `infra.provision` — because each carried its own extraction pass.
+
+#### Behaviour changes
+
+**DI failures no longer raise at boot** — see ADR-018. A library host catching
+`DIValidationError` around `FunctualizeApp(...)` now meets it at first use.
+
+**`CACHE_VERSION` 19 -> 20.** The cached entry key became
+`source_file::python_name`; an unbumped cache would have kept collapsing
+collisions by name.
+
+**Log output carries no logger prefix on either surface.** Both `_cli/main.py`
+and `app/adapters/cli.py` set `format="%(message)s"`, so a job's `log()` reads
+as the program talking. The app surface was fixed second, after the first pass
+left `func` bare and a project's own `main.py` printing
+`INFO:functualize.job.lab.report:...` for the same call.
+
+#### Two things worth knowing about the gates
+
+**A relaxed assertion can pass vacuously.** The unknown-command tests were
+relaxed enough to run on both surfaces and passed on the app surface by
+matching the *discovery warning line* instead of the explanation. They are
+`surfaces("func")` now, with the gap recorded as #37 rather than papered over.
+
+**The discovery warning never proved the log format.** It is emitted during app
+construction, before either entry point configures logging, so
+`logging.lastResort` prints it bare on both surfaces regardless. Only a job's
+own `log()` goes through the configured handler, which is what the two-surface
+test asserts on now.
+
 ### Standalone distribution and self-management (2026-09-04, `feat/standalone-distribution`)
 
 The `standalone-distribution` shape intent is **implemented**, and its artifacts
