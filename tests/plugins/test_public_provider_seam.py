@@ -22,11 +22,15 @@ unit tests.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import functualize.plugin as plugin_module
 from functualize import FunctualizeApp
 from functualize.app.config import JobSources, PluginSources
-from functualize.job import Log
 from functualize.plugin import Job, JobProvider, StaticProvider
+
+if TYPE_CHECKING:
+    from functualize.job import Log
 
 
 class Jsonschema:

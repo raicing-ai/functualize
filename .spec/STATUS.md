@@ -1099,6 +1099,42 @@ it works).
 
 ## Potential Follow-ups
 
+34. **The unknown-command explanation does not reach a project's own
+    `main.py`.** `explain_missing_job` (`_cli/info.py`) is called from both
+    reporters — `func`'s unknown-command path and the CLI adapter's
+    `_show_command_not_found` — but a project's own entry point invokes click
+    in standalone mode, so an unrecognized name is rendered by click's
+    `UsageError` before either runs. `func` users get "needs_dep.py failed to
+    load, so the job it defines is missing"; an app user gets click's "No such
+    command".
+
+    Per `contributor/architecture/surface-boundary.md` this is a *program*
+    concern rather than a *how you reach the program* concern, so the two
+    should align. The fix is an error boundary around the adapter's click
+    invocation, which is a wider change than the surface it would fix.
+    `tests/cli/test_discovery_failure_surfaces.py` marks the affected tests
+    `surfaces("func")` rather than relaxing them — a relaxed assertion passed
+    vacuously on the app surface by matching the discovery warning line
+    instead of the explanation.
+
+35. **An `Enum` job parameter arrives as its member's `str` value, not the
+    member.** `_click_type_for` renders `click.Choice` of member values and
+    nothing converts back, so `def paint(c: Color)` invoked as `func paint
+    red` receives `"red"` rather than `Color.RED`. Pre-existing, and left
+    alone by `parameter-type-support` deliberately: a job comparing against
+    the string works today and would break. The choice validation is correct,
+    so the surface is right and only the conversion is missing.
+
+36. **`tests/_cli/test_self_doctor.py::test_a_recognised_installation_reports_ok`
+    fails on any machine whose global install manifest holds stale records.**
+    It reads the real `~/.config/functualize/install.json`, so a developer with
+    deleted worktrees registered there sees a failure unrelated to their
+    change. Verified failing on `master` at `78d9ff4`, independent of any
+    branch. The test's own docstring says it pins `argv[0]` precisely to avoid
+    environment dependence; the manifest is a second source of it.
+
+
+
 Items identified during development that are worth doing but not yet designed:
 
 1. **Autocomplete placeholder crashes instead of degrading** — a missing `textual-autocomplete` optional dep takes out every Pilot test instead of silently skipping. Fix: make the fallback a real Widget or skip it in `compose()`.

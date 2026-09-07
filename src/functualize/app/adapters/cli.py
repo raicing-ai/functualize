@@ -692,6 +692,20 @@ def _show_command_not_found(cmd: str, app: object) -> None:
     except Exception:
         pass
 
+    # Why the job is missing, when discovery can say. Both entry points show
+    # this: which command surface you reached the program through does not
+    # change why one of its jobs is absent (`contributor/architecture/
+    # surface-boundary.md`), and one implementation is what keeps the two from
+    # answering differently.
+    try:
+        from functualize._cli.info import explain_missing_job
+
+        explanation = explain_missing_job(cmd, app)
+        if explanation:
+            print(explanation, file=sys.stderr)
+    except Exception:  # pragma: no cover - a hint must not replace the error
+        pass
+
     print("\nRun 'func --help' to see available commands.", file=sys.stderr)
 
 
@@ -1188,6 +1202,8 @@ def _show_info_impl(
 
     _print_config_files(app, console)
 
+    _print_discovery_failures(app, console)
+
     registered = app.job_registry._registered_commands
     if registered:
         jobs_table = Table(title="Discovered Jobs", border_style="blue")
@@ -1414,6 +1430,57 @@ def _print_unreadable_config_file(path: str, console: Console) -> None:
             border_style="red",
         )
     )
+
+
+def _print_discovery_failures(app: Any, console: Any) -> None:
+    """What discovery could not read, above the job list.
+
+    The plain and JSON renderings have reported this since the report existed;
+    the *default* one did not, so the rendering everybody gets showed a short
+    job list and no explanation. The plain renderer even carries the reason
+    for the position — "an explanation printed below the thing it explains
+    gets scrolled past" — which had reached two renderers and not this one.
+
+    Three kinds share the list: a module that failed to parse or import, two
+    functions colliding on one job name, and a job whose parameters cannot be
+    satisfied. All three are the same user-visible fact — a job the user wrote
+    is not in the CLI — so all three render here.
+    """
+    from rich.table import Table as _Table
+
+    from functualize._cli.info import discovery_failures
+
+    try:
+        failures = discovery_failures(app)
+    except Exception:  # pragma: no cover - a diagnostic must not break `info`
+        return
+    if not failures:
+        return
+
+    table = _Table(
+        title=f"Discovery Failures ({len(failures)})",
+        border_style="yellow",
+        title_style="bold yellow",
+    )
+    # The file *name*, not its absolute path. A path is long enough to be
+    # truncated by rich in an ordinary terminal, which loses the one piece the
+    # reader needs to act on. The full path stays in `--json` and in the plain
+    # rendering, which are read by machines and pagers rather than by eyes.
+    table.add_column("Source", style="bold")
+    table.add_column("Problem", style="dim", overflow="fold")
+
+    from pathlib import Path as _Path
+
+    for failure in failures:
+        raw = str(failure.get("path") or failure.get("module") or "?")
+        error_type = failure.get("error_type") or ""
+        message = failure.get("message") or ""
+        table.add_row(
+            _Path(raw).name or raw,
+            f"{error_type}: {message}" if error_type else message,
+        )
+
+    console.print(table)
 
 
 def _print_config_files(app: Any, console: Console) -> None:

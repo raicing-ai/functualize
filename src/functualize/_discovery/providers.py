@@ -603,7 +603,7 @@ class DirectoryScanProvider:
         try:
             return extract_module(str(source_file), self._project_root).jobs
         except Exception as e:
-            logger.warning("Failed to import and extract from '%s': %s", source_file, e)
+            logger.warning("⚠ %s not loaded — %s", Path(source_file).name, e)
             record_discovery_failure(source_file, e)
             return []
 

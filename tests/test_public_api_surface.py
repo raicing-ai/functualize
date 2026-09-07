@@ -111,6 +111,9 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "JobProvider",
         "JobTransform",
         "Job",
+        # `Job` was public and the only thing that consumes it was not, so the
+        # documented way to contribute jobs ran through a private import.
+        "StaticProvider",
         "AdapterPlugin",
         "PromptCollector",
         "Surface",

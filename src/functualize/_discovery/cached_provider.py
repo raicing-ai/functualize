@@ -880,7 +880,11 @@ class CachedDirectoryScanProvider:
 
             extraction = extract_module(source_file, self._project_root)
         except Exception as e:
-            logger.warning("Failed to import and extract from '%s': %s", source_file, e)
+            # One formatted line, not a logger dump. This used to print
+            # `WARNING:functualize._discovery.cached_provider:Failed to import
+            # and extract from '<abs path>': ...` above every command a user
+            # ran, putting an internal module path in front of them forever.
+            logger.warning("⚠ %s not loaded — %s", Path(source_file).name, e)
             record_discovery_failure(source_file, e)
             return []
 

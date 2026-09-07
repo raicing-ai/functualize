@@ -263,7 +263,16 @@ try:
     result = auto_discover(pathlib.Path.cwd())
     app = FunctualizeApp(name="doctor-probe", job_sources=result.job_sources)
     app.refresh()
-    print(json.dumps({"ok": True, "jobs": len(app.get_jobs())}))
+    from functualize._cli.info import discovery_failures
+    failures = discovery_failures(app)
+    print(json.dumps({
+        "ok": True,
+        "jobs": len(app.get_jobs()),
+        "failures": [
+            {"path": f.get("path", ""), "message": f.get("message", "")}
+            for f in failures
+        ],
+    }))
 except BaseException as exc:
     print(json.dumps({"ok": False, "error": f"{type(exc).__name__}: {exc}"}))
 """
@@ -354,13 +363,44 @@ def _check_boot(cwd: Path) -> list[Check]:
             )
         )
     else:
-        checks.append(
-            Check(
-                "job-discovery",
-                CheckStatus.INFO,
-                f"{jobs.get('jobs', 0)} discovered from {cwd}",
-            )
+        raw_failures = jobs.get("failures")
+        failures: list[dict[str, str]] = (
+            [f for f in raw_failures if isinstance(f, dict)]
+            if isinstance(raw_failures, list)
+            else []
         )
+        count = jobs.get("jobs", 0)
+        if failures:
+            # "N discovered" on its own is a confident wrong number: this
+            # command exists to answer "what is wrong here", and a file that
+            # failed to load is exactly that. It used to report the count and
+            # stop.
+            checks.append(
+                Check(
+                    "job-discovery",
+                    CheckStatus.WARNING,
+                    f"{count} discovered from {cwd}, "
+                    f"{len(failures)} source(s) not loaded",
+                    remedy="Run `func builtin info` for the full report.",
+                )
+            )
+            for failure in failures:
+                checks.append(
+                    Check(
+                        f"  {failure.get('path') or '?'}",
+                        CheckStatus.WARNING,
+                        str(failure.get("message") or ""),
+                        remedy="Jobs defined here are missing from the CLI.",
+                    )
+                )
+        else:
+            checks.append(
+                Check(
+                    "job-discovery",
+                    CheckStatus.INFO,
+                    f"{count} discovered from {cwd}",
+                )
+            )
     return checks
 
 
