@@ -32,15 +32,23 @@ instead. Four observable defects follow, and they are one root cause.
 
 Whenever `provider_count > 1`, the guard opens and `resolve_all()` calls
 `list_jobs()` on **every** provider, including the directory provider whose work
-`scan_and_register_headless` has already done. Measured with a module-level
-side-effect counter:
+`scan_and_register_headless` has already done.
 
-| Configuration | Modules | Imports |
+Measured with a module-level side-effect counter, two job modules, **no
+`DiscoveryConfig` at all**:
+
+| Second provider | `lazy=False` imports | `lazy=True` imports |
 |---|---|---|
-| `lazy=False`, directories only | 2 | **2** |
-| `lazy=False` + `functions=[...]` | 2 | **4** |
-| `lazy=False` + a child project | 2 | **4** |
-| `lazy=True` + a child project | 2 | 1 |
+| none (directories only) | 2 — correct | 2 — correct |
+| `functions=[...]` | **4** | 2 — correct |
+| a child project | **4** | 2 — correct |
+
+The lazy column is the invariant the eager column should meet: one import per
+admitted module, whatever else is in the pipeline.
+
+A separate run with `exclude_patterns=("skipme.py",)` and a child project gives
+the D4 picture below — `lazy=False` imports **3** (the unfiltered scan takes 2,
+the filtered provider adds 1) while `lazy=True` imports **1**.
 
 **Import-time side effects therefore run twice**, on the one path documented as
 *"the escape hatch for users who need import-time side effects"*
@@ -65,7 +73,7 @@ attribute name. Every consumer expects the canonical descriptor name:
 | Consumer | Expects |
 |---|---|
 | `app/core.py:496` — `refresh()` eviction | `key.split("::")[-1] in {d.name}` |
-| `app/adapters/cli.py:1264` — `_show_job_config` | a user-typed canonical name |
+| `app/adapters/cli.py:1262-1265` — `_show_job_config` | a user-typed canonical name (`key.endswith(f"::{job_name}")`) |
 
 Verified for a job named `deploy_thing` (canonical `deploy-thing`):
 
@@ -88,7 +96,8 @@ The original #30. `exclude_patterns`, every `require_*`, and
 ### D4 — …except partially, and confusingly
 
 When the guard is open *and* a filter is set, the provider half **does** filter —
-3 imports rather than 4 — but its descriptors are then discarded by the
+3 imports rather than 4, against `lazy=True`'s 1 — but its descriptors are then
+discarded by the
 `already_registered` dedupe, because the unfiltered scan got there first. So the
 filter changes which modules are imported and not which jobs exist. A
 half-applied filter is worse than none: it makes the symptom depend on whether
@@ -143,7 +152,7 @@ once regardless of how many other providers are present.
 |---|---|
 | Every admitted job module imported at boot | `DirectoryScanProvider` imports each admitted module to extract descriptors |
 | Import-time side effects run at boot | same — and now exactly once |
-| DI validation at boot, not first use | descriptors carry a live `function`, so `register_descriptors` registers directly with a detected `config_class`, not a `LazyJobFunction` proxy |
+| DI validation at boot, not first use | `DirectoryScanProvider` sets `function=attr` (`providers.py:653`), so `register_descriptors` takes the live-function branch (`boot.py:1243`) rather than a `LazyJobFunction` proxy; `validate_di_bindings()` at `boot.py:674` skips only proxies, so a live entry is still validated at boot |
 | All errors at boot | same; nothing is deferred |
 
 One promise is **withdrawn deliberately**: a module the configuration excludes is
@@ -175,7 +184,7 @@ module-level side-effect counter.
 | A1 | With `lazy=False` and `functions=[...]`, each job module is imported exactly once | **twice** (2 modules → 4 imports) |
 | A2 | Same, with a child project instead of `functions` | **twice** (2 modules → 4 imports) |
 | A3 | A module-level side effect on the eager path fires exactly once | fires twice |
-| A4 | With `lazy=False` and no second provider, imports are unchanged at one per module | already 1 — a control, so A1/A2 cannot pass by disabling the eager path wholesale |
+| A4 | With `lazy=False` and no second provider, imports stay at one per module | already correct (2 modules → 2 imports) — a control, so A1/A2 cannot pass by disabling the eager scan wholesale |
 | A5 | `_registered_commands` keys use the canonical descriptor name on the eager path | keyed `__top__::deploy_thing` for descriptor `deploy-thing` |
 | A6 | After deleting a job file, `refresh()` on the eager path leaves no key behind | phantom `__top__::deploy_thing` survives |
 | A7 | `lazy=False` honours `exclude_patterns`, every `require_*`, and `pre_filter` | ignored |
