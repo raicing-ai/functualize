@@ -42,10 +42,35 @@ _REAL_MODULE = "functualize._primitives.command_paths"
 _REAL_ATTR = "job_path"
 
 
-def _with_entry_points(*eps):
-    return patch(
-        "functualize._discovery.providers.entry_points", return_value=tuple(eps)
-    )
+class _with_entry_points:
+    """Patch every binding of ``entry_points`` that this feature reads.
+
+    Two call sites, deliberately: the provider enumerates the table, and
+    ``boot.wire_entry_point_jobs`` peeks at it first so it can skip
+    constructing a provider for an empty group. The provider binds the name at
+    module import and so needs its own patch; boot imports inside the function,
+    so patching the primitive reaches that one. Patching only one leaves the
+    other reading the real environment.
+    """
+
+    def __init__(self, *eps) -> None:
+        self._patches = [
+            patch(target, return_value=tuple(eps))
+            for target in (
+                "functualize._discovery.providers.entry_points",
+                # boot imports it inside the function, so the name resolves
+                # at call time and patching the primitive reaches it.
+                "functualize._primitives.entry_points.entry_points",
+            )
+        ]
+
+    def __enter__(self) -> None:
+        for p in self._patches:
+            p.start()
+
+    def __exit__(self, *exc) -> None:
+        for p in reversed(self._patches):
+            p.stop()
 
 
 class TestEnumerationImportsNothing:

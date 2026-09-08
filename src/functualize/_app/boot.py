@@ -112,18 +112,35 @@ def init_observability(app: Any) -> None:
 def wire_entry_point_jobs(app: Any) -> None:
     """Add the ``functualize.jobs`` provider to the resolution pipeline.
 
-    **Called from both boot paths, and that is the whole point of it being a
-    function.** ``boot_static`` and ``boot_standard`` are separate assemblies
-    of the same app, and a capability wired into one of them is invisible from
-    the other. ``JobSources.job_providers`` already shipped that way -- "read by
-    nothing at all on either path" -- and the first attempt at this wiring
-    landed in ``boot_static`` alone, where a default ``FunctualizeApp`` never
-    looks.
+    **``boot_standard`` only — deliberately not ``boot_static``.** Reading the
+    entry-point table means walking ``sys.path``, and static wiring exists to
+    promise the opposite: it is the "I told you exactly where my jobs are, do
+    no I/O" path, guarded by
+    ``tests/core/test_static_wiring_fast_path.py``, which fails on a single
+    ``listdir`` or ``stat`` during boot. Discovering jobs from installed
+    packages *is* discovery, so it belongs to the discovering boot.
 
-    Added *after* the directory providers so a project's own job wins a name
-    collision against one an installed distribution supplies. That is the
-    direction every other precedence here runs, and the safer one: installing a
-    package should not silently replace a job the user wrote.
+    The asymmetry is therefore intended, and the opposite mistake is the easy
+    one to make: the first version of this wiring landed in ``boot_static``
+    *alone*, where a default ``FunctualizeApp`` never looks, and the reachability
+    test caught it. If a future change adds a third boot path, this belongs in
+    it only if that path already does discovery.
+
+    **Adds nothing when the group is empty**, which is the overwhelmingly
+    common case: almost no installation has a job-publishing package. Reading
+    the table to find that out is a cached metadata lookup, so the check costs
+    less than the provider it avoids constructing -- and it keeps the pipeline
+    a description of where jobs actually come from rather than a list of places
+    they might. Three ordering tests assert the pipeline exhaustively, and they
+    are right to: a provider that yields nothing still has to be explained.
+
+    Added *last*, after both the directory providers and anything declared
+    through ``JobSources``, so an explicitly wired job wins a name collision
+    against one an installed distribution supplies. That is the direction every
+    other precedence here runs, and the safer one: installing a package should
+    not silently replace a job the user wrote or declared. Three ordering tests
+    also pin the directory/declared-provider adjacency, which inserting this
+    between them would break.
 
     Costs a metadata read rather than an import --
     :meth:`EntryPointProvider.list_jobs` reads the entry-point table and defers
@@ -133,6 +150,11 @@ def wire_entry_point_jobs(app: Any) -> None:
     existing zero-import test would notice: both drive
     ``CachedDirectoryScanProvider`` directly rather than a composed boot.
     """
+    from functualize._primitives.entry_points import entry_points
+
+    if not entry_points(group="functualize.jobs"):
+        return
+
     from functualize._discovery.providers import EntryPointProvider
 
     app._resolution_pipeline.add_provider(EntryPointProvider())
@@ -268,8 +290,6 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
     # Resolution pipeline with StaticProvider (zero I/O)
     app._resolution_pipeline = ResolutionPipeline()
     app._jobs_memo = None
-    wire_entry_point_jobs(app)
-
     wire_declared_job_sources(app)
 
     perf_timeline.mark("boot.core_infra.end")
@@ -535,9 +555,9 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
                 )
             )
 
-    wire_entry_point_jobs(app)
-
     wire_declared_job_sources(app)
+
+    wire_entry_point_jobs(app)
 
     perf_timeline.mark("boot.core_infra.end")
 

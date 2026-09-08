@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -175,9 +175,25 @@ class TestDirectoryScanProvider:
 
 
 class TestEntryPointProvider:
-    """Tests for EntryPointProvider.
+    """Construction only. The provider's behaviour lives in its own file.
 
-    **Validates: Requirements 8.1, 8.2, 8.3, 8.4, 8.5**
+    ``tests/discovery/test_entry_point_jobs.py`` owns it, and owns it because
+    the contract changed: this class used to assert that ``list_jobs()`` calls
+    ``ep.load()`` and that a broken entry point is *absent* from the listing.
+    Both are now deliberately false.
+
+    Enumeration reads ``EntryPoint.name``/``.value`` — metadata — and imports
+    nothing, because the eager version would have imported every job-publishing
+    distribution on every boot. And a broken entry point stays listed with its
+    name visible, failing at materialization instead: hiding it would leave a
+    user with a package they installed, a job they cannot see, and no reason
+    given.
+
+    Rewritten rather than adapted. Per the constitution, code asserting a
+    replaced contract is removed rather than kept alongside — there are no
+    users to deprecate toward.
+
+    **Validates: Requirements 8.1**
     """
 
     def test_default_group_is_functualize_jobs(self) -> None:
@@ -196,159 +212,6 @@ class TestEntryPointProvider:
         provider = EntryPointProvider(group="my.custom.group")
         assert provider._group == "my.custom.group"
 
-    @patch("functualize._discovery.providers.entry_points")
-    def test_successful_entry_point_load(self, mock_entry_points: MagicMock) -> None:
-        """Successful entry point load builds a JobDescriptor.
-
-        **Validates: Requirements 8.2, 8.3**
-        """
-        # Create a mock entry point
-        mock_ep = MagicMock()
-        mock_ep.name = "my_plugin_job"
-        mock_loaded = MagicMock()
-        mock_loaded.__module__ = "my_plugin.jobs"
-        mock_loaded.__doc__ = "A plugin job."
-        mock_loaded.__annotations__ = {}
-        mock_ep.load.return_value = mock_loaded
-
-        mock_entry_points.return_value = [mock_ep]
-
-        provider = EntryPointProvider(group="functualize.jobs")
-        jobs = provider.list_jobs()
-
-        assert len(jobs) == 1
-        assert jobs[0].name == "my-plugin-job"
-        assert jobs[0].module_path == ""
-        assert jobs[0].docstring == "A plugin job."
-
-    @patch("functualize._discovery.providers.entry_points")
-    def test_broken_entry_point_skipped_with_warning(
-        self,
-        mock_entry_points: MagicMock,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """Broken entry point is skipped with a warning log.
-
-        **Validates: Requirements 8.4**
-        """
-        # Create a mock entry point that fails to load
-        mock_ep = MagicMock()
-        mock_ep.name = "broken_plugin"
-        mock_ep.load.side_effect = ImportError("Module not found")
-
-        mock_entry_points.return_value = [mock_ep]
-
-        provider = EntryPointProvider(group="functualize.jobs")
-
-        with caplog.at_level(logging.WARNING):
-            jobs = provider.list_jobs()
-
-        assert jobs == []
-        assert "Failed to load entry point 'broken_plugin'" in caplog.text
-
-    @patch("functualize._discovery.providers.entry_points")
-    def test_mixed_successful_and_broken_entry_points(
-        self,
-        mock_entry_points: MagicMock,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """Mix of successful and broken entry points: successful ones returned, broken skipped.
-
-        **Validates: Requirements 8.2, 8.4**
-        """
-        # Good entry point
-        good_ep = MagicMock()
-        good_ep.name = "good_job"
-        good_loaded = MagicMock()
-        good_loaded.__module__ = "good_plugin.jobs"
-        good_loaded.__doc__ = "Good job."
-        good_loaded.__annotations__ = {}
-        good_ep.load.return_value = good_loaded
-
-        # Bad entry point
-        bad_ep = MagicMock()
-        bad_ep.name = "bad_job"
-        bad_ep.load.side_effect = RuntimeError("Broken import")
-
-        mock_entry_points.return_value = [good_ep, bad_ep]
-
-        provider = EntryPointProvider(group="functualize.jobs")
-
-        with caplog.at_level(logging.WARNING):
-            jobs = provider.list_jobs()
-
-        assert len(jobs) == 1
-        assert jobs[0].name == "good-job"
-        assert "Failed to load entry point 'bad_job'" in caplog.text
-
-    @patch("functualize._discovery.providers.entry_points")
-    def test_get_job_returns_matching_descriptor(
-        self, mock_entry_points: MagicMock
-    ) -> None:
-        """get_job returns the correct descriptor for a known name.
-
-        **Validates: Requirements 8.3**
-        """
-        mock_ep = MagicMock()
-        mock_ep.name = "lookup_job"
-        mock_loaded = MagicMock()
-        mock_loaded.__module__ = "plugin.module"
-        mock_loaded.__doc__ = None
-        mock_loaded.__annotations__ = {}
-        mock_ep.load.return_value = mock_loaded
-
-        mock_entry_points.return_value = [mock_ep]
-
-        provider = EntryPointProvider()
-        result = provider.get_job("lookup_job")
-
-        assert result is not None
-        assert result.name == "lookup-job"
-
-    @patch("functualize._discovery.providers.entry_points")
-    def test_get_job_returns_none_for_absent_name(
-        self, mock_entry_points: MagicMock
-    ) -> None:
-        """get_job returns None for names not found.
-
-        **Validates: Requirements 8.3**
-        """
-        mock_ep = MagicMock()
-        mock_ep.name = "existing_job"
-        mock_loaded = MagicMock()
-        mock_loaded.__module__ = "plugin.module"
-        mock_loaded.__doc__ = None
-        mock_loaded.__annotations__ = {}
-        mock_ep.load.return_value = mock_loaded
-
-        mock_entry_points.return_value = [mock_ep]
-
-        provider = EntryPointProvider()
-        result = provider.get_job("nonexistent")
-
-        assert result is None
-
-    @patch("functualize._discovery.providers.entry_points")
-    def test_results_are_cached(self, mock_entry_points: MagicMock) -> None:
-        """Results are cached after the first call to list_jobs.
-
-        **Validates: Requirements 8.2**
-        """
-        mock_ep = MagicMock()
-        mock_ep.name = "cached_ep"
-        mock_loaded = MagicMock()
-        mock_loaded.__module__ = "cached.module"
-        mock_loaded.__doc__ = None
-        mock_loaded.__annotations__ = {}
-        mock_ep.load.return_value = mock_loaded
-
-        mock_entry_points.return_value = [mock_ep]
-
-        provider = EntryPointProvider()
-
-        jobs1 = provider.list_jobs()
-        jobs2 = provider.list_jobs()
-
-        # Only called entry_points once (cached)
-        mock_entry_points.assert_called_once()
-        assert jobs1 is jobs2
+    def test_an_empty_group_yields_no_jobs(self) -> None:
+        with patch("functualize._discovery.providers.entry_points", return_value=()):
+            assert EntryPointProvider().list_jobs() == []

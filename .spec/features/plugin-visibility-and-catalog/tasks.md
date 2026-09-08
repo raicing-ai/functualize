@@ -196,7 +196,7 @@ waves 2–3, not this one.
 
 ## Wave 5 — catalog (Part B)
 
-- [ ] **T5.1 — Manifest + loader**
+- [x] **T5.1 — Manifest + loader**
   `_cli/data/plugin_catalog.toml` carrying name, distribution, kind,
   description, recommended flag; typed loader; `recommended_distributions()` as
   the single source the CLI and the drift test both read.
@@ -205,7 +205,7 @@ waves 2–3, not this one.
   AC-B8 — `functualize-bitwarden` absent, with the musl reason recorded beside
   the assertion. AC-B12 — every distribution named exists under `plugins/`.
 
-- [ ] **T5.2 — `plugin available`**
+- [x] **T5.2 — `plugin available`**
   Grouped by kind, installed markers, `--format json`. Installed plugins
   classify from their live entry-point group (authoritative); the manifest
   supplies the kind only for the not-installed.
@@ -214,16 +214,16 @@ waves 2–3, not this one.
   `importlib.metadata` snapshot is read once and never re-read after an install
   (`_cli/plugin_cmd.py:22-27`).
 
-- [ ] **T5.3 — Offline guarantee**
+- [x] **T5.3 — Offline guarantee**
   *Gate:* AC-B3 — without `--remote`, no socket is opened. Test fails if one is.
 
-- [ ] **T5.4 — `--remote`**
+- [x] **T5.4 — `--remote`**
   PyPI query for `functualize-*`, merged and marked uncurated; network failure
   degrades to the shipped catalog with a warning and exit 0.
   *Files:* `_cli/plugin_cmd.py`
   *Gate:* AC-B11.
 
-- [ ] **T5.5 — `install --recommended`**
+- [x] **T5.5 — `install --recommended`**
   Mutually exclusive with a positional `PACKAGE`. Reuses the existing planning,
   confirmation and `manifest.record_addition` path.
   *Files:* `_cli/plugin_cmd.py`

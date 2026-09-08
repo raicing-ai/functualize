@@ -1,0 +1,128 @@
+# The curated plugin catalog — what `func builtin plugin available` lists.
+#
+# WHY A DATA FILE AND NOT INTROSPECTION. For an *installed* plugin every field
+# below is readable from its metadata, and `plugin available` prefers that,
+# because installed metadata is authoritative and cannot go stale. This file
+# exists for the plugin a user does NOT have yet: there is no metadata to read
+# until it is installed, and "install it to find out what it is" is not a
+# discovery story.
+#
+# `group` is recorded rather than `kind`. Kind is *derived* from the group by
+# `_primitives/plugin_kinds.classify_group`, exactly as it is for an installed
+# plugin, so this file cannot disagree with the live classification about a
+# plugin that is present on the machine.
+#
+# `recommended` must match the `[all]` extra in the repository's own
+# pyproject.toml. `tests/cli/test_plugin_catalog.py` parses both and fails on
+# drift, so adding a plugin to `[all]` without touching this file is caught.
+
+version = 1
+
+# ── Adapters: add commands or a delivery surface ─────────────────────────────
+
+[[plugin]]
+name = "mcp"
+distribution = "functualize-mcp"
+group = "functualize.plugins"
+description = "Expose jobs as MCP tools for AI agents"
+recommended = true
+
+[[plugin]]
+name = "http"
+distribution = "functualize-http"
+group = "functualize.plugins"
+description = "Serve jobs over HTTP"
+recommended = true
+
+[[plugin]]
+name = "lambda"
+distribution = "functualize-lambda"
+group = "functualize.plugins"
+description = "Run jobs as AWS Lambda functions"
+recommended = true
+
+[[plugin]]
+name = "flow-viz"
+distribution = "functualize-flow-viz"
+group = "functualize.plugins"
+description = "Visualize workflow execution inline"
+recommended = true
+
+# ── Domains: the capability protocols jobs are written against ───────────────
+
+[[plugin]]
+name = "state"
+distribution = "functualize-state"
+group = "functualize.domains"
+description = "State persistence and execution tracking protocols"
+recommended = true
+
+[[plugin]]
+name = "tasks"
+distribution = "functualize-tasks"
+group = "functualize.domains"
+description = "Task management protocols"
+recommended = true
+
+[[plugin]]
+name = "ai"
+distribution = "functualize-ai"
+group = "functualize.domains"
+description = "LLM interaction protocols"
+recommended = true
+
+# ── Implementations: pick the one matching your infrastructure ───────────────
+#
+# Two of these serve the same domain (secrets), so installing both is a choice
+# about what you run, not a richer setup. `plugin available` groups them so
+# that reads as a menu rather than a checklist.
+
+[[plugin]]
+name = "sqlite"
+distribution = "functualize-state-sqlite"
+group = "functualize.state_providers"
+description = "SQLite-backed state persistence"
+recommended = true
+
+[[plugin]]
+name = "local"
+distribution = "functualize-tasks-local"
+group = "functualize.tasks_providers"
+description = "Local state-backed task storage"
+recommended = true
+
+[[plugin]]
+name = "pydantic"
+distribution = "functualize-ai-pydantic"
+group = "functualize.ai_providers"
+description = "PydanticAI-backed implementation of the AI domain"
+recommended = true
+
+[[plugin]]
+name = "inline"
+distribution = "functualize-inline"
+group = "functualize.interactivity_providers"
+description = "Textual inline prompts in the terminal"
+recommended = true
+
+[[plugin]]
+name = "aws-sm"
+distribution = "functualize-aws"
+group = "functualize.remote_providers"
+description = "AWS Secrets Manager and SSM Parameter Store"
+recommended = true
+
+[[plugin]]
+name = "bws"
+distribution = "functualize-bitwarden"
+group = "functualize.remote_providers"
+description = "Bitwarden Secrets Manager"
+# NOT recommended, and not an oversight. `bitwarden-sdk` publishes wheels for
+# glibc, macOS and Windows only, with no sdist, so including it makes
+# `functualize[all]` UNRESOLVABLE on both musl targets — and `[all]` is what
+# the standalone binary bakes (PYAPP_PROJECT_FEATURES=all), so the
+# Alpine/distroless binaries could not be built at all. There is no PEP 508
+# marker for musl vs glibc, so it cannot be excluded conditionally. The plugin
+# is first-class and directly installable; it simply is not part of
+# "everything", because on two of the seven shipped targets it cannot be.
+recommended = false
