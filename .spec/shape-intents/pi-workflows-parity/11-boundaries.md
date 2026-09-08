@@ -18,15 +18,20 @@ _types → _primitives → _events → {_discovery, _config, _engine, _plugins, 
 
 with three binding rules for this work:
 
-- `_primitives` and `_types` import **nothing internal** — stdlib only.
+- `_primitives` may reach **`_types` and stdlib only**; `_types` reaches **stdlib only**.
 - Peer layers are **independent**; wiring happens in `_app`.
-- **`_cli` may import public folders only** (`app/`, `job/`, `plugin/`, `types/`,
-  `testing/`) — never `_engine`, `_primitives`, `_types`.
+- **`_cli` may import public folders only** — six packages: `app/`, `job/`, `plugin/`,
+  `types/`, `testing/`, `workflow/` — never `_engine`, `_primitives`, `_types`.
 
 That last rule is why `deposit_gate_input` lives at `app/_workflow_resume.py` and is
 re-exported through `functualize.app.utils`: it is the *only* legal way for both `_cli`
 and a plugin to share one implementation. **Every lift proposed in this folder must land
 there.** It is not a stylistic preference; `lint-imports` fails otherwise.
+
+> The enforced contracts, the five peer layers (`_gate` is the one most often forgotten),
+> and the `exclude_type_checking_imports` blind spot are recorded in
+> `.serena/memories/architecture-layer-contract.md`. `pyproject.toml` is the source of
+> truth; where the diagram disagrees, the diagram is the bug.
 
 **Axis B — packaging**:
 
