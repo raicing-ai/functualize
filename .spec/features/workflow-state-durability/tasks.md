@@ -53,8 +53,10 @@ are in `_cli/` (`self_update`, `manifest`, `package_ops`, `config_snapshot_store
 cannot import `_cli` anyway. This unifies the *runtime state* writers, not the
 repo's. The docstring says exactly that rather than overclaiming.
 
-**Gate** `grep -c mkstemp src/functualize/_primitives/state_format.py` → `1`, and
-no second one appears in `_primitives/` once T2 lands;
+**Gate** `grep -rc 'tempfile\.mkstemp' src/functualize/_primitives/*.py | grep -v ':0'`
+→ exactly one file, `state_format.py:1` — `scope_format` must not add a second.
+*(An earlier wording used bare `mkstemp`, which counts the docstring's mention of
+the five `_cli/` writers and returns 2. Anchor on the call, not the word.)*;
 `pytest tests/test_state_format.py tests/test_state_store.py` green *(77 passed —
 this task must not turn the tree red)*
 **Covers** — (enabling; AC-1/AC-3 move to T6)
@@ -69,7 +71,7 @@ extraction is separable and stays here, because T2 consumes it.*
 
 ## Wave 2 — the fail-closed scope file
 
-### [ ] T2 · `scope_format.py` — the fail-closed file
+### [x] T2 · `scope_format.py` — the fail-closed file
 
 `[F]` `src/functualize/_primitives/scope_format.py` *(new)*,
 `tests/test_scope_format.py` *(new)*
@@ -95,8 +97,18 @@ Tests: one per row of `schema.md` §3; that a refused read is **repeatable** (ca
 twice, same error, file still present, byte-identical); and that the message
 contains the count but **not** a payload value planted in the file.
 
-**Gate** `pytest tests/test_scope_format.py -q` green, ≥ 8 tests
-**Covers** AC-2, AC-4, AC-5, AC-6
+**Gate** `pytest tests/test_scope_format.py -q` green, ≥ 8 tests *(23 passed)*;
+`lint-imports` 6/6 *(the `_primitives → _types` import is contract-legal)* ✓
+
+**Reachability:** `load_scopes` is T1's production raiser, so the error type is
+now wired. `scope_format` itself is not yet reached from a production path —
+`ScopeStore` (T4) is its first consumer. Disclosed, not claimed.
+
+Two functions beyond the task's letter, both load-bearing:
+`clear_scopes()` (the escape hatch — it must move a file `load_scopes` refuses,
+so it never reads one, and it never clobbers an existing `.bak`) and
+`update_scopes()` refusing to write over a file it could not read.
+**Covers** AC-2, AC-4, AC-5, AC-6, AC-16
 
 ---
 
