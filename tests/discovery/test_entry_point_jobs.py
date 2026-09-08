@@ -20,6 +20,7 @@ than by invalidation logic, which is why this file leans on them:
 
 from __future__ import annotations
 
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from unittest.mock import patch
 
@@ -42,7 +43,8 @@ _REAL_MODULE = "functualize._primitives.command_paths"
 _REAL_ATTR = "job_path"
 
 
-class _with_entry_points:
+@contextmanager
+def _with_entry_points(*eps):
     """Patch every binding of ``entry_points`` that this feature reads.
 
     Two call sites, deliberately: the provider enumerates the table, and
@@ -52,25 +54,14 @@ class _with_entry_points:
     so patching the primitive reaches that one. Patching only one leaves the
     other reading the real environment.
     """
-
-    def __init__(self, *eps) -> None:
-        self._patches = [
-            patch(target, return_value=tuple(eps))
-            for target in (
-                "functualize._discovery.providers.entry_points",
-                # boot imports it inside the function, so the name resolves
-                # at call time and patching the primitive reaches it.
-                "functualize._primitives.entry_points.entry_points",
-            )
-        ]
-
-    def __enter__(self) -> None:
-        for p in self._patches:
-            p.start()
-
-    def __exit__(self, *exc) -> None:
-        for p in reversed(self._patches):
-            p.stop()
+    targets = (
+        "functualize._discovery.providers.entry_points",
+        "functualize._primitives.entry_points.entry_points",
+    )
+    with ExitStack() as stack:
+        for target in targets:
+            stack.enter_context(patch(target, return_value=tuple(eps)))
+        yield
 
 
 class TestEnumerationImportsNothing:
