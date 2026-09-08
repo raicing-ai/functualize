@@ -51,7 +51,7 @@ that gate is green against the code as it actually stands.
   with its flags — and here it does not, because the flag selects the transport,
   not whether the command blocks.
 
-- [ ] **T1.4 — Classification helper**
+- [x] **T1.4 — Classification helper**
   `_primitives/plugin_kinds.py`: `PluginKind` str-enum + `classify_group()`
   mapping `functualize.plugins`→adapter, `functualize.domains`→domain,
   `functualize.*_providers`→implementation, else unknown. Re-export via

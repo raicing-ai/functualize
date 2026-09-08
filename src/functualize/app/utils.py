@@ -39,6 +39,7 @@ from functualize._primitives.job_schema import (
     job_input_schema,
 )
 from functualize._primitives.locator import ResourceLocator
+from functualize._primitives.plugin_kinds import PluginKind, classify_group
 from functualize._primitives.state_format import (
     resolve_state_location,
     resolve_state_path,
@@ -105,6 +106,8 @@ def job_config_fields(app: Any, job_name: str) -> list[Any]:
 
 __all__ = [
     "auto_discover",
+    "classify_group",
+    "PluginKind",
     "job_config_fields",
     "is_secret_field",
     "MASK",
