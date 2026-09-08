@@ -60,6 +60,43 @@ entire binding design rests on (`03` §1).
   unchanged, so "a failed import is reported, not swallowed" holds, more
   legibly.
 
+### Rebased onto `c0c921f` — a second first-party top-level name
+
+The branch was later rebased onto `c0c921f` (#33, plugin visibility) and
+`6541f8b` (#32, agent retrieval indexes). All 19 probes re-ran; 14 byte-identical,
+three differed only in nondeterministic output (tempdirs, durations, scope ids),
+`probe_01`'s grep line numbers moved as `boot.py` grew, and **`probe_07`
+surfaced a real change**:
+
+```
+top-level commands: ['builtin', 'hello']          # 787035e
+top-level commands: ['builtin', 'hello', 'mcp']   # c0c921f
+```
+
+`mcp` is now a first-party top-level command, and `probe_20` shows it is **not
+protected the way `builtin` is**:
+
+```
+first-party top level (no rise jobs): ['builtin', 'mcp']
+group='builtin'  -> REFUSED   ValueError: ... claims the reserved top-level name
+group='mcp'      -> ACCEPTED  top-level=['builtin', 'mcp']
+```
+
+A rise module declaring `group = "mcp"` collides silently — the same failure
+class as #32, one layer up.
+
+**Consequence for the design.** `00` fact 5 and `09` §1 state the reserved-name
+rule as a fact about *one name*, which was true when `builtin` was the only
+first-party top-level command. It is now a fact about a **set that grew
+upstream once and can grow again**. Binding check 10 (`03` §4, "reserved
+names") must therefore derive the protected set from the adapter — the two
+lines `probe_20` uses — rather than hardcoding `builtin`, and
+`test_no_builtin_namespace` (`11` §3) should assert against that derived set.
+
+This is **upstream ask 11**: protect the whole first-party top level, or at
+minimum warn on a collision instead of accepting it. Rise can route around it
+by deriving the set, so it does not block.
+
 ### The one that falsifies a claim: probe 11
 
 A duplicate bare job name used to lose **every** colliding job and say so. It
@@ -101,6 +138,7 @@ That is recorded in `11` §3.
 | **`probe_17_gate_fallback.py`** | blocking is the universal gate fallback — except an *unregistered* strategy name, which raises `ValueError` out of the walk; `Gate(strategy="ai")` is rejected outright | `16` §1a |
 | **`probe_18_gate_presets.py`** | at boot only `resolve` and `prompt` are registered and no presets exist; with both plugin resolvers registered the `"ai"` ladder resolves | `16` §1a |
 | **`probe_19_display_discovery.py`** | a rise-shaped `Display` satisfies `DisplayProvider` both ways; `should_show` is one `is_dir()`; **discovery is entry-points-first and the dedupe is first-wins, so a project `displays.py` cannot override an installed `display_id`** — it is dropped silently | `18` §3, §5 |
+| **`probe_20_reserved_top_level.py`** | `builtin` is refused as a rise group; **`mcp` is accepted and collides silently.** The protected top-level set is derived, not fixed — it grew at `c0c921f` | `00` fact 5, `03` §4 check 10 |
 
 Probes 01–06 were also run against 0.1.2 and produced byte-identical output;
 07–18 require functualize >= 0.2.0. Probe 19 requires >= 0.2.3 and needs no

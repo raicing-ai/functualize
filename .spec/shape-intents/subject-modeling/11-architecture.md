@@ -110,7 +110,7 @@ leans on. All run parameterized over both deliveries (`04` §7).
 | `test_status_guard_skips` | second `install` is `SKIPPED`, exit 0 | guard semantics change |
 | `test_precondition_refuses` | destructive tier outside isolation exits 3 | — |
 | `test_method_job_declaration` | `@job(guards=…)` on a method reaches the executor | `adopt_descriptor_declaration` changes |
-| `test_no_builtin_namespace` | no rise group is named `builtin` | — |
+| `test_no_builtin_namespace` | no rise group collides with a **first-party top-level command**, derived from the adapter rather than hardcoded — the set was `{builtin}` at `a2f453d` and is `{builtin, mcp}` at `c0c921f`, and only `builtin` is enforced upstream (`probe_20`) | the first-party top level grows again |
 | `test_tty_branch` | `tty is None` off a terminal; prompt defaults as measured | interactivity model changes |
 | `test_declaration_source_equals_live` | AST reader == live reflection | a module violates the constructor contract |
 | `test_missing_dep_is_diagnosed` | a failed import is reported, not swallowed | the `doctor` surface regresses |

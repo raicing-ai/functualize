@@ -495,3 +495,34 @@ registered display_ids: ['rise-project', 'rise-risks']
 project override applied: False
 project's NEW display applied: True
 ```
+
+---
+
+# Rebase onto `c0c921f` — 2026-09-08
+
+The branch was rebased onto `c0c921f` (#33) / `6541f8b` (#32). All 19 probes
+re-ran: 14 byte-identical, three differed only in nondeterministic output
+(tempdirs, durations, scope ids), `probe_01`'s grep line numbers moved as
+`boot.py` grew, and `probe_07` gained a top-level command:
+
+```
+top-level commands: ['builtin', 'hello']          # 787035e
+top-level commands: ['builtin', 'hello', 'mcp']   # c0c921f
+```
+
+`builtin plugin` also gained an `available` subcommand. Neither changes a v3
+claim, but the new top-level name does, which is what probe 20 measures.
+
+## `probe_20_reserved_top_level.py`
+
+New. `builtin` is protected; `mcp` is not.
+
+```
+first-party top level (no rise jobs): ['builtin', 'mcp']
+
+group='builtin'  -> REFUSED   ValueError: job 'builtin.probe' claims the reserved top-level name 'builtin'. That subtree is first-
+group='mcp'      -> ACCEPTED  top-level=['builtin', 'mcp']
+
+A rise module may therefore claim: ['mcp']
+```
+

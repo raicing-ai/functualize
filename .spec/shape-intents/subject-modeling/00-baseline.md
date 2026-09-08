@@ -40,6 +40,12 @@ re-run byte-identically (`evidence/transcript.md`).
    directory discovery. **[probed]**
 5. **`builtin` is a reserved top-level segment** (`_types/naming.py:207`);
    claiming it aborts CLI construction. **[probed]**
+
+   **Amended after the rebase onto `c0c921f`:** `builtin` is no longer the only
+   first-party top-level command — `mcp` joined it, and `mcp` is **not**
+   protected: a rise group may claim it and collide silently (`probe_20`).
+   Read this fact as being about a *derived set*, not the literal string
+   `builtin`. See `evidence/README.md` and upstream ask 11.
 6. **Child projects mount as a directory scan of `<child>/jobs`**
    (`_app/boot.py:871`). A child's own `main.py` never runs.
 7. **`GroupOptions` specs are collected only in the directory-scan pass**
