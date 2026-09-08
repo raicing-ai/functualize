@@ -10,7 +10,7 @@ Run gates from the worktree root.
 
 ## Wave 1 — four independent fixes
 
-### [ ] T1 · MCP execution doors return `metadata`, and `status` as a lowercase string
+### [x] T1 · MCP execution doors return `metadata`, and `status` as a lowercase string
 
 **Files:** `plugins/functualize-mcp/src/functualize_mcp/_tools.py`,
 `plugins/functualize-mcp/src/functualize_mcp/_server.py`
@@ -33,7 +33,7 @@ run through `get_execution_status` reports the same keys.
 
 ---
 
-### [ ] T2 · `cancelled` is terminal, and the engine enforces it
+### [x] T2 · `cancelled` is terminal, and the engine enforces it
 
 **Files:** `src/functualize/_engine/workflow_runner.py`, `src/functualize/_types/errors.py`
 
@@ -51,7 +51,7 @@ now: `0` · after: `≥1`
 
 ---
 
-### [ ] T3 · SINGLE_FILE registration no longer crashes in the file's own directory
+### [x] T3 · SINGLE_FILE registration no longer crashes in the file's own directory
 
 **Files:** `src/functualize/_cli/main.py`
 
@@ -105,7 +105,7 @@ Nothing to deduplicate, so nothing to do. The real context cost is the per-job t
 
 ## Wave 2 — the payload-shape precondition, and the MCP tool-surface mode
 
-### [ ] T5 · Both deposit paths store `model_dump()`
+### [x] T5 · Both deposit paths store `model_dump()`
 
 **Files:** `src/functualize/app/_workflow_resume.py`
 
@@ -127,7 +127,7 @@ resolved by a strategy, yields **equal** stored payloads.
 
 ---
 
-### [ ] T6 · `MCPConfig.job_tools` — `all` | `tagged` | `none`
+### [x] T6 · `MCPConfig.job_tools` — `all` | `tagged` | `none`
 
 **Files:** `plugins/functualize-mcp/src/functualize_mcp/_config.py`,
 `plugins/functualize-mcp/src/functualize_mcp/_server.py`

@@ -215,7 +215,11 @@ class TestResumeGate:
         assert result["workflow_id"] == "run-1"
         gate = _store().get_gate("run-1", "preferences")
         assert gate is not None
-        assert gate["payload"] == {"budget": "high"}
+        # The validated dump, not the raw input: `nights` has a default, and
+        # this path used to discard it while the walker's own strategy path
+        # kept it. One gate, two shapes, depending on who answered.
+        assert gate["payload"] == TripPreferences(budget="high").model_dump()
+        assert gate["payload"]["nights"] == 2
 
     async def test_accepting_input_does_not_run_the_workflow(self) -> None:
         """Resume is replay: the deposit fills a slot, the caller runs the job.
@@ -328,7 +332,7 @@ class TestResumeWorkflow:
         assert untouched["payload"] is None
         answered = store.get_gate("run-2", "preferences")
         assert answered is not None
-        assert answered["payload"] == {"budget": "high"}
+        assert answered["payload"] == TripPreferences(budget="high").model_dump()
 
     async def test_unknown_scope_is_an_error(self) -> None:
         result = await _provider(_gated_app())._resume_workflow("nope", {})

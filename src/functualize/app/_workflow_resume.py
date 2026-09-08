@@ -77,7 +77,7 @@ def deposit_gate_input(
         return error
 
     try:
-        model(**payload)
+        validated = model(**payload)
     except Exception as exc:
         return {
             "error": "validation_error",
@@ -85,7 +85,20 @@ def deposit_gate_input(
             "gate": gate,
         }
 
-    store.deposit_gate_payload(scope_id, gate, payload)
+    # Store the **dump**, not the raw input.
+    #
+    # This path validated with `model(**payload)` and then stored `payload`,
+    # discarding every Pydantic default and coercion the validation had just
+    # applied. The walker's own strategy path stores `model.model_dump()`
+    # (`workflow_walker.py`), and the walker feeds whichever it finds straight
+    # to the node — so one gate produced two different objects depending on who
+    # answered it, and a model with a defaulted field had that field *missing*
+    # when a human deposited the answer.
+    #
+    # One invariant, stated once: `payload` is only ever the output of a
+    # complete, successful validation, dumped. Nothing downstream has to know
+    # which path wrote it.
+    store.deposit_gate_payload(scope_id, gate, validated.model_dump())
     # Name the command, not the concept. "Run the workflow job with scope_id
     # 'X'" named neither the flag nor its position, and the audit that found
     # this got both wrong twice before reading `dispatch.py`. The job address
