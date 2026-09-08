@@ -252,6 +252,7 @@ def register_plugin_command(
     callback: Callable[..., Any],
     help_text: str = "",
     namespace: str | None = None,
+    needs_terminal: bool = False,
 ) -> None:
     """Validate and register a plugin command.
 
@@ -261,6 +262,9 @@ def register_plugin_command(
         callback: Callable to invoke when the command is executed.
         help_text: Help text (max 256 chars).
         namespace: Optional flat CLI namespace to mount the command under.
+        needs_terminal: True when the command takes over the controlling
+            terminal (a server on stdio, an editor), so a TUI front-end steps
+            aside instead of capturing its output.
 
     Raises:
         ValueError: If name, callback, or help_text is invalid, or if duplicate.
@@ -316,7 +320,11 @@ def register_plugin_command(
         )
 
     cmd = PluginCommand(
-        name=name, callback=callback, help_text=help_text, namespace=namespace
+        name=name,
+        callback=callback,
+        help_text=help_text,
+        namespace=namespace,
+        needs_terminal=needs_terminal,
     )
     app._plugin_commands_list.append(cmd)
     app._plugin_command_names[namespace].add(name)

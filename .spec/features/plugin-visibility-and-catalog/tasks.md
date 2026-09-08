@@ -8,7 +8,7 @@ that gate is green against the code as it actually stands.
 
 ## Wave 1 — pin the invariant, then make plugin commands safe to expose
 
-- [ ] **T1.1 — Pin `func --help`**
+- [x] **T1.1 — Pin `func --help`**
   Freeze the current top-level `--help` output as a test fixture. Byte-identical
   comparison. Lands before anything else moves, so every later task is measured
   against it.
@@ -16,11 +16,16 @@ that gate is green against the code as it actually stands.
   *Gate:* AC-A10. Test passes now; mutating `register_builtin_commands` to mount
   a second command makes it fail.
 
-- [ ] **T1.2 — `PluginCommand.needs_terminal`**
+- [x] **T1.2 — `PluginCommand.needs_terminal`**
   Add `needs_terminal: bool = False` to the frozen dataclass; accept it in
   `FunctualizeApp.register_plugin_command()`. Additive with a default — no
   existing caller changes.
-  *Files:* `_types/descriptors.py`, `app/core.py`
+  *Files:* `_app/models.py`, `_app/impl.py`, `app/core.py`
+  *Note:* `PluginCommand` existed **twice** — byte-identical copies in
+  `_app/models.py` (live) and `_types/descriptors.py` (no consumers). The
+  dead twin and its `_types/__init__` export were deleted rather than
+  updated in parallel; two definitions where one gains a field is the
+  drift this repo already shipped once.
   *Gate:* Existing plugin registration still works unchanged; a command
   registered with `needs_terminal=True` round-trips.
   *Why first:* Part A makes plugin commands runnable from the TUI. `func mcp
@@ -226,47 +231,96 @@ waves 2–3, not this one.
 
 ---
 
+## Landing note
+
+Waves 1-3 are the fix originally asked for plus its cross-surface siblings, and
+are self-contained: they touch no cache format and pin `func --help`. They can
+merge without waves 4-5. Wave 4 (`functualize.jobs`) bumps `CACHE_VERSION` and
+is the largest single piece; wave 5 (catalog) is independent of it and depends
+only on T1.4.
+
 ## Task Dependency Graph
 
 ```json
 {
   "waves": [
     {
-      "wave": 1,
-      "tasks": ["T1.1", "T1.2", "T1.3", "T1.4"],
+      "id": 1,
+      "tasks": [
+        "T1.1",
+        "T1.2",
+        "T1.3",
+        "T1.4"
+      ],
       "depends_on": []
     },
     {
-      "wave": 2,
-      "tasks": ["T2.1", "T2.2", "T2.3", "T2.4", "T2.5"],
-      "depends_on": ["T1.1", "T1.2", "T1.3"]
+      "id": 2,
+      "tasks": [
+        "T2.1",
+        "T2.2",
+        "T2.3",
+        "T2.4",
+        "T2.5"
+      ],
+      "depends_on": [
+        "T1.1",
+        "T1.2",
+        "T1.3"
+      ]
     },
     {
-      "wave": 3,
-      "tasks": ["T3.1", "T3.2", "T3.3", "T3.4", "T3.5"],
-      "depends_on": ["T2.1", "T2.2", "T2.4"]
+      "id": 3,
+      "tasks": [
+        "T3.1",
+        "T3.2",
+        "T3.3",
+        "T3.4",
+        "T3.5"
+      ],
+      "depends_on": [
+        "T2.1",
+        "T2.2",
+        "T2.4"
+      ]
     },
     {
-      "wave": 4,
-      "tasks": ["T4.1", "T4.2", "T4.3", "T4.4"],
-      "depends_on": ["T2.1"]
+      "id": 4,
+      "tasks": [
+        "T4.1",
+        "T4.2",
+        "T4.3",
+        "T4.4"
+      ],
+      "depends_on": [
+        "T2.1"
+      ]
     },
     {
-      "wave": 5,
-      "tasks": ["T5.1", "T5.2", "T5.3", "T5.4", "T5.5"],
-      "depends_on": ["T1.4"]
+      "id": 5,
+      "tasks": [
+        "T5.1",
+        "T5.2",
+        "T5.3",
+        "T5.4",
+        "T5.5"
+      ],
+      "depends_on": [
+        "T1.4"
+      ]
     },
     {
-      "wave": 6,
-      "tasks": ["T6.1", "T6.2"],
-      "depends_on": ["T3.5", "T4.3", "T5.5"]
+      "id": 6,
+      "tasks": [
+        "T6.1",
+        "T6.2"
+      ],
+      "depends_on": [
+        "T3.5",
+        "T4.3",
+        "T5.5"
+      ]
     }
   ]
 }
 ```
-
-**Landing note.** Waves 1–3 are the fix originally asked for plus its
-cross-surface siblings, and are self-contained: they touch no cache format and
-pin `func --help`. They can merge without waves 4–5. Wave 4 (`functualize.jobs`)
-bumps `CACHE_VERSION` and is the largest single piece; wave 5 (catalog) is
-independent of it and depends only on T1.4.
