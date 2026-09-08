@@ -17,17 +17,21 @@ Three layers, three actors, one naming rule.
 | **Invocation** | the *invoker* — whoever owns this process | **advances the walk in-process** | `--wf-*` flag on the `@workflow` job |
 | **Execution** | the caller starting or driving a run | starts, or continues to the next boundary | `func <wf>` · MCP `run_job` |
 
-**The naming rule: `deposit` never advances; `resume` always advances.**
+**The rule: the *layer* tells you whether a verb advances, and the docstring says so.**
 
 Today both spellings say "resume" and mean opposite things — `func builtin workflow
-resume` deposits, `func <wf> --scope-id` advances. The previous study noticed the
-collision and chose to live with it. Don't: the repo is pre-release
-(`.spec/CONSTITUTION.md:176-179`), and the fix is a rename that preserves every contract.
+resume` deposits, `func <wf> --scope-id` advances. A rename would remove the collision.
 
-> **Deviation flagged.** The handoff's decision 3 says *"`func builtin workflow resume` is
-> NOT retired."* Renaming is not retiring — the deposit-only contract, the shared
-> `deposit_gate_input` implementation, and the CLI↔MCP mirror all survive. But it is a
-> deviation from a stated binding decision, so it needs your explicit yes.
+> **Decided (D1/D1a): keep both, do not rename.** `resume` stays with its contract
+> unchanged — it is referenced by generated hints, docs and skills, so keeping it costs
+> nothing. `deposit` is **added** as the richer verb (draft / `--set` / `--reopen`), and
+> `resume` becomes a thin alias for `deposit --input … --commit`: one implementation,
+> two spellings.
+>
+> The collision therefore becomes permanent, and **documentation is the entire
+> mitigation.** Every record-layer verb opens with *"Accepting input does not run the
+> workflow."* Every `--wf-resume` surface opens with *"Continues the walk in this
+> process."* This is a standing rule on the text, not a one-time edit.
 
 ---
 
@@ -99,7 +103,7 @@ this table makes true.
 |---|---|---|---|---|
 | list scopes | `list [--workflow N] [--state waiting\|ready\|running\|all] [--blocked-on G] [--format table\|json]` | `list_workflows(workflow_name?, state?, blocked_on?)` | Obs | **fix** + **new** filters |
 | inspect one | `show <id> [--fields …] [--format]` | `get_workflow_state(workflow_id)` | Obs | **lift** `_describe` |
-| deposit input | `deposit <id> <gate> [--input JSON] [--set K=V] [--unset K] [--replace] [--show] [--commit/--no-commit]` | `deposit_gate(workflow_id?, gate?, values, mode, commit)` | Ctl | **new** (rename of `resume`) |
+| deposit input | `deposit <id> <gate> [--input JSON] [--set K=V] [--unset K] [--replace] [--show] [--commit/--no-commit]`<br>`resume <id> <gate> --input JSON` (kept, alias for the commit path) | `deposit_gate(workflow_id?, gate?, values, mode, commit)` | Ctl | **new** verb; `resume` **kept** (D1) |
 | reopen an answer | `deposit <id> <gate> --reopen` | `deposit_gate(..., reopen=true)` | Ctl | **new** |
 | run a gate tool | `gate-tool <id> <tool> [--args JSON]` | `call_gate_tool(workflow_id, tool, args)` | Ctl | **lift** (MCP-only today) |
 | cancel | `cancel <id>` | `cancel_workflow(workflow_id)` | Ctl | **fix** — make terminal |
@@ -354,7 +358,7 @@ the capability-flag discipline worth copying verbatim.
 | 1 — return `metadata` | L2 target, half of §2.3 |
 | 2 — enforce `cancel` | L7, `cancelled` terminal in §1 |
 | 3 — lift the projection | Every Obs cell; `waiting`/`ready` derivation; `--wf-status`; `show` |
-| 4 — `deposit` | L4, L5; the rename; MCP joint addressing |
+| 4 — `deposit` | L4, L5; `deposit` added alongside `resume`; MCP joint addressing |
 | 5 — `--wf-resume` | L1, L3, L6; `run_job(scope_id=…)` |
 | 6 — trim MCP tools | §2.3 last row |
 | 7 — the port | L8 |
