@@ -33,11 +33,13 @@ one façade over both stores; which file a section lives in is not its callers' 
 ### 1.2 Changed signature
 
 ```python
-StateStore.clear(*, scopes: bool = False) -> None
+StateStore.clear(*, scopes: bool = False) -> Path | None
 ```
 
 Clears fingerprints, history and session state. Scopes are cleared only when
-`scopes=True`. Previously cleared everything unconditionally (AC-7, AC-9).
+`scopes=True`, and clearing them **moves the file aside** rather than deleting it;
+the return value is where it went, or `None` when there was nothing to move.
+Previously cleared everything unconditionally and returned `None` (AC-7, AC-9).
 
 ### 1.3 Added
 
@@ -59,11 +61,21 @@ content (AC-4, AC-6). Suffixed `Error` per `CONSTITUTION.md` naming. Carries:
 | Attribute | Type | Meaning |
 |---|---|---|
 | `path` | `Path` | the file that could not be read |
-| `preserved_path` | `Path` | where it was moved |
-| `scope_count` | `int \| None` | scopes visible in the old file, or `None` if unparseable |
+| `scope_count` | `int \| None` | scopes visible in it, or `None` if unparseable |
 | `found_version` / `expected_version` | `int \| None` / `int` | the mismatch, when that is the cause |
 
-Exported from `functualize.types` alongside the other public error types.
+**The read never renames the file** (`plan.md` §1.2). Refusing is a repeatable state;
+moving the file aside would make the *next* run find nothing, read it as "no scopes"
+per AC-5, and start the workflow over silently — the defect this feature exists to
+remove. The file moves only at `state clear --scopes`, which is what the message names.
+
+`scope_count` is a **count, never content**: scope records hold gate payloads and step
+return values, which may be secrets.
+
+Exported from `functualize.app.utils`, beside `StateStore`, `resolve_state_path` and the
+three error types already re-exported there (`DIValidationError`,
+`JobMaterializationError`, `VaultKeyUnavailableError`). Not `functualize.types`, which
+exports no error types today.
 
 ## 2. CLI surface
 
@@ -134,15 +146,31 @@ list|state|resume|cancel`, `builtin state show` — fails closed (AC-4, AC-6):
 Error: .functualize/scopes.json cannot be read (found version 1, expected 2).
        It holds 3 workflow scopes, including any recorded gate input.
 
-  Preserved as: .functualize/scopes.json.bak-v1
-  To discard them and start fresh:
+  The file has been left where it is. To move it aside and start fresh:
       func builtin state clear --scopes
 
 exit 2
 ```
 
 Exit `2` — usage/config, per `_types/exit_codes.py`. **Not** exit 1, and never exit 0
-with an empty list.
+with an empty list. Repeatable: running again produces the same refusal over the same
+untouched file.
+
+**`state show` is the exception.** It is the diagnostic command, so it prints every
+other statistic, renders the scopes line as the fault, and *then* exits 2 — a reader
+running `state show` to find out what is wrong should be told, not stonewalled:
+
+```
+Fingerprints: 12
+Scopes:       unreadable — 3 scopes, found version 1, expected 2
+History entries: 47
+State path: /repo/.functualize/state.json
+Scopes path: /repo/.functualize/scopes.json
+Mode:       project
+
+Error: run `func builtin state clear --scopes` to move it aside and start fresh.
+exit 2
+```
 
 ## 3. MCP surface
 
@@ -156,11 +184,12 @@ One added error envelope, matching the existing flat shape
 ```json
 {
   "error": "scope_store_unreadable",
-  "message": "Scope store cannot be read (found version 1, expected 2). 3 scopes preserved at .functualize/scopes.json.bak-v1.",
-  "preserved_path": ".functualize/scopes.json.bak-v1",
-  "scope_count": 3
+  "message": "Scope store .functualize/scopes.json cannot be read (found version 1, expected 2). It holds 3 workflow scopes; run `func builtin state clear --scopes` to move it aside."
 }
 ```
+
+Flat, two keys — `_error(code, message)` (`_workflow_tools.py:716`) is flat by design,
+and widening the envelope for one case is the worse trade.
 
 Returned by any workflow tool that would otherwise report an empty or missing scope.
 

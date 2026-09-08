@@ -56,8 +56,10 @@ destroys every blocked run.
 
 `StateStore.batch()` exists to hold the lock across many mutations and write once, and
 the module docstring says *"A run that makes many mutations should use
-`StateStore.batch`"* (`state_store.py:9-11`). **It has zero call sites** in `src/`,
-`plugins/` or `tests/`.
+`StateStore.batch`"* (`state_store.py:9-11`). **It has zero production call sites** —
+`grep -rn '\.batch(' src/ tests/ plugins/` returns 5 hits, all of them in
+`tests/test_state_store.py`, which exercises the mechanism directly. Nothing in
+`src/` or `plugins/` calls it.
 
 So `record_step`, `set_position` and `set_scope_status` each perform an independent locked
 read-modify-write of a file that also holds every fingerprint and a 200-entry history
@@ -140,6 +142,12 @@ has runs in flight.
 - The verb surface — `answer`, `resume`, `--wf-*`, `--scope-id` removal. Separate feature.
 - Notes, provenance, timestamps, or any new field inside a scope record.
 - Leases, event log, or fencing a stale walker.
+- **Migration.** A project holding in-flight scopes in `state.json` loses them once,
+  on the upgrade that introduces `scopes.json`. `CONSTITUTION.md` → *Pre-Release
+  Stance* ("breaking changes are free") and *Forbidden Patterns* ("no backward-compat
+  shims") both point this way, and a permanent read-time fallback serving a one-time
+  transition is the second-store shape `contributor/reference/pitfalls.md` §5 warns
+  about. Reasoning and the ~20-line alternative: `plan.md` §6.
 
 ## 5. Definition of done
 
