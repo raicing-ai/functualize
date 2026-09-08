@@ -309,7 +309,7 @@ must fail.
 
 ## Wave 9 — the control surfaces
 
-### [ ] T15 · CLI `resume` advances; `gate-tool` and `purge` arrive
+### [x] T15 · CLI `resume` advances; `gate-tool` and `purge` arrive
 
 **Files:** `src/functualize/_cli/builtins.py`
 
@@ -324,7 +324,7 @@ now: `4` · after: `7` (`list`, `show`, `answer`, `resume`, `gate-tool`, `cancel
 
 ---
 
-### [ ] T16 · MCP `resume_workflow` advances; `purge_workflows` arrives
+### [x] T16 · MCP `resume_workflow` advances; `purge_workflows` arrives
 
 **Files:** `plugins/functualize-mcp/src/functualize_mcp/_workflow_tools.py`
 

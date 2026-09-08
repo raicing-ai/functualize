@@ -389,24 +389,56 @@ class TestGetGateDraft:
 
 
 class TestResumeWorkflow:
-    async def test_scope_addressed_deposit_works(self) -> None:
+    """`resume` advances now. Every tool in this module used to be a deposit,
+    so nothing an agent could call continued a blocked run — the only
+    continuation was re-invoking the job from a shell."""
+
+    async def test_it_answers_and_advances_in_one_call(self) -> None:
         app = _gated_app()
         app.execute("trip_planner", scope_id="run-1")
 
         result = await _provider(app)._resume_workflow("run-1", {"budget": "high"})
 
-        assert result["status"] == "input_accepted"
-        assert result["gate"] == "preferences"
+        assert result["status"] == "success"
+        assert result["return_value"] == "itinerary"
 
-    async def test_it_disambiguates_where_resume_gate_cannot(self) -> None:
-        """Two scopes blocked on the same gate: naming the scope resolves it."""
+    async def test_it_actually_runs_the_remaining_steps(self) -> None:
+        """The claim that separates advancing from depositing."""
+        calls: list[str] = []
+        app = _gated_app(calls)
+        app.execute("trip_planner", scope_id="run-1")
+        calls.clear()
+
+        await _provider(app)._resume_workflow("run-1", {"budget": "high"})
+
+        assert calls == ["travel_plan", "body"]
+
+    async def test_the_scope_may_be_omitted_when_only_one_can_advance(
+        self,
+    ) -> None:
+        app = _gated_app()
+        app.execute("trip_planner", scope_id="run-1")
+
+        result = await _provider(app)._resume_workflow(input={"budget": "high"})
+        assert result["status"] == "success"
+
+    async def test_several_advanceable_scopes_are_ambiguous(self) -> None:
+        """Never "newest wins" — `blocked_at` resets on every re-block."""
+        app = _gated_app()
+        app.execute("trip_planner", scope_id="run-1")
+        app.execute("trip_planner", scope_id="run-2")
+
+        result = await _provider(app)._resume_workflow(input={"budget": "high"})
+        assert result["error"] == "ambiguous_scope"
+
+    async def test_naming_the_scope_advances_only_that_one(self) -> None:
         app = _gated_app()
         app.execute("trip_planner", scope_id="run-1")
         app.execute("trip_planner", scope_id="run-2")
 
         result = await _provider(app)._resume_workflow("run-2", {"budget": "high"})
 
-        assert result["status"] == "input_accepted"
+        assert result.get("status") == "success", result
         store = _store()
         untouched = store.get_gate("run-1", "preferences")
         assert untouched is not None
@@ -419,21 +451,30 @@ class TestResumeWorkflow:
         result = await _provider(_gated_app())._resume_workflow("nope", {})
         assert result["error"] == "workflow_not_found"
 
-    async def test_a_scope_with_no_pending_gate_is_not_paused(self) -> None:
+    async def test_input_for_a_scope_with_no_pending_gate_is_an_error(
+        self,
+    ) -> None:
         app = _gated_app()
         app.execute("trip_planner", scope_id="run-1")
         _store().deposit_gate_payload("run-1", "preferences", {"budget": "high"})
         app.execute("trip_planner", scope_id="run-1")
 
         result = await _provider(app)._resume_workflow("run-1", {"budget": "low"})
-        assert result["error"] == "workflow_not_paused"
+        assert result["error"] in {"gate_not_found", "workflow_not_found"}
 
-    async def test_invalid_input_is_rejected(self) -> None:
-        app = _gated_app()
+    async def test_incomplete_input_drafts_and_does_not_advance(self) -> None:
+        """Walking a still-blocked gate would return the caller exactly where
+        they started, with no explanation."""
+        calls: list[str] = []
+        app = _gated_app(calls)
         app.execute("trip_planner", scope_id="run-1")
+        calls.clear()
 
         result = await _provider(app)._resume_workflow("run-1", {"nights": 1})
-        assert result["error"] == "validation_error"
+
+        assert result["status"] == "drafted"
+        assert "not advanced" in result["message"]
+        assert calls == []
 
     async def test_multiple_pending_gates_are_ambiguous(self) -> None:
         """A fan-out can leave two gates unanswered at once; the scope id is
@@ -511,6 +552,7 @@ class TestRegistration:
             "resume_workflow",
             "call_gate_tool",
             "cancel_workflow",
+            "purge_workflows",
         ]
 
     async def test_the_mcp_server_registers_the_workflow_tools(self) -> None:

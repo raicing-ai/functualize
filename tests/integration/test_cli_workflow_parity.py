@@ -124,7 +124,10 @@ class TestCliDrivesABlockedWorkflow:
             "approval"
         ]
 
-        # `resume` deposits the gate input.
+        # `resume` answers the gate **and advances the walk**, in this
+        # process. It used to only deposit — its own docstring said "Accepting
+        # input does not run the workflow" — so the caller still had to
+        # re-invoke the job, which an agent over MCP cannot do.
         code = _run_cli(
             app,
             [
@@ -132,25 +135,27 @@ class TestCliDrivesABlockedWorkflow:
                 "workflow",
                 "resume",
                 "rel-1",
-                "approval",
                 "--input",
                 json.dumps({"environment": "prod", "replicas": 3}),
             ],
         )
         assert code == 0
-        assert "Input accepted" in capsys.readouterr().out
-
-        # Re-running the job replays past the answered gate to completion.
-        done = app.execute("release", scope_id="rel-1")
-        assert done.status is RunStatus.SUCCESS
         assert app.ran.count("deploy") == 1  # type: ignore[attr-defined]
+        assert app.ran.count("body") == 1  # type: ignore[attr-defined]
+        capsys.readouterr()
 
-    def test_resume_rejects_invalid_input_and_deposits_nothing(
+        # And the scope is finished — nothing left to re-invoke.
+        _run_cli(app, ["builtin", "workflow", "list", "--format", "json"])
+        assert json.loads(capsys.readouterr().out)["workflows"] == []
+
+    def test_resume_with_incomplete_input_does_not_advance(
         self, app: FunctualizeApp, capsys: pytest.CaptureFixture[str]
     ) -> None:
+        """`replicas` is required, so this drafts rather than answering — and
+        a still-blocked gate must not be walked past."""
         app.execute("release", scope_id="rel-1")
+        app.ran.clear()  # type: ignore[attr-defined]
 
-        # `replicas` is required and typed int; a bad payload must be refused.
         code = _run_cli(
             app,
             [
@@ -158,13 +163,13 @@ class TestCliDrivesABlockedWorkflow:
                 "workflow",
                 "resume",
                 "rel-1",
-                "approval",
                 "--input",
                 json.dumps({"environment": "prod"}),
             ],
         )
-        assert code == 1
-        assert "does not satisfy" in capsys.readouterr().err.lower()
+        assert code == 0
+        assert "not advanced" in capsys.readouterr().out
+        assert app.ran == []  # type: ignore[attr-defined]
 
         # Still blocked — the run does not complete on a re-run.
         assert app.execute("release", scope_id="rel-1").status is RunStatus.BLOCKED

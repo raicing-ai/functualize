@@ -153,7 +153,7 @@ class TestScopeIdSurvivesUnknownDispatch:
         resumed = _run_func(
             "builtin",
             "workflow",
-            "resume",
+            "answer",
             "resume-me",
             "preferences",
             "--input",

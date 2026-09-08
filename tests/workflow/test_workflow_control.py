@@ -237,9 +237,77 @@ class TestTheFunnelCannotBeBypassed:
     agent refused `deploy` as a tool just calls `run_job("deploy")` and the
     gate policy is theatre."""
 
-    def test_resume_takes_the_gate_policy_lock(
+    def test_resume_is_never_refused_by_the_gate_policy(
+        self, app: FunctualizeApp, store: StateStore, calls: list[str]
+    ) -> None:
+        """The workflow's own continuation is exempt, deliberately.
+
+        The allow-list is built from the *gate's* `tools`, so a gate declaring
+        `tools=["build"]` would refuse `release` — and the walk that is the only
+        way out of the block could never run. Found by writing the test: an
+        earlier cut passed the policy here and every gate that declared a tool
+        made its own workflow unresumable.
+
+        `GateToolPolicy` has always stated this rule for the read tools, for
+        the same reason: an actor that could not inspect, answer or continue
+        the gate blocking it would have no way out at all.
+        """
+        result = resume_scope(app, store, "rel-1", input={"approved": True})
+
+        assert result["status"] == "success"
+        assert calls == ["deploy", "body"]
+
+    def test_a_gate_declaring_tools_does_not_block_its_own_resume(
+        self, project: Path, calls: list[str]
+    ) -> None:
+        """The exact shape that failed: the gate names a tool, so the union
+        allow-list is {that tool} and the workflow is not in it."""
+        instance = FunctualizeApp(name="toolapp")
+
+        def build() -> str:
+            calls.append("build")
+            return "artifact"
+
+        def deploy() -> str:
+            calls.append("deploy")
+            return "deployed"
+
+        @workflow(
+            steps=[
+                Step("build"),
+                Gate(name="approve", awaits=Approval, tools=["build"]),
+                Step("deploy"),
+            ],
+            edges=[
+                Edge(source="build", target="approve"),
+                Edge(source="approve", target="deploy"),
+                Edge(source="deploy", target=END),
+            ],
+        )
+        def gated() -> str:
+            calls.append("body")
+            return "shipped"
+
+        instance.register_dynamic_job("build", build)
+        instance.register_dynamic_job("deploy", deploy)
+        instance.register_dynamic_job("gated", gated)
+
+        instance.execute("gated", scope_id="g-1")
+        gated_store = StateStore.for_project(project)
+        calls.clear()
+
+        result = resume_scope(instance, gated_store, "g-1", input={"approved": True})
+
+        assert result["status"] == "success"
+        assert calls == ["deploy", "body"]
+
+    def test_a_gate_tool_call_IS_governed(
         self, app: FunctualizeApp, store: StateStore
     ) -> None:
+        """What the policy is actually for: an actor running *other* jobs while
+        a gate waits."""
+        from functualize.app.utils import call_gate_tool
+
         class RefuseEverything(GateToolPolicy):
             def permitted(self, tool_name: str) -> bool:
                 return False
@@ -247,12 +315,10 @@ class TestTheFunnelCannotBeBypassed:
             def allowed_tools(self) -> set[str]:
                 return set()
 
-        result = resume_scope(
-            app, store, "rel-1",
-            input={"approved": True},
+        result = call_gate_tool(
+            app, store, "rel-1", "build",
             policy=RefuseEverything(app, store=store),
         )
-
         assert result["error"] == "tool_not_permitted"
 
     def test_a_refusal_is_raised_not_returned_from_guarded_execute(

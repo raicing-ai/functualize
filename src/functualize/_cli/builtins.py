@@ -148,8 +148,10 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
             ("list", "Survey workflow scopes, with filters"),
             ("show", "Show one scope in full — graph, results, gates"),
             ("answer", "Record input for a gate — partial, whole, or corrected"),
-            ("resume", "Deposit input for a blocked gate"),
-            ("cancel", "Cancel a workflow scope"),
+            ("resume", "Advance a scope, optionally answering a gate first"),
+            ("gate-tool", "Run a tool a waiting gate offers"),
+            ("cancel", "Cancel a workflow scope — terminal"),
+            ("purge", "Delete finished scopes"),
         ),
         requires_subcommand=True,
     ),
@@ -1223,56 +1225,163 @@ def register_builtin_commands(cli_group: Any) -> None:
 
     @workflow_app.command("resume")
     @click.argument("workflow_id")
-    @click.argument("gate")
-    @click.option(
-        "--input",
-        "input_json",
-        default="{}",
-        help="Gate input as a JSON object, e.g. '{\"approved\": true}'.",
-    )
+    @click.option("--input", "input_json", default=None,
+                  help="Gate input to record before advancing.")
+    @click.option("--gate", "gate", default=None,
+                  help="Which pending gate --input answers, when several.")
+    @click.option("--retry-epilogue", is_flag=True,
+                  help="Clear a stalled epilogue so the body re-runs.")
+    @click.option("--format", "fmt", type=click.Choice(["table", "json"]),
+                  default="table", help="Render the result as a table or JSON.")
     @click.pass_context
     def workflow_resume(
-        ctx: click.Context, workflow_id: str, gate: str, input_json: str
+        ctx: click.Context,
+        workflow_id: str,
+        input_json: str | None,
+        gate: str | None,
+        retry_epilogue: bool,
+        fmt: str,
     ) -> None:
-        """Deposit input for a blocked gate (mirrors the MCP resume_gate tool).
+        """Advance a workflow scope, optionally answering a gate first.
 
-        Accepting input does not run the workflow — invoke the workflow job with
-        the same scope_id to continue past the gate.
+        `resume` advances; `answer` records. This verb used to *deposit* — its
+        own docstring said "Accepting input does not run the workflow" — so
+        nothing on any surface could continue a blocked walk except re-invoking
+        the job, which an agent over MCP cannot do.
+
+        The exit code is the walk's, so a run that is still blocked exits 5.
         """
         import json
 
-        from functualize.app.utils import deposit_gate_input
+        from functualize.app.utils import resume_scope
 
-        obj = ctx.find_root().obj
-        if obj is None or "app" not in obj:
-            click.echo("Error: No app context available.", err=True)
-            raise SystemExit(1)
-        try:
-            payload = json.loads(input_json)
-        except json.JSONDecodeError as exc:
-            click.echo(f"Error: --input is not valid JSON: {exc}", err=True)
-            raise SystemExit(2) from exc
+        app = _workflow_app_ref(ctx)
+        store = _workflow_store()
+
+        payload = None
+        if input_json is not None:
+            try:
+                payload = json.loads(input_json)
+            except json.JSONDecodeError as exc:
+                click.echo(f"Error: --input is not valid JSON: {exc}", err=True)
+                raise SystemExit(ExitCode.USAGE) from exc
 
         with _workflow_refusal():
-            result = deposit_gate_input(
-                obj["app"], _workflow_store(), workflow_id, gate, payload
+            result = resume_scope(
+                app, store, workflow_id,
+                input=payload,
+                gate=gate,
+                retry_epilogue=retry_epilogue,
             )
+
+        if fmt == "json":
+            click.echo(json.dumps(result, indent=2))
         if "error" in result:
-            click.echo(f"Error: {result['message']}", err=True)
-            raise SystemExit(1)
-        click.echo(result["message"])
+            if fmt != "json":
+                click.echo(f"Error: {result['message']}", err=True)
+            raise SystemExit(_workflow_exits.get(result["error"], 1))
+        if fmt != "json":
+            click.echo(result.get("message") or f"Walk ended: {result['status']}.")
+        raise SystemExit(_resume_exit(result))
+
+    def _resume_exit(result: dict[str, Any]) -> int:
+        """The walk's own outcome as an exit code.
+
+        A still-blocked run exits 5, the same code the job itself uses. This is
+        a breaking change from the deposit-only verb, which always exited 0 —
+        and it is the point: a script that resumes in a loop needs to know
+        whether it finished.
+        """
+        from functualize.app.utils import RunStatus, exit_code_for_status
+
+        status = str(result.get("status") or "").lower()
+        for member in RunStatus:
+            if member.value.lower() == status:
+                return int(exit_code_for_status(member))
+        return 0 if status in {"answered", "drafted"} else 1
+
+    @workflow_app.command("gate-tool")
+    @click.argument("workflow_id")
+    @click.argument("tool")
+    @click.option("--args", "args_json", default="{}",
+                  help="Tool arguments as a JSON object.")
+    @click.option("--format", "fmt", type=click.Choice(["table", "json"]),
+                  default="table", help="Render the result as a table or JSON.")
+    @click.pass_context
+    def workflow_gate_tool(
+        ctx: click.Context, workflow_id: str, tool: str, args_json: str, fmt: str
+    ) -> None:
+        """Run a tool a waiting gate offers, inside that gate's scope.
+
+        Arguments the gate fixes cannot be supplied — a bound argument is
+        refused, never silently overridden. The call is recorded on the scope
+        but never memoized: calling twice runs twice.
+        """
+        import json
+
+        from functualize.app.utils import GateToolPolicy, call_gate_tool
+
+        app = _workflow_app_ref(ctx)
+        store = _workflow_store()
+        try:
+            args = json.loads(args_json)
+        except json.JSONDecodeError as exc:
+            click.echo(f"Error: --args is not valid JSON: {exc}", err=True)
+            raise SystemExit(ExitCode.USAGE) from exc
+
+        with _workflow_refusal():
+            result = call_gate_tool(
+                app, store, workflow_id, tool, args,
+                policy=GateToolPolicy(app, store=store),
+            )
+
+        if fmt == "json":
+            click.echo(json.dumps(result, indent=2))
+        if "error" in result:
+            if fmt != "json":
+                click.echo(f"Error: {result['message']}", err=True)
+            raise SystemExit(_workflow_exits.get(result["error"], 1))
+        if fmt != "json":
+            click.echo(f"{result['tool']}: {result['status']} -> {result['return_value']!r}")
 
     @workflow_app.command("cancel")
     @click.argument("workflow_id")
     def workflow_cancel(workflow_id: str) -> None:
-        """Cancel a workflow scope."""
-        store = _workflow_store()
+        """Cancel a workflow scope. Terminal — it cannot be resumed."""
+        from functualize.app.utils import cancel_scope
+
         with _workflow_refusal():
-            if store.get_scope(workflow_id) is None:
-                click.echo(f"Error: no workflow scope '{workflow_id}'.", err=True)
-                raise SystemExit(1)
-            store.set_scope_status(workflow_id, "cancelled")
-        click.echo(f"Workflow '{workflow_id}' cancelled.")
+            result = cancel_scope(_workflow_store(), workflow_id)
+        if "error" in result:
+            click.echo(f"Error: {result['message']}", err=True)
+            raise SystemExit(_workflow_exits.get(result["error"], 1))
+        click.echo(result["message"])
+
+    @workflow_app.command("purge")
+    @click.option("--state", "state", default=None,
+                  help="Only scopes in this finished state.")
+    @click.option("--older-than", "older_than", type=float, default=None,
+                  metavar="DAYS",
+                  help="Only scopes whose newest recorded result is older.")
+    def workflow_purge(state: str | None, older_than: float | None) -> None:
+        """Delete finished workflow scopes.
+
+        Never touches a running, waiting or ready scope, and --state cannot
+        name one: this is a hard delete with no backup, unlike
+        `state clear --scopes`, which moves the whole file aside.
+        """
+        from functualize.app.utils import purge_scopes
+
+        with _workflow_refusal():
+            result = purge_scopes(
+                _workflow_store(), state=state, older_than_days=older_than
+            )
+        if "error" in result:
+            click.echo(f"Error: {result['message']}", err=True)
+            raise SystemExit(_workflow_exits.get(result["error"], 1))
+        click.echo(result["message"])
+        for scope_id in result["removed"]:
+            click.echo(f"  {scope_id}")
 
     _mount(builtin_app, workflow_app, "workflow")
 

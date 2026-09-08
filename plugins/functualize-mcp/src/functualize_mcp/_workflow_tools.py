@@ -7,7 +7,9 @@ These tools let an external agent drive a `@workflow` across turns:
 - ``answer_gate`` — record input for a gate, addressed by either identifier
 - ``get_gate_draft`` — what is supplied, missing and invalid on one gate
 - ``resume_workflow`` — deposit input for a scope with exactly one pending gate
+- ``resume_workflow`` — **advance** a scope, optionally answering a gate
 - ``cancel_workflow`` — terminate a scope
+- ``purge_workflows`` — delete finished scopes
 
 **Where the truth lives.** Everything reported here comes from two places that
 outlive the process that wrote them: the *state store* (``.functualize/state.json``
@@ -18,11 +20,12 @@ workflow blocked by a run that has long since exited. Only :meth:`resume_gate`
 materializes anything, and only because validating input means having the real
 Pydantic model rather than a JSON schema of it.
 
-**Resume is replay, not injection.** Depositing input does not restart anything.
-It fills the gate's payload slot; the next invocation of the workflow job replays
-the walk, finds the gate answered, and continues past it (§D.7). So a successful
-deposit reports ``input_accepted`` — not ``resumed`` — because nothing has run
-yet, and the caller still has to invoke the job.
+**``answer`` records; ``resume`` advances.** One meaning each, on every surface.
+``answer_gate`` fills the gate's payload slot and runs nothing;
+``resume_workflow`` walks the graph in this process and returns what the walk
+did. Until this split, *every* tool here was a deposit and nothing an agent
+could call advanced a blocked run — the only continuation was re-invoking the
+job from a shell, which an agent over MCP cannot do.
 """
 
 from __future__ import annotations
@@ -48,7 +51,10 @@ from functualize.app.utils import (
     describe_scope,
     gate_draft,
     list_scopes,
+    purge_scopes,
+    resolve_advanceable,
     resolve_gate,
+    resume_scope,
 )
 from functualize.app.utils import (
     pending_gates as _pending_gates,
@@ -137,7 +143,8 @@ class WorkflowToolProvider:
         mcp.add_tool(self._resume_workflow)
         mcp.add_tool(self._call_gate_tool)
         mcp.add_tool(self._cancel_workflow)
-        logger.info("WorkflowToolProvider: registered 7 workflow MCP tools")
+        mcp.add_tool(self._purge_workflows)
+        logger.info("WorkflowToolProvider: registered 8 workflow MCP tools")
 
     # ------------------------------------------------------------------
     # Tools
@@ -253,37 +260,51 @@ class WorkflowToolProvider:
 
     @_refuse_unreadable_scopes
     async def _resume_workflow(
-        self, workflow_id: str, input: dict[str, Any]
+        self,
+        workflow_id: str | None = None,
+        input: dict[str, Any] | None = None,
+        gate: str | None = None,
+        retry_epilogue: bool = False,
     ) -> dict[str, Any]:
-        scope = self.store.get_scope(workflow_id)
-        if scope is None:
-            return _error("workflow_not_found", f"No workflow scope '{workflow_id}'.")
-
-        pending = [name for name, _ in _pending_gates(scope)]
-        if not pending:
-            return _error(
-                "workflow_not_paused",
-                f"Workflow '{workflow_id}' has no gate awaiting input "
-                f"(status: {scope.get('status')}).",
-            )
-        if len(pending) > 1:
-            return {
-                "error": "ambiguous_gate",
-                "message": (
-                    f"Workflow '{workflow_id}' has {len(pending)} pending "
-                    "gates. Use resume_gate to name one."
-                ),
-                "pending_gates": pending,
-            }
-
-        return self._deposit(workflow_id, pending[0], input)
+        resolved = resolve_advanceable(self.store, workflow_id)
+        if isinstance(resolved, dict):
+            return resolved
+        return resume_scope(
+            self._app,
+            self.store,
+            resolved,
+            input=input,
+            gate=gate,
+            retry_epilogue=retry_epilogue,
+        )
 
     _resume_workflow.__name__ = "resume_workflow"
     _resume_workflow.__qualname__ = "resume_workflow"
     _resume_workflow.__doc__ = (
-        "Provide input for a workflow that is blocked on exactly one gate. "
-        "Equivalent to resume_gate, addressed by scope instead of gate name. "
-        "Args: workflow_id — the scope identifier; input — field values."
+        "Advance a paused workflow to its next stopping point, optionally "
+        "answering a gate on the way. This is the tool that *runs* the "
+        "workflow — answer_gate only records. workflow_id may be omitted when "
+        "exactly one scope can be advanced. Args: workflow_id; input — gate "
+        "values to record first; gate — which pending gate the input answers, "
+        "when several; retry_epilogue — clear a stalled epilogue so the "
+        "workflow body runs again."
+    )
+
+    @_refuse_unreadable_scopes
+    async def _purge_workflows(
+        self, state: str | None = None, older_than_days: float | None = None
+    ) -> dict[str, Any]:
+        return purge_scopes(
+            self.store, state=state, older_than_days=older_than_days
+        )
+
+    _purge_workflows.__name__ = "purge_workflows"
+    _purge_workflows.__qualname__ = "purge_workflows"
+    _purge_workflows.__doc__ = (
+        "Delete finished workflow scopes. Never touches a run that is still "
+        "running, waiting or ready. Args: state — one of completed, stalled, "
+        "failed, cancelled; older_than_days — only scopes whose newest "
+        "recorded result is older than this."
     )
 
     @_refuse_unreadable_scopes

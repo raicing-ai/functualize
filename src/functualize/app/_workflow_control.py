@@ -79,6 +79,15 @@ class GateToolPolicy:
     lock. It governed one surface while only one surface could run a job; that
     stopped being true the moment ``resume`` advanced.
 
+    **The workflow's own continuation is never governed.** ``resume_scope`` runs
+    the workflow job itself, and the policy's allow-list is built from the
+    *gate's* ``tools`` — so a gate declaring ``tools=["build"]`` would refuse the
+    very walk that is the way out of the block. That is the same rule the
+    original policy stated for the read tools and for the same reason: an actor
+    that could not inspect, answer, or continue the gate blocking it would have
+    no way out at all. What this governs is an actor running *other* jobs while
+    a gate waits.
+
     **Which gate governs.** A call carries no scope id, so when several scopes
     wait at once the policy takes the **union** of their lists — an intersection
     would let two unrelated workflows deadlock each other. A gate that declares
@@ -235,7 +244,6 @@ def resume_scope(
     input: dict[str, Any] | None = None,
     gate: str | None = None,
     retry_epilogue: bool = False,
-    policy: GateToolPolicy | None = None,
 ) -> dict[str, Any]:
     """Advance a workflow scope to its next durable boundary.
 
@@ -304,11 +312,21 @@ def resume_scope(
         )
 
     try:
+        # Through the funnel, with **no policy** — deliberately.
+        #
+        # The gate-tool allow-list is built from the gate's own `tools`, so a
+        # gate declaring `tools=["build"]` would refuse `release` and the walk
+        # that is the only way out of the block could never run. The policy
+        # governs an actor running *other* jobs while a gate waits, not the
+        # workflow's own continuation; `GateToolPolicy` states the same rule for
+        # the read tools, and for the same reason.
+        #
+        # Still routed through `guarded_execute` rather than calling
+        # `app.execute` directly, so there is exactly one place a workflow verb
+        # starts a job and a future verb cannot quietly grow a second.
         result = guarded_execute(
-            app, store, workflow_name, scope_id=scope_id, policy=policy
+            app, store, workflow_name, scope_id=scope_id, policy=None
         )
-    except PermissionError as exc:
-        return exc.args[0] if exc.args else _error("tool_not_permitted", str(exc))
     except ScopeCancelledError as exc:
         return _error("scope_cancelled", str(exc))
 
