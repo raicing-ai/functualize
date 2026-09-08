@@ -282,6 +282,61 @@ Dynamic jobs are fully functional — invocable via `rc.invoke()`, visible in th
 
 ---
 
+## Publishing Jobs from a Distribution
+
+A package can ship jobs without being a plugin at all, by declaring them under
+the `functualize.jobs` entry-point group:
+
+```toml
+# pyproject.toml of the package that owns the jobs
+[project.entry-points."functualize.jobs"]
+backup = "my_package:backup_job"
+restore = "my_package.ops:restore_job"
+```
+
+```python
+# my_package/__init__.py
+def backup_job(target: str = "/tmp", verbose: bool = False) -> None:
+    """Back up a target directory."""
+    ...
+```
+
+Once the package is installed, its jobs behave like any other:
+
+```bash
+func backup --target /srv/data   # runs it
+func backup --help               # its real parameters
+func                             # listed alongside the project's own jobs
+func builtin info schema         # published with its input schema
+```
+
+The entry-point **name** is the command (`backup`), and the value's attribute
+half is the function it resolves to — so a function may be called whatever suits
+the package, and `build_wheel` normalises to `build-wheel` like every other job
+name.
+
+**Choosing between this and a plugin.** Publish under `functualize.jobs` when
+the package's purpose is to *supply work*: a shared team library of deployment
+jobs, a tool that wants its operations runnable through `func`. Write a plugin
+when it needs to change what functualize *can do* — register a command,
+provide a backend, add a delivery surface. A package may do both.
+
+**Precedence.** A project's own jobs are registered first, so a job discovered
+from the project's directories wins a name collision against one an installed
+distribution supplies. Installing a package cannot silently replace a job you
+wrote.
+
+**Cost.** Enumeration reads the entry-point table, which is metadata, so a
+package's module is *not* imported to list its jobs — the import happens when a
+job is run or described. Installing job-publishing packages does not slow down
+`func` startup.
+
+**Lifecycle.** There is no cache: the table is read each time. Uninstalling the
+package removes its jobs immediately, and no stale entry can leave a job
+resolvable after the code behind it is gone.
+
+---
+
 ## Interactivity Plugin Registration
 
 Plugins providing rendering or input capabilities should register using `app.register_surface()`:

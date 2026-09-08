@@ -189,7 +189,7 @@ waves 2–3, not this one.
   was written; a test that constructs the provider directly leaves it exactly as
   unreachable. Commit before sabotaging.
 
-- [ ] **T4.4 — Document the mechanism**
+- [x] **T4.4 — Document the mechanism**
   `functualize.jobs` appears in no user-facing doc today.
   *Files:* `contributor/guides/plugin-development.md`, `docs/`
   *Gate:* AC-E6. A doc example that actually runs.
