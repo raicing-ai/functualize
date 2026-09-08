@@ -54,7 +54,7 @@ from functualize._primitives.state_format import (
 from functualize._types.errors import ScopeStoreUnreadableError
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable
 
 # Scope file format version. **Independent of STATE_VERSION** — that is the
 # whole point of the split. Bumping one says nothing about the other, and
@@ -210,9 +210,3 @@ def clear_scopes(path: Path | str) -> Path | None:
         index += 1
     target.rename(backup)
     return backup
-
-
-def iter_scope_ids(envelope: dict[str, Any]) -> Iterator[str]:
-    """Scope ids in an already-loaded envelope, sorted."""
-    scopes = envelope.get("scopes", {})
-    yield from sorted(scopes) if isinstance(scopes, dict) else iter(())

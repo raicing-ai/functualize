@@ -222,13 +222,6 @@ class TestFailClosed:
             ScopeStore(path).ensure_scope("b")
         assert path.read_text() == payload
 
-    def test_is_readable_reports_without_raising(self, tmp_path) -> None:
-        path = tmp_path / SCOPES_FILENAME
-        store = ScopeStore(path)
-        assert store.is_readable() is True  # absent reads as empty
-        path.write_text("{broken")
-        assert store.is_readable() is False
-
     def test_clear_is_the_escape_hatch(self, tmp_path) -> None:
         path = tmp_path / SCOPES_FILENAME
         path.write_text(json.dumps({"format_version": 99, "scopes": {"a": {}}}))
@@ -237,7 +230,6 @@ class TestFailClosed:
         backup = store.clear()
 
         assert backup is not None and backup.exists()
-        assert store.is_readable() is True
         assert store.scope_ids() == []
 
     def test_clear_returns_none_when_there_was_nothing(self, store: ScopeStore) -> None:

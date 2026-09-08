@@ -33,7 +33,6 @@ from typing import TYPE_CHECKING, Any
 from functualize._primitives.scope_format import (
     SCOPES_FILENAME,
     clear_scopes,
-    empty_scopes,
     load_scopes,
     resolve_scopes_path,
     save_scopes,
@@ -315,22 +314,3 @@ class ScopeStore:
         is the only escape hatch from a file the reader refuses. Never reads it.
         """
         return clear_scopes(self._path)
-
-    def is_readable(self) -> bool:
-        """Whether the scope file can currently be honoured.
-
-        For diagnostics (`func builtin state show`) that want to report the
-        fault rather than propagate it. Everything else should let
-        ``ScopeStoreUnreadableError`` travel.
-        """
-        from functualize._types.errors import ScopeStoreUnreadableError
-
-        try:
-            load_scopes(self._path)
-        except ScopeStoreUnreadableError:
-            return False
-        return True
-
-    def empty(self) -> dict[str, Any]:
-        """A fresh envelope, for callers that need the shape."""
-        return empty_scopes()

@@ -226,14 +226,6 @@ class StateStore:
         """All known scope ids."""
         return self._scopes.scope_ids()
 
-    def scopes_readable(self) -> bool:
-        """Whether the scope file can currently be honoured.
-
-        For diagnostics (`func builtin state show`) that report the fault
-        instead of propagating it. Everything else lets the error travel.
-        """
-        return self._scopes.is_readable()
-
     # ------------------------------------------------------------------
     # History ring buffer (`func history`)
     # ------------------------------------------------------------------

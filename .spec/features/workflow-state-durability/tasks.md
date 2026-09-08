@@ -146,9 +146,14 @@ a wave. The duplication is deliberate, bounded to one wave, and T6's gate is wha
 proves it is gone. `ScopeStore.beside_state()` carries the sibling rule so
 `StateStore` needs no path logic of its own in T6.
 
-Three methods beyond the accessors: `batch()` (used by T8), `clear()` (the
-escape hatch — never reads), and `is_readable()` for `state show`, which must
-report the fault rather than propagate it (R-b).
+Two methods beyond the accessors: `batch()` (used by T8) and `clear()` (the
+escape hatch — never reads).
+
+*`is_readable()` and `empty()` were also added here and **removed at T13**: the
+orphan scan found zero references. `state show` renders the fault from the
+exception object (it needs `found_version` and `scope_count`, which a boolean
+cannot give), so `is_readable` was redundant the moment `show` was written.
+`scope_format.iter_scope_ids` went the same way.*
 **Covers** AC-1, AC-16
 
 ### [x] T5 · public door
@@ -393,7 +398,7 @@ believing any failure — `TESTING.md`)*
 
 ## Wave 8 — checkpoint
 
-### [ ] T13 · full verification
+### [x] T13 · full verification
 
 `[F]` — none; this task changes nothing.
 
@@ -417,6 +422,28 @@ believing any failure — `TESTING.md`)*
    without distinguishing derived state from scopes (`spec.md` §5).
 
 **Gate** 0 and 1–5 green; 6–8 walked item by item, not inferred from a green suite
+
+### What the walk found
+
+Two things a green suite could not have told me:
+
+**The warm dispatch path was untested.** Sabotaging `lazy_command`'s
+`scope_store_refusal` broke *nothing* — the existing tests exercised the
+`builtin workflow` helper, never a workflow *job* invocation, so only the cold
+path in `click_params` was ever proven. This is the precise hazard the task was
+written to avoid (`pitfalls.md` §23), and it survived writing the task, the
+code and the tests. `TestRunningAWorkflowJobRefuses` now covers both, and
+re-running the sabotage fails as it should.
+
+**Three orphans.** `scope_format.iter_scope_ids`, `ScopeStore.empty()` and
+`StateStore.scopes_readable()` had zero references anywhere; `ScopeStore.
+is_readable()` was reachable only through the dead `scopes_readable`. All
+removed. Each was written speculatively for a caller that then solved the
+problem another way.
+
+Sabotage results: `clear(scopes=)` → 8 tests fail ✓ · MCP decorator → 3 fail ✓ ·
+warm refusal → 1 fail ✓ (after the gap was closed) · `scope_batch` in `block()`
+→ 1 fail ✓
 **Covers** every AC
 
 ---
