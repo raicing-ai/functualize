@@ -14,9 +14,10 @@ not thereby added to the other.
 
 **This page exists so that the question "does this need to work on both?" is
 answered by design rather than by a bug report.** It has a rule (§4), and the
-rule has already been applied once: `--scope-id` was a `func`-only flag, so a
-`@workflow` with a `Gate` on a `FunctualizeApp` blocked at exit 5 forever and
-the deposited input was never read.
+rule has already been applied twice, to the same feature: scope addressing was
+a `func`-only flag, so a `@workflow` with a `Gate` on a `FunctualizeApp` blocked
+at exit 5 forever and the recorded input was never read — and the fix for that
+was itself later replaced, for reasons §"Worked example" records.
 
 ---
 
@@ -178,19 +179,46 @@ Deliberately, and these are **not** gaps:
    it only makes sense on one, say so with `surfaces("func")` and give the
    reason — see `tests/conftest.py`.
 
-### Worked example — `--scope-id`
+### Worked example — addressing a workflow scope
 
-The flag exists in **three** places, and each is there for a reason:
+This one is worth following all the way through, because it ends by **deleting**
+two of its own three forms.
 
-| Form | Where | Why |
+`--scope-id` existed in three places:
+
+| Form | Where | Why it was there |
 |---|---|---|
-| `func --scope-id X walk` | pre-command global, `_cli/dispatch.py` | the original; kept for compatibility |
+| `func --scope-id X walk` | pre-command global, `_cli/dispatch.py` | the original |
 | `app.py --scope-id X walk` | root callback, `app/adapters/cli.py` | parity, for self-contained apps |
 | `<prog> walk --scope-id X` | **command option on workflow jobs**, both surfaces | the one that always works |
 
-The third is the load-bearing one. A composable adapter has no root callback, so
-forms one and two can both be absent — and resuming a gate is "about the
-program", so it may not depend on how you reached it.
+The third was the load-bearing one, for exactly the reason this page gives: a
+composable adapter has no root callback, so the first two can both be absent —
+and addressing a run is "about the program", so it must not depend on how you
+reached it.
+
+**Then the rule was applied again, and the first two went.** Per-command
+coverage was measured across every dispatch mode, cold cache and warm, and found
+complete. That made the two root-callback forms redundant — and the pre-command
+one was worse than redundant: it was the only member of
+`_GLOBAL_OPTIONS_ALWAYS_VALUE` addressing *persisted state* rather than
+discovery, config or performance, so `func --help` listed it among global config
+flags where it silently did nothing on a non-workflow job.
+
+The replacement is the `--wf-*` family, post-command only, on jobs that declare
+a `@workflow`. Same shape as the surviving form, and the same reasoning:
+
+| Form | Where |
+|---|---|
+| `<prog> walk --wf-resume X` | command options on workflow jobs, **both surfaces**, and nowhere else |
+
+`app._workflow_scope_id` remains as a **programmatic** seam for embedded hosts —
+the hole this whole story began with — documented as API-only with no CLI
+spelling.
+
+**The rule that survives all three revisions:** a capability that is "about the
+program" belongs where every surface reaches it identically. Which spelling that
+is can change; that it must be one spelling does not.
 
 ---
 

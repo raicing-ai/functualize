@@ -3,10 +3,13 @@
 These tools let an external agent drive a `@workflow` across turns:
 
 - ``get_workflow_state`` — one scope's topology, progress, and pending gates
-- ``list_active_workflows`` — every scope that is still runnable
-- ``resume_gate`` — deposit input for a gate, addressed by gate name
+- ``list_workflows`` — survey scopes, with filters
+- ``answer_gate`` — record input for a gate, addressed by either identifier
+- ``get_gate_draft`` — what is supplied, missing and invalid on one gate
 - ``resume_workflow`` — deposit input for a scope with exactly one pending gate
+- ``resume_workflow`` — **advance** a scope, optionally answering a gate
 - ``cancel_workflow`` — terminate a scope
+- ``purge_workflows`` — delete finished scopes
 
 **Where the truth lives.** Everything reported here comes from two places that
 outlive the process that wrote them: the *state store* (``.functualize/state.json``
@@ -17,11 +20,12 @@ workflow blocked by a run that has long since exited. Only :meth:`resume_gate`
 materializes anything, and only because validating input means having the real
 Pydantic model rather than a JSON schema of it.
 
-**Resume is replay, not injection.** Depositing input does not restart anything.
-It fills the gate's payload slot; the next invocation of the workflow job replays
-the walk, finds the gate answered, and continues past it (§D.7). So a successful
-deposit reports ``input_accepted`` — not ``resumed`` — because nothing has run
-yet, and the caller still has to invoke the job.
+**``answer`` records; ``resume`` advances.** One meaning each, on every surface.
+``answer_gate`` fills the gate's payload slot and runs nothing;
+``resume_workflow`` walks the graph in this process and returns what the walk
+did. Until this split, *every* tool here was a deposit and nothing an agent
+could call advanced a blocked run — the only continuation was re-invoking the
+job from a shell, which an agent over MCP cannot do.
 """
 
 from __future__ import annotations
@@ -33,8 +37,24 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from functualize.app.utils import (
+    LIVE_STATUSES as _LIVE_STATUSES,
+)
+from functualize.app.utils import (
+    GateToolPolicy as _GateToolPolicy,
+)
+from functualize.app.utils import (
     StateStore,
+    answer_gate,
+    call_gate_tool,
+    cancel_scope,
     deposit_gate_input,
+    describe_scope,
+    gate_draft,
+    list_scopes,
+    purge_scopes,
+    resolve_advanceable,
+    resolve_gate,
+    resume_scope,
 )
 from functualize.app.utils import (
     pending_gates as _pending_gates,
@@ -46,19 +66,6 @@ if TYPE_CHECKING:
 __all__ = ["GateToolPolicy", "WorkflowToolProvider"]
 
 logger = logging.getLogger(__name__)
-
-#: Discovery records parameter types as strings; MCP wants JSON-schema types.
-_JSON_TYPES = {
-    "int": "integer",
-    "float": "number",
-    "bool": "boolean",
-    "list": "array",
-    "dict": "object",
-    "str": "string",
-}
-
-#: Scope statuses that can still accept input or make progress.
-_LIVE_STATUSES = frozenset({"running", "blocked"})
 
 
 def _refuse_unreadable_scopes(fn: Any) -> Any:
@@ -96,81 +103,13 @@ def _canonical(name: str) -> str:
     return normalize_name(name) or name
 
 
-class GateToolPolicy:
-    """Decides whether a job tool may run while a gate is waiting.
-
-    `Gate(name, awaits, tools)` declares what an agent may use while resolving
-    that gate, and `tools` is a *permission*: a job tool call arriving while
-    the gate waits is refused unless the job is named. Enforcement lives here,
-    at the dispatch chokepoint every per-job tool passes through, rather than
-    in a helper the tools call voluntarily — a check that a caller can skip by
-    not calling it is not a permission.
-
-    **Only per-job tools are governed.** The workflow tools
-    (`get_workflow_state`, `resume_gate`, …) do not route through dispatch and
-    are therefore never refused. That is deliberate and load-bearing: an agent
-    that could not inspect or answer the gate blocking it would have no way
-    out of the block at all.
-
-    **Which gate governs.** A tool call carries no scope id, so when several
-    scopes wait at once the policy takes the union of their lists — an
-    intersection would let two unrelated workflows deadlock each other. A gate
-    that declares no tools asks for no restriction, so a single such gate
-    lifts the restriction entirely rather than being read as "permit nothing".
-    """
-
-    def __init__(self, app: Any, *, store: StateStore | None = None) -> None:
-        self._app = app
-        self._store = store
-
-    @property
-    def store(self) -> StateStore:
-        if self._store is None:
-            self._store = StateStore.for_project(Path.cwd())
-        return self._store
-
-    def permitted(self, tool_name: str) -> bool:
-        """True when ``tool_name`` may run right now.
-
-        The requested name is canonicalized first: tools are jobs, jobs are
-        addressed canonically, and an agent that asks for `order_history`
-        means the `order-history` on the allow-list. Comparing raw strings
-        refused a permitted call and told the agent it lacked permission,
-        which is a maximally misleading way to fail.
-        """
-        allowed = self.allowed_tools()
-        return allowed is None or _canonical(tool_name) in allowed
-
-    def allowed_tools(self) -> set[str] | None:
-        """The permitted job tools, or None when nothing is restricted."""
-        declared: list[list[str]] = []
-        for scope_id in self.store.scope_ids():
-            scope = self.store.get_scope(scope_id)
-            if scope is None or scope.get("status") not in _LIVE_STATUSES:
-                continue
-            for _name, record in _pending_gates(scope):
-                entries = _tool_entries(record)
-                if not entries:
-                    return None  # a gate asking for no restriction wins
-                declared.append([e["tool"] for e in entries])
-
-        if not declared:
-            return None
-        return {tool for tools in declared for tool in tools}
-
-    def refusal(self, tool_name: str) -> dict[str, Any]:
-        """The error envelope for a refused call."""
-        allowed = self.allowed_tools() or set()
-        return {
-            "error": "tool_not_permitted",
-            "message": (
-                f"'{tool_name}' is not permitted while a workflow gate is "
-                "awaiting input. Resolve the gate with resume_gate, or use "
-                "one of the tools it allows."
-            ),
-            "tool": tool_name,
-            "allowed_tools": sorted(allowed),
-        }
+#: The gate-tool permission, lifted to ``app/_workflow_control.py``.
+#:
+#: It governed one surface while only one surface could run a job. That stopped
+#: being true when ``builtin workflow resume`` began advancing walks, so the
+#: policy moved to where every job-executing path can reach it and this name
+#: stays as the plugin's door onto it — ``_server.py`` is unchanged in shape.
+GateToolPolicy = _GateToolPolicy
 
 
 class WorkflowToolProvider:
@@ -197,12 +136,14 @@ class WorkflowToolProvider:
     def register_tools(self, mcp: Any) -> None:
         """Register the workflow tools with a FastMCP server instance."""
         mcp.add_tool(self._get_workflow_state)
-        mcp.add_tool(self._list_active_workflows)
-        mcp.add_tool(self._resume_gate)
+        mcp.add_tool(self._list_workflows)
+        mcp.add_tool(self._answer_gate)
+        mcp.add_tool(self._get_gate_draft)
         mcp.add_tool(self._resume_workflow)
         mcp.add_tool(self._call_gate_tool)
         mcp.add_tool(self._cancel_workflow)
-        logger.info("WorkflowToolProvider: registered 6 workflow MCP tools")
+        mcp.add_tool(self._purge_workflows)
+        logger.info("WorkflowToolProvider: registered 8 workflow MCP tools")
 
     # ------------------------------------------------------------------
     # Tools
@@ -210,10 +151,10 @@ class WorkflowToolProvider:
 
     @_refuse_unreadable_scopes
     async def _get_workflow_state(self, workflow_id: str) -> dict[str, Any]:
-        scope = self.store.get_scope(workflow_id)
-        if scope is None:
+        view = describe_scope(self._app, self.store, workflow_id)
+        if view is None:
             return _error("workflow_not_found", f"No workflow scope '{workflow_id}'.")
-        return self._describe(workflow_id, scope)
+        return view
 
     _get_workflow_state.__name__ = "get_workflow_state"
     _get_workflow_state.__qualname__ = "get_workflow_state"
@@ -224,91 +165,141 @@ class WorkflowToolProvider:
     )
 
     @_refuse_unreadable_scopes
-    async def _list_active_workflows(self) -> dict[str, Any]:
-        workflows = [
-            self._describe(scope_id, scope)
-            for scope_id, scope in self._scopes()
-            if scope.get("status") in _LIVE_STATUSES
-        ]
-        return {"workflows": workflows}
+    async def _list_workflows(
+        self,
+        workflow_name: str | None = None,
+        state: str | None = None,
+        blocked_on: str | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "workflows": list_scopes(
+                self._app,
+                self.store,
+                workflow_name=workflow_name,
+                state=state,
+                blocked_on=blocked_on,
+            )
+        }
 
-    _list_active_workflows.__name__ = "list_active_workflows"
-    _list_active_workflows.__qualname__ = "list_active_workflows"
-    _list_active_workflows.__doc__ = (
-        "List every workflow scope still running or blocked, with its "
-        "position and pending gates. Completed, failed, and cancelled "
-        "scopes are omitted."
+    _list_workflows.__name__ = "list_workflows"
+    _list_workflows.__qualname__ = "list_workflows"
+    _list_workflows.__doc__ = (
+        "Survey workflow scopes. With no arguments, lists every scope still "
+        "running or blocked. Filters: workflow_name — only runs of that "
+        "workflow; state — waiting (needs an answer), ready (answered, needs "
+        "resume), running, completed, stalled, failed, cancelled; blocked_on — "
+        "only runs waiting at that gate. Naming a state widens the search to "
+        "finished runs too."
     )
 
     @_refuse_unreadable_scopes
-    async def _resume_gate(self, gate: str, input: dict[str, Any]) -> dict[str, Any]:
-        matches = [
-            scope_id
-            for scope_id, scope in self._scopes()
-            if scope.get("status") in _LIVE_STATUSES
-            and any(name == gate for name, _ in _pending_gates(scope))
-        ]
+    async def _answer_gate(
+        self,
+        values: dict[str, Any],
+        workflow_id: str | None = None,
+        gate: str | None = None,
+        mode: str = "merge",
+        commit: bool = True,
+        reopen: bool = False,
+        unset: list[str] | None = None,
+        clear: bool = False,
+    ) -> dict[str, Any]:
+        resolved = resolve_gate(self.store, workflow_id, gate, include_answered=reopen)
+        if isinstance(resolved, dict):
+            return resolved
+        scope_id, gate_name = resolved
+        return answer_gate(
+            self._app,
+            self.store,
+            scope_id,
+            gate_name,
+            values,
+            mode=mode,
+            unset=unset,
+            clear=clear,
+            commit=commit,
+            reopen=reopen,
+        )
 
-        if not matches:
-            return {
-                "error": "gate_not_found",
-                "message": f"No blocked workflow is awaiting gate '{gate}'.",
-                "pending_gates": self._all_pending_gates(),
-            }
-        if len(matches) > 1:
-            return {
-                "error": "ambiguous_gate",
-                "message": (
-                    f"Gate '{gate}' is pending in {len(matches)} scopes. "
-                    "Use resume_workflow with a workflow_id to disambiguate."
-                ),
-                "workflow_ids": matches,
-            }
+    _answer_gate.__name__ = "answer_gate"
+    _answer_gate.__qualname__ = "answer_gate"
+    _answer_gate.__doc__ = (
+        "Record input for a workflow gate. Does not run the workflow — call "
+        "resume_workflow to advance it. Address the gate by workflow_id, by "
+        "gate, or by both; either may be omitted when it is unambiguous. Input "
+        "accumulates in a draft and the gate is answered only once the draft "
+        "validates whole, so several actors can fill different fields of it. "
+        "Args: values — field values; workflow_id; gate; mode — merge "
+        "(default) or replace; commit — validate and answer when complete "
+        "(default true); reopen — move an already-recorded answer back into "
+        "the draft to correct it; unset — field names to drop; clear — discard "
+        "the draft first."
+    )
 
-        return self._deposit(matches[0], gate, input)
+    @_refuse_unreadable_scopes
+    async def _get_gate_draft(
+        self, workflow_id: str | None = None, gate: str | None = None
+    ) -> dict[str, Any]:
+        resolved = resolve_gate(self.store, workflow_id, gate)
+        if isinstance(resolved, dict):
+            return resolved
+        scope_id, gate_name = resolved
+        return gate_draft(self._app, self.store, scope_id, gate_name)
 
-    _resume_gate.__name__ = "resume_gate"
-    _resume_gate.__qualname__ = "resume_gate"
-    _resume_gate.__doc__ = (
-        "Provide input for a gate, addressed by gate name. Input is validated "
-        "against the gate's model and nothing is stored if it fails. Accepting "
-        "input does not run the workflow — invoke the workflow job to continue "
-        "it. Args: gate — the gate name; input — field values."
+    _get_gate_draft.__name__ = "get_gate_draft"
+    _get_gate_draft.__qualname__ = "get_gate_draft"
+    _get_gate_draft.__doc__ = (
+        "Inspect a gate's accumulated draft: what has been supplied, what is "
+        "still missing (with each field's type and description), and what is "
+        "invalid. Changes nothing. Args: workflow_id; gate — either may be "
+        "omitted when unambiguous."
     )
 
     @_refuse_unreadable_scopes
     async def _resume_workflow(
-        self, workflow_id: str, input: dict[str, Any]
+        self,
+        workflow_id: str | None = None,
+        input: dict[str, Any] | None = None,
+        gate: str | None = None,
+        retry_epilogue: bool = False,
     ) -> dict[str, Any]:
-        scope = self.store.get_scope(workflow_id)
-        if scope is None:
-            return _error("workflow_not_found", f"No workflow scope '{workflow_id}'.")
-
-        pending = [name for name, _ in _pending_gates(scope)]
-        if not pending:
-            return _error(
-                "workflow_not_paused",
-                f"Workflow '{workflow_id}' has no gate awaiting input "
-                f"(status: {scope.get('status')}).",
-            )
-        if len(pending) > 1:
-            return {
-                "error": "ambiguous_gate",
-                "message": (
-                    f"Workflow '{workflow_id}' has {len(pending)} pending "
-                    "gates. Use resume_gate to name one."
-                ),
-                "pending_gates": pending,
-            }
-
-        return self._deposit(workflow_id, pending[0], input)
+        resolved = resolve_advanceable(self.store, workflow_id)
+        if isinstance(resolved, dict):
+            return resolved
+        return resume_scope(
+            self._app,
+            self.store,
+            resolved,
+            input=input,
+            gate=gate,
+            retry_epilogue=retry_epilogue,
+        )
 
     _resume_workflow.__name__ = "resume_workflow"
     _resume_workflow.__qualname__ = "resume_workflow"
     _resume_workflow.__doc__ = (
-        "Provide input for a workflow that is blocked on exactly one gate. "
-        "Equivalent to resume_gate, addressed by scope instead of gate name. "
-        "Args: workflow_id — the scope identifier; input — field values."
+        "Advance a paused workflow to its next stopping point, optionally "
+        "answering a gate on the way. This is the tool that *runs* the "
+        "workflow — answer_gate only records. workflow_id may be omitted when "
+        "exactly one scope can be advanced. Args: workflow_id; input — gate "
+        "values to record first; gate — which pending gate the input answers, "
+        "when several; retry_epilogue — clear a stalled epilogue so the "
+        "workflow body runs again."
+    )
+
+    @_refuse_unreadable_scopes
+    async def _purge_workflows(
+        self, state: str | None = None, older_than_days: float | None = None
+    ) -> dict[str, Any]:
+        return purge_scopes(self.store, state=state, older_than_days=older_than_days)
+
+    _purge_workflows.__name__ = "purge_workflows"
+    _purge_workflows.__qualname__ = "purge_workflows"
+    _purge_workflows.__doc__ = (
+        "Delete finished workflow scopes. Never touches a run that is still "
+        "running, waiting or ready. Args: state — one of completed, stalled, "
+        "failed, cancelled; older_than_days — only scopes whose newest "
+        "recorded result is older than this."
     )
 
     @_refuse_unreadable_scopes
@@ -316,78 +307,7 @@ class WorkflowToolProvider:
         self, workflow_id: str, tool: str, args: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         """Run one of a blocked gate's tools, inside that gate's scope."""
-        scope = self.store.get_scope(workflow_id)
-        if scope is None:
-            return _error("workflow_not_found", f"No workflow scope '{workflow_id}'.")
-
-        entry = None
-        for _gate_name, record in _pending_gates(scope):
-            for candidate in _tool_entries(record):
-                if _canonical(candidate["tool"]) == _canonical(tool):
-                    entry = candidate
-        if entry is None:
-            return {
-                "error": "tool_not_permitted",
-                "message": (
-                    f"'{tool}' is not offered by any gate awaiting input in "
-                    f"workflow '{workflow_id}'."
-                ),
-                "tool": tool,
-                "allowed_tools": sorted(
-                    e["tool"]
-                    for _n, r in _pending_gates(scope)
-                    for e in _tool_entries(r)
-                ),
-            }
-
-        supplied = dict(args or {})
-        # A bound argument is refused, never silently overridden: an agent
-        # that believes it set a value and did not is worse off than one told
-        # no, and it is the difference between a permission and a preference.
-        overreach = sorted(set(entry["bound"]) & set(supplied))
-        if overreach:
-            return {
-                "error": "argument_not_permitted",
-                "message": (
-                    f"{', '.join(overreach)} is fixed by gate policy for "
-                    f"'{tool}' and cannot be supplied."
-                ),
-                "tool": tool,
-                "bound": entry["bound"],
-            }
-
-        bound_values, failure = self._bound_values(scope, tool)
-        if failure is not None:
-            return failure
-
-        # From here the canonical name is the one of record: it is the job
-        # that actually ran, and an audit trail spelled however the caller
-        # happened to type it cannot be grouped or compared.
-        tool = _canonical(tool)
-
-        try:
-            result = self._app.execute(
-                tool, scope_id=workflow_id, **{**bound_values, **supplied}
-            )
-        except Exception as exc:
-            return _error("tool_failed", f"'{tool}' raised {type(exc).__name__}: {exc}")
-
-        self.store.record_tool_call(
-            workflow_id,
-            {
-                "tool": tool,
-                "args": supplied,
-                "status": getattr(result.status, "value", str(result.status)),
-                "return_value": result.return_value,
-                "called_at": _now(),
-            },
-        )
-        return {
-            "tool": tool,
-            "status": getattr(result.status, "value", str(result.status)),
-            "return_value": result.return_value,
-            "workflow_id": workflow_id,
-        }
+        return call_gate_tool(self._app, self.store, workflow_id, tool, args)
 
     _call_gate_tool.__name__ = "call_gate_tool"
     _call_gate_tool.__qualname__ = "call_gate_tool"
@@ -467,23 +387,7 @@ class WorkflowToolProvider:
 
     @_refuse_unreadable_scopes
     async def _cancel_workflow(self, workflow_id: str) -> dict[str, Any]:
-        scope = self.store.get_scope(workflow_id)
-        if scope is None:
-            return _error("workflow_not_found", f"No workflow scope '{workflow_id}'.")
-
-        status = scope.get("status")
-        if status not in _LIVE_STATUSES:
-            return _error(
-                "workflow_not_active",
-                f"Workflow '{workflow_id}' is already {status}.",
-            )
-
-        self.store.set_scope_status(workflow_id, "cancelled")
-        return {
-            "status": "cancelled",
-            "workflow_id": workflow_id,
-            "message": f"Workflow '{workflow_id}' has been cancelled.",
-        }
+        return cancel_scope(self.store, workflow_id)
 
     _cancel_workflow.__name__ = "cancel_workflow"
     _cancel_workflow.__qualname__ = "cancel_workflow"
@@ -502,144 +406,6 @@ class WorkflowToolProvider:
             scope = self.store.get_scope(scope_id)
             if scope is not None:
                 yield scope_id, scope
-
-    def _describe(self, scope_id: str, scope: dict[str, Any]) -> dict[str, Any]:
-        """Full state for one scope — topology from the cache, progress from
-        the store."""
-        workflow_name = scope.get("workflow")
-        topology = self._topology(workflow_name)
-        steps = scope.get("steps", {})
-
-        return {
-            "workflow_id": scope_id,
-            "workflow": workflow_name,
-            "status": scope.get("status"),
-            "steps": topology["steps"],
-            "edges": topology["edges"],
-            "current_position": scope.get("position"),
-            # Nodes, not steps: an answered gate is recorded here too, and
-            # calling that a "completed step" would contradict `steps`, where
-            # gates are a distinct kind.
-            #
-            # Full records, not just names. The store has held each step's
-            # return value and resolved inputs all along; publishing only the
-            # names meant an agent could see *that* a step ran and never what
-            # it produced — so it had to be told the run's own results out of
-            # band, which is the workflow asking the agent to be its plumbing.
-            "results": {
-                _job_of(key): {
-                    "status": record.get("status"),
-                    "return_value": record.get("return_value"),
-                    "inputs": record.get("inputs", {}),
-                    "completed_at": record.get("completed_at"),
-                }
-                for key, record in steps.items()
-                if isinstance(record, dict)
-            },
-            "branches": dict(scope.get("branches", {})),
-            "pending_gates": [
-                self._gate_summary(scope_id, scope, name, record)
-                for name, record in _pending_gates(scope)
-            ],
-        }
-
-    def _topology(self, workflow_name: Any) -> dict[str, Any]:
-        """The declared graph — cached shape first, live declaration as fallback.
-
-        The cached ``descriptor.workflow`` is written only by directory
-        discovery, so a workflow declared inside a **plugin** (or via
-        ``register_dynamic_job``) has ``.workflow is None`` and used to report an
-        empty graph over MCP — an agent could advance a workflow it could not
-        see. When the cached shape is absent, fall back to the live declaration
-        on ``descriptor.function``; it is origin-agnostic and already in hand.
-
-        Still empty when the job is gone entirely — a scope outlives the
-        declaration that made it, and a stale scope should report its progress
-        rather than raise. The fallback also returns empty (never raises) for a
-        job that has no workflow at all.
-        """
-        empty: dict[str, Any] = {"steps": [], "edges": []}
-        if not isinstance(workflow_name, str):
-            return empty
-        descriptor = self._app.get_job(workflow_name)
-        if descriptor is None:
-            return empty
-        shape = getattr(descriptor, "workflow", None)
-        if shape is None:
-            shape = self._live_workflow_shape(descriptor)
-        return shape.to_dict() if shape is not None else empty
-
-    def _live_workflow_shape(self, descriptor: Any) -> Any:
-        """Project the workflow graph from the descriptor's live function.
-
-        Covers the provider-built case the discovery cache cannot: reads
-        ``function.__functualize_workflow__`` directly (via the same projection
-        discovery uses, ``workflow_shape_of``) rather than the cached field.
-        Returns None for a descriptor with no concrete function or no workflow.
-        """
-        from functualize._types.workflow import workflow_shape_of
-
-        func = getattr(descriptor, "function", None)
-        if func is None:
-            return None
-        try:
-            return workflow_shape_of(func)
-        except Exception:  # pragma: no cover - defensive; projection is pure
-            return None
-
-    def _gate_summary(
-        self,
-        scope_id: str,
-        scope: dict[str, Any],
-        name: str,
-        record: dict[str, Any],
-    ) -> dict[str, Any]:
-        """What an agent needs to answer one gate."""
-        schema = record.get("input_schema") or {}
-        return {
-            "gate": name,
-            "model": record.get("model"),
-            "input_schema": schema,
-            "unresolved_fields": list(schema.get("required", [])),
-            "tools": self._tool_summaries(record),
-            "blocked_at": record.get("blocked_at"),
-            "workflow_context": {
-                "workflow_id": scope_id,
-                "workflow": scope.get("workflow"),
-                "position": scope.get("position"),
-            },
-        }
-
-    def _tool_summaries(self, record: dict[str, Any]) -> list[dict[str, Any]]:
-        """What an agent needs to *call* each offered tool, not just name it.
-
-        Publishing the name alone costs the agent a `get_job_schema` round
-        trip per tool. Publishing the schema **minus the gate's bound
-        parameters** is also what makes narrowing real: a pinned argument is
-        not in the agent's vocabulary, so the forbidden call cannot be
-        expressed rather than merely being refused.
-
-        Schemas come from the discovery cache, so this stays import-free.
-        """
-        summaries: list[dict[str, Any]] = []
-        for entry in _tool_entries(record):
-            name = entry["tool"]
-            bound = entry["bound"]
-            descriptor = self._app.get_job(name)
-            summary: dict[str, Any] = {
-                "tool": name,
-                "description": (getattr(descriptor, "docstring", None) or "").strip(),
-                "bound": bound,
-            }
-            schema = _job_input_schema(descriptor)
-            if schema is not None:
-                summary["input_schema"] = _without(schema, bound)
-            if descriptor is None:
-                # Listed but not discoverable: say so rather than publishing a
-                # tool the agent will only fail to call.
-                summary["unavailable"] = f"No registered job named '{name}'."
-            summaries.append(summary)
-        return summaries
 
     def _all_pending_gates(self) -> list[dict[str, Any]]:
         """Every gate awaiting input, across all live scopes.
@@ -664,83 +430,6 @@ class WorkflowToolProvider:
         one notion of "accept input for a gate" rather than a plugin-local copy.
         """
         return deposit_gate_input(self._app, self.store, scope_id, gate, payload)
-
-
-def _job_input_schema(descriptor: Any) -> dict[str, Any] | None:
-    """A JSON-schema view of a job's arguments, from the discovery cache.
-
-    Reads ``config_fields`` and ``parameters`` both: discovery files a job's
-    arguments under whichever fits how they were declared (a Pydantic config
-    class versus plain annotated parameters), and a tool schema that silently
-    published nothing for one of those shapes would be worse than no schema —
-    the agent would believe the tool takes no arguments.
-    """
-    if descriptor is None:
-        return None
-    properties: dict[str, Any] = {}
-    required: list[str] = []
-    fields = list(getattr(descriptor, "config_fields", None) or [])
-    fields += list(getattr(descriptor, "parameters", None) or [])
-    for param in fields:
-        name = getattr(param, "name", None)
-        if not isinstance(name, str) or name in properties:
-            continue
-        entry: dict[str, Any] = {
-            "type": _JSON_TYPES.get(
-                str(getattr(param, "type_annotation", "")), "string"
-            )
-        }
-        description = getattr(param, "description", "") or ""
-        if description:
-            entry["description"] = description
-        default = getattr(param, "default", None)
-        if default is not None:
-            entry["default"] = default
-        choices = getattr(param, "choices", None)
-        if choices:
-            entry["enum"] = list(choices)
-        properties[name] = entry
-        if getattr(param, "required", False):
-            required.append(name)
-    return {"type": "object", "properties": properties, "required": required}
-
-
-def _without(schema: dict[str, Any], bound: list[str]) -> dict[str, Any]:
-    """The schema with ``bound`` parameters removed, root and required."""
-    if not bound:
-        return schema
-    hidden = set(bound)
-    properties = {
-        key: value
-        for key, value in (schema.get("properties") or {}).items()
-        if key not in hidden
-    }
-    required = [key for key in (schema.get("required") or []) if key not in hidden]
-    return {**schema, "properties": properties, "required": required}
-
-
-def _tool_entries(record: dict[str, Any]) -> list[dict[str, Any]]:
-    """Normalize a gate record's persisted ``tools`` to entry dicts.
-
-    Tolerates the pre-`Tool` shape (a bare list of names) so a scope blocked
-    by an older run still reports and enforces sensibly rather than crashing
-    or silently granting everything.
-    """
-    entries: list[dict[str, Any]] = []
-    for raw in record.get("tools") or []:
-        if isinstance(raw, str):
-            entries.append({"tool": raw, "bound": []})
-        elif isinstance(raw, dict) and isinstance(raw.get("tool"), str):
-            bound = raw.get("bound") or []
-            entries.append(
-                {"tool": raw["tool"], "bound": [b for b in bound if isinstance(b, str)]}
-            )
-    return entries
-
-
-def _job_of(step_key: str) -> str:
-    """Job name out of a ``<job_name>::<args_hash>`` step key."""
-    return step_key.split("::", 1)[0]
 
 
 def _now() -> str:

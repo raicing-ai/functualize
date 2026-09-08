@@ -21,9 +21,7 @@ from typing import TYPE_CHECKING, Any
 import click
 
 from functualize.app.adapters.click_params import (
-    _SCOPE_ID_PARAM,
     _force_requested,
-    _scope_id_option,
     build_click_params_from_descriptor,
 )
 
@@ -64,12 +62,21 @@ def make_lazy_command(
         """Lazy command: materializes via the engine on first invocation."""
         from functualize._types.errors import JobMaterializationError
 
-        # Same two reads the eager path makes, so a job behaves identically
-        # cold and warm. This wrapper passed neither: it never threaded a scope
-        # id at all, which is why a gated `@workflow` on an app blocked forever.
-        scope_id = kwargs.pop(_SCOPE_ID_PARAM, None) or getattr(
-            app, "_workflow_scope_id", None
-        )
+        # The same resolution the eager path makes, through the same
+        # function, so a job behaves identically cold and warm. This wrapper
+        # once threaded no scope id at all, which is why a gated `@workflow` on
+        # an app blocked forever; `pitfalls.md` §23 is this exact pair of
+        # constructors diverging.
+        #
+        # `--wf-status`/`--wf-show` exit from inside here without running the
+        # job, which is why it sits above the engine call.
+        scope_id = None
+        if getattr(descriptor, "workflow", None) is not None:
+            from functualize.app.adapters.workflow_flags import apply_workflow_flags
+
+            scope_id = apply_workflow_flags(app, descriptor.name, kwargs)
+        if scope_id is None:
+            scope_id = getattr(app, "_workflow_scope_id", None)
 
         # Capability floor (surface-architecture.md §5): a job that owns the
         # terminal (declares `tty: TTY`) cannot run where there is none. Refuse
@@ -170,7 +177,9 @@ def make_lazy_command(
     # the warm path can tell which jobs need the option without importing the
     # module — which is the whole point of the descriptor.
     if getattr(descriptor, "workflow", None) is not None:
-        params = [*params, _scope_id_option()]
+        from functualize.app.adapters.workflow_flags import workflow_flag_params
+
+        params = workflow_flag_params(params)
 
     return click.Command(
         name=command_name or descriptor.name,

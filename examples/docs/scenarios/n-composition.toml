@@ -305,13 +305,13 @@ timeout = 90
 engine = "shell"
 description = "a workflow with a Gate blocks with exit 5 and names the flag that resumes it"
 command = "cd examples/standalone/composition_lab && func lab release"
-expected = { exit_code = 5, stderr_contains = "--scope-id" }
+expected = { exit_code = 5, stderr_contains = "--wf-resume" }
 timeout = 90
 
 [[steps]]
 engine = "shell"
-description = "block -> deposit -> resume completes the SAME scope, on the app surface (the defect: --scope-id was a `func`-only pre-command global, so this walk could never finish)"
-command = '''cd examples/standalone/composition_lab && out=$(python main.py lab release 2>&1); id=$(printf '%s\n' "$out" | sed -n "s/.*scope '\([0-9a-f]*\)'.*/\1/p" | head -1); echo "scope=$id" && python main.py builtin workflow resume "$id" approval-gate --input '{"note":"ok"}' && python main.py lab release --scope-id "$id"'''
+description = "block -> answer -> resume completes the SAME scope, on the app surface (the original defect: scope addressing was a `func`-only pre-command global, so this walk could never finish)"
+command = '''cd examples/standalone/composition_lab && out=$(python main.py lab release 2>&1); id=$(printf '%s\n' "$out" | sed -n "s/.*scope '\([0-9a-f]*\)'.*/\1/p" | head -1); echo "scope=$id" && python main.py builtin workflow answer "$id" approval-gate --input '{"note":"ok"}' && python main.py lab release --wf-resume "$id"'''
 expected = { exit_code = 0, stdout_contains = "RELEASE complete" }
 timeout = 120
 

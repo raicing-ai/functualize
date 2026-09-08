@@ -148,11 +148,18 @@ cache carries opaque references only.
 
 | Tool | Purpose |
 |------|---------|
-| `get_workflow_state(id)` | Current step, pending gate, available tools |
-| `list_active_workflows()` | All paused/running workflows |
-| `resume_gate(id, input_data)` | Deposit input for a blocked gate |
-| `resume_workflow(id)` | Resume a paused workflow |
-| `cancel_workflow(id)` | Cancel a running workflow |
+| `get_workflow_state(id)` | Graph, results, position, pending gates |
+| `list_workflows(workflow_name?, state?, blocked_on?)` | Survey scopes |
+| `answer_gate(values, workflow_id?, gate?, …)` | **Record** input for a gate |
+| `get_gate_draft(workflow_id?, gate?)` | Supplied / missing / invalid |
+| `resume_workflow(id?, input?, gate?, …)` | **Advance** the walk |
+| `call_gate_tool(id, tool, args?)` | Run a tool the gate offers |
+| `cancel_workflow(id)` | Cancel — terminal, enforced in `WorkflowRunner.prelude` |
+| `purge_workflows(state?, older_than_days?)` | Delete finished scopes |
+
+Each has a `func builtin workflow` twin taking the same identifiers, held by
+`tests/workflow/test_workflow_surface_parity.py` — which derives both sets from
+the live surfaces, so neither can grow alone.
 
 ## 9. §D.7 Constraints
 

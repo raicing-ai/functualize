@@ -43,7 +43,7 @@ Start here. Find the sentence that matches what you are trying to do.
 | Keep a value for this invocation | `state: State` | `lab worker` |
 | Keep a value **across** runs | a file you own, or the runtime `StateStore` — **not** `State` | `lab counter` |
 | Ask a human mid-run | `Gate(...)` in a `@workflow` — see [Workflows](workflows.md) | — |
-| Pause and resume a long pipeline | `@workflow` + `--scope-id` | — |
+| Pause and resume a long pipeline | `@workflow` + `--wf-resume` | — |
 | Expose all of it to an AI agent | the [MCP adapter](mcp.md) — no per-job work | — |
 
 ### What *not* to reach for
@@ -207,14 +207,15 @@ the group and typed *mid-path* — `lab --strict bundle`, not
 ```bash
 $ func lab release            # blocks at the gate
 Blocked: gate 'approval-gate' in scope 'f81eb2d5' awaits input.
-  func builtin workflow resume f81eb2d5 approval-gate --input '{…}'
-  func lab release --scope-id f81eb2d5
+  func builtin workflow answer f81eb2d5 approval-gate --input '{…}'
+  func lab release --wf-resume f81eb2d5 --wf-input '{…}'
 $ echo $?
 5
 ```
 
-Deposit the input and re-run with that scope id and the walk finishes. Omit the
-scope id and you open a **new** walk that blocks again — resuming is opt-in.
+The second line answers the gate **and** finishes the walk. Omit `--wf-resume`
+and you open a **new** walk that blocks again — advancing is opt-in, which is
+why exit 5 prints the command that does it rather than leaving you to remember.
 
 ### 4.2 Two surfaces over one declaration set
 
@@ -227,8 +228,9 @@ python main.py lab publish   # a FunctualizeApp: click's tree, built from cached
 ```
 
 They are two different builders, and they have disagreed — on a config field's
-default, and on whether `--scope-id` existed at all, which left a gated walk on
-an app entry point blocked, able to accept a deposit, and impossible to resume.
+default, and on whether the scope-addressing flag existed at all, which left a
+gated walk on an app entry point blocked, able to accept a deposit, and
+impossible to resume.
 Anything that passes on one surface and fails on the other is a finding, which
 is why `tests/test_composition_lab_e2e.py` is parameterised over both.
 
@@ -358,7 +360,7 @@ Python.
 
 - [Task Runner](task-runner.md) — `@job`, `Deps`, `Fingerprint`, `Guards`, `Exec` in depth
 - [Shell Capability](shell.md) — `Shell`, redaction, `FakeShell`
-- [Workflows](workflows.md) — `@workflow`, `Gate`, branching, `--scope-id`
+- [Workflows](workflows.md) — `@workflow`, `Gate`, branching, `--wf-resume`
 - [JobConfig with Pydantic](job-config.md) — the config ladder and `JOB_FIELD`
 - [Group Options](group-options.md) — flags shared by every job under a group
 - [AI Capability](ai.md) and [MCP Adapter](mcp.md) — exposing this to agents

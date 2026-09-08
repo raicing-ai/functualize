@@ -59,6 +59,7 @@ from functualize._types.descriptors import FieldDescriptor, GroupOptionsSpec
 from functualize._types.enums import RunStatus
 from functualize._types.errors import (
     JobMaterializationError,
+    ScopeCancelledError,
     ScopeStoreUnreadableError,
 )
 from functualize._types.exit_codes import ExitCode, exit_code_for_status
@@ -80,7 +81,23 @@ from functualize._types.redaction import (
     is_secret_field,
     reveal,
 )
+from functualize.app._workflow_answer import answer_gate, gate_draft, resolve_gate
+from functualize.app._workflow_control import (
+    GateToolPolicy,
+    advanceable_scopes,
+    call_gate_tool,
+    cancel_scope,
+    purge_scopes,
+    resolve_advanceable,
+    resume_scope,
+)
 from functualize.app._workflow_resume import deposit_gate_input, pending_gates
+from functualize.app._workflow_view import (
+    LIVE_STATUSES,
+    WORKFLOW_STATES,
+    describe_scope,
+    list_scopes,
+)
 from functualize.app.config import JobSources
 
 
@@ -134,6 +151,20 @@ __all__ = [
     "BUILTIN_SEGMENT",
     "coerce_kwargs",
     "deposit_gate_input",
+    "WORKFLOW_STATES",
+    "GateToolPolicy",
+    "advanceable_scopes",
+    "answer_gate",
+    "call_gate_tool",
+    "cancel_scope",
+    "purge_scopes",
+    "resolve_advanceable",
+    "resume_scope",
+    "gate_draft",
+    "resolve_gate",
+    "describe_scope",
+    "list_scopes",
+    "LIVE_STATUSES",
     "DiscoveryOverrides",
     "display_value",
     "DiscoveryResult",
@@ -167,6 +198,7 @@ __all__ = [
     # Raised when the scope store cannot be honoured. Public because `_cli`,
     # `app/adapters` and the MCP plugin all have to turn it into a refusal, and
     # `_cli` may import public folders only.
+    "ScopeCancelledError",
     "ScopeStoreUnreadableError",
     "resolved_hints",
     "detect_config_class",

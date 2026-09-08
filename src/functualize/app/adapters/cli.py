@@ -912,7 +912,6 @@ class CliAdapter:
             perf_report: str | None = None,
             perf_filter: str | None = None,
             force: bool = False,
-            scope_id: str | None = None,
             **generated: Any,
         ) -> None:
             """Global options processed before any sub-command.
@@ -994,8 +993,6 @@ class CliAdapter:
             # `--output` already takes. `func` reaches the identical attributes
             # from `_cli/main.py`, so the two surfaces agree.
             app_instance._force = force
-            if scope_id is not None:
-                app_instance._workflow_scope_id = scope_id
 
             ctx.obj = {
                 "app": app_instance,
@@ -1063,11 +1060,6 @@ class CliAdapter:
                 default=False,
                 help="Run even when up to date. Does not override a failed "
                 "precondition or a gate.",
-            ),
-            click.Option(
-                ["--scope-id"],
-                default=None,
-                help="Resume the named workflow scope instead of starting a fresh one.",
             ),
             *_generated_setting_options(),
             *self._cli_group.params,

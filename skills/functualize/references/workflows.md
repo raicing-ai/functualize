@@ -97,15 +97,25 @@ that registers it.
 
 ## Inspecting and resuming
 
+**`answer` records; `resume` advances.** One meaning each, on every surface.
+
 ```bash
-func builtin workflow list                        # active scopes
-func builtin workflow state <scope>               # status and pending gates
-func builtin workflow resume <scope> <gate> --input '{…}'
-func builtin workflow cancel <scope>
+func builtin workflow list                        # active scopes, with filters
+func builtin workflow show <scope>                # graph, results, pending gates
+func builtin workflow answer <scope> <gate> --input '{…}'   # records only
+func builtin workflow resume <scope>              # advances the walk
+func builtin workflow cancel <scope>              # terminal
+```
+
+Or, on the workflow job itself, when you already know which workflow it is:
+
+```bash
+func <workflow> --wf-status
+func <workflow> --wf-resume --wf-input '{…}'      # answer and advance
 ```
 
 A workflow that paused at a gate is resumable — the scope carries the recorded
-step results. This is also the authority on what a given workflow actually did,
+step results. `show` is the authority on what a given workflow actually did,
 which beats reasoning about the graph.
 
 ## When not to use one

@@ -28,6 +28,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from functualize._engine.workflow_walker import WalkOutcome, WorkflowWalker
+from functualize._types.errors import ScopeCancelledError
 
 if TYPE_CHECKING:
     from functualize._primitives.state_store import StateStore
@@ -102,7 +103,22 @@ class WorkflowRunner:
         return self._scope_id
 
     def prelude(self, job_name: str, declaration: WorkflowDeclaration) -> WorkflowRun:
-        """Walk the graph and decide whether the body runs."""
+        """Walk the graph and decide whether the body runs.
+
+        Raises:
+            ScopeCancelledError: The scope was cancelled. Checked here, before
+                the walk, because this is the one point every continuation
+                passes through — the CLI, the MCP tools and the `--wf-*` flags
+                all reach a walk by constructing a runner and calling this.
+                Enforcing it at each surface would be three copies of a rule
+                and a fourth surface away from being wrong.
+        """
+        scope = self._store.get_scope(self._scope_id)
+        if scope is not None and scope.get("status") == "cancelled":
+            raise ScopeCancelledError(
+                self._scope_id, workflow=scope.get("workflow") or job_name
+            )
+
         report = WorkflowWalker(
             declaration,
             self._store,

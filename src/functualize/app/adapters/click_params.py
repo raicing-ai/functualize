@@ -48,30 +48,15 @@ logger = logging.getLogger(__name__)
 _DI_TYPE_NAMES = INJECTED_PARAM_TYPE_NAMES
 
 
-#: The kwarg a `--scope-id` command option binds to. A `@workflow` job command
-#: carries one; every other job does not, so it stays off their `--help` and
-#: cannot collide with a config field named `scope_id`.
-_SCOPE_ID_PARAM = "scope_id"
-
-
-def _scope_id_option() -> click.Option:
-    """The per-command `--scope-id`, for a job that declares a `@workflow`.
-
-    `func` has had a **pre-command** `--scope-id` since gates existed, and
-    `app/commands.py` never threaded it — so a `@workflow` with a `Gate` on a
-    `FunctualizeApp` blocked at exit 5 forever and the deposited input was never
-    read. There was no surface on an embedded app that could supply the scope.
-
-    Post-command, and on both surfaces, because that is where a reader looks:
-    the audit that found this got the pre-command position wrong twice before
-    reading `dispatch.py`. `func --scope-id X walk` still works.
-    """
-    return click.Option(
-        ["--scope-id", _SCOPE_ID_PARAM],
-        default=None,
-        required=False,
-        help="Resume the named workflow scope instead of starting a fresh one.",
-    )
+#: The programmatic seam for an embedded host, deliberately kept.
+#:
+#: `app/commands.py` never threaded the CLI flag, so a `@workflow` with a
+#: `Gate` on a `FunctualizeApp` blocked at exit 5 forever and the recorded input
+#: was never read. `--scope-id` was written to close that; the flag is gone and
+#: the seam is not, because removing it would re-open the hole for hosts that
+#: set the attribute directly. **API-only, with no CLI spelling** — the CLI
+#: addresses a scope with the post-command `--wf-resume`.
+_APP_SCOPE_ATTR = "_workflow_scope_id"
 
 
 def _declares_workflow(function: Any) -> bool:
@@ -994,12 +979,12 @@ def _report_blocked(result: Any) -> None:
     # the same reason — that is where a reader looks, and the pre-command form
     # is what the audit that found this got wrong twice.
     program = _program_name()
-    resume = f"{program} builtin workflow resume"
+    answer = f"{program} builtin workflow answer"
     if scope and gate:
-        print(f"  {resume} {scope} {gate} --input '{{…}}'", file=sys.stderr)
+        print(f"  {answer} {scope} {gate} --input '{{…}}'", file=sys.stderr)
     else:
         print(
-            f"  {resume} <scope> <gate> --input '{{…}}'  "
+            f"  {answer} <scope> <gate> --input '{{…}}'  "
             f"(run `{program} builtin workflow list` to find the scope)",
             file=sys.stderr,
         )
@@ -1011,7 +996,18 @@ def _report_blocked(result: Any) -> None:
         # `No such command 'audit.audit-run'`, which is worse than printing
         # nothing: it looks like the resume feature is the thing that is broken.
         command_path = job_name.replace(".", " ")
-        print(f"  {program} {command_path} --scope-id {scope}", file=sys.stderr)
+        # One line that finishes the run, rather than one that starts another
+        # attempt at it. `--scope-id` re-invoked the job and blocked again
+        # unless the gate had been answered separately; `--wf-resume
+        # --wf-input` answers and advances in the same command.
+        #
+        # This output is load-bearing now in a way it was not before: with no
+        # pre-command flag to fall back on, "re-run the command you remember"
+        # is gone, so exit 5 has to print the exact command that continues.
+        print(
+            f"  {program} {command_path} --wf-resume {scope} --wf-input '{{…}}'",
+            file=sys.stderr,
+        )
 
     if not logger.isEnabledFor(logging.DEBUG):
         return
@@ -1089,11 +1085,22 @@ def build_job_engine_callback(
                 "Ensure the app has been booted with an execution engine."
             )
 
-        # `--scope-id` is a command option on a `@workflow` job (see
-        # `_scope_id_option`), so it arrives as a kwarg and must not reach the
-        # job body. A per-command value wins over the pre-command global.
-        scope_id = kwargs.pop(_SCOPE_ID_PARAM, None) or workflow_scope_id
+        # The `--wf-*` family are command options on a `@workflow` job, so
+        # they arrive as kwargs and must not reach the job body. Resolving them
+        # can also *end* the invocation: `--wf-status` and `--wf-show` exit
+        # without running anything, which is why this sits above the engine
+        # call rather than inside it.
+        #
+        # Both dispatch paths call the same `apply_workflow_flags`
+        # (`pitfalls.md` §23). `lazy_command.py` is the other one.
+        scope_id = workflow_scope_id
+        if _declares_workflow(function):
+            from functualize.app.adapters.workflow_flags import apply_workflow_flags
+
+            scope_id = apply_workflow_flags(app_ref, name, kwargs) or scope_id
         if scope_id is None:
+            # The programmatic seam, kept deliberately: an embedded host sets
+            # this attribute directly. It has no CLI spelling.
             scope_id = getattr(app_ref, "_workflow_scope_id", None)
 
         cli_values: dict[str, Any] = {}
@@ -1155,7 +1162,11 @@ def build_job_engine_callback(
 
 @contextlib.contextmanager
 def scope_store_refusal() -> Iterator[None]:
-    """Turn an unreadable scope store into a usage error, not a traceback.
+    """Turn a refused walk into a usage error, not a traceback.
+
+    Two conditions, one exit code, because they are the same kind of answer:
+    *this run cannot start, and no job ran.* An unreadable scope store, and a
+    scope that was cancelled.
 
     The workflow prelude reads scopes **before DI resolution and before any
     hook**, so this cannot travel on the event bus and never becomes a
@@ -1171,11 +1182,11 @@ def scope_store_refusal() -> Iterator[None]:
     Exit 2, usage/config: the run never started and no job raised. Not 1, and
     never 0 with an empty scope list.
     """
-    from functualize.app.utils import ScopeStoreUnreadableError
+    from functualize.app.utils import ScopeCancelledError, ScopeStoreUnreadableError
 
     try:
         yield
-    except ScopeStoreUnreadableError as exc:
+    except (ScopeStoreUnreadableError, ScopeCancelledError) as exc:
         click.echo(f"Error: {exc}", err=True)
         raise SystemExit(ExitCode.USAGE) from exc
 
@@ -1311,9 +1322,11 @@ def create_job_click_command(
         function, job_config_class
     )
     if _declares_workflow(function):
-        # A `@workflow` job can be resumed; every other job has nothing
-        # to resume, so the flag stays off its --help.
-        params = [*params, _scope_id_option()]
+        # A `@workflow` job can be surveyed, inspected and advanced; every
+        # other job has nothing to advance, so the flags stay off its --help.
+        from functualize.app.adapters.workflow_flags import workflow_flag_params
+
+        params = workflow_flag_params(params)
     markers = extract_capability_markers(function)
     callback = build_job_engine_callback(
         name,

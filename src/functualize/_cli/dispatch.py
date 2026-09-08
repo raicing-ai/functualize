@@ -76,7 +76,6 @@ _GLOBAL_OPTIONS_ALWAYS_VALUE = frozenset(
         "--exclude",
         "--perf-filter",
         "--import-libs",
-        "--scope-id",
     }
 )
 
@@ -317,7 +316,6 @@ class ParsedGlobalOptions:
     perf_report: str | None = None
     perf_filter: str | None = None
     output: str | None = None  # --output flag: json, text, or none
-    scope_id: str | None = None  # --scope-id: resume a specific workflow scope
     prompt_gates: bool = False  # --prompt-gates: prompt for gate fields during walk
     force: bool = False  # --force: run even when up to date
     first_positional_index: int = -1  # index into argv[1:] of first positional
@@ -462,7 +460,6 @@ def _extract_global_options(
         perf_report=state.perf_report,
         perf_filter=state.perf_filter,
         output=state.output,
-        scope_id=state.scope_id,
         prompt_gates=state.prompt_gates,
         force=state.force,
         first_positional_index=first_positional_index,
@@ -521,7 +518,6 @@ class _OptionAccumulator:
         "perf_report",
         "perf_filter",
         "output",
-        "scope_id",
         "prompt_gates",
         "force",
     )
@@ -544,7 +540,6 @@ class _OptionAccumulator:
         self.perf_report: str | None = None
         self.perf_filter: str | None = None
         self.output: str | None = None
-        self.scope_id: str | None = None
         self.prompt_gates: bool = False
         self.force: bool = False
 
@@ -621,8 +616,6 @@ def _assign_option(
             )
             raise SystemExit(1)
         state.output = value
-    elif flag == "--scope-id":
-        state.scope_id = value
 
 
 def scan_early_setting_flags(argv: list[str]) -> int:

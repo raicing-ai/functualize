@@ -50,10 +50,28 @@ graph LR
 
 | Tool | Description |
 |------|-------------|
-| `list_active_workflows()` | List paused/running workflows |
-| `get_workflow_state(id)` | Current step, available tools, pending inputs |
-| `resume_workflow(id, input)` | Advance a paused workflow |
-| `cancel_workflow(id)` | Cancel execution |
+| `list_workflows(workflow_name?, state?, blocked_on?)` | Survey scopes, with filters |
+| `get_workflow_state(id)` | Graph, results, position, pending gates |
+| `answer_gate(values, workflow_id?, gate?, …)` | **Record** input for a gate |
+| `get_gate_draft(workflow_id?, gate?)` | What is supplied, missing and invalid |
+| `resume_workflow(id?, input?, gate?, retry_epilogue?)` | **Advance** the walk |
+| `call_gate_tool(id, tool, args?)` | Run a tool the gate offers |
+| `cancel_workflow(id)` | Cancel — terminal |
+| `purge_workflows(state?, older_than_days?)` | Delete finished scopes |
+
+> **`answer_gate` records. `resume_workflow` advances.** One meaning each. Until
+> these split, *every* tool here was a deposit and nothing an agent could call
+> advanced a blocked run — the only continuation was re-invoking the job from a
+> shell, which an agent over MCP cannot do.
+
+Each tool maps to a `func builtin workflow` verb, takes the same identifiers,
+and returns the same shapes. That is held by a parity test that enumerates both
+surfaces, not by this table.
+
+**Addressing.** `answer_gate` takes `workflow_id` **and** `gate`, each optional
+when unambiguous. `resume_workflow`'s id may be omitted when exactly one scope
+can be advanced. Ambiguity is never guessed: several candidates are listed and
+the call fails.
 
 ### Task Tools (when Tasks domain active)
 
@@ -197,7 +215,7 @@ from functualize.workflow import Gate
 Gate(name="review", awaits=ReviewInput, tools=[search_docs], strategy="ai_outbound")
 ```
 
-The workflow pauses, becomes visible via `list_active_workflows()`, and resumes when the AI agent calls `resume_workflow(id, input)`. `ai_outbound` always blocks — that is the mechanism, so no resolver is registered for it.
+The workflow pauses, becomes visible via `list_workflows()`, and resumes when the AI agent calls `resume_workflow(id, input)` — which now genuinely advances the walk rather than only recording the input. `ai_outbound` always blocks — that is the mechanism, so no resolver is registered for it.
 
 `tools` names the jobs the agent may call *while* resolving the gate — a permission enforced at MCP dispatch, not a hint. See [Gates](workflows.md#gates-input-pauses).
 

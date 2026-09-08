@@ -27,6 +27,7 @@ change. That seam is preserved, not built.
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -42,6 +43,17 @@ from functualize._primitives.scope_format import (
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+
+def _now() -> str:
+    """UTC timestamp for a draft edit.
+
+    Draft records carry one because a draft is *collaborative* — two actors may
+    fill different fields of the same gate — so "when was this last touched"
+    is a question somebody will ask. Step and gate records already carry their
+    own; this does not change what the scope record itself holds.
+    """
+    return datetime.now(UTC).isoformat()
 
 
 def _blank_scope() -> dict[str, Any]:
@@ -231,6 +243,99 @@ class ScopeStore:
 
         def _apply(envelope: dict[str, Any]) -> None:
             envelope["scopes"][scope_id]["gates"][gate_name]["payload"] = payload
+
+        self._mutate(_apply)
+        return True
+
+    def get_gate_draft(self, scope_id: str, gate_name: str) -> dict[str, Any] | None:
+        """The gate's accumulated draft, or None if nothing is drafted.
+
+        A draft is *partial* input: what has been supplied so far, before it
+        validates whole. The walker never reads it — the invariant that makes
+        drafts safe is that ``payload`` is the only thing a walk consumes, and
+        it is written only by a complete, successful validation.
+        """
+        record = self.get_gate(scope_id, gate_name)
+        if record is None:
+            return None
+        draft = record.get("draft")
+        return draft if isinstance(draft, dict) else None
+
+    def put_gate_draft(
+        self, scope_id: str, gate_name: str, values: dict[str, Any]
+    ) -> bool:
+        """Replace the gate's draft values. False if no such gate.
+
+        Merging is the *caller's* decision, not this store's: whether new fields
+        merge into or replace the draft is a verb-level choice
+        (``answer --input`` versus ``--replace``), and a store that merged
+        silently would make ``--replace`` unimplementable.
+        """
+        if self.get_gate(scope_id, gate_name) is None:
+            return False
+
+        def _apply(envelope: dict[str, Any]) -> None:
+            envelope["scopes"][scope_id]["gates"][gate_name]["draft"] = {
+                "values": dict(values),
+                "updated_at": _now(),
+            }
+
+        self._mutate(_apply)
+        return True
+
+    def clear_gate_draft(self, scope_id: str, gate_name: str) -> bool:
+        """Discard the gate's draft. False if no such gate.
+
+        The key is *removed*, not set to None: absent and "no draft" are the
+        same fact, and having two spellings for it is how a reader ends up
+        checking only one.
+        """
+        if self.get_gate(scope_id, gate_name) is None:
+            return False
+
+        def _apply(envelope: dict[str, Any]) -> None:
+            envelope["scopes"][scope_id]["gates"][gate_name].pop("draft", None)
+
+        self._mutate(_apply)
+        return True
+
+    def reopen_gate(self, scope_id: str, gate_name: str) -> bool:
+        """Move an answered gate's payload back into its draft.
+
+        False when there is no such gate or nothing was answered.
+
+        **No policy here.** Whether reopening is *allowed* depends on where the
+        walk has got to — a scope past the gate has already consumed the answer,
+        and reopening it would silently diverge the recorded results from the
+        input that produced them. That judgement needs the graph, which this
+        layer cannot see, so it lives in ``app/_workflow_answer.py``
+        (``contributor/reference/pitfalls.md`` §22: a reader must not
+        reconstruct what another layer computed).
+        """
+        record = self.get_gate(scope_id, gate_name)
+        if record is None or record.get("payload") is None:
+            return False
+
+        def _apply(envelope: dict[str, Any]) -> None:
+            gate = envelope["scopes"][scope_id]["gates"][gate_name]
+            gate["draft"] = {"values": dict(gate["payload"]), "updated_at": _now()}
+            gate["payload"] = None
+
+        self._mutate(_apply)
+        return True
+
+    def delete_scope(self, scope_id: str) -> bool:
+        """Remove a scope entirely. False if it was not there.
+
+        Used only by ``builtin workflow purge``, which refuses live scopes —
+        this is a hard delete with no backup, unlike :meth:`clear`, which moves
+        the whole file aside.
+        """
+        if self.get_scope(scope_id) is None:
+            return False
+
+        def _apply(envelope: dict[str, Any]) -> None:
+            envelope["scopes"].pop(scope_id, None)
 
         self._mutate(_apply)
         return True

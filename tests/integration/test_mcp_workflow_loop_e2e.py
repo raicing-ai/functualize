@@ -113,7 +113,7 @@ async def test_an_agent_can_drive_a_blocked_workflow_to_completion(
     assert app.ran == ["build"]  # type: ignore[attr-defined]
 
     # 2. The agent finds the work without being handed a scope id.
-    active = await tools._list_active_workflows()
+    active = await tools._list_workflows()
     assert [w["workflow_id"] for w in active["workflows"]] == ["rel-1"]
     workflow_id = active["workflows"][0]["workflow_id"]
 
@@ -137,16 +137,19 @@ async def test_an_agent_can_drive_a_blocked_workflow_to_completion(
     assert [t["tool"] for t in state["pending_gates"][0]["tools"]] == ["build"]
 
     # 4. A wrong guess is rejected and changes nothing.
-    rejected = await tools._resume_gate(gate_name, {"environment": "prod"})
-    assert rejected["error"] == "validation_error"
+    # An incomplete answer now *drafts* rather than failing outright — the
+    # walk still blocks, which is the invariant that makes drafts safe.
+    rejected = await tools._answer_gate({"environment": "prod"}, gate=gate_name)
+    assert rejected["status"] == "drafted"
+    assert [m["field"] for m in rejected["missing"]] == ["replicas"]
     still_blocked = await tools._get_workflow_state(workflow_id)
     assert still_blocked["status"] == "blocked"
     assert still_blocked["pending_gates"][0]["gate"] == gate_name
 
     # 5. Input built from the published schema is accepted.
     payload = {name: _example_for(schema, name) for name in required}
-    accepted = await tools._resume_gate(gate_name, payload)
-    assert accepted["status"] == "input_accepted"
+    accepted = await tools._answer_gate(payload, gate=gate_name)
+    assert accepted["status"] == "answered"
     assert accepted["workflow_id"] == workflow_id
 
     # Accepting input runs nothing — the walk has not moved.
@@ -160,7 +163,7 @@ async def test_an_agent_can_drive_a_blocked_workflow_to_completion(
     assert app.ran == ["build", "deploy", "body"]  # type: ignore[attr-defined]
 
     # 7. The finished scope drops out of the agent's work queue.
-    after = await tools._list_active_workflows()
+    after = await tools._list_workflows()
     assert after["workflows"] == []
 
 
@@ -173,9 +176,9 @@ async def test_a_cancelled_workflow_leaves_the_loop(app: FunctualizeApp) -> None
     cancelled = await tools._cancel_workflow("rel-1")
     assert cancelled["status"] == "cancelled"
 
-    assert (await tools._list_active_workflows())["workflows"] == []
+    assert (await tools._list_workflows())["workflows"] == []
     # And the gate can no longer be answered.
-    assert (await tools._resume_gate("approval", {}))["error"] == "gate_not_found"
+    assert (await tools._answer_gate({}, gate="approval"))["error"] == "gate_not_found"
 
 
 async def test_two_blocked_runs_are_driven_independently(
@@ -188,16 +191,18 @@ async def test_two_blocked_runs_are_driven_independently(
     app.execute("release", scope_id="rel-2")
 
     # The gate name alone is ambiguous across two scopes.
-    ambiguous = await tools._resume_gate(
-        "approval", {"environment": "prod", "replicas": 3}
+    ambiguous = await tools._answer_gate(
+        {"environment": "prod", "replicas": 3}, gate="approval"
     )
     assert ambiguous["error"] == "ambiguous_gate"
 
     # Naming the scope resolves it.
-    accepted = await tools._resume_workflow(
-        "rel-2", {"environment": "prod", "replicas": 3}
+    accepted = await tools._answer_gate(
+        {"environment": "prod", "replicas": 3},
+        workflow_id="rel-2",
+        gate="approval",
     )
-    assert accepted["status"] == "input_accepted"
+    assert accepted["status"] == "answered"
 
     assert app.execute("release", scope_id="rel-2").status is RunStatus.SUCCESS
     assert app.execute("release", scope_id="rel-1").status is RunStatus.BLOCKED

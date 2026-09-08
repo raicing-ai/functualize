@@ -47,7 +47,7 @@ timeout = 30
 description = "Running the workflow job BLOCKS at the gate — exit 5, not a failure"
 engine = "shell"
 cwd = "examples/quickstart/step7_workflow"
-command = "func --scope-id \"$(cat $DOC_VERIFY_SCRATCH/h-workflow-scope)\" trip-planner --city Tokyo"
+command = "func trip-planner --wf-run-id \"$(cat $DOC_VERIFY_SCRATCH/h-workflow-scope)\" --city Tokyo"
 expected = { exit_code = 5, stderr_contains = "Blocked: gate 'preferences' in scope" }
 timeout = 60
 
@@ -56,33 +56,33 @@ description = "The first step ran before the gate — the walk reached it, not s
 engine = "shell"
 cwd = "examples/quickstart/step7_workflow"
 command = "func builtin workflow list | grep \"$(cat $DOC_VERIFY_SCRATCH/h-workflow-scope)\""
-expected = { exit_code = 0, stdout_contains = "trip-planner  blocked  gates: preferences" }
+expected = { exit_code = 0, stdout_contains = "trip-planner  waiting  gates: preferences" }
 timeout = 30
 
 [[steps]]
-description = "`workflow state` names the walk position and the pending gate"
+description = "`workflow show` names the walk position and the pending gate"
 engine = "shell"
 cwd = "examples/quickstart/step7_workflow"
-command = "func builtin workflow state \"$(cat $DOC_VERIFY_SCRATCH/h-workflow-scope)\""
-expected = { exit_code = 0, stdout_contains = "Pending gates: preferences" }
+command = "func builtin workflow show \"$(cat $DOC_VERIFY_SCRATCH/h-workflow-scope)\""
+expected = { exit_code = 0, stdout_contains = "preferences" }
 timeout = 30
 
 [[steps]]
-description = "`workflow resume` accepts input and says the job must be re-run"
+description = "`workflow answer` records the input and runs nothing"
 engine = "shell"
 cwd = "examples/quickstart/step7_workflow"
-command = "func builtin workflow resume \"$(cat $DOC_VERIFY_SCRATCH/h-workflow-scope)\" preferences --input '{\"budget\": \"mid-range\", \"interests\": [\"food\"]}'"
-expected = { exit_code = 0, stdout_contains = "Input accepted for gate 'preferences'." }
+command = "func builtin workflow answer \"$(cat $DOC_VERIFY_SCRATCH/h-workflow-scope)\" preferences --input '{\"budget\": \"mid-range\", \"interests\": [\"food\"]}'"
+expected = { exit_code = 0, stdout_contains = "answered" }
 timeout = 30
 
-# Accepting input does not run the workflow. Re-invoking with the same scope
-# replays the walk: `forecast` is already recorded and is skipped, the gate is
-# now answered, and `travel_plan` and the epilogue run.
+# `answer` records; `resume` advances. Advancing replays the walk: `forecast`
+# is already recorded and is skipped, the gate is now answered, and
+# `travel_plan` and the epilogue run.
 [[steps]]
-description = "Re-running with the same --scope-id walks PAST the gate to the epilogue"
+description = "`--wf-resume` walks PAST the answered gate to the epilogue"
 engine = "shell"
 cwd = "examples/quickstart/step7_workflow"
-command = "func --scope-id \"$(cat $DOC_VERIFY_SCRATCH/h-workflow-scope)\" trip-planner --city Tokyo"
+command = "func trip-planner --wf-resume \"$(cat $DOC_VERIFY_SCRATCH/h-workflow-scope)\" --city Tokyo"
 expected = { exit_code = 0, stderr_contains = "Itinerary for Tokyo complete." }
 timeout = 60
 

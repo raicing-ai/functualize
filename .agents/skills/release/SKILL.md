@@ -254,14 +254,35 @@ Determine the target version, then:
    tool and a `.spec/EXEMPT` in place, so the `PreToolUse` hook records the
    exemption in the committed ledger. A shell write (`sed -i`, a heredoc, a
    Python script) raises no `Edit` call and is audited separately.
-4. **Date the changelog.** Insert `## [X.Y.Z] - YYYY-MM-DD` below `## [Unreleased]`,
+4. **On a minor or major bump, raise the child-project floors too.** They are
+   *dependency constraints*, not version declarations, so the grep above does
+   not find them and the count in step 3 does not include them:
+
+   ```bash
+   grep -rn 'functualize>=' --include='pyproject.toml' examples/ | grep -v plugins/
+   ```
+
+   `HierarchyValidator.check_version_compatibility` requires
+   **`child_minor >= parent_minor`** — a child must declare a floor at least as
+   new as the parent it runs under. So `functualize>=0.2.0` is fine under every
+   `0.2.x` parent and **silently drops the child** under `0.3.0`: discovery
+   prints `Skipping child project '<name>': Version incompatibility` and the
+   parent reports a short job list.
+
+   Found the hard way at 0.3.0 — the first minor bump since
+   `examples/project/monorepo_children/` was written, so every previous release
+   satisfied the rule by accident. `pytest examples/` is what catches it, and it
+   is a separate CI job from `test-fast`/`test-full`; running only the test
+   suites will miss this entirely.
+
+5. **Date the changelog.** Insert `## [X.Y.Z] - YYYY-MM-DD` below `## [Unreleased]`,
    leaving `[Unreleased]` in place and empty. Update the link-reference block at the
    bottom: repoint `[Unreleased]` to `compare/vX.Y.Z...HEAD` and add the `[X.Y.Z]` row.
-5. **Regenerate `uv.lock`** (`uv sync --all-extras`) — it records workspace member
+6. **Regenerate `uv.lock`** (`uv sync --all-extras`) — it records workspace member
    versions and will otherwise be stale.
-6. **Open a prep PR** on a `chore/release-x-y-z` branch. Keep it purely mechanical so it
+7. **Open a prep PR** on a `chore/release-x-y-z` branch. Keep it purely mechanical so it
    is trivially reviewable; do not fold unrelated changes into it.
-7. **Wait for its checks, merge it, and fast-forward** before proceeding to Gate 1.
+8. **Wait for its checks, merge it, and fast-forward** before proceeding to Gate 1.
 
 This costs one full CI cycle. That is the price of the tag pointing at a reviewed,
 CI-green commit, and it is the intended trade.
