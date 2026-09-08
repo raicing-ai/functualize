@@ -78,9 +78,7 @@ class TestTheWalkCannotSeeADraft:
 
 
 class TestReopen:
-    def test_it_moves_the_payload_back_into_the_draft(
-        self, store: StateStore
-    ) -> None:
+    def test_it_moves_the_payload_back_into_the_draft(self, store: StateStore) -> None:
         store.deposit_gate_payload("rel-1", "approve", {"approved": True})
 
         assert store.reopen_gate("rel-1", "approve")
@@ -97,7 +95,7 @@ class TestReopen:
     def test_the_store_applies_no_policy(self, store: StateStore) -> None:
         """Whether reopening is *allowed* depends on the walk position, which
         needs the graph. The store moves; the app layer judges."""
-        store.set_position("rel-1", "deploy")   # well past the gate
+        store.set_position("rel-1", "deploy")  # well past the gate
         store.deposit_gate_payload("rel-1", "approve", {"approved": True})
 
         assert store.reopen_gate("rel-1", "approve") is True

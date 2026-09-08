@@ -230,7 +230,8 @@ def test_an_ordinary_job_has_no_workflow_flags(surface: str, tmp_path: Path) -> 
 
 
 def test_the_pre_command_flag_is_gone_and_fails_loudly(tmp_path: Path) -> None:
-    """`func --scope-id X walk` no longer exists, and cannot run the wrong thing.
+    """AC-22. `func --scope-id X walk` no longer exists, and cannot run the
+    wrong thing.
 
     No deprecation shim. `detect_mode`'s scan skips boolean, always-value,
     optional-value, `--opt=value` and short options, so a bare `--scope-id`
@@ -255,7 +256,7 @@ def test_the_pre_command_flag_is_gone_and_fails_loudly(tmp_path: Path) -> None:
 
 
 def test_the_per_command_flag_is_gone_too(tmp_path: Path) -> None:
-    """Both spellings, not just the global."""
+    """AC-22, the second spelling. Both, not just the global."""
     project = _project(tmp_path)
 
     rejected = _run(project, "func", "walk", "--scope-id", "abc")
@@ -302,3 +303,25 @@ def test_the_blocked_message_names_a_command_path_not_a_job_address(
     )
     assert "No such command" not in resumed.stdout + resumed.stderr
     assert "No such option" not in resumed.stdout + resumed.stderr
+
+
+def test_the_flag_is_declared_nowhere_in_the_source() -> None:
+    """AC-23. A negative about the whole tree, so it is answered by searching
+    it rather than by reading a file.
+
+    Counts **declarations**, not prose: several comments name the removed flag
+    to explain why it went, and a check that forbids explaining a removal is a
+    check that rewards deleting the explanation.
+    """
+    import subprocess
+
+    src = PROJECT_ROOT / "src" / "functualize"
+    result = subprocess.run(
+        ["grep", "-rho", '"--scope-id"', str(src)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.stdout.strip() == "", (
+        f"--scope-id is still declared as a click option:\n{result.stdout}"
+    )

@@ -33,7 +33,7 @@ If you're building internal tooling, deployment pipelines, or any multi-step aut
 - **Structured RunContext** — Capability-based execution: `Log`, `Invoke`, `Prompt`, `Perf`, `State`, plus `FromJob` for declarative dependency injection and `FromStep` for binding a gate tool to an earlier step's result.
 - **Layered Configuration** — Resolution chain with preset strategies (classic, twelve-factor, env-only, remote-first) and `.env` file support.
 - **Declarative Job Config** — Pydantic models drive CLI options, config resolution, and TUI form fields.
-- **Workflow Graphs** — DAGs with `Step(func)`, `Gate(name, awaits=Model, strategy=...)`, and `Edge`. Gates block for human or AI input; `--prompt-gates` resolves them inline, `--scope-id` resumes blocked scopes.
+- **Workflow Graphs** — DAGs with `Step(func)`, `Gate(name, awaits=Model, strategy=...)`, and `Edge`. Gates block for human or AI input; `--prompt-gates` resolves them inline, `--wf-resume` advances blocked scopes.
 - **Domain SDK Architecture** — Pluggable capability domains (state, AI, tasks, interactivity) with swappable provider backends.
 - **Plugin System** — Extend via Python entry points: lifecycle hooks, CLI commands, dynamic jobs, adapter plugins, and format providers.
 - **Built-in commands** — `func builtin parallel` (concurrent jobs), `func builtin history` (run log), `func builtin env` (config as env vars), `func builtin shell-init` (shell completions), `func builtin workflow` (inspect and resume gates).
@@ -502,16 +502,20 @@ The graph is validated at decoration time. Jobs are registered as `Step(func)`; 
 
 | Mode | Flag / Strategy | Behavior |
 |------|----------------|----------|
-| **Blocked + Resume** | (default) | Walk stops at gate (exit 5). Deposit input via `func builtin workflow resume`, resume via `func --scope-id <id> trip-planner`. Best for scripts, CI, and MCP agents. |
+| **Blocked + Resume** | (default) | Walk stops at gate (exit 5). Answer and advance in one command: `func trip-planner --wf-resume --wf-input '{…}'`. Best for scripts, CI, and MCP agents. |
 | **Interactive Prompt** | `--prompt-gates` or `strategy="prompt"` | Gate prompts inline on a TTY. Walk completes in one invocation. Falls through to block when piped. |
-| **AI Agent** | `strategy="ai_outbound"` | Gate blocks for external AI deliberation via MCP. Agent discovers, inspects state, and deposits input via `resume_gate` tool. |
+| **AI Agent** | `strategy="ai_outbound"` | Gate blocks for external AI deliberation via MCP. The agent discovers, inspects state, answers with `answer_gate`, and advances with `resume_workflow`. |
 
 ```bash
-# Blocked (default) — two-step: deposit input, then resume
+# Blocked (default) — answer and advance in one command
 func trip-planner --city Tokyo
 # → exit 5: "Blocked: gate 'preferences' in scope 'abc123'"
-func builtin workflow resume abc123 preferences --input '{"budget":"mid-range"}'
-func --scope-id abc123 trip-planner --city Tokyo
+func trip-planner --wf-resume abc123 --wf-input '{"budget":"mid-range"}'
+
+# Or record now and advance later — the two verbs are separate on purpose,
+# so a second actor can answer a gate without being the one who runs the walk
+func builtin workflow answer abc123 preferences --input '{"budget":"mid-range"}'
+func builtin workflow resume abc123
 
 # Interactive — one invocation, gates prompt inline
 func --prompt-gates trip-planner --city Tokyo
@@ -519,15 +523,16 @@ func --prompt-gates trip-planner --city Tokyo
 
 # AI agent — serve via MCP, agent drives the gate
 func mcp serve
-# → Claude discovers, inspects state, calls resume_gate, resumes scope
+# → Claude discovers, inspects state, calls answer_gate, then resume_workflow
 ```
 
 When served via MCP (`func mcp serve`), `functualize-mcp` exposes workflow tools that let an AI agent drive paused workflows:
 
-1. **Discover** — `list_active_workflows()` shows paused or running workflows
-2. **Inspect state** — `get_workflow_state(id)` shows the current step, pending input model, and available tools
-3. **Resume** — `resume_gate(id, {"budget": "mid-range", "interests": ["food", "culture"]})` validates the input against `TripPreferences` and advances the workflow
-4. **Continue multi-turn** — each gate creates a natural checkpoint where the agent reflects and decides
+1. **Discover** — `list_workflows()` shows scopes, filterable by workflow, state, or pending gate
+2. **Inspect state** — `get_workflow_state(id)` shows the graph, each step's result, the pending input model, and the tools the gate allows
+3. **Answer** — `answer_gate({"budget": "mid-range", "interests": ["food", "culture"]}, workflow_id=id)` validates against `TripPreferences` and records it. Partial input is held as a draft until it validates whole
+4. **Advance** — `resume_workflow(id)` walks to the next stopping point
+5. **Continue multi-turn** — each gate creates a natural checkpoint where the agent reflects and decides
 
 This creates bounded AI workflows — the agent operates within defined steps rather than open-ended execution.
 

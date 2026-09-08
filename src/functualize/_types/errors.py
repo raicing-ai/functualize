@@ -298,8 +298,9 @@ class ScopeCancelledError(Exception):
     def __init__(self, scope_id: str, *, workflow: str | None = None) -> None:
         self.scope_id = scope_id
         self.workflow = workflow
-        start = f"Start a fresh run with: {workflow}" if workflow else "Start a fresh run"
+        start = (
+            f"Start a fresh run with: {workflow}" if workflow else "Start a fresh run"
+        )
         super().__init__(
-            f"Workflow scope '{scope_id}' was cancelled and cannot be resumed. "
-            f"{start}."
+            f"Workflow scope '{scope_id}' was cancelled and cannot be resumed. {start}."
         )

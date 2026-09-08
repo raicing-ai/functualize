@@ -418,8 +418,7 @@ def purge_scopes(
         "removed": removed,
         "count": len(removed),
         "message": (
-            f"Purged {len(removed)} finished scope"
-            f"{'' if len(removed) == 1 else 's'}."
+            f"Purged {len(removed)} finished scope{'' if len(removed) == 1 else 's'}."
         ),
     }
 
@@ -487,9 +486,7 @@ def call_gate_tool(
             f"'{scope_id}'.",
             tool=tool,
             allowed_tools=sorted(
-                e["tool"]
-                for _n, r in pending_gates(scope)
-                for e in tool_entries(r)
+                e["tool"] for _n, r in pending_gates(scope) for e in tool_entries(r)
             ),
         )
 

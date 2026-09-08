@@ -30,8 +30,8 @@ from functualize.workflow import END, Edge, Gate, Step, workflow
 
 class Approval(BaseModel):
     approved: bool
-    reason: str = "unspecified"   # a default the raw path used to discard
-    reviewers: int = 1            # a coercion the raw path used to discard
+    reason: str = "unspecified"  # a default the raw path used to discard
+    reviewers: int = 1  # a coercion the raw path used to discard
 
 
 @pytest.fixture(autouse=True)
@@ -127,7 +127,9 @@ class TestTheDepositPathStoresTheValidatedDump:
         """The all-or-nothing guarantee must survive the change."""
         store = _blocked(app, project)
 
-        result = deposit_gate_input(app, store, "rel-1", "approve", {"approved": "yes?"})
+        result = deposit_gate_input(
+            app, store, "rel-1", "approve", {"approved": "yes?"}
+        )
 
         assert result["error"] == "validation_error"
         assert store.get_gate("rel-1", "approve")["payload"] is None

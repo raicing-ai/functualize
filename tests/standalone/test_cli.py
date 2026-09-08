@@ -101,6 +101,6 @@ class TestMainEntryPoint:
                 [str(py_file)],
                 output_format="auto",
                 _app_ref=ANY,
-                                prompt_gates=False,
+                prompt_gates=False,
                 force=False,
             )

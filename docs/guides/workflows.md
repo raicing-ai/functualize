@@ -242,9 +242,10 @@ func mcp serve
 ```
 
 AI agents can:
-- `list_active_workflows()` — see paused/running workflows
+- `list_workflows()` — survey scopes, filterable by workflow, state, or pending gate
 - `get_workflow_state(id)` — current step, pending gate, available tools
-- `resume_workflow(id, input)` — deposit gate input and advance
+- `answer_gate(values, workflow_id?, gate?)` — record gate input
+- `resume_workflow(id?, input?)` — advance the walk, optionally answering first
 - `cancel_workflow(id)` — cancel execution
 
 ---

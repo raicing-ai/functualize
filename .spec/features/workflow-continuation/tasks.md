@@ -406,7 +406,7 @@ Loud, non-zero, and incapable of running the wrong thing.
 
 ## Wave 12 — the parity test and the docs
 
-### [ ] T19 · The parity test enumerates; it does not sample
+### [x] T19 · The parity test enumerates; it does not sample
 
 **Files:** `tests/workflow/test_workflow_surface_parity.py` (new)
 
@@ -427,7 +427,7 @@ now: file does not exist · after: passes
 
 ---
 
-### [ ] T20 · Docs, README and CHANGELOG
+### [x] T20 · Docs, README and CHANGELOG
 
 **Files:** `docs/cli/workflow.md`, `docs/guides/mcp.md`, `docs/guides/workflows.md`,
 `docs/guides/composition.md`, `README.md`, `CHANGELOG.md`,

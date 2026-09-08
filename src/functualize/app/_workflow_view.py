@@ -375,7 +375,9 @@ def _job_input_schema(descriptor: Any) -> dict[str, Any] | None:
         if not isinstance(name, str) or name in properties:
             continue
         entry: dict[str, Any] = {
-            "type": _JSON_TYPES.get(str(getattr(param, "type_annotation", "")), "string")
+            "type": _JSON_TYPES.get(
+                str(getattr(param, "type_annotation", "")), "string"
+            )
         }
         description = getattr(param, "description", "") or ""
         if description:

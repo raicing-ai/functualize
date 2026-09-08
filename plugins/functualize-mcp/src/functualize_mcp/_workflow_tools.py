@@ -68,7 +68,6 @@ __all__ = ["GateToolPolicy", "WorkflowToolProvider"]
 logger = logging.getLogger(__name__)
 
 
-
 def _refuse_unreadable_scopes(fn: Any) -> Any:
     """Turn an unreadable scope store into an error envelope, not a traceback.
 
@@ -205,9 +204,7 @@ class WorkflowToolProvider:
         unset: list[str] | None = None,
         clear: bool = False,
     ) -> dict[str, Any]:
-        resolved = resolve_gate(
-            self.store, workflow_id, gate, include_answered=reopen
-        )
+        resolved = resolve_gate(self.store, workflow_id, gate, include_answered=reopen)
         if isinstance(resolved, dict):
             return resolved
         scope_id, gate_name = resolved
@@ -294,9 +291,7 @@ class WorkflowToolProvider:
     async def _purge_workflows(
         self, state: str | None = None, older_than_days: float | None = None
     ) -> dict[str, Any]:
-        return purge_scopes(
-            self.store, state=state, older_than_days=older_than_days
-        )
+        return purge_scopes(self.store, state=state, older_than_days=older_than_days)
 
     _purge_workflows.__name__ = "purge_workflows"
     _purge_workflows.__qualname__ = "purge_workflows"

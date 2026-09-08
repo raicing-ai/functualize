@@ -968,7 +968,9 @@ def register_builtin_commands(cli_group: Any) -> None:
         if results:
             click.echo("Steps:")
             for name, record in results.items():
-                click.echo(f"  {name}: {record.get('status')} -> {record.get('return_value')!r}")
+                click.echo(
+                    f"  {name}: {record.get('status')} -> {record.get('return_value')!r}"
+                )
 
         branches = detail.get("branches") or {}
         if branches:
@@ -1008,14 +1010,23 @@ def register_builtin_commands(cli_group: Any) -> None:
         return obj["app"]
 
     @workflow_app.command("list")
-    @click.option("--workflow", "workflow_name", default=None,
-                  help="Only runs of this workflow.")
-    @click.option("--state", "state", default=None,
-                  type=click.Choice(list(WORKFLOW_STATES)),
-                  help="Only runs in this derived state. Naming one widens the "
-                       "search to finished runs too.")
-    @click.option("--blocked-on", "blocked_on", default=None,
-                  help="Only runs waiting at this gate.")
+    @click.option(
+        "--workflow", "workflow_name", default=None, help="Only runs of this workflow."
+    )
+    @click.option(
+        "--state",
+        "state",
+        default=None,
+        type=click.Choice(list(WORKFLOW_STATES)),
+        help="Only runs in this derived state. Naming one widens the "
+        "search to finished runs too.",
+    )
+    @click.option(
+        "--blocked-on",
+        "blocked_on",
+        default=None,
+        help="Only runs waiting at this gate.",
+    )
     @click.option(
         "--format",
         "fmt",
@@ -1117,9 +1128,7 @@ def register_builtin_commands(cli_group: Any) -> None:
         for pair in pairs:
             key, sep, raw = pair.partition("=")
             if not sep:
-                click.echo(
-                    f"Error: --set expects KEY=VALUE, got '{pair}'.", err=True
-                )
+                click.echo(f"Error: --set expects KEY=VALUE, got '{pair}'.", err=True)
                 raise SystemExit(ExitCode.USAGE)
             try:
                 out[key] = json.loads(raw)
@@ -1130,23 +1139,55 @@ def register_builtin_commands(cli_group: Any) -> None:
     @workflow_app.command("answer")
     @click.argument("workflow_id")
     @click.argument("gate")
-    @click.option("--input", "input_json", default=None,
-                  help="Merge a whole JSON object into the draft.")
-    @click.option("--set", "set_pairs", multiple=True, metavar="KEY=VALUE",
-                  help="Merge one field into the draft (repeatable).")
-    @click.option("--unset", "unset_keys", multiple=True, metavar="KEY",
-                  help="Remove a field from the draft (repeatable).")
+    @click.option(
+        "--input",
+        "input_json",
+        default=None,
+        help="Merge a whole JSON object into the draft.",
+    )
+    @click.option(
+        "--set",
+        "set_pairs",
+        multiple=True,
+        metavar="KEY=VALUE",
+        help="Merge one field into the draft (repeatable).",
+    )
+    @click.option(
+        "--unset",
+        "unset_keys",
+        multiple=True,
+        metavar="KEY",
+        help="Remove a field from the draft (repeatable).",
+    )
     @click.option("--clear", is_flag=True, help="Discard the draft entirely.")
-    @click.option("--replace", is_flag=True,
-                  help="With --input: replace the draft rather than merging.")
-    @click.option("--show", "show_only", is_flag=True,
-                  help="Print the draft and what is still missing; change nothing.")
-    @click.option("--commit/--no-commit", default=True,
-                  help="Validate and answer when the draft is complete (default: on).")
-    @click.option("--reopen", is_flag=True,
-                  help="Move an answered payload back into the draft to correct it.")
-    @click.option("--format", "fmt", type=click.Choice(["table", "json"]),
-                  default="table", help="Render the result as a table or JSON.")
+    @click.option(
+        "--replace",
+        is_flag=True,
+        help="With --input: replace the draft rather than merging.",
+    )
+    @click.option(
+        "--show",
+        "show_only",
+        is_flag=True,
+        help="Print the draft and what is still missing; change nothing.",
+    )
+    @click.option(
+        "--commit/--no-commit",
+        default=True,
+        help="Validate and answer when the draft is complete (default: on).",
+    )
+    @click.option(
+        "--reopen",
+        is_flag=True,
+        help="Move an answered payload back into the draft to correct it.",
+    )
+    @click.option(
+        "--format",
+        "fmt",
+        type=click.Choice(["table", "json"]),
+        default="table",
+        help="Render the result as a table or JSON.",
+    )
     @click.pass_context
     def workflow_answer(
         ctx: click.Context,
@@ -1191,7 +1232,11 @@ def register_builtin_commands(cli_group: Any) -> None:
                 result = gate_draft(app, store, workflow_id, gate)
             else:
                 result = answer_gate(
-                    app, store, workflow_id, gate, values,
+                    app,
+                    store,
+                    workflow_id,
+                    gate,
+                    values,
                     mode="replace" if replace else "merge",
                     unset=list(unset_keys),
                     clear=clear,
@@ -1219,20 +1264,38 @@ def register_builtin_commands(cli_group: Any) -> None:
         click.echo(f"Complete: {report['complete']}")
         for entry in report["missing"]:
             detail = f" — {entry['description']}" if entry.get("description") else ""
-            click.echo(f"  missing: {entry['field']} ({entry.get('type') or '?'}){detail}")
+            click.echo(
+                f"  missing: {entry['field']} ({entry.get('type') or '?'}){detail}"
+            )
         for entry in report["invalid"]:
             click.echo(f"  invalid: {entry['field']} — {entry['message']}")
 
     @workflow_app.command("resume")
     @click.argument("workflow_id")
-    @click.option("--input", "input_json", default=None,
-                  help="Gate input to record before advancing.")
-    @click.option("--gate", "gate", default=None,
-                  help="Which pending gate --input answers, when several.")
-    @click.option("--retry-epilogue", is_flag=True,
-                  help="Clear a stalled epilogue so the body re-runs.")
-    @click.option("--format", "fmt", type=click.Choice(["table", "json"]),
-                  default="table", help="Render the result as a table or JSON.")
+    @click.option(
+        "--input",
+        "input_json",
+        default=None,
+        help="Gate input to record before advancing.",
+    )
+    @click.option(
+        "--gate",
+        "gate",
+        default=None,
+        help="Which pending gate --input answers, when several.",
+    )
+    @click.option(
+        "--retry-epilogue",
+        is_flag=True,
+        help="Clear a stalled epilogue so the body re-runs.",
+    )
+    @click.option(
+        "--format",
+        "fmt",
+        type=click.Choice(["table", "json"]),
+        default="table",
+        help="Render the result as a table or JSON.",
+    )
     @click.pass_context
     def workflow_resume(
         ctx: click.Context,
@@ -1268,7 +1331,9 @@ def register_builtin_commands(cli_group: Any) -> None:
 
         with _workflow_refusal():
             result = resume_scope(
-                app, store, workflow_id,
+                app,
+                store,
+                workflow_id,
                 input=payload,
                 gate=gate,
                 retry_epilogue=retry_epilogue,
@@ -1303,10 +1368,16 @@ def register_builtin_commands(cli_group: Any) -> None:
     @workflow_app.command("gate-tool")
     @click.argument("workflow_id")
     @click.argument("tool")
-    @click.option("--args", "args_json", default="{}",
-                  help="Tool arguments as a JSON object.")
-    @click.option("--format", "fmt", type=click.Choice(["table", "json"]),
-                  default="table", help="Render the result as a table or JSON.")
+    @click.option(
+        "--args", "args_json", default="{}", help="Tool arguments as a JSON object."
+    )
+    @click.option(
+        "--format",
+        "fmt",
+        type=click.Choice(["table", "json"]),
+        default="table",
+        help="Render the result as a table or JSON.",
+    )
     @click.pass_context
     def workflow_gate_tool(
         ctx: click.Context, workflow_id: str, tool: str, args_json: str, fmt: str
@@ -1331,7 +1402,11 @@ def register_builtin_commands(cli_group: Any) -> None:
 
         with _workflow_refusal():
             result = call_gate_tool(
-                app, store, workflow_id, tool, args,
+                app,
+                store,
+                workflow_id,
+                tool,
+                args,
                 policy=GateToolPolicy(app, store=store),
             )
 
@@ -1342,7 +1417,9 @@ def register_builtin_commands(cli_group: Any) -> None:
                 click.echo(f"Error: {result['message']}", err=True)
             raise SystemExit(_workflow_exits.get(result["error"], 1))
         if fmt != "json":
-            click.echo(f"{result['tool']}: {result['status']} -> {result['return_value']!r}")
+            click.echo(
+                f"{result['tool']}: {result['status']} -> {result['return_value']!r}"
+            )
 
     @workflow_app.command("cancel")
     @click.argument("workflow_id")
@@ -1358,11 +1435,17 @@ def register_builtin_commands(cli_group: Any) -> None:
         click.echo(result["message"])
 
     @workflow_app.command("purge")
-    @click.option("--state", "state", default=None,
-                  help="Only scopes in this finished state.")
-    @click.option("--older-than", "older_than", type=float, default=None,
-                  metavar="DAYS",
-                  help="Only scopes whose newest recorded result is older.")
+    @click.option(
+        "--state", "state", default=None, help="Only scopes in this finished state."
+    )
+    @click.option(
+        "--older-than",
+        "older_than",
+        type=float,
+        default=None,
+        metavar="DAYS",
+        help="Only scopes whose newest recorded result is older.",
+    )
     def workflow_purge(state: str | None, older_than: float | None) -> None:
         """Delete finished workflow scopes.
 

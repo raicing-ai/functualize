@@ -251,9 +251,7 @@ class TestWorkflowToolsAreNeverRefused:
         state = asyncio.run(tools._get_workflow_state("run-1"))
         assert state["pending_gates"][0]["gate"] == "approval"
 
-        accepted = asyncio.run(
-            tools._answer_gate({"approved": True}, gate="approval")
-        )
+        accepted = asyncio.run(tools._answer_gate({"approved": True}, gate="approval"))
         assert accepted["status"] == "answered"
 
         # And resolving it lifts the restriction.

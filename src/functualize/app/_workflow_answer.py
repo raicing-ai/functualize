@@ -183,9 +183,7 @@ def answer_gate(
 
     record = store.get_gate(scope_id, gate)
     if record is None:
-        return _error(
-            "gate_not_found", f"Workflow '{scope_id}' has no gate '{gate}'."
-        )
+        return _error("gate_not_found", f"Workflow '{scope_id}' has no gate '{gate}'.")
 
     model, error = _resolve_gate_model(app, scope, gate)
     if error is not None:
@@ -205,7 +203,11 @@ def answer_gate(
             f"Gate '{gate}' is already answered. Use --reopen to correct it.",
         )
 
-    draft = {} if clear else dict((store.get_gate_draft(scope_id, gate) or {}).get("values") or {})
+    draft = (
+        {}
+        if clear
+        else dict((store.get_gate_draft(scope_id, gate) or {}).get("values") or {})
+    )
     if mode == "replace":
         draft = dict(values or {})
     elif values:

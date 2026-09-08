@@ -245,9 +245,7 @@ class TestTheFlagsAreScopedToWorkflows:
         cold = _run(project, "func", "plain", "--help")
         assert "--wf-resume" not in cold.stdout, cold.stdout
 
-    def test_a_plain_job_carries_none_against_a_warm_cache(
-        self, project: Path
-    ) -> None:
+    def test_a_plain_job_carries_none_against_a_warm_cache(self, project: Path) -> None:
         """The lazy gate reads `descriptor.workflow` from the cache, a
         different signal from the eager path's live declaration."""
         _run(project, "func", "plain")  # populate the cache
@@ -307,7 +305,9 @@ class TestAmbiguityAndUnknownIds:
         """AC-17, one."""
         _run(project, "func", "walk")
 
-        result = _run(project, "func", "walk", "--wf-resume", "--wf-input", '{"text": "x"}')
+        result = _run(
+            project, "func", "walk", "--wf-resume", "--wf-input", '{"text": "x"}'
+        )
 
         assert result.returncode == 0, result.stdout + result.stderr
         assert "WALK BODY RAN" in result.stdout + result.stderr
@@ -337,9 +337,7 @@ class TestRunId:
         assert status.stdout.count("idem") == 1, status.stdout
 
     def test_it_cannot_be_combined_with_resume(self, project: Path) -> None:
-        result = _run(
-            project, "func", "walk", "--wf-run-id", "a", "--wf-resume", "b"
-        )
+        result = _run(project, "func", "walk", "--wf-run-id", "a", "--wf-resume", "b")
         assert result.returncode == 2
         assert "Pass one" in result.stdout + result.stderr
 

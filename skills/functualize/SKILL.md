@@ -12,7 +12,7 @@ description: >
   upgrading, or configuring the `func` tool itself — use functualize-cli.
 license: MIT
 metadata:
-  version: "0.2.3"
+  version: "0.3.0"
   project: functualize
 ---
 

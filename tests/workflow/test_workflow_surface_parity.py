@@ -175,9 +175,7 @@ class TestAddressingMatches:
         self, app: FunctualizeApp, verb: str, tool: str
     ) -> None:
         command = cli_verbs()[verb]
-        positionals = {
-            p.name for p in command.params if isinstance(p, click.Argument)
-        }
+        positionals = {p.name for p in command.params if isinstance(p, click.Argument)}
         assert "workflow_id" in positionals, verb
         assert "workflow_id" in _tool_param_names(mcp_tools(app)[tool]), tool
 
@@ -188,9 +186,7 @@ class TestAddressingMatches:
         took a scope, and each referred the caller to the other on ambiguity —
         so a caller holding both had no tool that would accept them."""
         command = cli_verbs()["answer"]
-        positionals = [
-            p.name for p in command.params if isinstance(p, click.Argument)
-        ]
+        positionals = [p.name for p in command.params if isinstance(p, click.Argument)]
         assert positionals == ["workflow_id", "gate"]
 
         params = _tool_param_names(mcp_tools(app)["answer_gate"])
@@ -219,7 +215,7 @@ class TestParameterParity:
             opt
             for opt in options
             if opt.lstrip("-").replace("-", "_") not in params
-            and _aliases(opt) .isdisjoint(params)
+            and _aliases(opt).isdisjoint(params)
         }
         assert not missing, (
             f"`{verb}` has options the `{tool}` tool cannot express: "
@@ -238,9 +234,9 @@ def _aliases(option: str) -> set[str]:
     base = option.lstrip("-").replace("-", "_")
     return {
         base,
-        f"{base}_name",   # --workflow      -> workflow_name
-        f"{base}_days",   # --older-than    -> older_than_days
-        f"{base}s",       # --unset         -> unset
+        f"{base}_name",  # --workflow      -> workflow_name
+        f"{base}_days",  # --older-than    -> older_than_days
+        f"{base}s",  # --unset         -> unset
         base.removeprefix("no_"),
     }
 

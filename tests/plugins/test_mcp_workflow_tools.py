@@ -15,11 +15,10 @@ from pathlib import Path
 
 import pytest
 from functualize_mcp._workflow_tools import WorkflowToolProvider
-
-from functualize.app._workflow_view import _topology
 from pydantic import BaseModel
 
 from functualize._app.state import AppState
+from functualize.app._workflow_view import _topology
 from functualize.app.core import FunctualizeApp
 from functualize.app.utils import StateStore
 from functualize.workflow import END, Edge, Gate, Step, workflow

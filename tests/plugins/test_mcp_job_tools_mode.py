@@ -59,9 +59,7 @@ def app() -> FunctualizeApp:
 
 
 def _names(app: FunctualizeApp, config: MCPConfig) -> set[str]:
-    return {
-        t.name for t in JobToolTranslator().translate_all(app.get_jobs(), config)
-    }
+    return {t.name for t in JobToolTranslator().translate_all(app.get_jobs(), config)}
 
 
 class TestTheCandidateSet:
@@ -94,7 +92,7 @@ class TestItComposesWithTheExistingFilters:
         assert _names(app, config) == set()
 
     def test_none_wins_over_an_include_filter(self, app: FunctualizeApp) -> None:
-        """"none" is not "everything the filters allow" — it is nothing."""
+        """ "none" is not "everything the filters allow" — it is nothing."""
         config = MCPConfig(job_tools="none", include_tags=["mcp"])
         assert _names(app, config) == set()
 

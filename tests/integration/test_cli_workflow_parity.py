@@ -275,7 +275,9 @@ class TestTheTwoSurfacesReturnTheSameProjection:
         from functualize_mcp._workflow_tools import WorkflowToolProvider
 
         assert (
-            _run_cli(blocked, ["builtin", "workflow", "show", "rel-1", "--format", "json"])
+            _run_cli(
+                blocked, ["builtin", "workflow", "show", "rel-1", "--format", "json"]
+            )
             == 0
         )
         cli = json.loads(capsys.readouterr().out)
@@ -303,8 +305,9 @@ class TestTheTwoSurfacesReturnTheSameProjection:
         self, blocked: FunctualizeApp, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """`waiting` before the gate is answered, `ready` after — on both."""
-        from functualize.app.utils import StateStore, deposit_gate_input
         from functualize_mcp._workflow_tools import WorkflowToolProvider
+
+        from functualize.app.utils import StateStore, deposit_gate_input
 
         store = StateStore.for_project(Path.cwd())
         assert (await WorkflowToolProvider(blocked)._get_workflow_state("rel-1"))[
@@ -312,7 +315,10 @@ class TestTheTwoSurfacesReturnTheSameProjection:
         ] == "waiting"
 
         deposit_gate_input(
-            blocked, store, "rel-1", "approval",
+            blocked,
+            store,
+            "rel-1",
+            "approval",
             {"environment": "prod", "replicas": 2},
         )
 
@@ -338,9 +344,19 @@ class TestTheAnswerCommand:
         string-only flag could express."""
         code = _run_cli(
             blocked,
-            ["builtin", "workflow", "answer", "rel-1", "approval",
-             "--set", "environment=prod", "--set", "replicas=3",
-             "--format", "json"],
+            [
+                "builtin",
+                "workflow",
+                "answer",
+                "rel-1",
+                "approval",
+                "--set",
+                "environment=prod",
+                "--set",
+                "replicas=3",
+                "--format",
+                "json",
+            ],
         )
         assert code == 0
         result = json.loads(capsys.readouterr().out)
@@ -356,8 +372,17 @@ class TestTheAnswerCommand:
         would tax the majority to serve the minority."""
         _run_cli(
             blocked,
-            ["builtin", "workflow", "answer", "rel-1", "approval",
-             "--set", "environment=prod", "--format", "json"],
+            [
+                "builtin",
+                "workflow",
+                "answer",
+                "rel-1",
+                "approval",
+                "--set",
+                "environment=prod",
+                "--format",
+                "json",
+            ],
         )
         result = json.loads(capsys.readouterr().out)
         assert result["draft"]["environment"] == "prod"
@@ -368,8 +393,15 @@ class TestTheAnswerCommand:
         """Drafting is not a failure — it is the normal half-way state."""
         code = _run_cli(
             blocked,
-            ["builtin", "workflow", "answer", "rel-1", "approval",
-             "--set", "environment=prod"],
+            [
+                "builtin",
+                "workflow",
+                "answer",
+                "rel-1",
+                "approval",
+                "--set",
+                "environment=prod",
+            ],
         )
         assert code == 0
         assert "replicas" in capsys.readouterr().out
@@ -379,8 +411,16 @@ class TestTheAnswerCommand:
     ) -> None:
         code = _run_cli(
             blocked,
-            ["builtin", "workflow", "answer", "rel-1", "approval", "--show",
-             "--format", "json"],
+            [
+                "builtin",
+                "workflow",
+                "answer",
+                "rel-1",
+                "approval",
+                "--show",
+                "--format",
+                "json",
+            ],
         )
         assert code == 0
         assert json.loads(capsys.readouterr().out)["draft"] == {}
@@ -392,9 +432,18 @@ class TestTheAnswerCommand:
     ) -> None:
         _run_cli(
             blocked,
-            ["builtin", "workflow", "answer", "rel-1", "approval",
-             "--input", json.dumps({"environment": "prod", "replicas": 3}),
-             "--no-commit", "--format", "json"],
+            [
+                "builtin",
+                "workflow",
+                "answer",
+                "rel-1",
+                "approval",
+                "--input",
+                json.dumps({"environment": "prod", "replicas": 3}),
+                "--no-commit",
+                "--format",
+                "json",
+            ],
         )
         result = json.loads(capsys.readouterr().out)
         assert result["complete"] is True
@@ -411,21 +460,86 @@ class TestTheAnswerCommand:
         )
         assert code == 2
 
-    def test_reopen_past_the_walk_exits_two(
-        self, blocked: FunctualizeApp
-    ) -> None:
+    def test_reopen_past_the_walk_exits_two(self, blocked: FunctualizeApp) -> None:
         """The error-code table is one table; `gate_already_consumed` is a
         usage error, not a job failure."""
         _run_cli(
             blocked,
-            ["builtin", "workflow", "answer", "rel-1", "approval",
-             "--input", json.dumps({"environment": "prod", "replicas": 3})],
+            [
+                "builtin",
+                "workflow",
+                "answer",
+                "rel-1",
+                "approval",
+                "--input",
+                json.dumps({"environment": "prod", "replicas": 3}),
+            ],
         )
         blocked.execute("release", scope_id="rel-1")
 
         code = _run_cli(
             blocked,
-            ["builtin", "workflow", "answer", "rel-1", "approval",
-             "--set", "replicas=9", "--reopen"],
+            [
+                "builtin",
+                "workflow",
+                "answer",
+                "rel-1",
+                "approval",
+                "--set",
+                "replicas=9",
+                "--reopen",
+            ],
+        )
+        assert code == 2
+
+
+class TestTheGateToolVerb:
+    """AC-9. `call_gate_tool` was MCP-only for no reason beyond where it was
+    first needed — there was no CLI spelling for running a gate's tool at all."""
+
+    @pytest.fixture
+    def blocked(self, app: FunctualizeApp) -> FunctualizeApp:
+        app.execute("release", scope_id="rel-1")
+        app.ran.clear()  # type: ignore[attr-defined]
+        return app
+
+    def test_it_runs_a_tool_the_gate_offers(
+        self, blocked: FunctualizeApp, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        code = _run_cli(blocked, ["builtin", "workflow", "gate-tool", "rel-1", "build"])
+
+        assert code == 0, capsys.readouterr().err
+        assert blocked.ran == ["build"]  # type: ignore[attr-defined]
+
+    def test_it_records_the_call_on_the_scope(self, blocked: FunctualizeApp) -> None:
+        """Recorded, never memoized — calling twice runs twice."""
+        _run_cli(blocked, ["builtin", "workflow", "gate-tool", "rel-1", "build"])
+        _run_cli(blocked, ["builtin", "workflow", "gate-tool", "rel-1", "build"])
+
+        store = StateStore.for_project(Path.cwd())
+        assert len(store.get_tool_calls("rel-1")) == 2
+        assert blocked.ran == ["build", "build"]  # type: ignore[attr-defined]
+
+    def test_a_tool_the_gate_does_not_offer_is_refused(
+        self, blocked: FunctualizeApp, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        code = _run_cli(
+            blocked, ["builtin", "workflow", "gate-tool", "rel-1", "deploy"]
+        )
+
+        assert code == 2
+        assert "not offered" in capsys.readouterr().err
+        assert blocked.ran == []  # type: ignore[attr-defined]
+
+    def test_it_refuses_an_unknown_scope(self, blocked: FunctualizeApp) -> None:
+        assert (
+            _run_cli(blocked, ["builtin", "workflow", "gate-tool", "nope", "build"])
+            == 1
+        )
+
+    def test_malformed_args_are_a_usage_error(self, blocked: FunctualizeApp) -> None:
+        code = _run_cli(
+            blocked,
+            ["builtin", "workflow", "gate-tool", "rel-1", "build", "--args", "{oops"],
         )
         assert code == 2

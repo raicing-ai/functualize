@@ -20,6 +20,7 @@ import pytest
 from pydantic import BaseModel
 
 from functualize._app.state import AppState
+from functualize.app._workflow_control import guarded_execute
 from functualize.app.core import FunctualizeApp
 from functualize.app.utils import (
     GateToolPolicy,
@@ -27,7 +28,6 @@ from functualize.app.utils import (
     advanceable_scopes,
     answer_gate,
     cancel_scope,
-    guarded_execute,
     purge_scopes,
     resolve_advanceable,
     resume_scope,
@@ -301,7 +301,7 @@ class TestTheFunnelCannotBeBypassed:
         assert result["status"] == "success"
         assert calls == ["deploy", "body"]
 
-    def test_a_gate_tool_call_IS_governed(
+    def test_a_gate_tool_call_is_governed(
         self, app: FunctualizeApp, store: StateStore
     ) -> None:
         """What the policy is actually for: an actor running *other* jobs while
@@ -316,7 +316,10 @@ class TestTheFunnelCannotBeBypassed:
                 return set()
 
         result = call_gate_tool(
-            app, store, "rel-1", "build",
+            app,
+            store,
+            "rel-1",
+            "build",
             policy=RefuseEverything(app, store=store),
         )
         assert result["error"] == "tool_not_permitted"
@@ -326,6 +329,7 @@ class TestTheFunnelCannotBeBypassed:
     ) -> None:
         """So a caller that forgot to handle it fails loudly rather than
         running the job anyway."""
+
         class RefuseEverything(GateToolPolicy):
             def permitted(self, tool_name: str) -> bool:
                 return False
@@ -335,7 +339,9 @@ class TestTheFunnelCannotBeBypassed:
 
         with pytest.raises(PermissionError):
             guarded_execute(
-                app, store, "release",
+                app,
+                store,
+                "release",
                 scope_id="rel-1",
                 policy=RefuseEverything(app, store=store),
             )
@@ -373,9 +379,7 @@ class TestPurge:
         result = purge_scopes(store, state="waiting")
         assert result["error"] == "invalid_state"
 
-    def test_it_filters_by_state(
-        self, app: FunctualizeApp, store: StateStore
-    ) -> None:
+    def test_it_filters_by_state(self, app: FunctualizeApp, store: StateStore) -> None:
         resume_scope(app, store, "rel-1", input={"approved": True})
         app.execute("release", scope_id="rel-2")
         cancel_scope(store, "rel-2")

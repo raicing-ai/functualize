@@ -1,6 +1,6 @@
 [project]
 name = "functualize-aws"
-version = "0.2.3"
+version = "0.3.0"
 description = "AWS Secrets Manager and SSM Parameter Store providers for functualize"
 readme = "README.md"
 license = "MIT"

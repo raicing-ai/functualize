@@ -32,10 +32,13 @@ Commands available through the `func builtin workflow` sub-command. Inspect and
 resume persisted workflow scopes — the paused state a `@workflow` leaves when it
 blocks at a gate:
 
-- **`func builtin workflow list`** — List active (running or blocked) scopes
-- **`func builtin workflow state`** — Show one scope's status and pending gates
-- **`func builtin workflow resume`** — Deposit input for a blocked gate
-- **`func builtin workflow cancel`** — Cancel a scope
+- **`func builtin workflow list`** — Survey scopes, with filters
+- **`func builtin workflow show`** — One scope in full: graph, results, gates
+- **`func builtin workflow answer`** — Record input for a gate
+- **`func builtin workflow resume`** — **Advance** the walk
+- **`func builtin workflow gate-tool`** — Run a tool a waiting gate offers
+- **`func builtin workflow cancel`** — Cancel a scope (terminal)
+- **`func builtin workflow purge`** — Delete finished scopes
 
 [Workflow Commands Reference →](workflow.md)
 

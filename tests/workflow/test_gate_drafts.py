@@ -177,7 +177,10 @@ class TestAutoCommit:
     ) -> None:
         """For the case where a second actor must review before the gate opens."""
         result = answer_gate(
-            app, store, "rel-1", "approve",
+            app,
+            store,
+            "rel-1",
+            "approve",
             {"approved": True, "reason": "ok"},
             commit=False,
         )
@@ -204,7 +207,9 @@ class TestReopen:
     def test_a_gate_still_parked_at_can_be_reopened(
         self, app: FunctualizeApp, store: StateStore
     ) -> None:
-        answer_gate(app, store, "rel-1", "approve", {"approved": True, "reason": "typo"})
+        answer_gate(
+            app, store, "rel-1", "approve", {"approved": True, "reason": "typo"}
+        )
 
         result = answer_gate(
             app, store, "rel-1", "approve", {"reason": "corrected"}, reopen=True
@@ -219,9 +224,11 @@ class TestReopen:
         """The walker records the gate as replayed and advances past it, so the
         answer already produced the results recorded after it."""
         answer_gate(app, store, "rel-1", "approve", {"approved": True, "reason": "ok"})
-        app.execute("release", scope_id="rel-1")   # walk past the gate
+        app.execute("release", scope_id="rel-1")  # walk past the gate
 
-        result = answer_gate(app, store, "rel-1", "approve", {"reason": "x"}, reopen=True)
+        result = answer_gate(
+            app, store, "rel-1", "approve", {"reason": "x"}, reopen=True
+        )
 
         assert result["error"] == "gate_already_consumed"
 

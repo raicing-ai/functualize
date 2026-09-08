@@ -20,10 +20,10 @@ import pytest
 from pydantic import BaseModel
 
 from functualize._app.state import AppState
+from functualize.app._workflow_view import derived_state
 from functualize.app.core import FunctualizeApp
 from functualize.app.utils import (
     StateStore,
-    derived_state,
     describe_scope,
     list_scopes,
 )
@@ -75,12 +75,18 @@ class TestDerivedState:
     """Spec §3.2. Pure, total, no store read."""
 
     def test_blocked_with_a_pending_gate_is_waiting(self) -> None:
-        assert derived_state({"status": "blocked", "gates": {"g": {"payload": None}}}) == "waiting"
+        assert (
+            derived_state({"status": "blocked", "gates": {"g": {"payload": None}}})
+            == "waiting"
+        )
 
     def test_blocked_with_no_pending_gate_is_ready(self) -> None:
         """The unnamed state: an answered scope read `blocked` with no pending
         gates and looked stuck. `ready` is exactly what `resume` can advance."""
-        assert derived_state({"status": "blocked", "gates": {"g": {"payload": {"ok": 1}}}}) == "ready"
+        assert (
+            derived_state({"status": "blocked", "gates": {"g": {"payload": {"ok": 1}}}})
+            == "ready"
+        )
 
     def test_completed_with_a_failed_epilogue_is_stalled(self) -> None:
         """Ordering is load-bearing — this must be reached before the plain
@@ -119,7 +125,10 @@ class TestDescribeScope:
         assert view["state"] == "waiting"
         # The cached shape spells a node `{"step": name}` or
         # `{"gate": name, "model": ...}` — the kind is the key, not a field.
-        assert view["steps"] == [{"step": "build"}, {"gate": "approve", "model": "Approval"}]
+        assert view["steps"] == [
+            {"step": "build"},
+            {"gate": "approve", "model": "Approval"},
+        ]
         assert view["current_position"] == "approve"
         assert view["results"]["build"]["return_value"] == "artifact-v2"
         assert [g["gate"] for g in view["pending_gates"]] == ["approve"]
@@ -132,9 +141,7 @@ class TestDescribeScope:
         store = StateStore.for_project(project)
         assert describe_scope(app, store, "nope") is None
 
-    def test_the_epilogue_is_carried(
-        self, app: FunctualizeApp, project: Path
-    ) -> None:
+    def test_the_epilogue_is_carried(self, app: FunctualizeApp, project: Path) -> None:
         """A projection that omitted it could not explain its own `state`."""
         app.execute("release", scope_id="rel-1")
         store = StateStore.for_project(project)
@@ -165,9 +172,7 @@ class TestListScopes:
         rows = list_scopes(app, store, state="completed")
         assert [r["workflow_id"] for r in rows] == ["old"]
 
-    def test_it_filters_by_workflow(
-        self, app: FunctualizeApp, project: Path
-    ) -> None:
+    def test_it_filters_by_workflow(self, app: FunctualizeApp, project: Path) -> None:
         app.execute("release", scope_id="rel-1")
         store = StateStore.for_project(project)
         store.ensure_scope("other", "something-else")

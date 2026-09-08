@@ -105,9 +105,7 @@ def workflow_flag_options() -> list[click.Option]:
             ["--wf-input", "wf_input"],
             default=None,
             metavar="JSON",
-            help=(
-                "Gate input for --wf-resume: recorded, then the walk advances."
-            ),
+            help=("Gate input for --wf-resume: recorded, then the walk advances."),
         ),
         click.Option(
             ["--wf-gate", "wf_gate"],
@@ -280,9 +278,7 @@ def _survey(app: Any, workflow_name: str) -> WorkflowFlagOutcome:
     return WorkflowFlagOutcome(kind="short_circuit", text="\n".join(lines))
 
 
-def _show(
-    app: Any, workflow_name: str, scope_id: str | None
-) -> WorkflowFlagOutcome:
+def _show(app: Any, workflow_name: str, scope_id: str | None) -> WorkflowFlagOutcome:
     """``--wf-show`` — the **same** full projection ``builtin workflow show``
     renders. The flag saves naming the workflow; it does not reduce the output.
     A reduced form would recreate the split this feature exists to close, where
