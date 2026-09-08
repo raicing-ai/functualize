@@ -318,7 +318,7 @@ plugins/functualize-mcp/src/functualize_mcp/_workflow_tools.py` → `1+` *(now: 
 
 ## Wave 6 — the regression that started this
 
-### [ ] T11 · the experiment becomes a test
+### [x] T11 · the experiment becomes a test
 
 `[F]` `tests/test_state_split_regression.py` *(new)*
 
@@ -339,13 +339,22 @@ resume, and assert completed steps replay, the recorded branch holds, and the ex
 code is 5 then 0 — the same walk across the split.
 
 **Gate** `pytest tests/test_state_split_regression.py -q` green, ≥ 3 tests
+*(11 passed)* ✓
+
+**One assertion corrected while writing it.** "Completed steps replay" was first
+asserted by comparing the step record across two runs. It failed: the walk
+rewrites a replayed step's `completed_at` *without re-executing it*. Comparing
+records asserts the wrong thing — the guarantee is that the body does not run
+twice — so the test now counts invocations. Probed directly to confirm which it
+was (`build` calls: 1 after run 1, **1** after run 2). Pre-existing behaviour,
+not introduced here, and out of this feature's scope.
 **Covers** AC-3, AC-12, AC-13, AC-14
 
 ---
 
 ## Wave 7 — collateral
 
-### [ ] T12 · the docs that are already wrong
+### [x] T12 · the docs that are already wrong
 
 `[F]` `contributor/reference/state-store.md`, `docs/guides/task-runner.md`,
 `CHANGELOG.md`
