@@ -4,7 +4,7 @@
 > sections below are the arguments as made against 0.2.3 (`a2f453d`) and are
 > preserved as the record, not as open work — §1 through §5 all read as though
 > the defect they describe is live, and four of them are visible as *fixed* in
-> the probe re-run at `787035e` (`evidence/README.md`). Only **asks 9, 10 and 11**
+> the probe re-run at `787035e` (`evidence/README.md`). Only **asks 9 through 12**
 > are outstanding.
 
 Five asks, re-prioritized for 0.2.3 and for the plugin binding path. **None is
@@ -205,6 +205,7 @@ to look.
 | 9 | re-export `StaticProvider` from `functualize.plugin` | fix | no — probe 10 imports the private path | `17` §3 |
 | 10 | display dedupe: last-wins, or warn on a discarded provider | fix | no — rise documents around it | `18` §5 |
 | 11 | protect the whole first-party top level, or warn — `mcp` is claimable, `builtin` is not | fix | no — rise derives the set | `evidence/README.md` |
+| 12 | surface `FromJob` edges in `job_detail` — a working data-flow graph is invisible to agents | fix | no — but it defeats the agent-legibility thesis | `19` §3 G1 |
 
 Nothing blocks. That is a materially better position than v2 reported, and the
 reason is one probe: plugins load before job resolution.
@@ -221,4 +222,4 @@ reason is one probe: plugins load before job resolution.
 > `builtin info --json`'s `skills` key is always a list. Defect **#32** is
 > recorded-not-fixed — two functions normalizing to the same job name silently
 > become one job on the default path, which is what `test_qualified_names_required`
-> (`11` §3) exists to catch. **Asks 9, 10 and 11 are outstanding.**
+> (`11` §3) exists to catch. **Asks 9, 10, 11 and 12 are outstanding.**

@@ -46,27 +46,77 @@ external validation the three-axis model has received.
 
 ## 3. The gaps, ranked by value-per-cost
 
-### G1 — Chaining. Functions that return typed objects. **Take it.**
+### G1 — Chaining. **Functualize already has it. The gap is that agents cannot see it.**
 
-Dagger's central ergonomic idea, and the one this corpus has no answer to:
+> **Correction.** The first version of this file called chaining "the one this
+> corpus has no answer to" and filed the fix under rise's Protocol signatures.
+> Both halves were wrong. Chaining is composition mechanism, so by `17` §2's own
+> test it is functualize's — and functualize **ships it today** as `FromJob`
+> (`_types/from_job.py`). This section is the corrected finding.
+
+Dagger's fluent form:
 
 ```python
 dag.container().from_("golang:1.21").with_mounted_directory("/src", src).with_exec(...)
 ```
 
-A function returns a typed object; that object's functions are the next step;
-the type system guides you. Composition is *data flow*, and the IDE checks it.
+Functualize's declared form — same semantics, different surface:
 
-Here, composition is a **declared graph** — `@workflow` with gates (`16`) — or
-one job calling another through `rc.invoke()`. Both are fine for orchestration
-and neither expresses "this produced a thing, now do something to the thing."
-Rise feels this most in the registry: `install` returns `None`, so a caller
-cannot write `registry.tool("mise").install().verify()`.
+```python
+def build() -> str:
+    """Build it."""
+    return "artifact-v1"
 
-**Cost: low.** It needs no engine — only that action Protocols may return a
-substrate instance rather than `None`, and that the binding tolerates it. It is
-a change to `01` §3's Protocol signatures, best made now while there are no
-modules to break. **This is the single highest-value idea in Dagger for us.**
+def publish(artifact: Annotated[str, FromJob("build")]) -> str:
+    """Publish what build produced."""
+    return f"published {artifact}"
+```
+
+```
+app.execute("publish").return_value  ->  'published artifact-v1'
+```
+
+`build` ran because `publish` referenced it, its return value was injected, and
+nothing had to be wired by hand. `FromJob`'s own docstring places it in the
+right lineage: *"referencing a value declares the dependency — the idiom every
+comparable system follows (doit's `getargs`… Dagster infers upstreams…)"*.
+`run=False` reads a recorded value without causing work; values persist through
+the state store; a completed workflow scope replays its memoized `body_value`
+(`_engine/executor.py:1270,1299`). That is the substance of chaining.
+
+**The real gap is legibility, and it is a defect rather than a feature
+request.** The chain above executes correctly and is *invisible* on the agent
+surface:
+
+```
+job_detail("publish")  ->  dependencies: []
+                           parameters  : []
+                           inputSchema : {'type': 'object', 'properties': {}}
+```
+
+An LLM reading that sees an input-less job with no upstreams. It cannot learn
+that `publish` consumes `build`'s output, or that invoking `publish` will run
+`build`. `dependencies` is populated from `descriptor.dependencies`
+(`_cli/info.py:152`), which `FromJob` never reaches; excluding the injected
+parameter from `inputSchema` is *correct* — a caller does not supply it — but
+then the edge appears nowhere at all.
+
+For a stack whose thesis is agent-legible operations, a working data-flow graph
+that no agent can read is the wrong half to have. **Upstream ask 12:** surface
+`FromJob` edges in `job_detail` — as `dependencies` entries, or a sibling
+`consumes` field naming the upstream job and the parameter it feeds.
+
+**What is genuinely missing** is *caller-composed* chains: `FromJob` fixes the
+edge at authoring time, where Dagger's caller assembles the chain at call time,
+including from the CLI. Whether that is worth having here is doubtful — see
+§4's last paragraph. Rise's operations converge state rather than transform
+artifacts, and for that, authored edges are the honest shape.
+
+**The rise-side consequence is smaller than first claimed, and still real.**
+Action Protocols that return `None` can never be a `FromJob` source, so a rise
+module could not participate in the mechanism functualize already has. Letting
+actions return their substrate is therefore not "adding chaining" — it is
+**not foreclosing the chaining that exists**. Cheap now, breaking later.
 
 ### G2 — Zero-setup tracing. **Take the idea, not the cloud.**
 
@@ -93,7 +143,7 @@ Here there is one, and it is not a result cache:
 |---|---|---|
 | discovery metadata | — | `builtin cache` (`_cli/builtins.py:79`) |
 | declared-source staleness | layer cache | `Fingerprint` → skip (`_primitives/fingerprint.py`) |
-| stored results, replayed | function-call cache | **nothing** |
+| stored results, replayed | function-call cache, content-keyed, across runs | **narrower** — a completed workflow scope replays its `body_value` on resume (`_engine/executor.py:1299`), and `FromJob(run=False)` reads a recorded value. Neither is a content-keyed cache across arbitrary runs |
 | dependency dirs across runs | cache volumes | **nothing** |
 
 `Fingerprint` already computes the hard part — a content key over declared
@@ -193,16 +243,17 @@ Sequenced by value-per-cost, and none of it blocks the current build order:
 
 | | Do | When |
 |---|---|---|
-| 1 | **G1 chaining** — let action Protocols return substrate instances | **before modules exist.** Free now, breaking later |
-| 2 | **G2 spans** — parent/child + duration on the existing event bus | after step 5 (`11` §2), once diagnosis emits records worth nesting |
-| 3 | **G5 ephemeral services** — a scope-bound `Process` | with the registry, step 8 |
-| 4 | **G3 result cache** for pure actions only, keyed on substrate presence | after `06`; needs the lockfile's notion of state |
-| 5 | G4 index, G6 codegen | not scheduled; revisit when third-party modules exist |
+| 1 | **G1a** — surface `FromJob` edges in `job_detail` (**ask 12**) | now; it is a defect, not a feature |
+| 2 | **G1b** — let rise actions return their substrate, so a rise module can be a `FromJob` source at all | **before modules exist.** Free now, breaking later |
+| 3 | **G2 spans** — parent/child + duration on the existing event bus | after step 5 (`11` §2), once diagnosis emits records worth nesting |
+| 4 | **G5 ephemeral services** — a scope-bound `Process` | with the registry, step 8 |
+| 5 | **G3 result cache** for pure actions only, keyed on substrate presence | after `06`; needs the lockfile's notion of state |
+| 6 | G4 index, G6 codegen | not scheduled; revisit when third-party modules exist |
 
 **The strategic point.** Dagger owns "build my software reproducibly" and owns
 it well enough that competing there is a mistake. Nobody owns "converge and
 diagnose my machine, legibly to an agent." That is the space this stack is
 actually in, and every gap above should be taken only insofar as it serves that
-— G1 because composition is weak everywhere, G2 because opacity is the enemy of
-agent legibility, G5 because it is the common case. The rest is Dagger solving
+— G1 because a data-flow graph no agent can read defeats the point, G2 for the
+same reason at run level, G5 because it is the common case. The rest is Dagger solving
 Dagger's problem.
