@@ -198,6 +198,28 @@ class StateStore:
         """Deposit resolved input for a blocked gate. False if no such gate."""
         return self._scopes.deposit_gate_payload(scope_id, gate_name, payload)
 
+    def get_gate_draft(self, scope_id: str, gate_name: str) -> dict[str, Any] | None:
+        """The gate's accumulated partial input, or None."""
+        return self._scopes.get_gate_draft(scope_id, gate_name)
+
+    def put_gate_draft(
+        self, scope_id: str, gate_name: str, values: dict[str, Any]
+    ) -> bool:
+        """Replace the gate's draft values. False if no such gate."""
+        return self._scopes.put_gate_draft(scope_id, gate_name, values)
+
+    def clear_gate_draft(self, scope_id: str, gate_name: str) -> bool:
+        """Discard the gate's draft. False if no such gate."""
+        return self._scopes.clear_gate_draft(scope_id, gate_name)
+
+    def reopen_gate(self, scope_id: str, gate_name: str) -> bool:
+        """Move an answered gate's payload back into its draft."""
+        return self._scopes.reopen_gate(scope_id, gate_name)
+
+    def delete_scope(self, scope_id: str) -> bool:
+        """Remove a scope entirely. False if it was not there."""
+        return self._scopes.delete_scope(scope_id)
+
     def set_position(self, scope_id: str, node: str | None) -> None:
         """Persist the blocked-walk position so a walk survives."""
         self._scopes.set_position(scope_id, node)

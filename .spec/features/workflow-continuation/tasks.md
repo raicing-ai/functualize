@@ -205,7 +205,7 @@ now: `1` · after: `0`
 
 ## Wave 5 — the draft slot
 
-### [ ] T10 · Gate records carry a `draft`
+### [x] T10 · Gate records carry a `draft`
 
 **Files:** `src/functualize/_primitives/scope_store.py`,
 `src/functualize/_primitives/state_store.py`
@@ -228,7 +228,7 @@ now: `0` · after: `≥5`
 
 ## Wave 6 — the answer implementation
 
-### [ ] T11 · `app/_workflow_answer.py` — merge, unset, clear, show, commit, reopen
+### [x] T11 · `app/_workflow_answer.py` — merge, unset, clear, show, commit, reopen
 
 **Files:** `src/functualize/app/_workflow_answer.py` (new), `src/functualize/app/utils.py`
 

@@ -81,6 +81,7 @@ from functualize._types.redaction import (
     is_secret_field,
     reveal,
 )
+from functualize.app._workflow_answer import answer_gate, gate_draft, resolve_gate
 from functualize.app._workflow_resume import deposit_gate_input, pending_gates
 from functualize.app._workflow_view import (
     LIVE_STATUSES,
@@ -147,6 +148,9 @@ __all__ = [
     "deposit_gate_input",
     "derived_state",
     "WORKFLOW_STATES",
+    "answer_gate",
+    "gate_draft",
+    "resolve_gate",
     "describe_scope",
     "tool_summaries",
     "tool_entries",
