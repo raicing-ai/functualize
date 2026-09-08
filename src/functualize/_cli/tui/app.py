@@ -2004,8 +2004,30 @@ class FunctualizeInlineTUI(App[int]):
             return []
         return list(loader.loaded_instances)
 
+    def _plugin_command_count(self) -> int:
+        """How many plugin commands this shell can actually reach.
+
+        Reads the same shadow-resolved list the command tree is built from, so
+        a command a job shadows is not advertised in a count and then missing
+        from the browser.
+        """
+        try:
+            from functualize.app.commands import unshadowed_plugin_commands
+
+            return len(unshadowed_plugin_commands(self._func_app))
+        except Exception as exc:  # pragma: no cover - defensive
+            self.log.warning(f"_plugin_command_count failed: {exc}")
+            return 0
+
     def _update_header(self) -> None:
-        """Update header with app name, job counts, and plugin header items."""
+        """Update header with app name, command counts, and plugin header items.
+
+        Plugin commands are counted **separately** rather than folded into the
+        job total. They are not jobs — they take no config section, resolve
+        through a different provider, and `func mcp serve` is not something the
+        job registry has ever heard of. Adding them to a number labelled "jobs"
+        would make the header lie in order to look complete.
+        """
         try:
             jobs = self._func_app.get_jobs()
             total = len(jobs)
@@ -2013,12 +2035,14 @@ class FunctualizeInlineTUI(App[int]):
             cwd_count = count_jobs_in_cwd(jobs, Path.cwd())
             header = self.query_one("#header", Static)
             if cwd_count and cwd_count < total:
-                base = (
-                    f" func — {self._func_app.name}"
-                    f"  ({cwd_count} cwd, {total} total jobs)"
-                )
+                counts = f"{cwd_count} cwd, {total} total jobs"
             else:
-                base = f" func — {self._func_app.name}  ({total} jobs)"
+                counts = f"{total} jobs"
+            n_plugin = self._plugin_command_count()
+            if n_plugin:
+                counts += f", {n_plugin} plugin command"
+                counts += "" if n_plugin == 1 else "s"
+            base = f" func — {self._func_app.name}  ({counts})"
             plugin_text = render_header_items(self._plugin_instances(), self._func_app)
             header.update(f"{base}  {plugin_text}" if plugin_text else base)
         except Exception as exc:
