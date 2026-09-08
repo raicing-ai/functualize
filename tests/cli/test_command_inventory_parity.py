@@ -175,3 +175,68 @@ class TestKindIsConsistent:
             if entry["path"][0] == NAMESPACE
         }
         assert kinds and set(kinds.values()) == {"plugin"}
+
+
+class TestBuiltinDeclarationsMatchTheClickGroups:
+    """`BUILTIN_COMMANDS` is a second list of what `func builtin ...` contains.
+
+    The click groups are what actually runs; `BUILTIN_COMMANDS` is a
+    declarative mirror that feeds shell completion, the TUI's command palette,
+    and `builtin info`. Two lists of the same thing drift, and this one did
+    immediately: adding `plugin available` left the declaration behind, so the
+    command ran while completion and the palette denied it existed.
+
+    Nothing guarded that, in a file whose entire subject is surfaces
+    disagreeing about which commands exist. So: guard it.
+    """
+
+    def _mounted_builtin_group(self):
+        import click
+
+        from functualize._cli.builtins import register_builtin_commands
+
+        root = click.Group(name="func")
+        register_builtin_commands(root)
+        return root.commands["builtin"]
+
+    def test_every_declared_family_is_mounted(self) -> None:
+        from functualize._cli.builtins import BUILTIN_COMMANDS
+
+        mounted = set(self._mounted_builtin_group().commands)
+        declared = {c.name for c in BUILTIN_COMMANDS}
+        assert declared - mounted == set(), (
+            f"declared but not mounted: {sorted(declared - mounted)}"
+        )
+
+    def test_every_mounted_family_is_declared(self) -> None:
+        from functualize._cli.builtins import BUILTIN_COMMANDS
+
+        mounted = set(self._mounted_builtin_group().commands)
+        declared = {c.name for c in BUILTIN_COMMANDS}
+        assert mounted - declared == set(), (
+            f"mounted but not declared: {sorted(mounted - declared)}"
+        )
+
+    def test_declared_subcommands_match_each_group(self) -> None:
+        """The drift that actually happened, for every family at once."""
+        from functualize._cli.builtins import BUILTIN_COMMANDS
+
+        builtin = self._mounted_builtin_group()
+        problems: list[str] = []
+        for command in BUILTIN_COMMANDS:
+            if not command.subcommands:
+                continue
+            mounted = builtin.commands.get(command.name)
+            group_commands = getattr(mounted, "commands", None)
+            if group_commands is None:
+                continue
+            declared = {name for name, _ in command.subcommands}
+            actual = set(group_commands)
+            if declared != actual:
+                problems.append(
+                    f"{command.name}: declared={sorted(declared)} "
+                    f"mounted={sorted(actual)}"
+                )
+        assert not problems, (
+            "BUILTIN_COMMANDS drifted from the click groups:\n" + "\n".join(problems)
+        )
