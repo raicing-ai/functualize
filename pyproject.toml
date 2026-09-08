@@ -245,6 +245,25 @@ modules = [
 ]
 
 [[tool.importlinter.contracts]]
+# _events sits below the peer layers: it may reach _types and _primitives and
+# nothing else internal. This was unenforced until the config event sink was
+# moved out of _events/adapter.py into _app/event_wiring.py — before that,
+# _events imported _config at runtime in violation of the constitution, and no
+# contract named _events as a source module so CI never saw it.
+name = "Events depends on foundation only"
+type = "forbidden"
+source_modules = ["functualize._events"]
+forbidden_modules = [
+    "functualize._discovery",
+    "functualize._config",
+    "functualize._engine",
+    "functualize._plugins",
+    "functualize._gate",
+    "functualize._app",
+    "functualize._cli",
+]
+
+[[tool.importlinter.contracts]]
 name = "Primitives import nothing internal"
 type = "forbidden"
 source_modules = ["functualize._primitives"]

@@ -1,6 +1,6 @@
 """Property-based tests for EventSink adapter (Properties 21, 22).
 
-Tests the EventBusAdapter translation logic and install_adapter idempotency.
+Tests the EventBusAdapter translation logic and install_config_event_sink idempotency.
 """
 
 from __future__ import annotations
@@ -13,7 +13,8 @@ from hypothesis import strategies as st
 if TYPE_CHECKING:
     from functualize._events.bus import StructuredEvent
 
-from functualize._events.adapter import EventBusAdapter, install_adapter
+from functualize._app.event_wiring import install_config_event_sink
+from functualize._events.adapter import EventBusAdapter
 from functualize._events.bus import EventBus
 
 # --- Strategies ---
@@ -281,7 +282,7 @@ class TestProperty21EventSinkAdapterTranslation:
 class TestProperty22AdapterInstallationIdempotency:
     """Property 22: Adapter installation idempotency.
 
-    *For any* number of calls to install_adapter(), subscribers on the
+    *For any* number of calls to install_config_event_sink(), subscribers on the
     Event_Bus SHALL receive each emitted event exactly once (no duplicate
     routing).
 
@@ -295,19 +296,19 @@ class TestProperty22AdapterInstallationIdempotency:
         self,
         num_installs: int,
     ) -> None:
-        """Calling install_adapter multiple times doesn't duplicate event routing.
+        """Calling install_config_event_sink multiple times doesn't duplicate event routing.
 
-        We test this by checking the _adapter_installed flag behavior:
-        after the first call sets _adapter_installed=True, subsequent calls
+        We test this by checking the _sink_installed flag behavior:
+        after the first call sets _sink_installed=True, subsequent calls
         return immediately without adding another adapter.
         """
+        import functualize._app.event_wiring as event_wiring
         import functualize._config._emit as emit_module
-        import functualize._events.adapter as adapter_module
 
         bus = EventBus()
 
         # Save original state
-        original_flag = adapter_module._adapter_installed
+        original_flag = event_wiring._sink_installed
         original_sink = emit_module._sink
 
         # We need the *real* set_event_sink (not the monkey-patched blocker).
@@ -316,19 +317,19 @@ class TestProperty22AdapterInstallationIdempotency:
             emit_module._sink = sink
 
         # Reset state for each test iteration
-        adapter_module._adapter_installed = False
+        event_wiring._sink_installed = False
         emit_module._sink = None
         emit_module.set_event_sink = _real_set_event_sink  # type: ignore[assignment]
 
         try:
-            # Call install_adapter multiple times
+            # Call install_config_event_sink multiple times
             # The first call installs the adapter and monkey-patches set_event_sink.
-            # Subsequent calls are no-ops because _adapter_installed is True.
+            # Subsequent calls are no-ops because _sink_installed is True.
             for _ in range(num_installs):
-                install_adapter(bus)
+                install_config_event_sink(bus)
 
             # After all calls, the flag is set
-            assert adapter_module._adapter_installed is True
+            assert event_wiring._sink_installed is True
 
             # The key invariant: use a fresh adapter directly to verify
             # single-routing behavior. Create a new EventBusAdapter and
@@ -344,7 +345,7 @@ class TestProperty22AdapterInstallationIdempotency:
             )
         finally:
             # Restore original state
-            adapter_module._adapter_installed = original_flag
+            event_wiring._sink_installed = original_flag
             emit_module._sink = original_sink
             emit_module.set_event_sink = _real_set_event_sink  # type: ignore[assignment]
 
@@ -355,35 +356,35 @@ class TestProperty22AdapterInstallationIdempotency:
         self,
         num_installs: int,
     ) -> None:
-        """The _adapter_installed flag is set True on first call and stays True."""
+        """The _sink_installed flag is set True on first call and stays True."""
+        import functualize._app.event_wiring as event_wiring
         import functualize._config._emit as emit_module
-        import functualize._events.adapter as adapter_module
 
         bus = EventBus()
 
         # Save original state
-        original_flag = adapter_module._adapter_installed
+        original_flag = event_wiring._sink_installed
         original_sink = emit_module._sink
 
         def _real_set_event_sink(sink: Any) -> None:
             emit_module._sink = sink
 
         # Reset state
-        adapter_module._adapter_installed = False
+        event_wiring._sink_installed = False
         emit_module._sink = None
         emit_module.set_event_sink = _real_set_event_sink  # type: ignore[assignment]
 
         try:
             # First call sets the flag
-            install_adapter(bus)
-            assert adapter_module._adapter_installed is True
+            install_config_event_sink(bus)
+            assert event_wiring._sink_installed is True
 
             # Subsequent calls don't change anything — flag stays True
             for _ in range(num_installs - 1):
-                install_adapter(bus)
-                assert adapter_module._adapter_installed is True
+                install_config_event_sink(bus)
+                assert event_wiring._sink_installed is True
         finally:
-            adapter_module._adapter_installed = original_flag
+            event_wiring._sink_installed = original_flag
             emit_module._sink = original_sink
             emit_module.set_event_sink = _real_set_event_sink  # type: ignore[assignment]
 
@@ -398,29 +399,29 @@ class TestProperty22AdapterInstallationIdempotency:
         event_name: str,
         payload_keys: dict[str, str],
     ) -> None:
-        """Regardless of how many times install_adapter is called,
+        """Regardless of how many times install_config_event_sink is called,
         each adapter.emit() produces exactly one event on the bus."""
+        import functualize._app.event_wiring as event_wiring
         import functualize._config._emit as emit_module
-        import functualize._events.adapter as adapter_module
 
         bus = EventBus()
 
         # Save original state
-        original_flag = adapter_module._adapter_installed
+        original_flag = event_wiring._sink_installed
         original_sink = emit_module._sink
 
         def _real_set_event_sink(sink: Any) -> None:
             emit_module._sink = sink
 
         # Reset state
-        adapter_module._adapter_installed = False
+        event_wiring._sink_installed = False
         emit_module._sink = None
         emit_module.set_event_sink = _real_set_event_sink  # type: ignore[assignment]
 
         try:
             # Install multiple times
             for _ in range(num_installs):
-                install_adapter(bus)
+                install_config_event_sink(bus)
 
             # Create adapter and emit
             adapter = EventBusAdapter(bus)
@@ -433,6 +434,6 @@ class TestProperty22AdapterInstallationIdempotency:
             assert len(captured) == 1
             assert captured[0].event_name == event_name
         finally:
-            adapter_module._adapter_installed = original_flag
+            event_wiring._sink_installed = original_flag
             emit_module._sink = original_sink
             emit_module.set_event_sink = _real_set_event_sink  # type: ignore[assignment]
