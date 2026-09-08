@@ -930,6 +930,7 @@ class FunctualizeApp:
         callback: Callable[..., Any],
         help_text: str = "",
         namespace: str | None = None,
+        needs_terminal: bool = False,
     ) -> None:
         """Register a command from a plugin.
 
@@ -940,10 +941,17 @@ class FunctualizeApp:
             namespace: Optional flat CLI namespace to mount the command under
                 (``namespace="mcp"`` + ``name="serve"`` → ``func mcp serve``).
                 None mounts the command at the top level.
+            needs_terminal: True when running the command takes over the
+                controlling terminal — a server speaking a protocol on stdio, a
+                spawned editor. A TUI front-end reads this to step aside rather
+                than capture the command's output on a worker thread, which for
+                a stdio server would corrupt the protocol it speaks.
         """
         from functualize._app.impl import register_plugin_command
 
-        register_plugin_command(self, name, callback, help_text, namespace)
+        register_plugin_command(
+            self, name, callback, help_text, namespace, needs_terminal
+        )
 
     def register_surface(self, surface: Any) -> None:
         """Register something that renders a job's events, answers its

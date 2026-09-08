@@ -130,6 +130,35 @@ class HttpServerPlugin:
         ...
 ```
 
+### Job-publishing distribution (no plugin class at all)
+
+A package whose point is to *supply work* declares its jobs directly and needs
+no plugin object:
+
+```toml
+[project.entry-points."functualize.jobs"]
+backup = "my_package:backup_job"
+```
+
+`EntryPointProvider` (`_discovery/providers.py`) reads that group, and
+`_app/boot.wire_entry_point_jobs` adds it to the resolution pipeline on **both**
+boot paths.
+
+Two invariants to preserve when touching it:
+
+- **Enumeration must not import.** `list_jobs()` reads `EntryPoint.name` and
+  `.value` — metadata — and returns descriptors with `function=None`. Calling
+  `ep.load()` there would import every job-publishing distribution on every
+  boot, and neither zero-import test would catch it: both drive
+  `CachedDirectoryScanProvider` directly rather than a composed boot.
+- **There is no cache, on purpose.** Re-reading the table each boot is what
+  makes cold/warm parity and no-ghost-after-uninstall true by construction
+  rather than by invalidation logic. Adding a cache means owning both.
+
+Metadata a listing does not need — parameters, docstring, `@job(group=...)` —
+arrives via `JobNode._resolved_descriptor()`, which materializes only
+`<entry_point>` descriptors and leaves the directory warm path alone.
+
 ### Adapter Plugin (delivery surface)
 
 ```python

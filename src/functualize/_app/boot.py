@@ -109,6 +109,57 @@ def init_observability(app: Any) -> None:
     app._observability_initialized = True
 
 
+def wire_entry_point_jobs(app: Any) -> None:
+    """Add the ``functualize.jobs`` provider to the resolution pipeline.
+
+    **``boot_standard`` only — deliberately not ``boot_static``.** Reading the
+    entry-point table means walking ``sys.path``, and static wiring exists to
+    promise the opposite: it is the "I told you exactly where my jobs are, do
+    no I/O" path, guarded by
+    ``tests/core/test_static_wiring_fast_path.py``, which fails on a single
+    ``listdir`` or ``stat`` during boot. Discovering jobs from installed
+    packages *is* discovery, so it belongs to the discovering boot.
+
+    The asymmetry is therefore intended, and the opposite mistake is the easy
+    one to make: the first version of this wiring landed in ``boot_static``
+    *alone*, where a default ``FunctualizeApp`` never looks, and the reachability
+    test caught it. If a future change adds a third boot path, this belongs in
+    it only if that path already does discovery.
+
+    **Adds nothing when the group is empty**, which is the overwhelmingly
+    common case: almost no installation has a job-publishing package. Reading
+    the table to find that out is a cached metadata lookup, so the check costs
+    less than the provider it avoids constructing -- and it keeps the pipeline
+    a description of where jobs actually come from rather than a list of places
+    they might. Three ordering tests assert the pipeline exhaustively, and they
+    are right to: a provider that yields nothing still has to be explained.
+
+    Added *last*, after both the directory providers and anything declared
+    through ``JobSources``, so an explicitly wired job wins a name collision
+    against one an installed distribution supplies. That is the direction every
+    other precedence here runs, and the safer one: installing a package should
+    not silently replace a job the user wrote or declared. Three ordering tests
+    also pin the directory/declared-provider adjacency, which inserting this
+    between them would break.
+
+    Costs a metadata read rather than an import --
+    :meth:`EntryPointProvider.list_jobs` reads the entry-point table and defers
+    ``import`` to materialization -- so this does not forfeit
+    warm-boot-zero-imports for anyone who installs a job-publishing package.
+    Asserted in ``tests/discovery/test_entry_point_jobs.py``, because neither
+    existing zero-import test would notice: both drive
+    ``CachedDirectoryScanProvider`` directly rather than a composed boot.
+    """
+    from functualize._primitives.entry_points import entry_points
+
+    if not entry_points(group="functualize.jobs"):
+        return
+
+    from functualize._discovery.providers import EntryPointProvider
+
+    app._resolution_pipeline.add_provider(EntryPointProvider())
+
+
 def boot_static(app: Any, perf_timeline: Any) -> None:
     """Static wiring fast path — zero filesystem I/O.
 
@@ -527,6 +578,8 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
 
     wire_declared_job_sources(app)
 
+    wire_entry_point_jobs(app)
+
     perf_timeline.mark("boot.core_infra.end")
 
     # 2. Initialize ProviderRegistry with the one built-in format (ADR-007).
@@ -671,6 +724,9 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
 
     # 8e. Validate no user name claims the reserved ``builtin`` subtree (§A.4)
     _validate_builtin_reservation(app)
+
+    # 8f. Tell the user about plugin commands a job displaces.
+    _warn_shadowed_plugin_commands(app)
 
     # 9. Fire APP_READY hook — all boot steps complete
     perf_timeline.mark("boot.app_ready_hooks.start")
@@ -1536,6 +1592,49 @@ def _resolve_max_invoke_depth(app: Any) -> None:
             pass
         else:
             raise
+
+
+def _warn_shadowed_plugin_commands(app: Any) -> None:
+    """Warn once, at boot, about plugin commands a job's name displaces.
+
+    A job wins the path and the plugin command becomes unreachable. That is the
+    documented precedence and not an error — so this warns rather than raising,
+    and it is the *user's* problem to know about: they installed a plugin whose
+    command they can no longer run, and nothing else would tell them.
+
+    It used to be a ``logger.debug`` inside the CLI's group dispatch, which is
+    to say invisible, which is how three surfaces came to disagree about
+    precedence without anyone noticing. Boot is the right place because it fires
+    once per app rather than once per listing.
+    """
+    try:
+        from functualize._primitives.command_paths import job_path, plugin_path
+
+        occupied = {
+            job_path(getattr(entry, "group", None), name)
+            for name, entry in getattr(app.job_registry, "_registered_jobs", {}).items()
+        }
+        conflicts = [
+            (path, getattr(cmd, "name", ""))
+            for cmd in getattr(app, "_plugin_commands_list", [])
+            if (
+                path := plugin_path(
+                    getattr(cmd, "namespace", None), str(getattr(cmd, "name", ""))
+                )
+            )
+            in occupied
+        ]
+    except Exception as exc:  # pragma: no cover - never block boot on a warning
+        logger.debug("shadow check skipped: %s", exc)
+        return
+
+    for path, name in conflicts:
+        logger.warning(
+            "Plugin command %r is unreachable: the job %r already occupies that "
+            "path, and a job wins. Rename one of them to run the plugin command.",
+            name,
+            path,
+        )
 
 
 def _validate_builtin_reservation(app: Any) -> None:

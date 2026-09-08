@@ -18,7 +18,7 @@ import inspect
 import logging
 import types as builtin_types
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Annotated, Any, get_args, get_origin
 
@@ -689,15 +689,50 @@ class StaticProvider:
 
 
 class EntryPointProvider:
-    """Discover jobs from installed packages via entry points.
+    """Jobs published by an installed distribution under ``functualize.jobs``.
 
-    Discovers and loads entry points registered under a specified group,
-    building JobDescriptor instances from each successfully loaded object.
-    Broken entry points are logged as warnings and skipped.
+    A distribution declares::
+
+        [project.entry-points."functualize.jobs"]
+        backup = "my_plugin:backup_job"
+
+    and ``func backup`` runs it, alongside the jobs discovered from the
+    project's own directories.
+
+    **Enumeration imports nothing.** ``list_jobs()`` reads the entry-point
+    *table* — ``EntryPoint.name`` and ``EntryPoint.value`` are metadata, not
+    code — and returns descriptors whose ``function`` is ``None``, exactly as
+    the warm-cache directory path does. The module is imported once, on demand,
+    by :func:`~functualize._discovery.lazy_wrapper._import_real_function`,
+    which already understands the ``<entry_point>`` synthetic source.
+
+    That distinction is the whole design. An earlier version of this class
+    called ``ep.load()`` for every entry point during discovery, which would
+    have imported every job-publishing distribution on every single boot and
+    quietly forfeited the warm-boot-zero-imports guarantee for anyone who
+    installed one. Neither zero-import test would have caught it: both drive
+    ``CachedDirectoryScanProvider`` directly rather than a composed boot, so
+    this provider sits outside their reach.
+
+    **No cache, deliberately.** The entry-point table is re-read each boot,
+    which costs a metadata scan rather than an import. That buys two
+    properties by construction instead of by invalidation logic:
+
+    * cold and warm boots report the identical job set, because there is no
+      second source of truth to drift; and
+    * uninstalling the distribution removes the job immediately — a stale
+      cache cannot leave a ghost job resolvable.
+
+    **Known limitation.** Because enumeration does not import, a listed
+    entry-point job carries no ``parameters``/``docstring`` — nor its
+    ``@job(group=...)`` declaration — until something asks for it by name. :meth:`get_job` materializes fully, so dispatch,
+    ``--help`` and the pre-flight panel all see real parameters; a bulk
+    listing (``builtin info schema``) shows an empty input schema for these
+    jobs. Closing that needs the descriptors persisted, keyed on the installed
+    ``(distribution, version)`` set — deferred, and recorded in
+    ``.spec/STATUS.md`` rather than left implicit.
 
     Satisfies the JobProvider Protocol via structural typing.
-
-    Results are cached after the first scan.
 
     Args:
         group: Entry point group name (default: "functualize.jobs").
@@ -706,39 +741,105 @@ class EntryPointProvider:
     def __init__(self, group: str = "functualize.jobs") -> None:
         self._group = group
         self._cache: list[JobDescriptor] | None = None
+        #: Fully-materialized descriptors, by canonical name. Memoized so a
+        #: second lookup of the same job does not re-import its module.
+        self._materialized: dict[str, JobDescriptor] = {}
 
     def list_jobs(self) -> Sequence[JobDescriptor]:
-        """Return all job descriptors discovered from entry points.
-
-        Results are cached after the first scan.
-        """
+        """Every published job, as a lazy descriptor. Imports nothing."""
         if self._cache is None:
-            self._cache = self._discover()
+            self._cache = self._enumerate()
         return self._cache
 
     def get_job(self, name: str) -> JobDescriptor | None:
-        """Retrieve a specific job by name, canonical or Python spelling."""
+        """One job, fully resolved — **this is the call that imports.**
+
+        Accepts the canonical spelling (``build-wheel``) or the Python one
+        (``build_wheel``), matching how the rest of dispatch normalizes input.
+        """
         wanted = normalize_name(name)
-        for desc in self.list_jobs():
-            if desc.name in (name, wanted):
-                return desc
+        for lazy in self.list_jobs():
+            if lazy.name not in (name, wanted):
+                continue
+            if lazy.name in self._materialized:
+                return self._materialized[lazy.name]
+            full = self._materialize(lazy)
+            self._materialized[lazy.name] = full
+            return full
         return None
 
-    def _discover(self) -> list[JobDescriptor]:
-        """Load entry points and build descriptors."""
+    def _enumerate(self) -> list[JobDescriptor]:
+        """Build a lazy descriptor per entry point, without loading any.
+
+        ``EntryPoint.value`` is ``"module:attr"`` or bare ``"module"``. The
+        attribute half becomes ``python_name``, which is what
+        ``JobDescriptor.attribute_name`` resolves against at materialization —
+        so an entry point may name the function whatever it likes and the job
+        still carries the entry point's own name.
+        """
         results: list[JobDescriptor] = []
         for ep in entry_points(group=self._group):
             try:
-                loaded = ep.load()
-                results.append(self._build_descriptor(ep.name, loaded))
-            except Exception as e:
+                module_path, _, attribute = ep.value.partition(":")
+                if not module_path:
+                    raise ValueError(f"entry point value {ep.value!r} names no module")
+                results.append(
+                    JobDescriptor(
+                        name=normalize_segment(ep.name),
+                        # Not readable without importing: a `@job(group=...)`
+                        # declaration lives on the function. So a grouped
+                        # entry-point job enumerates top-level and gains its
+                        # group on materialization. Named in the class
+                        # docstring's limitation note rather than left to be
+                        # discovered.
+                        group=None,
+                        function=None,
+                        source="<entry_point>",
+                        module_path=module_path.strip(),
+                        source_file="<entry_point>",
+                        python_name=(attribute.strip() or normalize_segment(ep.name)),
+                    )
+                )
+            except Exception as e:  # noqa: BLE001 - one bad entry point is not fatal
                 logger.warning(
-                    "Failed to load entry point '%s' from group '%s': %s",
+                    "Skipping malformed entry point '%s' in group '%s': %s",
                     ep.name,
                     self._group,
                     e,
                 )
         return results
+
+    def _materialize(self, lazy: JobDescriptor) -> JobDescriptor:
+        """Import ``lazy``'s module and rebuild it with everything readable.
+
+        Falls back to the lazy descriptor on failure rather than raising: a
+        broken distribution should not take the whole job list with it, and the
+        name stays visible so the user can see what is broken.
+        """
+        from functualize._discovery.lazy_wrapper import _import_real_function
+
+        try:
+            func = _import_real_function(lazy)
+        except Exception as e:  # noqa: BLE001 - a broken distribution
+            logger.warning(
+                "Failed to load entry point '%s' from group '%s': %s",
+                lazy.name,
+                self._group,
+                e,
+            )
+            return lazy
+
+        full = self._build_descriptor(lazy.name, func)
+        # `_build_descriptor` reads the *function*, so it cannot know where the
+        # job came from. Carry the entry-point provenance across, or
+        # materialization would lose the module path it was resolved from.
+        return replace(
+            full,
+            source="<entry_point>",
+            module_path=lazy.module_path,
+            source_file="<entry_point>",
+            python_name=lazy.python_name,
+        )
 
     def _build_descriptor(self, name: str, obj: Any) -> JobDescriptor:
         """Build a JobDescriptor from a loaded entry point object."""

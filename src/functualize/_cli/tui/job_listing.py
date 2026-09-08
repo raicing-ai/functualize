@@ -26,10 +26,17 @@ def command_tree_rows(app: FunctualizeInlineTUI) -> list[Any]:
 
     A real job keeps its own descriptor (the browser reads `source`, module
     path, parameters off it). A node with no descriptor — the reserved
-    ``builtin`` subtree — gets a lightweight row carrying the same fields plus
-    an explicit ``source_label``.
+    ``builtin`` subtree, or a plugin's namespace — gets a lightweight row
+    carrying the same fields plus an explicit ``source_label``.
+
+    **The label is asked of the node, never assumed.** It was hardcoded to
+    ``"builtin"`` for every descriptor-less node, which was correct only while
+    the reserved subtree was the sole such node. Once plugin commands entered
+    the tree that constant would have labelled ``mcp`` first-party — and
+    ``builtin`` is not a decoration, it names the reserved namespace no
+    third-party package may claim.
     """
-    from functualize.app.commands import build_command_tree
+    from functualize.app.commands import build_command_tree, command_kind
 
     rows: list[Any] = []
     descriptors = {d.name: d for d in app._func_app.get_jobs()}
@@ -46,7 +53,7 @@ def command_tree_rows(app: FunctualizeInlineTUI) -> list[Any]:
                 group=None,
                 parameters=[],
                 config_fields=[],
-                source_label="builtin",
+                source_label=command_kind(node),
             )
         )
     return rows

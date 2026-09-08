@@ -31,6 +31,7 @@ from typing import Any
 import pytest
 
 from functualize._cli.tui.app import FunctualizeInlineTUI
+from functualize.app.config import PluginSources
 from functualize.app.core import FunctualizeApp
 
 
@@ -40,6 +41,7 @@ def make_tui_app(
     *,
     app_name: str = "testapp",
     jobs: dict[str, Callable[..., Any]] | None = None,
+    load_plugins: bool = False,
 ) -> FunctualizeInlineTUI:
     """Build a real, XDG-isolated ``FunctualizeInlineTUI`` instance.
 
@@ -63,13 +65,38 @@ def make_tui_app(
             panel-field flows work here too — and the baseline snapshots gained
             the pre-flight row that had been missing.
 
+        load_plugins: whether to discover installed plugins. **Defaults to
+            False**, which is what keeps these fixtures deterministic.
+
+            A plain ``FunctualizeApp(name=...)`` discovers every plugin
+            installed in the environment, so the app under test differed
+            between a checkout with `functualize-mcp` installed and one
+            without. That was survivable while plugins only contributed header
+            items; it stopped being survivable once plugin commands entered the
+            command tree, because the job browser and the header count then
+            render differently — and a snapshot baseline cannot depend on which
+            optional packages a developer happens to have synced.
+
+            Pass True for a test that is *about* plugin behaviour, and register
+            the plugin explicitly rather than relying on the environment.
+
     Returns:
         A constructed (not yet mounted/run) ``FunctualizeInlineTUI``.
     """
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     monkeypatch.chdir(tmp_path)
 
-    func_app = FunctualizeApp(name=app_name)
+    func_app = FunctualizeApp(
+        name=app_name,
+        plugin_sources=(
+            None
+            if load_plugins
+            # A group no distribution publishes under, so discovery runs and
+            # finds nothing. Preferred over `disabled=[...]`, which would need
+            # the name of every plugin that might ever be installed.
+            else PluginSources(entry_point_group="functualize.plugins.__none__")
+        ),
+    )
 
     if jobs is None:
 

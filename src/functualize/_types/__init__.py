@@ -15,7 +15,6 @@ from functualize._types.descriptors import (
     GroupOptionsSpec,
     JobDescriptor,
     JobResult,
-    PluginCommand,
     RegisteredJob,
 )
 from functualize._types.enums import (
@@ -82,7 +81,6 @@ __all__ = [
     "GroupOptionsSpec",
     "JobDescriptor",
     "JobResult",
-    "PluginCommand",
     "RegisteredJob",
     # Job declaration value objects
     "Call",

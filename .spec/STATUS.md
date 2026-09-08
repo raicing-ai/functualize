@@ -2190,3 +2190,113 @@ Process notes:
   false on a GitHub runner.
 - **One new test was vacuous on first run**: it computed the expected checksum
   from the tampered archive, so it verified a checksum of the tampering.
+
+---
+
+## plugin-visibility-and-catalog — completed 2026-09-08
+
+Reported as one bug: an installed `functualize-mcp`'s commands were missing
+from the `func` TUI. The audit found the same omission repeating on four
+surfaces, a precedence rule with three different answers, and a whole
+entry-point group that nothing read.
+
+### What was wrong
+
+`build_command_tree()` — its own docstring calls it "the shell's **one**
+command tree" — composed only job nodes and the reserved `builtin` subtree. No
+file under `_cli/tui/` called `get_plugin_commands()` at all. Every surface
+reading the tree inherited the hole, and the user-visible result was worse than
+a missing list row: typing `mcp serve` into the SmartBar produced no
+pre-flight, no error and no output whatsoever.
+
+The other three were independent:
+
+| Surface | Symptom |
+|---|---|
+| `builtin info schema` | 67 entries, 0 plugin commands — the surface every `--help` epilog advertises to agents as "all commands" |
+| shell completion | `shell-init bash` emitted `deploy` 9×, `builtin` 14×, `mcp` 0× |
+| `functualize.jobs` | `EntryPointProvider` was never instantiated in `src/` |
+
+And precedence, for one job colliding with one plugin command:
+
+- `func collide` → job won, plugin dropped, `logger.debug` only
+- `app.cli_command` → **plugin won, silently** (click's `add_command`
+  overwrites, and `__call__` registers jobs first)
+- `CliAdapter.run()` → `ValueError`
+
+`check_name_conflicts` also inspected only `namespace is None`, so a namespaced
+collision went unchecked there while `_dispatch_group` checked exactly that
+case.
+
+### Decisions worth not re-litigating
+
+**`func --help` stays a global-flags page listing only `builtin`.** Chosen
+deliberately when the alternatives were offered. The command index lives in
+bare `func`, `builtin info schema`, and `func <namespace>`. Pinned by
+`tests/cli/test_help_surface_pinned.py`; a change that adds a row there is
+contradicting a decision, not fixing an oversight.
+
+**Plugin kinds are derived from the entry-point group, never enumerated.**
+`functualize.plugins` → adapter, `functualize.domains` → domain,
+`functualize.*_providers` → implementation. Domains declare new provider groups
+at runtime, so a name list would be stale on arrival. Lives in
+`_primitives/plugin_kinds.py`, reached from `_cli` through `app.utils` — a
+direct `_cli` → `_primitives` import breaks the contract, which was verified by
+trying it.
+
+**`functualize.jobs` is wired, and deliberately has no cache.** Enumeration
+reads `EntryPoint.name`/`.value` — metadata — so it imports nothing and the
+warm-boot-zero-imports guarantee survives. Re-reading the table each boot makes
+cold/warm parity and no-ghost-after-uninstall true *by construction* rather
+than by invalidation logic. `CACHE_VERSION` stayed at 19; the plan had called
+for 20.
+
+**`PluginCommand.needs_terminal` was not optional.** `func mcp serve` calls
+`start_stdio()`, where stdout *is* the MCP protocol channel. Exposing plugin
+commands in the TUI without a terminal declaration would have handed users a
+way to hang their shell — the fix introducing the worse bug. Both transports
+block in the foreground, so the flag selects the transport rather than whether
+the command returns, and `CommandNode`'s plain bool survives.
+
+### Deferred
+
+**Plugin namespaces are absent from the discovery cache**
+(`_cli/main.py:779-782`), so `func mcp serve` still classifies as
+`Mode.UNKNOWN`, boots, and only then recovers inside `_dispatch_group`. The
+observable behaviour is correct, so this is a startup-cost and architecture
+concern rather than a defect. Caching plugin namespaces alongside job groups
+would remove the detour and is the prerequisite for ever showing plugin
+commands pre-boot.
+
+**Entry-point job metadata is resolved on demand, not persisted.**
+`JobNode._resolved_descriptor()` imports a `<entry_point>` job's module when
+something asks it to *describe* itself, so `info schema` and the pre-flight
+panel show real parameters. A bulk listing of many entry-point jobs therefore
+imports each one. Persisting those descriptors, keyed on the installed
+`(distribution, version)` set, would remove that — at the cost of owning
+invalidation.
+
+### Process notes
+
+- **Two surfaces disagreeing was caught by nothing, because the parity harness
+  compared the wrong thing.** `test_schema_surface_parity.py` exists because
+  two renderings of a command's *fields* drifted. Nothing compared the
+  *inventory* — which commands exist — so four surfaces could disagree with
+  full green CI. `test_command_inventory_parity.py` closes that.
+- **`git checkout -- <file>` cost finished work twice in one session**, both
+  times by sabotaging a change that had not been committed yet. The rule in
+  `wiring-discipline.md` §3 is not a formality; the failure mode is silent and
+  the file simply reverts.
+- **A test fixture that builds a plain `FunctualizeApp` loads every plugin on
+  the machine.** `make_tui_app` did, so the panel-ring snapshot depended on
+  which optional packages a developer had synced. It is now plugin-free by
+  default.
+- **Wiring a new provider into `boot_static` broke its zero-I/O promise.**
+  Reading the entry-point table walks `sys.path`. Static wiring is the "I told
+  you where my jobs are" path; discovery belongs to the discovering boot. The
+  opposite mistake — wiring only `boot_static`, where a default app never looks
+  — was made first and caught by the reachability test.
+- **A source-text assertion is not a behavioural one.** A test grepping
+  `inspect.getsource(_dispatch_group)` for a function name passed for the wrong
+  reason and failed for the wrong reason too: editing the module mid-run made
+  `linecache` return a neighbouring function's source.
