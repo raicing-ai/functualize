@@ -10,10 +10,11 @@ and stops. The job reports BLOCKED (exit 5) — not a failure. It did everything
 it was asked to do and is waiting.
 
 Answering the gate is a separate act. An AI agent driving this over MCP calls
-`get_workflow_state` to see the gate's JSON schema, then `resume_gate` to
-deposit input. Running the job again replays the walk: `forecast` is already
-recorded for this scope so it is skipped, the gate is now answered, and
-`travel_plan` and the body run.
+`get_workflow_state` to see the gate's JSON schema, then `answer_gate` to
+record the input. That records and runs nothing — `resume_workflow` (or
+`--wf-resume` from a shell) advances the walk: `forecast` is already recorded
+for this scope so it is skipped, the gate is now answered, and `travel_plan`
+and the body run.
 
 The decorated function's own body is the *epilogue* — it runs once, after the
 walk reaches `END`, and its return value is the workflow's return value. That

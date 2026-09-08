@@ -7,7 +7,7 @@ its job commands are built from cached descriptors on a warm boot rather than
 from the live signature.
 
 Those are two different builders over one declaration set, and they have
-disagreed: on a config field's default, and on whether `--scope-id` existed at
+disagreed: on a config field's default, and on whether scope addressing existed at
 all. The gated walk in `jobs/release.py` could be blocked from here and then
 never resumed, because the flag was a pre-command global of `func` alone.
 

@@ -53,6 +53,6 @@ step "9. sign-off: a second group, reading the lab group's options"       check 
 printf '\n=== 10. the gated walk: pause, deposit, resume\n'
 step "10a. blocks at the gate"                                            lab release
 
-printf '\n### done. Re-run step 10 with --scope-id <id> after depositing input:\n'
+printf '\n### done. Finish step 10 by answering the gate and advancing:\n'
 printf '###   %s builtin workflow resume <id> approval-gate --input '"'"'{"note":"ok"}'"'"'\n' "${RUN[*]}"
-printf '###   %s lab release --scope-id <id>\n' "${RUN[*]}"
+printf '###   %s lab release --wf-resume <id> --wf-input '\"'\"'{…}'\"'\"'\n' "${RUN[*]}"
