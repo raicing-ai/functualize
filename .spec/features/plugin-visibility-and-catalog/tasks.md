@@ -237,7 +237,7 @@ waves 2–3, not this one.
   (0 violations) / `pytest tests/skills/ tests/tui_audit/` (15/15) / full suite.
   AC-X1–X4.
 
-- [ ] **T6.2 — Docs sync + STATUS migration**
+- [x] **T6.2 — Docs sync + STATUS migration**
   Run `/sync-docs`. Migrate the durable half to `.spec/STATUS.md` — including
   the deferred item: plugin namespaces are absent from the discovery cache, so
   `func <namespace>` still detours through `Mode.UNKNOWN`
