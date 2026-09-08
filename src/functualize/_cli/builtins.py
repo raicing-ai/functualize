@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from functualize._cli.parallel_output import OUTPUT_MODES
-from functualize.app.utils import ExitCode
+from functualize.app.utils import WORKFLOW_STATES, ExitCode
 
 
 @dataclass(frozen=True)
@@ -145,8 +145,8 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
         "workflow",
         "Inspect and resume persisted workflow scopes",
         (
-            ("list", "List active workflow scopes"),
-            ("state", "Show one scope's status and pending gates"),
+            ("list", "Survey workflow scopes, with filters"),
+            ("show", "Show one scope in full — graph, results, gates"),
             ("resume", "Deposit input for a blocked gate"),
             ("cancel", "Cancel a workflow scope"),
         ),
@@ -906,13 +906,12 @@ def register_builtin_commands(cli_group: Any) -> None:
     workflow_app = click.Group(
         name="workflow", help="Inspect and resume persisted workflow scopes."
     )
-    _live_statuses = ("running", "blocked")
 
     def _workflow_store() -> Any:
-        """The store the four `builtin workflow` subcommands read.
+        """The store the `builtin workflow` subcommands read.
 
         One place, so an unreadable scope store refuses identically for
-        `list`, `state`, `resume` and `cancel` — the alternative is four
+        `list`, `show`, `resume` and `cancel` — the alternative is four
         opinions about the same file.
         """
         from pathlib import Path
@@ -932,18 +931,68 @@ def register_builtin_commands(cli_group: Any) -> None:
             click.echo(f"Error: {exc}", err=True)
             raise SystemExit(ExitCode.USAGE) from exc
 
-    def _scope_summary(scope_id: str, scope: dict[str, Any]) -> dict[str, Any]:
-        from functualize.app.utils import pending_gates
+    def _render_scope(detail: dict[str, Any]) -> None:
+        """One scope as text — the same projection `--format json` emits.
 
-        return {
-            "workflow_id": scope_id,
-            "workflow": scope.get("workflow"),
-            "status": scope.get("status"),
-            "position": scope.get("position"),
-            "pending_gates": [name for name, _ in pending_gates(scope)],
-        }
+        The text form summarizes; it does not *reduce*. Anything omitted here
+        is reachable with `--format json`, and nothing is computed differently.
+        """
+        click.echo(f"Workflow: {detail['workflow']}")
+        click.echo(f"State:    {detail['state']}  (status: {detail['status']})")
+        click.echo(f"Position: {detail['current_position']}")
+
+        results = detail.get("results") or {}
+        if results:
+            click.echo("Steps:")
+            for name, record in results.items():
+                click.echo(f"  {name}: {record.get('status')} -> {record.get('return_value')!r}")
+
+        branches = detail.get("branches") or {}
+        if branches:
+            chosen = ", ".join(f"{src} -> {tgt}" for src, tgt in branches.items())
+            click.echo(f"Branches: {chosen}")
+
+        gates = detail.get("pending_gates") or []
+        if not gates:
+            click.echo("Pending gates: -")
+        else:
+            click.echo("Pending gates:")
+            for gate in gates:
+                missing = ", ".join(gate.get("unresolved_fields") or []) or "-"
+                click.echo(f"  {gate['gate']} ({gate.get('model')}) needs: {missing}")
+                draft = gate.get("draft")
+                if draft:
+                    click.echo(f"    draft: {draft}")
+                for tool in gate.get("tools") or []:
+                    bound = ", ".join(tool.get("bound") or []) or "-"
+                    click.echo(f"    tool {tool['tool']} (fixed: {bound})")
+
+        epilogue = detail.get("epilogue")
+        if epilogue:
+            click.echo(f"Epilogue: {epilogue.get('status')}")
+
+    def _workflow_app_ref(ctx: click.Context) -> Any:
+        """The booted app, which the projection needs for graph topology.
+
+        `list`/`show` read the store, but the *graph* comes from the discovery
+        cache (or the live declaration as a fallback), and both are reached
+        through the app. That is the only reason these verbs touch it.
+        """
+        obj = ctx.find_root().obj
+        if obj is None or "app" not in obj:
+            click.echo("Error: No app context available.", err=True)
+            raise SystemExit(1)
+        return obj["app"]
 
     @workflow_app.command("list")
+    @click.option("--workflow", "workflow_name", default=None,
+                  help="Only runs of this workflow.")
+    @click.option("--state", "state", default=None,
+                  type=click.Choice(list(WORKFLOW_STATES)),
+                  help="Only runs in this derived state. Naming one widens the "
+                       "search to finished runs too.")
+    @click.option("--blocked-on", "blocked_on", default=None,
+                  help="Only runs waiting at this gate.")
     @click.option(
         "--format",
         "fmt",
@@ -951,31 +1000,51 @@ def register_builtin_commands(cli_group: Any) -> None:
         default="table",
         help="Render the workflow scopes as a table or JSON.",
     )
-    def workflow_list(fmt: str) -> None:
-        """List active (running or blocked) workflow scopes."""
+    @click.pass_context
+    def workflow_list(
+        ctx: click.Context,
+        workflow_name: str | None,
+        state: str | None,
+        blocked_on: str | None,
+        fmt: str,
+    ) -> None:
+        """Survey workflow scopes.
+
+        With no filters, lists the runs that are still running or blocked.
+        Naming --state widens the search to finished runs, because asking for
+        `completed` and receiving nothing would be a silently empty answer to a
+        well-formed question.
+        """
+        from functualize.app.utils import list_scopes
+
+        app = _workflow_app_ref(ctx)
         store = _workflow_store()
         with _workflow_refusal():
-            items = [
-                _scope_summary(sid, scope)
-                for sid in store.scope_ids()
-                if (scope := store.get_scope(sid)) is not None
-                and scope.get("status") in _live_statuses
-            ]
+            items = list_scopes(
+                app,
+                store,
+                workflow_name=workflow_name,
+                state=state,
+                blocked_on=blocked_on,
+            )
         if fmt == "json":
             import json
 
             click.echo(json.dumps({"workflows": items}, indent=2))
             return
         if not items:
-            click.echo("No active workflows.")
+            click.echo("No matching workflows.")
             return
         for it in items:
-            gates = ", ".join(it["pending_gates"]) or "-"
+            # A one-line summary is a *rendering* of the shared projection, not
+            # a second projection. The moment it had its own shape, `--format
+            # json` and the MCP survey stopped being the same rows.
+            gates = ", ".join(g["gate"] for g in it["pending_gates"]) or "-"
             click.echo(
-                f"{it['workflow_id']}  {it['workflow']}  {it['status']}  gates: {gates}"
+                f"{it['workflow_id']}  {it['workflow']}  {it['state']}  gates: {gates}"
             )
 
-    @workflow_app.command("state")
+    @workflow_app.command("show")
     @click.argument("workflow_id")
     @click.option(
         "--format",
@@ -984,23 +1053,30 @@ def register_builtin_commands(cli_group: Any) -> None:
         default="table",
         help="Render the scope as a table or JSON.",
     )
-    def workflow_state(workflow_id: str, fmt: str) -> None:
-        """Show one workflow scope's status, position, and pending gates."""
+    @click.pass_context
+    def workflow_show(ctx: click.Context, workflow_id: str, fmt: str) -> None:
+        """Show one workflow scope in full.
+
+        Replaces `state`, which emitted five fields — id, workflow, status,
+        position and gate names — over records that had held the graph, each
+        step's return value and resolved inputs, and every gate's schema all
+        along. Same argument, strictly more output, and `--format json` now
+        returns exactly what the MCP `get_workflow_state` tool returns.
+        """
+        from functualize.app.utils import describe_scope
+
+        app = _workflow_app_ref(ctx)
         with _workflow_refusal():
-            scope = _workflow_store().get_scope(workflow_id)
-        if scope is None:
+            detail = describe_scope(app, _workflow_store(), workflow_id)
+        if detail is None:
             click.echo(f"Error: no workflow scope '{workflow_id}'.", err=True)
             raise SystemExit(1)
-        detail = _scope_summary(workflow_id, scope)
         if fmt == "json":
             import json
 
             click.echo(json.dumps(detail, indent=2))
             return
-        click.echo(f"Workflow: {detail['workflow']}")
-        click.echo(f"Status:   {detail['status']}")
-        click.echo(f"Position: {detail['position']}")
-        click.echo(f"Pending gates: {', '.join(detail['pending_gates']) or '-'}")
+        _render_scope(detail)
 
     @workflow_app.command("resume")
     @click.argument("workflow_id")

@@ -118,7 +118,12 @@ class TestCliDrivesABlockedWorkflow:
         assert _run_cli(app, ["builtin", "workflow", "list", "--format", "json"]) == 0
         listing = json.loads(capsys.readouterr().out)
         assert listing["workflows"][0]["workflow_id"] == "rel-1"
-        assert listing["workflows"][0]["pending_gates"] == ["approval"]
+        # A row *is* the full projection now — the survey and the detail were
+        # one function's output all along, and giving the survey its own shape
+        # is what let the two surfaces drift.
+        assert [g["gate"] for g in listing["workflows"][0]["pending_gates"]] == [
+            "approval"
+        ]
 
         # `resume` deposits the gate input.
         code = _run_cli(
@@ -165,17 +170,21 @@ class TestCliDrivesABlockedWorkflow:
         # Still blocked — the run does not complete on a re-run.
         assert app.execute("release", scope_id="rel-1").status is RunStatus.BLOCKED
 
-    def test_state_reports_the_scope(
+    def test_show_reports_the_scope(
         self, app: FunctualizeApp, capsys: pytest.CaptureFixture[str]
     ) -> None:
         app.execute("release", scope_id="rel-1")
         assert (
-            _run_cli(app, ["builtin", "workflow", "state", "rel-1", "--format", "json"])
+            _run_cli(app, ["builtin", "workflow", "show", "rel-1", "--format", "json"])
             == 0
         )
         detail = json.loads(capsys.readouterr().out)
         assert detail["status"] == "blocked"
-        assert detail["pending_gates"] == ["approval"]
+        assert detail["state"] == "waiting"
+        # `state` emitted five fields and called it a scope. `show` renders the
+        # projection the MCP tool has always returned.
+        assert [g["gate"] for g in detail["pending_gates"]] == ["approval"]
+        assert detail["steps"], "the graph was omitted — this is the old summary"
 
     def test_cancel_marks_the_scope_cancelled(self, app: FunctualizeApp) -> None:
         app.execute("release", scope_id="rel-1")
@@ -183,8 +192,8 @@ class TestCliDrivesABlockedWorkflow:
         scope = StateStore.for_project(Path.cwd()).get_scope("rel-1")
         assert scope is not None and scope["status"] == "cancelled"
 
-    def test_state_of_unknown_scope_errors(self, app: FunctualizeApp) -> None:
-        assert _run_cli(app, ["builtin", "workflow", "state", "nope"]) == 1
+    def test_show_of_unknown_scope_errors(self, app: FunctualizeApp) -> None:
+        assert _run_cli(app, ["builtin", "workflow", "show", "nope"]) == 1
 
 
 class TestParityIsOneFunction:
@@ -237,3 +246,73 @@ class TestParityIsOneFunction:
         )
 
         assert calls.count("rel-1") == 2, "both surfaces routed through the lift"
+
+
+class TestTheTwoSurfacesReturnTheSameProjection:
+    """AC-6, AC-7. `pitfalls.md` §6 — one implementation is only half of it.
+
+    The CLI's `_scope_summary` and the plugin's `_describe` computed the same
+    thing twice over the same records, in the same process, and had already
+    drifted on every field but `status`. Lifting them into one function removes
+    the drift; this test is what keeps it removed, because a future edit that
+    reintroduces a surface-local projection fails here rather than in a user's
+    terminal a release later.
+    """
+
+    @pytest.fixture
+    def blocked(self, app: FunctualizeApp) -> FunctualizeApp:
+        app.execute("release", scope_id="rel-1")
+        return app
+
+    async def test_show_and_get_workflow_state_are_byte_identical(
+        self, blocked: FunctualizeApp, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from functualize_mcp._workflow_tools import WorkflowToolProvider
+
+        assert (
+            _run_cli(blocked, ["builtin", "workflow", "show", "rel-1", "--format", "json"])
+            == 0
+        )
+        cli = json.loads(capsys.readouterr().out)
+
+        mcp = await WorkflowToolProvider(blocked)._get_workflow_state("rel-1")
+
+        assert json.dumps(cli, sort_keys=True) == json.dumps(mcp, sort_keys=True)
+
+    async def test_list_and_list_workflows_return_the_same_rows(
+        self, blocked: FunctualizeApp, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from functualize_mcp._workflow_tools import WorkflowToolProvider
+
+        assert (
+            _run_cli(blocked, ["builtin", "workflow", "list", "--format", "json"]) == 0
+        )
+        cli = json.loads(capsys.readouterr().out)["workflows"]
+
+        mcp = (await WorkflowToolProvider(blocked)._list_workflows())["workflows"]
+
+        assert len(cli) == len(mcp) == 1
+        assert json.dumps(cli, sort_keys=True) == json.dumps(mcp, sort_keys=True)
+
+    async def test_both_surfaces_agree_on_the_derived_state(
+        self, blocked: FunctualizeApp, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """`waiting` before the gate is answered, `ready` after — on both."""
+        from functualize.app.utils import StateStore, deposit_gate_input
+        from functualize_mcp._workflow_tools import WorkflowToolProvider
+
+        store = StateStore.for_project(Path.cwd())
+        assert (await WorkflowToolProvider(blocked)._get_workflow_state("rel-1"))[
+            "state"
+        ] == "waiting"
+
+        deposit_gate_input(
+            blocked, store, "rel-1", "approval",
+            {"environment": "prod", "replicas": 2},
+        )
+
+        assert (await WorkflowToolProvider(blocked)._get_workflow_state("rel-1"))[
+            "state"
+        ] == "ready"
+        _run_cli(blocked, ["builtin", "workflow", "show", "rel-1", "--format", "json"])
+        assert json.loads(capsys.readouterr().out)["state"] == "ready"

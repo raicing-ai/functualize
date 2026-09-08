@@ -3,7 +3,7 @@
 These tools let an external agent drive a `@workflow` across turns:
 
 - ``get_workflow_state`` — one scope's topology, progress, and pending gates
-- ``list_active_workflows`` — every scope that is still runnable
+- ``list_workflows`` — survey scopes, with filters
 - ``resume_gate`` — deposit input for a gate, addressed by gate name
 - ``resume_workflow`` — deposit input for a scope with exactly one pending gate
 - ``cancel_workflow`` — terminate a scope
@@ -33,8 +33,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from functualize.app.utils import (
+    LIVE_STATUSES as _LIVE_STATUSES,
+)
+from functualize.app.utils import (
     StateStore,
     deposit_gate_input,
+    describe_scope,
+    list_scopes,
+    tool_entries,
 )
 from functualize.app.utils import (
     pending_gates as _pending_gates,
@@ -47,18 +53,6 @@ __all__ = ["GateToolPolicy", "WorkflowToolProvider"]
 
 logger = logging.getLogger(__name__)
 
-#: Discovery records parameter types as strings; MCP wants JSON-schema types.
-_JSON_TYPES = {
-    "int": "integer",
-    "float": "number",
-    "bool": "boolean",
-    "list": "array",
-    "dict": "object",
-    "str": "string",
-}
-
-#: Scope statuses that can still accept input or make progress.
-_LIVE_STATUSES = frozenset({"running", "blocked"})
 
 
 def _refuse_unreadable_scopes(fn: Any) -> Any:
@@ -149,7 +143,7 @@ class GateToolPolicy:
             if scope is None or scope.get("status") not in _LIVE_STATUSES:
                 continue
             for _name, record in _pending_gates(scope):
-                entries = _tool_entries(record)
+                entries = tool_entries(record)
                 if not entries:
                     return None  # a gate asking for no restriction wins
                 declared.append([e["tool"] for e in entries])
@@ -197,7 +191,7 @@ class WorkflowToolProvider:
     def register_tools(self, mcp: Any) -> None:
         """Register the workflow tools with a FastMCP server instance."""
         mcp.add_tool(self._get_workflow_state)
-        mcp.add_tool(self._list_active_workflows)
+        mcp.add_tool(self._list_workflows)
         mcp.add_tool(self._resume_gate)
         mcp.add_tool(self._resume_workflow)
         mcp.add_tool(self._call_gate_tool)
@@ -210,10 +204,10 @@ class WorkflowToolProvider:
 
     @_refuse_unreadable_scopes
     async def _get_workflow_state(self, workflow_id: str) -> dict[str, Any]:
-        scope = self.store.get_scope(workflow_id)
-        if scope is None:
+        view = describe_scope(self._app, self.store, workflow_id)
+        if view is None:
             return _error("workflow_not_found", f"No workflow scope '{workflow_id}'.")
-        return self._describe(workflow_id, scope)
+        return view
 
     _get_workflow_state.__name__ = "get_workflow_state"
     _get_workflow_state.__qualname__ = "get_workflow_state"
@@ -224,20 +218,31 @@ class WorkflowToolProvider:
     )
 
     @_refuse_unreadable_scopes
-    async def _list_active_workflows(self) -> dict[str, Any]:
-        workflows = [
-            self._describe(scope_id, scope)
-            for scope_id, scope in self._scopes()
-            if scope.get("status") in _LIVE_STATUSES
-        ]
-        return {"workflows": workflows}
+    async def _list_workflows(
+        self,
+        workflow_name: str | None = None,
+        state: str | None = None,
+        blocked_on: str | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "workflows": list_scopes(
+                self._app,
+                self.store,
+                workflow_name=workflow_name,
+                state=state,
+                blocked_on=blocked_on,
+            )
+        }
 
-    _list_active_workflows.__name__ = "list_active_workflows"
-    _list_active_workflows.__qualname__ = "list_active_workflows"
-    _list_active_workflows.__doc__ = (
-        "List every workflow scope still running or blocked, with its "
-        "position and pending gates. Completed, failed, and cancelled "
-        "scopes are omitted."
+    _list_workflows.__name__ = "list_workflows"
+    _list_workflows.__qualname__ = "list_workflows"
+    _list_workflows.__doc__ = (
+        "Survey workflow scopes. With no arguments, lists every scope still "
+        "running or blocked. Filters: workflow_name — only runs of that "
+        "workflow; state — waiting (needs an answer), ready (answered, needs "
+        "resume), running, completed, stalled, failed, cancelled; blocked_on — "
+        "only runs waiting at that gate. Naming a state widens the search to "
+        "finished runs too."
     )
 
     @_refuse_unreadable_scopes
@@ -322,7 +327,7 @@ class WorkflowToolProvider:
 
         entry = None
         for _gate_name, record in _pending_gates(scope):
-            for candidate in _tool_entries(record):
+            for candidate in tool_entries(record):
                 if _canonical(candidate["tool"]) == _canonical(tool):
                     entry = candidate
         if entry is None:
@@ -336,7 +341,7 @@ class WorkflowToolProvider:
                 "allowed_tools": sorted(
                     e["tool"]
                     for _n, r in _pending_gates(scope)
-                    for e in _tool_entries(r)
+                    for e in tool_entries(r)
                 ),
             }
 
@@ -503,144 +508,6 @@ class WorkflowToolProvider:
             if scope is not None:
                 yield scope_id, scope
 
-    def _describe(self, scope_id: str, scope: dict[str, Any]) -> dict[str, Any]:
-        """Full state for one scope — topology from the cache, progress from
-        the store."""
-        workflow_name = scope.get("workflow")
-        topology = self._topology(workflow_name)
-        steps = scope.get("steps", {})
-
-        return {
-            "workflow_id": scope_id,
-            "workflow": workflow_name,
-            "status": scope.get("status"),
-            "steps": topology["steps"],
-            "edges": topology["edges"],
-            "current_position": scope.get("position"),
-            # Nodes, not steps: an answered gate is recorded here too, and
-            # calling that a "completed step" would contradict `steps`, where
-            # gates are a distinct kind.
-            #
-            # Full records, not just names. The store has held each step's
-            # return value and resolved inputs all along; publishing only the
-            # names meant an agent could see *that* a step ran and never what
-            # it produced — so it had to be told the run's own results out of
-            # band, which is the workflow asking the agent to be its plumbing.
-            "results": {
-                _job_of(key): {
-                    "status": record.get("status"),
-                    "return_value": record.get("return_value"),
-                    "inputs": record.get("inputs", {}),
-                    "completed_at": record.get("completed_at"),
-                }
-                for key, record in steps.items()
-                if isinstance(record, dict)
-            },
-            "branches": dict(scope.get("branches", {})),
-            "pending_gates": [
-                self._gate_summary(scope_id, scope, name, record)
-                for name, record in _pending_gates(scope)
-            ],
-        }
-
-    def _topology(self, workflow_name: Any) -> dict[str, Any]:
-        """The declared graph — cached shape first, live declaration as fallback.
-
-        The cached ``descriptor.workflow`` is written only by directory
-        discovery, so a workflow declared inside a **plugin** (or via
-        ``register_dynamic_job``) has ``.workflow is None`` and used to report an
-        empty graph over MCP — an agent could advance a workflow it could not
-        see. When the cached shape is absent, fall back to the live declaration
-        on ``descriptor.function``; it is origin-agnostic and already in hand.
-
-        Still empty when the job is gone entirely — a scope outlives the
-        declaration that made it, and a stale scope should report its progress
-        rather than raise. The fallback also returns empty (never raises) for a
-        job that has no workflow at all.
-        """
-        empty: dict[str, Any] = {"steps": [], "edges": []}
-        if not isinstance(workflow_name, str):
-            return empty
-        descriptor = self._app.get_job(workflow_name)
-        if descriptor is None:
-            return empty
-        shape = getattr(descriptor, "workflow", None)
-        if shape is None:
-            shape = self._live_workflow_shape(descriptor)
-        return shape.to_dict() if shape is not None else empty
-
-    def _live_workflow_shape(self, descriptor: Any) -> Any:
-        """Project the workflow graph from the descriptor's live function.
-
-        Covers the provider-built case the discovery cache cannot: reads
-        ``function.__functualize_workflow__`` directly (via the same projection
-        discovery uses, ``workflow_shape_of``) rather than the cached field.
-        Returns None for a descriptor with no concrete function or no workflow.
-        """
-        from functualize._types.workflow import workflow_shape_of
-
-        func = getattr(descriptor, "function", None)
-        if func is None:
-            return None
-        try:
-            return workflow_shape_of(func)
-        except Exception:  # pragma: no cover - defensive; projection is pure
-            return None
-
-    def _gate_summary(
-        self,
-        scope_id: str,
-        scope: dict[str, Any],
-        name: str,
-        record: dict[str, Any],
-    ) -> dict[str, Any]:
-        """What an agent needs to answer one gate."""
-        schema = record.get("input_schema") or {}
-        return {
-            "gate": name,
-            "model": record.get("model"),
-            "input_schema": schema,
-            "unresolved_fields": list(schema.get("required", [])),
-            "tools": self._tool_summaries(record),
-            "blocked_at": record.get("blocked_at"),
-            "workflow_context": {
-                "workflow_id": scope_id,
-                "workflow": scope.get("workflow"),
-                "position": scope.get("position"),
-            },
-        }
-
-    def _tool_summaries(self, record: dict[str, Any]) -> list[dict[str, Any]]:
-        """What an agent needs to *call* each offered tool, not just name it.
-
-        Publishing the name alone costs the agent a `get_job_schema` round
-        trip per tool. Publishing the schema **minus the gate's bound
-        parameters** is also what makes narrowing real: a pinned argument is
-        not in the agent's vocabulary, so the forbidden call cannot be
-        expressed rather than merely being refused.
-
-        Schemas come from the discovery cache, so this stays import-free.
-        """
-        summaries: list[dict[str, Any]] = []
-        for entry in _tool_entries(record):
-            name = entry["tool"]
-            bound = entry["bound"]
-            descriptor = self._app.get_job(name)
-            summary: dict[str, Any] = {
-                "tool": name,
-                "description": (getattr(descriptor, "docstring", None) or "").strip(),
-                "bound": bound,
-            }
-            schema = _job_input_schema(descriptor)
-            if schema is not None:
-                summary["input_schema"] = _without(schema, bound)
-            if descriptor is None:
-                # Listed but not discoverable: say so rather than publishing a
-                # tool the agent will only fail to call.
-                summary["unavailable"] = f"No registered job named '{name}'."
-            summaries.append(summary)
-        return summaries
-
     def _all_pending_gates(self) -> list[dict[str, Any]]:
         """Every gate awaiting input, across all live scopes.
 
@@ -664,83 +531,6 @@ class WorkflowToolProvider:
         one notion of "accept input for a gate" rather than a plugin-local copy.
         """
         return deposit_gate_input(self._app, self.store, scope_id, gate, payload)
-
-
-def _job_input_schema(descriptor: Any) -> dict[str, Any] | None:
-    """A JSON-schema view of a job's arguments, from the discovery cache.
-
-    Reads ``config_fields`` and ``parameters`` both: discovery files a job's
-    arguments under whichever fits how they were declared (a Pydantic config
-    class versus plain annotated parameters), and a tool schema that silently
-    published nothing for one of those shapes would be worse than no schema —
-    the agent would believe the tool takes no arguments.
-    """
-    if descriptor is None:
-        return None
-    properties: dict[str, Any] = {}
-    required: list[str] = []
-    fields = list(getattr(descriptor, "config_fields", None) or [])
-    fields += list(getattr(descriptor, "parameters", None) or [])
-    for param in fields:
-        name = getattr(param, "name", None)
-        if not isinstance(name, str) or name in properties:
-            continue
-        entry: dict[str, Any] = {
-            "type": _JSON_TYPES.get(
-                str(getattr(param, "type_annotation", "")), "string"
-            )
-        }
-        description = getattr(param, "description", "") or ""
-        if description:
-            entry["description"] = description
-        default = getattr(param, "default", None)
-        if default is not None:
-            entry["default"] = default
-        choices = getattr(param, "choices", None)
-        if choices:
-            entry["enum"] = list(choices)
-        properties[name] = entry
-        if getattr(param, "required", False):
-            required.append(name)
-    return {"type": "object", "properties": properties, "required": required}
-
-
-def _without(schema: dict[str, Any], bound: list[str]) -> dict[str, Any]:
-    """The schema with ``bound`` parameters removed, root and required."""
-    if not bound:
-        return schema
-    hidden = set(bound)
-    properties = {
-        key: value
-        for key, value in (schema.get("properties") or {}).items()
-        if key not in hidden
-    }
-    required = [key for key in (schema.get("required") or []) if key not in hidden]
-    return {**schema, "properties": properties, "required": required}
-
-
-def _tool_entries(record: dict[str, Any]) -> list[dict[str, Any]]:
-    """Normalize a gate record's persisted ``tools`` to entry dicts.
-
-    Tolerates the pre-`Tool` shape (a bare list of names) so a scope blocked
-    by an older run still reports and enforces sensibly rather than crashing
-    or silently granting everything.
-    """
-    entries: list[dict[str, Any]] = []
-    for raw in record.get("tools") or []:
-        if isinstance(raw, str):
-            entries.append({"tool": raw, "bound": []})
-        elif isinstance(raw, dict) and isinstance(raw.get("tool"), str):
-            bound = raw.get("bound") or []
-            entries.append(
-                {"tool": raw["tool"], "bound": [b for b in bound if isinstance(b, str)]}
-            )
-    return entries
-
-
-def _job_of(step_key: str) -> str:
-    """Job name out of a ``<job_name>::<args_hash>`` step key."""
-    return step_key.split("::", 1)[0]
 
 
 def _now() -> str:

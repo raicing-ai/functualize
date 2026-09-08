@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 from functualize_mcp._workflow_tools import WorkflowToolProvider
+
+from functualize.app._workflow_view import _topology
 from pydantic import BaseModel
 
 from functualize._app.state import AppState
@@ -175,9 +177,9 @@ class TestGetWorkflowState:
         assert state["pending_gates"] == []
 
 
-class TestListActiveWorkflows:
+class TestListWorkflows:
     async def test_no_scopes_lists_nothing(self) -> None:
-        result = await _provider(_gated_app())._list_active_workflows()
+        result = await _provider(_gated_app())._list_workflows()
         assert result["workflows"] == []
 
     async def test_blocked_scopes_are_listed(self) -> None:
@@ -185,7 +187,7 @@ class TestListActiveWorkflows:
         app.execute("trip_planner", scope_id="run-1")
         app.execute("trip_planner", scope_id="run-2")
 
-        result = await _provider(app)._list_active_workflows()
+        result = await _provider(app)._list_workflows()
 
         assert {w["workflow_id"] for w in result["workflows"]} == {"run-1", "run-2"}
 
@@ -198,7 +200,7 @@ class TestListActiveWorkflows:
         app.execute("trip_planner", scope_id="done")
         app.execute("trip_planner", scope_id="still-blocked")
 
-        result = await _provider(app)._list_active_workflows()
+        result = await _provider(app)._list_workflows()
 
         ids = [w["workflow_id"] for w in result["workflows"]]
         assert ids == ["still-blocked"]
@@ -395,7 +397,7 @@ class TestCancelWorkflow:
         app.execute("trip_planner", scope_id="run-1")
         await _provider(app)._cancel_workflow("run-1")
 
-        result = await _provider(app)._list_active_workflows()
+        result = await _provider(app)._list_workflows()
         assert result["workflows"] == []
 
     async def test_cancelling_twice_is_an_error(self) -> None:
@@ -424,7 +426,7 @@ class TestRegistration:
 
         assert registered == [
             "get_workflow_state",
-            "list_active_workflows",
+            "list_workflows",
             "resume_gate",
             "resume_workflow",
             "call_gate_tool",
@@ -452,7 +454,7 @@ class TestTopologyFallback:
     `descriptor.workflow` (the cached shape) is written only by directory
     discovery. A `JobProvider` builds descriptors by hand and has no public
     projection to populate it (`workflow_shape_of` is internal), so the field is
-    None and `_topology` used to report `{"steps": [], "edges": []}` over MCP —
+    None and `_topology` (now in `app/_workflow_view.py`) used to report `{"steps": [], "edges": []}` over MCP —
     an agent could advance a workflow it could not see. The fix reads the live
     declaration on `descriptor.function` when the cached shape is absent.
 
@@ -485,7 +487,7 @@ class TestTopologyFallback:
         assert descriptor.workflow is None, "premise: provider cannot cache the shape"
 
         provider = WorkflowToolProvider(self._AppReturning(descriptor), store=_store())
-        topo = provider._topology("plugin-flow")
+        topo = _topology(provider._app, "plugin-flow")
 
         assert topo["steps"] == [{"step": "a"}, {"step": "b"}]
         assert {"from": "a", "to": "b"} in topo["edges"]
@@ -505,13 +507,13 @@ class TestTopologyFallback:
         object.__setattr__(descriptor, "function", None)
 
         provider = WorkflowToolProvider(self._AppReturning(descriptor), store=_store())
-        topo = provider._topology("plugin-flow")
+        topo = _topology(provider._app, "plugin-flow")
         assert topo["steps"] == [{"step": "a"}, {"step": "b"}]
 
     def test_unknown_job_is_empty_not_an_error(self) -> None:
         """A scope outliving its declaration still renders, never raises."""
         provider = WorkflowToolProvider(self._AppReturning(None), store=_store())
-        assert provider._topology("gone") == {"steps": [], "edges": []}
+        assert _topology(provider._app, "gone") == {"steps": [], "edges": []}
 
     def test_a_job_with_no_workflow_is_empty_not_an_error(self) -> None:
         from functualize._types.descriptors import JobDescriptor
@@ -521,7 +523,7 @@ class TestTopologyFallback:
 
         descriptor = JobDescriptor(name="plain", group=None, function=plain)
         provider = WorkflowToolProvider(self._AppReturning(descriptor), store=_store())
-        assert provider._topology("plain") == {"steps": [], "edges": []}
+        assert _topology(provider._app, "plain") == {"steps": [], "edges": []}
 
 
 class TestUnreadableScopeStore:
@@ -565,20 +567,20 @@ class TestUnreadableScopeStore:
 
     async def test_list_does_not_return_an_empty_list(self, poisoned) -> None:
         provider = WorkflowToolProvider(_gated_app(), store=poisoned)
-        result = await provider._list_active_workflows()
+        result = await provider._list_workflows()
         assert result.get("error") == "scope_store_unreadable"
         assert "workflows" not in result
 
     async def test_the_envelope_leaks_no_payload(self, poisoned) -> None:
         provider = WorkflowToolProvider(_gated_app(), store=poisoned)
-        result = await provider._list_active_workflows()
+        result = await provider._list_workflows()
         assert "hunter2-SECRET" not in str(result)
         assert "2 workflow scopes" in result["message"]
 
     async def test_the_envelope_stays_flat(self, poisoned) -> None:
         """`_error` is flat by design; widening it for one case is worse."""
         provider = WorkflowToolProvider(_gated_app(), store=poisoned)
-        result = await provider._list_active_workflows()
+        result = await provider._list_workflows()
         assert set(result) == {"error", "message"}
 
     async def test_the_tool_keeps_its_registered_name(self, poisoned) -> None:
@@ -586,4 +588,4 @@ class TestUnreadableScopeStore:
         not rename the tool FastMCP registers."""
         provider = WorkflowToolProvider(_gated_app(), store=poisoned)
         assert provider._get_workflow_state.__name__ == "get_workflow_state"
-        assert provider._list_active_workflows.__doc__
+        assert provider._list_workflows.__doc__

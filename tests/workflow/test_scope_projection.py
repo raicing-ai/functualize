@@ -184,23 +184,17 @@ class TestListScopes:
         assert list_scopes(app, store, blocked_on="approve")
         assert list_scopes(app, store, blocked_on="nope") == []
 
-    def test_a_survey_row_omits_the_graph(
+    def test_a_row_is_the_full_projection(
         self, app: FunctualizeApp, project: Path
     ) -> None:
-        """A survey lists many scopes; carrying each graph makes the answer
-        quadratic in graph size."""
+        """There is deliberately no reduced survey shape.
+
+        An earlier cut had one and it collided immediately: `pending_gates`
+        meant *names* in the survey and *gate summaries* in the detail, so no
+        two surfaces could return "the same rows" however carefully each was
+        written. One key, two shapes, is the drift this module ends.
+        """
         app.execute("release", scope_id="rel-1")
         store = StateStore.for_project(project)
 
-        row = list_scopes(app, store)[0]
-        assert "steps" not in row
-        assert row["state"] == "waiting"
-
-    def test_detailed_returns_the_full_projection(
-        self, app: FunctualizeApp, project: Path
-    ) -> None:
-        app.execute("release", scope_id="rel-1")
-        store = StateStore.for_project(project)
-
-        row = list_scopes(app, store, detailed=True)[0]
-        assert row == describe_scope(app, store, "rel-1")
+        assert list_scopes(app, store)[0] == describe_scope(app, store, "rel-1")

@@ -34,10 +34,10 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 __all__ = [
+    "WORKFLOW_STATES",
     "describe_scope",
     "derived_state",
     "list_scopes",
-    "scope_row",
     "tool_summaries",
 ]
 
@@ -46,6 +46,23 @@ LIVE_STATUSES = frozenset({"running", "blocked"})
 
 #: Derived states a `purge` may remove. Everything else is somebody's live run.
 TERMINAL_STATES = frozenset({"completed", "stalled", "failed", "cancelled"})
+
+#: Every derived state, in the order a reader meets them: waiting for someone,
+#: waiting for nobody, moving, then the four ways of being over.
+#:
+#: One tuple, because a surface that spelled its own `--state` choices would be
+#: a second copy of a vocabulary that must match `derived_state` exactly, and it
+#: would go stale the first time a state is added
+#: (`contributor/reference/pitfalls.md` §6).
+WORKFLOW_STATES: tuple[str, ...] = (
+    "waiting",
+    "ready",
+    "running",
+    "completed",
+    "stalled",
+    "failed",
+    "cancelled",
+)
 
 #: Discovery records parameter types as strings; JSON Schema wants its own.
 _JSON_TYPES = {
@@ -94,25 +111,6 @@ def derived_state(scope: dict[str, Any]) -> str:
     return str(status or "unknown")
 
 
-def scope_row(app: Any, scope_id: str, scope: dict[str, Any]) -> dict[str, Any]:
-    """One scope as a survey row — the projection minus the graph.
-
-    A survey lists many scopes, so it omits ``steps``/``edges``/``results``,
-    which are per-scope detail and would make the answer quadratic in graph
-    size. Everything it *does* carry is derived by the same functions
-    :func:`describe_scope` uses, so the two can never disagree about a field
-    they share.
-    """
-    return {
-        "workflow_id": scope_id,
-        "workflow": scope.get("workflow"),
-        "status": scope.get("status"),
-        "state": derived_state(scope),
-        "current_position": scope.get("position"),
-        "pending_gates": [name for name, _ in pending_gates(scope)],
-    }
-
-
 def describe_scope(app: Any, store: Any, scope_id: str) -> dict[str, Any] | None:
     """Full state for one scope — topology from the cache, progress from the store.
 
@@ -132,9 +130,18 @@ def list_scopes(
     workflow_name: str | None = None,
     state: str | None = None,
     blocked_on: str | None = None,
-    detailed: bool = False,
 ) -> list[dict[str, Any]]:
-    """Scopes matching the filters, newest-id-agnostic (store order).
+    """Scopes matching the filters, in store order.
+
+    **Rows are the full projection — there is no reduced survey shape.** An
+    earlier cut of this had one, and it collided immediately: ``pending_gates``
+    meant *a list of names* in the survey and *a list of gate summaries* in the
+    detail, so the two surfaces could not return "the same rows" no matter how
+    carefully each was written. One key, two shapes, is the drift this module
+    exists to end — cheaper to have no second shape than to keep two in step.
+
+    A caller wanting a one-line summary renders one; it does not get a
+    different projection to render it from.
 
     Args:
         workflow_name: Only scopes of this workflow.
@@ -143,7 +150,6 @@ def list_scopes(
             are ``ready``" is the question a scheduler actually asks, and it is
             not answerable from ``status``.
         blocked_on: Only scopes with this gate pending.
-        detailed: Return the full projection per scope rather than a survey row.
 
     With no filters this returns **live scopes only** — running or blocked —
     matching what both surfaces already did. Naming any filter widens the search
@@ -163,11 +169,7 @@ def list_scopes(
             name == blocked_on for name, _ in pending_gates(scope)
         ):
             continue
-        rows.append(
-            _describe(app, store, sid, scope)
-            if detailed
-            else scope_row(app, sid, scope)
-        )
+        rows.append(_describe(app, store, sid, scope))
     return rows
 
 

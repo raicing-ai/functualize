@@ -253,7 +253,7 @@ class TestPublishedSchema:
     def test_the_transform_removes_from_required_too(self) -> None:
         """A bound name left in `required` would make the published schema
         unsatisfiable: the agent must supply what it cannot express."""
-        from functualize_mcp._workflow_tools import _without
+        from functualize.app._workflow_view import _without
 
         schema = {
             "type": "object",

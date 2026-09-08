@@ -113,7 +113,7 @@ async def test_an_agent_can_drive_a_blocked_workflow_to_completion(
     assert app.ran == ["build"]  # type: ignore[attr-defined]
 
     # 2. The agent finds the work without being handed a scope id.
-    active = await tools._list_active_workflows()
+    active = await tools._list_workflows()
     assert [w["workflow_id"] for w in active["workflows"]] == ["rel-1"]
     workflow_id = active["workflows"][0]["workflow_id"]
 
@@ -160,7 +160,7 @@ async def test_an_agent_can_drive_a_blocked_workflow_to_completion(
     assert app.ran == ["build", "deploy", "body"]  # type: ignore[attr-defined]
 
     # 7. The finished scope drops out of the agent's work queue.
-    after = await tools._list_active_workflows()
+    after = await tools._list_workflows()
     assert after["workflows"] == []
 
 
@@ -173,7 +173,7 @@ async def test_a_cancelled_workflow_leaves_the_loop(app: FunctualizeApp) -> None
     cancelled = await tools._cancel_workflow("rel-1")
     assert cancelled["status"] == "cancelled"
 
-    assert (await tools._list_active_workflows())["workflows"] == []
+    assert (await tools._list_workflows())["workflows"] == []
     # And the gate can no longer be answered.
     assert (await tools._resume_gate("approval", {}))["error"] == "gate_not_found"
 

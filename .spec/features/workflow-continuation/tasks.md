@@ -146,7 +146,7 @@ now: `0` · after: `≥2` (the field and its tag selector)
 
 ## Wave 3 — the projection lift
 
-### [ ] T7 · `app/_workflow_view.py` — one projection, one derived state
+### [x] T7 · `app/_workflow_view.py` — one projection, one derived state
 
 **Files:** `src/functualize/app/_workflow_view.py` (new), `src/functualize/app/utils.py`
 
@@ -168,7 +168,7 @@ now: `ImportError` · after: exit 0
 
 ## Wave 4 — repoint both surfaces onto the lifted projection
 
-### [ ] T8 · MCP reads the lifted projection; `list_workflows` replaces `list_active_workflows`
+### [x] T8 · MCP reads the lifted projection; `list_workflows` replaces `list_active_workflows`
 
 **Files:** `plugins/functualize-mcp/src/functualize_mcp/_workflow_tools.py`
 
@@ -184,7 +184,7 @@ now: `6` · after: `0`
 
 ---
 
-### [ ] T9 · `builtin workflow list` gains filters; `state` becomes `show`
+### [x] T9 · `builtin workflow list` gains filters; `state` becomes `show`
 
 **Files:** `src/functualize/_cli/builtins.py`
 
