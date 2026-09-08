@@ -239,3 +239,76 @@ class TestEscapeHatchWorksOnAnUnreadableStore:
         result = cli_run(["builtin", "state", "clear"], cwd=project)
         assert result.exit_code == 0
         assert "could not be read" in result.stdout
+
+
+WORKFLOW_JOB = """
+from pydantic import BaseModel
+
+from functualize.workflow import END, Edge, Gate, Step, workflow
+
+
+class Approval(BaseModel):
+    approved: bool
+
+
+def build() -> str:
+    return "artifact"
+
+
+@workflow(
+    steps=[Step("build"), Gate(name="approve", awaits=Approval)],
+    edges=[Edge(source="build", target="approve"), Edge(source="approve", target=END)],
+)
+def release() -> str:
+    return "shipped"
+"""
+
+
+class TestRunningAWorkflowJobRefuses:
+    """The job-invocation path, not the `builtin workflow` path.
+
+    **Cold and warm, or neither.** These are two different dispatch paths —
+    `click_params` builds the command from a live signature, `lazy_command`
+    from a cached descriptor — and `deliver_job_result`'s docstring records what
+    happened the last time only one of them handled a case: "Cold boot exited 1,
+    warm boot exited 0, for the same job and the same failure."
+    (`contributor/reference/pitfalls.md` §23.)
+
+    Written after a sabotage check found the warm path uncovered: deleting its
+    refusal broke no test, which is exactly the hole this class fills.
+    """
+
+    @pytest.fixture
+    def wf_project(self, project_tree):
+        return project_tree(jobs={"release.py": WORKFLOW_JOB})
+
+    def test_cold_cache_refuses(self, cli_run, wf_project) -> None:
+        """First invocation in a project: the eager path in click_params."""
+        (wf_project / ".functualize").mkdir(exist_ok=True)
+        _poison(wf_project)
+        result = cli_run(["release"], cwd=wf_project)
+        assert result.exit_code == 2
+        assert "cannot be read" in result.stderr
+
+    def test_warm_cache_refuses_too(self, cli_run, wf_project) -> None:
+        """Second invocation: the lazy path in lazy_command, built from the
+        cached descriptor. This is the one a sabotage check found uncovered."""
+        (wf_project / ".functualize").mkdir(exist_ok=True)
+
+        first = cli_run(["release"], cwd=wf_project)
+        assert first.exit_code == 5, "expected a gate block to warm the cache"
+
+        _poison(wf_project)
+        result = cli_run(["release"], cwd=wf_project)
+        assert result.exit_code == 2, (
+            "warm dispatch must refuse identically to cold — this is the "
+            "cold-1/warm-0 split deliver_job_result documents"
+        )
+        assert "cannot be read" in result.stderr
+
+    def test_neither_path_leaks_the_payload(self, cli_run, wf_project) -> None:
+        (wf_project / ".functualize").mkdir(exist_ok=True)
+        cli_run(["release"], cwd=wf_project)
+        _poison(wf_project)
+        result = cli_run(["release"], cwd=wf_project)
+        assert "hunter2-SECRET" not in result.stderr + result.stdout
