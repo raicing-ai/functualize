@@ -1,0 +1,271 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Job Execution Lifecycle",
+    "subtitle": "JobExecutionEngine — the single execution path shared by the CLI, rc.invoke() and the standalone binary",
+    "visual_preset": "signal-flow",
+    "quality_profile": "showcase",
+    "animation": "none",
+    "views": [
+      {
+        "id": "happy-path",
+        "label": "Invocation to result",
+        "focus": [
+          "entry",
+          "context",
+          "di",
+          "validate",
+          "deps",
+          "hooks",
+          "body",
+          "result"
+        ],
+        "note": "The ordinary path: every entry point delegates to one engine, which resolves, validates, gates, then runs the job body."
+      },
+      {
+        "id": "ordering-contract",
+        "label": "What runs before hooks",
+        "focus": [
+          "prelude",
+          "di",
+          "validate",
+          "deps",
+          "hooks"
+        ],
+        "note": "Config, validation and the prelude all finish before PRE_EXECUTE. A skipped or invalid job must not fire hooks that assume it ran."
+      },
+      {
+        "id": "failure-exits",
+        "label": "Failing before execution",
+        "focus": [
+          "validate",
+          "deps",
+          "failfast",
+          "result"
+        ],
+        "note": "Validation failure and dependency failure share one exit. AFTER_FAILURE fires, PRE_EXECUTE does not, and the body never runs."
+      }
+    ],
+    "viewBox": [
+      1240,
+      980
+    ],
+    "output": "docs/diagrams/job-execution-lifecycle.html"
+  },
+  "lanes": [
+    {
+      "id": "callers",
+      "label": "Entry Points"
+    },
+    {
+      "id": "engine",
+      "label": "JobExecutionEngine"
+    },
+    {
+      "id": "side",
+      "label": "Workflow & Dependencies"
+    },
+    {
+      "id": "exits",
+      "label": "Failure Exits",
+      "variant": "exception"
+    },
+    {
+      "id": "after",
+      "label": "Result & History"
+    }
+  ],
+  "phases": [
+    {
+      "id": "resolve",
+      "label": "Resolve",
+      "fromCol": 0,
+      "toCol": 2
+    },
+    {
+      "id": "gate",
+      "label": "Validate & gate",
+      "fromCol": 3,
+      "toCol": 4,
+      "variant": "emphasis"
+    },
+    {
+      "id": "run",
+      "label": "Execute",
+      "fromCol": 5,
+      "toCol": 5
+    }
+  ],
+  "nodes": [
+    {
+      "id": "entry",
+      "lane": "callers",
+      "col": 0,
+      "type": "frontend",
+      "label": "Entry Points",
+      "sublabel": "CLI, rc.invoke(), binary",
+      "width": 152,
+      "height": 88
+    },
+    {
+      "id": "context",
+      "lane": "engine",
+      "col": 1,
+      "type": "backend",
+      "label": "ExecutionContext",
+      "sublabel": "materialize fn, bind DI",
+      "width": 152,
+      "height": 88
+    },
+    {
+      "id": "prelude",
+      "lane": "side",
+      "col": 1,
+      "type": "backend",
+      "label": "Workflow Prelude",
+      "sublabel": "before DI and hooks",
+      "width": 152,
+      "height": 88
+    },
+    {
+      "id": "di",
+      "lane": "engine",
+      "col": 2,
+      "type": "backend",
+      "label": "Resolve DI",
+      "sublabel": "registry + capabilities",
+      "width": 152,
+      "height": 88
+    },
+    {
+      "id": "validate",
+      "lane": "engine",
+      "col": 3,
+      "type": "security",
+      "label": "Validate Args",
+      "sublabel": "Field() constraints",
+      "width": 152,
+      "height": 88
+    },
+    {
+      "id": "deps",
+      "lane": "side",
+      "col": 3,
+      "type": "backend",
+      "label": "Dependencies",
+      "sublabel": "then pre-flight skip",
+      "width": 152,
+      "height": 88
+    },
+    {
+      "id": "failfast",
+      "lane": "exits",
+      "col": 4,
+      "type": "security",
+      "label": "Fail Before Run",
+      "sublabel": "AFTER_FAILURE only",
+      "width": 152,
+      "height": 88
+    },
+    {
+      "id": "hooks",
+      "lane": "engine",
+      "col": 4,
+      "type": "messagebus",
+      "label": "PRE_EXECUTE Hooks",
+      "sublabel": "before_job events",
+      "width": 152,
+      "height": 88
+    },
+    {
+      "id": "body",
+      "lane": "engine",
+      "col": 5,
+      "type": "backend",
+      "label": "Job Body",
+      "sublabel": "middleware wraps body",
+      "width": 152,
+      "height": 88
+    },
+    {
+      "id": "result",
+      "lane": "after",
+      "col": 5,
+      "type": "database",
+      "label": "JobResult",
+      "sublabel": "at invoke_depth 0",
+      "width": 152,
+      "height": 88
+    }
+  ],
+  "edges": [
+    {
+      "from": "entry",
+      "to": "context",
+      "role": "main",
+      "label": "execute()"
+    },
+    {
+      "from": "context",
+      "to": "prelude",
+      "role": "branch",
+      "variant": "dashed"
+    },
+    {
+      "from": "prelude",
+      "to": "di",
+      "role": "return"
+    },
+    {
+      "from": "context",
+      "to": "di",
+      "role": "main"
+    },
+    {
+      "from": "di",
+      "to": "validate",
+      "role": "main"
+    },
+    {
+      "from": "validate",
+      "to": "deps",
+      "role": "main",
+      "label": "args valid"
+    },
+    {
+      "from": "validate",
+      "to": "failfast",
+      "role": "error",
+      "label": "invalid"
+    },
+    {
+      "from": "deps",
+      "to": "failfast",
+      "role": "error",
+      "label": "dep failed"
+    },
+    {
+      "from": "deps",
+      "to": "hooks",
+      "role": "main"
+    },
+    {
+      "from": "hooks",
+      "to": "body",
+      "role": "main"
+    },
+    {
+      "from": "body",
+      "to": "result",
+      "role": "main"
+    },
+    {
+      "from": "failfast",
+      "to": "result",
+      "role": "return",
+      "variant": "dashed",
+      "label": "FAILURE"
+    }
+  ]
+}
