@@ -134,7 +134,12 @@ nodes **require** a declared managed effect, enforced at schema validation
 (`dispatch.py:79`) · gate tool schemas published minus bound params.
 
 Doc 06 (provenance) survived scrutiny with no errors found. Doc 07's `--wf-` namespace
-reasoning is sound, and its pro-argument for keeping the pre-command `--scope-id` is
-**stronger** than it claimed — see [01 §A.3](01-surface-inventory.md): only two builders
-add the per-command option, and the warm path's gate depends on the discovery cache
-carrying workflow topology, which is the documented cold-cache hazard. Keep the global.
+reasoning is sound.
+
+> **Retracted.** This section previously argued that doc 07's case for *keeping* the
+> pre-command `--scope-id` was stronger than it claimed, because the warm path's gate
+> depends on the discovery cache carrying workflow topology. Tested in
+> [15 §1.2-§2](15-scope-id-early-parse-removal.md): the warm path works, and the
+> cold-cache bug at `main.py:2075-2081` was a defect in the **global's** own threading —
+> evidence against keeping it. The flag is now slated for removal entirely, replaced by a
+> verb ([16](16-replacing-scope-id.md), [17](17-lifecycle-without-scope-id.md)).
