@@ -6,13 +6,16 @@ Non-negotiables. Violating these requires explicit user approval.
 
 ### Layer Dependency Rules
 
-The internal package structure follows a strict dependency order. Each layer may only import from layers above it in this chain:
+The internal package structure follows a strict dependency order. Each layer may
+only import from layers above it in this chain. These rules are enforced by the
+six `[tool.importlinter]` contracts in `pyproject.toml` — that config is the
+source of truth and this table is a summary of it (`uv run lint-imports`).
 
 ```
 _types (shared vocabulary, zero logic)
   → _primitives (zero-dep utilities)
     → _events (cross-cutting concerns)
-      → _discovery / _config / _engine / _plugins (peer layers, independent of each other)
+      → _discovery / _config / _engine / _plugins / _gate (peer layers, independent of each other)
         → _app (composition root — sole cross-layer wiring point)
           → _cli (delivery — public API only)
 ```
@@ -20,12 +23,12 @@ _types (shared vocabulary, zero logic)
 | Layer | May Import From | Must NOT Import From |
 |-------|----------------|---------------------|
 | `_types/` | stdlib only | Any `_`-prefixed package |
-| `_primitives/` | `_types/`, stdlib | `_events`, `_discovery`, `_config`, `_engine`, `_plugins`, `_app`, `_cli` |
-| `_events/` | `_types/`, `_primitives/` | `_discovery`, `_config`, `_engine`, `_plugins`, `_app`, `_cli` |
-| `_discovery/`, `_config/`, `_engine/`, `_plugins/` | `_types/`, `_primitives/`, `_events/` | Each other, `_app`, `_cli` |
+| `_primitives/` | `_types/`, stdlib | `_events`, `_discovery`, `_config`, `_engine`, `_plugins`, `_gate`, `_app`, `_cli` |
+| `_events/` | `_types/`, `_primitives/` | `_discovery`, `_config`, `_engine`, `_plugins`, `_gate`, `_app`, `_cli` |
+| `_discovery/`, `_config/`, `_engine/`, `_plugins/`, `_gate/` | `_types/`, `_primitives/`, `_events/` | Each other, `_app`, `_cli` |
 | `_app/` | All internal layers except `_cli` | `_cli`, public folders |
-| `_cli/` | Public folders only (`app/`, `job/`, `plugin/`, `types/`, `testing/`) | Any `_`-prefixed package |
-| Internal (`_types` through `_app`) | — | Public folders (`app/`, `job/`, `plugin/`, `types/`, `testing/`) |
+| `_cli/` | Public folders only (`app/`, `job/`, `plugin/`, `types/`, `testing/`, `workflow/`) | Any `_`-prefixed package |
+| Internal (`_types` through `_app`) | — | Public folders (`app/`, `job/`, `plugin/`, `types/`, `testing/`, `workflow/`) |
 
 ### Audience Separation
 
@@ -37,9 +40,10 @@ The package is split into **public** (user-facing) and **internal** (contributor
 - `plugin/` — Plugin authoring: `EventBus`, `JobProvider`, `AdapterPlugin`, protocols
 - `types/` — Shared vocabulary: `JobResult`, `JobDescriptor`, `FieldDescriptor`, enums
 - `testing/` — Test utilities: `TestRunContext`, `CapturingLog`, `MockInvoke`
+- `workflow/` — Workflow authoring surface
 
 **Internal folders** (underscore-prefixed, off-limits to users):
-- `_types/`, `_primitives/`, `_events/`, `_discovery/`, `_config/`, `_engine/`, `_plugins/`, `_app/`, `_cli/`
+- `_types/`, `_primitives/`, `_events/`, `_discovery/`, `_config/`, `_engine/`, `_plugins/`, `_gate/`, `_app/`, `_cli/`
 
 Users import from public folders. Contributors work in internal folders. The `_cli/` layer proves public API completeness by dogfooding it.
 

@@ -149,7 +149,19 @@ On application exit, plugins implementing `PluginWithShutdown` have their `on_sh
 
 ## Layer Dependency Graph
 
-functualize enforces strict layer dependencies via `import-linter`. Each layer may only import from layers below it in the graph. Violations are caught in CI.
+!!! tip "Interactive version"
+
+    [Layer Dependency Contract](../diagrams/layer-dependencies.html) draws the
+    same rules with guided views, and
+    [all architecture diagrams](../diagrams/index.md) covers boot, execution
+    and resolution too.
+
+
+functualize enforces layer dependencies via `import-linter`. The contracts in
+`[tool.importlinter]` of `pyproject.toml` are the source of truth — this section
+summarises them, and where the two disagree the config wins. Check with
+`uv run lint-imports`. Note `exclude_type_checking_imports = true`: imports
+inside `if TYPE_CHECKING:` are invisible to every contract.
 
 ```mermaid
 graph TD
@@ -170,6 +182,7 @@ graph TD
         _config["_config/<br/>Config resolution"]
         _engine["_engine/<br/>Execution lifecycle"]
         _plugins["_plugins/<br/>Plugin loading"]
+        _gate["_gate/<br/>Gate resolution:<br/>resolver, strategy, registry"]
     end
 
     subgraph CompositionRoot["Composition Root"]
@@ -186,6 +199,7 @@ graph TD
         pub_plugin["plugin/"]
         pub_types["types/"]
         pub_testing["testing/"]
+        pub_workflow["workflow/"]
     end
 
     %% Foundation dependencies
@@ -206,6 +220,7 @@ graph TD
     _plugins --> _types
     _plugins --> _primitives
     _plugins --> _events
+    _gate --> _types
 
     %% Composition root wires everything
     _app --> _types
@@ -215,6 +230,7 @@ graph TD
     _app --> _config
     _app --> _engine
     _app --> _plugins
+    _app --> _gate
 
     %% Public API delegates to internals
     pub_app --> _app
@@ -229,14 +245,34 @@ graph TD
 
 ### Layer rules summarized
 
-| Layer | May import from | Must NOT import from |
-|-------|----------------|---------------------|
-| `_types/` | stdlib only | Any `_`-prefixed package |
-| `_primitives/` | `_types/`, stdlib | `_events` through `_cli` |
-| `_events/` | `_types/`, `_primitives/` | `_discovery` through `_cli` |
-| Peer layers (`_discovery`, `_config`, `_engine`, `_plugins`) | `_types/`, `_primitives/`, `_events/` | Each other, `_app`, `_cli` |
-| `_app/` | All internal layers | `_cli`, any public folder |
-| `_cli/` | Public folders only | Any `_`-prefixed package |
+The six enforced contracts, by their names in `pyproject.toml`:
+
+| Contract | Type | Effect |
+|---|---|---|
+| `Peer layers are independent` | independence | `_discovery`, `_config`, `_engine`, `_plugins`, `_gate` may not import one another |
+| `Events depends on foundation only` | forbidden | `_events/` may reach `_types/` and `_primitives/` only |
+| `Primitives import nothing internal` | forbidden | `_primitives` may reach `_types` and stdlib only |
+| `Types import nothing internal` | forbidden | `_types` may reach stdlib only — not even `_primitives` |
+| `Internal never imports public` | forbidden | no `_`-prefixed package may import `app`, `job`, `plugin`, `types`, `testing` or `workflow` |
+| `_cli uses public API only` | forbidden | `_cli` may not import any `_`-prefixed package |
+
+There are **five** peer layers. `_gate/` is in the independence contract and is
+the one most often forgotten. The public surface is **six** packages, including
+`workflow/`.
+
+!!! note "`_config/ -> _events/` is not governed"
+
+    `exclude_type_checking_imports = true` hides every `if TYPE_CHECKING:`
+    import from all six contracts. `_config/chain.py` and `_config/sources.py`
+    import `EventBus` that way, so that direction is unenforced. Flipping the
+    flag has not been measured.
+
+    The reverse direction *is* enforced now. `_events/adapter.py` used to
+    import `_config._emit` at runtime to install `EventBusAdapter` as the
+    config event sink — a constitution violation no contract caught. That
+    wiring moved to `_app/event_wiring.py` (the composition root is the sole
+    cross-layer wiring point) and the `Events depends on foundation only`
+    contract closes the gap.
 
 ---
 

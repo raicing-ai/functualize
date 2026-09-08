@@ -89,7 +89,7 @@ def init_observability(app: Any) -> None:
     if app._observability_initialized:
         return
 
-    from functualize._events.adapter import install_adapter
+    from functualize._app.event_wiring import install_config_event_sink
     from functualize._events.bus import EventBus as _EventBus
     from functualize._events.middleware_stack import (
         MiddlewareStack as _MiddlewareStack,
@@ -97,7 +97,7 @@ def init_observability(app: Any) -> None:
 
     app._event_bus = _EventBus()
     app._middleware_stack = _MiddlewareStack()
-    install_adapter(app._event_bus)
+    install_config_event_sink(app._event_bus)
 
     from functualize._events._catalog_entries import (
         get_framework_event_catalog,

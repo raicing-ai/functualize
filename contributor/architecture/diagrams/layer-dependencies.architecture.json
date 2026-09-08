@@ -1,0 +1,331 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Layer Dependency Contract",
+    "subtitle": "The six import-linter contracts in pyproject.toml, drawn. Arrows are permitted imports; pyproject.toml is the source of truth.",
+    "output": "docs/diagrams/layer-dependencies.html",
+    "quality_profile": "showcase",
+    "animation": "none",
+    "viewBox": [
+      1040,
+      700
+    ],
+    "views": [
+      {
+        "id": "peers",
+        "label": "Peer independence",
+        "focus": [
+          "discovery",
+          "config",
+          "engine",
+          "plugins",
+          "gate"
+        ],
+        "note": "Five modules, not four — _gate is in the contract and is the one most often forgotten. No arrow runs between any of them."
+      },
+      {
+        "id": "foundation",
+        "label": "Foundation stack",
+        "focus": [
+          "events",
+          "primitives",
+          "types"
+        ],
+        "note": "_types may reach stdlib only, not even _primitives. _primitives may reach _types and stdlib only."
+      },
+      {
+        "id": "boundary",
+        "label": "The public boundary",
+        "focus": [
+          "cli",
+          "public",
+          "app"
+        ],
+        "note": "_cli may import no _-prefixed package. In the other direction, no internal package may import the public surface."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "cli",
+      "type": "frontend",
+      "label": "_cli",
+      "sublabel": "commands, scaffold",
+      "pos": [
+        30,
+        26
+      ],
+      "size": [
+        190,
+        56
+      ]
+    },
+    {
+      "id": "public",
+      "type": "external",
+      "label": "Public surface",
+      "sublabel": "app job plugin types testing workflow",
+      "pos": [
+        560,
+        26
+      ],
+      "size": [
+        450,
+        56
+      ]
+    },
+    {
+      "id": "app",
+      "type": "backend",
+      "label": "_app",
+      "sublabel": "composition root",
+      "pos": [
+        400,
+        118
+      ],
+      "size": [
+        240,
+        58
+      ]
+    },
+    {
+      "id": "discovery",
+      "type": "backend",
+      "label": "_discovery",
+      "sublabel": "job finding",
+      "pos": [
+        52,
+        224
+      ],
+      "size": [
+        172,
+        58
+      ]
+    },
+    {
+      "id": "config",
+      "type": "backend",
+      "label": "_config",
+      "sublabel": "resolution",
+      "pos": [
+        238,
+        224
+      ],
+      "size": [
+        172,
+        58
+      ]
+    },
+    {
+      "id": "engine",
+      "type": "backend",
+      "label": "_engine",
+      "sublabel": "lifecycle",
+      "pos": [
+        424,
+        224
+      ],
+      "size": [
+        172,
+        58
+      ]
+    },
+    {
+      "id": "plugins",
+      "type": "backend",
+      "label": "_plugins",
+      "sublabel": "loading",
+      "pos": [
+        610,
+        224
+      ],
+      "size": [
+        172,
+        58
+      ]
+    },
+    {
+      "id": "gate",
+      "type": "backend",
+      "label": "_gate",
+      "sublabel": "resolver, strategy",
+      "pos": [
+        796,
+        224
+      ],
+      "size": [
+        172,
+        58
+      ]
+    },
+    {
+      "id": "events",
+      "type": "messagebus",
+      "label": "_events",
+      "sublabel": "EventBus, hooks",
+      "pos": [
+        400,
+        352
+      ],
+      "size": [
+        240,
+        56
+      ]
+    },
+    {
+      "id": "primitives",
+      "type": "cloud",
+      "label": "_primitives",
+      "sublabel": "DI, middleware",
+      "pos": [
+        400,
+        452
+      ],
+      "size": [
+        240,
+        56
+      ]
+    },
+    {
+      "id": "types",
+      "type": "database",
+      "label": "_types",
+      "sublabel": "stdlib only",
+      "pos": [
+        400,
+        552
+      ],
+      "size": [
+        240,
+        56
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "security-group",
+      "label": "Peer layers — may not import each other",
+      "wraps": [
+        "discovery",
+        "config",
+        "engine",
+        "plugins",
+        "gate"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "Foundation",
+      "wraps": [
+        "events",
+        "primitives",
+        "types"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "from": "cli",
+      "to": "public",
+      "label": "public API only",
+      "variant": "emphasis"
+    },
+    {
+      "from": "app",
+      "to": "discovery",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "app",
+      "to": "config",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "app",
+      "to": "engine",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "app",
+      "to": "plugins",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "app",
+      "to": "gate",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "discovery",
+      "to": "events",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "config",
+      "to": "events",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "engine",
+      "to": "events",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "plugins",
+      "to": "events",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "gate",
+      "to": "events",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "events",
+      "to": "primitives",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "primitives",
+      "to": "types",
+      "fromSide": "bottom",
+      "toSide": "top"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "violet",
+      "title": "The six contracts",
+      "items": [
+        "Peer layers are independent — _discovery, _config, _engine, _plugins, _gate",
+        "Events depends on foundation only — _events reaches _types and _primitives",
+        "Primitives import nothing internal — _primitives reaches _types only",
+        "Types import nothing internal — _types reaches stdlib only",
+        "Internal never imports public — no _pkg may import the six public packages",
+        "_cli uses public API only — _cli may import no _pkg"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Known blind spot",
+      "items": [
+        "exclude_type_checking_imports=true hides all TYPE_CHECKING imports",
+        "_config/chain.py and sources.py import EventBus that way",
+        "So _config -> _events is invisible to every contract above",
+        "Flipping the flag is unmeasured; treat this direction as ungoverned"
+      ]
+    }
+  ]
+}

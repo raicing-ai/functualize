@@ -113,3 +113,24 @@ examples/plugins/file_based_plugin/.functualize/plugins/*
 .release/
 .worktrees/
 .claude/settings.local.json
+
+# Agent index directories. Which parts are tracked is decided by ONE property:
+# whether the stored paths are portable.
+#
+#   graphify  graph.json holds only repo-relative paths, so it travels into every
+#             worktree and every ephemeral cloud checkout for free. Tracked.
+#             Its cache/, manifest.json and .graphify_root are machine-local
+#             (mtimes, absolute paths), so the rule below is a whitelist: ignore
+#             everything, then un-ignore the two portable artifacts.
+#   zvec-grep index entries are keyed by ABSOLUTE path — copying one and rewriting
+#             its manifest yields 0% coverage and a full re-embed. Never tracked;
+#             each workspace builds its own (~21s scoped).
+#   serena    cache/ pickles hold absolute file:// URIs. project.yml and memories/
+#             are plain text and portable; serena's own .serena/.gitignore already
+#             excludes cache/ and project.local.yml.
+graphify-out/*
+!graphify-out/graph.json
+!graphify-out/GRAPH_REPORT.md
+.zvec-grep/
+.serena/cache/
+.serena/project.local.yml

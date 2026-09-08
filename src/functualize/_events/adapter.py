@@ -1,7 +1,13 @@
-"""EventSink adapter — bridges config._emit → EventBus.
+"""EventSink adapter — translates sink emit() calls into EventBus events.
 
-Translates config module emit() calls into StructuredEvents routed
-through the EventBus. Handles gracefully if config._emit doesn't exist.
+`EventBusAdapter` satisfies the sink protocol that `_config/_emit.py` calls,
+turning those calls into StructuredEvents on the EventBus. It depends on
+`EventBus` alone, so it is legal in `_events`.
+
+Installing it as the config module's sink is deliberately NOT done here:
+that touches two peer layers, so it lives in
+`functualize._app.event_wiring.install_config_event_sink` — `_app` being the
+sole cross-layer wiring point.
 """
 
 from __future__ import annotations
@@ -13,8 +19,6 @@ if TYPE_CHECKING:
     from functualize._events.bus import EventBus
 
 logger = logging.getLogger(__name__)
-
-_adapter_installed: bool = False
 
 
 class EventBusAdapter:
@@ -64,48 +68,3 @@ class EventBusAdapter:
                 resource = str(payload["section"])
 
         self._event_bus.emit(event_name, resource=resource, **payload)
-
-
-def install_adapter(event_bus: EventBus) -> None:
-    """Install the EventBusAdapter as the config module's event sink.
-
-    Idempotent: calling multiple times has no additional effect.
-    After installation, set_event_sink() raises RuntimeError to prevent
-    direct calls — callers should use app.event_bus.subscribe() instead.
-
-    Handles gracefully if config._emit module doesn't exist yet
-    (from the pluggable-configuration spec that may not be implemented).
-
-    Args:
-        event_bus: The EventBus instance to route config events through.
-    """
-    global _adapter_installed
-
-    if _adapter_installed:
-        return
-
-    try:
-        from functualize._config._emit import set_event_sink
-    except (ImportError, ModuleNotFoundError):
-        # config._emit doesn't exist yet — skip installation gracefully
-        logger.debug(
-            "config._emit not available; EventBusAdapter not installed. "
-            "Config events will not route through EventBus."
-        )
-        _adapter_installed = True
-        return
-
-    adapter = EventBusAdapter(event_bus)
-    set_event_sink(adapter)
-
-    # Monkey-patch set_event_sink to prevent direct calls after installation
-    import functualize._config._emit as emit_module
-
-    def _blocked_set_event_sink(sink: Any) -> None:
-        raise RuntimeError(
-            "Cannot call set_event_sink() after EventBus adapter is installed. "
-            "Use app.event_bus.subscribe() instead."
-        )
-
-    emit_module.set_event_sink = _blocked_set_event_sink
-    _adapter_installed = True
