@@ -104,7 +104,19 @@ Each row is settled. The evidence is in the cited document.
 
 None.
 
-## 5. Document history
+## 5. Lifecycle of this shape intent
+
+**Decided:** before the PR merges, this folder is synced once to
+`~/code/raicing-ai/pi-workflow-parity/` and then **removed from `.spec/shape-intents/`**.
+The unversioned copy becomes the durable record.
+
+Note the difference from the other shape intents, which live on `master` permanently
+(`git ls-tree master .spec/shape-intents/` lists eight). This one is deliberately
+branch-only, so the sync is the whole preservation step — if it is skipped, the material
+is lost with the branch. Do it as the last commit before merge, alongside whatever
+`.spec/features/` cleanup the required `spec-artifacts-cleared` check demands.
+
+## 6. Document history
 
 | Date | Change |
 |---|---|
@@ -113,7 +125,7 @@ None.
 | 2026-09-08 | Four surface-design iterations (R1–R4) collapsed into one target-surface document. |
 | 2026-09-08 | **Realigned.** The superseded chain (old 09, 14, 16, 17, 18) merged into [05](05-target-surface.md) and [06](06-lifecycles.md); the `--scope-id` audits (old 15, 16) merged into [12](12-scope-id.md); old 05 (tasks↔workflows) folded into [08](08-coordination.md) and [10](10-task-storage.md); nesting split out to [09](09-nesting.md). Supersession notes and self-corrections removed from the documents and recorded here instead. |
 
-## 6. Superseded file map
+## 7. Superseded file map
 
 For anyone following a link from an older commit:
 
