@@ -1,10 +1,9 @@
 """D2b — `func builtin workflow` CLI parity with the MCP workflow tools.
 
 The load-bearing claim: the CLI `resume` and the MCP `resume_gate` tool advance
-a blocked workflow through the **same** lifted `deposit_gate_input`, not two
-implementations that can drift. So this file drives the whole loop over the CLI
-(mirror of the S4 MCP loop test) *and* asserts both surfaces route through the
-one function.
+a blocked workflow through the **same** lifted implementation, not two that can
+drift. So this file drives the whole loop over the CLI (mirror of the MCP loop
+test) *and* asserts both surfaces route through the one function.
 """
 
 from __future__ import annotations
@@ -197,14 +196,14 @@ class TestCliDrivesABlockedWorkflow:
 
 
 class TestParityIsOneFunction:
-    """MCP `resume_gate` and CLI `resume` call the SAME lifted function.
+    """MCP `answer_gate` and CLI `answer` call the SAME lifted function.
 
     Not "two functions that behave the same" — the acceptance is a single
     implementation. Patch the lifted symbol and confirm both surfaces route
     through it.
     """
 
-    async def test_both_surfaces_call_deposit_gate_input(
+    async def test_both_surfaces_call_answer_gate(
         self, app: FunctualizeApp, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from functualize_mcp._workflow_tools import WorkflowToolProvider
@@ -212,32 +211,33 @@ class TestParityIsOneFunction:
         app.execute("release", scope_id="rel-1")
 
         calls: list[str] = []
-        sentinel = {"status": "input_accepted", "gate": "approval", "message": "ok"}
+        sentinel = {"status": "answered", "gate": "approval", "message": "ok"}
 
-        def _spy(app_arg, store, scope_id, gate, payload):  # noqa: ANN001, ANN202
+        def _spy(app_arg, store, scope_id, gate, values=None, **kwargs):  # noqa: ANN001, ANN202
             calls.append(scope_id)
             return sentinel
 
-        # Both the MCP tool module and the builtins module import the symbol
-        # from the same public home; patch it at the source module.
-        monkeypatch.setattr("functualize.app._workflow_resume.deposit_gate_input", _spy)
-        monkeypatch.setattr("functualize.app.utils.deposit_gate_input", _spy)
-        monkeypatch.setattr("functualize_mcp._workflow_tools.deposit_gate_input", _spy)
+        # Both the MCP tool module and the builtins module reach the symbol
+        # through the same public home; patch it at the source module.
+        monkeypatch.setattr("functualize.app._workflow_answer.answer_gate", _spy)
+        monkeypatch.setattr("functualize.app.utils.answer_gate", _spy)
+        monkeypatch.setattr("functualize_mcp._workflow_tools.answer_gate", _spy)
 
         # MCP path.
         provider = WorkflowToolProvider(app, store=StateStore.for_project(Path.cwd()))
-        await provider._resume_gate("approval", {"environment": "prod", "replicas": 3})
+        await provider._answer_gate(
+            {"environment": "prod", "replicas": 3},
+            workflow_id="rel-1",
+            gate="approval",
+        )
 
         # CLI path.
-        import functualize._cli.builtins as builtins_mod
-
-        monkeypatch.setattr(builtins_mod, "deposit_gate_input", _spy, raising=False)
         _run_cli(
             app,
             [
                 "builtin",
                 "workflow",
-                "resume",
+                "answer",
                 "rel-1",
                 "approval",
                 "--input",
@@ -316,3 +316,111 @@ class TestTheTwoSurfacesReturnTheSameProjection:
         ] == "ready"
         _run_cli(blocked, ["builtin", "workflow", "show", "rel-1", "--format", "json"])
         assert json.loads(capsys.readouterr().out)["state"] == "ready"
+
+
+class TestTheAnswerCommand:
+    """AC-11 through AC-15, over the CLI."""
+
+    @pytest.fixture
+    def blocked(self, app: FunctualizeApp) -> FunctualizeApp:
+        app.execute("release", scope_id="rel-1")
+        return app
+
+    def test_set_takes_json_typed_values(
+        self, blocked: FunctualizeApp, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A gate model with an `int` field would reject every value a
+        string-only flag could express."""
+        code = _run_cli(
+            blocked,
+            ["builtin", "workflow", "answer", "rel-1", "approval",
+             "--set", "environment=prod", "--set", "replicas=3",
+             "--format", "json"],
+        )
+        assert code == 0
+        result = json.loads(capsys.readouterr().out)
+        assert result["status"] == "answered"
+
+        store = StateStore.for_project(Path.cwd())
+        assert store.get_gate("rel-1", "approval")["payload"]["replicas"] == 3
+
+    def test_a_bare_word_stays_a_string(
+        self, blocked: FunctualizeApp, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """`--set env=prod` is the common case; demanding `env='"prod"'` for it
+        would tax the majority to serve the minority."""
+        _run_cli(
+            blocked,
+            ["builtin", "workflow", "answer", "rel-1", "approval",
+             "--set", "environment=prod", "--format", "json"],
+        )
+        result = json.loads(capsys.readouterr().out)
+        assert result["draft"]["environment"] == "prod"
+
+    def test_an_incomplete_draft_exits_zero_and_says_what_is_missing(
+        self, blocked: FunctualizeApp, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Drafting is not a failure — it is the normal half-way state."""
+        code = _run_cli(
+            blocked,
+            ["builtin", "workflow", "answer", "rel-1", "approval",
+             "--set", "environment=prod"],
+        )
+        assert code == 0
+        assert "replicas" in capsys.readouterr().out
+
+    def test_show_changes_nothing(
+        self, blocked: FunctualizeApp, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        code = _run_cli(
+            blocked,
+            ["builtin", "workflow", "answer", "rel-1", "approval", "--show",
+             "--format", "json"],
+        )
+        assert code == 0
+        assert json.loads(capsys.readouterr().out)["draft"] == {}
+        store = StateStore.for_project(Path.cwd())
+        assert store.get_gate_draft("rel-1", "approval") is None
+
+    def test_no_commit_holds_a_complete_draft(
+        self, blocked: FunctualizeApp, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _run_cli(
+            blocked,
+            ["builtin", "workflow", "answer", "rel-1", "approval",
+             "--input", json.dumps({"environment": "prod", "replicas": 3}),
+             "--no-commit", "--format", "json"],
+        )
+        result = json.loads(capsys.readouterr().out)
+        assert result["complete"] is True
+        assert result["status"] == "drafted"
+        store = StateStore.for_project(Path.cwd())
+        assert store.get_gate("rel-1", "approval")["payload"] is None
+
+    def test_a_malformed_set_pair_is_a_usage_error(
+        self, blocked: FunctualizeApp
+    ) -> None:
+        code = _run_cli(
+            blocked,
+            ["builtin", "workflow", "answer", "rel-1", "approval", "--set", "oops"],
+        )
+        assert code == 2
+
+    def test_reopen_past_the_walk_exits_two(
+        self, blocked: FunctualizeApp
+    ) -> None:
+        """The error-code table is one table; `gate_already_consumed` is a
+        usage error, not a job failure."""
+        _run_cli(
+            blocked,
+            ["builtin", "workflow", "answer", "rel-1", "approval",
+             "--input", json.dumps({"environment": "prod", "replicas": 3})],
+        )
+        blocked.execute("release", scope_id="rel-1")
+
+        code = _run_cli(
+            blocked,
+            ["builtin", "workflow", "answer", "rel-1", "approval",
+             "--set", "replicas=9", "--reopen"],
+        )
+        assert code == 2

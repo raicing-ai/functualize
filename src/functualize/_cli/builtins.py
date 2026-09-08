@@ -147,6 +147,7 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
         (
             ("list", "Survey workflow scopes, with filters"),
             ("show", "Show one scope in full — graph, results, gates"),
+            ("answer", "Record input for a gate — partial, whole, or corrected"),
             ("resume", "Deposit input for a blocked gate"),
             ("cancel", "Cancel a workflow scope"),
         ),
@@ -907,6 +908,26 @@ def register_builtin_commands(cli_group: Any) -> None:
         name="workflow", help="Inspect and resume persisted workflow scopes."
     )
 
+    #: One error code to exit code table. Both `builtin workflow` and the MCP
+    #: tools use the same codes (`contracts.md` §7); only the CLI needs to turn
+    #: them into exits, and doing it per-command is how two verbs end up
+    #: disagreeing about what "ambiguous" is worth.
+    _workflow_exits = {
+        "workflow_not_found": 1,
+        "gate_not_found": 1,
+        "gate_not_answered": 1,
+        "validation_error": 1,
+        "gate_unresolvable": 1,
+        "no_advanceable_scope": 1,
+        "ambiguous_gate": int(ExitCode.USAGE),
+        "ambiguous_scope": int(ExitCode.USAGE),
+        "scope_cancelled": int(ExitCode.USAGE),
+        "gate_already_answered": int(ExitCode.USAGE),
+        "gate_already_consumed": int(ExitCode.USAGE),
+        "tool_not_permitted": int(ExitCode.USAGE),
+        "argument_not_permitted": int(ExitCode.USAGE),
+    }
+
     def _workflow_store() -> Any:
         """The store the `builtin workflow` subcommands read.
 
@@ -1077,6 +1098,128 @@ def register_builtin_commands(cli_group: Any) -> None:
             click.echo(json.dumps(detail, indent=2))
             return
         _render_scope(detail)
+
+    def _parse_set(pairs: tuple[str, ...]) -> dict[str, Any]:
+        """``--set k=v`` pairs into a dict, values JSON-typed.
+
+        JSON rather than strings: a gate model with an ``int`` or a ``bool``
+        field would otherwise reject every value the flag could express, and
+        quoting is the caller's existing habit from ``--input``. A bare word
+        that is not valid JSON is kept as a string, because ``--set env=prod``
+        is the common case and demanding ``env='"prod"'`` for it would be a
+        tax on the majority to serve the minority.
+        """
+        import json
+
+        out: dict[str, Any] = {}
+        for pair in pairs:
+            key, sep, raw = pair.partition("=")
+            if not sep:
+                click.echo(
+                    f"Error: --set expects KEY=VALUE, got '{pair}'.", err=True
+                )
+                raise SystemExit(ExitCode.USAGE)
+            try:
+                out[key] = json.loads(raw)
+            except json.JSONDecodeError:
+                out[key] = raw
+        return out
+
+    @workflow_app.command("answer")
+    @click.argument("workflow_id")
+    @click.argument("gate")
+    @click.option("--input", "input_json", default=None,
+                  help="Merge a whole JSON object into the draft.")
+    @click.option("--set", "set_pairs", multiple=True, metavar="KEY=VALUE",
+                  help="Merge one field into the draft (repeatable).")
+    @click.option("--unset", "unset_keys", multiple=True, metavar="KEY",
+                  help="Remove a field from the draft (repeatable).")
+    @click.option("--clear", is_flag=True, help="Discard the draft entirely.")
+    @click.option("--replace", is_flag=True,
+                  help="With --input: replace the draft rather than merging.")
+    @click.option("--show", "show_only", is_flag=True,
+                  help="Print the draft and what is still missing; change nothing.")
+    @click.option("--commit/--no-commit", default=True,
+                  help="Validate and answer when the draft is complete (default: on).")
+    @click.option("--reopen", is_flag=True,
+                  help="Move an answered payload back into the draft to correct it.")
+    @click.option("--format", "fmt", type=click.Choice(["table", "json"]),
+                  default="table", help="Render the result as a table or JSON.")
+    @click.pass_context
+    def workflow_answer(
+        ctx: click.Context,
+        workflow_id: str,
+        gate: str,
+        input_json: str | None,
+        set_pairs: tuple[str, ...],
+        unset_keys: tuple[str, ...],
+        clear: bool,
+        replace: bool,
+        show_only: bool,
+        commit: bool,
+        reopen: bool,
+        fmt: str,
+    ) -> None:
+        """Record input for a gate. Never runs anything.
+
+        `answer` records; `resume` advances. One meaning each, on every surface.
+
+        A field at a time, or all at once — the draft accumulates until it
+        validates whole, and only then is the gate answered. So two actors can
+        fill different fields of the same gate, and neither has to hold the
+        whole answer.
+        """
+        import json
+
+        from functualize.app.utils import answer_gate, gate_draft
+
+        app = _workflow_app_ref(ctx)
+        store = _workflow_store()
+
+        values = _parse_set(set_pairs)
+        if input_json is not None:
+            try:
+                values = {**json.loads(input_json), **values}
+            except json.JSONDecodeError as exc:
+                click.echo(f"Error: --input is not valid JSON: {exc}", err=True)
+                raise SystemExit(ExitCode.USAGE) from exc
+
+        with _workflow_refusal():
+            if show_only:
+                result = gate_draft(app, store, workflow_id, gate)
+            else:
+                result = answer_gate(
+                    app, store, workflow_id, gate, values,
+                    mode="replace" if replace else "merge",
+                    unset=list(unset_keys),
+                    clear=clear,
+                    commit=commit,
+                    reopen=reopen,
+                )
+
+        if fmt == "json":
+            click.echo(json.dumps(result, indent=2))
+        if "error" in result:
+            if fmt != "json":
+                click.echo(f"Error: {result['message']}", err=True)
+            raise SystemExit(_workflow_exits.get(result["error"], 1))
+        if fmt == "json":
+            return
+        if show_only:
+            _render_draft(result)
+            return
+        click.echo(result["message"])
+
+    def _render_draft(report: dict[str, Any]) -> None:
+        """The draft, and — the part that makes it usable — what is missing."""
+        click.echo(f"Gate:     {report['gate']} ({report['model']})")
+        click.echo(f"Draft:    {report['draft'] or '-'}")
+        click.echo(f"Complete: {report['complete']}")
+        for entry in report["missing"]:
+            detail = f" — {entry['description']}" if entry.get("description") else ""
+            click.echo(f"  missing: {entry['field']} ({entry.get('type') or '?'}){detail}")
+        for entry in report["invalid"]:
+            click.echo(f"  invalid: {entry['field']} — {entry['message']}")
 
     @workflow_app.command("resume")
     @click.argument("workflow_id")

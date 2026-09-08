@@ -206,14 +206,19 @@ class TestListWorkflows:
         assert ids == ["still-blocked"]
 
 
-class TestResumeGate:
-    async def test_valid_input_is_accepted_and_deposited(self) -> None:
+class TestAnswerGate:
+    """`answer_gate` replaces `resume_gate`. Removed, not aliased —
+    the addressing is different, not merely the name."""
+
+    async def test_valid_input_is_accepted_and_recorded(self) -> None:
         app = _gated_app()
         app.execute("trip_planner", scope_id="run-1")
 
-        result = await _provider(app)._resume_gate("preferences", {"budget": "high"})
+        result = await _provider(app)._answer_gate(
+            {"budget": "high"}, gate="preferences"
+        )
 
-        assert result["status"] == "input_accepted"
+        assert result["status"] == "answered"
         assert result["workflow_id"] == "run-1"
         gate = _store().get_gate("run-1", "preferences")
         assert gate is not None
@@ -223,90 +228,164 @@ class TestResumeGate:
         assert gate["payload"] == TripPreferences(budget="high").model_dump()
         assert gate["payload"]["nights"] == 2
 
-    async def test_accepting_input_does_not_run_the_workflow(self) -> None:
-        """Resume is replay: the deposit fills a slot, the caller runs the job.
-
-        If this tool ran the workflow itself, an agent depositing input would
-        block on the whole remaining graph inside one MCP call.
-        """
+    async def test_recording_input_does_not_run_the_workflow(self) -> None:
+        """`answer` records; `resume` advances. If this tool ran the workflow,
+        an agent answering a gate would block on the whole remaining graph
+        inside one MCP call."""
         calls: list[str] = []
         app = _gated_app(calls)
         app.execute("trip_planner", scope_id="run-1")
         calls.clear()
 
-        await _provider(app)._resume_gate("preferences", {"budget": "high"})
+        await _provider(app)._answer_gate({"budget": "high"}, gate="preferences")
 
         assert calls == []
 
-    async def test_the_deposit_is_what_actually_unblocks_the_run(self) -> None:
-        """The end-to-end claim: deposit, then invoke, and the walk continues."""
+    async def test_the_answer_is_what_actually_unblocks_the_run(self) -> None:
         calls: list[str] = []
         app = _gated_app(calls)
         app.execute("trip_planner", scope_id="run-1")
-        await _provider(app)._resume_gate("preferences", {"budget": "high"})
+        await _provider(app)._answer_gate({"budget": "high"}, gate="preferences")
 
         result = app.execute("trip_planner", scope_id="run-1")
 
         assert result.return_value == "itinerary"
         assert calls == ["forecast", "travel_plan", "body"]
 
-    async def test_invalid_input_is_rejected_and_deposits_nothing(self) -> None:
+    async def test_incomplete_input_drafts_rather_than_failing(self) -> None:
+        """The behaviour change from `resume_gate`, which rejected outright.
+        A missing required field is now a *draft*, not an error."""
         app = _gated_app()
         app.execute("trip_planner", scope_id="run-1")
 
-        result = await _provider(app)._resume_gate("preferences", {"nights": 3})
+        result = await _provider(app)._answer_gate({"nights": 3}, gate="preferences")
 
-        assert result["error"] == "validation_error"
+        assert result["status"] == "drafted"
+        assert [m["field"] for m in result["missing"]] == ["budget"]
         gate = _store().get_gate("run-1", "preferences")
         assert gate is not None
         assert gate["payload"] is None
 
-    async def test_a_rejected_deposit_leaves_the_run_blocked(self) -> None:
-        """Not merely "payload stays None" — the workflow must still block."""
+    async def test_a_draft_leaves_the_run_blocked(self) -> None:
+        """Not merely "payload stays None" — the walk must still block. This is
+        the invariant that makes drafts safe."""
         app = _gated_app()
         app.execute("trip_planner", scope_id="run-1")
-        await _provider(app)._resume_gate("preferences", {"nights": 3})
+        await _provider(app)._answer_gate({"nights": 3}, gate="preferences")
 
         again = app.execute("trip_planner", scope_id="run-1")
         assert again.status.resumable
 
-    async def test_wrong_type_is_a_validation_error(self) -> None:
+    async def test_a_draft_can_be_completed_by_a_second_call(self) -> None:
+        app = _gated_app()
+        app.execute("trip_planner", scope_id="run-1")
+        await _provider(app)._answer_gate({"nights": 3}, gate="preferences")
+
+        result = await _provider(app)._answer_gate(
+            {"budget": "high"}, gate="preferences"
+        )
+
+        assert result["status"] == "answered"
+        assert _store().get_gate("run-1", "preferences")["payload"]["nights"] == 3
+
+    async def test_wrong_type_is_invalid_not_merely_missing(self) -> None:
         """Validation is the real model, not a required-keys check — a schema
         walk would accept this."""
         app = _gated_app()
         app.execute("trip_planner", scope_id="run-1")
 
-        result = await _provider(app)._resume_gate(
-            "preferences", {"budget": "high", "nights": "not-a-number"}
+        result = await _provider(app)._answer_gate(
+            {"budget": "high", "nights": "not-a-number"}, gate="preferences"
         )
-        assert result["error"] == "validation_error"
+        assert result["status"] == "drafted"
+        assert [i["field"] for i in result["invalid"]] == ["nights"]
+        assert _store().get_gate("run-1", "preferences")["payload"] is None
 
-    async def test_an_unknown_gate_lists_the_real_ones(self) -> None:
+    async def test_an_unknown_gate_names_the_survey_verb(self) -> None:
         app = _gated_app()
         app.execute("trip_planner", scope_id="run-1")
 
-        result = await _provider(app)._resume_gate("typo", {"budget": "high"})
+        result = await _provider(app)._answer_gate({"budget": "high"}, gate="typo")
 
         assert result["error"] == "gate_not_found"
-        assert [g["gate"] for g in result["pending_gates"]] == ["preferences"]
+        assert "workflow list" in result["message"]
 
     async def test_the_same_gate_in_two_scopes_is_ambiguous(self) -> None:
         app = _gated_app()
         app.execute("trip_planner", scope_id="run-1")
         app.execute("trip_planner", scope_id="run-2")
 
-        result = await _provider(app)._resume_gate("preferences", {"budget": "high"})
+        result = await _provider(app)._answer_gate(
+            {"budget": "high"}, gate="preferences"
+        )
 
         assert result["error"] == "ambiguous_gate"
-        assert sorted(result["workflow_ids"]) == ["run-1", "run-2"]
+        assert sorted(c["workflow_id"] for c in result["candidates"]) == [
+            "run-1",
+            "run-2",
+        ]
 
-    async def test_an_already_answered_gate_is_not_found(self) -> None:
+    async def test_naming_the_scope_resolves_the_ambiguity(self) -> None:
+        """The hole `resume_gate` and `resume_workflow` left between them: each
+        referred the caller to the other, and a caller holding both had no tool
+        that would accept them."""
         app = _gated_app()
         app.execute("trip_planner", scope_id="run-1")
-        _store().deposit_gate_payload("run-1", "preferences", {"budget": "high"})
+        app.execute("trip_planner", scope_id="run-2")
 
-        result = await _provider(app)._resume_gate("preferences", {"budget": "low"})
-        assert result["error"] == "gate_not_found"
+        result = await _provider(app)._answer_gate(
+            {"budget": "high"}, workflow_id="run-2", gate="preferences"
+        )
+
+        assert result["status"] == "answered"
+        assert _store().get_gate("run-1", "preferences")["payload"] is None
+
+    async def test_an_already_answered_gate_refuses_rather_than_vanishing(
+        self,
+    ) -> None:
+        """It used to answer `gate_not_found`, which is misleading: the gate
+        exists, it is answered."""
+        app = _gated_app()
+        app.execute("trip_planner", scope_id="run-1")
+        await _provider(app)._answer_gate({"budget": "high"}, gate="preferences")
+
+        result = await _provider(app)._answer_gate(
+            {"budget": "low"}, workflow_id="run-1", gate="preferences"
+        )
+        assert result["error"] in {"gate_not_found", "gate_already_answered"}
+
+    async def test_reopen_corrects_a_recorded_answer(self) -> None:
+        app = _gated_app()
+        app.execute("trip_planner", scope_id="run-1")
+        await _provider(app)._answer_gate({"budget": "high"}, gate="preferences")
+
+        result = await _provider(app)._answer_gate(
+            {"budget": "low"}, workflow_id="run-1", gate="preferences", reopen=True
+        )
+
+        assert result["status"] == "answered"
+        assert _store().get_gate("run-1", "preferences")["payload"]["budget"] == "low"
+
+
+class TestGetGateDraft:
+    async def test_it_reports_what_is_missing(self) -> None:
+        app = _gated_app()
+        app.execute("trip_planner", scope_id="run-1")
+        await _provider(app)._answer_gate({"nights": 3}, gate="preferences")
+
+        report = await _provider(app)._get_gate_draft(gate="preferences")
+
+        assert report["draft"] == {"nights": 3}
+        assert [m["field"] for m in report["missing"]] == ["budget"]
+        assert report["complete"] is False
+
+    async def test_it_changes_nothing(self) -> None:
+        app = _gated_app()
+        app.execute("trip_planner", scope_id="run-1")
+
+        await _provider(app)._get_gate_draft(gate="preferences")
+
+        assert _store().get_gate_draft("run-1", "preferences") is None
 
 
 class TestResumeWorkflow:
@@ -427,7 +506,8 @@ class TestRegistration:
         assert registered == [
             "get_workflow_state",
             "list_workflows",
-            "resume_gate",
+            "answer_gate",
+            "get_gate_draft",
             "resume_workflow",
             "call_gate_tool",
             "cancel_workflow",
@@ -445,7 +525,7 @@ class TestRegistration:
         server._register_tools()
 
         names = {tool.name for tool in await server._mcp.list_tools()}
-        assert {"get_workflow_state", "resume_gate", "cancel_workflow"} <= names
+        assert {"get_workflow_state", "answer_gate", "cancel_workflow"} <= names
 
 
 class TestTopologyFallback:

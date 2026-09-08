@@ -250,7 +250,7 @@ now: `ImportError` · after: exit 0
 
 ## Wave 7 — the answer surfaces
 
-### [ ] T12 · `func builtin workflow answer`
+### [x] T12 · `func builtin workflow answer`
 
 **Files:** `src/functualize/_cli/builtins.py`
 
@@ -264,7 +264,7 @@ now: `2` (no such command) · after: `0`
 
 ---
 
-### [ ] T13 · MCP `answer_gate` replaces `resume_gate`
+### [x] T13 · MCP `answer_gate` replaces `resume_gate`
 
 **Files:** `plugins/functualize-mcp/src/functualize_mcp/_workflow_tools.py`
 

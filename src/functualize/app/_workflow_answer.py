@@ -37,7 +37,11 @@ __all__ = ["answer_gate", "gate_draft", "resolve_gate"]
 
 
 def resolve_gate(
-    store: Any, scope_id: str | None, gate: str | None
+    store: Any,
+    scope_id: str | None,
+    gate: str | None,
+    *,
+    include_answered: bool = False,
 ) -> tuple[str, str] | dict[str, Any]:
     """Resolve ``(scope_id, gate)`` from whichever half the caller supplied.
 
@@ -50,8 +54,25 @@ def resolve_gate(
     exactly one is used, several are listed. Never "newest wins" — ``blocked_at``
     resets on every re-block, so it is not computable anyway.
 
+    ``include_answered`` widens the search past the pending set. Correcting an
+    answer means addressing a gate that is, by definition, no longer pending —
+    without this, ``--reopen`` could never name its own target.
+
     Returns ``(scope_id, gate)`` or an error envelope.
     """
+    if scope_id is not None and gate is not None:
+        # Both named: there is nothing to disambiguate, so this path must not
+        # consult the pending set at all. It did, and `--reopen` could not
+        # address the answered gate it exists to correct.
+        scope = store.get_scope(scope_id)
+        if scope is None:
+            return _error("workflow_not_found", f"No workflow scope '{scope_id}'.")
+        if store.get_gate(scope_id, gate) is None:
+            return _error(
+                "gate_not_found", f"Workflow '{scope_id}' has no gate '{gate}'."
+            )
+        return scope_id, gate
+
     candidates: list[tuple[str, str]] = []
     for sid in store.scope_ids():
         if scope_id is not None and sid != scope_id:
@@ -61,7 +82,12 @@ def resolve_gate(
             continue
         if scope_id is None and scope.get("status") not in ("running", "blocked"):
             continue
-        for name, _record in pending_gates(scope):
+        names = (
+            sorted(scope.get("gates") or {})
+            if include_answered
+            else [name for name, _record in pending_gates(scope)]
+        )
+        for name in names:
             if gate is None or name == gate:
                 candidates.append((sid, name))
 

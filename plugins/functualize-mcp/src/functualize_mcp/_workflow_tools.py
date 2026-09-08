@@ -4,7 +4,8 @@ These tools let an external agent drive a `@workflow` across turns:
 
 - ``get_workflow_state`` — one scope's topology, progress, and pending gates
 - ``list_workflows`` — survey scopes, with filters
-- ``resume_gate`` — deposit input for a gate, addressed by gate name
+- ``answer_gate`` — record input for a gate, addressed by either identifier
+- ``get_gate_draft`` — what is supplied, missing and invalid on one gate
 - ``resume_workflow`` — deposit input for a scope with exactly one pending gate
 - ``cancel_workflow`` — terminate a scope
 
@@ -37,9 +38,12 @@ from functualize.app.utils import (
 )
 from functualize.app.utils import (
     StateStore,
+    answer_gate,
     deposit_gate_input,
     describe_scope,
+    gate_draft,
     list_scopes,
+    resolve_gate,
     tool_entries,
 )
 from functualize.app.utils import (
@@ -192,11 +196,12 @@ class WorkflowToolProvider:
         """Register the workflow tools with a FastMCP server instance."""
         mcp.add_tool(self._get_workflow_state)
         mcp.add_tool(self._list_workflows)
-        mcp.add_tool(self._resume_gate)
+        mcp.add_tool(self._answer_gate)
+        mcp.add_tool(self._get_gate_draft)
         mcp.add_tool(self._resume_workflow)
         mcp.add_tool(self._call_gate_tool)
         mcp.add_tool(self._cancel_workflow)
-        logger.info("WorkflowToolProvider: registered 6 workflow MCP tools")
+        logger.info("WorkflowToolProvider: registered 7 workflow MCP tools")
 
     # ------------------------------------------------------------------
     # Tools
@@ -246,39 +251,68 @@ class WorkflowToolProvider:
     )
 
     @_refuse_unreadable_scopes
-    async def _resume_gate(self, gate: str, input: dict[str, Any]) -> dict[str, Any]:
-        matches = [
-            scope_id
-            for scope_id, scope in self._scopes()
-            if scope.get("status") in _LIVE_STATUSES
-            and any(name == gate for name, _ in _pending_gates(scope))
-        ]
+    async def _answer_gate(
+        self,
+        values: dict[str, Any],
+        workflow_id: str | None = None,
+        gate: str | None = None,
+        mode: str = "merge",
+        commit: bool = True,
+        reopen: bool = False,
+        unset: list[str] | None = None,
+        clear: bool = False,
+    ) -> dict[str, Any]:
+        resolved = resolve_gate(
+            self.store, workflow_id, gate, include_answered=reopen
+        )
+        if isinstance(resolved, dict):
+            return resolved
+        scope_id, gate_name = resolved
+        return answer_gate(
+            self._app,
+            self.store,
+            scope_id,
+            gate_name,
+            values,
+            mode=mode,
+            unset=unset,
+            clear=clear,
+            commit=commit,
+            reopen=reopen,
+        )
 
-        if not matches:
-            return {
-                "error": "gate_not_found",
-                "message": f"No blocked workflow is awaiting gate '{gate}'.",
-                "pending_gates": self._all_pending_gates(),
-            }
-        if len(matches) > 1:
-            return {
-                "error": "ambiguous_gate",
-                "message": (
-                    f"Gate '{gate}' is pending in {len(matches)} scopes. "
-                    "Use resume_workflow with a workflow_id to disambiguate."
-                ),
-                "workflow_ids": matches,
-            }
+    _answer_gate.__name__ = "answer_gate"
+    _answer_gate.__qualname__ = "answer_gate"
+    _answer_gate.__doc__ = (
+        "Record input for a workflow gate. Does not run the workflow — call "
+        "resume_workflow to advance it. Address the gate by workflow_id, by "
+        "gate, or by both; either may be omitted when it is unambiguous. Input "
+        "accumulates in a draft and the gate is answered only once the draft "
+        "validates whole, so several actors can fill different fields of it. "
+        "Args: values — field values; workflow_id; gate; mode — merge "
+        "(default) or replace; commit — validate and answer when complete "
+        "(default true); reopen — move an already-recorded answer back into "
+        "the draft to correct it; unset — field names to drop; clear — discard "
+        "the draft first."
+    )
 
-        return self._deposit(matches[0], gate, input)
+    @_refuse_unreadable_scopes
+    async def _get_gate_draft(
+        self, workflow_id: str | None = None, gate: str | None = None
+    ) -> dict[str, Any]:
+        resolved = resolve_gate(self.store, workflow_id, gate)
+        if isinstance(resolved, dict):
+            return resolved
+        scope_id, gate_name = resolved
+        return gate_draft(self._app, self.store, scope_id, gate_name)
 
-    _resume_gate.__name__ = "resume_gate"
-    _resume_gate.__qualname__ = "resume_gate"
-    _resume_gate.__doc__ = (
-        "Provide input for a gate, addressed by gate name. Input is validated "
-        "against the gate's model and nothing is stored if it fails. Accepting "
-        "input does not run the workflow — invoke the workflow job to continue "
-        "it. Args: gate — the gate name; input — field values."
+    _get_gate_draft.__name__ = "get_gate_draft"
+    _get_gate_draft.__qualname__ = "get_gate_draft"
+    _get_gate_draft.__doc__ = (
+        "Inspect a gate's accumulated draft: what has been supplied, what is "
+        "still missing (with each field's type and description), and what is "
+        "invalid. Changes nothing. Args: workflow_id; gate — either may be "
+        "omitted when unambiguous."
     )
 
     @_refuse_unreadable_scopes
