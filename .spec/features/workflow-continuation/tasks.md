@@ -343,7 +343,7 @@ now: `6` · after: `6` (`get_workflow_state`, `list_workflows`, `answer_gate`,
 
 ## Wave 10 — the `--wf-*` family
 
-### [ ] T17 · Nine flags, one helper, two injection points
+### [x] T17 · Nine flags, one helper, two injection points
 
 **Files:** `src/functualize/app/adapters/workflow_flags.py` (new),
 `src/functualize/app/adapters/click_params.py`,

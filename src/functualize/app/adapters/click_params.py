@@ -1089,11 +1089,22 @@ def build_job_engine_callback(
                 "Ensure the app has been booted with an execution engine."
             )
 
-        # `--scope-id` is a command option on a `@workflow` job (see
-        # `_scope_id_option`), so it arrives as a kwarg and must not reach the
-        # job body. A per-command value wins over the pre-command global.
-        scope_id = kwargs.pop(_SCOPE_ID_PARAM, None) or workflow_scope_id
+        # The `--wf-*` family are command options on a `@workflow` job, so
+        # they arrive as kwargs and must not reach the job body. Resolving them
+        # can also *end* the invocation: `--wf-status` and `--wf-show` exit
+        # without running anything, which is why this sits above the engine
+        # call rather than inside it.
+        #
+        # Both dispatch paths call the same `apply_workflow_flags`
+        # (`pitfalls.md` §23). `lazy_command.py` is the other one.
+        scope_id = workflow_scope_id
+        if _declares_workflow(function):
+            from functualize.app.adapters.workflow_flags import apply_workflow_flags
+
+            scope_id = apply_workflow_flags(app_ref, name, kwargs) or scope_id
         if scope_id is None:
+            # The programmatic seam, kept deliberately: an embedded host sets
+            # this attribute directly. It has no CLI spelling.
             scope_id = getattr(app_ref, "_workflow_scope_id", None)
 
         cli_values: dict[str, Any] = {}
@@ -1315,9 +1326,11 @@ def create_job_click_command(
         function, job_config_class
     )
     if _declares_workflow(function):
-        # A `@workflow` job can be resumed; every other job has nothing
-        # to resume, so the flag stays off its --help.
-        params = [*params, _scope_id_option()]
+        # A `@workflow` job can be surveyed, inspected and advanced; every
+        # other job has nothing to advance, so the flags stay off its --help.
+        from functualize.app.adapters.workflow_flags import workflow_flag_params
+
+        params = workflow_flag_params(params)
     markers = extract_capability_markers(function)
     callback = build_job_engine_callback(
         name,
