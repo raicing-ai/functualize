@@ -1,7 +1,8 @@
-# 04 · `builtin workflow deposit` — partial, whole, and corrected gate input
+# 07 · Gate answers — partial, whole, and corrected
 
-Design note for the proposal: *let the AI deposit required inputs one at a time,
-partially, wholly, or edit existing input.*
+How a gate is answered: one field at a time, all at once, or corrected. The verb is
+`answer` ([05 §2.3](05-target-surface.md)); `deposit_gate_input` remains the internal
+function name.
 
 ---
 
@@ -65,7 +66,7 @@ validated dump, on both the deposit path and the strategy path.
 ## 3. The command
 
 ```
-func builtin workflow deposit <workflow-id> <gate> [OPTIONS]
+func builtin workflow answer <workflow-id> <gate> [OPTIONS]
 ```
 
 | Option | Meaning |
@@ -85,17 +86,17 @@ Every mutating invocation attempts a commit at the end. If the draft validates, 
 is answered — so the existing one-shot flow is unchanged:
 
 ```bash
-func builtin workflow deposit a3f9c2 approval --input '{"approved": true, "reason": "ok"}'
+func builtin workflow answer a3f9c2 approval --input '{"approved": true, "reason": "ok"}'
 # → validates, commits, gate answered
 ```
 
 and the incremental flow falls out of the same command:
 
 ```bash
-func builtin workflow deposit a3f9c2 approval --set approved=true
+func builtin workflow answer a3f9c2 approval --set approved=true
 # → draft saved; still missing: reason (string, required)
 
-func builtin workflow deposit a3f9c2 approval --set reason='"signed off by SRE"'
+func builtin workflow answer a3f9c2 approval --set reason='"signed off by SRE"'
 # → draft complete; validated; gate answered
 ```
 
@@ -107,7 +108,7 @@ opens.
 `--reopen` is a separate, explicit verb — not a side effect of `--set`:
 
 ```bash
-func builtin workflow deposit a3f9c2 approval --reopen
+func builtin workflow answer a3f9c2 approval --reopen
 # → payload moved back into draft; gate is pending again
 ```
 
@@ -121,7 +122,7 @@ that gate may be reopened.
 ## 4. `--show` is the piece that makes it usable for an agent
 
 ```bash
-$ func builtin workflow deposit a3f9c2 approval --show --format json
+$ func builtin workflow answer a3f9c2 approval --show --format json
 {
   "workflow_id": "a3f9c2...", "gate": "approval", "model": "ApprovalInput",
   "input_schema": { ... },
@@ -146,7 +147,7 @@ that function was itself lifted out of the MCP plugin. Then:
 
 | Surface | Spelling |
 |---|---|
-| CLI | `func builtin workflow deposit <id> <gate> --set … --show --commit` |
+| CLI | `func builtin workflow answer <id> <gate> --set … --show --commit` |
 | MCP | `deposit_gate_input(workflow_id, gate, values, mode="merge"\|"replace", commit=true)` and `get_gate_draft(workflow_id, gate)` |
 | Job flag | out of scope — deposit is a record-level verb (see §6) |
 
@@ -181,4 +182,4 @@ different fields of the same gate.
 | **Fix `payload` to store `model_dump()` on both paths** | 2 lines, do it first |
 
 No engine change. No walker change. No new storage section — and therefore no
-`STATE_VERSION` bump, which matters until [07-roadmap](07-roadmap.md) item 0 lands.
+`STATE_VERSION` bump, which matters until [07-roadmap](13-roadmap.md) item 0 lands.

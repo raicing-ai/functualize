@@ -1,8 +1,8 @@
-# 10 · Workflows as a coordination substrate, and child-scope addressing
+# 08 · Coordination — notes, and tasks
 
-Three questions: can a workflow carry **messages** between agents · can it carry **tasks** ·
-how do we address **children of children**. Prior art surveyed, then a design grounded in
-what the code actually permits.
+Can a workflow carry **messages** between agents, and can it carry **tasks**? Prior art
+surveyed, then a design grounded in what the code permits. Child-scope addressing is
+[09](09-nesting.md).
 
 ---
 
@@ -38,7 +38,7 @@ Verified before designing:
    state write more expensive, forever. The existing precedent is a ring buffer:
    `HISTORY_LIMIT = 200` (`state_format.py:53`).
 3. **The envelope is destroyed by a version bump and by `state clear`**
-   ([07 item 0](07-roadmap.md)). Messages would evaporate exactly as scopes do. **Item 0
+   ([13 item 0](13-roadmap.md)). Messages would evaporate exactly as scopes do. **Item 0
    is a hard prerequisite** — a coordination log that silently empties is worse than none.
 4. **No timestamps exist on scope records** (`_blank_scope`, `state_store.py:45-56`).
    Messages must carry their own.
@@ -89,7 +89,7 @@ on this scope since I last looked"* is one call, not a diff of the whole scope.
 ### 3.3 The rules that keep it a blackboard
 
 - **Append-only.** No edit, no delete. Corrections are new notes with `in_reply_to`.
-  (Contrast the gate `draft`, which *is* editable — see [04](04-gate-deposit.md) — because
+  (Contrast the gate `draft`, which *is* editable — see [07](07-gate-answers.md) — because
   a draft is an unanswered question and a note is a recorded observation.)
 - **Bounded.** Ring-buffer per scope, `NOTES_LIMIT` in the shape of `HISTORY_LIMIT`, plus
   a body-length cap. Constraint §2.2 is not optional.
@@ -107,7 +107,7 @@ on this scope since I last looked"* is one call, not a diff of the whole scope.
 |---|---|
 | **Identity** | `actor` — same capture the provenance design specifies (MCP `clientInfo.name`, `FUNCTUALIZE_ACTOR`, tty ⇒ human). Blocked on that work. |
 | **Permission** | Whoever can open the project can read and write. Notes are *not* a security boundary — say so in the docs, the way pi-workflows says `allowedTools` is *"an exact tool allowlist, not a filesystem sandbox."* |
-| **Expiry** | The ring buffer, plus `purge` ([09 §2.1](09-target-matrix-and-lifecycles.md)). |
+| **Expiry** | The ring buffer, plus `purge` ([05](05-target-surface.md)). |
 | **Routing** | Deliberately absent. The scope *is* the address. |
 
 ### 3.5 What this buys, concretely
@@ -133,7 +133,7 @@ survive a context reset.
 
 ## 4. Tasks — address them, do not couple them
 
-[05](05-tasks-and-workflows.md) established that `functualize-tasks` and workflows share
+[08 §4](08-coordination.md) established that `functualize-tasks` and workflows share
 exactly one unvalidated string (`TaskLink.kind == "workflow_step"`) and no code path.
 
 **Do not merge tasks into the note log, and do not reimplement notes inside tasks.** A2A
@@ -166,108 +166,17 @@ does not exist.
 
 ---
 
-## 5. Child workflows — addressing, and the fork nobody wrote down
-
-### 5.1 The two available models
-
-**pi-workflows chose inlining.** `WORKFLOW_COMPOSITION.md`:
-
-> *Composition keeps one run, trace, pause state, cancellation state, and final
-> presentation. Controllers remain the correct tool for independent or indefinitely
-> reconciled child runs.*
-
-Included workflows are mounted at node paths (`parent/child/node`) inside **one** run.
-There is no child run to address, no second pause state, no cascade question. Independent
-child runs are a *different subsystem* (resource-manager controllers).
-
-**functualize chose child scopes.** `Step(wf)` derives `f"{parent}::{step}"`
-(`executor.py:1200-1212`), recursively — a grandchild is `parent::step::substep`. Each is
-a real scope with its own step records, gate slots and epilogue.
-
-Neither is wrong. functualize's buys something real: a nested workflow is independently
-resumable, independently inspectable, and `workflow = job` stays true with **zero**
-composition machinery — pi-workflows needed `includeWorkflow`, typed exits, `contractId`,
-mount paths and `assertInvocationStepLimit` to get less. **Keep the model.** But it has
-five unpaid costs.
-
-### 5.2 The five defects
-
-**D-A · The separator is overloaded.** `::` means *step key* (`"<job>::<args_hash>"`,
-`frontier.py:245-247`) **and** *scope descent* (`executor.py:1208`). `_job_of` does
-`split("::", 1)[0]` on step keys; a grandchild scope id needs `rsplit`. Two namespaces,
-one token, no parser can tell them apart from the string alone.
-**Fix:** child scopes use `/`. `a3f9c2…/deploy/verify`. Matches pi-workflows' mountPath,
-frees `::` for step keys, and is pre-release-safe.
-
-**D-B · A parent blocked on a child's gate is unnameable.** The `StepBlocked` path sets
-position and status and **never calls `_block`** (`workflow_walker.py:319-337`), so the
-parent's `gates` stays `{}`. Result: `status: blocked`, `pending_gates: []` — *identical*
-to the "answered, awaiting re-entry" state ([09 §1 D-1](09-target-matrix-and-lifecycles.md)).
-And `resume_workflow(parent_id, …)` answers with the self-contradiction
-*"no gate awaiting input (status: blocked)"*.
-**Fix:** record `blocked_on_child: {"scope": "a3f9c2…/deploy", "gate": "approval"}` on the
-parent. Derived state becomes `waiting:child`, and the message points at the child.
-
-**D-C · `WalkReport` throws away the child scope.** `StepBlocked` carries it
-(`workflow_walker.py:57-69`) and the walker uses only `blocked.blocked_on`. So
-`metadata.workflow_scope` names the **parent** while `blocked_on` names a gate that lives
-in the **child** — a caller cannot address what it was told about.
-**Fix:** one field through the report. Trivial, and it is what makes D-B's message
-possible.
-
-**D-D · No parent close policy.** Cancelling a parent leaves children live; cancelling a
-child leaves the parent blocked forever. Temporal names exactly this and offers three
-options — **Abandon**, **Request Cancel**, **Terminate** (its default).
-**Fix:** adopt the vocabulary. Default `terminate` for `cancel`, declarable per step:
-`Step(child_wf, on_parent_cancel="abandon")`. A cascade is a store walk over the id
-prefix, which the path form makes a one-liner.
-
-**D-E · Listings are flat.** `scope_ids()` returns every key sorted
-(`state_store.py:307-309`); nothing groups, links or filters. `a3f9c2…` and
-`a3f9c2…/deploy` are peer rows with no indication one contains the other.
-**Fix:** record `parent` and `mount` on the child at creation, then `list --tree`,
-`show --descendants`, and a default that **hides children** unless `--all` — a run should
-appear once.
-
-### 5.3 "Ad infinitum" is already bounded — twice, weakly
-
-- Boot rejects `@workflow` nesting **cycles** (`workflow_validation.py:184-197`,
-  `WorkflowDeclarationError`), so depth is bounded by the declaration graph.
-- `max_invoke_depth = 10` exists (`executor.py:184`) but the workflow-step path passes
-  `invoke_depth` through **unchanged** (`:843`), so it does not bound nesting.
-
-That is fine for statically declared graphs and thin for `register_dynamic_job`. **Add a
-`max_workflow_depth` guard** (mirroring pi-workflows' `assertInvocationStepLimit`, which
-bounds each included workflow's steps rather than trusting the shape), and refuse with the
-path so the message names the offender.
-
-### 5.4 The addressing rule, stated once
-
-```
-<scope-id>                       a top-level run
-<scope-id>/<step>                a nested workflow at that step
-<scope-id>/<step>/<step>         …recursively, no depth special-casing
-<scope-id>[/<step>…]#<node>      a node within a scope  (notes, task links, gate refs)
-```
-
-Deterministic and derived, so **re-entry finds the same child** — which is the whole
-reason the id is not fresh (`executor.py:1200-1207` explains it). Every verb in
-[09](09-target-matrix-and-lifecycles.md) takes this path wherever it takes a scope id;
-`--descendants` on read verbs and a close policy on `cancel` are the only additions.
-
----
-
-## 6. Recommendation, and what not to build
+## 5. Recommendation, and what not to build
 
 **Build, in this order:**
 
-1. **Nothing until [07 item 0](07-roadmap.md).** Notes and tasks both live in the envelope
+1. **Nothing until [13 item 0](13-roadmap.md).** Notes and tasks both live in the envelope
    that a version bump silently empties.
 2. **D-C then D-B** (child scope through the report; `blocked_on_child` on the parent).
    Two small fixes that make nested gated workflows addressable at all — today the
    blocked-on-child state is genuinely unaddressable over MCP.
 3. **D-A and D-E** (`/` separator, `parent`/`mount`, `list --tree`, hide children by
-   default). Fold into the projection lift ([07 item 3](07-roadmap.md)) — same code, same
+   default). Fold into the projection lift ([13 item 3](13-roadmap.md)) — same code, same
    release.
 4. **`note`** — after item 0, sized as a ring buffer, no routing. Its `actor` field is
    blocked on provenance; ship `actor: unknown` rather than guessing.

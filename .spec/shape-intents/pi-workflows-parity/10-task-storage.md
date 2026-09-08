@@ -1,4 +1,4 @@
-# 12 · Where tasks live, and the fan-out/reduce idea
+# 10 · Task storage, and the fan-out/reduce design
 
 Exploratory. Not a spec — the shape of the idea, the traps, and what I'd actually build.
 
@@ -29,7 +29,7 @@ Two things worth naming:
 
 - **The core runtime envelope and the State domain are different stores.** Workflow scopes
   are in `state.json` (core, unconditional); tasks are in the domain backend (optional,
-  four packages deep — [11 §6](11-core-plugin-boundaries.md)). They share no file, no
+  four packages deep — [11 §6](11-boundaries.md)). They share no file, no
   lock, no transaction.
 - **`list()` is a full scan + deserialize per call.** Fine at tens of tasks. It is the same
   honest-scale assumption the scope store makes, and it will break at the same point.
@@ -100,7 +100,7 @@ principled one**:
 
 - **Last-write-wins is not computable.** `TaskItem` has `created_at` and **no
   `updated_at`** (`_types.py:32-44`). Exactly the same defect as the scope record having
-  no timestamps ([01 §C.6](01-surface-inventory.md)) — and the same fix is required first.
+  no timestamps ([01 §C.6](01-current-state.md)) — and the same fix is required first.
 - **The status lattice is not monotonic.** `PENDING, IN_PROGRESS, DONE, SKIPPED, BLOCKED`
   (`_types.py:9-16`). If status only ever moved forward you could merge with `max` over
   the lattice — a clean, conflict-free join-semilattice. But `BLOCKED` can follow
@@ -119,7 +119,7 @@ wanted later, the prerequisites are: `updated_at`, a declared status ordering (o
 
 Not interop. **Fallback.**
 
-[11 §6](11-core-plugin-boundaries.md) established that durable tasks need four packages,
+[11 §6](11-boundaries.md) established that durable tasks need four packages,
 and that with no `StateBackend` wired they are in-memory and vanish at exit. A **file
 sink needs nothing** — stdlib `json` and `pathlib`. So it fills in the missing rung:
 
@@ -135,7 +135,7 @@ needs no `StateBackend`. That collapses the four-package chain to one for the co
 That is the strongest argument in the whole idea — it turns tasks from a
 four-plugins-deep optional feature into something that works out of the box.
 
-It also softens [10 §4](10-coordination-and-nesting.md)'s reasoning: I argued against
+It also softens [08 §4](08-coordination.md)'s reasoning: I argued against
 coupling tasks to workflow coordination *because* they were four packages deep. A
 one-package durable default weakens that objection — though co-addressing over coupling
 still holds for the other reasons (different mutability, different owner, engine never
@@ -166,11 +166,11 @@ losing three of five statuses is worse than not writing the file.
 
 Fan out to three sinks, sink two throws — you now have inconsistent state and a caller who
 was told `add()` succeeded. This is precisely what pi-workflows' effects outbox exists for
-([06 §3](06-pi-workflows-model.md)), and it would be absurd to build one for a to-do list.
+([03 §3](03-pi-workflows.md)), and it would be absurd to build one for a to-do list.
 
 The proportionate answer: **the primary write is the transaction; secondary failures are
 degraded-but-non-fatal and are recorded, never swallowed.** A secondary sink must never
-fail a job. But `logger.debug` is not "recorded" — that is the [11 §4 P4](11-core-plugin-boundaries.md)
+fail a job. But `logger.debug` is not "recorded" — that is the [11 §4 P4](11-boundaries.md)
 anti-pattern. Surface it where someone will see it.
 
 ### 6.2 File sinks need a lock, and the plugin has none
@@ -212,7 +212,7 @@ named — otherwise the framework's own capability-introspection surface starts 
 A shared, human-editable, multi-writer task file is *very* tempting as an agent
 coordination substrate. It is a bad one: no ordering, no identity, no atomicity, no
 reader position. That is what scope-bound notes are for
-([10 §3](10-coordination-and-nesting.md)). Tasks are a checklist; notes are the reasoning.
+([08 §3](08-coordination.md)). Tasks are a checklist; notes are the reasoning.
 Keep the split.
 
 ---

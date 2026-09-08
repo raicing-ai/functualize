@@ -1,4 +1,4 @@
-# 06 · pi-workflows, independently modelled
+# 03 · pi-workflows, independently modelled
 
 Read from source, not from the previous study. Focused on the parts functualize should
 copy, and the parts it should not.
@@ -147,7 +147,7 @@ errors are made unreachable after a side effect, by construction.
   outgoing edge outright. Branching and loops are fully supported via switch edges with
   N cases; **concurrency and joins are not.** functualize's `_ready` join deferral
   (`workflow_walker.py:378-396`) is a real capability pi-workflows does not have, and
-  after the corrections in [02](02-corrections.md) it is the only unambiguous one left.
+  after the corrections in [02](02-prior-study-corrections.md) it is the only unambiguous one left.
 
 ## 8. Scale, for calibration
 

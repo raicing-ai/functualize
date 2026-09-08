@@ -1,4 +1,4 @@
-# 01 · Workflow surface inventory — what exists today
+# 01 · Current state — the surface as it is, and its defects
 
 Three surfaces, three audiences: the **CLI builtin group** (record-level, no boot),
 **flags on the workflow job itself** (invocation-level), and **MCP tools** (agent-level).
@@ -155,7 +155,7 @@ runtime state. Does not touch the discovery cache."* Neither mentions scopes. A 
 clearing stale fingerprints destroys every blocked run and every deposited approval.
 
 This is the same root cause as the version-bump erasure (see
-[07-roadmap.md](07-roadmap.md) item 0): the envelope's framing — *"runtime state is
+[07-roadmap.md](13-roadmap.md) item 0): the envelope's framing — *"runtime state is
 derived, never a source of truth"* (`state_format.py:41-42`) — was written when it held
 only fingerprints, and `scopes` was added underneath it without revisiting the rule.
 
@@ -168,7 +168,7 @@ through it. So a deposited gate is invisible to every tool: `resume_gate` return
 (`state_store.py:232-241`) — only the tooling refuses.
 
 Correcting a typo in a deposited approval currently requires hand-editing
-`.functualize/state.json`. This is what [04-gate-deposit.md](04-gate-deposit.md)
+`.functualize/state.json`. This is what [04-gate-deposit.md](07-gate-answers.md)
 addresses.
 
 ---

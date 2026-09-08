@@ -1,4 +1,4 @@
-# 03 · MCP assessment — reach, naivety, and context cost
+# 04 · The MCP adapter — reach, naivety, and context cost
 
 Answers three questions: *can an agent run any job over MCP?* · *is the implementation
 naive?* · *does it bloat context?*
@@ -15,7 +15,7 @@ naive?* · *does it bloat context?*
 | Task | **4** — `add_task`, `list_tasks`, `update_task`, `plan_tasks` | `functualize_tasks` importable |
 | History | **2** — `get_job_history`, `get_execution_detail` | `functualize_state` importable |
 | Management | **4** — `mcp_start_server`, `mcp_list_servers`, `mcp_stop_server`, `mcp_get_server_tools` | `enable_management=True` (default False) |
-| Workflow | **6** — see [01](01-surface-inventory.md) | always |
+| Workflow | **6** — see [01](01-current-state.md) | always |
 | **Per-job** | **one tool per discovered job** | visibility + tag filters |
 
 So a job is reachable by: its own generated tool, `run_job`, `run_job_async`, or (for a
@@ -50,7 +50,7 @@ That comment is the design admitting the duplication.
 
 ### 2.2 Metadata is discarded at every execution door
 
-Covered in [01 §C.1](01-surface-inventory.md). `{status, return_value, duration_ms}` and
+Covered in [01 §C.1](01-current-state.md). `{status, return_value, duration_ms}` and
 nothing else, from all four doors. For a workflow this is fatal: `"Blocked"` with no
 scope id.
 
@@ -113,7 +113,7 @@ The framework already has every piece:
    costs you nothing *because* both paths are equally lossy — but the moment blocked
    metadata matters, the generic door must carry it.
 
-Note the ordering: (3) is required by [07-roadmap](07-roadmap.md) item 1 anyway, and it
+Note the ordering: (3) is required by [07-roadmap](13-roadmap.md) item 1 anyway, and it
 is what makes (1) safe.
 
 ---
@@ -135,4 +135,4 @@ is what makes (1) safe.
   advance blindly. The comment names the exact bug this fixed.
 - **`deposit_gate_input` is lifted, not duplicated** (`app/_workflow_resume.py`), so CLI
   and MCP share one notion of accepting gate input. That lift is the model for the
-  `call_gate_tool` and `_describe` lifts recommended in [01 §D](01-surface-inventory.md).
+  `call_gate_tool` and `_describe` lifts recommended in [01 §D](01-current-state.md).

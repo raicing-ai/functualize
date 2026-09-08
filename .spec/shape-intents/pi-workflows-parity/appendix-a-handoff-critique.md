@@ -1,4 +1,4 @@
-# 08 · Critique — `handoff-wf-status-decision.md`
+# Appendix A · Critique — `handoff-wf-status-decision.md`
 
 Source: `../functualize-vs-pi-workflows/handoff-wf-status-decision.md`
 
@@ -50,7 +50,7 @@ Then **four** thin callers, no duplicated logic:
 3. MCP `list_active_workflows` / `get_workflow_state` — re-pointed at the lifted code
 4. `--wf-resume`'s ambiguity error path
 
-This merges the handoff's work with roadmap item 3 ([07](07-roadmap.md)): they are the
+This merges the handoff's work with roadmap item 3 ([13](13-roadmap.md)): they are the
 same work, and doing them together is strictly cheaper than doing either alone.
 
 ---
@@ -139,7 +139,7 @@ epilogue's `completed_at`. And `awaiting 2h` is wrong for the reason in B-2.
 
 So *"No engine changes needed for the survey"* is only true if you drop those columns.
 Adding them means writing timestamps at scope creation and at block — a store change, and
-one that touches the same envelope as [07 item 0](07-roadmap.md).
+one that touches the same envelope as [13 item 0](13-roadmap.md).
 
 **Recommendation:** ship the survey **without** time columns and without `--actor`, and
 say so. Add `started_at` / `blocked_at` to the scope root in the same change that lands
@@ -190,7 +190,7 @@ defaults-less payload **in the same command**, and the user watches it happen.
 
 **Fix first** (two lines): make `deposit_gate_input` store `model(**payload).model_dump()`.
 This is also a precondition for the partial-deposit design in
-[04-gate-deposit.md](04-gate-deposit.md), which must not accumulate raw fragments.
+[04-gate-deposit.md](07-gate-answers.md), which must not accumulate raw fragments.
 
 ### B-5 · The survey makes an existing latent bug reachable
 
@@ -205,7 +205,7 @@ resumable."*
 
 Shipping a surface that lists cancelled scopes next to a resume flag turns a latent
 contract violation into a routine one. Land the three-line status guard in `prelude` (or
-delete the sentence) **with** this work — [07 item 2](07-roadmap.md).
+delete the sentence) **with** this work — [13 item 2](13-roadmap.md).
 
 ### B-6 · `--actor` requires provenance that does not exist
 

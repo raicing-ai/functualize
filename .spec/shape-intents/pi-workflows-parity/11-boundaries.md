@@ -78,7 +78,7 @@ Two consequences for this folder:
    `.get("notes", [])` and old scopes simply lack the key.
 
    **So notes ship without a `STATE_VERSION` bump.** That is a real relaxation of what
-   [10 §2.3](10-coordination-and-nesting.md) implied: item 0 is a prerequisite for
+   [08 §2.3](08-coordination.md) implied: item 0 is a prerequisite for
    *trusting* notes (any future bump or `state clear` still erases them), not for
    *shipping* them.
 
@@ -93,7 +93,7 @@ and resolved inputs, gate schemas — live in
 So **the richest workflow observability in the framework is only available if you install
 an MCP adapter.** A user who installs `functualize[cli]` and never touches MCP gets five
 fields (`builtins.py:831-841`). That is precisely the surprise ADR-016 exists to remove,
-and it is the strongest argument for [07 item 3](07-roadmap.md) — stronger than the UX
+and it is the strongest argument for [13 item 3](13-roadmap.md) — stronger than the UX
 argument I gave it originally.
 
 Same class, smaller: `call_gate_tool` is MCP-only. There is no reason a human at a
@@ -158,7 +158,7 @@ genuinely absent, prefer P1's shape: register a stub that returns a structured
 
 | Proposal | Layer | Package | Hard deps | Absent ⇒ |
 |---|---|---|---|---|
-| **Item 0** — stop scope erasure ([07](07-roadmap.md)) | `_primitives` | **core** | none | n/a — unconditional |
+| **Item 0** — stop scope erasure ([13](13-roadmap.md)) | `_primitives` | **core** | none | n/a — unconditional |
 | **Item 1** — return `metadata` from MCP doors | plugin | `-mcp` | core | CLI already prints it (`click_params.py:909-940`); the fix removes an adapter-only regression |
 | **Item 2** — enforce `cancel` | `_engine` | **core** | none | n/a |
 | **Item 3** — lift the projection | `app/` + `_cli` | **core** (+ `[cli]` to render) | none | headless/library callers still get the dict; only rendering needs `[cli]` |
@@ -166,11 +166,11 @@ genuinely absent, prefer P1's shape: register a stub that returns a structured
 | **Item 5** — `--wf-resume`/`--wf-input` | `app/adapters` | **core `[cli]`** | click | `--scope-id` still resumes |
 | **Item 5b** — `run_job(scope_id=…)` | plugin | `-mcp` | core | CLI unaffected |
 | **Item 6** — trim per-job tools | plugin | `-mcp` | core | — |
-| **`note`** ([10 §3](10-coordination-and-nesting.md)) | `_primitives` + `app/` | **core** | none | — |
+| **`note`** ([08 §3](08-coordination.md)) | `_primitives` + `app/` | **core** | none | — |
 | **`--wf-note`** | `app/adapters` | core `[cli]` | click | write via MCP or the builtin |
-| **Child addressing D-A/B/C/E** ([10 §5](10-coordination-and-nesting.md)) | `_engine` + `app/` | **core** | none | n/a |
+| **Child addressing D-A/B/C/E** ([09](09-nesting.md)) | `_engine` + `app/` | **core** | none | n/a |
 | **Parent close policy D-D** | `_engine` | **core** | none | n/a |
-| **Task co-addressing** ([10 §4](10-coordination-and-nesting.md)) | — | `-tasks` + `-tasks-local` | **a `StateBackend`** | see §6 |
+| **Task co-addressing** ([08 §4](08-coordination.md)) | — | `-tasks` + `-tasks-local` | **a `StateBackend`** | see §6 |
 | **Provenance / `actor`** | `_primitives` + adapters | **core** schema, adapter capture | none | `actor: unknown` — never guessed |
 | **Item 7** — agent-step port | `_types` (Protocol) + `_engine` | **core** protocol, plugin impls | none in core | see §7 |
 | **Item 8** — durable run layer | `_primitives`/`_engine` | core, optional SQLite backing | none | JSON stays the default backend |
@@ -195,7 +195,7 @@ functualize-tasks          (domain SDK: Tasks, TaskItem, TaskLink, TaskProvider)
 `functualize-tasks-local` *"persists tasks as JSON blobs in the active `StateBackend`"* —
 so with no backend wired, tasks are in-memory and vanish at process exit.
 
-**This is the reason [10 §4](10-coordination-and-nesting.md) recommends co-addressing over
+**This is the reason [08 §4](08-coordination.md) recommends co-addressing over
 coupling.** A workflow scope is core and always durable; a task is optional and durable
 only four packages deep. Putting task state on the coordination path would make workflow
 behaviour depend on an optional install — the ADR-016 surprise again.
@@ -221,7 +221,7 @@ workflow declaring an agent step with no registered executor **blocks** with a
 `blocked_reason` naming the package — exactly what a gate declaring `ai_inbound` does
 today without `functualize-ai`.
 
-And copy pi-workflows' discipline verbatim ([06 §1](06-pi-workflows-model.md)): when the
+And copy pi-workflows' discipline verbatim ([03 §1](03-pi-workflows.md)): when the
 step declares `allowed_tools` and the wired executor cannot enforce them, **refuse**. Do
 not run the step with tools unrestricted. `enforcesToolAllowlist` is a typed capability
 there, not a documented caveat, and that is the half worth stealing.
@@ -249,7 +249,7 @@ there, not a documented caveat, and that is the half worth stealing.
 - **Item 3 gets a second, stronger justification** — not "the CLI is thin" but "the
   framework's best workflow observability is behind an optional adapter," which the repo's
   own ADR-016 principle forbids. Its priority holds.
-- **`note` is cheaper than [10](10-coordination-and-nesting.md) implied** — inside the
+- **`note` is cheaper than [08](08-coordination.md) implied** — inside the
   scope record, no new section, no version bump. Item 0 remains a prerequisite for trust,
   not for shipping.
 - **Task co-addressing drops further down.** Four optional packages deep, and doc-weight

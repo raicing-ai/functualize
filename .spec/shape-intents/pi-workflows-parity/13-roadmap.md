@@ -1,4 +1,4 @@
-# 07 · Revised roadmap
+# 13 · Roadmap
 
 The previous study's three workstreams (W1 durable run layer · W2 agent step contract ·
 W3 observation) are still the right decomposition. What changes is **what comes before
@@ -81,58 +81,55 @@ ambiguity error path. Also lift `call_gate_tool`, which is MCP-only today for no
 
 This is the previous study's **W3.1**, sequenced behind W1's event log for no reason, and
 it is **the same work as the `--wf-status` handoff** — see
-[08-handoff-critique.md](08-handoff-critique.md). Doing them together is strictly cheaper
+[08-handoff-critique.md](appendix-a-handoff-critique.md). Doing them together is strictly cheaper
 than doing either alone, and it is what makes the CLI↔MCP parity claim true rather than
 aspirational.
 
 **Cut from scope until state supports them:** every time column, and `--actor`. Scope
 records carry no timestamps at all (`_blank_scope`, `state_store.py:45-56`), and the
 gate-level `blocked_at` resets on every re-block, so it measures the last resume attempt
-rather than the wait ([01 §C.6-C.7](01-surface-inventory.md)).
+rather than the wait ([01 §C.6-C.7](01-current-state.md)).
 
 ---
 
 ## Tier 1 — the continuation gap
 
-### 4. Gate deposit: partial, whole, corrected
+### 4. Gate answers: partial, whole, corrected
 
-Full design in [04-gate-deposit.md](04-gate-deposit.md). A `draft` slot beside `payload`;
+Full design in [07](07-gate-answers.md). A `draft` slot beside `payload`;
 `payload` still only ever written by a complete, valid `model_dump()`. Fixes the
-raw-dict-vs-`model_dump()` divergence between the deposit and strategy paths as a
-precondition. Adds `(workflow_id, gate)` joint addressing on MCP, which restores the
+raw-dict-vs-`model_dump()` divergence between the answer and strategy paths as a
+precondition. Adds `answer_gate(id?, gate?)` joint addressing on MCP, which restores the
 parity the previous study assumed already held.
 
 No engine change, no walker change, no new state section.
 
-### 5. `--wf-resume [id]` + `--wf-input` — fuse deposit and continuation
+### 5. The three-tier surface — `answer`, `resume`, and the `--wf-*` subset
 
-Unchanged from the previous study's priority 1, and still the highest-value *feature*.
-Everything needed exists: `deposit_gate_input` validates, the walker re-enters on
-`scope_id`. The work is one command path that does both in one process.
+The whole of [05](05-target-surface.md), landed as one release: the rich `builtin
+workflow` verbs, MCP at parity behind the parity test, and the nine `--wf-*` convenience
+flags. `--scope-id` is deleted here, both spellings ([12](12-scope-id.md)), and
+`--wf-resume [id]` replaces it.
 
-Its MCP twin — `resume_workflow(id, input)` that actually advances the walk — is the
-same code behind a different door, and is the moment an MCP agent stops needing a human
-at a terminal.
+Everything needed already exists — `deposit_gate_input` validates, the walker re-enters on
+a scope id. The work is one command path per verb, one shared implementation in `app/`,
+and the per-dispatch-mode tests the repo demands for state-addressing flags.
 
-**Two prerequisites, both tiny.** Item 4 fixes `deposit_gate_input` to store
-`model_dump()` — without it, fusing deposit and continuation makes the raw-dict divergence
-visible inside a single command. Item 2 fixes `cancel`, because a survey that lists
-cancelled scopes beside a resume flag turns a latent contract violation into a routine one.
+**Two prerequisites, both tiny.** Item 4 makes `deposit_gate_input` store `model_dump()`,
+without which fusing an answer with a resume shows the raw-dict divergence inside a single
+command. Item 2 fixes `cancel`, because a survey that lists cancelled scopes beside a
+resume verb turns a latent contract violation into a routine one.
 
-**Ambiguity rule:** zero blocked scopes → error naming `--wf-status`; exactly one → use
-it; several → list and exit 2. Not "newest wins" — that is silently picking, and given the
-`blocked_at` reset above it is not correctly computable anyway.
+**Ambiguity rule:** zero candidates → error naming the survey verb; exactly one → use it;
+several → list and exit 2. Never "newest wins" — `blocked_at` resets on every re-block, so
+it is not computable anyway.
 
-**Keep the pre-command `--scope-id`.** The previous study recommended dropping it once
-`--wf-resume` lands, on the premise that per-command coverage is complete. It is not:
-only two builders add the option (`click_params.py:1233`, `lazy_command.py:168`), and the
-warm one is gated on `descriptor.workflow` being present in the discovery cache — which
-is the documented cold-cache hazard (`main.py:2075-2081`). The global is the only
-spelling guaranteed on every dispatch mode.
+**Also here:** fix the SINGLE_FILE cwd crash ([12 §4](12-scope-id.md)), which otherwise
+blocks one of the five per-mode tests.
 
 ### 6. Trim the MCP tool surface
 
-Per [03 §3](03-mcp-assessment.md): a `job_tools: "all" | "tagged" | "none"` mode in
+Per [04 §3](04-mcp.md): a `job_tools: "all" | "tagged" | "none"` mode in
 `MCPConfig`, and stop appending examples to per-job tool descriptions when the schema
 already carries them. Depends on item 1 — turning per-job tools off must not cost
 information the generic door lacks.
@@ -143,7 +140,7 @@ information the generic door lacks.
 
 ### 7. W2 as a port, not a node kind
 
-Per [06 §1](06-pi-workflows-model.md). One Protocol with declared capability flags —
+Per [03 §1](03-pi-workflows.md). One Protocol with declared capability flags —
 `enforces_tool_allowlist`, `preserves_active_time_budget`, visible-output support — and
 an engine that **refuses** a workflow needing a capability the executor lacks rather than
 degrading. Implementations: MCP-elicitation, CLI-prompt, `functualize-ai`.
@@ -160,18 +157,18 @@ as the previous study described, with two corrections:
 
 - **W1.3 source identity:** canonicalize the *graph projection* (`workflow_shape_of` →
   `to_dict()`), not the file. Ship the revision/legacy-mapping story with it, not after —
-  see [06 §2](06-pi-workflows-model.md). Without it the first shipped workflow change
+  see [03 §2](03-pi-workflows.md). Without it the first shipped workflow change
   strands every in-flight run.
 - **Item 0 must land first.** W1 will bump the state format.
 
 ### 9. W3 remainder — loops, failure routing, watch, notify
 
 Unchanged in substance. When failure routing lands, copy pi-workflows' typed outcome
-vocabulary (`timed_out` / `cancelled` / `failed`, [06 §6](06-pi-workflows-model.md)) —
+vocabulary (`timed_out` / `cancelled` / `failed`, [03 §6](03-pi-workflows.md)) —
 routing on a boolean discards the distinction that makes fix-loops useful.
 
 Demoted from the previous study: **`--wf-retry-failed` is largely redundant.** Failed
-steps already re-run on resume ([02 §9](02-corrections.md)). `--wf-retry-epilogue` is the
+steps already re-run on resume ([02 §9](02-prior-study-corrections.md)). `--wf-retry-epilogue` is the
 one that is genuinely needed, because the epilogue record *is* sticky on failure.
 
 ---

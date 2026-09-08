@@ -55,7 +55,7 @@ snapshot of the *compiled graph* (`store.ts:5036-5062`). Plus `legacySources`
 strand in-flight runs.
 **Impact:** W1.3's "(entry point, path, content hash)" is the crude version
 pi-workflows moved past — and it is worse in Python, where one file holds many
-unrelated jobs. See [06 §2](06-pi-workflows-model.md).
+unrelated jobs. See [03 §2](03-pi-workflows.md).
 
 ### 6. CLI↔MCP parity does not hold
 **Study (07, closing invariant):** *"1:1 parity … the two surfaces never drift."*
@@ -73,7 +73,7 @@ the persisted position without a status check.
 **Not in the study.** `AgentStepExecutor` (`types.ts:900-911`) — one method plus three
 capability flags. The engine **fails closed** on a missing capability
 (`engine.ts:1299-1320`). Two implementations ship, one of them headless with no
-conversation (`server/rpc-executor.ts`). See [06 §1](06-pi-workflows-model.md).
+conversation (`server/rpc-executor.ts`). See [03 §1](03-pi-workflows.md).
 **Impact:** W2 should port a shape, not invent one.
 
 ---
@@ -95,7 +95,7 @@ that is needed. Demote and split.
 **Study (02 §5):** *"a crash mid-`update_state` risks a torn JSON file."*
 **Actual:** `mkstemp` → write → `flush` → `fsync` → `os.replace`, with tmp cleanup
 (`state_format.py:178-201`). The real hazard is the opposite direction — see
-[07 item 0](07-roadmap.md). Related: `state_lock` *"degrades to a no-op where OS locking
+[13 item 0](13-roadmap.md). Related: `state_lock` *"degrades to a no-op where OS locking
 is unavailable"* (`:205-210`), a hole in "flock serializes writers".
 
 ### 11. Fan-out ≠ branching
@@ -139,7 +139,7 @@ reasoning is sound.
 > **Retracted.** This section previously argued that doc 07's case for *keeping* the
 > pre-command `--scope-id` was stronger than it claimed, because the warm path's gate
 > depends on the discovery cache carrying workflow topology. Tested in
-> [15 §1.2-§2](15-scope-id-early-parse-removal.md): the warm path works, and the
+> [05](05-target-surface.md): the warm path works, and the
 > cold-cache bug at `main.py:2075-2081` was a defect in the **global's** own threading —
 > evidence against keeping it. The flag is now slated for removal entirely, replaced by a
-> verb ([16](16-replacing-scope-id.md), [17](17-lifecycle-without-scope-id.md)).
+> verb ([05](05-target-surface.md), [05](05-target-surface.md)).
