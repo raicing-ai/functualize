@@ -197,9 +197,26 @@ turns out to be wrong rather than leaving it to mislead.
   checkout → first successful `graphify query` in **~8.5 s**, query itself
   ~4.0 s, returning the same nodes as the local run.
 
-- **2026-09-08** — `zg` still cannot be installed on that host: `@zvec/zvec-grep`
-  declares `engines: node >=22` and the system node is 18.19.1. Upgrading node
-  system-wide is not free there (other services run on their own nvm node), so
-  semantic search remains localhost-only. Arguably fine: zvec's index is
-  per-workspace and costs ~21 s / 48 MB to build, which an ephemeral task
-  worktree would pay on every single run.
+- **2026-09-08** — Remote host upgraded to node 22.23.2 (NodeSource) and
+  `@zvec/zvec-grep` installed, so both tools now work there. The upgrade removed
+  133 Debian node-stack packages and moved npm's global prefix from
+  `/usr/local` to `/usr` — reset it with `npm config set prefix /usr/local`
+  before reinstalling globals, or the existing CLIs are orphaned at the old
+  prefix. Nothing on that host ran `/usr/bin/node`, which is what made the
+  upgrade safe; check that first (`readlink /proc/<pid>/exe`) rather than
+  assuming.
+
+- **2026-09-08** — **Head-to-head on a real cold worker (MCH-13)**, and the gap
+  is decisive on an ephemeral worktree:
+
+  | | setup | query | disk |
+  |---|---|---|---|
+  | graphify (committed graph) | **none** | 3.86 s | 0 (already in git) |
+  | zvec-grep | 51.4 s index build, 566 files | 6.1 s | 62 MB |
+
+  On a throwaway checkout that runs one or two queries, graphify wins by a wide
+  margin — the committed `graph.json` *is* the index. zvec-grep earns its build
+  cost only on a long-lived workspace, or when the question genuinely needs
+  prose: its top hits for "how does configuration precedence work" were
+  `docs/guides/configuration.md` and `docs/guides/architecture.md`, which
+  graphify cannot reach at all.
