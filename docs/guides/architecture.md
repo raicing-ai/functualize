@@ -149,6 +149,14 @@ On application exit, plugins implementing `PluginWithShutdown` have their `on_sh
 
 ## Layer Dependency Graph
 
+!!! tip "Interactive version"
+
+    [Layer Dependency Contract](../diagrams/layer-dependencies.html) draws the
+    same rules with guided views, and
+    [all architecture diagrams](../diagrams/index.md) covers boot, execution
+    and resolution too.
+
+
 functualize enforces layer dependencies via `import-linter`. The contracts in
 `[tool.importlinter]` of `pyproject.toml` are the source of truth — this section
 summarises them, and where the two disagree the config wins. Check with

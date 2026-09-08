@@ -86,6 +86,7 @@ nav:
     - guides/index.md
     - Usage Modes: guides/modes.md
     - Architecture: guides/architecture.md
+    - Architecture Diagrams: diagrams/index.md
     - Configuration System: guides/configuration.md
     - Jobs and Auto-Discovery: guides/jobs-discovery.md
     - Group Options: guides/group-options.md

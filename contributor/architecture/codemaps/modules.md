@@ -99,7 +99,9 @@ Only frozen dataclasses, Enums, Protocol definitions. `descriptors.py` (`JobDesc
 
 ### `_app/` — Composition Root
 
-`boot.py` (boot orchestration — the only place peer layers get wired together), `impl.py` (`FunctualizeApp` internal methods — **highest fan-in module in the codebase, 30 importers**), `decorators.py` (13 importers), `state.py` (`AppState`).
+`boot.py` (boot orchestration — drives the wiring of every peer layer), `impl.py` (`FunctualizeApp` internal methods — **highest fan-in module in the codebase, 30 importers**), `decorators.py` (13 importers), `state.py` (`AppState`), `event_wiring.py` (`install_config_event_sink` — installs `_events.EventBusAdapter` as `_config._emit`'s sink; lives here because it touches two peer layers at once, and `_app` is the only layer allowed to).
+
+Cross-layer wiring belongs in this package and nowhere else. `event_wiring.py` exists because that rule was being broken: the sink install used to sit in `_events/adapter.py`, which made `_events` import `_config` at runtime. See `.spec/features/events-layer-independence/`.
 
 ### `_cli/` — CLI + TUI Delivery
 
