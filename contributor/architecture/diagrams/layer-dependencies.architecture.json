@@ -3,25 +3,26 @@
   "diagram_type": "architecture",
   "meta": {
     "title": "Layer Dependency Contract",
-    "subtitle": "Imports may only travel downward. The four peer layers are siblings and must never import each other.",
+    "subtitle": "The five import-linter contracts in pyproject.toml, drawn. Arrows are permitted imports; pyproject.toml is the source of truth.",
     "output": "docs/diagrams/layer-dependencies.html",
     "quality_profile": "showcase",
     "animation": "none",
     "viewBox": [
       1040,
-      680
+      700
     ],
     "views": [
       {
         "id": "peers",
-        "label": "The peer rule",
+        "label": "Peer independence",
         "focus": [
           "discovery",
           "config",
           "engine",
-          "plugins"
+          "plugins",
+          "gate"
         ],
-        "note": "Discovery, config, engine and plugins are siblings. No arrow runs between them, and none may import another."
+        "note": "Five modules, not four — _gate is in the contract and is the one most often forgotten. No arrow runs between any of them."
       },
       {
         "id": "foundation",
@@ -31,17 +32,17 @@
           "primitives",
           "types"
         ],
-        "note": "_types depends on stdlib alone. Everything above may reach down; nothing below reaches up."
+        "note": "_types may reach stdlib only, not even _primitives. _primitives may reach _types and stdlib only."
       },
       {
-        "id": "edges-of-the-graph",
-        "label": "Top and bottom",
+        "id": "boundary",
+        "label": "The public boundary",
         "focus": [
           "cli",
           "public",
           "app"
         ],
-        "note": "_app is the only layer that may touch every internal package. _cli may touch none of them — it imports the public surface only."
+        "note": "_cli may import no _-prefixed package. In the other direction, no internal package may import the public surface."
       }
     ]
   },
@@ -52,26 +53,26 @@
       "label": "_cli",
       "sublabel": "commands, scaffold",
       "pos": [
-        40,
-        30
+        30,
+        26
       ],
       "size": [
-        200,
-        58
+        190,
+        56
       ]
     },
     {
       "id": "public",
       "type": "external",
       "label": "Public surface",
-      "sublabel": "app · job · plugin · types · testing",
+      "sublabel": "app job plugin types testing workflow",
       "pos": [
-        690,
-        30
+        560,
+        26
       ],
       "size": [
-        310,
-        58
+        450,
+        56
       ]
     },
     {
@@ -81,11 +82,11 @@
       "sublabel": "composition root",
       "pos": [
         400,
-        122
+        118
       ],
       "size": [
         240,
-        62
+        58
       ]
     },
     {
@@ -94,12 +95,12 @@
       "label": "_discovery",
       "sublabel": "job finding",
       "pos": [
-        30,
-        232
+        52,
+        224
       ],
       "size": [
-        180,
-        62
+        172,
+        58
       ]
     },
     {
@@ -108,12 +109,12 @@
       "label": "_config",
       "sublabel": "resolution",
       "pos": [
-        250,
-        232
+        238,
+        224
       ],
       "size": [
-        180,
-        62
+        172,
+        58
       ]
     },
     {
@@ -122,12 +123,12 @@
       "label": "_engine",
       "sublabel": "lifecycle",
       "pos": [
-        470,
-        232
+        424,
+        224
       ],
       "size": [
-        180,
-        62
+        172,
+        58
       ]
     },
     {
@@ -136,12 +137,26 @@
       "label": "_plugins",
       "sublabel": "loading",
       "pos": [
-        690,
-        232
+        610,
+        224
       ],
       "size": [
-        180,
-        62
+        172,
+        58
+      ]
+    },
+    {
+      "id": "gate",
+      "type": "backend",
+      "label": "_gate",
+      "sublabel": "resolver, strategy",
+      "pos": [
+        796,
+        224
+      ],
+      "size": [
+        172,
+        58
       ]
     },
     {
@@ -150,12 +165,12 @@
       "label": "_events",
       "sublabel": "EventBus, hooks",
       "pos": [
-        370,
-        356
+        400,
+        352
       ],
       "size": [
         240,
-        58
+        56
       ]
     },
     {
@@ -164,12 +179,12 @@
       "label": "_primitives",
       "sublabel": "DI, middleware",
       "pos": [
-        370,
-        456
+        400,
+        452
       ],
       "size": [
         240,
-        58
+        56
       ]
     },
     {
@@ -178,24 +193,25 @@
       "label": "_types",
       "sublabel": "stdlib only",
       "pos": [
-        370,
-        556
+        400,
+        552
       ],
       "size": [
         240,
-        58
+        56
       ]
     }
   ],
   "boundaries": [
     {
-      "kind": "region",
-      "label": "Peer layers — never import each other",
+      "kind": "security-group",
+      "label": "Peer layers — may not import each other",
       "wraps": [
         "discovery",
         "config",
         "engine",
-        "plugins"
+        "plugins",
+        "gate"
       ]
     },
     {
@@ -212,7 +228,7 @@
     {
       "from": "cli",
       "to": "public",
-      "label": "public only",
+      "label": "public API only",
       "variant": "emphasis"
     },
     {
@@ -236,6 +252,12 @@
     {
       "from": "app",
       "to": "plugins",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "app",
+      "to": "gate",
       "fromSide": "bottom",
       "toSide": "top"
     },
@@ -264,6 +286,12 @@
       "toSide": "top"
     },
     {
+      "from": "gate",
+      "to": "events",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
       "from": "events",
       "to": "primitives",
       "fromSide": "bottom",
@@ -279,12 +307,23 @@
   "cards": [
     {
       "dot": "violet",
-      "title": "The contract",
+      "title": "The five contracts",
       "items": [
-        "_types imports stdlib only; it is the shared vocabulary",
-        "Peer layers may reach _types, _primitives and _events — never each other, _app or _cli",
-        "_app may import every internal layer; _cli may import none of them",
-        "Enforced mechanically by import-linter, not by convention"
+        "Peer layers are independent — _discovery, _config, _engine, _plugins, _gate",
+        "Primitives import nothing internal — _primitives reaches _types only",
+        "Types import nothing internal — _types reaches stdlib only",
+        "Internal never imports public — no _pkg may import the six public packages",
+        "_cli uses public API only — _cli may import no _pkg"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Documented but unenforced",
+      "items": [
+        "No contract constrains _events against the peer layers",
+        "_events/adapter.py:88 really does import _config._emit at runtime",
+        "lint-imports reports 5 kept / 0 broken, so this is permitted",
+        "exclude_type_checking_imports=true hides all TYPE_CHECKING imports"
       ]
     }
   ]

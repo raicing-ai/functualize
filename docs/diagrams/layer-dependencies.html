@@ -4957,10 +4957,10 @@
         <div class="pulse-dot"></div>
         <h1>Layer Dependency Contract</h1>
       </div>
-      <p class="subtitle">Imports may only travel downward. The four peer layers are siblings and must never import each other.</p>
+      <p class="subtitle">The five import-linter contracts in pyproject.toml, drawn. Arrows are permitted imports; pyproject.toml is the source of truth.</p>
     </div>
 
-    <script id="archify-guided-views-data" type="application/json">[{"id":"peers","label":"The peer rule","focus":["discovery","config","engine","plugins"],"note":"Discovery, config, engine and plugins are siblings. No arrow runs between them, and none may import another."},{"id":"foundation","label":"Foundation stack","focus":["events","primitives","types"],"note":"_types depends on stdlib alone. Everything above may reach down; nothing below reaches up."},{"id":"edges-of-the-graph","label":"Top and bottom","focus":["cli","public","app"],"note":"_app is the only layer that may touch every internal package. _cli may touch none of them — it imports the public surface only."}]</script>
+    <script id="archify-guided-views-data" type="application/json">[{"id":"peers","label":"Peer independence","focus":["discovery","config","engine","plugins","gate"],"note":"Five modules, not four — _gate is in the contract and is the one most often forgotten. No arrow runs between any of them."},{"id":"foundation","label":"Foundation stack","focus":["events","primitives","types"],"note":"_types may reach stdlib only, not even _primitives. _primitives may reach _types and stdlib only."},{"id":"boundary","label":"The public boundary","focus":["cli","public","app"],"note":"_cli may import no _-prefixed package. In the other direction, no internal package may import the public surface."}]</script>
 
     <script id="archify-i18n-data" type="application/json">{"locale":"en","messages":{"viewer.kind.frontend":"Frontend","viewer.kind.backend":"Backend","viewer.kind.database":"Database","viewer.kind.cloud":"Cloud","viewer.kind.security":"Security","viewer.kind.messagebus":"Message bus","viewer.kind.external":"External","viewer.kind.neutral":"Neutral","viewer.kind.node":"Node","viewer.kind.start":"Start","viewer.kind.active":"Active","viewer.kind.waiting":"Waiting","viewer.kind.decision":"Decision","viewer.kind.success":"Success","viewer.kind.failure":"Failure","viewer.toolbar.actions":"Diagram actions","viewer.theme.toggle.title":"Toggle theme (T)","viewer.theme.toggle":"Toggle color theme","viewer.theme.dark":"Dark","viewer.theme.light":"Light","viewer.preset.choose.title":"Choose visual style (S cycles)","viewer.preset.choose":"Choose visual style","viewer.preset.style":"Style","viewer.preset.menu":"Visual style","viewer.preset.identity":"Visual identity","viewer.preset.cycles":"S cycles","viewer.preset.classic":"Classic","viewer.preset.classic.short":"Classic","viewer.preset.classic.hint":"Stable technical default","viewer.preset.flow":"Signal Flow","viewer.preset.flow.short":"Flow","viewer.preset.flow.hint":"Motion-forward presentation","viewer.preset.blueprint":"Blueprint","viewer.preset.blueprint.hint":"Engineering review","viewer.preset.editorial":"Editorial","viewer.preset.editorial.hint":"Publication and launch notes","viewer.preset.badge.signalFlow":"SIGNAL FLOW","viewer.preset.badge.blueprint":"BLUEPRINT / REV 01","viewer.preset.badge.editorial":"EDITORIAL / FIELD NOTE","viewer.preset.badge.editorialPlate":"ARCHIFY / PLATE 04","viewer.preset.current":"Visual style: {style}. Choose visual style","viewer.motion.live":"Live","viewer.motion.still":"Still","viewer.motion.pause":"Pause motion","viewer.motion.resume":"Resume motion","viewer.motion.reduced":"Motion paused by reduced-motion preference","viewer.motion.hidden":"Motion paused while this page is hidden","viewer.motion.yielding":"Pause motion; currently yielding to {owner}","viewer.motion.yielding.title":"Live preview enabled · yielding to {owner}","viewer.owner.story":"the guided story","viewer.owner.chapter":"the active chapter","viewer.owner.chapterPreview":"the chapter delta preview","viewer.owner.handoff":"the chapter handoff","viewer.owner.route":"Route Probe","viewer.owner.lens":"Semantic Lens","viewer.owner.relationship":"Relationship Preview","viewer.owner.intent":"Intent Trace","viewer.owner.focus":"semantic focus","viewer.owner.legend":"legend preview","viewer.owner.reader":"reader interaction","viewer.present.enter":"Enter presentation stage","viewer.present.enter.title":"Presentation stage (F)","viewer.present.exit":"Exit presentation stage","viewer.present.exit.title":"Exit presentation stage (F or Escape)","viewer.present.present":"Present","viewer.present.exit.label":"Exit","viewer.export.button":"Export","viewer.export.button.title":"Export diagram (E)","viewer.export.diagram":"Export diagram","viewer.export.menu":"Export","viewer.export.subtitle":"Portable, clean outputs","viewer.export.share":"Share","viewer.export.shareCard":"Share Card","viewer.export.routeShareCard":"Route Share Card","viewer.export.reachShareCard":"Reach Share Card","viewer.export.copyShareCard":"Copy Share Card","viewer.export.copyDiagram":"Copy diagram","viewer.export.clipboardPng":"PNG to clipboard","viewer.export.raster":"Raster images","viewer.export.image":"Image","viewer.export.lossless":"Lossless image","viewer.export.compact":"Compact image","viewer.export.modern":"Modern image","viewer.export.vectorMotion":"Vector and motion","viewer.export.vectorMotion.heading":"Vector \u0026 motion","viewer.export.editable":"Editable vector","viewer.export.motion6s":"6s motion","viewer.export.unsupported":"Not supported by this browser","viewer.export.clipboardUnsupported":"Clipboard image write not supported by this browser","viewer.export.clipboardUnsupported.period":"Clipboard image write not supported by this browser.","viewer.export.clipboardUnsupported.short":"Clipboard image write not supported in this browser.","viewer.export.motionUnavailable":"Motion capture unavailable in this browser","viewer.export.webmUnavailable":"WebM unavailable in this browser","viewer.export.failed":"Export failed: {message}","viewer.export.unknownVariant":"Unknown Share Card variant: {variant}","viewer.export.routeRequired":"Trace a route before exporting a Route Share Card","viewer.export.reachRequired":"Trace authored reach before exporting a Reach Share Card","viewer.export.unknown":"unknown","viewer.export.routeFailed":"Route Share Card export failed: {message}","viewer.export.reachFailed":"Reach Share Card export failed: {message}","viewer.export.copyFailed":"Copy failed: {message}","viewer.export.copiedPng":"Copied PNG to clipboard","viewer.export.copiedShare":"Copied Share Card","viewer.export.downloadedShare":"Downloaded Share Card","viewer.export.downloadedRoute":"Downloaded Route Share Card","viewer.export.downloadedReach":"Downloaded Reach Share Card","viewer.export.downloadedWebm":"Downloaded WebM","viewer.export.recording":"Recording 6 seconds of motion…","viewer.export.card.routeSummary.one":"Route: {source} → {target} · {count} directed hop","viewer.export.card.routeSummary.other":"Route: {source} → {target} · {count} directed hops","viewer.export.card.reachSummary":"Authored {direction} from {origin} · {nodes} · {links} · max {hops}","viewer.export.card.node.one":"{count} node","viewer.export.card.node.other":"{count} nodes","viewer.export.card.link.one":"{count} link","viewer.export.card.link.other":"{count} links","viewer.export.card.hop.one":"{count} hop","viewer.export.card.hop.other":"{count} hops","viewer.export.card.routeBadge":"ARCHIFY · ROUTE · {hops}","viewer.export.card.reachBadge":"ARCHIFY · {direction} REACH","viewer.export.card.defaultBadge":"ARCHIFY · {preset} · {theme}","viewer.export.direction.upstream":"Upstream","viewer.export.direction.downstream":"Downstream","viewer.export.error.canvasUnavailable":"Canvas unavailable for {label}","viewer.export.error.contextUnavailable":"2D canvas context unavailable for {label}","viewer.export.error.toBlobUnavailable":"canvas.toBlob unavailable for {label}","viewer.export.error.toBlobNull":"canvas.toBlob returned no data for {label}","viewer.export.error.variantsCombined":"Share Card variants cannot be combined","viewer.export.error.viewerState":"Share Card export could not remove temporary viewer state","viewer.export.error.routeState":"Route Card export could not preserve the resolved route safely","viewer.export.error.reachState":"Reach Card export could not preserve authored reach safely","viewer.export.error.webmRequirements":"WebM motion export requires a trace animation and browser MediaRecorder support","viewer.export.error.mediaRecorder":"MediaRecorder failed","viewer.export.error.emptyWebm":"MediaRecorder produced an empty WebM","viewer.export.error.webmBackground":"SVG background could not be loaded for WebM export","viewer.guided.region":"Guided diagram views","viewer.guided.previous":"Previous guided view","viewer.guided.previous.title":"Previous guided view ([)","viewer.guided.next":"Next guided view","viewer.guided.next.title":"Next guided view (])","viewer.guided.views":"Guided views","viewer.guided.explore":"Explore this system","viewer.guided.intro":"Step through curated paths without changing the source diagram.","viewer.guided.trail":"Story trail","viewer.guided.beat":"Beat","viewer.guided.nextBeat":"Next","viewer.guided.play":"Play guided story","viewer.guided.play.title":"Play guided story (P)","viewer.guided.pause":"Pause guided story","viewer.guided.pause.title":"Pause guided story (P)","viewer.guided.replay":"Replay guided story","viewer.guided.replay.title":"Replay guided story (P)","viewer.guided.playStory":"Play story","viewer.guided.pauseStory":"Pause","viewer.guided.replayStory":"Replay story","viewer.guided.motionUnavailable":"Story playback unavailable while motion is Still","viewer.guided.enableMotion":"Switch motion to Live to play the guided story","viewer.guided.selectBeatLink":"Select a Story Beat to copy its exact link","viewer.guided.copyMoment":"Copy moment","viewer.guided.momentCopied":"Moment link copied","viewer.guided.momentCopyFailed":"Could not copy story moment link","viewer.guided.copied":"Copied","viewer.guided.copyFailed":"Copy failed","viewer.guided.showAll":"Show all","viewer.guided.showAll.aria":"Show entire diagram","viewer.guided.chapters":"Story chapters","viewer.guided.storyTrail":"Story trail for {label}: {count} beats","viewer.guided.chapter.open":"Open chapter {index} of {total}: {label}, {count} stops","viewer.guided.chapter.current":"Current chapter {index} of {total}: {label}, {count} stops","viewer.guided.chapter.selectedNodes":"{count} selected nodes","viewer.guided.chapter.stops":"{count} stops","viewer.guided.chapter.stop.one":"{count} stop","viewer.guided.chapter.stop.other":"{count} stops","viewer.guided.chapter.current.title":"{label} — current chapter, {count} stops","viewer.guided.chapter.delta.expanded":"{stay} stay, {enter} enter, {leave} leave","viewer.guided.chapter.delta.aria":"Open chapter {index} of {total}: {label}. Chapter focus delta: {delta}","viewer.guided.chapter.delta.title":"{label} — {delta} chapter focus","viewer.guided.handoff":"{from} → {to} · via {label}","viewer.guided.share.chapter":"Chapter {index} / {total}","viewer.guided.share.initial":"Chapter 01 / 01","viewer.guided.share.default":"Guided chapter","viewer.guided.state.ready":"Ready","viewer.guided.state.playing":"Playing","viewer.guided.state.settled":"Settled","viewer.guided.state.paused":"Paused","viewer.guided.state.pinned":"Pinned","viewer.guided.state.still":"Still","viewer.guided.share.step":"Step {index} / {total} · {label}","viewer.guided.share.staticMoment":"{step} · Static moment","viewer.guided.share.complete":"{count} steps complete · {note}","viewer.guided.share.settled":"Path settled for reading.","viewer.guided.share.staticPath":"{count} steps · Static path","viewer.guided.share.ready":"{count} steps · Ready","viewer.guided.share.aria":"{state} chapter {index} of {total}: {label}. {beat}. {route}","viewer.guided.beat.start":"Beat {index} / {total} · {label} · starting point","viewer.guided.beat.forward":"Beat {index} / {total} · {from} → {to}","viewer.guided.beat.reverse":"Beat {index} / {total} · {from} → {to} · reverse authored link","viewer.guided.beat.multiple":"Beat {index} / {total} · {from} ⇄ {to} · {count} authored links","viewer.guided.beat.group":"Beat {index} / {total} · {from} · {to} · grouped · no direct link","viewer.guided.beat.aria.prefix":"Story beat {index} of {total}: {label}. ","viewer.guided.beat.aria.start":"Starting point.","viewer.guided.beat.aria.forward":"From {from} through one authored forward relationship.","viewer.guided.beat.aria.reverse":"From {from}; the authored relationship points from {to} to {from}.","viewer.guided.beat.aria.multiple":"From {from} through {count} authored relationships; shown without arbitrary motion.","viewer.guided.beat.aria.group":"Grouped from {from} with no direct authored relationship.","viewer.guided.caption.start":"Starting point","viewer.guided.caption.grouped":"Grouped transition · no direct authored link","viewer.guided.caption.more":" +{count} more","viewer.guided.caption.reverse":"Reverse authored relationship","viewer.guided.caption.relationships":"{count} authored relationships","viewer.guided.caption.relationship":"Authored relationship","viewer.guided.caption.direction":"authored direction: {from} → {to}","viewer.guided.caption.starting":"Authored starting point","viewer.guided.beatLink":"Copy link to current story moment: Beat {index} of {total}: {label}","viewer.guided.noStory":"This diagram has no authored guided story.","viewer.guide.eyebrow":"Diagram guide","viewer.guide.close":"Close diagram guide","viewer.guide.inspecting":"Inspecting compiled semantics","viewer.guide.actions":"Diagram exploration actions","viewer.guide.find":"Find any node","viewer.guide.find.hint":"Search labels, responsibilities, kinds, and stable IDs.","viewer.guide.route":"Trace a route","viewer.guide.route.aria":"Trace a directed route","viewer.guide.route.hint":"Ask how two semantic nodes connect in authored direction.","viewer.guide.map":"See the whole system","viewer.guide.map.hint":"Open Semantic Radar with a live viewport and stable nodes.","viewer.guide.lens":"Compare semantic kinds","viewer.guide.lens.hint":"Count roles, reveal their traffic, and compare direct authored links.","viewer.guide.story":"Play the guided story","viewer.guide.story.hint":"Walk the authored chapters and real relationships.","viewer.guide.present":"Enter Presentation Stage","viewer.guide.present.hint":"Give the live diagram the viewport without changing export.","viewer.guide.shortcuts":"Additional keyboard shortcuts","viewer.guide.shortcut.export":"Export","viewer.guide.shortcut.theme":"Theme","viewer.guide.shortcut.style":"Style","viewer.guide.shortcut.reset":"Reset","viewer.guide.shortcut.zoomIn":"Zoom in","viewer.guide.shortcut.zoomOut":"Zoom out","viewer.guide.shortcut.close":"Close","viewer.guide.facts":"{nodes} · {relationships} · {views}","viewer.guide.fact.node.one":"{count} semantic node","viewer.guide.fact.node.other":"{count} semantic nodes","viewer.guide.fact.relationship.one":"{count} relationship","viewer.guide.fact.relationship.other":"{count} relationships","viewer.guide.fact.view.one":"{count} guided view","viewer.guide.fact.view.other":"{count} guided views","viewer.guide.story.available.one":"Walk {count} authored chapter and its real relationships.","viewer.guide.story.available.other":"Walk {count} authored chapters and their real relationships.","viewer.guide.story.unavailable":"No authored guided story in this diagram.","viewer.guide.open":"Open diagram guide","viewer.guide.noStory":"This diagram has no authored guided story.","viewer.finder.title":"Find a node","viewer.finder.close":"Close node finder","viewer.finder.placeholder":"Search labels or IDs","viewer.finder.search":"Search diagram nodes","viewer.finder.results":"Diagram nodes","viewer.finder.empty":"No matching nodes","viewer.finder.result.focus":"Focus {label}","viewer.finder.result.routeStart":"Choose {label} as route start","viewer.finder.result.routeTarget":"Choose {label} as route destination, {links}","viewer.finder.status.empty":"No matching nodes","viewer.finder.status.count.one":"{count} matching node","viewer.finder.status.count.other":"{count} matching nodes","viewer.finder.noun.nodes":"nodes","viewer.finder.link.one":"{count} link","viewer.finder.link.other":"{count} links","viewer.finder.result.focus.one":"Focus {label}, {count} related connection","viewer.finder.result.focus.other":"Focus {label}, {count} related connections","viewer.finder.status.filtered":"{visible} of {available} {noun}","viewer.finder.status.all":"{available} {noun}","viewer.passport.eyebrow":"Semantic passport","viewer.passport.metadata":"Node metadata","viewer.passport.evidence":"Verified source evidence","viewer.passport.verified":"Verified source","viewer.passport.reach":"Authored reach","viewer.passport.reach.trace":"Trace authored reachability","viewer.passport.upstream":"Upstream","viewer.passport.downstream":"Downstream","viewer.passport.upstream.trace":"Trace upstream authored reachability","viewer.passport.downstream.trace":"Trace downstream authored reachability","viewer.passport.close":"Close semantic passport","viewer.passport.copy":"Copy link","viewer.passport.copy.focus":"Copy link to focused node","viewer.passport.relations":"Relations","viewer.passport.relations.show":"Show connected relationships","viewer.passport.relations.hide":"Hide connected relationships","viewer.passport.relations.list":"Connected relationships","viewer.passport.copyRelation":"Copy relation","viewer.passport.copyNode":"Copy node","viewer.passport.copyPinned":"Copy link to pinned relationship","viewer.passport.copySource":"Copy link to source node","viewer.passport.copy.focused.success":"Focused node link copied","viewer.passport.copy.pinned.success":"Pinned relationship link copied","viewer.passport.copy.focused.failed":"Could not copy focused node link","viewer.passport.copy.pinned.failed":"Could not copy pinned relationship link","viewer.passport.relationship.none":"No connected relationships","viewer.passport.relationship.count.one":"{count} relation","viewer.passport.relationship.count.other":"{count} relations","viewer.passport.relationship.show.one":"Show {count} connected relationship","viewer.passport.relationship.show.other":"Show {count} connected relationships","viewer.passport.relationship.summary":"{out} outgoing · {in} incoming{loops}","viewer.passport.relationship.loops":" · {count} loop","viewer.passport.relationship.explorer":"Direct relationship explorer","viewer.passport.relationship.help":"Use arrow keys to explore relationships. Press Enter or Space to pin details; Escape clears.","viewer.passport.relationship.loopsBack":"loops back","viewer.passport.relationship.connectsTo":"connects to","viewer.passport.relationship.connectsFrom":"connects from","viewer.passport.relationship.pinned":"Pinned relationship · {from} → {to} · {label}","viewer.passport.relationship.inspect":"Inspect relationship {index} of {total}: {from} to {to}, {label}. Press Enter for details.","viewer.passport.relationship.group.out":"Outgoing","viewer.passport.relationship.group.in":"Incoming","viewer.passport.relationship.group.loop":"Self loops","viewer.passport.relationship.row":"{group}: {relationship}, {neighbor}","viewer.passport.relationship.direction.out":"OUT →","viewer.passport.relationship.direction.in":"← IN","viewer.passport.relationship.direction.loop":"LOOP","viewer.passport.sourceCount.one":"{count} verified source reference","viewer.passport.sourceCount.other":"{count} verified source references","viewer.passport.sourceMarker":"SRC","viewer.passport.beacon.one":"{count} verified source; focus this node to inspect","viewer.passport.beacon.other":"{count} verified sources; focus this node to inspect","viewer.passport.repository.open":"Open verified repository revision {revision}","viewer.passport.source.open":"Open verified source {path} at revision {revision}","viewer.passport.source.openLink":"Open ↗","viewer.passport.reach.upstream.one":"Trace {count} upstream authored node","viewer.passport.reach.upstream.other":"Trace {count} upstream authored nodes","viewer.passport.reach.downstream.one":"Trace {count} downstream authored node","viewer.passport.reach.downstream.other":"Trace {count} downstream authored nodes","viewer.passport.reach.noUpstream":"No upstream authored nodes","viewer.passport.reach.noDownstream":"No downstream authored nodes","viewer.passport.reach.status":"{direction} · {nodes} nodes · {links} links · max {hops} hops","viewer.route.eyebrow":"Route probe","viewer.route.start":"Choose a start node","viewer.route.start.find":"Find start","viewer.route.start.find.aria":"Find a route start","viewer.route.copy":"Copy link","viewer.route.copy.aria":"Copy link to traced route","viewer.route.clear":"Clear","viewer.route.clear.aria":"Clear route probe","viewer.route.traced":"Traced route","viewer.route.pickTwo":"Pick two semantic nodes on the diagram","viewer.route.pickOne":"Pick a semantic node on the diagram","viewer.route.controls":"Route journey controls","viewer.route.previous":"Previous route position","viewer.route.play":"Play route journey","viewer.route.pause":"Pause route journey","viewer.route.replay":"Replay route journey","viewer.route.next":"Next route position","viewer.route.journey":"Journey","viewer.route.pause.label":"Pause","viewer.route.replay.label":"Replay","viewer.route.overview":"Overview","viewer.route.overview.aria":"Show complete route overview","viewer.route.instructions":"Choose the source, then the destination. Direction matters.","viewer.route.destination":"Choose a destination from {label}","viewer.route.destination.find":"Find target","viewer.route.destination.find.aria":"Find a reachable route destination","viewer.route.differentDestination":"Choose a different destination","viewer.route.distinct":"A route needs two distinct semantic nodes.","viewer.route.unreachable":"No directed route to {label}","viewer.route.unreachable.detail":"{target} is not reachable from {source}. Pick a highlighted destination.","viewer.route.start.instructions":"Select the source. The next step will reveal only directed destinations.","viewer.route.copy.success":"Traced route link copied","viewer.route.copy.failed":"Could not copy traced route link","viewer.route.position":"Route position {index} of {total}: {label}","viewer.route.step":"Step {index} of {total} · {phase} · {label}","viewer.route.motionRequired":"Automatic journey requires Live motion","viewer.route.trigger.clear":"Clear traced route","viewer.route.overview.status":"{nodes} · {hops} · shortest authored route","viewer.route.overview.node.one":"{count} node","viewer.route.overview.node.other":"{count} nodes","viewer.route.overview.hop.one":"{count} directed hop","viewer.route.overview.hop.other":"{count} directed hops","viewer.route.phase.playing":"Playing","viewer.route.phase.complete":"Complete","viewer.route.phase.inspecting":"Inspecting","viewer.route.destination.count.one":"{count} directed destination available. Pick a highlighted node.","viewer.route.destination.count.other":"{count} directed destinations available. Pick a highlighted node.","viewer.route.noOutgoing":"No outgoing route starts here. Clear and choose another source.","viewer.route.result.title":"{source} to {target}","viewer.route.finder.source.title":"Choose route start","viewer.route.finder.source.placeholder":"Search route sources","viewer.route.finder.source.empty":"No matching route sources","viewer.route.finder.source.results":"Nodes that can start a route","viewer.route.finder.source.noun":"route sources","viewer.route.finder.source.badge":"start","viewer.route.finder.target.title":"Destination from {label}","viewer.route.finder.target.placeholder":"Search reachable destinations","viewer.route.finder.target.empty":"No matching reachable destinations","viewer.route.finder.target.results":"Reachable route destinations","viewer.route.finder.target.noun":"reachable destinations","viewer.route.hop.one":"{count} hop","viewer.route.hop.other":"{count} hops","viewer.lens.eyebrow":"Semantic lens","viewer.lens.title":"Compare system roles","viewer.lens.close":"Close semantic lens","viewer.lens.instruction":"Choose up to two semantic kinds. One reveals its real traffic; two compare only direct authored relationships.","viewer.lens.kinds":"Semantic kinds","viewer.lens.choose":"Choose a kind to inspect its nodes and touching relationships.","viewer.lens.copy":"Copy link to semantic lens","viewer.lens.clear":"Clear semantic lens","viewer.lens.open":"Open semantic lens","viewer.lens.openActive":"Open active semantic lens","viewer.lens.legend":"Semantic legend","viewer.lens.legend.inspect.one":"Inspect {label}, {count} node","viewer.lens.legend.inspect.other":"Inspect {label}, {count} nodes","viewer.lens.kind.count.one":"{label}, {count} node","viewer.lens.kind.count.other":"{label}, {count} nodes","viewer.lens.compare.one":"{first} → {second}: {forward} · {second} → {first}: {reverse} · {count} direct relationship","viewer.lens.compare.other":"{first} → {second}: {forward} · {second} → {first}: {reverse} · {count} direct relationships","viewer.lens.single":"{nodes} · {relationships} · connected peers remain visible","viewer.lens.node.one":"{count} {label} node","viewer.lens.node.other":"{count} {label} nodes","viewer.lens.relationship.one":"{count} touching relationship","viewer.lens.relationship.other":"{count} touching relationships","viewer.radar.title":"Semantic radar","viewer.radar.building":"Building overview","viewer.radar.openFull":"Open full semantic radar","viewer.radar.open":"Open radar","viewer.radar.close":"Close semantic radar","viewer.radar.surface":"Diagram overview. Click a node to focus it, or use arrow keys to pan.","viewer.radar.click":"Click node","viewer.radar.drag":"Drag to pan","viewer.radar.space":"Semantic radar needs more MAP space.","viewer.radar.nodes":"Semantic diagram radar nodes","viewer.radar.focus":"Focus {label} from Semantic Radar","viewer.radar.status":"{count} nodes · {viewport}","viewer.radar.fullMap":"{count} nodes · full map","viewer.radar.compacted":"Radar compacted to avoid covering the Semantic Passport or MAP controls.","viewer.radar.cancelWaiting":"Cancel semantic radar waiting for more MAP space","viewer.radar.needsSpace":"Semantic radar needs more visible MAP space","viewer.radar.viewport.full":"full map","viewer.radar.viewport.width":"{percent}% width","viewer.radar.viewport.scale":"{percent}% viewport","viewer.nav.controls":"Diagram view controls","viewer.nav.route":"Trace a directed route","viewer.nav.route.title":"Trace route (R)","viewer.nav.route.short":"PATH","viewer.nav.radar":"Open semantic radar","viewer.nav.radar.title":"Semantic radar (M)","viewer.nav.radar.short":"MAP","viewer.nav.lens":"Open semantic lens","viewer.nav.lens.title":"Semantic lens (L)","viewer.nav.lens.short":"LENS","viewer.nav.find":"Find a node","viewer.nav.find.title":"Find a node (/)","viewer.nav.guide":"Open diagram guide","viewer.nav.guide.title":"Diagram guide (?)","viewer.nav.zoomOut":"Zoom out","viewer.nav.zoomOut.title":"Zoom out (-)","viewer.nav.reset":"Reset diagram view","viewer.nav.reset.title":"Reset view (0)","viewer.nav.read":"READ","viewer.nav.zoomIn":"Zoom in","viewer.nav.zoomIn.title":"Zoom in (+)","viewer.nav.camera":"{hint}. Reset diagram view","viewer.nav.camera.title":"{semantic}{hint} · reset view (0)","viewer.nav.camera.semantic":"Semantic camera active · ","viewer.nav.level.map":"MAP","viewer.nav.level.read":"READ","viewer.nav.level.full":"FULL","viewer.nav.level.auto":"AUTO","viewer.nav.detail.map":"Zoom in to reveal relationship labels and node context","viewer.nav.detail.read":"Zoom in again to reveal tags and annotations","viewer.nav.detail.full":"Full diagram detail","viewer.intent.summary":"{label}. {out} outgoing, {in} incoming{loops}. {total} connections. Press Enter for details.","viewer.intent.loops":", {count} self loop","viewer.common.copied":"Copied","viewer.common.copyFailed":"Copy failed","viewer.common.copyLink":"Copy link","viewer.common.clear":"Clear","viewer.common.close":"Close"}}</script>
     <div class="guided-views no-print" id="guided-views" hidden aria-label="Guided diagram views">
@@ -5005,9 +5005,9 @@
     <!-- Main Diagram -->
     <div class="diagram-container" data-detail-level="read"
          data-preset-badge-editorial-plate="ARCHIFY / PLATE 04">
-      <svg viewBox="0 0 1040 680" role="img" lang="en" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase">
+      <svg viewBox="0 0 1040 700" role="img" lang="en" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase">
         <title id="archify-diagram-title">Layer Dependency Contract</title>
-        <desc id="archify-diagram-description">Imports may only travel downward. The four peer layers are siblings and must never import each other.</desc>
+        <desc id="archify-diagram-description">The five import-linter contracts in pyproject.toml, drawn. Arrows are permitted imports; pyproject.toml is the source of truth.</desc>
         <!-- Definitions -->
         <defs>
           <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
@@ -5031,147 +5031,162 @@
         <rect width="100%" height="100%" fill="url(#grid)" />
 
         <!-- Boundaries (behind everything) -->
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="0" data-composition-frame-label="Peer layers — never import each other" x="0" y="202" width="900" height="112" rx="12" class="c-region" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="security-group" data-composition-frame-id="0" data-composition-frame-label="Peer layers — may not import each other" x="22" y="194" width="976" height="108" rx="8" class="c-security-group" stroke-width="1"/>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="1" data-composition-frame-label="Foundation" x="340" y="326" width="300" height="308" rx="12" class="c-region" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="1" data-composition-frame-label="Foundation" x="370" y="322" width="300" height="306" rx="12" class="c-region" stroke-width="1"/>
 
         <!-- Connection paths (before components for correct z-order) -->
-        <path data-edge-from="cli" data-edge-to="public" data-edge-label="public only" data-edge-key="0" data-composition-points="240,59;690,59" d="M 240 59 L 690 59" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="app" data-edge-to="discovery" data-edge-key="1" data-composition-points="499,184;499,208;120,208;120,232" d="M 499 184 L 499 200 Q 499 208 491 208 L 128 208 Q 120 208 120 216 L 120 232" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="app" data-edge-to="config" data-edge-key="2" data-composition-points="513,184;513,208;340,208;340,232" d="M 513 184 L 513 200 Q 513 208 505 208 L 348 208 Q 340 208 340 216 L 340 232" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="app" data-edge-to="engine" data-edge-key="3" data-composition-points="527,184;527,208;560,208;560,232" d="M 527 184 L 527 200 Q 527 208 535 208 L 552 208 Q 560 208 560 216 L 560 232" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="app" data-edge-to="plugins" data-edge-key="4" data-composition-points="541,184;541,208;780,208;780,232" d="M 541 184 L 541 200 Q 541 208 549 208 L 772 208 Q 780 208 780 216 L 780 232" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="discovery" data-edge-to="events" data-edge-key="5" data-composition-points="120,294;120,325;469,325;469,356" d="M 120 294 L 120 317 Q 120 325 128 325 L 461 325 Q 469 325 469 333 L 469 356" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="config" data-edge-to="events" data-edge-key="6" data-composition-points="340,294;340,325;483,325;483,356" d="M 340 294 L 340 317 Q 340 325 348 325 L 475 325 Q 483 325 483 333 L 483 356" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="engine" data-edge-to="events" data-edge-key="7" data-composition-points="560,294;560,325;497,325;497,356" d="M 560 294 L 560 317 Q 560 325 552 325 L 505 325 Q 497 325 497 333 L 497 356" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="plugins" data-edge-to="events" data-edge-key="8" data-composition-points="780,294;780,325;511,325;511,356" d="M 780 294 L 780 317 Q 780 325 772 325 L 519 325 Q 511 325 511 333 L 511 356" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="events" data-edge-to="primitives" data-edge-key="9" data-composition-points="490,414;490,456" d="M 490 414 L 490 456" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="primitives" data-edge-to="types" data-edge-key="10" data-composition-points="490,514;490,556" d="M 490 514 L 490 556" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="cli" data-edge-to="public" data-edge-label="public API only" data-edge-key="0" data-composition-points="220,54;560,54" d="M 220 54 L 560 54" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="app" data-edge-to="discovery" data-edge-key="1" data-composition-points="492,176;492,200;138,200;138,224" d="M 492 176 L 492 192 Q 492 200 484 200 L 146 200 Q 138 200 138 208 L 138 224" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="app" data-edge-to="config" data-edge-key="2" data-composition-points="506,176;506,200;324,200;324,224" d="M 506 176 L 506 192 Q 506 200 498 200 L 332 200 Q 324 200 324 208 L 324 224" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="app" data-edge-to="engine" data-edge-key="3" data-composition-points="520,176;520,224" d="M 520 176 L 520 224" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="app" data-edge-to="plugins" data-edge-key="4" data-composition-points="534,176;534,200;696,200;696,224" d="M 534 176 L 534 192 Q 534 200 542 200 L 688 200 Q 696 200 696 208 L 696 224" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="app" data-edge-to="gate" data-edge-key="5" data-composition-points="548,176;548,200;882,200;882,224" d="M 548 176 L 548 192 Q 548 200 556 200 L 874 200 Q 882 200 882 208 L 882 224" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="discovery" data-edge-to="events" data-edge-key="6" data-composition-points="138,282;138,317;492,317;492,352" d="M 138 282 L 138 309 Q 138 317 146 317 L 484 317 Q 492 317 492 325 L 492 352" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="config" data-edge-to="events" data-edge-key="7" data-composition-points="324,282;324,317;506,317;506,352" d="M 324 282 L 324 309 Q 324 317 332 317 L 498 317 Q 506 317 506 325 L 506 352" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="engine" data-edge-to="events" data-edge-key="8" data-composition-points="520,282;520,352" d="M 520 282 L 520 352" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="plugins" data-edge-to="events" data-edge-key="9" data-composition-points="696,282;696,317;534,317;534,352" d="M 696 282 L 696 309 Q 696 317 688 317 L 542 317 Q 534 317 534 325 L 534 352" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="gate" data-edge-to="events" data-edge-key="10" data-composition-points="882,282;882,317;548,317;548,352" d="M 882 282 L 882 309 Q 882 317 874 317 L 556 317 Q 548 317 548 325 L 548 352" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="events" data-edge-to="primitives" data-edge-key="11" data-composition-points="520,408;520,452" d="M 520 408 L 520 452" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="primitives" data-edge-to="types" data-edge-key="12" data-composition-points="520,508;520,552" d="M 520 508 L 520 552" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 
         <!-- Components -->
         <g id="node-cli" data-node-id="cli" data-node-label="_cli" tabindex="0" role="button" aria-label="Focus _cli, commands, scaffold, Architecture component" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="commands, scaffold" data-node-context="Architecture component">
           <title>_cli · commands, scaffold · Architecture component</title>
-          <rect x="40" y="30" width="200" height="58" rx="6" class="c-mask"/>
-          <rect x="40" y="30" width="200" height="58" rx="6" class="c-frontend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(46 36) scale(0.6875)">
+          <rect x="30" y="26" width="190" height="56" rx="6" class="c-mask"/>
+          <rect x="30" y="26" width="190" height="56" rx="6" class="c-frontend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(36 32) scale(0.6875)">
             <rect x="2" y="3" width="12" height="10" rx="2"/>
             <path d="M2 6.5h12"/>
             <circle cx="4.1" cy="4.8" r=".7" class="sigil-fill"/>
             <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="140" y="57" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">_cli</text>
-        <text data-detail="context" x="140" y="73" class="t-muted" font-size="9" text-anchor="middle">commands, scaffold</text>
+          <text data-node-label="" data-detail-anchor="" x="125" y="52" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">_cli</text>
+        <text data-detail="context" x="125" y="68" class="t-muted" font-size="9" text-anchor="middle">commands, scaffold</text>
         </g>
 
-        <g id="node-public" data-node-id="public" data-node-label="Public surface" tabindex="0" role="button" aria-label="Focus Public surface, app · job · plugin · types · testing, Architecture component" aria-pressed="false" data-node-kind="external" data-node-sublabel="app · job · plugin · types · testing" data-node-context="Architecture component">
-          <title>Public surface · app · job · plugin · types · testing · Architecture component</title>
-          <rect x="690" y="30" width="310" height="58" rx="6" class="c-mask"/>
-          <rect x="690" y="30" width="310" height="58" rx="6" class="c-external" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(696 36) scale(0.6875)">
+        <g id="node-public" data-node-id="public" data-node-label="Public surface" tabindex="0" role="button" aria-label="Focus Public surface, app job plugin types testing workflow, Architecture component" aria-pressed="false" data-node-kind="external" data-node-sublabel="app job plugin types testing workflow" data-node-context="Architecture component">
+          <title>Public surface · app job plugin types testing workflow · Architecture component</title>
+          <rect x="560" y="26" width="450" height="56" rx="6" class="c-mask"/>
+          <rect x="560" y="26" width="450" height="56" rx="6" class="c-external" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(566 32) scale(0.6875)">
             <rect x="2.5" y="5" width="8.5" height="8" rx="1.5"/>
             <path d="M8 2.5h5.5V8M13.5 2.5 7.5 8.5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="845" y="57" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Public surface</text>
-        <text data-detail="context" x="845" y="73" class="t-muted" font-size="9" text-anchor="middle">app · job · plugin · types · testing</text>
+          <text data-node-label="" data-detail-anchor="" x="785" y="52" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Public surface</text>
+        <text data-detail="context" x="785" y="68" class="t-muted" font-size="9" text-anchor="middle">app job plugin types testing workflow</text>
         </g>
 
         <g id="node-app" data-node-id="app" data-node-label="_app" tabindex="0" role="button" aria-label="Focus _app, composition root, Architecture component" aria-pressed="false" data-node-kind="backend" data-node-sublabel="composition root" data-node-context="Architecture component">
           <title>_app · composition root · Architecture component</title>
-          <rect x="400" y="122" width="240" height="62" rx="6" class="c-mask"/>
-          <rect x="400" y="122" width="240" height="62" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(406 128) scale(0.6875)">
+          <rect x="400" y="118" width="240" height="58" rx="6" class="c-mask"/>
+          <rect x="400" y="118" width="240" height="58" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(406 124) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="520" y="151" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">_app</text>
-        <text data-detail="context" x="520" y="167" class="t-muted" font-size="9" text-anchor="middle">composition root</text>
+          <text data-node-label="" data-detail-anchor="" x="520" y="145" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">_app</text>
+        <text data-detail="context" x="520" y="161" class="t-muted" font-size="9" text-anchor="middle">composition root</text>
         </g>
 
-        <g id="node-discovery" data-node-id="discovery" data-node-label="_discovery" tabindex="0" role="button" aria-label="Focus _discovery, job finding, Peer layers — never import each other" aria-pressed="false" data-node-kind="backend" data-node-sublabel="job finding" data-node-context="Peer layers — never import each other">
-          <title>_discovery · job finding · Peer layers — never import each other</title>
-          <rect x="30" y="232" width="180" height="62" rx="6" class="c-mask"/>
-          <rect x="30" y="232" width="180" height="62" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(36 238) scale(0.6875)">
+        <g id="node-discovery" data-node-id="discovery" data-node-label="_discovery" tabindex="0" role="button" aria-label="Focus _discovery, job finding, Peer layers — may not import each other" aria-pressed="false" data-node-kind="backend" data-node-sublabel="job finding" data-node-context="Peer layers — may not import each other">
+          <title>_discovery · job finding · Peer layers — may not import each other</title>
+          <rect x="52" y="224" width="172" height="58" rx="6" class="c-mask"/>
+          <rect x="52" y="224" width="172" height="58" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(58 230) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="120" y="261" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">_discovery</text>
-        <text data-detail="context" x="120" y="277" class="t-muted" font-size="9" text-anchor="middle">job finding</text>
+          <text data-node-label="" data-detail-anchor="" x="138" y="251" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">_discovery</text>
+        <text data-detail="context" x="138" y="267" class="t-muted" font-size="9" text-anchor="middle">job finding</text>
         </g>
 
-        <g id="node-config" data-node-id="config" data-node-label="_config" tabindex="0" role="button" aria-label="Focus _config, resolution, Peer layers — never import each other" aria-pressed="false" data-node-kind="backend" data-node-sublabel="resolution" data-node-context="Peer layers — never import each other">
-          <title>_config · resolution · Peer layers — never import each other</title>
-          <rect x="250" y="232" width="180" height="62" rx="6" class="c-mask"/>
-          <rect x="250" y="232" width="180" height="62" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(256 238) scale(0.6875)">
+        <g id="node-config" data-node-id="config" data-node-label="_config" tabindex="0" role="button" aria-label="Focus _config, resolution, Peer layers — may not import each other" aria-pressed="false" data-node-kind="backend" data-node-sublabel="resolution" data-node-context="Peer layers — may not import each other">
+          <title>_config · resolution · Peer layers — may not import each other</title>
+          <rect x="238" y="224" width="172" height="58" rx="6" class="c-mask"/>
+          <rect x="238" y="224" width="172" height="58" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(244 230) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="340" y="261" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">_config</text>
-        <text data-detail="context" x="340" y="277" class="t-muted" font-size="9" text-anchor="middle">resolution</text>
+          <text data-node-label="" data-detail-anchor="" x="324" y="251" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">_config</text>
+        <text data-detail="context" x="324" y="267" class="t-muted" font-size="9" text-anchor="middle">resolution</text>
         </g>
 
-        <g id="node-engine" data-node-id="engine" data-node-label="_engine" tabindex="0" role="button" aria-label="Focus _engine, lifecycle, Peer layers — never import each other" aria-pressed="false" data-node-kind="backend" data-node-sublabel="lifecycle" data-node-context="Peer layers — never import each other">
-          <title>_engine · lifecycle · Peer layers — never import each other</title>
-          <rect x="470" y="232" width="180" height="62" rx="6" class="c-mask"/>
-          <rect x="470" y="232" width="180" height="62" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(476 238) scale(0.6875)">
+        <g id="node-engine" data-node-id="engine" data-node-label="_engine" tabindex="0" role="button" aria-label="Focus _engine, lifecycle, Peer layers — may not import each other" aria-pressed="false" data-node-kind="backend" data-node-sublabel="lifecycle" data-node-context="Peer layers — may not import each other">
+          <title>_engine · lifecycle · Peer layers — may not import each other</title>
+          <rect x="424" y="224" width="172" height="58" rx="6" class="c-mask"/>
+          <rect x="424" y="224" width="172" height="58" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(430 230) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="560" y="261" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">_engine</text>
-        <text data-detail="context" x="560" y="277" class="t-muted" font-size="9" text-anchor="middle">lifecycle</text>
+          <text data-node-label="" data-detail-anchor="" x="510" y="251" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">_engine</text>
+        <text data-detail="context" x="510" y="267" class="t-muted" font-size="9" text-anchor="middle">lifecycle</text>
         </g>
 
-        <g id="node-plugins" data-node-id="plugins" data-node-label="_plugins" tabindex="0" role="button" aria-label="Focus _plugins, loading, Peer layers — never import each other" aria-pressed="false" data-node-kind="backend" data-node-sublabel="loading" data-node-context="Peer layers — never import each other">
-          <title>_plugins · loading · Peer layers — never import each other</title>
-          <rect x="690" y="232" width="180" height="62" rx="6" class="c-mask"/>
-          <rect x="690" y="232" width="180" height="62" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(696 238) scale(0.6875)">
+        <g id="node-plugins" data-node-id="plugins" data-node-label="_plugins" tabindex="0" role="button" aria-label="Focus _plugins, loading, Peer layers — may not import each other" aria-pressed="false" data-node-kind="backend" data-node-sublabel="loading" data-node-context="Peer layers — may not import each other">
+          <title>_plugins · loading · Peer layers — may not import each other</title>
+          <rect x="610" y="224" width="172" height="58" rx="6" class="c-mask"/>
+          <rect x="610" y="224" width="172" height="58" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(616 230) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="780" y="261" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">_plugins</text>
-        <text data-detail="context" x="780" y="277" class="t-muted" font-size="9" text-anchor="middle">loading</text>
+          <text data-node-label="" data-detail-anchor="" x="696" y="251" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">_plugins</text>
+        <text data-detail="context" x="696" y="267" class="t-muted" font-size="9" text-anchor="middle">loading</text>
+        </g>
+
+        <g id="node-gate" data-node-id="gate" data-node-label="_gate" tabindex="0" role="button" aria-label="Focus _gate, resolver, strategy, Peer layers — may not import each other" aria-pressed="false" data-node-kind="backend" data-node-sublabel="resolver, strategy" data-node-context="Peer layers — may not import each other">
+          <title>_gate · resolver, strategy · Peer layers — may not import each other</title>
+          <rect x="796" y="224" width="172" height="58" rx="6" class="c-mask"/>
+          <rect x="796" y="224" width="172" height="58" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(802 230) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="882" y="251" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">_gate</text>
+        <text data-detail="context" x="882" y="267" class="t-muted" font-size="9" text-anchor="middle">resolver, strategy</text>
         </g>
 
         <g id="node-events" data-node-id="events" data-node-label="_events" tabindex="0" role="button" aria-label="Focus _events, EventBus, hooks, Foundation" aria-pressed="false" data-node-kind="messagebus" data-node-sublabel="EventBus, hooks" data-node-context="Foundation">
           <title>_events · EventBus, hooks · Foundation</title>
-          <rect x="370" y="356" width="240" height="58" rx="6" class="c-mask"/>
-          <rect x="370" y="356" width="240" height="58" rx="6" class="c-messagebus" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="messagebus" class="semantic-sigil s-messagebus" transform="translate(376 362) scale(0.6875)">
+          <rect x="400" y="352" width="240" height="56" rx="6" class="c-mask"/>
+          <rect x="400" y="352" width="240" height="56" rx="6" class="c-messagebus" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="messagebus" class="semantic-sigil s-messagebus" transform="translate(406 358) scale(0.6875)">
             <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/>
             <circle cx="5" cy="4.5" r="1" class="sigil-fill"/>
             <circle cx="10.5" cy="8" r="1" class="sigil-fill"/>
             <circle cx="7" cy="11.5" r="1" class="sigil-fill"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="490" y="383" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">_events</text>
-        <text data-detail="context" x="490" y="399" class="t-muted" font-size="9" text-anchor="middle">EventBus, hooks</text>
+          <text data-node-label="" data-detail-anchor="" x="520" y="378" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">_events</text>
+        <text data-detail="context" x="520" y="394" class="t-muted" font-size="9" text-anchor="middle">EventBus, hooks</text>
         </g>
 
         <g id="node-primitives" data-node-id="primitives" data-node-label="_primitives" tabindex="0" role="button" aria-label="Focus _primitives, DI, middleware, Foundation" aria-pressed="false" data-node-kind="cloud" data-node-sublabel="DI, middleware" data-node-context="Foundation">
           <title>_primitives · DI, middleware · Foundation</title>
-          <rect x="370" y="456" width="240" height="58" rx="6" class="c-mask"/>
-          <rect x="370" y="456" width="240" height="58" rx="6" class="c-cloud" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="cloud" class="semantic-sigil s-cloud" transform="translate(376 462) scale(0.6875)">
+          <rect x="400" y="452" width="240" height="56" rx="6" class="c-mask"/>
+          <rect x="400" y="452" width="240" height="56" rx="6" class="c-cloud" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="cloud" class="semantic-sigil s-cloud" transform="translate(406 458) scale(0.6875)">
             <path d="M4.3 12.5h7.3a2.4 2.4 0 0 0 .2-4.8 4 4 0 0 0-7.5-1.3A3.1 3.1 0 0 0 4.3 12.5Z"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="490" y="483" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">_primitives</text>
-        <text data-detail="context" x="490" y="499" class="t-muted" font-size="9" text-anchor="middle">DI, middleware</text>
+          <text data-node-label="" data-detail-anchor="" x="520" y="478" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">_primitives</text>
+        <text data-detail="context" x="520" y="494" class="t-muted" font-size="9" text-anchor="middle">DI, middleware</text>
         </g>
 
         <g id="node-types" data-node-id="types" data-node-label="_types" tabindex="0" role="button" aria-label="Focus _types, stdlib only, Foundation" aria-pressed="false" data-node-kind="database" data-node-sublabel="stdlib only" data-node-context="Foundation">
           <title>_types · stdlib only · Foundation</title>
-          <rect x="370" y="556" width="240" height="58" rx="6" class="c-mask"/>
-          <rect x="370" y="556" width="240" height="58" rx="6" class="c-database" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(376 562) scale(0.6875)">
+          <rect x="400" y="552" width="240" height="56" rx="6" class="c-mask"/>
+          <rect x="400" y="552" width="240" height="56" rx="6" class="c-database" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(406 558) scale(0.6875)">
             <ellipse cx="8" cy="4" rx="5" ry="2"/>
             <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="490" y="583" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">_types</text>
-        <text data-detail="context" x="490" y="599" class="t-muted" font-size="9" text-anchor="middle">stdlib only</text>
+          <text data-node-label="" data-detail-anchor="" x="520" y="578" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">_types</text>
+        <text data-detail="context" x="520" y="594" class="t-muted" font-size="9" text-anchor="middle">stdlib only</text>
         </g>
 
         <!-- Connection labels -->
-        <g data-detail="context" data-edge-from="cli" data-edge-to="public" data-edge-label="public only" data-edge-key="0">
-          <rect x="433.6" y="39" width="62.8" height="14" rx="3" class="c-mask"/>
-          <text x="465" y="49" class="t-backend" font-size="8" text-anchor="middle">public only</text>
+        <g data-detail="context" data-edge-from="cli" data-edge-to="public" data-edge-label="public API only" data-edge-key="0">
+          <rect x="349" y="34" width="82" height="14" rx="3" class="c-mask"/>
+          <text x="390" y="44" class="t-backend" font-size="8" text-anchor="middle">public API only</text>
         </g>
+
+
 
 
 
@@ -5184,18 +5199,44 @@
 
 
         <!-- Boundary labels (foreground masks keep routes out of titles) -->
-        <g data-graph-role="structural-frame-label" data-composition-frame-id="0" data-composition-frame-kind="region" data-composition-frame-label="Peer layers — never import each other">
-          <rect data-graph-role="structural-frame-label-mask" x="4" y="212" width="209.79999999999998" height="16" rx="3" class="c-mask"/>
-          <text data-boundary-label="" x="8" y="225" class="t-cloud" font-size="9" font-weight="600">Peer layers — never import each other</text>
+        <g data-graph-role="structural-frame-label" data-composition-frame-id="0" data-composition-frame-kind="security-group" data-composition-frame-label="Peer layers — may not import each other">
+          <rect data-graph-role="structural-frame-label-mask" x="26" y="204" width="220.6" height="16" rx="3" class="c-mask"/>
+          <text data-boundary-label="" x="30" y="217" class="t-security" font-size="9" font-weight="600">Peer layers — may not import each other</text>
         </g>
 
         <g data-graph-role="structural-frame-label" data-composition-frame-id="1" data-composition-frame-kind="region" data-composition-frame-label="Foundation">
-          <rect data-graph-role="structural-frame-label-mask" x="344" y="336" width="64" height="16" rx="3" class="c-mask"/>
-          <text data-boundary-label="" x="348" y="349" class="t-cloud" font-size="9" font-weight="600">Foundation</text>
+          <rect data-graph-role="structural-frame-label-mask" x="374" y="332" width="64" height="16" rx="3" class="c-mask"/>
+          <text data-boundary-label="" x="378" y="345" class="t-cloud" font-size="9" font-weight="600">Foundation</text>
         </g>
 
         <!-- Legend -->
-
+        <g data-legend="" data-legend-bridge="">
+          <text x="40" y="664" class="t-primary" font-size="12" font-weight="650">Legend</text>
+          <g data-legend-semantic-kind="frontend" data-legend-kind="frontend" data-legend-label="Frontend" data-legend-x="40" data-legend-baseline="684" data-legend-width="83">
+            <rect x="40" y="675" width="16" height="10" rx="2.5" class="c-frontend" stroke-width="1"/>
+            <text x="62" y="684" class="t-muted" font-size="10" font-weight="500">Frontend</text>
+          </g>
+          <g data-legend-semantic-kind="backend" data-legend-kind="backend" data-legend-label="Backend" data-legend-x="145" data-legend-baseline="684" data-legend-width="78">
+            <rect x="145" y="675" width="16" height="10" rx="2.5" class="c-backend" stroke-width="1"/>
+            <text x="167" y="684" class="t-muted" font-size="10" font-weight="500">Backend</text>
+          </g>
+          <g data-legend-semantic-kind="database" data-legend-kind="database" data-legend-label="Database" data-legend-x="245" data-legend-baseline="684" data-legend-width="83">
+            <rect x="245" y="675" width="16" height="10" rx="2.5" class="c-database" stroke-width="1"/>
+            <text x="267" y="684" class="t-muted" font-size="10" font-weight="500">Database</text>
+          </g>
+          <g data-legend-semantic-kind="cloud" data-legend-kind="cloud" data-legend-label="Cloud" data-legend-x="350" data-legend-baseline="684" data-legend-width="68">
+            <rect x="350" y="675" width="16" height="10" rx="2.5" class="c-cloud" stroke-width="1"/>
+            <text x="372" y="684" class="t-muted" font-size="10" font-weight="500">Cloud</text>
+          </g>
+          <g data-legend-semantic-kind="messagebus" data-legend-kind="messagebus" data-legend-label="Message bus" data-legend-x="440" data-legend-baseline="684" data-legend-width="98">
+            <rect x="440" y="675" width="16" height="10" rx="2.5" class="c-messagebus" stroke-width="1"/>
+            <text x="462" y="684" class="t-muted" font-size="10" font-weight="500">Message bus</text>
+          </g>
+          <g data-legend-semantic-kind="external" data-legend-kind="external" data-legend-label="External" data-legend-x="560" data-legend-baseline="684" data-legend-width="83">
+            <rect x="560" y="675" width="16" height="10" rx="2.5" class="c-external" stroke-width="1"/>
+            <text x="582" y="684" class="t-muted" font-size="10" font-weight="500">External</text>
+          </g>
+        </g>
       </svg>
       <p class="intent-trace-status no-print" id="intent-trace-status" role="status" aria-live="polite" aria-atomic="true"></p>
       <div class="share-chapter-cue no-print" id="share-chapter-cue" hidden role="status" aria-live="polite">
@@ -5385,13 +5426,27 @@
       <div class="card">
         <div class="card-header">
           <div class="card-dot violet"></div>
-          <h3>The contract</h3>
+          <h3>The five contracts</h3>
         </div>
         <ul>
-          <li>&bull; _types imports stdlib only; it is the shared vocabulary</li>
-          <li>&bull; Peer layers may reach _types, _primitives and _events — never each other, _app or _cli</li>
-          <li>&bull; _app may import every internal layer; _cli may import none of them</li>
-          <li>&bull; Enforced mechanically by import-linter, not by convention</li>
+          <li>&bull; Peer layers are independent — _discovery, _config, _engine, _plugins, _gate</li>
+          <li>&bull; Primitives import nothing internal — _primitives reaches _types only</li>
+          <li>&bull; Types import nothing internal — _types reaches stdlib only</li>
+          <li>&bull; Internal never imports public — no _pkg may import the six public packages</li>
+          <li>&bull; _cli uses public API only — _cli may import no _pkg</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot amber"></div>
+          <h3>Documented but unenforced</h3>
+        </div>
+        <ul>
+          <li>&bull; No contract constrains _events against the peer layers</li>
+          <li>&bull; _events/adapter.py:88 really does import _config._emit at runtime</li>
+          <li>&bull; lint-imports reports 5 kept / 0 broken, so this is permitted</li>
+          <li>&bull; exclude_type_checking_imports=true hides all TYPE_CHECKING imports</li>
         </ul>
       </div>
     </div>
