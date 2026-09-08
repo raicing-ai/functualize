@@ -109,6 +109,7 @@ first — it is the only file in the corpus that answers that question.
 | `16-skill-to-workflow.md` | The skill compiler: prose procedure → `@workflow` with `ai_inbound`/`ai_outbound` gates; the compile target already ships |
 | `17-subject-modeling.md` | **The pattern generalized:** subject modeling as a functualize practice; rise as one vocabulary + tooling instance on it |
 | `18-display-provider.md` | Ambient awareness: rise's one `DisplayProvider` for the inline TUI, in both deliveries — and why a project cannot override it |
+| `19-dagger-parity.md` | **Dagger audit:** where the two designs independently agreed, six gaps ranked by value-per-cost, and the two things not to copy |
 | `guide/` | the proposed functualize guide (`subjects.md`) and its landing instructions |
 | `evidence/` | 18 probes + transcript |
 
