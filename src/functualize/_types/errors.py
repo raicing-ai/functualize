@@ -7,6 +7,7 @@ public contract for job authors and platform developers.
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 
@@ -180,6 +181,72 @@ class AmbiguousJobError(Exception):
         super().__init__(
             f"Ambiguous job name '{name}'. "
             f"Candidates: {candidates}. Use the qualified form."
+        )
+
+
+class ScopeStoreUnreadableError(Exception):
+    """Raised when the workflow scope store exists but cannot be honoured.
+
+    A version mismatch or corrupt content. **Never** degrades to "no scopes":
+    the scope store is the only record of an in-flight run, including a human's
+    recorded gate answers, so an unreadable one is a refusal, not an empty list.
+    That is a deliberate divergence from the derived state store beside it,
+    whose discard-on-mismatch rule is correct for a cache and wrong here.
+
+    The file is **left where it is**. Refusing has to be a repeatable state: if
+    the read moved the file aside, the next run would find nothing, read it as
+    "no scopes", and start the workflow over silently — the exact failure this
+    error exists to prevent. It moves only when a human asks, at
+    ``func builtin state clear --scopes``, which the message names.
+
+    Attributes:
+        path: The scope file that could not be read.
+        scope_count: How many scopes were visible in it, or None if it could
+            not be parsed at all.
+        found_version: The format version on disk, when that is the cause.
+        expected_version: The format version this build understands.
+
+    ``scope_count`` is a **count, never content**. Scope records hold gate
+    payloads and step return values, which may be secrets — the same reason run
+    history stores ``args_hash`` and never argument values.
+    """
+
+    def __init__(
+        self,
+        path: Path,
+        *,
+        scope_count: int | None = None,
+        found_version: int | None = None,
+        expected_version: int,
+    ) -> None:
+        self.path = path
+        self.scope_count = scope_count
+        self.found_version = found_version
+        self.expected_version = expected_version
+        super().__init__(self._message())
+
+    def _message(self) -> str:
+        if self.found_version is not None:
+            cause = (
+                f"found version {self.found_version}, expected {self.expected_version}"
+            )
+        else:
+            cause = "its contents could not be parsed"
+        if self.scope_count is None:
+            holds = "It may hold workflow scopes, including recorded gate input."
+        else:
+            plural = "" if self.scope_count == 1 else "s"
+            holds = (
+                f"It holds {self.scope_count} workflow scope{plural}, "
+                "including any recorded gate input."
+            )
+        return (
+            f"{self.path} cannot be read ({cause}).\n"
+            f"       {holds}\n"
+            "\n"
+            "  The file has been left where it is. To move it aside and "
+            "start fresh:\n"
+            "      func builtin state clear --scopes"
         )
 
 

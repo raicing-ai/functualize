@@ -14,7 +14,7 @@ tests/test_explain_and_state_cmd.py` → **77 passed**.
 
 ## Wave 0 — the error type
 
-### [ ] T1 · `ScopeStoreUnreadableError`
+### [x] T1 · `ScopeStoreUnreadableError`
 
 `[F]` `src/functualize/_types/errors.py`, `src/functualize/_types/__init__.py`
 
@@ -24,12 +24,50 @@ discard command — **a count, never scope content** (`plan.md` R3). Export from
 `_types/__init__.py`.
 
 **Gate** `grep -c ScopeStoreUnreadableError src/functualize/_types/errors.py
-src/functualize/_types/__init__.py` → `1+` each *(now: 0, 0)*
+src/functualize/_types/__init__.py` → `1+` each *(was: 0, 0 — now 1, 2)* ✓
+
+**Reachability:** nothing raises it yet; `scope_format.load_scopes` (T2) is the
+production raiser, and T2's tests are what prove it. Disclosed here rather than
+claimed — a type with no raiser is the *expected* state at the end of wave 0.
 **Covers** AC-4, AC-6
 
 ---
 
-## Wave 1 — the two formats, in parallel
+## Wave 1 — the derived store gives up its scopes
+
+### [x] T3a · one atomic writer for the two runtime-state formats
+
+`[F]` `src/functualize/_primitives/state_format.py`
+
+Extract `atomic_write_json(path, payload)` from `save_state`'s body; `save_state`
+stamps `STATE_VERSION` and calls it. Behaviour identical — no envelope change here.
+
+`scope_format` needs the same mkstemp → fsync → `os.replace` discipline with a
+different version stamp, and a second copy is `pitfalls.md` §6 ("a list hardcoded
+in five places has already drifted"). One writer, two callers.
+
+*Scope of the claim, corrected at execution time:* `grep -rn mkstemp
+src/functualize/` returns **6**, not the 1 this task was authored against — five
+are in `_cli/` (`self_update`, `manifest`, `package_ops`, `config_snapshot_store`,
+`toml_writer`), staging a binary, a registry and a TOML file, and `_primitives`
+cannot import `_cli` anyway. This unifies the *runtime state* writers, not the
+repo's. The docstring says exactly that rather than overclaiming.
+
+**Gate** `grep -c mkstemp src/functualize/_primitives/state_format.py` → `1`, and
+no second one appears in `_primitives/` once T2 lands;
+`pytest tests/test_state_format.py tests/test_state_store.py` green *(77 passed —
+this task must not turn the tree red)*
+**Covers** — (enabling; AC-1/AC-3 move to T6)
+
+*Split from the original T3 during execution. Dropping `scopes` from the envelope
+turned out **not** to be separable from repointing `StateStore`: doing either
+alone leaves the store reading a key that is gone, and it broke 14 tests for four
+waves. The envelope change is now T6's, done in one step with the repoint. The
+extraction is separable and stays here, because T2 consumes it.*
+
+---
+
+## Wave 2 — the fail-closed scope file
 
 ### [ ] T2 · `scope_format.py` — the fail-closed file
 
@@ -49,8 +87,9 @@ Two things distinguish it from `state_format.py`, and both are the point:
    `ScopeStoreUnreadableError`, **file left exactly where it is** (`plan.md`
    §1.2 — renaming here makes the next run start over silently).
 
-Reuse `save_state`'s mkstemp → fsync → `os.replace` and `state_lock`'s sidecar
-discipline rather than reinventing them.
+Call `state_format.atomic_write_json` (extracted in T3) and reuse `state_lock`'s
+sidecar discipline rather than reinventing either. Intra-layer import, permitted,
+and it is what keeps one atomic-write implementation in the repo.
 
 Tests: one per row of `schema.md` §3; that a refused read is **repeatable** (call
 twice, same error, file still present, byte-identical); and that the message
@@ -59,30 +98,9 @@ contains the count but **not** a payload value planted in the file.
 **Gate** `pytest tests/test_scope_format.py -q` green, ≥ 8 tests
 **Covers** AC-2, AC-4, AC-5, AC-6
 
-### [ ] T3 · `state.json` gives up its scopes
-
-`[F]` `src/functualize/_primitives/state_format.py`, `tests/test_state_format.py`
-
-Drop `"scopes"` from `_SECTIONS` (`:56`) and `empty_state()` (`:64`). Do **not**
-bump `STATE_VERSION` — the removal is the feature, and bumping would discard every
-fingerprint for nothing (`schema.md` §2).
-
-Rewrite the header comment at `:41-48`. It currently justifies the discard rule
-with *"runtime state is derived, never a source of truth"* while the very next line
-lists `scopes (… gate payloads …)` among the file's contents. Once scopes are gone
-the sentence is true; make it say so, and name the split, so the next person adding
-a section has to decide which file it belongs in (`spec.md` §5, third bullet).
-
-Update the 3 test sites that assert `scopes` in the envelope
-(`tests/test_state_format.py:30, :154, :156`).
-
-**Gate** `grep -c '"scopes"' src/functualize/_primitives/state_format.py` → `0`
-*(now: 2)*; `pytest tests/test_state_format.py -q` green
-**Covers** AC-1, AC-3
-
 ---
 
-## Wave 2 — the store, and the public door
+## Wave 3 — the store, and the public door
 
 ### [ ] T4 · `ScopeStore`
 
@@ -127,12 +145,19 @@ ScopeStoreUnreadableError"` → exit 0 *(now: `ImportError: cannot import name
 
 ---
 
-## Wave 3 — the façade
+## Wave 4 — the façade
 
 ### [ ] T6 · `StateStore` delegates
 
-`[F]` `src/functualize/_primitives/state_store.py`, `tests/test_state_store.py`
+`[F]` `src/functualize/_primitives/state_store.py`,
+`src/functualize/_primitives/state_format.py`, `tests/test_state_store.py`,
+`tests/test_state_format.py`
 
+- **Drop `scopes` from `state_format._SECTIONS` and `empty_state()`**, and remove
+  the two `TRANSITIONAL(workflow-state-durability/T6)` comments there. Done *here*,
+  not in T3a: the envelope losing the key and `StateStore` no longer reading it are
+  one atomic change (proved by doing it apart — 14 tests red). Do **not** bump
+  `STATE_VERSION`; that would discard every fingerprint for nothing.
 - Hold `self._scopes = ScopeStore(self._path.with_name(SCOPES_FILENAME))` — derived
   from its own path, so every existing `StateStore(tmp / "state.json")` in the test
   suite finds its sibling with no extra wiring.
@@ -151,12 +176,14 @@ ScopeStoreUnreadableError"` → exit 0 *(now: `ImportError: cannot import name
 **Gate** `grep -rn '\.batch(' src/ plugins/` → `0` *(now: 0)*;
 `grep -c 'def batch' src/functualize/_primitives/state_store.py` → `0` *(now: 1)*;
 `grep -c 'def scope_batch' src/functualize/_primitives/state_store.py` → `1`
-*(now: 0)*; `pytest tests/test_state_store.py -q` green
-**Covers** AC-1, AC-7, AC-9, AC-18
+*(now: 0)*; `grep -c '"scopes"' src/functualize/_primitives/state_format.py` → `0`
+*(now: 2)*; `grep -rc 'TRANSITIONAL(workflow-state-durability' src/` → `0`;
+`pytest tests/test_state_store.py tests/test_state_format.py -q` green
+**Covers** AC-1, AC-3, AC-7, AC-9, AC-18
 
 ---
 
-## Wave 4 — the four delivery surfaces, in parallel
+## Wave 5 — the four delivery surfaces, in parallel
 
 ### [ ] T7 · the `state` command group
 
@@ -249,7 +276,7 @@ plugins/functualize-mcp/src/functualize_mcp/_workflow_tools.py` → `1+` *(now: 
 
 ---
 
-## Wave 5 — the regression that started this
+## Wave 6 — the regression that started this
 
 ### [ ] T11 · the experiment becomes a test
 
@@ -276,7 +303,7 @@ code is 5 then 0 — the same walk across the split.
 
 ---
 
-## Wave 6 — collateral
+## Wave 7 — collateral
 
 ### [ ] T12 · the docs that are already wrong
 
@@ -315,7 +342,7 @@ believing any failure — `TESTING.md`)*
 
 ---
 
-## Wave 7 — checkpoint
+## Wave 8 — checkpoint
 
 ### [ ] T13 · full verification
 
@@ -351,20 +378,27 @@ believing any failure — `TESTING.md`)*
 {
   "waves": [
     { "id": 0, "tasks": ["T1"] },
-    { "id": 1, "tasks": ["T2", "T3"] },
-    { "id": 2, "tasks": ["T4", "T5"] },
-    { "id": 3, "tasks": ["T6"] },
-    { "id": 4, "tasks": ["T7", "T8", "T9", "T10"] },
-    { "id": 5, "tasks": ["T11"] },
-    { "id": 6, "tasks": ["T12"] },
-    { "id": 7, "tasks": ["T13"] }
+    { "id": 1, "tasks": ["T3a"] },
+    { "id": 2, "tasks": ["T2"] },
+    { "id": 3, "tasks": ["T4", "T5"] },
+    { "id": 4, "tasks": ["T6"] },
+    { "id": 5, "tasks": ["T7", "T8", "T9", "T10"] },
+    { "id": 6, "tasks": ["T11"] },
+    { "id": 7, "tasks": ["T12"] },
+    { "id": 8, "tasks": ["T13"] }
   ]
 }
 ```
 
 **Why the waves fall here.** T1 produces the error every later module imports.
-T2 and T3 edit different files and neither reads the other. T4 consumes T2; T5
-consumes T1 and T2; disjoint files, same wave. T6 is alone because it is the only
+T3a comes next alone: it owns `state_format.py`, and T2 consumes the
+`atomic_write_json` it extracts there. *(Revised twice during execution. T2 and T3
+were originally parallel, on the assumption that `scope_format` could own its own
+atomic writer — it cannot, `_primitives` has exactly one and a second would drift.
+Then T3 was split: its envelope change is inseparable from T6's repoint, and doing
+it early left 14 tests red across four waves. Waves are only a useful checkpoint if
+each one ends green.)*
+T4 consumes T2; T5 consumes T1 and T2; disjoint files, same wave. T6 is alone because it is the only
 task touching `state_store.py`, and everything downstream depends on the façade
 being settled. Wave 4's four tasks touch `_cli/`, `_engine/`, `app/adapters/` and
 `plugins/` respectively — no file overlap. T11 needs every surface in place. T12

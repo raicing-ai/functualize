@@ -39,8 +39,17 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
 # Current state file format version. Bump on any incompatible format change.
-# A version mismatch discards the file (runtime state is derived, never a
-# source of truth — the worst case is one extra run).
+# A version mismatch discards the file. That is safe only for **derived** data —
+# recomputable from the source tree, at worst costing one extra run.
+#
+# TRANSITIONAL(workflow-state-durability/T6): `scopes` is still in this envelope
+# and is NOT derived — a bump erases every in-flight run, gate payloads and all.
+# That is the defect this feature exists to fix; T6 moves the section to
+# `scope_format.py` and this comment loses its caveat. Until then the rule above
+# is false for one section, which is exactly the bug.
+#
+# When adding a section, decide which of the two files it belongs in *first*: a
+# record someone would be upset to lose is not derived and does not belong here.
 # v1 (2026-07-20): initial envelope — fingerprints (with the R4
 # (mtime, size, sha256) stat short-circuit), scopes (per-scope step records,
 # recorded branch choices, gate payloads, blocked position, epilogue record),
@@ -61,6 +70,11 @@ def empty_state() -> dict[str, Any]:
     return {
         "format_version": STATE_VERSION,
         "fingerprints": {},
+        # TRANSITIONAL(workflow-state-durability/T6): scopes move to
+        # scopes.json. Still here because StateStore still reads them from
+        # this envelope; T6 repoints it and removes this section in one step,
+        # because doing either alone leaves the store reading a key that is
+        # gone.
         "scopes": {},
         "history": [],
         "session": {"preconditions": {}},
@@ -175,17 +189,26 @@ def load_state(path: Path | str) -> dict[str, Any]:
         return empty_state()
 
 
-def save_state(path: Path | str, state: dict[str, Any]) -> None:
-    """Write the envelope atomically (tmp file + ``os.replace``).
+def atomic_write_json(path: Path | str, payload: dict[str, Any]) -> None:
+    """Write ``payload`` as JSON atomically (tmp file + ``os.replace``).
 
     Atomic so a crash mid-write cannot leave a half-written file that the next
-    run would discard. Callers that read-modify-write must hold
-    :func:`state_lock` — or better, use :func:`update_state`.
+    run would discard.
+
+    **The only one in ``_primitives/``**, shared by this module and
+    :mod:`functualize._primitives.scope_format` — the two runtime-state formats
+    write through one implementation so neither can silently lose its ``fsync``.
+    The caller supplies the payload including its own ``format_version``; only
+    the discipline lives here.
+
+    ``_cli/`` has five other ``mkstemp`` writers (``self_update``, ``manifest``,
+    ``package_ops``, ``config_snapshot_store``, ``toml_writer``). They stage a
+    binary, a registry, and a TOML file — different payloads, different layer,
+    and ``_primitives`` could not import them anyway. This is not the repo's one
+    atomic write; it is the runtime state store's one atomic write.
     """
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    payload = dict(state)
-    payload["format_version"] = STATE_VERSION
     fd, tmp_name = tempfile.mkstemp(
         dir=str(target.parent), prefix=f".{target.name}.", suffix=".tmp"
     )
@@ -199,6 +222,17 @@ def save_state(path: Path | str, state: dict[str, Any]) -> None:
         with suppress(OSError):
             os.unlink(tmp_name)
         raise
+
+
+def save_state(path: Path | str, state: dict[str, Any]) -> None:
+    """Write the envelope atomically, stamping the current format version.
+
+    Callers that read-modify-write must hold :func:`state_lock` — or better,
+    use :func:`update_state`.
+    """
+    payload = dict(state)
+    payload["format_version"] = STATE_VERSION
+    atomic_write_json(path, payload)
 
 
 @contextmanager
