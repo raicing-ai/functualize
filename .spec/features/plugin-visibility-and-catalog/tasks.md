@@ -95,7 +95,7 @@ that gate is green against the code as it actually stands.
   traversal is unchanged — verify by asserting the plugin command appears with
   the right kind, and that `--kind job` excludes it.
 
-- [ ] **T2.5 — Live TUI verification**
+- [x] **T2.5 — Live TUI verification**
   `observe-tui` against `examples/standalone/showcase` with `functualize-mcp`
   installed: `mcp` in the Jobs browser, SmartBar completes it, `mcp serve`
   renders a preflight instead of the current silence.
