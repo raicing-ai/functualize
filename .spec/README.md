@@ -23,6 +23,17 @@ The files committed here are the canonical design reference. Additional working 
 | [Workflow Run Parameters](shape-intents/workflow-run-parameters.md) | 7 (2 pass, 5 gaps) |
 | [Remote Config Source](shape-intents/remote-config-source.md) | 4 (1 pass, 3 gaps) |
 | [Boolean Flag Negation](shape-intents/boolean-flag-negation.md) | 6 (1 pass, 5 gaps) — counts predate #17, which shipped the feature; needs re-verification or retirement |
+| [Subject Modeling](shape-intents/subject-modeling/) | 69 (58 met, 9 reduced, 1 partial, 1 unmet) — **a directory, not a file**; see its `README.md` for the orientation path |
+
+**Subject Modeling** is the first shape intent shipped as a directory rather
+than a single file: it is a 19-file design corpus with its own `intent/`,
+`evidence/` (19 runnable probes) and `guide/` subdirectories. The functualize-
+facing half is small and is what makes it a shape intent at all — a proposed
+`docs/guides/subjects.md` (in `guide/`) plus nine upstream asks, eight of which
+have already landed. The rest is the design of **risekit**, the first
+third-party distribution built on functualize's hosting seams, carried here
+because it is the evidence that the practice works and the reason the asks
+exist.
 
 When a shape intent graduates to implementation, it is atomized into a task list under `.spec/features/<name>/` and executed via the spec-driven-developer workflow. Before the branch merges, both are cleared: the durable half moves to `STATUS.md` and an ADR, and the artifacts are removed. Standalone Distribution & Self-Management shipped that way on 2026-09-04 — see [ADR-015](../contributor/adr/015-standalone-distribution-and-self-management.md).
 
