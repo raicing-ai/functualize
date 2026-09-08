@@ -82,6 +82,16 @@ from functualize._types.redaction import (
     reveal,
 )
 from functualize.app._workflow_resume import deposit_gate_input, pending_gates
+from functualize.app._workflow_view import (
+    LIVE_STATUSES,
+    TERMINAL_STATES,
+    derived_state,
+    describe_scope,
+    list_scopes,
+    scope_row,
+    tool_entries,
+    tool_summaries,
+)
 from functualize.app.config import JobSources
 
 
@@ -135,6 +145,14 @@ __all__ = [
     "BUILTIN_SEGMENT",
     "coerce_kwargs",
     "deposit_gate_input",
+    "derived_state",
+    "describe_scope",
+    "tool_summaries",
+    "tool_entries",
+    "scope_row",
+    "list_scopes",
+    "TERMINAL_STATES",
+    "LIVE_STATUSES",
     "DiscoveryOverrides",
     "display_value",
     "DiscoveryResult",
