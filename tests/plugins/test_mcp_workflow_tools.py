@@ -518,3 +518,68 @@ class TestTopologyFallback:
         descriptor = JobDescriptor(name="plain", group=None, function=plain)
         provider = WorkflowToolProvider(self._AppReturning(descriptor), store=_store())
         assert provider._topology("plain") == {"steps": [], "edges": []}
+
+
+class TestUnreadableScopeStore:
+    """MCP parity with the CLI refusal (AC-4, AC-6).
+
+    An agent must never be told a scope does not exist when the truth is that
+    the file holding it could not be read — that reads as "finished, or never
+    started", and the agent acts on it.
+    """
+
+    @pytest.fixture
+    def poisoned(self, tmp_path):
+        import json
+
+        from functualize._primitives.scope_format import SCOPES_FILENAME
+
+        (tmp_path / SCOPES_FILENAME).write_text(
+            json.dumps(
+                {
+                    "format_version": 99,
+                    "scopes": {
+                        "rel-1": {"gates": {"a": {"payload": "hunter2-SECRET"}}},
+                        "rel-2": {},
+                    },
+                }
+            )
+        )
+        from functualize._primitives.state_store import StateStore
+
+        return StateStore(tmp_path / "state.json")
+
+    async def test_get_workflow_state_reports_the_fault(self, poisoned) -> None:
+        provider = WorkflowToolProvider(_gated_app(), store=poisoned)
+        result = await provider._get_workflow_state("rel-1")
+        assert result["error"] == "scope_store_unreadable"
+
+    async def test_it_does_not_claim_the_workflow_is_missing(self, poisoned) -> None:
+        provider = WorkflowToolProvider(_gated_app(), store=poisoned)
+        result = await provider._get_workflow_state("rel-1")
+        assert result["error"] != "workflow_not_found"
+
+    async def test_list_does_not_return_an_empty_list(self, poisoned) -> None:
+        provider = WorkflowToolProvider(_gated_app(), store=poisoned)
+        result = await provider._list_active_workflows()
+        assert result.get("error") == "scope_store_unreadable"
+        assert "workflows" not in result
+
+    async def test_the_envelope_leaks_no_payload(self, poisoned) -> None:
+        provider = WorkflowToolProvider(_gated_app(), store=poisoned)
+        result = await provider._list_active_workflows()
+        assert "hunter2-SECRET" not in str(result)
+        assert "2 workflow scopes" in result["message"]
+
+    async def test_the_envelope_stays_flat(self, poisoned) -> None:
+        """`_error` is flat by design; widening it for one case is worse."""
+        provider = WorkflowToolProvider(_gated_app(), store=poisoned)
+        result = await provider._list_active_workflows()
+        assert set(result) == {"error", "message"}
+
+    async def test_the_tool_keeps_its_registered_name(self, poisoned) -> None:
+        """functools.wraps plus the explicit assignments — the decorator must
+        not rename the tool FastMCP registers."""
+        provider = WorkflowToolProvider(_gated_app(), store=poisoned)
+        assert provider._get_workflow_state.__name__ == "get_workflow_state"
+        assert provider._list_active_workflows.__doc__

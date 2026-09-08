@@ -225,7 +225,7 @@ write, and watch the fingerprint vanish while the gate payload survives.
 
 ## Wave 5 — the four delivery surfaces, in parallel
 
-### [ ] T7 · the `state` command group
+### [x] T7 · the `state` command group
 
 `[F]` `src/functualize/_cli/builtins.py`, `tests/test_explain_and_state_cmd.py`
 
@@ -273,7 +273,7 @@ raised mid-`complete()` leaves that node's writes **unapplied**, not torn.
 tests/test_d7_graph_probes.py -q` green
 **Covers** AC-17
 
-### [ ] T9 · the CLI refuses, cold and warm
+### [x] T9 · the CLI refuses, cold and warm
 
 `[F]` `src/functualize/app/adapters/click_params.py`,
 `src/functualize/app/adapters/lazy_command.py`
@@ -295,7 +295,7 @@ result-handling contract"* — the entry that exists because of this exact pair.
 src/functualize/app/adapters/lazy_command.py` → `1+` each *(now: 0, 0)*
 **Covers** AC-4, AC-6, AC-13
 
-### [ ] T10 · MCP parity
+### [x] T10 · MCP parity
 
 `[F]` `plugins/functualize-mcp/src/functualize_mcp/_workflow_tools.py`,
 `tests/plugins/test_mcp_workflow_tools.py`
