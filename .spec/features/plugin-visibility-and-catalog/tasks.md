@@ -32,7 +32,7 @@ that gate is green against the code as it actually stands.
   serve` calls `server.start_stdio()` and owns stdin/stdout. Exposing it without
   this field hands users a way to hang their shell.
 
-- [ ] **T1.3 — `functualize-mcp` declares `serve` as terminal-owning**
+- [x] **T1.3 — `functualize-mcp` declares `serve` as terminal-owning**
   *Files:* `plugins/functualize-mcp/src/functualize_mcp/_plugin.py`
   *Gate:* `uv run pytest plugins/functualize-mcp/tests/ -q`; `serve` reports
   `needs_terminal=True` and the other five (`start`, `stop`, `list`, `tools`,

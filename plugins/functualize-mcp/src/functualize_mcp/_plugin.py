@@ -205,7 +205,18 @@ class MCPAdapterPlugin:
                 server.start_stdio()
 
         app.register_plugin_command(
-            "serve", serve_command, help_text="Start MCP server", namespace="mcp"
+            "serve",
+            serve_command,
+            help_text="Start MCP server",
+            namespace="mcp",
+            # Owns the controlling terminal — for BOTH transports, not only
+            # stdio. `start_stdio()` makes stdout the protocol channel, so
+            # captured output corrupts the protocol outright; `start_http()`
+            # is safer in that respect but still calls `_mcp.run(...)`, which
+            # blocks in the foreground until the server is stopped. A shell
+            # front-end has to step aside either way, so the answer does not
+            # depend on `--http` and the flag never has to be inspected.
+            needs_terminal=True,
         )
 
     def _register_start_command(self, app: Any) -> None:
