@@ -114,7 +114,7 @@ so it never reads one, and it never clobbers an existing `.bak`) and
 
 ## Wave 3 — the store, and the public door
 
-### [ ] T4 · `ScopeStore`
+### [x] T4 · `ScopeStore`
 
 `[F]` `src/functualize/_primitives/scope_store.py` *(new)*,
 `tests/test_scope_store.py` *(new)*
@@ -138,10 +138,20 @@ Tests: accessor parity against the current behaviour, `batch()` read-your-writes
 `batch()` discarding on exception, and AC-16 (two stores over one path, interleaved
 writes on different scope ids, both survive).
 
-**Gate** `pytest tests/test_scope_store.py -q` green, ≥ 16 tests
+**Gate** `pytest tests/test_scope_store.py -q` green, ≥ 16 tests *(32 passed)* ✓
+
+*Executed as a **copy**, not a move.* `state_store.py` still holds its own
+accessors until T6 repoints it; deleting them here would break every caller for
+a wave. The duplication is deliberate, bounded to one wave, and T6's gate is what
+proves it is gone. `ScopeStore.beside_state()` carries the sibling rule so
+`StateStore` needs no path logic of its own in T6.
+
+Three methods beyond the accessors: `batch()` (used by T8), `clear()` (the
+escape hatch — never reads), and `is_readable()` for `state show`, which must
+report the fault rather than propagate it (R-b).
 **Covers** AC-1, AC-16
 
-### [ ] T5 · public door
+### [x] T5 · public door
 
 `[F]` `src/functualize/app/utils.py`
 
@@ -150,9 +160,12 @@ Re-export `resolve_scopes_path` and `ScopeStoreUnreadableError`, both added to
 neighbours already there. **Not** `functualize.types` — it exports no error types
 today, and `_cli` needs one import line, not two doors (`plan.md` R-c).
 
+Also exports `SCOPES_VERSION` — AC-11 asks `show` to report the scope store's
+version, and `_cli` cannot reach `_primitives` to read it.
+
 **Gate** `uv run python -c "from functualize.app.utils import resolve_scopes_path,
-ScopeStoreUnreadableError"` → exit 0 *(now: `ImportError: cannot import name
-'resolve_scopes_path'`)*
+ScopeStoreUnreadableError, SCOPES_VERSION"` → exit 0 *(was: `ImportError: cannot
+import name 'resolve_scopes_path'`)*; `lint-imports` 6/6 ✓
 **Covers** AC-11
 
 ---
