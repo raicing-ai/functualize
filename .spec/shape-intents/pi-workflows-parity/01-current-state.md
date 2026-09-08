@@ -194,6 +194,21 @@ and any "newest blocked scope" tiebreak would select the most recently *poked* s
 the oldest or newest wait. (The deposited payload is safe — `_block` is only reached when
 `payload is None`.)
 
+### C.8 `batch()` is dead code, and its docstring says otherwise
+
+`StateStore.batch()` (`state_store.py:98-114`) exists to hold the lock across many
+mutations and write once. The module docstring says *"A run that makes many mutations
+should use :meth:`StateStore.batch`"* (`:9-11`).
+
+**It has zero call sites** — nothing in `src/`, `plugins/` or `tests/` calls it. So every
+mutation is an independent locked read-modify-write of the whole envelope: `record_step`,
+`set_position` and `set_scope_status` fire per node, so a 10-step walk rewrites a file
+holding every fingerprint and a 200-entry history ring roughly 30 times.
+
+Two consequences. It is a latent performance issue on the walk's hot path. And it means
+scopes and fingerprints are **never written in one transaction**, which is why splitting
+them into separate files (B1) carries no atomicity risk.
+
 ## D. What a complete surface would look like
 
 Marked **have** / **broken** (exists but wrong) / **missing**.

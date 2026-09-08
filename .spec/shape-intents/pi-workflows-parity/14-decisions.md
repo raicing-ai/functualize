@@ -23,8 +23,10 @@ Every accepted decision, renumbered clean. Reversals and retired arguments are i
 
 | # | Decision | Where |
 |---|---|---|
-| **B1** | **Stop `scopes` being silently erased.** Split the envelope or fail closed with a backup-and-recover instruction on a `format_version` mismatch. **Blocking — do first.** | [13 item 0](13-roadmap.md) |
-| **B2** | `func builtin state clear` must name what it destroys; add `--keep-scopes` or a confirmation. | [01 §C.4](01-current-state.md) |
+| **B1** | **Give scopes their own file.** `.functualize/scopes.json`, versioned independently of `state.json` (fingerprints, history, session). A fingerprint-format bump can then never touch runs, and `state clear` stops wiping them by construction. Matches the repo's own precedent for separating the discovery cache from runtime state by lifecycle. **Blocking — do first.** | [13 item 0](13-roadmap.md) |
+| **B1a** | **The split is free of atomicity risk: `StateStore.batch()` has zero call sites** — src, plugins and tests. Nothing ever writes scopes and fingerprints in one transaction because there are no transactions. | [01 §C.8](01-current-state.md) |
+| **B1b** | **Delete or wire `batch()`.** Its docstring says *"A run that makes many mutations should use `StateStore.batch`"* and nothing does, so every `record_step` / `set_position` / `set_scope_status` is a separate whole-file locked rewrite — roughly 3 per node. Splitting scopes out shrinks the rewritten file, which is a second win from B1. | [01 §C.8](01-current-state.md) |
+| **B2** | `func builtin state clear` clears fingerprints and history only, reports how many scopes it kept, and takes `--scopes` to clear those too. Falls out of B1. | [01 §C.4](01-current-state.md) |
 | **B3** | **Return `metadata` from all four MCP execution doors**, and normalize `RunStatus` — `_execute_job` returns the raw `Enum` where `run_job` returns `.value`. | [01 §C.1](01-current-state.md) |
 | **B4** | **Enforce `cancel`** with a status check in `prelude`, or delete the tool description's *"Cancelled scopes are not resumable."* | [01 §C.3](01-current-state.md) |
 | **B5** | `deposit_gate_input` stores **`model(**payload).model_dump()`**, not the raw dict — the strategy path already does. Do before any answer or resume work. | [01 §C.2](01-current-state.md) |
