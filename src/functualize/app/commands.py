@@ -76,7 +76,7 @@ class JobNode:
 
     @property
     def help_text(self) -> str:
-        descriptor = self._descriptor
+        descriptor = self._resolved_descriptor()
         if descriptor is not None and descriptor.docstring:
             return descriptor.docstring.strip().split("\n")[0]
         if self._node.children:
@@ -112,7 +112,7 @@ class JobNode:
         Pydantic model) over the raw signature params, matching how the CLI and
         the in-process introspector already choose.
         """
-        descriptor = self._descriptor
+        descriptor = self._resolved_descriptor()
         if descriptor is None:
             return []
         return descriptor.config_fields or descriptor.parameters
@@ -148,6 +148,32 @@ class JobNode:
         if payload is None:
             return None
         return self._jobs_by_path.get(payload)
+
+    def _resolved_descriptor(self) -> JobDescriptor | None:
+        """The descriptor, with an entry-point job's metadata filled in.
+
+        A job published under ``functualize.jobs`` enumerates without an
+        import, so it arrives carrying its name and nothing else — no
+        parameters, no docstring. That is right for a *listing* and wrong for
+        anything describing the job, which is why ``CommandNode.params()``
+        allows itself to be expensive: "for a lazily-cached job this can force
+        materialization (one module import)".
+
+        Narrowed to ``<entry_point>`` sources on purpose. A directory job's
+        metadata is in the discovery cache, so the warm path must keep reading
+        it from there and must not be dragged into an import here — that is the
+        whole warm-boot-zero-imports guarantee.
+        """
+        descriptor = self._descriptor
+        if descriptor is None or descriptor.source != "<entry_point>":
+            return descriptor
+        if descriptor.parameters or descriptor.config_fields:
+            return descriptor
+        try:
+            resolved = self._app.get_job(descriptor.name)
+        except Exception:  # noqa: BLE001 - a broken distribution
+            return descriptor
+        return resolved if resolved is not None else descriptor
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"JobNode({'.'.join(self._node.path)!r})"

@@ -148,7 +148,7 @@ that gate is green against the code as it actually stands.
 Largest part. Bumps `CACHE_VERSION`; AC-C3's no-cache-change constraint binds
 waves 2–3, not this one.
 
-- [ ] **T4.1 — Lazy `EntryPointProvider`**
+- [x] **T4.1 — Lazy `EntryPointProvider`**
   Build descriptors from `EntryPoint.name` / `.value` without `ep.load()`;
   defer the import to materialization via `LazyJobFunction` /
   `engine.materialize_job`, as directory jobs already do.
@@ -157,15 +157,30 @@ waves 2–3, not this one.
   with a job-publishing distribution installed. The naive `ep.load()` version
   fails it — confirm that first, so the test is known non-vacuous.
 
-- [ ] **T4.2 — Cache entry-point descriptors**
-  Fingerprint by the `(distribution, version)` set publishing under
-  `functualize.jobs`; bump `CACHE_VERSION` (19 → 20).
-  *Files:* `_primitives/cache_format.py`, `_discovery/providers.py`
-  *Gate:* AC-E2 cold/warm parity — same job set on both, second run against the
-  first run's cache. AC-E3 — uninstalling changes the fingerprint and the job
-  stops resolving.
+- [x] **T4.2 — ~~Cache entry-point descriptors~~ → no cache needed**
+  **PLAN DEVIATION, deliberate.** The plan called for persisting entry-point
+  descriptors fingerprinted by the installed `(distribution, version)` set, and
+  a `CACHE_VERSION` 19 → 20 bump. That is not needed and was not done.
 
-- [ ] **T4.3 — Wire it into boot**
+  `EntryPoint.name`/`.value` are *metadata*, so enumeration costs a metadata
+  read rather than an import. Re-reading the table each boot therefore keeps
+  warm-boot-zero-imports **and** buys AC-E2 and AC-E3 by construction instead
+  of by invalidation logic: there is no second source of truth to drift, and an
+  uninstalled distribution cannot leave a ghost job because nothing persisted
+  it. Verified against a real installed distribution — `func backup` ran, then
+  after `uv pip uninstall` it was neither listed nor runnable, on a warm cache.
+
+  Consequence: `CACHE_VERSION` stays at 19 and **the whole feature is one
+  mergeable increment**, with AC-C3's no-cache-change constraint holding for
+  wave 4 as well.
+
+  The fidelity gap this was meant to close is handled instead by
+  `JobNode._resolved_descriptor()`, which materializes a `<entry_point>`
+  descriptor when something asks it to *describe* itself — permitted explicitly
+  by `CommandNode.params()` ("can force materialization"). Narrowed to
+  entry-point sources so the directory warm path is untouched.
+
+- [x] **T4.3 — Wire it into boot**
   *Files:* `_app/boot.py`
   *Gate:* AC-E1 — an entry-point job runs via `func <job>` and lists in bare
   `func` (TTY + piped), the TUI browser, `info schema`, and completion.

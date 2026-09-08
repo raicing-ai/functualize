@@ -109,6 +109,35 @@ def init_observability(app: Any) -> None:
     app._observability_initialized = True
 
 
+def wire_entry_point_jobs(app: Any) -> None:
+    """Add the ``functualize.jobs`` provider to the resolution pipeline.
+
+    **Called from both boot paths, and that is the whole point of it being a
+    function.** ``boot_static`` and ``boot_standard`` are separate assemblies
+    of the same app, and a capability wired into one of them is invisible from
+    the other. ``JobSources.job_providers`` already shipped that way -- "read by
+    nothing at all on either path" -- and the first attempt at this wiring
+    landed in ``boot_static`` alone, where a default ``FunctualizeApp`` never
+    looks.
+
+    Added *after* the directory providers so a project's own job wins a name
+    collision against one an installed distribution supplies. That is the
+    direction every other precedence here runs, and the safer one: installing a
+    package should not silently replace a job the user wrote.
+
+    Costs a metadata read rather than an import --
+    :meth:`EntryPointProvider.list_jobs` reads the entry-point table and defers
+    ``import`` to materialization -- so this does not forfeit
+    warm-boot-zero-imports for anyone who installs a job-publishing package.
+    Asserted in ``tests/discovery/test_entry_point_jobs.py``, because neither
+    existing zero-import test would notice: both drive
+    ``CachedDirectoryScanProvider`` directly rather than a composed boot.
+    """
+    from functualize._discovery.providers import EntryPointProvider
+
+    app._resolution_pipeline.add_provider(EntryPointProvider())
+
+
 def boot_static(app: Any, perf_timeline: Any) -> None:
     """Static wiring fast path — zero filesystem I/O.
 
@@ -239,6 +268,8 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
     # Resolution pipeline with StaticProvider (zero I/O)
     app._resolution_pipeline = ResolutionPipeline()
     app._jobs_memo = None
+    wire_entry_point_jobs(app)
+
     wire_declared_job_sources(app)
 
     perf_timeline.mark("boot.core_infra.end")
@@ -503,6 +534,8 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
                     job_filter=job_filter,
                 )
             )
+
+    wire_entry_point_jobs(app)
 
     wire_declared_job_sources(app)
 
