@@ -23,11 +23,15 @@ from functualize._primitives.state_format import (
 
 
 class TestEnvelope:
+    def test_envelope_carries_no_scopes(self) -> None:
+        """Scopes live in scopes.json. The discard-on-version-bump rule this
+        file relies on is only safe because everything left here is derived."""
+        assert "scopes" not in empty_state()
+
     def test_empty_state_has_every_section(self) -> None:
         state = empty_state()
         assert state["format_version"] == STATE_VERSION
         assert state["fingerprints"] == {}
-        assert state["scopes"] == {}
         assert state["history"] == []
         assert state["session"] == {"preconditions": {}}
 
@@ -151,9 +155,9 @@ class TestLockedUpdate:
 
     def test_update_starts_from_empty_when_file_absent(self, tmp_path) -> None:
         path = tmp_path / STATE_FILENAME
-        state = update_state(path, lambda s: s["scopes"].update({"s1": {}}))
+        state = update_state(path, lambda s: s["fingerprints"].update({"s1": {}}))
         assert state["format_version"] == STATE_VERSION
-        assert state["scopes"] == {"s1": {}}
+        assert state["fingerprints"] == {"s1": {}}
 
     def test_lock_is_released_after_block(self, tmp_path) -> None:
         path = tmp_path / STATE_FILENAME

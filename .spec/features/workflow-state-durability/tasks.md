@@ -172,7 +172,7 @@ import name 'resolve_scopes_path'`)*; `lint-imports` 6/6 ✓
 
 ## Wave 4 — the façade
 
-### [ ] T6 · `StateStore` delegates
+### [x] T6 · `StateStore` delegates
 
 `[F]` `src/functualize/_primitives/state_store.py`,
 `src/functualize/_primitives/state_format.py`, `tests/test_state_store.py`,
@@ -198,13 +198,28 @@ import name 'resolve_scopes_path'`)*; `lint-imports` 6/6 ✓
 - Rename `test_clear_resets_everything` (`:215-224`) — its intent changes, and the
   rename is what records that. "Everything" stops including scopes.
 
-**Gate** `grep -rn '\.batch(' src/ plugins/` → `0` *(now: 0)*;
+**Gate** `grep -rn '\.batch(' src/ plugins/` → exactly **1**, and it is
+`state_store.py`'s own `self._scopes.batch()` delegation *(authored as `0`, which
+was wrong: AC-18 asks that no mechanism go uncalled, and `ScopeStore.batch` is
+called — by `scope_batch`, which T8 calls from the walk. A literal 0 would mean
+the replacement was unused too.)*;
 `grep -c 'def batch' src/functualize/_primitives/state_store.py` → `0` *(now: 1)*;
 `grep -c 'def scope_batch' src/functualize/_primitives/state_store.py` → `1`
 *(now: 0)*; `grep -c '"scopes"' src/functualize/_primitives/state_format.py` → `0`
 *(now: 2)*; `grep -rc 'TRANSITIONAL(workflow-state-durability' src/` → `0`;
 `pytest tests/test_state_store.py tests/test_state_format.py -q` green
 **Covers** AC-1, AC-3, AC-7, AC-9, AC-18
+
+**Reachability:** `clear(scopes=True)` has no production caller until T7 adds
+`--scopes`; `scope_batch()` has none until T8. Both are disclosed, not claimed.
+Everything else in this task is on the live path — every existing `StateStore`
+scope call now runs through `ScopeStore`, proven by 9295 passing tests that were
+never edited.
+
+Two test sites deferred from T3a landed here with the envelope change
+(`tests/test_state_format.py` — `scopes` assertions), plus a unit-level version
+of the §1.1 experiment: bump the derived store's version, do one unrelated
+write, and watch the fingerprint vanish while the gate payload survives.
 
 ---
 

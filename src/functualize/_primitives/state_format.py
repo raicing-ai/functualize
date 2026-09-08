@@ -1,8 +1,11 @@
 """Shared runtime-state format: single source of truth for the state file.
 
 The runtime state store answers "what ran last, against which inputs" —
-fingerprints, run history, session-scoped precondition results, and per-scope
-workflow records. It is deliberately **separate from the discovery cache**
+fingerprints, run history, and session-scoped precondition results. All three
+are **derived**: recomputable from the source tree, and safe to throw away.
+Workflow scopes are not, and live in `scope_format.py` next door.
+
+It is deliberately **separate from the discovery cache**
 (proposal §D.3 Fix 2): the discovery cache answers "what jobs exist" and is
 rebuilt whenever a source file or version changes, which would drop every
 fingerprint because one file moved. Different lifecycle, different invalidation
@@ -39,21 +42,24 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
 # Current state file format version. Bump on any incompatible format change.
-# A version mismatch discards the file. That is safe only for **derived** data —
-# recomputable from the source tree, at worst costing one extra run.
+# A version mismatch discards the file, and that is safe **because every section
+# here is derived** — recomputable from the source tree, at worst costing one
+# extra run.
 #
-# TRANSITIONAL(workflow-state-durability/T6): `scopes` is still in this envelope
-# and is NOT derived — a bump erases every in-flight run, gate payloads and all.
-# That is the defect this feature exists to fix; T6 moves the section to
-# `scope_format.py` and this comment loses its caveat. Until then the rule above
-# is false for one section, which is exactly the bug.
+# That rule was once false. Workflow scopes lived in this envelope until
+# 2026-09-09, and a version bump — an ordinary release action — silently erased
+# every in-flight run, recorded gate payloads and all. They now live in
+# `scope_format.py`, whose read refuses rather than discards.
 #
-# When adding a section, decide which of the two files it belongs in *first*: a
-# record someone would be upset to lose is not derived and does not belong here.
+# So: when adding a section, decide which of the two files it belongs in
+# *first*. A record someone would be upset to lose is not derived, and the rule
+# above is a promise this file cannot keep for it.
 # v1 (2026-07-20): initial envelope — fingerprints (with the R4
-# (mtime, size, sha256) stat short-circuit), scopes (per-scope step records,
-# recorded branch choices, gate payloads, blocked position, epilogue record),
-# history ring buffer, session precondition cache.
+# (mtime, size, sha256) stat short-circuit), scopes, history ring buffer,
+# session precondition cache.
+# v1 (2026-09-09): scopes moved to scopes.json. Version deliberately NOT bumped
+# — nothing about the remaining sections changed, and bumping would discard
+# every fingerprint to no purpose.
 STATE_VERSION = 1
 
 # State file name within the resolved directory (beside cache.json).
@@ -62,7 +68,7 @@ STATE_FILENAME = "state.json"
 # Ring-buffer bound for the run-history section (`func history`).
 HISTORY_LIMIT = 200
 
-_SECTIONS: tuple[str, ...] = ("fingerprints", "scopes", "history", "session")
+_SECTIONS: tuple[str, ...] = ("fingerprints", "history", "session")
 
 
 def empty_state() -> dict[str, Any]:
@@ -70,12 +76,6 @@ def empty_state() -> dict[str, Any]:
     return {
         "format_version": STATE_VERSION,
         "fingerprints": {},
-        # TRANSITIONAL(workflow-state-durability/T6): scopes move to
-        # scopes.json. Still here because StateStore still reads them from
-        # this envelope; T6 repoints it and removes this section in one step,
-        # because doing either alone leaves the store reading a key that is
-        # gone.
-        "scopes": {},
         "history": [],
         "session": {"preconditions": {}},
     }
@@ -157,7 +157,8 @@ def normalize_state(data: Any) -> dict[str, Any]:
     """Coerce loaded data into a valid envelope, filling missing sections.
 
     Anything unrecognizable (not a dict, wrong version) yields a fresh envelope
-    rather than raising — runtime state is derived and always safe to discard.
+    rather than raising — every section here is derived and always safe to
+    discard. `scope_format.load_scopes` deliberately does the opposite.
     """
     if not isinstance(data, dict):
         return empty_state()
@@ -177,7 +178,8 @@ def load_state(path: Path | str) -> dict[str, Any]:
     """Load the state envelope, tolerating a missing, corrupt, or stale file.
 
     Never raises for bad content: a truncated write, hand-editing, or a format
-    bump all degrade to an empty envelope.
+    bump all degrade to an empty envelope. Correct for derived data; see
+    `scope_format` for why the scope file must not do this.
     """
     try:
         raw = Path(path).read_text(encoding="utf-8")

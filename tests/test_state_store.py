@@ -155,9 +155,8 @@ class TestHistory:
         assert len(store.get_history(limit=2)) == 2
 
     def test_ring_buffer_bounds(self, store: StateStore) -> None:
-        with store.batch():
-            for i in range(HISTORY_LIMIT + 10):
-                store.append_history({"job": str(i)})
+        for i in range(HISTORY_LIMIT + 10):
+            store.append_history({"job": str(i)})
         history = store.get_history()
         assert len(history) == HISTORY_LIMIT
         # Oldest entries dropped; newest retained.
@@ -186,43 +185,114 @@ class TestSessionPreconditions:
         assert store.get_fingerprint("k") == {"n": 1}
 
 
-class TestBatch:
-    def test_batch_writes_once_and_persists(self, store: StateStore) -> None:
-        with store.batch():
-            store.put_fingerprint("a", {"n": 1})
-            store.put_fingerprint("b", {"n": 2})
+class TestScopeBatch:
+    """`batch()` is gone: nothing in src/ or plugins/ ever called it, while the
+    module docstring told callers to. `scope_batch()` replaces it and the walk
+    does call it."""
+
+    def test_the_unused_whole_envelope_batch_is_gone(self, store: StateStore) -> None:
+        assert not hasattr(store, "batch")
+
+    def test_scope_batch_writes_once_and_persists(self, store: StateStore) -> None:
+        with store.scope_batch():
+            store.ensure_scope("s1", "release")
+            store.set_position("s1", "approve")
         reloaded = StateStore(store.path)
-        assert reloaded.get_fingerprint("a") == {"n": 1}
-        assert reloaded.get_fingerprint("b") == {"n": 2}
+        assert reloaded.get_position("s1") == "approve"
 
     def test_reads_inside_batch_see_pending_writes(self, store: StateStore) -> None:
-        with store.batch():
-            store.put_fingerprint("a", {"n": 1})
-            assert store.get_fingerprint("a") == {"n": 1}
+        with store.scope_batch():
+            store.record_branch("s1", "check", "deploy")
+            assert store.get_branch("s1", "check") == "deploy"
 
     def test_nested_batch_reuses_outer(self, store: StateStore) -> None:
-        with store.batch(), store.batch():
-            store.put_fingerprint("a", {"n": 1})
-        assert StateStore(store.path).get_fingerprint("a") == {"n": 1}
+        with store.scope_batch(), store.scope_batch():
+            store.ensure_scope("s1")
+        assert StateStore(store.path).scope_ids() == ["s1"]
 
     def test_batch_preserves_existing_records(self, store: StateStore) -> None:
-        store.put_fingerprint("pre", {"n": 0})
-        with store.batch():
-            store.put_fingerprint("new", {"n": 1})
-        assert store.get_fingerprint("pre") == {"n": 0}
+        store.ensure_scope("pre")
+        with store.scope_batch():
+            store.ensure_scope("new")
+        assert store.scope_ids() == ["new", "pre"]
+
+
+class TestTwoFiles:
+    """The split, from the façade's side: one store, two files, and nothing
+    outside `_primitives` needs to know which is which."""
+
+    def test_scope_file_is_the_state_file_sibling(self, store: StateStore) -> None:
+        assert store.scopes_path == store.path.with_name("scopes.json")
+
+    def test_scopes_are_not_in_the_state_envelope(self, store: StateStore) -> None:
+        store.ensure_scope("s1", "release")
+        assert "scopes" not in load_state(store.path)
+
+    def test_a_state_version_bump_leaves_scopes_intact(self, store: StateStore) -> None:
+        """The defect this feature exists to remove, as a unit test. The
+        end-to-end version lives in tests/test_state_split_regression.py."""
+        import json
+
+        store.ensure_scope("s1", "release")
+        store.put_gate("s1", "approve", {"payload": {"approved_by": "sam"}})
+        store.put_fingerprint("k", {"n": 1})
+
+        raw = json.loads(store.path.read_text())
+        raw["format_version"] = 999
+        store.path.write_text(json.dumps(raw))
+        store.put_fingerprint("other", {"n": 2})  # one unrelated write
+
+        assert store.get_fingerprint("k") is None  # derived state: discarded
+        gate = store.get_gate("s1", "approve")  # the record: survives
+        assert gate is not None
+        assert gate["payload"] == {"approved_by": "sam"}
 
 
 class TestClear:
-    def test_clear_resets_everything(self, store: StateStore) -> None:
+    def test_clear_resets_derived_state_but_keeps_scopes(
+        self, store: StateStore
+    ) -> None:
+        """Renamed from `test_clear_resets_everything`: "everything" stops
+        including scopes, and the rename is what records that decision."""
         store.put_fingerprint("k", {"n": 1})
         store.ensure_scope("s1")
         store.append_history({"job": "a"})
         store.set_precondition("p", True)
-        store.clear()
+
+        assert store.clear() is None
+
         assert store.get_fingerprint("k") is None
-        assert store.scope_ids() == []
         assert store.get_history() == []
         assert store.get_precondition("p") is None
+        assert store.scope_ids() == ["s1"]
+
+    def test_clear_with_scopes_discards_them(self, store: StateStore) -> None:
+        store.put_fingerprint("k", {"n": 1})
+        store.ensure_scope("s1")
+
+        moved = store.clear(scopes=True)
+
+        assert store.get_fingerprint("k") is None
+        assert store.scope_ids() == []
+        assert moved is not None and moved.exists()
+
+    def test_discarded_scopes_are_moved_aside_not_deleted(
+        self, store: StateStore
+    ) -> None:
+        """A run discarded by mistake is still recoverable."""
+        store.put_gate("s1", "approve", {"payload": {"approved_by": "sam"}})
+        moved = store.clear(scopes=True)
+        assert moved is not None
+        import json
+
+        assert json.loads(moved.read_text())["scopes"]["s1"]["gates"]["approve"][
+            "payload"
+        ] == {"approved_by": "sam"}
+
+    def test_clear_returns_none_when_there_were_no_scopes(
+        self, store: StateStore
+    ) -> None:
+        assert store.clear(scopes=True) is None
 
     def test_clear_leaves_a_valid_envelope(self, store: StateStore) -> None:
         store.put_fingerprint("k", {"n": 1})
