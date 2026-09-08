@@ -566,6 +566,17 @@ def register_plugin_commands(
 ) -> dict[str, click.Group]:
     """Register all plugin-contributed commands on a click.Group.
 
+    **Reads the shadow resolver rather than every registered command.** This
+    used to iterate ``app.get_plugin_commands()`` and hand each one to
+    ``add_command``, which overwrites by name — and because ``__call__``
+    registers jobs *before* plugins, a top-level plugin command sharing a job's
+    name silently replaced the job. The same collision gave the job the win on
+    the ``func`` CLI and raised ``ValueError`` from ``CliAdapter.run()``, so one
+    app answered three different ways depending on how it was reached.
+
+    Precedence is now decided in exactly one place
+    (``app.commands.unshadowed_plugin_commands``) and every surface reads it.
+
     Args:
         cli_group: The click.Group to register commands on.
         app: The FunctualizeApp with registered plugin commands.
@@ -573,9 +584,11 @@ def register_plugin_commands(
     Returns:
         Dict of namespace -> sub-group (for further customization if needed).
     """
+    from functualize.app.commands import unshadowed_plugin_commands
+
     plugin_sub_groups: dict[str, click.Group] = {}
 
-    for cmd in app.get_plugin_commands():
+    for cmd in unshadowed_plugin_commands(app):
         command = create_callback_click_command(cmd.name, cmd.callback, cmd.help_text)
         if cmd.namespace is not None:
             if cmd.namespace not in plugin_sub_groups:
@@ -589,25 +602,52 @@ def register_plugin_commands(
     return plugin_sub_groups
 
 
+def shadowed_plugin_commands(app: FunctualizeApp) -> list[tuple[str, str]]:
+    """``(path, command name)`` for every plugin command a job displaces.
+
+    Reported rather than raised. ``check_name_conflicts`` still raises for the
+    caller who wants a hard stop, but a collision is not fatal — the job runs,
+    which is the documented precedence — so the surfaces that merely *render*
+    a command list need to be able to say so without refusing to start.
+    """
+    from functualize.app.commands import job_trie_path, plugin_command_path
+
+    occupied = {job_trie_path(job) for job in app.get_jobs()}
+    return [
+        (path, cmd.name)
+        for cmd in app.get_plugin_commands()
+        if (path := plugin_command_path(cmd)) in occupied
+    ]
+
+
 def check_name_conflicts(app: FunctualizeApp) -> None:
-    """Raise ValueError if any plugin command name collides with a job name.
+    """Raise ValueError if a plugin command's path collides with a job's.
 
     Implements Requirement 11.5 — name conflict detection.
+
+    **Covers namespaced commands too.** It used to test only
+    ``cmd.namespace is None``, so a job at ``mcp.serve`` colliding with
+    ``func mcp serve`` went unchecked here while ``_dispatch_group`` checked
+    exactly that case and dropped the command. Both now key on the same dotted
+    path, via the same two helpers.
 
     Args:
         app: The FunctualizeApp to check.
 
     Raises:
-        ValueError: If a top-level plugin command shares a name with a job.
+        ValueError: If a plugin command shares a job's path.
     """
-    job_names = {d.name for d in app.get_jobs()}
-    for cmd in app.get_plugin_commands():
-        if cmd.namespace is None and cmd.name in job_names:
-            raise ValueError(
-                f"Plugin command name '{cmd.name}' conflicts with "
-                f"a registered job name. Sources: plugin command "
-                f"'{cmd.name}' and job '{cmd.name}'"
-            )
+    conflicts = shadowed_plugin_commands(app)
+    if not conflicts:
+        return
+    detail = "; ".join(
+        f"plugin command '{name}' vs job '{path}'" for path, name in conflicts
+    )
+    raise ValueError(
+        f"{len(conflicts)} plugin command(s) conflict with registered job "
+        f"names: {detail}. The job wins on every surface; rename the plugin "
+        f"command or the job."
+    )
 
 
 # ─── Fallback chain execution ────────────────────────────────────────────
@@ -1527,6 +1567,7 @@ __all__ = [
     "NormalizingGroup",
     "_show_info_impl",
     "check_name_conflicts",
+    "shadowed_plugin_commands",
     "register_discovered_jobs",
     "register_plugin_commands",
 ]

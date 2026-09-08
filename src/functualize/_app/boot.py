@@ -651,6 +651,9 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     # 8e. Validate no user name claims the reserved ``builtin`` subtree (§A.4)
     _validate_builtin_reservation(app)
 
+    # 8f. Tell the user about plugin commands a job displaces.
+    _warn_shadowed_plugin_commands(app)
+
     # 9. Fire APP_READY hook — all boot steps complete
     perf_timeline.mark("boot.app_ready_hooks.start")
     for hook in app._hook_registry._global_hooks.get(HookEvent.APP_READY, []):
@@ -1371,6 +1374,49 @@ def _resolve_max_invoke_depth(app: Any) -> None:
             pass
         else:
             raise
+
+
+def _warn_shadowed_plugin_commands(app: Any) -> None:
+    """Warn once, at boot, about plugin commands a job's name displaces.
+
+    A job wins the path and the plugin command becomes unreachable. That is the
+    documented precedence and not an error — so this warns rather than raising,
+    and it is the *user's* problem to know about: they installed a plugin whose
+    command they can no longer run, and nothing else would tell them.
+
+    It used to be a ``logger.debug`` inside the CLI's group dispatch, which is
+    to say invisible, which is how three surfaces came to disagree about
+    precedence without anyone noticing. Boot is the right place because it fires
+    once per app rather than once per listing.
+    """
+    try:
+        from functualize._primitives.command_paths import job_path, plugin_path
+
+        occupied = {
+            job_path(getattr(entry, "group", None), name)
+            for name, entry in getattr(app.job_registry, "_registered_jobs", {}).items()
+        }
+        conflicts = [
+            (path, getattr(cmd, "name", ""))
+            for cmd in getattr(app, "_plugin_commands_list", [])
+            if (
+                path := plugin_path(
+                    getattr(cmd, "namespace", None), str(getattr(cmd, "name", ""))
+                )
+            )
+            in occupied
+        ]
+    except Exception as exc:  # pragma: no cover - never block boot on a warning
+        logger.debug("shadow check skipped: %s", exc)
+        return
+
+    for path, name in conflicts:
+        logger.warning(
+            "Plugin command %r is unreachable: the job %r already occupies that "
+            "path, and a job wins. Rename one of them to run the plugin command.",
+            name,
+            path,
+        )
 
 
 def _validate_builtin_reservation(app: Any) -> None:

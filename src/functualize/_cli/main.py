@@ -808,6 +808,7 @@ def _run_adhoc_command(
     output_format: str,
     *,
     help_text: str | None = None,
+    prog_name: str | None = None,
 ) -> int:
     """Execute a raw plugin callback through an ad-hoc one-off click.Command.
 
@@ -822,6 +823,10 @@ def _run_adhoc_command(
         remaining_args: CLI args passed after the command name.
         output_format: The ``--output`` flag value (json, text, or none).
         help_text: Optional help string.
+        prog_name: How the command names itself in usage and error output.
+            Defaults to ``name``, which is only right for a top-level command:
+            for a namespaced one the usage line must be the whole path the user
+            typed, or `--help` advertises a command that does not exist.
 
     Returns:
         Exit code (0 = success).
@@ -833,7 +838,11 @@ def _run_adhoc_command(
 
     command = create_callback_click_command(name, fn, help_text)
     return invoke_command_capturing(
-        command, remaining_args, output_format, prog_name=name, emit_return=True
+        command,
+        remaining_args,
+        output_format,
+        prog_name=prog_name or name,
+        emit_return=True,
     )
 
 
@@ -1075,6 +1084,20 @@ def _dispatch_group(
                 remaining,
                 output_format,
                 help_text=plugin_cmd.help_text,
+                # The full path, so `func mcp serve --help` prints
+                # "Usage: func mcp serve" -- a line that can be copied and
+                # run. It printed "Usage: serve", naming a command that does
+                # not exist.
+                prog_name=" ".join(
+                    [
+                        "func",
+                        *(
+                            segment
+                            for token in consumed
+                            for segment in token.split(".")
+                        ),
+                    ]
+                ),
             )
 
     # ── A group node ──────────────────────────────────────────────────────
@@ -1116,8 +1139,14 @@ def _dispatch_group(
                 print(f"  {sub_group}")
         if entries:
             print("\nCommands:")
-            for cmd_name, desc in sorted(entries, key=lambda e: e[0]):
-                print(f"  {cmd_name}  {desc}")
+            rows = sorted(entries, key=lambda e: e[0])
+            # Padded, like the Options block above and every click listing.
+            # Unaligned descriptions were the one place in the CLI where a
+            # command list did not line up, and a plugin namespace was the
+            # most likely place to meet it.
+            width = max(len(cmd_name) for cmd_name, _ in rows)
+            for cmd_name, desc in rows:
+                print(f"  {cmd_name.ljust(width)}  {desc}".rstrip())
         if not sub_groups and not entries:
             print("No commands available.")
         return 0

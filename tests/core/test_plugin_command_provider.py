@@ -221,16 +221,41 @@ class TestPrecedenceIsOneRule:
     surface, runs on another".
     """
 
-    def test_dispatch_and_tree_read_the_same_resolver(self) -> None:
-        import inspect
+    def test_dispatch_runs_the_job_not_the_shadowed_plugin_command(self) -> None:
+        """Behavioural, not a source-text grep.
 
-        from functualize._cli import main
+        An earlier version of this test asserted that
+        ``unshadowed_plugin_commands`` appeared in
+        ``inspect.getsource(_dispatch_group)``. That passes for the wrong
+        reason (any mention counts) and fails for the wrong reason too --
+        editing the module while the suite runs makes ``linecache`` hand back a
+        neighbouring function's source. What matters is which callable runs.
+        """
+        from functualize._cli.main import _dispatch_group
 
-        source = inspect.getsource(main._dispatch_group)
-        assert "unshadowed_plugin_commands" in source, (
-            "_dispatch_group must read app.commands.unshadowed_plugin_commands, "
-            "not re-derive precedence inline"
+        ran: list[str] = []
+
+        def serve() -> None:
+            """The job."""
+            ran.append("job")
+
+        serve.__name__ = "serve"
+
+        app = _app_with(
+            jobs=[serve],
+            commands=[
+                dict(
+                    name="serve",
+                    callback=lambda: ran.append("plugin"),
+                    help_text="The plugin",
+                )
+            ],
         )
+
+        exit_code = _dispatch_group(app, ["serve"], set(), output_format="none")
+
+        assert exit_code == 0, "the job should have run"
+        assert ran == ["job"], f"expected the job to win, got {ran}"
 
     def test_shadowed_command_is_absent_from_both(self) -> None:
         def collide() -> None:

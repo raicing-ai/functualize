@@ -103,14 +103,14 @@ that gate is green against the code as it actually stands.
 
 ## Wave 3 — the remaining surfaces
 
-- [ ] **T3.1 — Shell completion**
+- [x] **T3.1 — Shell completion**
   Pass `get_plugin_commands()` rows as `build_group_trie`'s second positional,
   currently defaulted (`_cli/completions/data.py:130-133`).
   *Files:* `_cli/completions/data.py`
   *Gate:* AC-C2, AC-C3 — emitted payload carries the namespace and its
   subcommands; no discovery-cache change.
 
-- [ ] **T3.2 — `app.cli_command` precedence**
+- [x] **T3.2 — `app.cli_command` precedence**
   Filter plugin commands against job names inside `register_plugin_commands`
   before `add_command`, so click never overwrites a job
   (`adapters/cli.py:802-803` registers jobs then plugins). Reuse T2.2's
@@ -119,7 +119,7 @@ that gate is green against the code as it actually stands.
   *Gate:* AC-D1, AC-D4 — the `collide` reproduction in `research.md` now
   resolves to the job on all three paths.
 
-- [ ] **T3.3 — Conflict check: namespaced + reachable**
+- [x] **T3.3 — Conflict check: namespaced + reachable**
   `check_name_conflicts` inspects only `namespace is None` and is reached only
   from `run()`. Extend to `f"{namespace}.{name}"` (matching `_cli/main.py:934`)
   and reach it from the `cli_command` property. Replace `_dispatch_group`'s
@@ -127,7 +127,7 @@ that gate is green against the code as it actually stands.
   *Files:* `app/adapters/cli.py`, `_cli/main.py`
   *Gate:* AC-D3, AC-D5.
 
-- [ ] **T3.4 — F6 + F7 polish**
+- [x] **T3.4 — F6 + F7 polish**
   `prog_name` on the ad-hoc plugin command so `func mcp serve --help` prints
   `Usage: func mcp serve`; pad the group listing to a column as
   `render_extensions` does.

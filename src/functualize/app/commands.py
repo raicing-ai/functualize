@@ -384,11 +384,9 @@ def job_trie_path(job: Any) -> str:
     keyed on ``name`` alone would miss it and the job would fail to shadow a
     plugin command sitting at the same path.
     """
-    group = getattr(job, "group", None)
-    name = str(getattr(job, "name", ""))
-    if group and not name.startswith(f"{group}."):
-        return f"{group}.{name}"
-    return name
+    from functualize._primitives.command_paths import job_path
+
+    return job_path(getattr(job, "group", None), str(getattr(job, "name", "")))
 
 
 def plugin_command_path(cmd: Any) -> str:
@@ -399,8 +397,9 @@ def plugin_command_path(cmd: Any) -> str:
     against :func:`job_trie_path`, and it is a *function* rather than an inline
     f-string in two files because the two drifting is the whole defect.
     """
-    namespace = getattr(cmd, "namespace", None)
-    return f"{namespace}.{cmd.name}" if namespace else str(cmd.name)
+    from functualize._primitives.command_paths import plugin_path
+
+    return plugin_path(getattr(cmd, "namespace", None), str(cmd.name))
 
 
 def unshadowed_plugin_commands(app: FunctualizeApp) -> list[Any]:

@@ -119,6 +119,7 @@ def extract_completion_data(func_app: Any) -> CompletionData:
     """
     from pathlib import Path
 
+    from functualize.app.commands import unshadowed_plugin_commands
     from functualize.app.utils import (
         build_group_trie,
         read_group_options_from_cache,
@@ -127,8 +128,20 @@ def extract_completion_data(func_app: Any) -> CompletionData:
 
     jobs = func_app.get_jobs()
     specs = read_group_options_from_cache(resolve_cache_path(Path.cwd())) or None
+    # Plugin rows go in as `build_group_trie`'s second positional, the same one
+    # `_dispatch_group` fills. Leaving it defaulted is why `func mc<TAB>`
+    # completed nothing while `func mcp serve` ran perfectly well: this is a
+    # post-boot surface -- the docstring above says "from a **booted** app" --
+    # so `get_plugin_commands()` was available the whole time and simply never
+    # asked. Read through the shadow resolver so completion never offers a
+    # command a job occupies the path of.
+    plugin_rows = [
+        (getattr(cmd, "namespace", None), cmd.name)
+        for cmd in unshadowed_plugin_commands(func_app)
+    ]
     trie = build_group_trie(
         [(j.group, j.name, "job") for j in jobs],
+        plugin_rows,
         group_options=specs,
     )
 
