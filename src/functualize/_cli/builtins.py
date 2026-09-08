@@ -162,7 +162,8 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
         "Inspect and manage installed extensions",
         (
             ("list", "List every installed extension and what provides it"),
-            ("install", "Install an extension"),
+            ("available", "List plugins that exist, grouped by what they do"),
+            ("install", "Install an extension, or --recommended for the set"),
             ("uninstall", "Remove an extension"),
         ),
         requires_subcommand=True,
