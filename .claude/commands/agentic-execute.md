@@ -12,6 +12,11 @@ Context anchor — read ONLY these six files, nothing else:
 
 No chat history. No other specs. No unrelated files.
 
+**The anchor restricts spec documents, not the codebase.** Reading source and
+running retrieval — `rg`, serena, graphify, zvec-grep — is expected: you cannot
+implement a task, derive a gate's hit set, or run step 5's reachability check
+without it.
+
 1. Read context anchor (above only)
 2. Read the `## Task Dependency Graph` at the bottom of `tasks.md`. Find the lowest-numbered wave with unchecked `[ ]` tasks — that is the current wave. If no graph exists, fall back to sequential order.
 3. Pick any unchecked `[ ]` task within the current wave

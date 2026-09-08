@@ -110,6 +110,35 @@ Plan mode is a convenience, not part of the enforcement. Nothing above depends
 on it. Note that plan mode is read-only, so `/agentic-specify` and
 `/agentic-plan` — which write `spec.md` and `tasks.md` — cannot run inside it.
 
+## Retrieval discipline
+
+Retrieval is **three named passes**, one per phase — never a conditional "if
+exploration is needed". Each asks a different question, so a finding that arrives
+in the wrong phase arrives too late to act on.
+
+| Phase | Question | Reach for |
+|---|---|---|
+| Specify | Has this been decided, or gotten wrong, here before? Are my claims true? | **zvec-grep** for prose (ADRs, guides, `pitfalls.md`); **rg** for every count and negative |
+| Plan | What references this, and what breaks if I change it? | **serena** `find_referencing_symbols`; **graphify** `get_neighbors` |
+| Verify | Is anything unreachable? | **serena** — the orphan scan *is* a reference query |
+
+- **Every count, "the only", and "nothing does X" in a spec artifact is verified
+  by running the command that would falsify it**, before it is written. A
+  negative is a claim about the whole repository; reading a file cannot establish
+  one. This is the acceptance-gate rule applied to premises
+  (`.spec/CONSTITUTION.md` → *Retrieval Before Assertion*).
+- **A task's file list is the hit set of the query that found it**, not a list
+  composed from memory.
+- **Prior art outranks a fresh argument.** Contradicting an ADR, a guide, or a
+  recorded pitfall is allowed; doing it silently is not.
+- **Pass an absolute worktree path.** Without one, zvec-grep walks up and
+  silently answers from the parent checkout's index — so a branch gets told about
+  master.
+
+Routing (which tool for which question) is
+[`.claude/skills/code-intel/SKILL.md`](../skills/code-intel/SKILL.md); timing and
+rationale are in `.claude/agents/spec-driven-developer.md` → *Retrieval Passes*.
+
 ## Execution discipline
 
 - **Wave ordering is binding.** Never start a task in wave N+1 while wave N has

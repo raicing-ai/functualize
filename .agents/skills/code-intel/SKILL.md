@@ -15,6 +15,21 @@ Four retrieval tools are wired into this repo. They barely overlap, and picking
 the wrong one wastes a lot of time. Route on the **shape of the question**, not
 on which tool you used last.
 
+## When — the three passes
+
+This file answers *which tool*. **When** is the spec workflow's business, and it
+is not "whenever you feel stuck":
+
+| Phase | Question | Tool |
+|---|---|---|
+| **Specify** | Has this been decided, or gotten wrong, here before? Are my claims true? | zvec-grep (prose) · rg (counts, negatives) |
+| **Plan** | What references this, what breaks, where is the seam? | serena · graphify |
+| **Verify** | Is anything unreachable? | serena |
+
+The contract is `.claude/rules/spec-workflow.md` → *Retrieval discipline*; the
+rationale is `.claude/agents/spec-driven-developer.md` → *Retrieval Passes*; the
+non-negotiable is `.spec/CONSTITUTION.md` → *Retrieval Before Assertion*.
+
 ## The routing rule
 
 | The question is… | Use | Because |
@@ -205,6 +220,27 @@ turns out to be wrong rather than leaving it to mislead.
   prefix. Nothing on that host ran `/usr/bin/node`, which is what made the
   upgrade safe; check that first (`readlink /proc/<pid>/exe`) rather than
   assuming.
+
+- **2026-09-09** — **The three tools disagreed usefully on one feature's plan**,
+  which is the argument for running all of them rather than picking one.
+  Planning `workflow-state-durability`: **graphify** `get_neighbors("StateStore")`
+  came back *ambiguous — 3 nodes*, revealing a second, unrelated `StateStore` in
+  a second `state_store.py` (`_engine/capabilities/`, an in-memory KV container).
+  Neither rg nor serena volunteers that, and an executor told to "edit
+  `state_store.py`" has a 1-in-2 chance. **serena** `find_referencing_symbols` on
+  `empty_state` proved the blast radius was 2 production importers, making the
+  plan's file list provable rather than hopeful. **zvec-grep** found
+  `CHANGELOG.md`'s `[Unreleased]` convention and `pitfalls.md` §23 — prose that
+  changed the task list. Cost: three calls.
+
+- **2026-09-09** — **A retrieval pass run in the wrong phase arrives too late.**
+  `pitfalls.md` §5 ("one piece of data, one cache") is an argument about *whether
+  to split a store at all* — a Specify-phase question. It surfaced during Plan,
+  after `spec.md` had been written and user-confirmed. Same feature: `spec.md`
+  shipped *"zero call sites in `src/`, `plugins/` or `tests/`"* about
+  `StateStore.batch()`; `rg '\.batch\('` returns five. One grep at authoring
+  time. This is why the workflow now names a retrieval step in Specify, Plan and
+  Verify separately instead of one conditional "if exploration is needed".
 
 - **2026-09-08** — **Head-to-head on a real cold worker (MCH-13)**, and the gap
   is decisive on an ephemeral worktree:
