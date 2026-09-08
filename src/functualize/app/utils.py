@@ -39,6 +39,11 @@ from functualize._primitives.job_schema import (
     job_input_schema,
 )
 from functualize._primitives.locator import ResourceLocator
+from functualize._primitives.parameter_types import (
+    CLI_MARKER_TYPE_NAMES,
+    CLI_VALUE_TYPE_NAMES,
+    is_cli_value_type,
+)
 from functualize._primitives.plugin_kinds import PluginKind, classify_group
 from functualize._primitives.state_format import (
     resolve_state_location,
@@ -58,6 +63,7 @@ from functualize._types.naming import (
     TrieResolution,
     group_ancestors,
     negative_flag_for,
+    normalize_name,
     normalize_segment,
     resolve_name,
 )
@@ -149,7 +155,10 @@ __all__ = [
     "StateStore",
     "resolved_hints",
     "detect_config_class",
+    "CLI_MARKER_TYPE_NAMES",
+    "CLI_VALUE_TYPE_NAMES",
     "INJECTED_PARAM_TYPE_NAMES",
+    "is_cli_value_type",
     "agent_epilog",
     "resolve_effective_directories",
     "resolve_project_config",
@@ -163,6 +172,7 @@ __all__ = [
     "merge_config_layers",
     "group_ancestors",
     "negative_flag_for",
+    "normalize_name",
     "normalize_segment",
     "resolve_name",
     "declared_config_values",
@@ -737,13 +747,31 @@ def _resolve_type(type_annotation: str) -> type:
     Returns:
         The resolved Python type.
     """
-    # Mapping of simple type names to their Python type objects
+    # Mapping of simple type names to their Python type objects.
+    #
+    # Click calls these on the raw string, so each entry must accept one
+    # positional string and raise on a bad value — which is what turns a
+    # malformed `--when notadate` into a usage error naming the parameter
+    # rather than a traceback inside the job.
+    #
+    # `date`/`datetime` go through `fromisoformat` rather than the class
+    # itself: `datetime("2026-09-07")` is a TypeError about missing arguments,
+    # which would reach the user as an internal-looking message.
+    from datetime import date as _date
+    from datetime import datetime as _datetime
+    from decimal import Decimal as _Decimal
+    from uuid import UUID as _UUID
+
     simple_types: dict[str, type] = {
         "str": str,
         "int": int,
         "float": float,
         "bool": bool,
         "Path": Path,
+        "UUID": _UUID,
+        "Decimal": _Decimal,
+        "date": _date.fromisoformat,  # type: ignore[dict-item]
+        "datetime": _datetime.fromisoformat,  # type: ignore[dict-item]
     }
 
     # Handle simple types

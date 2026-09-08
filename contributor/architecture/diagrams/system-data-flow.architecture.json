@@ -1,0 +1,305 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "System Data Flow",
+    "subtitle": "Four delivery surfaces collapse through adapters into one core pipeline — every entry point runs the same execution path",
+    "output": "docs/diagrams/system-data-flow.html",
+    "quality_profile": "showcase",
+    "animation": "none",
+    "viewBox": [
+      1120,
+      460
+    ],
+    "views": [
+      {
+        "id": "one-path",
+        "label": "One execution path",
+        "focus": [
+          "adapters",
+          "app",
+          "engine",
+          "jobfn",
+          "result"
+        ],
+        "note": "CLI, HTTP, Lambda and TUI differ only in their adapter. Below that line there is a single pipeline."
+      },
+      {
+        "id": "surfaces",
+        "label": "Delivery surfaces",
+        "focus": [
+          "cli",
+          "http",
+          "lambda",
+          "tui",
+          "adapters"
+        ],
+        "note": "Each surface owns transport and presentation only; none of them reaches into the core."
+      },
+      {
+        "id": "wrapping",
+        "label": "What wraps the job",
+        "focus": [
+          "engine",
+          "resolve",
+          "middleware",
+          "jobfn"
+        ],
+        "note": "Config resolution and the middleware chain both sit between the engine and user code."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "cli",
+      "type": "frontend",
+      "label": "CLI",
+      "sublabel": "Click",
+      "pos": [
+        30,
+        44
+      ],
+      "size": [
+        122,
+        54
+      ]
+    },
+    {
+      "id": "http",
+      "type": "frontend",
+      "label": "HTTP Server",
+      "sublabel": "web delivery",
+      "pos": [
+        30,
+        116
+      ],
+      "size": [
+        122,
+        54
+      ]
+    },
+    {
+      "id": "lambda",
+      "type": "cloud",
+      "label": "Lambda",
+      "sublabel": "handler",
+      "pos": [
+        30,
+        188
+      ],
+      "size": [
+        122,
+        54
+      ]
+    },
+    {
+      "id": "tui",
+      "type": "frontend",
+      "label": "TUI",
+      "sublabel": "Textual",
+      "pos": [
+        30,
+        260
+      ],
+      "size": [
+        122,
+        54
+      ]
+    },
+    {
+      "id": "adapters",
+      "type": "backend",
+      "label": "Adapter Layer",
+      "sublabel": "Cli · Http · Lambda · Tui",
+      "pos": [
+        204,
+        116
+      ],
+      "size": [
+        150,
+        126
+      ]
+    },
+    {
+      "id": "app",
+      "type": "backend",
+      "label": "FunctualizeApp",
+      "sublabel": "execute(job, **kwargs)",
+      "pos": [
+        400,
+        140
+      ],
+      "size": [
+        150,
+        78
+      ]
+    },
+    {
+      "id": "engine",
+      "type": "backend",
+      "label": "Execution Engine",
+      "sublabel": "lifecycle owner",
+      "pos": [
+        594,
+        140
+      ],
+      "size": [
+        150,
+        78
+      ]
+    },
+    {
+      "id": "resolve",
+      "type": "database",
+      "label": "ResolutionChain",
+      "sublabel": "layered config",
+      "pos": [
+        594,
+        42
+      ],
+      "size": [
+        150,
+        62
+      ]
+    },
+    {
+      "id": "middleware",
+      "type": "messagebus",
+      "label": "MiddlewareChain",
+      "sublabel": "pre / post hooks",
+      "pos": [
+        594,
+        254
+      ],
+      "size": [
+        150,
+        62
+      ]
+    },
+    {
+      "id": "jobfn",
+      "type": "security",
+      "label": "Job Function",
+      "sublabel": "user code",
+      "pos": [
+        788,
+        140
+      ],
+      "size": [
+        148,
+        78
+      ]
+    },
+    {
+      "id": "result",
+      "type": "database",
+      "label": "JobResult",
+      "sublabel": "status, value, timing",
+      "pos": [
+        966,
+        140
+      ],
+      "size": [
+        128,
+        78
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "External surfaces",
+      "wraps": [
+        "cli",
+        "http",
+        "lambda",
+        "tui"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "Core pipeline",
+      "wraps": [
+        "app",
+        "engine",
+        "resolve",
+        "middleware",
+        "jobfn"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "from": "cli",
+      "to": "adapters"
+    },
+    {
+      "from": "http",
+      "to": "adapters"
+    },
+    {
+      "from": "lambda",
+      "to": "adapters"
+    },
+    {
+      "from": "tui",
+      "to": "adapters"
+    },
+    {
+      "from": "adapters",
+      "to": "app",
+      "variant": "emphasis"
+    },
+    {
+      "from": "app",
+      "to": "engine",
+      "variant": "emphasis"
+    },
+    {
+      "from": "engine",
+      "to": "resolve"
+    },
+    {
+      "from": "engine",
+      "to": "middleware"
+    },
+    {
+      "from": "engine",
+      "to": "jobfn",
+      "variant": "emphasis"
+    },
+    {
+      "from": "jobfn",
+      "to": "result"
+    },
+    {
+      "from": "result",
+      "to": "app",
+      "label": "returned",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "bottom",
+      "via": [
+        [
+          1030,
+          400
+        ],
+        [
+          475,
+          400
+        ]
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Why one pipeline",
+      "items": [
+        "Adapters translate transport only; they never reimplement execution",
+        "A job behaves identically whether it was launched from the CLI, HTTP, Lambda or the TUI",
+        "New delivery surfaces cost one adapter, not a second execution path"
+      ]
+    }
+  ]
+}

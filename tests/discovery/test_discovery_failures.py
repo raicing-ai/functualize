@@ -36,7 +36,9 @@ from functualize._primitives.pre_filter import (
     extract_function_decorators,
 )
 from functualize._types.discovery_report import (
+    JOB_NAME_COLLISION,
     collecting_discovery_failures,
+    job_name_collision,
     record_discovery_failure,
 )
 
@@ -362,3 +364,62 @@ class TestTheListIsPerScan:
         provider.list_jobs()
         assert provider.discovery_failures == first
         assert len(provider.discovery_failures) == 1
+
+
+class TestTheJobNameCollisionRecord:
+    """`job_name_collision`, in isolation.
+
+    A collision is reported through the same record type as a parse or import
+    failure, because it is the same user-visible fact: a job the user wrote is
+    not in the CLI. The message is built in one place so the two registration
+    paths cannot describe the same finding differently.
+    """
+
+    def test_the_record_describes_the_dropped_claimant(self) -> None:
+        """`module` and `path` name the file an operator has to edit, which is
+        the losing one -- the winner needs no action."""
+        failure = job_name_collision(
+            canonical_name="build-wheel",
+            kept_module="wheels",
+            kept_python_name="build_wheel",
+            dropped_module="wheels",
+            dropped_python_name="buildWheel",
+            dropped_path="/tmp/jobs/wheels.py",
+        )
+        assert failure.module == "wheels"
+        assert failure.path == "/tmp/jobs/wheels.py"
+        assert failure.error_type == JOB_NAME_COLLISION
+
+    def test_error_type_is_not_an_exception_name(self) -> None:
+        """Nothing raises for a collision. The field's other values are class
+        names, so this one is pinned to stop a later reader "fixing" it into
+        `ValueError` and making the report claim something was raised."""
+        assert JOB_NAME_COLLISION == "JobNameCollision"
+
+    def test_the_message_names_both_claimants_and_the_address(self) -> None:
+        failure = job_name_collision(
+            canonical_name="build-wheel",
+            kept_module="b",
+            kept_python_name="build_wheel",
+            dropped_module="a",
+            dropped_python_name="build_wheel",
+            dropped_path="/tmp/jobs/a.py",
+        )
+        assert "'build_wheel' (in 'a')" in failure.message
+        assert "'build_wheel' (in 'b')" in failure.message
+        assert "'build-wheel'" in failure.message
+        assert "Rename one." in failure.message
+
+    def test_it_publishes_through_the_existing_payload_shape(self) -> None:
+        """No new keys: a consumer of `discovery_failures` reads a collision
+        with the code it already has."""
+        payload = job_name_collision(
+            canonical_name="x",
+            kept_module="m",
+            kept_python_name="x",
+            dropped_module="n",
+            dropped_python_name="X",
+            dropped_path="/tmp/n.py",
+        ).as_dict()
+        assert set(payload) == {"module", "path", "error_type", "message"}
+        assert all(isinstance(v, str) for v in payload.values())

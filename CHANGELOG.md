@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — `_events/` no longer reaches into `_config/`
+
+Installing the config event sink moved out of `_events/adapter.py` into a new
+`_app/event_wiring.py`. `EventBusAdapter` itself did not move — it depends on
+`EventBus` alone and was always legal in `_events/`. Only the wiring, which
+touches two peer layers at once, was in the wrong place.
+
+Behaviour is unchanged: the install is still idempotent, still tolerates a
+missing `_config._emit`, and still replaces `set_event_sink` with a raising
+stub afterwards. Nothing public moved, and `install_adapter` was internal with
+a single caller.
+
+The constitution already forbade this import, and nothing caught it. A sixth
+import-linter contract, **`Events depends on foundation only`**, now does —
+verified by re-adding the import and watching the contract break.
+
+One direction remains ungoverned: `exclude_type_checking_imports = true` hides
+`_config → _events` (`EventBus` under `if TYPE_CHECKING:` in `chain.py` and
+`sources.py`) from every contract. Documented rather than assumed safe.
+
+### Added — architecture diagrams
+
+Five interactive diagrams under `docs/diagrams/`, covering the layer contract,
+system data flow, boot sequence, execution lifecycle, and job/config
+resolution. Each carries guided views. JSON specs in
+`contributor/architecture/diagrams/` are the source of truth; the HTML is a
+reproducible build product.
+
+Mermaid diagrams in the docs are now pannable and zoomable (hold `alt`) via
+`mkdocs-panzoom-plugin`.
+
+### Fixed — the documented layer contract did not match the enforced one
+
+`.spec/CONSTITUTION.md` and `docs/guides/architecture.md` both described four
+peer layers and five public packages. There are **five** peer layers — `_gate/`
+was missing from both — and **six** public packages, `workflow/` being the
+omission. Both now name `[tool.importlinter]` in `pyproject.toml` as the source
+of truth and present themselves as summaries of it.
+
 ### Added — the remote configuration layer
 
 `remote_first()` stops being a lie. It returned `config_resolution_chain=None`

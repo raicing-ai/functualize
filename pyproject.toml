@@ -78,6 +78,11 @@ docs = [
     "mkdocs>=1.6.0",
     "mkdocs-material>=9.5.0",
     "mkdocstrings[python]>=0.25.0",
+    # Pan/zoom on the mermaid diagrams. Required, not optional: `mkdocs.yml`
+    # names the `panzoom` plugin, and `mkdocs build --strict` (docs.yml and the
+    # ci.yml docs-build job) fails on an unknown plugin, so omitting it here
+    # breaks the docs build for everyone but the machine that pip-installed it.
+    "mkdocs-panzoom-plugin>=0.5.2",
 ]
 
 [project.optional-dependencies]
@@ -237,6 +242,25 @@ modules = [
     "functualize._engine",
     "functualize._plugins",
     "functualize._gate",
+]
+
+[[tool.importlinter.contracts]]
+# _events sits below the peer layers: it may reach _types and _primitives and
+# nothing else internal. This was unenforced until the config event sink was
+# moved out of _events/adapter.py into _app/event_wiring.py — before that,
+# _events imported _config at runtime in violation of the constitution, and no
+# contract named _events as a source module so CI never saw it.
+name = "Events depends on foundation only"
+type = "forbidden"
+source_modules = ["functualize._events"]
+forbidden_modules = [
+    "functualize._discovery",
+    "functualize._config",
+    "functualize._engine",
+    "functualize._plugins",
+    "functualize._gate",
+    "functualize._app",
+    "functualize._cli",
 ]
 
 [[tool.importlinter.contracts]]

@@ -1,0 +1,274 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Job & Config Resolution",
+    "subtitle": "Two independent pipelines — Provider→Transform→Registry for jobs, ordered Sources for configuration — that meet at the execution engine",
+    "output": "docs/diagrams/discovery-and-resolution.html",
+    "quality_profile": "showcase",
+    "animation": "none",
+    "viewBox": [
+      1080,
+      1000
+    ],
+    "views": [
+      {
+        "id": "job-discovery",
+        "label": "Job discovery",
+        "focus": [
+          "dirs",
+          "eps",
+          "scan",
+          "epprov",
+          "ptrans",
+          "dedupe",
+          "registry"
+        ],
+        "note": "Every provider lists jobs, provider transforms run in order, then names are checked for collisions across providers."
+      },
+      {
+        "id": "config-precedence",
+        "label": "Config precedence",
+        "focus": [
+          "cli",
+          "env",
+          "files",
+          "chain",
+          "engine"
+        ],
+        "note": "ResolutionChain consults sources in a fixed order. The first source returning a non-None value wins and its provenance is recorded."
+      },
+      {
+        "id": "collision-guard",
+        "label": "Where it can fail",
+        "focus": [
+          "ptrans",
+          "dedupe",
+          "registry"
+        ],
+        "note": "A duplicate job name across two providers raises rather than silently shadowing one of them."
+      }
+    ]
+  },
+  "stages": [
+    {
+      "label": "Sources"
+    },
+    {
+      "label": "Providers"
+    },
+    {
+      "label": "Transform / Chain"
+    },
+    {
+      "label": "Guard"
+    },
+    {
+      "label": "Consumed by"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "dirs",
+      "type": "database",
+      "label": "Job Directories",
+      "sublabel": "*.py scanned on disk",
+      "stage": 0,
+      "row": 0,
+      "width": 132,
+      "height": 88
+    },
+    {
+      "id": "eps",
+      "type": "external",
+      "label": "Entry Points",
+      "sublabel": "installed plugins",
+      "stage": 0,
+      "row": 1,
+      "width": 132,
+      "height": 88
+    },
+    {
+      "id": "cli",
+      "type": "frontend",
+      "label": "CLI Flags",
+      "sublabel": "highest precedence",
+      "stage": 0,
+      "row": 2,
+      "width": 132,
+      "height": 88
+    },
+    {
+      "id": "env",
+      "type": "external",
+      "label": "Environment",
+      "sublabel": "process env vars",
+      "stage": 0,
+      "row": 3,
+      "width": 132,
+      "height": 88
+    },
+    {
+      "id": "files",
+      "type": "database",
+      "label": "Config Files",
+      "sublabel": "toml and ini",
+      "stage": 0,
+      "row": 4,
+      "width": 132,
+      "height": 88
+    },
+    {
+      "id": "scan",
+      "type": "backend",
+      "label": "Cached Scan",
+      "sublabel": "AST extract, mtime cache",
+      "stage": 1,
+      "row": 0,
+      "width": 132,
+      "height": 88
+    },
+    {
+      "id": "epprov",
+      "type": "backend",
+      "label": "EntryPoint Provider",
+      "sublabel": "plugin-contributed",
+      "stage": 1,
+      "row": 1,
+      "width": 132,
+      "height": 88
+    },
+    {
+      "id": "ptrans",
+      "type": "backend",
+      "label": "Transforms",
+      "sublabel": "provider then app order",
+      "stage": 2,
+      "row": 0,
+      "width": 132,
+      "height": 88
+    },
+    {
+      "id": "chain",
+      "type": "backend",
+      "label": "ResolutionChain",
+      "sublabel": "ordered source lookup",
+      "stage": 2,
+      "row": 3,
+      "width": 132,
+      "height": 88
+    },
+    {
+      "id": "dedupe",
+      "type": "security",
+      "label": "Duplicate Check",
+      "sublabel": "raises on name clash",
+      "stage": 3,
+      "row": 0,
+      "width": 132,
+      "height": 88
+    },
+    {
+      "id": "registry",
+      "type": "database",
+      "label": "Job Registry",
+      "sublabel": "JobDescriptor list",
+      "stage": 4,
+      "row": 0,
+      "width": 132,
+      "height": 88
+    },
+    {
+      "id": "engine",
+      "type": "backend",
+      "label": "Execution Engine",
+      "sublabel": "consumes both",
+      "stage": 4,
+      "row": 3,
+      "width": 132,
+      "height": 88
+    }
+  ],
+  "flows": [
+    {
+      "from": "dirs",
+      "to": "scan",
+      "label": "*.py"
+    },
+    {
+      "from": "eps",
+      "to": "epprov",
+      "label": "plugins"
+    },
+    {
+      "from": "scan",
+      "to": "ptrans",
+      "label": "jobs",
+      "route": "straight"
+    },
+    {
+      "from": "epprov",
+      "to": "ptrans",
+      "label": "jobs"
+    },
+    {
+      "from": "ptrans",
+      "to": "dedupe",
+      "label": "list",
+      "variant": "emphasis"
+    },
+    {
+      "from": "dedupe",
+      "to": "registry",
+      "label": "unique"
+    },
+    {
+      "from": "cli",
+      "to": "chain",
+      "label": "1st"
+    },
+    {
+      "from": "env",
+      "to": "chain",
+      "label": "2nd",
+      "labelDx": -46
+    },
+    {
+      "from": "files",
+      "to": "chain",
+      "label": "3rd"
+    },
+    {
+      "from": "chain",
+      "to": "engine",
+      "label": "first wins",
+      "variant": "emphasis"
+    },
+    {
+      "from": "registry",
+      "to": "engine",
+      "label": "jobs",
+      "labelDy": 40
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Job discovery",
+      "items": [
+        "Providers list jobs; provider-level transforms run in registration order",
+        "Duplicate names across providers raise rather than shadow",
+        "Registration order is preserved so resolution is reproducible"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Config resolution",
+      "items": [
+        "Sources are consulted in a fixed precedence order",
+        "The first non-None value wins; lower sources remain introspectable",
+        "Each resolved value carries source_type, source_id and key as provenance"
+      ]
+    }
+  ]
+}

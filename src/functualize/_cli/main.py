@@ -245,7 +245,7 @@ def cli_app(
 
     _cli_parse_start = _time.perf_counter()
     level = log_level.upper()
-    logging.basicConfig(level=level, force=True)
+    logging.basicConfig(level=level, force=True, format="%(message)s")
 
     # ── Boot app context for builtins that need it (show-info, tui) ──────
 
@@ -1308,9 +1308,9 @@ def _handle_job(
     # spelling; without this it would route `func build_wheel` to a Click app
     # that only knows `build-wheel`, turning a recognized job into "no such
     # command" — recognized in one breath and denied in the next.
-    from functualize.app.utils import normalize_segment
+    from functualize.app.utils import normalize_name
 
-    job_name = ".".join(normalize_segment(part) for part in job_name.split("."))
+    job_name = normalize_name(job_name) or job_name
     remaining_args = args[1:]
 
     # Apply import_libs to sys.path before importing any job modules
@@ -1446,6 +1446,11 @@ def _handle_job(
                 f"Error: Unknown command '{job_name}'.",
                 file=sys.stderr,
             )
+            from functualize._cli.info import explain_missing_job
+
+            explanation = explain_missing_job(job_name, app)
+            if explanation:
+                print(explanation, file=sys.stderr)
         # Show fuzzy suggestions from the fully-discovered job set, enriched
         # with ungrouped plugin command names + plugin/job group first segments.
         discovered_names = {j.name for j in jobs}
@@ -1981,6 +1986,13 @@ def _run_cli() -> None:
         level=log_level,
         force=True,
         stream=sys.stderr,
+        # Message only. The default format puts `WARNING:functualize.
+        # _discovery.cached_provider:` in front of the user on every command
+        # that hits a broken job module — a logger name and an internal module
+        # path, for what is a plain "this file did not load" message. Job
+        # output through `rc.log()` reads the same way: it is the program
+        # talking, not a library's debug channel.
+        format="%(message)s",
     )
 
     # Load aliases (declaration cache + config) for dispatch

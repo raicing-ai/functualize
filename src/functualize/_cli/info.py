@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 __all__ = [
     "RENDERERS",
     "discovery_failures",
+    "explain_missing_job",
     "full_report",
     "job_catalog",
     "job_detail",
@@ -339,6 +340,24 @@ def discovery_failures(app: FunctualizeApp) -> list[dict[str, str]]:
         for failure in getattr(provider, "discovery_failures", ()) or ():
             with contextlib.suppress(Exception):
                 failures.append(failure.as_dict())
+    # Job-name collisions the pipeline resolved. A provider assembled by hand
+    # -- `StaticProvider`, a plugin's own -- has no `discovery_failures` to
+    # report through, so a collision between two such jobs surfaces only here.
+    # Same attribute-access read as above: `_cli` may not import `_discovery`.
+    # Jobs whose dependencies could not be resolved. Same reasoning as the
+    # collisions above: the job the user wrote is not in the CLI, so it belongs
+    # in the one list that answers "why is my job missing?".
+    for unsatisfiable in getattr(app, "_unsatisfiable_jobs", ()) or ():
+        with contextlib.suppress(Exception):
+            payload = unsatisfiable.as_dict()
+            if payload not in failures:
+                failures.append(payload)
+
+    for collision in getattr(pipeline, "collisions", ()) or ():
+        with contextlib.suppress(Exception):
+            payload = collision.as_dict()
+            if payload not in failures:
+                failures.append(payload)
     return failures
 
 
@@ -491,3 +510,71 @@ def render_report_text(report: dict[str, Any]) -> list[str]:
     ]
     lines.extend(f"  {line}" for line in render_catalog_text(catalog))
     return lines
+
+
+def explain_missing_job(
+    job_name: str, app: Any, _failures: list[dict[str, str]] | None = None
+) -> str | None:
+    """Why a typed name is not a command, when discovery can say.
+
+    The user's model is "my job is broken"; the CLI's answer was "it never
+    existed". When a source failed to load, the job it defines is missing for
+    a reason the CLI already knows and was not saying.
+
+    Attribution reads the failed file's **source** and never imports it —
+    importing is the thing that failed, and doing it again on an error path
+    would run half a module's side effects to produce a hint. `ast.parse` sees
+    top-level definitions, which is the case that matters. A file whose own
+    body is what raised still parses, so it is still attributable.
+
+    Returns None when nothing failed, so a plain typo's output is unchanged.
+    """
+    import ast
+    from pathlib import Path
+
+    from functualize.app.utils import normalize_name
+
+    if _failures is not None:
+        failures = _failures
+    else:
+        try:
+            failures = discovery_failures(app)
+        except Exception:  # pragma: no cover - a hint must not replace the error
+            return None
+    if not failures:
+        return None
+
+    wanted = normalize_name(job_name) or job_name
+    for failure in failures:
+        path = failure.get("path") or ""
+        if not path.endswith(".py"):
+            continue
+        try:
+            tree = ast.parse(Path(path).read_text(encoding="utf-8"))
+        except (OSError, SyntaxError, ValueError):
+            # A file that will not parse cannot be attributed from, which is
+            # itself fine: the generic note below still fires.
+            continue
+        defined = {
+            normalize_name(node.name) or node.name
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+            and not node.name.startswith("_")
+        }
+        if wanted in defined:
+            return (
+                f"  {Path(path).name} failed to load, so the job it defines "
+                f"is missing:\n    {failure.get('message') or ''}"
+            )
+
+    # Deliberately not "failed to load": three kinds share this list — a
+    # source that would not parse or import, two functions colliding on one
+    # job name, and a job whose parameters cannot be satisfied. Only the first
+    # is a load failure, and naming the wrong one sends the reader to the
+    # wrong file.
+    count = len(failures)
+    plural = "" if count == 1 else "s"
+    return (
+        f"  ({count} discovery problem{plural} found — "
+        f"run 'func builtin info' for details)"
+    )

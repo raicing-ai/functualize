@@ -1,0 +1,14 @@
+# Union-merge the knowledge graph instead of conflicting on it. Two branches
+# that each rebuilt graph.json would otherwise produce an unresolvable 11 MB
+# JSON conflict.
+#
+# The driver itself is per-clone git config, NOT carried by this file:
+#   git config merge.graphify.name "graphify graph.json union merge"
+#   git config merge.graphify.driver "graphify merge-driver %O %A %B"
+# Without it git falls back to its built-in merge, so this line is safe in a
+# clone that has not run those commands.
+graphify-out/graph.json merge=graphify
+
+# Do not attempt a textual diff of the graph — it is generated, and a rewrite
+# produces tens of thousands of meaningless changed lines.
+graphify-out/graph.json -diff

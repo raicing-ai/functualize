@@ -4,6 +4,24 @@ experimental = true   # required for [hooks]
 [env]
 _.path = ["./.venv/bin"]
 
+# Knowledge-graph visualization ceiling. graphify collapses graph.html to an
+# aggregated community view above this many nodes; the scoped graph is ~8.6k, so
+# the stock 5000 default would silently degrade it to unusable blobs.
+#
+# This MUST be an env var: `.graphifyrc` is read only by `graphify hook install`
+# (to bake the export into the git hook), while the exporter itself
+# (exporters/html.py `_viz_node_limit`) reads GRAPHIFY_VIZ_NODE_LIMIT and nothing
+# else. Setting it here covers every manual `graphify cluster-only` / `label` run,
+# from any worktree, because mise resolves config from the repo root rather than
+# the current directory.
+GRAPHIFY_VIZ_NODE_LIMIT = "12000"
+
+# Deterministic clustering: networkx louvain iterates string-keyed sets whose
+# order is randomized per-process by PYTHONHASHSEED, so community assignments
+# churn run-to-run and graph.json diffs become noise. Pinning it keeps the
+# committed graph reproducible.
+PYTHONHASHSEED = "0"
+
 [tools]
 python = "3.11"
 uv = "latest"
