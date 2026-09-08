@@ -1,0 +1,12 @@
+# graphify project options.
+#
+# Read by `graphify hook install`, which bakes the value into the generated
+# post-commit / post-checkout hooks as
+#   export GRAPHIFY_VIZ_NODE_LIMIT="${GRAPHIFY_VIZ_NODE_LIMIT:-12000}"
+# so a hook-triggered rebuild produces the same node-level graph.html a manual
+# run does.
+#
+# This file does NOT cover manual runs: the exporter reads the environment
+# variable only. mise.toml's [env] block sets it for those -- keep the two values
+# in step.
+viz_node_limit=12000

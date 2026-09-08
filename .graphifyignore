@@ -1,0 +1,69 @@
+# Scope the knowledge graph to shipped source only: src/ and plugins/*/src/.
+#
+# graphify's ignore file is EXCLUDE-ONLY -- a "!" line cannot re-include a path
+# (detect.py: "adding a .graphifyignore can only ever exclude MORE, never
+# re-include"). So a whitelist is impossible and everything outside the two
+# source trees is listed explicitly below.
+#
+# Why scope at all: unscoped extraction produced 36,315 nodes, which is above
+# graphify's 5,000-node visualization limit, so graph.html degraded to an
+# aggregated community view instead of a node-level map.
+
+# --- other tools' index internals: never ingest these ---
+graphify-out/
+.zvec-grep/
+.serena/
+.codegraph/
+
+# --- tests, fixtures, evals ---
+tests/
+evals/
+**/tests/
+**/test/
+**/testing/
+**/fixtures/
+**/__fixtures__/
+**/snapshots/
+**/conftest.py
+test_*.py
+*_test.py
+*_spec.py
+conftest.py
+.hypothesis/
+.pytest_cache/
+
+# --- examples, generated sites ---
+# docs/ and contributor/ are deliberately NOT excluded: their prose is part of
+# what the graph should answer questions about.
+examples/
+**/examples/
+site/
+dist/
+
+# --- agent + repo tooling, not product code ---
+.agents/
+.claude/
+.github/
+.spec/
+.kiro/
+.omo/
+.release/
+.vscode/
+skills/
+
+# --- non-source file types anywhere ---
+# NOTE: *.md is intentionally absent so docs/ and contributor/ prose is indexed.
+# Markdown inside an excluded directory stays excluded -- the directory rule wins.
+*.toml
+*.lock
+*.json
+*.yml
+*.yaml
+*.cfg
+*.ini
+*.txt
+*.sh
+*.ps1
+*.html
+*.css
+LICENSE
