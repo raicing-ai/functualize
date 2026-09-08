@@ -70,6 +70,7 @@ release action — silently erases every in-flight run, and so does
 | [10-coordination-and-nesting.md](10-coordination-and-nesting.md) | Workflows as a coordination substrate — notes/messages, tasks, and child-scope addressing; prior-art survey (Temporal, A2A, LangGraph, XCom, blackboard) |
 | [11-core-plugin-boundaries.md](11-core-plugin-boundaries.md) | Layer + packaging placement for every proposal, the two state systems, and the four fallback patterns |
 | [12-task-sinks.md](12-task-sinks.md) | Where `tasks-local` actually stores data, and the fan-out/reduce multi-sink idea — architectures, formats, traps |
+| [14-resume-deposit-collisions.md](14-resume-deposit-collisions.md) | Every current and future `resume`/`deposit` collision site, and why the fix is to rename the *flag* rather than the verb |
 | [13-decisions.md](13-decisions.md) | **Decision register** — 32 accepted decisions, 11 explicit non-goals, 4 open questions, implementation waves |
 | [evidence/verified.md](evidence/verified.md) | file:line index, re-derived |
 
