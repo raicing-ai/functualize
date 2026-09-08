@@ -121,8 +121,8 @@ return:
   "metadata": {                 // NEW — verbatim JobResult.metadata
     "workflow_scope": "a3f9c2e1b7d4",
     "workflow_status": "blocked",
-    "blocked_on": ["approve"],
-    "blocked_reason": "..."
+    "blocked_on": "approve",        // the gate name, a string (executor.py:1303)
+    "blocked_reason": "..."         // present only when there is one to give
   }
 }
 ```

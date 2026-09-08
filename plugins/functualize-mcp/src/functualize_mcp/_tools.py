@@ -31,6 +31,36 @@ __all__ = ["MCPToolRegistry"]
 logger = logging.getLogger(__name__)
 
 
+def wire_status(status: Any) -> str:
+    """The wire spelling of a run status: a lowercase string, always.
+
+    Three doors disagreed. ``run_job`` normalized with ``.value``;
+    ``_execute_job`` returned the raw ``Enum`` object into a dict that then had
+    to survive JSON serialization; and the value itself was ``"Blocked"``
+    where every document describing the protocol says ``"blocked"``
+    (``docs/guides/mcp.md``).
+
+    ``RunStatus`` stays a plain ``Enum`` — it is the shared internal vocabulary
+    and its capitalized values reach the CLI's own output. This is a *boundary*
+    normalization, which is where a wire format belongs.
+    """
+    return getattr(status, "value", str(status)).lower()
+
+
+def wire_metadata(result: Any) -> dict[str, Any]:
+    """``JobResult.metadata``, as a plain dict that is always present.
+
+    The executor builds ``{workflow_scope, workflow_status, blocked_on,
+    blocked_reason}`` and every MCP door dropped it, so an agent that blocked a
+    workflow received ``"Blocked"`` and had to call ``list_workflows()`` and
+    guess which scope was its own. There was no correlation id at all.
+
+    Always a dict, ``{}`` when the job produced none: a caller that must first
+    test for the key's presence will eventually forget to.
+    """
+    return dict(getattr(result, "metadata", None) or {})
+
+
 @dataclass
 class AsyncExecution:
     """Tracks the state of an asynchronous job execution.
@@ -44,6 +74,7 @@ class AsyncExecution:
         duration_ms: Execution duration in milliseconds, or None if still running.
         return_value: Job return value on success, or None.
         error: Error message on failure, or None.
+        metadata: JobResult.metadata — for a blocked workflow, the scope id.
     """
 
     execution_id: str
@@ -54,6 +85,7 @@ class AsyncExecution:
     duration_ms: float | None = None
     return_value: Any = None
     error: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class MCPToolRegistry:
@@ -253,11 +285,10 @@ class MCPToolRegistry:
         try:
             result = self._app.execute(name, **kwargs)
             return {
-                "status": result.status
-                if isinstance(result.status, str)
-                else result.status.value,
+                "status": wire_status(result.status),
                 "return_value": result.return_value,
                 "duration_ms": result.duration_ms,
+                "metadata": wire_metadata(result),
             }
         except Exception as e:
             logger.error("MCPToolRegistry: Error executing job '%s': %s", name, e)
@@ -270,7 +301,9 @@ class MCPToolRegistry:
     _run_job.__qualname__ = "run_job"
     _run_job.__doc__ = (
         "Execute a functualize job synchronously. Returns the result with "
-        "status, return_value, and duration_ms. Missing config fields are "
+        "status, return_value, duration_ms, and metadata. For a workflow that "
+        "blocks, metadata carries workflow_scope — the scope id to address it "
+        "by — plus workflow_status and blocked_on. Missing config fields are "
         "resolved from the config chain. "
         "Args: name — job name; config — optional partial config dict."
     )
@@ -368,6 +401,10 @@ class MCPToolRegistry:
             "job_name": execution.job_name,
             "status": execution.status,
             "started_at": execution.started_at,
+            # Unconditional, unlike the optional fields below. The whole
+            # defect was a caller unable to learn the scope it had just
+            # created; a key that appears only sometimes reproduces it.
+            "metadata": dict(execution.metadata),
         }
 
         if execution.ended_at is not None:
@@ -385,7 +422,7 @@ class MCPToolRegistry:
     _get_execution_status.__qualname__ = "get_execution_status"
     _get_execution_status.__doc__ = (
         "Get the status of an async job execution. Returns execution_id, "
-        "status, duration, and result when complete. "
+        "status, duration, metadata, and result when complete. "
         "Args: execution_id — the ID returned by run_job_async."
     )
 
@@ -411,12 +448,9 @@ class MCPToolRegistry:
 
             with self._lock:
                 execution = self._async_executions[execution_id]
-                execution.status = (
-                    result.status
-                    if isinstance(result.status, str)
-                    else result.status.value
-                )
+                execution.status = wire_status(result.status)
                 execution.return_value = result.return_value
+                execution.metadata = wire_metadata(result)
                 execution.ended_at = end_time
                 execution.duration_ms = duration_ms
 
