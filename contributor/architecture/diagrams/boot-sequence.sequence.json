@@ -1,0 +1,263 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Application Boot Sequence",
+    "subtitle": "_app/boot.py wires every layer in six ordered phases, then freezes the registry before anything can run",
+    "output": "docs/diagrams/boot-sequence.html",
+    "quality_profile": "showcase",
+    "animation": "none",
+    "visual_preset": "signal-flow",
+    "viewBox": [
+      1000,
+      1020
+    ],
+    "views": [
+      {
+        "id": "wiring",
+        "label": "Wiring the layers",
+        "focus": [
+          "boot",
+          "discovery",
+          "config",
+          "plugins"
+        ],
+        "note": "Boot is the only component that talks to every peer layer. The peers never reach for each other."
+      },
+      {
+        "id": "freeze",
+        "label": "The freeze point",
+        "focus": [
+          "boot",
+          "di",
+          "events"
+        ],
+        "note": "After REGISTRY_FROZEN no further provide() calls are accepted, so every later resolution sees the same registry."
+      },
+      {
+        "id": "handover",
+        "label": "Handover to the adapter",
+        "focus": [
+          "user",
+          "app",
+          "events"
+        ],
+        "note": "APP_READY is emitted before the adapter takes over delivery, so listeners observe a fully wired app."
+      }
+    ]
+  },
+  "participants": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "User",
+      "sublabel": "app entry point"
+    },
+    {
+      "id": "app",
+      "type": "frontend",
+      "label": "App",
+      "sublabel": "FunctualizeApp"
+    },
+    {
+      "id": "boot",
+      "type": "backend",
+      "label": "boot.py",
+      "sublabel": "composition root"
+    },
+    {
+      "id": "discovery",
+      "type": "backend",
+      "label": "_discovery",
+      "sublabel": "job finding"
+    },
+    {
+      "id": "config",
+      "type": "backend",
+      "label": "_config",
+      "sublabel": "resolution"
+    },
+    {
+      "id": "plugins",
+      "type": "backend",
+      "label": "_plugins",
+      "sublabel": "loading"
+    },
+    {
+      "id": "events",
+      "type": "messagebus",
+      "label": "_events",
+      "sublabel": "EventBus"
+    },
+    {
+      "id": "di",
+      "type": "database",
+      "label": "DIRegistry",
+      "sublabel": "type resolution"
+    }
+  ],
+  "segments": [
+    {
+      "from": 236,
+      "to": 360,
+      "label": "1 · Core infrastructure"
+    },
+    {
+      "from": 374,
+      "to": 460,
+      "label": "2 · Discovery"
+    },
+    {
+      "from": 474,
+      "to": 560,
+      "label": "3 · Config resolution"
+    },
+    {
+      "from": 574,
+      "to": 660,
+      "label": "4 · Plugin loading"
+    },
+    {
+      "from": 674,
+      "to": 760,
+      "label": "5 · Registry freeze"
+    },
+    {
+      "from": 774,
+      "to": 890,
+      "label": "6 · APP_READY"
+    }
+  ],
+  "messages": [
+    {
+      "from": "user",
+      "to": "app",
+      "y": 172,
+      "label": "FunctualizeApp(name, sources)",
+      "variant": "emphasis"
+    },
+    {
+      "from": "app",
+      "to": "boot",
+      "y": 210,
+      "label": "_boot_standard()"
+    },
+    {
+      "from": "boot",
+      "to": "events",
+      "y": 262,
+      "label": "create EventBus"
+    },
+    {
+      "from": "boot",
+      "to": "di",
+      "y": 300,
+      "label": "create DIRegistry",
+      "note": "JobExecutionEngine is constructed in this phase too"
+    },
+    {
+      "from": "boot",
+      "to": "discovery",
+      "y": 400,
+      "label": "wire providers from JobSources"
+    },
+    {
+      "from": "discovery",
+      "to": "boot",
+      "y": 438,
+      "label": "list[JobDescriptor]",
+      "variant": "dashed"
+    },
+    {
+      "from": "boot",
+      "to": "config",
+      "y": 500,
+      "label": "build ResolutionChain"
+    },
+    {
+      "from": "config",
+      "to": "boot",
+      "y": 538,
+      "label": "chain (frozen)",
+      "variant": "dashed"
+    },
+    {
+      "from": "boot",
+      "to": "plugins",
+      "y": 600,
+      "label": "load_all(plugin_sources)"
+    },
+    {
+      "from": "plugins",
+      "to": "boot",
+      "y": 638,
+      "label": "sorted by dependency",
+      "variant": "dashed"
+    },
+    {
+      "from": "boot",
+      "to": "di",
+      "y": 700,
+      "label": "freeze registry",
+      "variant": "emphasis"
+    },
+    {
+      "from": "boot",
+      "to": "events",
+      "y": 738,
+      "label": "emit REGISTRY_FROZEN"
+    },
+    {
+      "from": "boot",
+      "to": "events",
+      "y": 800,
+      "label": "emit APP_READY",
+      "variant": "emphasis"
+    },
+    {
+      "from": "boot",
+      "to": "app",
+      "y": 838,
+      "label": "boot complete",
+      "variant": "dashed"
+    },
+    {
+      "from": "user",
+      "to": "app",
+      "y": 878,
+      "label": "adapter.run()"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "boot",
+      "from": 204,
+      "to": 850,
+      "type": "backend"
+    },
+    {
+      "participant": "discovery",
+      "from": 394,
+      "to": 444,
+      "type": "backend"
+    },
+    {
+      "participant": "config",
+      "from": 494,
+      "to": 544,
+      "type": "backend"
+    },
+    {
+      "participant": "plugins",
+      "from": 594,
+      "to": 644,
+      "type": "backend"
+    },
+    {
+      "participant": "di",
+      "from": 694,
+      "to": 720,
+      "type": "database"
+    }
+  ]
+}

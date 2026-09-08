@@ -1,0 +1,291 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Layer Dependency Contract",
+    "subtitle": "Imports may only travel downward. The four peer layers are siblings and must never import each other.",
+    "output": "docs/diagrams/layer-dependencies.html",
+    "quality_profile": "showcase",
+    "animation": "none",
+    "viewBox": [
+      1040,
+      680
+    ],
+    "views": [
+      {
+        "id": "peers",
+        "label": "The peer rule",
+        "focus": [
+          "discovery",
+          "config",
+          "engine",
+          "plugins"
+        ],
+        "note": "Discovery, config, engine and plugins are siblings. No arrow runs between them, and none may import another."
+      },
+      {
+        "id": "foundation",
+        "label": "Foundation stack",
+        "focus": [
+          "events",
+          "primitives",
+          "types"
+        ],
+        "note": "_types depends on stdlib alone. Everything above may reach down; nothing below reaches up."
+      },
+      {
+        "id": "edges-of-the-graph",
+        "label": "Top and bottom",
+        "focus": [
+          "cli",
+          "public",
+          "app"
+        ],
+        "note": "_app is the only layer that may touch every internal package. _cli may touch none of them — it imports the public surface only."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "cli",
+      "type": "frontend",
+      "label": "_cli",
+      "sublabel": "commands, scaffold",
+      "pos": [
+        40,
+        30
+      ],
+      "size": [
+        200,
+        58
+      ]
+    },
+    {
+      "id": "public",
+      "type": "external",
+      "label": "Public surface",
+      "sublabel": "app · job · plugin · types · testing",
+      "pos": [
+        690,
+        30
+      ],
+      "size": [
+        310,
+        58
+      ]
+    },
+    {
+      "id": "app",
+      "type": "backend",
+      "label": "_app",
+      "sublabel": "composition root",
+      "pos": [
+        400,
+        122
+      ],
+      "size": [
+        240,
+        62
+      ]
+    },
+    {
+      "id": "discovery",
+      "type": "backend",
+      "label": "_discovery",
+      "sublabel": "job finding",
+      "pos": [
+        30,
+        232
+      ],
+      "size": [
+        180,
+        62
+      ]
+    },
+    {
+      "id": "config",
+      "type": "backend",
+      "label": "_config",
+      "sublabel": "resolution",
+      "pos": [
+        250,
+        232
+      ],
+      "size": [
+        180,
+        62
+      ]
+    },
+    {
+      "id": "engine",
+      "type": "backend",
+      "label": "_engine",
+      "sublabel": "lifecycle",
+      "pos": [
+        470,
+        232
+      ],
+      "size": [
+        180,
+        62
+      ]
+    },
+    {
+      "id": "plugins",
+      "type": "backend",
+      "label": "_plugins",
+      "sublabel": "loading",
+      "pos": [
+        690,
+        232
+      ],
+      "size": [
+        180,
+        62
+      ]
+    },
+    {
+      "id": "events",
+      "type": "messagebus",
+      "label": "_events",
+      "sublabel": "EventBus, hooks",
+      "pos": [
+        370,
+        356
+      ],
+      "size": [
+        240,
+        58
+      ]
+    },
+    {
+      "id": "primitives",
+      "type": "cloud",
+      "label": "_primitives",
+      "sublabel": "DI, middleware",
+      "pos": [
+        370,
+        456
+      ],
+      "size": [
+        240,
+        58
+      ]
+    },
+    {
+      "id": "types",
+      "type": "database",
+      "label": "_types",
+      "sublabel": "stdlib only",
+      "pos": [
+        370,
+        556
+      ],
+      "size": [
+        240,
+        58
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Peer layers — never import each other",
+      "wraps": [
+        "discovery",
+        "config",
+        "engine",
+        "plugins"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "Foundation",
+      "wraps": [
+        "events",
+        "primitives",
+        "types"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "from": "cli",
+      "to": "public",
+      "label": "public only",
+      "variant": "emphasis"
+    },
+    {
+      "from": "app",
+      "to": "discovery",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "app",
+      "to": "config",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "app",
+      "to": "engine",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "app",
+      "to": "plugins",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "discovery",
+      "to": "events",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "config",
+      "to": "events",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "engine",
+      "to": "events",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "plugins",
+      "to": "events",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "events",
+      "to": "primitives",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "primitives",
+      "to": "types",
+      "fromSide": "bottom",
+      "toSide": "top"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "violet",
+      "title": "The contract",
+      "items": [
+        "_types imports stdlib only; it is the shared vocabulary",
+        "Peer layers may reach _types, _primitives and _events — never each other, _app or _cli",
+        "_app may import every internal layer; _cli may import none of them",
+        "Enforced mechanically by import-linter, not by convention"
+      ]
+    }
+  ]
+}
