@@ -28,7 +28,7 @@ file."*
 status, **return_value**, resolved **inputs**, completed_at. `_topology` falls back to
 the live declaration for plugin-registered workflows (`:511-536`).
 **Impact:** the study inverted who is starved. The CLI's `_scope_summary`
-(`builtins.py:831-841`) emits five fields over the same store. W3.1 was sequenced behind
+(`builtins.py:833-843`) emits five fields over the same store. W3.1 was sequenced behind
 the event log; it needs no event log.
 
 ### 3. pi-workflows does not re-run completed nodes on replay

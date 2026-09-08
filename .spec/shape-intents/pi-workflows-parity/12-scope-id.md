@@ -11,7 +11,7 @@ replacement is [05 §2.2](05-target-surface.md) — `--wf-resume [id]`.
 
 `func builtin workflow` has **no verb that advances a walk** today. `list` and `state`
 read, `cancel` marks, and `resume` deposits — *"Accepting input does not run the
-workflow"* (`builtins.py:913-917`). So `--scope-id` duplicates nothing there; it **is**
+workflow"* (`builtins.py:914-918`). So `--scope-id` duplicates nothing there; it **is**
 the advance surface, in its entirety.
 
 That is the same finding as [01 §C.6](01-current-state.md): the advance operation has one
@@ -76,7 +76,7 @@ spelling is **post-command**:
 
 The pre-command form appears in exactly **one** place in the repository: the
 `_scope_id_option()` docstring noting that `func --scope-id X walk` "still works"
-(`click_params.py:66`).
+(`click_params.py:67`).
 
 ### 2.2 What removal simplifies
 
@@ -86,7 +86,7 @@ The pre-command form appears in exactly **one** place in the repository: the
   non-workflow job.
 - Four handler signatures and four call sites lose a parameter
   (`main.py:1160, 1258, 1469, 1536, 1654` and `:2009, 2032, 2052, 2091`).
-- `click_params.py:1040` — `scope_id = kwargs.pop(_SCOPE_ID_PARAM, None) or workflow_scope_id`
+- `click_params.py:1095` — `scope_id = kwargs.pop(_SCOPE_ID_PARAM, None) or workflow_scope_id`
   — loses its precedence rule, and with it the documented "per-command wins over
   pre-command" interaction that has to be explained and tested.
 
@@ -161,13 +161,13 @@ signatures and call sites in `main.py`.
 
 **Step 2 — decide the programmatic seam.** `create_job_click_command`'s
 `workflow_scope_id` parameter and the `app_ref._workflow_scope_id` fallback
-(`click_params.py:1040-1042`) become dead. Decide deliberately whether the app-level
+(`click_params.py:1095-1097`) become dead. Decide deliberately whether the app-level
 attribute stays as an entry point for embedded hosts; if it does, document it as API-only
 with no CLI spelling.
 
 **Step 3 — replace the per-command option with `--wf-resume`.** Per
 [05 §2.1-2.2](05-target-surface.md). `_scope_id_option()` is retired; the `--wf-*` family
-takes its two injection points (`click_params.py:1233`, `lazy_command.py:168`).
+takes its two injection points (`click_params.py:1289`, `lazy_command.py:168`).
 
 **Step 4 — reclaim the docstring.** `_scope_id_option()`'s *"`func --scope-id X walk`
 still works"* becomes false. Replace it with the reason the flags are per-command only.

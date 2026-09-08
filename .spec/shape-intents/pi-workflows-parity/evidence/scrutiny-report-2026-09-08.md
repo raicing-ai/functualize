@@ -116,7 +116,7 @@ Two adjacent defects at the same boundary:
 
 **Actual:** `_workflow_tools.py:471-509` (`_describe`, used by both `get_workflow_state` and `list_active_workflows`) returns the declared `steps` and `edges`, `current_position`, `branches`, `pending_gates` with input schemas, and — per its own comment — **every step's `return_value`, resolved `inputs` and `completed_at`**. `_topology` (`:511-536`) even falls back to the live declaration for plugin-registered workflows so the graph is never empty for a live job.
 
-What is actually missing is a *renderer*. The CLI's `_scope_summary` (`builtins.py:831-841`) emits five fields — id, name, status, position, gate names — over the same store that holds all of the above.
+What is actually missing is a *renderer*. The CLI's `_scope_summary` (`builtins.py:833-843`) emits five fields — id, name, status, position, gate names — over the same store that holds all of the above.
 
 **Impact:** the study inverts who is starved. The **agent** surface is rich; the **human** surface is impoverished. Roadmap W3.1 ("Run view + widget … start with `func builtin workflow watch`") is sequenced behind W1's event log, but a `func builtin workflow state --format json` that emits `_describe`'s projection needs no event log, no new storage, and no new code beyond calling the function that already exists. Promote it.
 
@@ -164,7 +164,7 @@ They share the deposit *implementation* but not the *addressing*:
 
 | Surface | Addressing |
 |---|---|
-| CLI `func builtin workflow resume <id> <gate>` (`builtins.py:900-911`) | scope **and** gate |
+| CLI `func builtin workflow resume <id> <gate>` (`builtins.py:901-912`) | scope **and** gate |
 | MCP `resume_gate(gate, input)` (`:212`) | gate only |
 | MCP `resume_workflow(workflow_id, input)` (`:247`) | scope only |
 

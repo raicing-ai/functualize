@@ -12,7 +12,7 @@ Categories used throughout:
 
 ## A. The complete inventory
 
-### A.1 CLI builtin — `func builtin workflow` (`_cli/builtins.py:820-951`)
+### A.1 CLI builtin — `func builtin workflow` (`_cli/builtins.py:822-953`)
 
 | Verb | Class | Signature | What it actually does |
 |---|---|---|---|
@@ -29,7 +29,7 @@ materialize the gate's Pydantic model (`app/_workflow_resume.py:34-57`).
 | Verb | Class | Effect on workflows |
 |---|---|---|
 | `func builtin state show` | Observability | Prints `Scopes: N` — the only place a total count appears |
-| `func builtin state clear` | **Management — destructive** | `save_state(path, empty_state())` — **wipes every scope**. Group help says "fingerprints, history"; command help says "Reset runtime state". Neither says *scopes*. |
+| `func builtin state clear` | **Management — destructive** | `save_state(path, empty_state())` — **wipes every scope**. Command help says "Reset runtime state" and never mentions scopes. The two group-help sites now *disagree*: the `BuiltinCommand` registry says "fingerprints, history, scopes" (`builtins.py:90`, changed in `c0c921f`) while the click group still says "fingerprints, history" (`:780`). So the surface now advertises scope management while `clear` still destroys them silently — see §C.4. |
 | `func history` | Observability | Job executions, not walks. Separate section of the envelope. |
 
 ### A.3 Flags on a `@workflow` job invocation
@@ -37,13 +37,13 @@ materialize the gate's Pydantic model (`app/_workflow_resume.py:34-57`).
 | Flag | Layer | Class | Notes |
 |---|---|---|---|
 | `--scope-id <id>` | **Pre-command, early-parse** (`_cli/dispatch.py:79`, in `_GLOBAL_OPTIONS_ALWAYS_VALUE`) | Control | Resume a scope. Available on every dispatch mode unconditionally. |
-| `--scope-id <id>` | **Per-command Click option** (`app/adapters/click_params.py:56-73`) | Control | Added only when the job declares `@workflow`, so it stays off other jobs' `--help`. Per-command wins over pre-command (`:1041`). |
+| `--scope-id <id>` | **Per-command Click option** (`app/adapters/click_params.py:57-74`) | Control | Added only when the job declares `@workflow`, so it stays off other jobs' `--help`. Per-command wins over pre-command (`:1041`). |
 | `--prompt-gates` / `--no-prompt-gates` | Pre-command boolean | Control | Resolve gates inline instead of blocking. Feeds `_gate_strategy_list` (`workflow_walker.py:475-487`). |
 | `--force` | Pre-command boolean | Control | Ignores fingerprint freshness. Job-level; does **not** clear workflow step records. |
 | `--output auto\|json\|ndjson\|raw\|none` | Pre-command, optional-value | Observability | Serializes the dispatch return value. Not workflow-aware. |
 
 Two injection points add the per-command option, not three as previously claimed:
-`create_job_click_command` on the cold/import path (`click_params.py:1230-1233`, gated on
+`create_job_click_command` on the cold/import path (`click_params.py:1286-1289`, gated on
 `_declares_workflow(function)`) and `lazy_command` on the warm path
 (`lazy_command.py:163-168`, gated on `descriptor.workflow is not None`). The warm gate
 depends on the discovery cache carrying workflow topology — which is exactly the
@@ -148,6 +148,14 @@ returns it without a status check (`frontier.py:95-107`). `func <wf> --scope-id
 <cancelled-id>` walks the scope to completion and overwrites the status.
 
 ### C.4 `state clear` is an undocumented workflow-destroying verb
+
+**Partially addressed upstream, and now inconsistent.** `c0c921f` changed the
+`BuiltinCommand` registry entry to *"Manage the runtime state store (fingerprints,
+history, scopes)"* (`builtins.py:90`) but left the click group's own `help=` at
+*"(fingerprints, history)"* (`:780`) and did not touch `clear`. The net effect is that one
+surface now claims scopes are managed here while the command that destroys them still
+says nothing — which is why the fix has to cover both sites and the command itself.
+
 
 `StateStore.clear()` writes `empty_state()` (`state_store.py:361-365`). Group help:
 *"Manage the runtime state store (fingerprints, history)."* Command help: *"Reset

@@ -21,8 +21,9 @@ If you are about to re-open a question, check §3 first.
 | 7 | Critiqued the in-flight `--wf-status` handoff. |
 | 8 | Four iterations on the surface design — see §2. Settled at three tiers. |
 
-Everything was re-derived from source at `78d9ff4`. One claim (silent scope erasure) is
-proven by a run experiment; the transcript is in
+Everything was re-derived from source at `78d9ff4`, then **re-verified against `c0c921f`**
+(see §6, 2026-09-08 rebase). One claim (silent scope erasure) is proven by a run
+experiment; the transcript is in
 [evidence/scrutiny-report-2026-09-08.md](evidence/scrutiny-report-2026-09-08.md).
 
 ## 2. Reversals, in order
@@ -123,6 +124,7 @@ is lost with the branch. Do it as the last commit before merge, alongside whatev
 | 2026-09-08 | Initial set: audit, corrections, pi-workflows model, surface inventory, MCP assessment, gate design, coordination, task storage, boundaries, roadmap, decisions. |
 | 2026-09-08 | Handoff critique added (four factual errors, six design blockers in the in-flight `--wf-status` handoff). |
 | 2026-09-08 | Four surface-design iterations (R1–R4) collapsed into one target-surface document. |
+| 2026-09-08 | **Rebased onto `c0c921f`** (master +3: `787035e`, `6541f8b`, `c0c921f`). `state_format.py` and `state_store.py` — this material's core subjects — are **untouched**, so no finding changed. Line citations in `click_params.py` and `_cli/builtins.py` refreshed. Two substantive updates: a **sixth** import-linter contract now exists (`11 §1`), and `c0c921f` half-landed the `state clear` help fix — the registry entry names scopes, the click group help does not, so the two disagree (`01 §C.4`). |
 | 2026-09-08 | **Realigned.** The superseded chain (old 09, 14, 16, 17, 18) merged into [05](05-target-surface.md) and [06](06-lifecycles.md); the `--scope-id` audits (old 15, 16) merged into [12](12-scope-id.md); old 05 (tasks↔workflows) folded into [08](08-coordination.md) and [10](10-task-storage.md); nesting split out to [09](09-nesting.md). Supersession notes and self-corrections removed from the documents and recorded here instead. |
 
 ## 7. Superseded file map

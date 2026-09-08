@@ -203,7 +203,7 @@ enough, the answer is a purpose-built provider, not more flags.
 ### 6.4 It multiplies the "installed but not wired" state
 
 `func builtin domains list` already handles multiple providers by wiring **none** and
-telling you to pick (`builtins.py:1455-1477`). A multiplexer that *is* a provider, wrapping
+telling you to pick (`builtins.py:1457-1479`). A multiplexer that *is* a provider, wrapping
 other providers, needs to show up in that listing as one active provider with its sinks
 named — otherwise the framework's own capability-introspection surface starts lying.
 

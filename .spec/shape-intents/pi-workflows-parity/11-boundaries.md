@@ -7,8 +7,10 @@ dependency is absent. Verified against `78d9ff4`.
 
 ## 1. Two independent axes — do not conflate them
 
-**Axis A — layer** (inside the core package, enforced by `import-linter`,
-`pyproject.toml:227-308`):
+**Axis A — layer** (inside the core package, enforced by `import-linter` — **six**
+contracts in `pyproject.toml`; the sixth, *"Events depends on foundation only"*, was added
+in `6541f8b` after a comment noting an earlier contract *"named `_events` as a source
+module so CI never saw it"*):
 
 ```
 _types → _primitives → _events → {_discovery, _config, _engine, _plugins, _gate} → _app → _cli
@@ -92,7 +94,7 @@ and resolved inputs, gate schemas — live in
 
 So **the richest workflow observability in the framework is only available if you install
 an MCP adapter.** A user who installs `functualize[cli]` and never touches MCP gets five
-fields (`builtins.py:831-841`). That is precisely the surprise ADR-016 exists to remove,
+fields (`builtins.py:833-843`). That is precisely the surprise ADR-016 exists to remove,
 and it is the strongest argument for [13 item 3](13-roadmap.md) — stronger than the UX
 argument I gave it originally.
 
@@ -159,7 +161,7 @@ genuinely absent, prefer P1's shape: register a stub that returns a structured
 | Proposal | Layer | Package | Hard deps | Absent ⇒ |
 |---|---|---|---|---|
 | **Item 0** — stop scope erasure ([13](13-roadmap.md)) | `_primitives` | **core** | none | n/a — unconditional |
-| **Item 1** — return `metadata` from MCP doors | plugin | `-mcp` | core | CLI already prints it (`click_params.py:909-940`); the fix removes an adapter-only regression |
+| **Item 1** — return `metadata` from MCP doors | plugin | `-mcp` | core | CLI already prints it (`click_params.py:965-996`); the fix removes an adapter-only regression |
 | **Item 2** — enforce `cancel` | `_engine` | **core** | none | n/a |
 | **Item 3** — lift the projection | `app/` + `_cli` | **core** (+ `[cli]` to render) | none | headless/library callers still get the dict; only rendering needs `[cli]` |
 | **Item 4** — `deposit` draft/partial/reopen | `app/` + `_cli` + `-mcp` | **core**, mirrored | none | full-payload deposit still works |

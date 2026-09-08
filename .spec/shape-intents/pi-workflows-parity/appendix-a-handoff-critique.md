@@ -64,10 +64,10 @@ and its three call sites — `create_job_click_command`, `build_click_params_fro
 path, `lazy_command.py:167-168`."*
 
 Verified: `_scope_id_option` is referenced at exactly two injection points —
-`click_params.py:1233` (cold path, gated on `_declares_workflow(function)`) and
+`click_params.py:1289` (cold path, gated on `_declares_workflow(function)`) and
 `lazy_command.py:168` (warm path, gated on `descriptor.workflow is not None`).
 
-`build_click_params_from_descriptor` (`click_params.py:214-225`) returns
+`build_click_params_from_descriptor` (`click_params.py:270-281`) returns
 `build_click_params_from_fields(descriptor.config_fields)` and **does not add the
 option**. It has exactly one caller: `lazy_command.py:163`, which appends the option
 *after* the call.
@@ -83,7 +83,7 @@ cold-cache bug (`main.py:2075-2081`) was hard to find.
 *"Builtin workflow commands keep 1:1 parity with the functualize MCP workflow tools."*
 
 They do not. CLI `func builtin workflow resume <workflow_id> <gate>`
-(`builtins.py:900-911`) addresses **both**. MCP `resume_gate(gate, input)` addresses a
+(`builtins.py:901-912`) addresses **both**. MCP `resume_gate(gate, input)` addresses a
 gate only; `resume_workflow(workflow_id, input)` addresses a scope only; each refers the
 caller to the other on ambiguity, and no MCP tool accepts both. `list`/`state` drift too
 (five fields vs. the full `_describe` projection).
@@ -259,7 +259,7 @@ implementer to invent a capture mechanism ad hoc.
 6. **Cut from scope, with a note in the acceptance criteria:** `--actor` (B-6), and every
    time column (B-1, B-2).
 7. Add the two injection points for each new per-command flag —
-   `click_params.py:1233` and `lazy_command.py:168` — **not** three (E-1).
+   `click_params.py:1289` and `lazy_command.py:168` — **not** three (E-1).
 8. Cold-cache guard tests per dispatch mode, as specified. Unchanged.
 
 ### Amended acceptance criteria

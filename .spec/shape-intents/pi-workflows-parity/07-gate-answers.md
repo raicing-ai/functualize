@@ -165,7 +165,7 @@ answered but parked, and something must still re-invoke the job. That is the sep
 but the two are orthogonal and this one is strictly smaller.
 
 The honest reason to keep them separate is in the codebase already
-(`builtins.py:913-917`): deposit is a **second-actor** verb. A human elsewhere, an agent
+(`builtins.py:914-918`): deposit is a **second-actor** verb. A human elsewhere, an agent
 without a runner, or a reviewer can answer a gate without being the party that runs the
 walk. Partial deposit makes that role more useful, not less: two actors can now fill
 different fields of the same gate.

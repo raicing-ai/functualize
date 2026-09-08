@@ -51,23 +51,23 @@ drifted; those are marked ⚠ with the correct location.
 | **`_blank_scope()` has no timestamps** — `{workflow, status, steps, branches, gates, position, epilogue, tool_calls}` | `state_store.py:45-56` |
 | `put_gate` **replaces the whole gate record** → `blocked_at` reset on every re-block | `state_store.py:215-222` + `frontier.py:164-200` |
 | `_block(node)` supplies `blocked_at=_now()`; reached on every walk hitting an unanswered gate | `workflow_walker.py:459-472` |
-| CLI **does** print scope id + gate on exit 5 (stderr, default level) — MCP does not | `app/adapters/click_params.py:909-940`, `:1177` |
+| CLI **does** print scope id + gate on exit 5 (stderr, default level) — MCP does not | `app/adapters/click_params.py:965-996`, `:1233` |
 
 ## functualize — surfaces
 
 | Fact | Location |
 |---|---|
-| `func builtin workflow` group: `list`, `state`, `resume`, `cancel` | `_cli/builtins.py:820-951` |
-| CLI `_scope_summary` — **5 fields only** | `_cli/builtins.py:831-841` |
-| CLI `resume <id> <gate>` — takes **both** | `_cli/builtins.py:900-911` |
+| `func builtin workflow` group: `list`, `state`, `resume`, `cancel` | `_cli/builtins.py:822-953` |
+| CLI `_scope_summary` — **5 fields only** | `_cli/builtins.py:833-843` |
+| CLI `resume <id> <gate>` — takes **both** | `_cli/builtins.py:901-912` |
 | `resume` docstring: *"Accepting input does not run the workflow"* | `_cli/builtins.py:913-917` |
-| `state clear` help says "fingerprints, history" — never scopes | `_cli/builtins.py:778-806` |
+| `state clear` help says "fingerprints, history" — never scopes | `_cli/builtins.py:780-808` |
 | `--scope-id` in `_GLOBAL_OPTIONS_ALWAYS_VALUE` (early parse) | `_cli/dispatch.py:63-81` |
-| Per-command `--scope-id` option definition | `app/adapters/click_params.py:56-73` ⚠ *study wrote `_cli/click_params.py`* |
-| Added on the cold path when `_declares_workflow(function)` | `click_params.py:1230-1233` |
+| Per-command `--scope-id` option definition | `app/adapters/click_params.py:57-74` ⚠ *study wrote `_cli/click_params.py`* |
+| Added on the cold path when `_declares_workflow(function)` | `click_params.py:1286-1289` |
 | Added on the warm path when `descriptor.workflow is not None` | `lazy_command.py:163-168` |
-| Per-command wins over pre-command | `click_params.py:1036-1041` |
-| `build_click_params_from_descriptor` does **not** add `_scope_id_option`; one caller only | `click_params.py:214-225`, called from `lazy_command.py:163` |
+| Per-command wins over pre-command | `click_params.py:1091-1096` |
+| `build_click_params_from_descriptor` does **not** add `_scope_id_option`; one caller only | `click_params.py:270-281`, called from `lazy_command.py:163` |
 | Projection/renderer split precedent for survey surfaces | `_cli/info.py:110-176` (`job_catalog`, `job_detail`), `:405-419` (`render_*_text`), `:47` (`resolve_renderer`) |
 | Cold-cache hazard for state-addressing flags | `_cli/main.py:2075-2081` |
 | `deposit_gate_input` — validates `model(**payload)`, stores the **raw dict** | `app/_workflow_resume.py:60-107` |
