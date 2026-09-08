@@ -1,5 +1,12 @@
 # 13 — What functualize Should Add
 
+> **Read the Summary at the bottom first. Asks 1–8 have shipped.** The five
+> sections below are the arguments as made against 0.2.3 (`a2f453d`) and are
+> preserved as the record, not as open work — §1 through §5 all read as though
+> the defect they describe is live, and four of them are visible as *fixed* in
+> the probe re-run at `787035e` (`evidence/README.md`). Only **asks 9 and 10**
+> are outstanding.
+
 Five asks, re-prioritized for 0.2.3 and for the plugin binding path. **None is
 a blocker any more** — v2's blocker (P1) is bypassed by binding through a
 plugin provider (`03` §1), which is the single most useful thing this revision

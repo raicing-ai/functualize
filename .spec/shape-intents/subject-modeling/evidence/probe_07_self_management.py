@@ -6,7 +6,13 @@ Also shows install-mode detection and the refusal path. Read-only: never runs
 from click.testing import CliRunner
 from functualize.app import FunctualizeApp, JobSources
 from functualize.app.adapters.cli import CliAdapter
-from functualize._cli.runtime import detect_from_process
+
+# Was `functualize._cli.runtime` — a private path — when this probe was written
+# against 0.2.3 (`a2f453d`). Upstream ask 4 (`13` §4) asked for install
+# detection to become importable, and it landed: the module no longer exists and
+# `detect_from_process` is public in `functualize.app.packaging.__all__`. That
+# this import now works *is* the ask's acceptance test.
+from functualize.app.packaging import detect_from_process
 
 def hello() -> str:
     """A rise job."""

@@ -2,13 +2,15 @@
 
 Runnable probes backing every **[probed]** claim in v3.
 
-- Probes were last executed against functualize **0.2.3** — probes 01–18 at
-  `a2f453d`, probe 19 at `78d9ff4` (v0.2.3-2).
-- **This branch is newer than that.** It was cut from `787035e` (#30,
-  "discovery correctness, job parameter types"), which touches discovery and
-  parameter handling — exactly what probes 01, 02, 10 and 11 pin. Re-run before
-  trusting any **[probed]** claim, and update this file's outputs and
-  `transcript.md` when they move.
+- **All 19 were re-executed against `787035e`, this branch's base, on
+  2026-09-08.** Six unchanged, four moved because an upstream ask landed, two
+  moved cosmetically, one falsified a claim. The drift table below is the
+  authoritative record; `transcript.md` carries every output.
+- Originally captured against **0.2.3** — probes 01–18 at `a2f453d`, probe 19
+  at `78d9ff4`. Where a row in the table further down still describes the older
+  behaviour, the drift section says so explicitly.
+- Re-run again after any upstream merge that touches discovery, parameters or
+  the agent surface, and update both files when outputs move.
 - Probes import functualize from *this* repository, so no external checkout is
   needed. From the repository root:
 
@@ -20,23 +22,48 @@ for p in .spec/shape-intents/subject-modeling/evidence/probe_*.py; do
 done
 ```
 
-## Drift at `787035e` — re-run 2026-09-08
+## Drift at `787035e` — full re-run 2026-09-08
 
-Five probes were re-run when this shape intent landed on this branch. **Three
-are unchanged; two moved, and one of those falsifies a v3 claim.**
+**All 19 probes** re-executed against this branch's base. An earlier pass in
+this file reported a five-probe sample as "three unchanged, two moved"; that
+undercounted. The complete result:
 
-| Probe | At `a2f453d` | At `787035e` | Verdict |
+| | Count | Probes |
+|---|---|---|
+| unchanged | 6 | 02, 03, 04, 05, **10**, 12 |
+| changed by an upstream fix this design asked for | 4 | 01, 06, 07, 13 |
+| changed cosmetically, claim intact | 2 | 08, 09 |
+| **claim falsified** | 1 | **11** |
+| no prior baseline, now captured | 6 | 14, 15, 16, 17, 18, 19 |
+
+**Probe 10 is in the unchanged column, which is the one that matters most** —
+the plugin-provider path still delivers parameters intact, and that is what the
+entire binding design rests on (`03` §1).
+
+### Four asks landed, visible in probe output
+
+| Probe | At `a2f453d` | At `787035e` | Ask |
 |---|---|---|---|
-| `probe_01_jobsources` | `A. registered jobs: []` — declared providers dropped | `A. registered jobs: ['start', 'status']` | **fixed upstream.** Ask 2 landed. The remaining `JobNotFoundError` on `apps.bifrost.status` is the *group-composition* question (jobs register under bare names), not the drop |
-| `probe_02_prefilter` | `discovered: [('hello', None)]`, bifrost `False`, plain `True` | identical | unchanged |
-| `probe_10_plugin_binding` | parameters present without the P1 patch | identical | unchanged — **`03` §1 still holds**, which is the load-bearing claim of the whole binding design |
-| `probe_11_name_collision` | `jobs=[]  exits=[2, 2]`, loud `Resolution pipeline error` | `jobs=['install']  exits=[0, 2]` | **changed. See below** |
-| `probe_19_display_discovery` | (first run at `78d9ff4`) | identical | unchanged |
+| `probe_01_jobsources` | `A. registered jobs: []` — declared providers dropped | `['start', 'status']` | **2**. The remaining `JobNotFoundError` on `apps.bifrost.status` is the *group-composition* question — jobs register under bare names — not the drop |
+| `probe_06_agent_surface` | `UNPATCHED  info schema properties: []` | `['force', 'variant']` | **1**. The P1 defect is fixed *on the unpatched fallback path itself*, so `register_dynamic_job` is no longer a liability and `03` §1's "no compatibility shim" is now true twice over |
+| `probe_07_self_management` | imported `functualize._cli.runtime` | that module is **gone**; `detect_from_process` is public in `functualize.app.packaging.__all__` | **4**. The probe was updated to the public path — the import working *is* the ask's acceptance test. Its substantive output is unchanged: `mode=project`, `owning_distribution=None`, `degraded=True` |
+| `probe_13_declaration_survival` | `job_detail` **drops** the declaration | `job_detail exposes tags? True`; keys include `tags`, `examples`, `extra_description`, `category` | **7**. The row in the probe table below still said "drops it" and is corrected |
+
+### Two cosmetic, claim intact
+
+- `probe_08_bool_negation` — the log line lost its `INFO:functualize.job.…:`
+  prefix. The measured values are identical (`force=False cache=False`,
+  `force=True cache=True`), so the `--flag / --no-flag` claim stands.
+- `probe_09_missing_dep` — the warning moved from
+  `functualize._discovery.registry` to `_discovery.providers` and reads better
+  (`⚠ needs_dep.py not loaded — No module named …`). `discovered: ['hello']` is
+  unchanged, so "a failed import is reported, not swallowed" holds, more
+  legibly.
 
 ### The one that falsifies a claim: probe 11
 
 A duplicate bare job name used to lose **every** colliding job and say so. It
-now keeps the **first** and silently drops the second — which is defect **#32**
+now keeps the **first** and silently drops the second — defect **#32**
 ("two functions normalizing to the same job name silently become one job on the
 default path"), recorded-not-fixed in #29.
 
@@ -51,21 +78,23 @@ Consequence for the test that pins this: it can no longer assert "the bare-name
 case errors." It must assert `len(jobs) == 2` and catch a *silent* collapse.
 That is recorded in `11` §3.
 
+## What each probe establishes
+
 | Probe | Establishes | Where |
 |---|---|---|
-| `probe_01_jobsources.py` | `JobSources(functions=…)` is dropped on the standard path; `job_providers` is never read; `add_job_provider` *after the constructor* is too late | `00` facts 1–3 |
+| `probe_01_jobsources.py` | `JobSources(functions=…)` is dropped on the standard path; `job_providers` was never read (**fixed at `787035e`** — ask 2); `add_job_provider` *after the constructor* is still too late | `00` facts 1–3 |
 | `probe_02_prefilter.py` | a class-only module is never imported by directory discovery | `00` fact 4 |
 | `probe_03_binding_guards.py` | the abstract gate fires; bound methods bind; `@job(guards=Guards(status=…))` on a method skips the second run | `01` §8, `08` §1 |
 | `probe_04_builtin_reserved.py` | claiming `builtin` is a hard boot error; a top-level verb is not | `00` fact 5 |
 | `probe_05_tty_prompt.py` | `tty: TTY \| None` is the interactivity signal; exact off-terminal `prompt_confirm` semantics | `08` §3 |
-| `probe_06_agent_surface.py` | `register_dynamic_job` records no parameters; the one-line patch restores them | `13` §1 |
+| `probe_06_agent_surface.py` | `register_dynamic_job` recorded no parameters, so agents saw an empty `inputSchema`; **fixed at `787035e`** without the patch — ask 1 | `13` §1 |
 | `probe_07_self_management.py` | a downstream app inherits `builtin self` / `builtin plugin`; install-mode detection and the exit-3 refusal | `00` §1, `09` §7 |
 | `probe_08_bool_negation.py` | booleans on a bound method render `--flag / --no-flag` | `03` §4 check 9 |
 | `probe_09_missing_dep.py` | a job whose import fails is skipped with a warning — it vanishes from the CLI | `07` §1, `13` §5 |
 | **`probe_10_plugin_binding.py`** | **a plugin's `add_job_provider` reaches the registry, parameters intact — no upstream patch needed** | `03` §1 |
-| **`probe_11_name_collision.py`** | `StaticProvider` keys by bare name; a duplicate loses **every** job. Qualified names fix it | `03` §3a |
+| **`probe_11_name_collision.py`** | `StaticProvider` keys by bare name. A duplicate lost **every** job at `a2f453d`; at `787035e` it keeps the first and **silently drops** the second (#32). Qualified names fix it either way, and are now load-bearing | `03` §3a |
 | **`probe_12_dual_delivery.py`** | one plugin mounts at root (own CLI) or under a namespace (guest); `NamespaceTransform` does *not* work for this | `04` §1, §3 |
-| **`probe_13_declaration_survival.py`** | `@job(tags=…)` survives plugin → `StaticProvider` → descriptor; `job_detail` **drops** it | `15` §1, §2 |
+| **`probe_13_declaration_survival.py`** | `@job(tags=…)` survives plugin → `StaticProvider` → descriptor. `job_detail` **dropped** it at `a2f453d`; at `787035e` it exposes `tags`, `examples`, `extra_description`, `category` — ask 7 landed | `15` §1, §2 |
 | **`probe_14_scrill_layout.py`** | a directory-scanned job's `source_file` locates its own `SKILL.md` — no manifest | `15` §1, §3A |
 | **`probe_15_refusal_guidance.py`** | `Precondition(check, msg)` → `REFUSED`, message verbatim in `metadata.preflight.reason` | `15` §1 |
 | **`probe_16_workflow_gates.py`** | `Gate(strategy="ai_outbound")` blocks the walk and publishes its schema; a resolver registered as `ai_inbound` resolves in-process; absent one, the ladder falls through | `16` §1 |
