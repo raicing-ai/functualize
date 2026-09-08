@@ -1,20 +1,29 @@
-"""`--wf-*` is honoured on every dispatch mode, cold cache and warm.
+"""`--wf-*` is honoured on every dispatch mode, and by **both command
+constructors**.
 
-**Why both.** The flags have two injection points — `create_job_click_command`
-(cold, built from a live signature) and `make_lazy_command` (warm, built from
-the discovery cache). Warm boot is *every invocation after the first*, so a
-project's second run is a different code path from its first, always.
+The flags have two injection points, and `contributor/reference/pitfalls.md`
+§23 is this exact pair diverging: a job that raised exited 0 in silence, a gate
+pause exited 0 instead of 5, a refusal exited 0 instead of 3. The mitigation
+here is structural — one `workflow_flags` module builds the options *and*
+resolves them, and both constructors call it — but structure is a claim until
+something checks it. This is the check.
 
-`contributor/reference/pitfalls.md` §23 records what that costs when only one
-side is handled: a job that raised exited 0 in silence, a gate pause exited 0
-instead of 5, and a refusal exited 0 instead of 3 — the whole exit-code table
-held only on a project's very first run.
+**Which surface reaches which constructor**, measured rather than assumed
+(a sabotage run deleting the lazy injection point failed *only* the embedded
+case, which is what prompted checking):
 
-The mitigation here is structural — one `workflow_flags` module builds the
-options *and* resolves them, and both constructors call it — but structure is a
-claim until something checks it. This is the check.
+| Surface | Constructor |
+|---|---|
+| bare `func` — JOB, GROUP, UNKNOWN | `create_job_click_command` (eager), always |
+| embedded `main.py` via `CliAdapter` | `make_lazy_command` once the descriptor is lazy |
 
-The repo already demands this guardrail for state-addressing flags:
+`make_lazy_command` is called from `app/adapters/cli.py` and nowhere else;
+`_cli/main.py` materializes the target job and uses the eager builder on every
+invocation. So the EMBEDDED row is not a fourth mode for completeness — it is
+the **only** coverage the lazy constructor has, and deleting its injection
+point must fail here.
+
+The repo already demands a per-mode guardrail for state-addressing flags:
 `main.py`'s own comment records that omitting them made `--scope-id` silently
 ignored on a cold discovery cache.
 """
@@ -185,7 +194,7 @@ _MODES = [
 
 @pytest.mark.slow
 @pytest.mark.parametrize(("mode", "surface", "argv", "marker"), _MODES)
-def test_wf_resume_advances_cold_and_warm(
+def test_wf_resume_advances_on_every_mode(
     project: Path, mode: str, surface: str, argv: list[str], marker: str
 ) -> None:
     """AC-16, AC-20. The run must **replay**, not mint a new id.
@@ -194,12 +203,13 @@ def test_wf_resume_advances_cold_and_warm(
     addressing flag silently ignored produces a brand-new scope and the real
     run stays blocked forever, with no error anywhere.
     """
-    # Cold: no discovery cache yet.
+    # First run: no discovery cache yet.
     blocked = _run(project, surface, *argv)
     assert blocked.returncode == 5, blocked.stdout + blocked.stderr
     scope = _scope_of(blocked)
 
-    # Warm: the first run wrote the cache, so this is the lazy path.
+    # Second run, against the cache the first wrote. On the embedded surface
+    # this is the lazy constructor; on `func` it is the eager one again.
     resumed = _run(
         project, surface, *argv, "--wf-resume", scope, "--wf-input", '{"text": "hi"}'
     )
@@ -235,9 +245,11 @@ class TestTheFlagsAreScopedToWorkflows:
         cold = _run(project, "func", "plain", "--help")
         assert "--wf-resume" not in cold.stdout, cold.stdout
 
-    def test_a_plain_job_carries_none_warm_either(self, project: Path) -> None:
-        """The warm gate reads `descriptor.workflow` from the cache, a
-        different signal from the cold path's live declaration."""
+    def test_a_plain_job_carries_none_against_a_warm_cache(
+        self, project: Path
+    ) -> None:
+        """The lazy gate reads `descriptor.workflow` from the cache, a
+        different signal from the eager path's live declaration."""
         _run(project, "func", "plain")  # populate the cache
         warm = _run(project, "func", "plain", "--help")
         assert "--wf-resume" not in warm.stdout, warm.stdout
