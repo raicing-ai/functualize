@@ -85,10 +85,11 @@ and warm, so the global is redundant.
 
 `MCPConfig` (`_config.py`) offers `include_tags`, `exclude_tags`, `exclude_jobs` and a
 per-job `visibility` marker — all opt-in. There is no way to express *generic door only*.
-The description builder appends examples unconditionally
-(`_translator.py:186-208`) while the schema builder already inlines them (`:229-268`), so
-the better a project documents its jobs, the more context every agent session pays before
-saying anything.
+The per-job tool count is the cost: one tool per discovered job, each with a full JSON
+Schema, all loaded at connect time and carried for the session.
+
+(`04-mcp.md` §3 also claimed the description repeats examples the schema carries. It does
+not — verified during execution; see `tasks.md` T4.)
 
 ### 1.7 The prerequisite defect: SINGLE_FILE crashes in its own directory
 
@@ -345,7 +346,11 @@ Per-job tool descriptions stop appending examples that the schema already carrie
 - **AC-26** `job_tools="none"` registers zero per-job tools and leaves the core, workflow
   and generic-door tools intact.
 - **AC-27** `job_tools="tagged"` registers only jobs carrying the opt-in tag.
-- **AC-28** A per-job tool description no longer repeats examples the schema carries.
+- ~~**AC-28** A per-job tool description no longer repeats examples the schema
+  carries.~~ **Withdrawn during execution — the premise was false.** Measured: the schema
+  carries no examples at all (`field_property` emits `type`/`description`/`default`/`enum`;
+  `FieldDescriptor` has no `examples` attribute). The description is their only carrier, so
+  removing them would delete information rather than duplication. See `tasks.md` T4.
 
 **Parity (cross-cutting)**
 

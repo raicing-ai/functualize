@@ -59,6 +59,7 @@ from functualize._types.descriptors import FieldDescriptor, GroupOptionsSpec
 from functualize._types.enums import RunStatus
 from functualize._types.errors import (
     JobMaterializationError,
+    ScopeCancelledError,
     ScopeStoreUnreadableError,
 )
 from functualize._types.exit_codes import ExitCode, exit_code_for_status
@@ -167,6 +168,7 @@ __all__ = [
     # Raised when the scope store cannot be honoured. Public because `_cli`,
     # `app/adapters` and the MCP plugin all have to turn it into a refusal, and
     # `_cli` may import public folders only.
+    "ScopeCancelledError",
     "ScopeStoreUnreadableError",
     "resolved_hints",
     "detect_config_class",

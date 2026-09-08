@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from fastmcp import FastMCP
 
+from functualize._types.errors import ScopeCancelledError
 from functualize_mcp._history_tools import MCPHistoryToolRegistry
 from functualize_mcp._management_tools import MCPManagementToolRegistry
 from functualize_mcp._task_tools import MCPTaskToolRegistry
@@ -282,6 +283,9 @@ def _execute_job(
             "duration_ms": result.duration_ms,
             "metadata": wire_metadata(result),
         }
+    except ScopeCancelledError as e:
+        # Same refusal, same code, as `run_job` — one error table, both doors.
+        return {"error": "scope_cancelled", "message": str(e), "job_name": job_name}
     except Exception as e:
         logger.error("MCPServer: Error executing job '%s': %s", job_name, e)
         return {"error": str(e), "job_name": job_name}

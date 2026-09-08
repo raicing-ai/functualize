@@ -70,20 +70,36 @@ after: usage text, exit 0
 
 ---
 
-### [ ] T4 · Per-job tool descriptions stop repeating the schema's examples
+### [x] T4 · **DROPPED — the premise is false.** Descriptions do not repeat the schema
 
-**Files:** `plugins/functualize-mcp/src/functualize_mcp/_translator.py`
+**Files:** none.
 
-The description builder appends examples unconditionally (`:186-208`) while the schema
-builder already inlines them (`:229-268`). One is enough for tool selection; the other is
-for the call. Spec AC-28.
+`04-mcp.md` §3 claimed the description builder *"appends examples unconditionally"*
+while *"the schema builder inlines field-level `description` and `examples`
+(`:229-268`)"*, and asked for the description copy to go.
 
-**Gate**
-```bash
-grep -c 'examples' plugins/functualize-mcp/src/functualize_mcp/_translator.py
+**Measured against `24c5cc0`, and the second half is not true.** The schema carries no
+examples anywhere. `_build_input_schema` delegates to core's `job_input_schema` →
+`input_schema` → `field_property`, and `field_property` emits exactly `type`,
+`description`, `default` and `enum`. `FieldDescriptor` has no `examples` attribute at
+all.
+
+Generated a tool for a job declaring two examples:
+
 ```
-now: `9` · after: `<9`, and a test asserts a documented job's tool description no longer
-contains its example strings while its schema still does.
+DESCRIPTION: 'Ship the build to an environment.\n\nExamples:\n  - func deploy --env
+              prod\n  - func deploy --env staging --dry-run'
+SCHEMA:      {"type":"object","properties":{"env":{...},"dry_run":{...}}}
+examples in schema?: False
+```
+
+The examples are **job-level invocation examples**, not field-level ones, and the
+description is their only carrier. Removing them would delete information rather than
+duplication — and would make tool *selection* worse, which is the one job a description
+has.
+
+Nothing to deduplicate, so nothing to do. The real context cost is the per-job tool
+*count*, which T6 addresses. Spec AC-28 is withdrawn.
 
 ---
 

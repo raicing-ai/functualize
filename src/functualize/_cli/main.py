@@ -1544,9 +1544,25 @@ def _register_single_file_peers(
             continue
         if fn is target_fn:
             continue
+        peer_name = normalize_segment(fn_name)
+        # Already registered — skip rather than raise.
+        #
+        # Running a file that lives in the *current directory* meant directory
+        # discovery had already registered its peers, and this loop then
+        # registered them a second time: `func weather.py trip_planner` from
+        # inside `weather.py`'s own directory died with an unhandled
+        # `ValueError` and a traceback, while the identical command from one
+        # directory up worked. The common case was the broken one.
+        #
+        # This is **one job registered twice**, not two jobs contending for a
+        # name, so the tolerance belongs here and not in
+        # `register_dynamic_job` — that check is what catches a genuine
+        # collision, and loosening it would hide the case it exists for.
+        if app.get_job(peer_name) is not None:
+            continue
         config_cls = _detect_config_class(fn)
         app.register_dynamic_job(
-            name=normalize_segment(fn_name),
+            name=peer_name,
             function=fn,
             config_class=config_cls,
         )

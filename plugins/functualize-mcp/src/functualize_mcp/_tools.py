@@ -21,6 +21,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from functualize._types.errors import ScopeCancelledError
 from functualize_mcp._translator import JobToolTranslator
 
 if TYPE_CHECKING:
@@ -290,6 +291,10 @@ class MCPToolRegistry:
                 "duration_ms": result.duration_ms,
                 "metadata": wire_metadata(result),
             }
+        except ScopeCancelledError as e:
+            # Not `execution_error`: nothing executed. An agent told a job
+            # "failed" retries it; one told the scope is terminal starts fresh.
+            return _error_response("scope_cancelled", str(e))
         except Exception as e:
             logger.error("MCPToolRegistry: Error executing job '%s': %s", name, e)
             return _error_response(
@@ -454,6 +459,13 @@ class MCPToolRegistry:
                 execution.ended_at = end_time
                 execution.duration_ms = duration_ms
 
+        except ScopeCancelledError as e:
+            with self._lock:
+                execution = self._async_executions[execution_id]
+                execution.status = "cancelled"
+                execution.error = str(e)
+                execution.ended_at = time.time()
+                execution.duration_ms = (execution.ended_at - start_time) * 1000
         except Exception as e:
             end_time = time.time()
             duration_ms = (end_time - start_time) * 1000

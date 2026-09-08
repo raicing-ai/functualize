@@ -271,3 +271,35 @@ class TerminalUnavailable(Exception):  # noqa: N818 — reads as a state, not an
             message
             or "This job needs an interactive terminal (it declares `tty: TTY`)."
         )
+
+
+class ScopeCancelledError(Exception):
+    """Raised when a walk is asked to advance a scope that was cancelled.
+
+    ``cancel_workflow``'s own description has always said *"Cancelled scopes
+    are not resumable"* and nothing enforced it: the string ``cancelled``
+    appeared zero times across the executor, the walker and the runner, so
+    invoking the workflow job against a cancelled scope walked it to completion
+    and overwrote the status. The promise was documentation, not a rule.
+
+    Enforced in ``WorkflowRunner.prelude`` rather than at each calling surface,
+    because a check a caller can skip by not calling it is not a rule either —
+    the same reasoning that puts the gate-tool policy at the MCP execute funnel.
+
+    Terminal means terminal: there is no ``--force`` and no un-cancel. The
+    recovery is a fresh run, which the message names.
+
+    Attributes:
+        scope_id: The cancelled scope.
+        workflow: The workflow it belongs to, when known — a caller starting
+            fresh needs the job name, not just the id it cannot reuse.
+    """
+
+    def __init__(self, scope_id: str, *, workflow: str | None = None) -> None:
+        self.scope_id = scope_id
+        self.workflow = workflow
+        start = f"Start a fresh run with: {workflow}" if workflow else "Start a fresh run"
+        super().__init__(
+            f"Workflow scope '{scope_id}' was cancelled and cannot be resumed. "
+            f"{start}."
+        )

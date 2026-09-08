@@ -1155,7 +1155,11 @@ def build_job_engine_callback(
 
 @contextlib.contextmanager
 def scope_store_refusal() -> Iterator[None]:
-    """Turn an unreadable scope store into a usage error, not a traceback.
+    """Turn a refused walk into a usage error, not a traceback.
+
+    Two conditions, one exit code, because they are the same kind of answer:
+    *this run cannot start, and no job ran.* An unreadable scope store, and a
+    scope that was cancelled.
 
     The workflow prelude reads scopes **before DI resolution and before any
     hook**, so this cannot travel on the event bus and never becomes a
@@ -1171,11 +1175,11 @@ def scope_store_refusal() -> Iterator[None]:
     Exit 2, usage/config: the run never started and no job raised. Not 1, and
     never 0 with an empty scope list.
     """
-    from functualize.app.utils import ScopeStoreUnreadableError
+    from functualize.app.utils import ScopeCancelledError, ScopeStoreUnreadableError
 
     try:
         yield
-    except ScopeStoreUnreadableError as exc:
+    except (ScopeStoreUnreadableError, ScopeCancelledError) as exc:
         click.echo(f"Error: {exc}", err=True)
         raise SystemExit(ExitCode.USAGE) from exc
 
