@@ -9,7 +9,7 @@ Usage:
     from functualize.plugin import DisplayProvider, PanelProvider, ThemeProvider
 """
 
-from functualize._discovery.providers import Job
+from functualize._discovery.providers import Job, StaticProvider
 from functualize._events.bus import EventBus, StructuredEvent
 from functualize._events.hooks import HookEvent
 from functualize._plugins.domain_registry import discover_domains, scan_domain_providers
@@ -64,6 +64,12 @@ __all__ = [
     "JobProvider",
     "JobTransform",
     "Job",
+    # The provider that turns `Job`s (or plain callables) into a working
+    # source. `Job` was public and `StaticProvider` was not, so the only
+    # consumer of a published type lived behind a private import — and a
+    # hand-rolled substitute had to reimplement parameter extraction, which is
+    # also private, or publish jobs that take no arguments.
+    "StaticProvider",
     # Discovery: decide what to import, without importing it
     "ModulePreFilter",
     # Adapter and plugin protocols

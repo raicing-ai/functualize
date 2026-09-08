@@ -104,7 +104,7 @@ def deploy(rc):
 
 The implementation details are in `functualize._discovery/`:
 
-- `_discovery/providers.py` — DirectoryScanProvider, StaticProvider, EntryPointProvider (CachedDirectoryScanProvider lives in `_discovery/cached_provider.py`)
+- `_discovery/providers.py` — DirectoryScanProvider, EntryPointProvider, and `StaticProvider` (CachedDirectoryScanProvider lives in `_discovery/cached_provider.py`). **`StaticProvider` is public**: import it from `functualize.plugin`, beside the `Job` it consumes — it is the supported way to turn callables or `Job`s into a provider for `add_job_provider`. The others are internal.
 - `_discovery/transforms.py` — Namespace, GroupByModule, NamespaceTransform (child composition)
 - `_discovery/cached_provider.py` — Cache persistence + sync
 - `_discovery/hierarchy.py` — Child project definitions

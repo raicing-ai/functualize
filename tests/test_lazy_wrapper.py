@@ -160,8 +160,29 @@ class TestResolveTypeAnnotation:
             int | None
         )
 
-    def test_datetime_collapses_to_str(self):
-        assert _resolve_type_annotation(_fd(type_annotation="datetime")) is str
+    def test_datetime_resolves_to_datetime(self):
+        """Inverted, not deleted: this pinned `datetime` collapsing to `str`.
+
+        That was the warm-path half of a defect whose cold-path half was
+        louder — the boot gate treated any non-builtin as a dependency, so a
+        job taking a `datetime` failed with `No provider for datetime` and
+        took the whole CLI down with it. Once the parameter is admitted, a
+        warm boot resolving it to `str` would hand the job the wrong class on
+        every run after the first, which is the cold/warm divergence this file
+        exists to catch.
+        """
+        from datetime import datetime
+
+        assert _resolve_type_annotation(_fd(type_annotation="datetime")) is datetime
+
+    def test_uuid_and_decimal_resolve_too(self):
+        """The rest of the value-type list, so the warm path cannot admit one
+        and collapse the others."""
+        from decimal import Decimal
+        from uuid import UUID
+
+        assert _resolve_type_annotation(_fd(type_annotation="UUID")) is UUID
+        assert _resolve_type_annotation(_fd(type_annotation="Decimal")) is Decimal
 
     def test_dict_collapses_to_str(self):
         assert _resolve_type_annotation(_fd(type_annotation="dict[str, int]")) is str

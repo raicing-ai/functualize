@@ -158,20 +158,23 @@ class TestTheFilterIsCacheAware:
         assert first == second
 
 
-class TestTheEagerPathFiltersNothing:
-    """Characterization of a pre-existing gap, not a property worth having.
+class TestTheEagerPathFiltersToo:
+    """Inverted, not deleted — this class used to pin the opposite.
 
-    ``lazy=False`` never reaches the provider the boot path just built with
-    these filters: ``resolve_and_register_jobs`` calls
-    ``JobRegistry.scan_and_register_headless`` instead, and
-    ``_scan_directory_headless`` enumerates with ``pkgutil.iter_modules`` and
-    takes no filter argument at all. So the whole ``require_*`` family and
-    ``exclude_patterns`` are silently ignored there — this is not specific to
-    ``pre_filter``, and predates it.
+    It read `TestTheEagerPathFiltersNothing`, and characterized a real gap:
+    ``lazy=False`` never reached the provider boot had just built with these
+    filters. ``resolve_and_register_jobs`` called
+    ``JobRegistry.scan_and_register_headless`` instead, which enumerates with
+    ``pkgutil.iter_modules`` and takes no filter argument at all — so the whole
+    ``require_*`` family and ``exclude_patterns`` were silently ignored there.
+    It was pinned rather than fixed because the fix belonged to the eager path
+    rather than to the ``pre_filter`` field, and its own docstring said "when
+    someone does fix it, these two fail and point at the reason."
 
-    Pinned rather than fixed because a fix belongs to the eager path, not to
-    this field. When someone does fix it, these two fail and point at the
-    reason. See `.spec/STATUS.md`.
+    They did. `eager-boot-provider` routes the eager branch through the
+    provider, so the filters apply on both paths. The class is kept in its
+    inverted form so the gap stays on the record: the assertions below are the
+    exact ones that used to read `in`.
     """
 
     def _eager(self, jobs_dir: Path, config: DiscoveryConfig) -> set[str]:
@@ -182,17 +185,27 @@ class TestTheEagerPathFiltersNothing:
         )
         return {job.name for job in app.get_jobs()}
 
-    def test_a_caller_filter_is_ignored(self, jobs_dir: Path) -> None:
+    def test_a_caller_filter_is_honoured(self, jobs_dir: Path) -> None:
         names = self._eager(
             jobs_dir, DiscoveryConfig(pre_filter=_RejectByName("skipme"))
         )
-        assert "beta-job" in names, (
-            "The eager path started honouring pre_filter. If that is the fix, "
-            "delete this class -- and check the require_* test below with it."
-        )
+        assert "beta-job" not in names
 
-    def test_require_file_prefix_is_ignored_too(self, jobs_dir: Path) -> None:
-        """The same gap, on a setting that has shipped for far longer — which
-        is what makes it the eager path's defect rather than this field's."""
+    def test_require_file_prefix_is_honoured_too(self, jobs_dir: Path) -> None:
+        """The same setting, which had shipped far longer than `pre_filter` —
+        which is what made this the eager path's defect rather than the
+        field's."""
         names = self._eager(jobs_dir, DiscoveryConfig(require_file_prefix="job_"))
-        assert "alpha-job" in names
+        assert "alpha-job" not in names
+
+    def test_both_paths_now_agree(self, jobs_dir: Path) -> None:
+        """The property that replaces the characterization: `lazy` chooses
+        when modules are imported, never which jobs exist."""
+        config = DiscoveryConfig(require_file_prefix="job_")
+        eager = self._eager(jobs_dir, config)
+        lazy_app = FunctualizeApp(
+            "hook",
+            job_sources=JobSources(directories=[str(jobs_dir)], lazy=True),
+            discovery_config=config,
+        )
+        assert eager == {job.name for job in lazy_app.get_jobs()}

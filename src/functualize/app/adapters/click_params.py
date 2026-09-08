@@ -19,6 +19,7 @@ Public API:
 from __future__ import annotations
 
 import contextlib
+import datetime as _dt
 import inspect
 import logging
 import sys
@@ -161,10 +162,47 @@ def _click_type_for(py_type: Any) -> tuple[Any, bool, bool]:
     if inner is bool:
         return click.BOOL, True, False
 
+    iso = _ISO_PARAM_TYPES.get(inner)
+    if iso is not None:
+        return iso, False, False
+
     try:
         return convert_type(inner), False, False
     except Exception:
         return click.STRING, False, False
+
+
+class _IsoParamType(click.ParamType):  # type: ignore[type-arg]
+    """Parse an ISO-8601 string into ``date``/``datetime``/``time``.
+
+    Click's ``convert_type`` falls back to calling the annotation itself, and
+    ``date("2026-09-07")`` is ``TypeError: 'str' object cannot be interpreted
+    as an integer`` — an internal-looking traceback for what is a plain usage
+    mistake. ``click.DateTime`` is not a substitute: it returns a ``datetime``
+    whatever was asked for, so a job annotated ``date`` would receive the wrong
+    class.
+    """
+
+    def __init__(self, target: type) -> None:
+        self._target = target
+        self.name = target.__name__
+
+    def convert(self, value: Any, param: Any, ctx: Any) -> Any:
+        if isinstance(value, self._target):
+            return value
+        try:
+            return self._target.fromisoformat(str(value))  # type: ignore[attr-defined]
+        except ValueError:
+            self.fail(
+                f"{value!r} is not a valid ISO-8601 {self._target.__name__}", param, ctx
+            )
+
+
+_ISO_PARAM_TYPES: dict[Any, Any] = {
+    _dt.date: _IsoParamType(_dt.date),
+    _dt.datetime: _IsoParamType(_dt.datetime),
+    _dt.time: _IsoParamType(_dt.time),
+}
 
 
 # ─── Cached type-string resolution (for the lazy descriptor path) ───────────
@@ -194,6 +232,24 @@ def _resolve_type_string(type_str: str) -> Any:
             return scalar
         if s == "Path":
             return Path
+        # The value types the DI gate stopped claiming. Without these the warm
+        # path collapsed them to `str`, so a `UUID` parameter round-tripped as
+        # a string and the job received the wrong class on the second run --
+        # the cold/warm divergence this file's own history is full of.
+        import datetime as _d
+        import decimal as _dec
+        import uuid as _u
+
+        by_name = {
+            "UUID": _u.UUID,
+            "Decimal": _dec.Decimal,
+            "date": _d.date,
+            "datetime": _d.datetime,
+            "time": _d.time,
+        }
+        resolved = by_name.get(s)
+        if resolved is not None:
+            return resolved
     except Exception:
         return str
     return str
