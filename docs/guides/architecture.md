@@ -237,11 +237,12 @@ graph TD
 
 ### Layer rules summarized
 
-The five enforced contracts, by their names in `pyproject.toml`:
+The six enforced contracts, by their names in `pyproject.toml`:
 
 | Contract | Type | Effect |
 |---|---|---|
 | `Peer layers are independent` | independence | `_discovery`, `_config`, `_engine`, `_plugins`, `_gate` may not import one another |
+| `Events depends on foundation only` | forbidden | `_events/` may reach `_types/` and `_primitives/` only |
 | `Primitives import nothing internal` | forbidden | `_primitives` may reach `_types` and stdlib only |
 | `Types import nothing internal` | forbidden | `_types` may reach stdlib only — not even `_primitives` |
 | `Internal never imports public` | forbidden | no `_`-prefixed package may import `app`, `job`, `plugin`, `types`, `testing` or `workflow` |
@@ -251,18 +252,19 @@ There are **five** peer layers. `_gate/` is in the independence contract and is
 the one most often forgotten. The public surface is **six** packages, including
 `workflow/`.
 
-!!! warning "`_events/` is not covered by an independence contract"
+!!! note "`_config/ -> _events/` is not governed"
 
-    No contract constrains `_events/` against the peer layers, and one real
-    coupling exists: `_events/adapter.py` imports `functualize._config._emit`
-    at runtime to install `EventBusAdapter` as the config module's event sink
-    (driven from `_app/boot.py`, deferred and guarded by `try/except ImportError`).
+    `exclude_type_checking_imports = true` hides every `if TYPE_CHECKING:`
+    import from all six contracts. `_config/chain.py` and `_config/sources.py`
+    import `EventBus` that way, so that direction is unenforced. Flipping the
+    flag has not been measured.
 
-    `_config/` reaches back the other way for `EventBus`, but only under
-    `TYPE_CHECKING`, so the linter never sees it.
-
-    Treat "`_events/` sits below the peer layers" as a design intention that is
-    documented but unpoliced — a regression there will not fail CI.
+    The reverse direction *is* enforced now. `_events/adapter.py` used to
+    import `_config._emit` at runtime to install `EventBusAdapter` as the
+    config event sink — a constitution violation no contract caught. That
+    wiring moved to `_app/event_wiring.py` (the composition root is the sole
+    cross-layer wiring point) and the `Events depends on foundation only`
+    contract closes the gap.
 
 ---
 

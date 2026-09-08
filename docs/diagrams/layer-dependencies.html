@@ -4957,7 +4957,7 @@
         <div class="pulse-dot"></div>
         <h1>Layer Dependency Contract</h1>
       </div>
-      <p class="subtitle">The five import-linter contracts in pyproject.toml, drawn. Arrows are permitted imports; pyproject.toml is the source of truth.</p>
+      <p class="subtitle">The six import-linter contracts in pyproject.toml, drawn. Arrows are permitted imports; pyproject.toml is the source of truth.</p>
     </div>
 
     <script id="archify-guided-views-data" type="application/json">[{"id":"peers","label":"Peer independence","focus":["discovery","config","engine","plugins","gate"],"note":"Five modules, not four — _gate is in the contract and is the one most often forgotten. No arrow runs between any of them."},{"id":"foundation","label":"Foundation stack","focus":["events","primitives","types"],"note":"_types may reach stdlib only, not even _primitives. _primitives may reach _types and stdlib only."},{"id":"boundary","label":"The public boundary","focus":["cli","public","app"],"note":"_cli may import no _-prefixed package. In the other direction, no internal package may import the public surface."}]</script>
@@ -5007,7 +5007,7 @@
          data-preset-badge-editorial-plate="ARCHIFY / PLATE 04">
       <svg viewBox="0 0 1040 700" role="img" lang="en" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase">
         <title id="archify-diagram-title">Layer Dependency Contract</title>
-        <desc id="archify-diagram-description">The five import-linter contracts in pyproject.toml, drawn. Arrows are permitted imports; pyproject.toml is the source of truth.</desc>
+        <desc id="archify-diagram-description">The six import-linter contracts in pyproject.toml, drawn. Arrows are permitted imports; pyproject.toml is the source of truth.</desc>
         <!-- Definitions -->
         <defs>
           <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
@@ -5426,10 +5426,11 @@
       <div class="card">
         <div class="card-header">
           <div class="card-dot violet"></div>
-          <h3>The five contracts</h3>
+          <h3>The six contracts</h3>
         </div>
         <ul>
           <li>&bull; Peer layers are independent — _discovery, _config, _engine, _plugins, _gate</li>
+          <li>&bull; Events depends on foundation only — _events reaches _types and _primitives</li>
           <li>&bull; Primitives import nothing internal — _primitives reaches _types only</li>
           <li>&bull; Types import nothing internal — _types reaches stdlib only</li>
           <li>&bull; Internal never imports public — no _pkg may import the six public packages</li>
@@ -5440,13 +5441,13 @@
       <div class="card">
         <div class="card-header">
           <div class="card-dot amber"></div>
-          <h3>Documented but unenforced</h3>
+          <h3>Known blind spot</h3>
         </div>
         <ul>
-          <li>&bull; No contract constrains _events against the peer layers</li>
-          <li>&bull; _events/adapter.py:88 really does import _config._emit at runtime</li>
-          <li>&bull; lint-imports reports 5 kept / 0 broken, so this is permitted</li>
           <li>&bull; exclude_type_checking_imports=true hides all TYPE_CHECKING imports</li>
+          <li>&bull; _config/chain.py and sources.py import EventBus that way</li>
+          <li>&bull; So _config -&gt; _events is invisible to every contract above</li>
+          <li>&bull; Flipping the flag is unmeasured; treat this direction as ungoverned</li>
         </ul>
       </div>
     </div>

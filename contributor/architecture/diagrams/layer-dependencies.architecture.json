@@ -3,7 +3,7 @@
   "diagram_type": "architecture",
   "meta": {
     "title": "Layer Dependency Contract",
-    "subtitle": "The five import-linter contracts in pyproject.toml, drawn. Arrows are permitted imports; pyproject.toml is the source of truth.",
+    "subtitle": "The six import-linter contracts in pyproject.toml, drawn. Arrows are permitted imports; pyproject.toml is the source of truth.",
     "output": "docs/diagrams/layer-dependencies.html",
     "quality_profile": "showcase",
     "animation": "none",
@@ -307,9 +307,10 @@
   "cards": [
     {
       "dot": "violet",
-      "title": "The five contracts",
+      "title": "The six contracts",
       "items": [
         "Peer layers are independent — _discovery, _config, _engine, _plugins, _gate",
+        "Events depends on foundation only — _events reaches _types and _primitives",
         "Primitives import nothing internal — _primitives reaches _types only",
         "Types import nothing internal — _types reaches stdlib only",
         "Internal never imports public — no _pkg may import the six public packages",
@@ -318,12 +319,12 @@
     },
     {
       "dot": "amber",
-      "title": "Documented but unenforced",
+      "title": "Known blind spot",
       "items": [
-        "No contract constrains _events against the peer layers",
-        "_events/adapter.py:88 really does import _config._emit at runtime",
-        "lint-imports reports 5 kept / 0 broken, so this is permitted",
-        "exclude_type_checking_imports=true hides all TYPE_CHECKING imports"
+        "exclude_type_checking_imports=true hides all TYPE_CHECKING imports",
+        "_config/chain.py and sources.py import EventBus that way",
+        "So _config -> _events is invisible to every contract above",
+        "Flipping the flag is unmeasured; treat this direction as ungoverned"
       ]
     }
   ]

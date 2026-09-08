@@ -4,17 +4,18 @@
 rather than trusting any summary, including this one. Check with:
 
 ```bash
-uv run lint-imports          # 317 files, 815 dependencies, 5 contracts
+uv run lint-imports          # 318 files, 816 dependencies, 6 contracts
 ```
 
 `root_package = "functualize"`, and `exclude_type_checking_imports = true` — so
 imports inside `if TYPE_CHECKING:` blocks are invisible to every contract below.
 
-## The five enforced contracts
+## The six enforced contracts
 
 | Contract | Type | Effect |
 |---|---|---|
 | `Peer layers are independent` | independence | `_discovery`, `_config`, `_engine`, `_plugins`, **`_gate`** may not import one another |
+| `Events depends on foundation only` | forbidden | `_events` may reach `_types` and `_primitives` only |
 | `Primitives import nothing internal` | forbidden | `_primitives` may reach `_types` and stdlib only |
 | `Types import nothing internal` | forbidden | `_types` may reach stdlib only — not even `_primitives` |
 | `Internal never imports public` | forbidden | no `_`-prefixed package may import `app`, `job`, `plugin`, `types`, `testing` or `workflow` |
@@ -27,21 +28,19 @@ contract and is the one most often forgotten.
 The public surface is **six** packages: `app`, `job`, `plugin`, `types`,
 `testing`, `workflow`.
 
-## What is NOT enforced
+## The remaining blind spot
 
-`contributor/`-level prose (and `docs/guides/architecture.md`'s "Layer rules
-summarized" table) claims `_events` must not import `_discovery` through
-`_cli`. **No contract enforces that** — `_events` never appears as a
-`source_module` in a contract forbidding a peer layer.
+`exclude_type_checking_imports = true` means imports inside
+`if TYPE_CHECKING:` are invisible to every contract. `_config/chain.py:22` and
+`_config/sources.py:35` import `EventBus` from `_events` that way, so
+`_config -> _events` is ungoverned. Flipping the flag has not been measured and
+would likely break several contracts at once; treat that direction as
+unenforced until someone does the work.
 
-And it is violated in practice: `src/functualize/_events/adapter.py:88` does a
-real runtime `from functualize._config._emit import set_event_sink`, with a
-second at line 102. `lint-imports` reports 5 kept / 0 broken, so this is
-permitted, not a latent failure.
-
-Treat "`_events` is downstream of the peer layers" as a design intention that
-is documented but unpoliced. Do not assume the linter will catch a regression
-there.
+History worth knowing: until the `Events depends on foundation only` contract
+was added, `_events/adapter.py` imported `_config._emit` at runtime — a
+constitution violation that no contract caught. The wiring now lives in
+`_app/event_wiring.py`. See `.spec/features/events-layer-independence/`.
 
 ## Diagram
 
