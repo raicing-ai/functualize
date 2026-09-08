@@ -202,11 +202,17 @@ location depends on the mode described in
 `func builtin state show` prints the resolved path:
 
 ```bash
-func builtin state clear    # Clear runtime state (fingerprints, history, preconditions)
+func builtin state clear    # Clear derived state (fingerprints, history, preconditions)
+func builtin state clear --scopes   # ...and discard in-flight workflow runs too
 func builtin cache clear            # Clear discovery cache (job metadata)
 ```
 
 These are independent — `state clear` doesn't touch the cache; `cache clear` doesn't touch state.
+
+Workflow scopes live in their own file, `.functualize/scopes.json`, and `state clear`
+**keeps them** — it tells you how many it kept. A scope is a run somebody is waiting on,
+including any gate input they already approved, so discarding one takes `--scopes`, and
+even then the file is moved aside rather than deleted.
 
 ## Parallel Execution
 

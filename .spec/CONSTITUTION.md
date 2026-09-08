@@ -160,6 +160,37 @@ back empty, a test selection that must be green, a count that must match — is 
   *Transitional Changes* above — narrowing the command is a scope decision, not
   a formatting one.
 
+## Retrieval Before Assertion
+
+A spec artifact is read as fact. Every count, call-site claim, "nothing does X",
+and "this is the only Y" in `spec.md`, `contracts.md`, `plan.md` or `tasks.md`
+**is verified by running the command that would falsify it**, before it is
+written — not after, and not by reading.
+
+This is the *Acceptance Gates* rule above, moved one phase earlier: a gate is
+authored by running it, and so is a premise. The failure mode is worse, because a
+false premise survives user confirmation and then gets built on.
+
+- **Retrieval is a named step in Specify, Plan and Verify** — not a conditional
+  "if exploration is needed". Each phase asks a different question and reaches
+  for a different tool; the routing table is
+  `.claude/skills/code-intel/SKILL.md`, the timing is
+  `.claude/agents/spec-driven-developer.md` → *Retrieval Passes*.
+- **"I read the file" is not verification of a negative.** *Nothing calls this*,
+  *this is the only caller*, *no test covers it* are claims about the whole repo;
+  answer them with `rg` or serena's `find_referencing_symbols`, never by reading.
+- **Prior art in this repo outranks a fresh argument.** `contributor/adr/`,
+  `contributor/guides/` and `contributor/reference/pitfalls.md` record decisions
+  already made and mistakes already paid for. A design that contradicts one must
+  say so and why. They are prose, so zvec-grep finds them and `rg` usually
+  does not.
+
+Real failure this rule exists for: `workflow-state-durability`'s `spec.md` §1.3
+asserted that `StateStore.batch()` had *"zero call sites in `src/`, `plugins/` or
+`tests/`"*. It was user-confirmed in that state. `rg '\.batch\('` returns five,
+all in `tests/test_state_store.py`. The conclusion happened to survive; the
+premise was false, and one grep at authoring time would have caught it.
+
 ## Completed Invariants (do not revert)
 - `Configurations` class is gone — all config access through `JobConfigView` / `ResolutionChain`
 - Config files are parsed once at boot — no per-invocation file I/O

@@ -52,6 +52,48 @@ You are the spec-driven developer for this project. You follow a structured work
 
 ---
 
+## Retrieval Passes
+
+Retrieval is **three passes, not one**, and they ask different questions. Explore
+Mode is a fourth, standalone thing — a research topic with no feature attached.
+Routing (which tool answers which shape of question) is
+`.claude/skills/code-intel/SKILL.md`; this is *when*.
+
+| Phase | The question | Reach for | Lands in |
+|:--|:--|:--|:--|
+| **Specify** | Has this already been decided, documented, or gotten wrong before? Are the claims I am about to write true? | **zvec-grep** for prose (`contributor/adr/`, `guides/`, `pitfalls.md`, `docs/`); **rg** to verify every count and every negative | `spec.md` premises · `research.md` |
+| **Plan** | What calls this, what breaks if I change it, and where is the seam? | **serena** `find_referencing_symbols` (LSP-accurate — the only safe basis for a signature change); **graphify** `get_neighbors` for blast radius | the `[F]` file list · `plan.md` risks |
+| **Verify** | Is anything unreachable? | **serena** — step 2c's orphan scan *is* `find_referencing_symbols` | the orphan report |
+
+**Why three and not one.** They are not the same query run at three times. A
+Specify-phase finding can kill the feature's premise; a Plan-phase finding can
+only change the approach. Deferring the first to Plan means confirming a spec
+built on something false — which is exactly what happened to
+`workflow-state-durability`: `pitfalls.md` §5, an argument about *whether to split
+the store at all*, surfaced during Plan, after `spec.md` was written and
+confirmed.
+
+**The `[F]` file list is derived, not composed.** In Plan, a task's file list is
+the hit set of the query that found it. Writing `[F]` from prose and the
+acceptance gate from a separate reading produces a task narrower than its own
+gate — see *Writing acceptance criteria* below, which is the same failure one
+level down.
+
+**Negatives require a command.** *Nothing calls this*, *this is the only caller*,
+*no test covers it* are claims about the whole repository. Reading a file cannot
+establish one. (`workflow-state-durability` shipped *"zero call sites in `src/`,
+`plugins/` or `tests/`"* into a confirmed `spec.md`; there were five.)
+
+**Prior art outranks a fresh argument.** If a design contradicts an ADR, a guide,
+or a recorded pitfall, say so and why. Those live in prose, so zvec-grep finds
+them and `rg` usually does not.
+
+**Worktree hazard.** Pass serena and zvec-grep an **absolute** path to the
+worktree root. Without one, zvec walks up and silently adopts the parent
+checkout's index, so you get answers about master while working on a branch.
+
+---
+
 ## Explore Mode
 
 Trigger: `explore [topic]` or `research [topic]`. No prerequisites.
@@ -98,9 +140,14 @@ Trigger: ready to capture a formal spec.
 Output: `spec.md` + `contracts.md`
 
 1. Create `.spec/features/<name>/`
-2. Write `spec.md` — problem statement, user stories, behavior, acceptance criteria
-3. Write `contracts.md` — external interfaces only (props, API shapes, event payloads, exported signatures). NOT database schemas or internal types.
-4. Get user confirmation before proceeding to Plan
+2. **Retrieval pass — prior art and premises** (see *Retrieval Passes*). Search
+   the repo's prose for an existing decision or a recorded mistake covering this
+   ground, and run the command behind every count and every negative you intend
+   to assert. Findings that change the shape go in `research.md`; findings that
+   are just true go straight into `spec.md`.
+3. Write `spec.md` — problem statement, user stories, behavior, acceptance criteria
+4. Write `contracts.md` — external interfaces only (props, API shapes, event payloads, exported signatures). NOT database schemas or internal types.
+5. Get user confirmation before proceeding to Plan
 
 ---
 
@@ -110,7 +157,10 @@ Trigger: `spec.md` confirmed.
 
 Output: `plan.md` + `tasks.md` + optional `schema.md`
 
-1. If exploration needed: write `research.md`
+1. **Retrieval pass — call sites and blast radius** (see *Retrieval Passes*).
+   For every symbol the approach changes, get the reference list from serena and
+   the dependents from graphify. This produces the file list; do not compose one
+   from memory. Anything that reshapes the approach goes in `research.md`.
 2. Write `plan.md` — technical approach, files to change, dependencies, risks
 3. If implementation internals are complex: write `schema.md` — DB tables, internal types, aggregation schemas
 4. Write `tasks.md` — atomic tasks, each ≈ 1–3 files, completable in one context window. Include a **Task Dependency Graph** (see below).
@@ -173,7 +223,10 @@ AGENTS.md
 `.spec/STATE.md` is gitignored and may be absent — if so, treat as: no work in
 flight. Every other anchor file is committed and must exist.
 
-1. Read context anchor (above only — no chat history, no other specs)
+1. Read context anchor (above only — no chat history, no other specs).
+   **The anchor restricts spec documents, not the codebase.** Reading source and
+   running retrieval (`rg`, serena, graphify, zvec-grep) is expected — you cannot
+   implement or run a reachability check without it.
 2. **Determine the current wave** — read the Task Dependency Graph at the bottom of `tasks.md`. Find the lowest-numbered wave that still has unchecked `[ ]` tasks. All tasks in earlier waves must be `[x]`. If there is no dependency graph, fall back to sequential order.
 3. **Pick any unchecked `[ ]` task within the current wave**. If multiple are available, prefer the one listed first (but any is valid).
 4. Implement
@@ -211,7 +264,9 @@ Trigger: all tasks `[x]`.
 
 1. Run tests, lint, type-check: `uv run pytest`, `uv run ruff check src/ tests/`, `uv run mypy src/`
 2. Verify each acceptance criterion in `spec.md`
-3. Five-axis review: correctness, readability, architecture, security, performance
+3. Five-axis review: correctness, readability, architecture, security, performance.
+   The orphan scan is a **retrieval pass**: serena `find_referencing_symbols` over
+   each symbol the feature added, not a reading of the diff.
 4. Run E2E verification: invoke `verify-e2e` against `.spec/features/<name>/spec.md`. The skill determines the appropriate tier (FULL, TARGETED, SMOKE, or SKIP) via blast-radius analysis. If it reports failures, investigate and fix before declaring done. See `.agents/skills/verify-e2e/SKILL.md`.
 5. Update `STATE.md`: feature complete
 6. Update `.spec/STATUS.md`: move the feature to Recently Completed
@@ -233,5 +288,9 @@ Trigger: all tasks `[x]`.
 - Task granularity: each task must fit in one context window (~200k tokens)
 - Executable acceptances are run at authoring time, and `[F]` equals the command's hit set. A task whose gate is broader than its declared scope cannot be completed as written (see "Writing acceptance criteria")
 - Explore does not produce spec artifacts: `research.md` is not a gate
+- Retrieval is a named step in Specify, Plan and Verify — never a conditional
+  "if exploration is needed". Every count, call-site claim and negative in a spec
+  artifact is verified by running the command that would falsify it
+  (`.spec/CONSTITUTION.md` → *Retrieval Before Assertion*)
 - Wave ordering is binding: never execute a task from wave N+1 while wave N has unchecked tasks. When no dependency graph exists, treat all tasks as a single wave (sequential fallback).
 - Reachability before done: no task closes without naming the production call path that reaches its code, verified by removing that call and watching a test fail. "A test calls it" is not a call path. A stage is complete when its declared surface is walked item by item — not when the suite is green. Three capabilities shipped built, unit-tested and unreachable under green gates; see `contributor/guides/wiring-discipline.md`.

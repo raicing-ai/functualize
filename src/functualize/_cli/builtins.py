@@ -6,6 +6,7 @@ commands. All imports are from the public API only.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import platform
 import shutil
@@ -87,10 +88,10 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
     ),
     BuiltinCommand(
         "state",
-        "Manage the runtime state store (fingerprints, history, scopes)",
+        "Manage runtime state (fingerprints, history, session, scopes)",
         (
             ("show", "Show runtime state statistics"),
-            ("clear", "Reset runtime state (fingerprints, history, scopes)"),
+            ("clear", "Reset derived state; --scopes also discards workflow runs"),
         ),
         requires_subcommand=True,
     ),
@@ -777,34 +778,118 @@ def register_builtin_commands(cli_group: Any) -> None:
     # (§D.3 Fix 2) — a shared command would recreate exactly the spurious-
     # rebuild bug up-to-date checking exists to prevent.
     state_app = click.Group(
-        name="state", help="Manage the runtime state store (fingerprints, history)."
+        name="state",
+        help=(
+            "Manage runtime state — fingerprints, run history, the session "
+            "precondition cache, and workflow scopes."
+        ),
     )
 
     @state_app.command("show")
     def state_show() -> None:
         """Show runtime state statistics."""
-        from functualize.app.utils import StateStore
+        from functualize.app.utils import (
+            SCOPES_VERSION,
+            ScopeStoreUnreadableError,
+            StateStore,
+        )
 
         path, mode, marker = _state_location()
         store = StateStore(path)
         click.echo(f"Fingerprints: {len(store.fingerprint_keys())}")
-        click.echo(f"Scopes: {len(store.scope_ids())}")
+
+        # `show` is the command someone runs to find out what is wrong, so it
+        # reports an unreadable scope store as a line rather than dying on it —
+        # every other statistic is still worth having. The exit code is still
+        # 2: nothing here is fine.
+        fault: ScopeStoreUnreadableError | None = None
+        try:
+            click.echo(f"Scopes: {len(store.scope_ids())}")
+        except ScopeStoreUnreadableError as exc:
+            fault = exc
+            found = exc.found_version
+            detail = (
+                f"found version {found}, expected {exc.expected_version}"
+                if found is not None
+                else "contents could not be parsed"
+            )
+            count = "" if exc.scope_count is None else f"{exc.scope_count} scopes, "
+            click.echo(f"Scopes:       unreadable — {count}{detail}")
+
         click.echo(f"History entries: {len(store.get_history())}")
         click.echo(f"State path: {path}")
+        click.echo(f"Scopes path: {store.scopes_path}")
+        click.echo(f"Scopes format: v{SCOPES_VERSION}")
         click.echo(f"Mode:       {_state_mode_line(mode, marker)}")
 
+        if fault is not None:
+            click.echo("")
+            click.echo(
+                "Error: run `func builtin state clear --scopes` to move the "
+                "scope file aside and start fresh.",
+                err=True,
+            )
+            raise SystemExit(ExitCode.USAGE)
+
     @state_app.command("clear")
-    def state_clear() -> None:
-        """Reset runtime state. Does not touch the discovery cache."""
+    @click.option(
+        "--scopes",
+        "clear_scopes",
+        is_flag=True,
+        help="Also discard persisted workflow scopes, including in-flight runs.",
+    )
+    def state_clear(clear_scopes: bool) -> None:
+        """Reset derived runtime state — fingerprints, run history, and the
+        session precondition cache.
+
+        Workflow scopes are kept unless --scopes is passed: a scope is a run
+        somebody is waiting on, not a cache. Never touches the discovery cache.
+        """
         from pathlib import Path
 
-        from functualize.app.utils import StateStore, resolve_state_path
+        from functualize.app.utils import (
+            ScopeStoreUnreadableError,
+            StateStore,
+            resolve_scopes_path,
+            resolve_state_path,
+        )
 
         path = resolve_state_path(Path.cwd())
-        if not path.exists():
+        scopes_path = resolve_scopes_path(Path.cwd())
+        if not path.exists() and not scopes_path.exists():
             raise SystemExit(0)
-        StateStore(path).clear()
-        click.echo("Runtime state cleared.")
+
+        store = StateStore(path)
+
+        # Counted before clearing, and best-effort: an unreadable scope store
+        # is exactly when --scopes matters most, so it must not block the one
+        # command that resolves it.
+        kept = None
+        try:
+            kept = len(store.scope_ids())
+        except ScopeStoreUnreadableError:
+            kept = None
+
+        moved = store.clear(scopes=clear_scopes)
+        click.echo("Cleared fingerprints, history and session state.")
+
+        if clear_scopes:
+            if moved is None:
+                return
+            noun = "scope" if kept == 1 else "scopes"
+            count = "" if kept is None else f"{kept} workflow {noun}"
+            click.echo(f"Cleared {count or 'the workflow scope file'}.")
+            click.echo(f"  Moved aside to: {moved}")
+        elif kept:
+            noun = "scope" if kept == 1 else "scopes"
+            click.echo(
+                f"Kept {kept} workflow {noun} — pass --scopes to clear those too."
+            )
+        elif kept is None:
+            click.echo(
+                "Kept the workflow scope file, which could not be read — "
+                "pass --scopes to move it aside."
+            )
 
     _mount(builtin_app, state_app, "state")
 
@@ -824,11 +909,28 @@ def register_builtin_commands(cli_group: Any) -> None:
     _live_statuses = ("running", "blocked")
 
     def _workflow_store() -> Any:
+        """The store the four `builtin workflow` subcommands read.
+
+        One place, so an unreadable scope store refuses identically for
+        `list`, `state`, `resume` and `cancel` — the alternative is four
+        opinions about the same file.
+        """
         from pathlib import Path
 
         from functualize.app.utils import StateStore
 
         return StateStore.for_project(Path.cwd())
+
+    @contextlib.contextmanager
+    def _workflow_refusal() -> Any:
+        """Exit 2 rather than a traceback when the scope store cannot be read."""
+        from functualize.app.utils import ScopeStoreUnreadableError
+
+        try:
+            yield
+        except ScopeStoreUnreadableError as exc:
+            click.echo(f"Error: {exc}", err=True)
+            raise SystemExit(ExitCode.USAGE) from exc
 
     def _scope_summary(scope_id: str, scope: dict[str, Any]) -> dict[str, Any]:
         from functualize.app.utils import pending_gates
@@ -852,12 +954,13 @@ def register_builtin_commands(cli_group: Any) -> None:
     def workflow_list(fmt: str) -> None:
         """List active (running or blocked) workflow scopes."""
         store = _workflow_store()
-        items = [
-            _scope_summary(sid, scope)
-            for sid in store.scope_ids()
-            if (scope := store.get_scope(sid)) is not None
-            and scope.get("status") in _live_statuses
-        ]
+        with _workflow_refusal():
+            items = [
+                _scope_summary(sid, scope)
+                for sid in store.scope_ids()
+                if (scope := store.get_scope(sid)) is not None
+                and scope.get("status") in _live_statuses
+            ]
         if fmt == "json":
             import json
 
@@ -883,7 +986,8 @@ def register_builtin_commands(cli_group: Any) -> None:
     )
     def workflow_state(workflow_id: str, fmt: str) -> None:
         """Show one workflow scope's status, position, and pending gates."""
-        scope = _workflow_store().get_scope(workflow_id)
+        with _workflow_refusal():
+            scope = _workflow_store().get_scope(workflow_id)
         if scope is None:
             click.echo(f"Error: no workflow scope '{workflow_id}'.", err=True)
             raise SystemExit(1)
@@ -930,9 +1034,10 @@ def register_builtin_commands(cli_group: Any) -> None:
             click.echo(f"Error: --input is not valid JSON: {exc}", err=True)
             raise SystemExit(2) from exc
 
-        result = deposit_gate_input(
-            obj["app"], _workflow_store(), workflow_id, gate, payload
-        )
+        with _workflow_refusal():
+            result = deposit_gate_input(
+                obj["app"], _workflow_store(), workflow_id, gate, payload
+            )
         if "error" in result:
             click.echo(f"Error: {result['message']}", err=True)
             raise SystemExit(1)
@@ -943,10 +1048,11 @@ def register_builtin_commands(cli_group: Any) -> None:
     def workflow_cancel(workflow_id: str) -> None:
         """Cancel a workflow scope."""
         store = _workflow_store()
-        if store.get_scope(workflow_id) is None:
-            click.echo(f"Error: no workflow scope '{workflow_id}'.", err=True)
-            raise SystemExit(1)
-        store.set_scope_status(workflow_id, "cancelled")
+        with _workflow_refusal():
+            if store.get_scope(workflow_id) is None:
+                click.echo(f"Error: no workflow scope '{workflow_id}'.", err=True)
+                raise SystemExit(1)
+            store.set_scope_status(workflow_id, "cancelled")
         click.echo(f"Workflow '{workflow_id}' cancelled.")
 
     _mount(builtin_app, workflow_app, "workflow")
@@ -2032,6 +2138,9 @@ def register_builtin_commands(cli_group: Any) -> None:
         click.echo("")
         click.echo("─── Runtime State ───")
         click.echo(f"  State path: {state_path}")
+        # The scope file is reported here for the same reason the mode is: a
+        # file whose location nothing prints is a file nobody finds.
+        click.echo(f"  Scopes path: {state_path.with_name('scopes.json')}")
         click.echo(f"  Mode:       {_state_mode_line(state_mode, state_marker)}")
 
         # Agent skills. `info` is where the skills themselves tell an agent to

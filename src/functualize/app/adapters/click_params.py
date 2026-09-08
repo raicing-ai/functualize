@@ -24,7 +24,7 @@ import inspect
 import logging
 import sys
 import typing
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from enum import Enum
 from typing import TYPE_CHECKING, Annotated, Any
 
@@ -1137,7 +1137,7 @@ def build_job_engine_callback(
 
                 live_ctx = stdout_live_session(app_ref, _descriptor)
 
-        with live_ctx:
+        with live_ctx, scope_store_refusal():
             result = app_ref.execution_engine.execute(  # type: ignore[union-attr]
                 job_name=name,
                 function=function,
@@ -1151,6 +1151,33 @@ def build_job_engine_callback(
         return deliver_job_result(result, name, app_ref)
 
     return wrapper
+
+
+@contextlib.contextmanager
+def scope_store_refusal() -> Iterator[None]:
+    """Turn an unreadable scope store into a usage error, not a traceback.
+
+    The workflow prelude reads scopes **before DI resolution and before any
+    hook**, so this cannot travel on the event bus and never becomes a
+    ``JobResult`` — it arrives as an exception out of ``engine.execute``.
+
+    **Both execute call sites wrap themselves in this, or neither.** They are
+    the cold and warm dispatch paths, and `deliver_job_result`'s own docstring
+    records what happened the last time only one of them handled a case: "Cold
+    boot exited 1, warm boot exited 0, for the same job and the same failure."
+    That is `contributor/reference/pitfalls.md` §23 — two dispatch paths, one
+    result-handling contract.
+
+    Exit 2, usage/config: the run never started and no job raised. Not 1, and
+    never 0 with an empty scope list.
+    """
+    from functualize.app.utils import ScopeStoreUnreadableError
+
+    try:
+        yield
+    except ScopeStoreUnreadableError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        raise SystemExit(ExitCode.USAGE) from exc
 
 
 def deliver_job_result(result: Any, name: str, app_ref: Any = None) -> Any:

@@ -137,7 +137,12 @@ def make_lazy_command(
 
                 live_ctx = stdout_live_session(app, descriptor)
 
-        with live_ctx:
+        # Both dispatch paths, one contract (pitfalls.md §23). The eager path
+        # in click_params wraps its execute the same way; handling this in only
+        # one of them is how cold boot and warm boot came to disagree before.
+        from functualize.app.adapters.click_params import scope_store_refusal
+
+        with live_ctx, scope_store_refusal():
             result = engine.execute(
                 job_name=descriptor.name,
                 function=func,

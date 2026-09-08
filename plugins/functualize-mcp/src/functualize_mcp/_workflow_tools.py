@@ -26,6 +26,7 @@ yet, and the caller still has to invoke the job.
 
 from __future__ import annotations
 
+import functools
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
@@ -58,6 +59,34 @@ _JSON_TYPES = {
 
 #: Scope statuses that can still accept input or make progress.
 _LIVE_STATUSES = frozenset({"running", "blocked"})
+
+
+def _refuse_unreadable_scopes(fn: Any) -> Any:
+    """Turn an unreadable scope store into an error envelope, not a traceback.
+
+    Applied to every workflow tool. An agent must never be told a scope does
+    not exist when the truth is that the file holding it could not be read —
+    that reads as "the run finished or was never started", and the agent acts
+    on it. Parity with the CLI, which exits 2 for the same condition.
+
+    ``functools.wraps`` preserves ``__name__``/``__doc__``, and the explicit
+    assignments after each tool definition still apply to the wrapper.
+    """
+
+    @functools.wraps(fn)
+    async def _wrapped(*args: Any, **kwargs: Any) -> Any:
+        from functualize.app.utils import ScopeStoreUnreadableError
+
+        try:
+            return await fn(*args, **kwargs)
+        except ScopeStoreUnreadableError as exc:
+            # A count, never content: scope records hold gate payloads.
+            return _error(
+                "scope_store_unreadable",
+                f"{exc}".replace("\n", " ").replace("       ", " "),
+            )
+
+    return _wrapped
 
 
 def _canonical(name: str) -> str:
@@ -179,6 +208,7 @@ class WorkflowToolProvider:
     # Tools
     # ------------------------------------------------------------------
 
+    @_refuse_unreadable_scopes
     async def _get_workflow_state(self, workflow_id: str) -> dict[str, Any]:
         scope = self.store.get_scope(workflow_id)
         if scope is None:
@@ -193,6 +223,7 @@ class WorkflowToolProvider:
         "Args: workflow_id — the scope identifier."
     )
 
+    @_refuse_unreadable_scopes
     async def _list_active_workflows(self) -> dict[str, Any]:
         workflows = [
             self._describe(scope_id, scope)
@@ -209,6 +240,7 @@ class WorkflowToolProvider:
         "scopes are omitted."
     )
 
+    @_refuse_unreadable_scopes
     async def _resume_gate(self, gate: str, input: dict[str, Any]) -> dict[str, Any]:
         matches = [
             scope_id
@@ -244,6 +276,7 @@ class WorkflowToolProvider:
         "it. Args: gate — the gate name; input — field values."
     )
 
+    @_refuse_unreadable_scopes
     async def _resume_workflow(
         self, workflow_id: str, input: dict[str, Any]
     ) -> dict[str, Any]:
@@ -278,6 +311,7 @@ class WorkflowToolProvider:
         "Args: workflow_id — the scope identifier; input — field values."
     )
 
+    @_refuse_unreadable_scopes
     async def _call_gate_tool(
         self, workflow_id: str, tool: str, args: dict[str, Any] | None = None
     ) -> dict[str, Any]:
@@ -431,6 +465,7 @@ class WorkflowToolProvider:
             )
         return {}, None
 
+    @_refuse_unreadable_scopes
     async def _cancel_workflow(self, workflow_id: str) -> dict[str, Any]:
         scope = self.store.get_scope(workflow_id)
         if scope is None:

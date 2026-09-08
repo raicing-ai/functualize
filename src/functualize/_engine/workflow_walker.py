@@ -441,13 +441,14 @@ class WorkflowWalker:
 
     def _fail(self, node: str, error: str) -> WalkReport:
         """Record a failed node and stop the walk."""
-        self._store.record_step(
-            self._scope_id,
-            _key(node),
-            {"status": "failed", "return_value": None, "completed_at": _now()},
-        )
-        self._store.set_position(self._scope_id, node)
-        self._store.set_scope_status(self._scope_id, "failed")
+        with self._store.scope_batch():
+            self._store.record_step(
+                self._scope_id,
+                _key(node),
+                {"status": "failed", "return_value": None, "completed_at": _now()},
+            )
+            self._store.set_position(self._scope_id, node)
+            self._store.set_scope_status(self._scope_id, "failed")
         return WalkReport(
             WalkOutcome.FAILED,
             self._scope_id,

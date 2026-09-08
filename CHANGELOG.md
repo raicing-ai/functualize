@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — workflow scopes are their own file
+
+Persisted workflow scopes move out of `.functualize/state.json` into
+`.functualize/scopes.json`, with their own format version.
+
+They should never have shared an envelope. `state.json` holds derived data —
+fingerprints, run history, the session precondition cache — all of it recomputable, so a
+`format_version` mismatch discards the file and the worst case is one extra run. Scopes
+are not derived. A scope is the only record of an in-flight run: which steps completed,
+which branch the walk took, where it stopped, and the gate payload a human deposited when
+they approved something.
+
+Two ordinary actions destroyed them, silently:
+
+- **a version bump.** Bumping `STATE_VERSION` is what a release does. The next unrelated
+  write then persisted an empty envelope over every in-flight run — no error, no warning,
+  no backup.
+- **`func builtin state clear`**, whose help text named only "fingerprints, history".
+
+Now:
+
+- A `STATE_VERSION` bump leaves every scope untouched. The two versions are independent.
+- `state clear` keeps scopes and reports how many: *"Kept 3 workflow scopes — pass
+  --scopes to clear those too."* `--scopes` discards them, **moving the file aside** rather
+  than deleting it, and says where it went.
+- An unreadable scope file **refuses** instead of reading as "no scopes" — exit 2 from the
+  CLI, `{"error": "scope_store_unreadable"}` from the MCP tools. The refusal leaves the
+  file in place so it is repeatable, reports a count rather than content (scope records may
+  hold secrets), and names `state clear --scopes` as the way out.
+- `state show` and `builtin info` report the scope file's path and version. `state show`
+  on an unreadable store prints every other statistic and marks the scope line as the
+  fault before exiting 2.
+- The walk writes the scope file **once per node** instead of three times.
+
+**Upgrading:** there is no migration. A project holding an in-flight run in the old
+`state.json` loses that run once, on the upgrade. Finish or re-start blocked workflows
+before upgrading if they matter. (Pre-1.0: breaking changes are free, and a permanent
+read-time shim for a one-time transition is the two-store shape this change exists to
+remove.)
+
 ### Changed — `_events/` no longer reaches into `_config/`
 
 Installing the config event sink moved out of `_events/adapter.py` into a new

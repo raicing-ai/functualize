@@ -32,6 +32,7 @@ from functualize._types.errors import (
     JobNotFoundError,
     OrphanedPluginMetadataError,
     RecursionLimitError,
+    ScopeStoreUnreadableError,
     WorkflowDeclarationError,
 )
 from functualize._types.interactivity import (
@@ -107,6 +108,7 @@ __all__ = [
     "JobNotFoundError",
     "OrphanedPluginMetadataError",
     "RecursionLimitError",
+    "ScopeStoreUnreadableError",
     # Interactivity types
     "InputNotAvailable",
     "PromptChoice",

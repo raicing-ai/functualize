@@ -2118,6 +2118,56 @@ Items identified during development that are worth doing but not yet designed:
     Close this by adding that per-scan memo, or by deciding the cold-boot cost
     is acceptable and saying so.
 
+## Recently Completed (2026-09)
+
+### workflow-state-durability
+
+Workflow scopes moved out of `.functualize/state.json` into
+`.functualize/scopes.json`, with an independent format version and a
+**fail-closed** read.
+
+**The decision worth keeping.** Runtime persistence is two files, and the line
+between them is the discard rule, not the subject matter:
+
+| | `state.json` | `scopes.json` |
+|---|---|---|
+| holds | fingerprints, history, session cache | workflow scope records |
+| is | **derived** — recomputable from the source tree | a **record** — recomputable from nothing |
+| bad version / corrupt | degrades to empty | **refuses**, file left in place |
+
+A `STATE_VERSION` bump — an ordinary release action — used to erase every
+in-flight run, gate payloads and all, and so did `func builtin state clear`,
+under help text naming only "fingerprints, history".
+
+**Rules that outlive the feature:**
+
+- **When adding a section to either file, pick the file first.** If losing it
+  would upset someone it is not derived, and does not belong in `state.json`.
+- **The scope file is the state file's sibling**, derived via `with_name`, never
+  a second upward walk — two walks can disagree (`pitfalls.md` §22).
+- **A fail-closed read must not move the file.** Refusing has to be repeatable;
+  renaming aside makes the *next* run find nothing, read it as "no scopes", and
+  start over silently — the failure the split exists to remove.
+- **A refusal reports a count, never content.** Scope records hold gate payloads
+  and step return values.
+- **Both dispatch paths, or neither** (`pitfalls.md` §23). A sabotage check found
+  the warm path (`lazy_command`) uncovered *after* the task, the code and the
+  tests had all been written to prevent exactly that. A green suite never
+  detects this; only breaking the call does.
+
+**No migration**: scopes in the old envelope are lost once, on upgrade. Pre-1.0,
+and a permanent read-time shim for a one-time transition is the two-store shape
+the change exists to remove. Recorded in `CHANGELOG.md`, which is the only
+warning anyone gets.
+
+Reference: `contributor/reference/state-store.md` — marked "shipped", cited by
+nothing, and already drifted before this feature touched it.
+
+**Still open, deliberately out of scope:** the `--scope-id` removal and the
+`--wf-*` verb surface (see `~/code/raicing-ai/pi-workflow-parity/`, docs 05 and
+12); `WorkflowWalker._key(name)` hashing args to the empty string; and the walk
+rewriting a replayed step's `completed_at` without re-executing it.
+
 ## Recently Completed (2026-08)
 
 | Feature | Description |

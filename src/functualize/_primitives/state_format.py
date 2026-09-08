@@ -1,8 +1,11 @@
 """Shared runtime-state format: single source of truth for the state file.
 
 The runtime state store answers "what ran last, against which inputs" —
-fingerprints, run history, session-scoped precondition results, and per-scope
-workflow records. It is deliberately **separate from the discovery cache**
+fingerprints, run history, and session-scoped precondition results. All three
+are **derived**: recomputable from the source tree, and safe to throw away.
+Workflow scopes are not, and live in `scope_format.py` next door.
+
+It is deliberately **separate from the discovery cache**
 (proposal §D.3 Fix 2): the discovery cache answers "what jobs exist" and is
 rebuilt whenever a source file or version changes, which would drop every
 fingerprint because one file moved. Different lifecycle, different invalidation
@@ -39,12 +42,24 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
 # Current state file format version. Bump on any incompatible format change.
-# A version mismatch discards the file (runtime state is derived, never a
-# source of truth — the worst case is one extra run).
+# A version mismatch discards the file, and that is safe **because every section
+# here is derived** — recomputable from the source tree, at worst costing one
+# extra run.
+#
+# That rule was once false. Workflow scopes lived in this envelope until
+# 2026-09-09, and a version bump — an ordinary release action — silently erased
+# every in-flight run, recorded gate payloads and all. They now live in
+# `scope_format.py`, whose read refuses rather than discards.
+#
+# So: when adding a section, decide which of the two files it belongs in
+# *first*. A record someone would be upset to lose is not derived, and the rule
+# above is a promise this file cannot keep for it.
 # v1 (2026-07-20): initial envelope — fingerprints (with the R4
-# (mtime, size, sha256) stat short-circuit), scopes (per-scope step records,
-# recorded branch choices, gate payloads, blocked position, epilogue record),
-# history ring buffer, session precondition cache.
+# (mtime, size, sha256) stat short-circuit), scopes, history ring buffer,
+# session precondition cache.
+# v1 (2026-09-09): scopes moved to scopes.json. Version deliberately NOT bumped
+# — nothing about the remaining sections changed, and bumping would discard
+# every fingerprint to no purpose.
 STATE_VERSION = 1
 
 # State file name within the resolved directory (beside cache.json).
@@ -53,7 +68,7 @@ STATE_FILENAME = "state.json"
 # Ring-buffer bound for the run-history section (`func history`).
 HISTORY_LIMIT = 200
 
-_SECTIONS: tuple[str, ...] = ("fingerprints", "scopes", "history", "session")
+_SECTIONS: tuple[str, ...] = ("fingerprints", "history", "session")
 
 
 def empty_state() -> dict[str, Any]:
@@ -61,7 +76,6 @@ def empty_state() -> dict[str, Any]:
     return {
         "format_version": STATE_VERSION,
         "fingerprints": {},
-        "scopes": {},
         "history": [],
         "session": {"preconditions": {}},
     }
@@ -143,7 +157,8 @@ def normalize_state(data: Any) -> dict[str, Any]:
     """Coerce loaded data into a valid envelope, filling missing sections.
 
     Anything unrecognizable (not a dict, wrong version) yields a fresh envelope
-    rather than raising — runtime state is derived and always safe to discard.
+    rather than raising — every section here is derived and always safe to
+    discard. `scope_format.load_scopes` deliberately does the opposite.
     """
     if not isinstance(data, dict):
         return empty_state()
@@ -163,7 +178,8 @@ def load_state(path: Path | str) -> dict[str, Any]:
     """Load the state envelope, tolerating a missing, corrupt, or stale file.
 
     Never raises for bad content: a truncated write, hand-editing, or a format
-    bump all degrade to an empty envelope.
+    bump all degrade to an empty envelope. Correct for derived data; see
+    `scope_format` for why the scope file must not do this.
     """
     try:
         raw = Path(path).read_text(encoding="utf-8")
@@ -175,17 +191,26 @@ def load_state(path: Path | str) -> dict[str, Any]:
         return empty_state()
 
 
-def save_state(path: Path | str, state: dict[str, Any]) -> None:
-    """Write the envelope atomically (tmp file + ``os.replace``).
+def atomic_write_json(path: Path | str, payload: dict[str, Any]) -> None:
+    """Write ``payload`` as JSON atomically (tmp file + ``os.replace``).
 
     Atomic so a crash mid-write cannot leave a half-written file that the next
-    run would discard. Callers that read-modify-write must hold
-    :func:`state_lock` — or better, use :func:`update_state`.
+    run would discard.
+
+    **The only one in ``_primitives/``**, shared by this module and
+    :mod:`functualize._primitives.scope_format` — the two runtime-state formats
+    write through one implementation so neither can silently lose its ``fsync``.
+    The caller supplies the payload including its own ``format_version``; only
+    the discipline lives here.
+
+    ``_cli/`` has five other ``mkstemp`` writers (``self_update``, ``manifest``,
+    ``package_ops``, ``config_snapshot_store``, ``toml_writer``). They stage a
+    binary, a registry, and a TOML file — different payloads, different layer,
+    and ``_primitives`` could not import them anyway. This is not the repo's one
+    atomic write; it is the runtime state store's one atomic write.
     """
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    payload = dict(state)
-    payload["format_version"] = STATE_VERSION
     fd, tmp_name = tempfile.mkstemp(
         dir=str(target.parent), prefix=f".{target.name}.", suffix=".tmp"
     )
@@ -199,6 +224,17 @@ def save_state(path: Path | str, state: dict[str, Any]) -> None:
         with suppress(OSError):
             os.unlink(tmp_name)
         raise
+
+
+def save_state(path: Path | str, state: dict[str, Any]) -> None:
+    """Write the envelope atomically, stamping the current format version.
+
+    Callers that read-modify-write must hold :func:`state_lock` — or better,
+    use :func:`update_state`.
+    """
+    payload = dict(state)
+    payload["format_version"] = STATE_VERSION
+    atomic_write_json(path, payload)
 
 
 @contextmanager

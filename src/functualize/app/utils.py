@@ -45,6 +45,10 @@ from functualize._primitives.parameter_types import (
     is_cli_value_type,
 )
 from functualize._primitives.plugin_kinds import PluginKind, classify_group
+from functualize._primitives.scope_format import (
+    SCOPES_VERSION,
+    resolve_scopes_path,
+)
 from functualize._primitives.state_format import (
     resolve_state_location,
     resolve_state_path,
@@ -53,7 +57,10 @@ from functualize._primitives.state_store import StateStore
 from functualize._types.annotations import resolved_hints
 from functualize._types.descriptors import FieldDescriptor, GroupOptionsSpec
 from functualize._types.enums import RunStatus
-from functualize._types.errors import JobMaterializationError
+from functualize._types.errors import (
+    JobMaterializationError,
+    ScopeStoreUnreadableError,
+)
 from functualize._types.exit_codes import ExitCode, exit_code_for_status
 from functualize._types.naming import (
     BUILTIN_SEGMENT,
@@ -153,6 +160,14 @@ __all__ = [
     "resolve_state_location",
     "resolve_state_path",
     "StateStore",
+    # The scope store's location and version, for `builtin state show` and
+    # `builtin info`: a file whose path nothing reports is a file nobody finds.
+    "resolve_scopes_path",
+    "SCOPES_VERSION",
+    # Raised when the scope store cannot be honoured. Public because `_cli`,
+    # `app/adapters` and the MCP plugin all have to turn it into a refusal, and
+    # `_cli` may import public folders only.
+    "ScopeStoreUnreadableError",
     "resolved_hints",
     "detect_config_class",
     "CLI_MARKER_TYPE_NAMES",
