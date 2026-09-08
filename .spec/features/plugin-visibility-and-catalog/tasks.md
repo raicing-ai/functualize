@@ -134,7 +134,7 @@ that gate is green against the code as it actually stands.
   *Files:* `_cli/main.py`
   *Gate:* AC-A11, AC-A12.
 
-- [ ] **T3.5 — Command-inventory parity test**
+- [x] **T3.5 — Command-inventory parity test**
   One app with a job, a namespaced plugin command and a builtin; assert the same
   command set from `build_command_tree`, `command_schemas`,
   `extract_completion_data`, `_dispatch_group`'s trie, and `app.cli_command`.
