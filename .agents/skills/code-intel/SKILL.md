@@ -22,7 +22,7 @@ on which tool you used last.
 | An exact string, path, flag, config key, error message | `rg` / Grep | No index needed. Fastest, exhaustive, zero cost. |
 | "Where is X defined? What references X?" | **serena** | LSP-accurate. It either is a reference or it isn't — no ranking, no guessing. The only safe basis for a rename or signature change. |
 | "What is this? Why is it like this?" | **zvec-grep** | The only tool that reads prose. Finds ADRs, `contributor/` guides and `docs/` alongside code. |
-| "What depends on X? What breaks if I change it?" | **graphify `get_neighbors`** | Typed, directional edges with EXTRACTED/INFERRED confidence. Nothing else produces this. |
+| "What depends on X? What breaks if I change it?" | **graphify `get_neighbors`** (MCP) / **`graphify explain "X"`** (CLI) | Typed, directional edges with EXTRACTED/INFERRED confidence. Nothing else produces this. |
 | "How does subsystem Y work?" (conceptual, no symbol anchor) | **zvec-grep** | Measured: graphify does this *badly* — see Gotchas. |
 
 Institutional knowledge that is not derivable from code lives in
@@ -102,6 +102,12 @@ Repo config already in place:
   `di.Provide` and an autocomplete `.value()`, and never surfaced
   `_config/sources.py`. Use `get_neighbors` for relationships; use zvec-grep
   for concepts.
+
+- **2026-09-08** — `get_neighbors` is an **MCP tool name, not a CLI subcommand**.
+  `graphify get-neighbors` exits with `unknown command`. The CLI equivalent is
+  `graphify explain "X"`, which reports degree and lists every connection
+  grouped by file with the same EXTRACTED/INFERRED markers (26 connections for
+  `ResolutionChain`). Route to whichever surface you actually have.
 - **`--code-only` skips all markdown.** Indexing prose needs the semantic LLM
   path, which is dramatically slower: a doc run over ~119 files / ~248 k tokens
   exceeded 3600 s with the default `--token-budget 60000`. If you attempt it,
@@ -170,10 +176,30 @@ turns out to be wrong rather than leaving it to mislead.
   portability rule holds across machines, not just across worktrees.
 
 - **2026-09-08** — **The data travels; the tools do not.** That same worker had
-  no `graphify`, no `zg` and no `uvx` on PATH (confirmed by hand over SSH), so
-  it could read `graph.json` as JSON but could not run `graphify query` or
-  `get_neighbors`, and had no semantic search at all. A committed graph is
-  therefore warm as *data* on any worker, but the traversal tooling is a
-  separate prerequisite. Either install the tools on the worker image, or write
-  prompts that treat `graph.json` as a plain JSON file — do not assume a remote
-  agent can run the commands in this skill.
+  no `graphify`, no `zg` and no `uvx` on its PATH, so it could read `graph.json`
+  as JSON but could not run any graphify command. A committed graph is warm as
+  *data* on any worker, but the traversal tooling is a separate prerequisite —
+  do not assume a remote agent can run the commands in this skill.
+
+- **2026-09-08** — That diagnosis was half wrong, and the failure mode is worth
+  remembering: `command -v` over a **non-interactive** SSH session searches only
+  the default PATH, which excludes `~/.local/bin`. graphify *was* installed on
+  the host, under `/root/.local/bin`. The real fault was a **user split** — the
+  tools lived in root's home while the multica daemon had moved to the `ubuntu`
+  user (uid 1000), whose `~/.local/bin` and `~/.omp/agent/mcp.json` were empty.
+  Check `ls ~<user>/.local/bin` per user before concluding a tool is absent.
+
+- **2026-09-08** — Fixed by installing **system-wide** rather than per-user, so
+  the next daemon-user change cannot break it again: `uv` and `uvx` copied to
+  `/usr/local/bin`, then
+  `UV_TOOL_DIR=/opt/uv-tools UV_TOOL_BIN_DIR=/usr/local/bin uv tool install graphifyy`.
+  Verified as the `ubuntu` user, then end-to-end on a real task (MCH-12):
+  checkout → first successful `graphify query` in **~8.5 s**, query itself
+  ~4.0 s, returning the same nodes as the local run.
+
+- **2026-09-08** — `zg` still cannot be installed on that host: `@zvec/zvec-grep`
+  declares `engines: node >=22` and the system node is 18.19.1. Upgrading node
+  system-wide is not free there (other services run on their own nvm node), so
+  semantic search remains localhost-only. Arguably fine: zvec's index is
+  per-workspace and costs ~21 s / 48 MB to build, which an ephemeral task
+  worktree would pay on every single run.
