@@ -78,6 +78,11 @@ docs = [
     "mkdocs>=1.6.0",
     "mkdocs-material>=9.5.0",
     "mkdocstrings[python]>=0.25.0",
+    # Pan/zoom on the mermaid diagrams. Required, not optional: `mkdocs.yml`
+    # names the `panzoom` plugin, and `mkdocs build --strict` (docs.yml and the
+    # ci.yml docs-build job) fails on an unknown plugin, so omitting it here
+    # breaks the docs build for everyone but the machine that pip-installed it.
+    "mkdocs-panzoom-plugin>=0.5.2",
 ]
 
 [project.optional-dependencies]

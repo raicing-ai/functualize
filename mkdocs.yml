@@ -31,6 +31,12 @@ theme:
         name: Switch to light mode
 
 plugins:
+  - panzoom:
+      include_selectors:
+        - ".mermaid"
+      key: "alt"
+      full_screen: true
+      hint_location: "bottom"
   - search:
       lang: en
       separator: '[\s\-\.]+'
