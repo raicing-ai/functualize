@@ -253,7 +253,7 @@ that is the pitfalls.md §5 symptom this feature is most at risk of reproducing
 `pytest tests/test_explain_and_state_cmd.py -q` green
 **Covers** AC-7, AC-8, AC-9, AC-10, AC-11
 
-### [ ] T8 · the walk stops rewriting the file
+### [x] T8 · the walk stops rewriting the file
 
 `[F]` `src/functualize/_engine/frontier.py`,
 `src/functualize/_engine/workflow_walker.py`
