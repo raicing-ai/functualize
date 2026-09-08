@@ -37,14 +37,18 @@ from functualize.app.utils import (
     LIVE_STATUSES as _LIVE_STATUSES,
 )
 from functualize.app.utils import (
+    GateToolPolicy as _GateToolPolicy,
+)
+from functualize.app.utils import (
     StateStore,
     answer_gate,
+    call_gate_tool,
+    cancel_scope,
     deposit_gate_input,
     describe_scope,
     gate_draft,
     list_scopes,
     resolve_gate,
-    tool_entries,
 )
 from functualize.app.utils import (
     pending_gates as _pending_gates,
@@ -94,81 +98,13 @@ def _canonical(name: str) -> str:
     return normalize_name(name) or name
 
 
-class GateToolPolicy:
-    """Decides whether a job tool may run while a gate is waiting.
-
-    `Gate(name, awaits, tools)` declares what an agent may use while resolving
-    that gate, and `tools` is a *permission*: a job tool call arriving while
-    the gate waits is refused unless the job is named. Enforcement lives here,
-    at the dispatch chokepoint every per-job tool passes through, rather than
-    in a helper the tools call voluntarily — a check that a caller can skip by
-    not calling it is not a permission.
-
-    **Only per-job tools are governed.** The workflow tools
-    (`get_workflow_state`, `resume_gate`, …) do not route through dispatch and
-    are therefore never refused. That is deliberate and load-bearing: an agent
-    that could not inspect or answer the gate blocking it would have no way
-    out of the block at all.
-
-    **Which gate governs.** A tool call carries no scope id, so when several
-    scopes wait at once the policy takes the union of their lists — an
-    intersection would let two unrelated workflows deadlock each other. A gate
-    that declares no tools asks for no restriction, so a single such gate
-    lifts the restriction entirely rather than being read as "permit nothing".
-    """
-
-    def __init__(self, app: Any, *, store: StateStore | None = None) -> None:
-        self._app = app
-        self._store = store
-
-    @property
-    def store(self) -> StateStore:
-        if self._store is None:
-            self._store = StateStore.for_project(Path.cwd())
-        return self._store
-
-    def permitted(self, tool_name: str) -> bool:
-        """True when ``tool_name`` may run right now.
-
-        The requested name is canonicalized first: tools are jobs, jobs are
-        addressed canonically, and an agent that asks for `order_history`
-        means the `order-history` on the allow-list. Comparing raw strings
-        refused a permitted call and told the agent it lacked permission,
-        which is a maximally misleading way to fail.
-        """
-        allowed = self.allowed_tools()
-        return allowed is None or _canonical(tool_name) in allowed
-
-    def allowed_tools(self) -> set[str] | None:
-        """The permitted job tools, or None when nothing is restricted."""
-        declared: list[list[str]] = []
-        for scope_id in self.store.scope_ids():
-            scope = self.store.get_scope(scope_id)
-            if scope is None or scope.get("status") not in _LIVE_STATUSES:
-                continue
-            for _name, record in _pending_gates(scope):
-                entries = tool_entries(record)
-                if not entries:
-                    return None  # a gate asking for no restriction wins
-                declared.append([e["tool"] for e in entries])
-
-        if not declared:
-            return None
-        return {tool for tools in declared for tool in tools}
-
-    def refusal(self, tool_name: str) -> dict[str, Any]:
-        """The error envelope for a refused call."""
-        allowed = self.allowed_tools() or set()
-        return {
-            "error": "tool_not_permitted",
-            "message": (
-                f"'{tool_name}' is not permitted while a workflow gate is "
-                "awaiting input. Resolve the gate with resume_gate, or use "
-                "one of the tools it allows."
-            ),
-            "tool": tool_name,
-            "allowed_tools": sorted(allowed),
-        }
+#: The gate-tool permission, lifted to ``app/_workflow_control.py``.
+#:
+#: It governed one surface while only one surface could run a job. That stopped
+#: being true when ``builtin workflow resume`` began advancing walks, so the
+#: policy moved to where every job-executing path can reach it and this name
+#: stays as the plugin's door onto it — ``_server.py`` is unchanged in shape.
+GateToolPolicy = _GateToolPolicy
 
 
 class WorkflowToolProvider:
@@ -355,78 +291,7 @@ class WorkflowToolProvider:
         self, workflow_id: str, tool: str, args: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         """Run one of a blocked gate's tools, inside that gate's scope."""
-        scope = self.store.get_scope(workflow_id)
-        if scope is None:
-            return _error("workflow_not_found", f"No workflow scope '{workflow_id}'.")
-
-        entry = None
-        for _gate_name, record in _pending_gates(scope):
-            for candidate in tool_entries(record):
-                if _canonical(candidate["tool"]) == _canonical(tool):
-                    entry = candidate
-        if entry is None:
-            return {
-                "error": "tool_not_permitted",
-                "message": (
-                    f"'{tool}' is not offered by any gate awaiting input in "
-                    f"workflow '{workflow_id}'."
-                ),
-                "tool": tool,
-                "allowed_tools": sorted(
-                    e["tool"]
-                    for _n, r in _pending_gates(scope)
-                    for e in tool_entries(r)
-                ),
-            }
-
-        supplied = dict(args or {})
-        # A bound argument is refused, never silently overridden: an agent
-        # that believes it set a value and did not is worse off than one told
-        # no, and it is the difference between a permission and a preference.
-        overreach = sorted(set(entry["bound"]) & set(supplied))
-        if overreach:
-            return {
-                "error": "argument_not_permitted",
-                "message": (
-                    f"{', '.join(overreach)} is fixed by gate policy for "
-                    f"'{tool}' and cannot be supplied."
-                ),
-                "tool": tool,
-                "bound": entry["bound"],
-            }
-
-        bound_values, failure = self._bound_values(scope, tool)
-        if failure is not None:
-            return failure
-
-        # From here the canonical name is the one of record: it is the job
-        # that actually ran, and an audit trail spelled however the caller
-        # happened to type it cannot be grouped or compared.
-        tool = _canonical(tool)
-
-        try:
-            result = self._app.execute(
-                tool, scope_id=workflow_id, **{**bound_values, **supplied}
-            )
-        except Exception as exc:
-            return _error("tool_failed", f"'{tool}' raised {type(exc).__name__}: {exc}")
-
-        self.store.record_tool_call(
-            workflow_id,
-            {
-                "tool": tool,
-                "args": supplied,
-                "status": getattr(result.status, "value", str(result.status)),
-                "return_value": result.return_value,
-                "called_at": _now(),
-            },
-        )
-        return {
-            "tool": tool,
-            "status": getattr(result.status, "value", str(result.status)),
-            "return_value": result.return_value,
-            "workflow_id": workflow_id,
-        }
+        return call_gate_tool(self._app, self.store, workflow_id, tool, args)
 
     _call_gate_tool.__name__ = "call_gate_tool"
     _call_gate_tool.__qualname__ = "call_gate_tool"
@@ -506,23 +371,7 @@ class WorkflowToolProvider:
 
     @_refuse_unreadable_scopes
     async def _cancel_workflow(self, workflow_id: str) -> dict[str, Any]:
-        scope = self.store.get_scope(workflow_id)
-        if scope is None:
-            return _error("workflow_not_found", f"No workflow scope '{workflow_id}'.")
-
-        status = scope.get("status")
-        if status not in _LIVE_STATUSES:
-            return _error(
-                "workflow_not_active",
-                f"Workflow '{workflow_id}' is already {status}.",
-            )
-
-        self.store.set_scope_status(workflow_id, "cancelled")
-        return {
-            "status": "cancelled",
-            "workflow_id": workflow_id,
-            "message": f"Workflow '{workflow_id}' has been cancelled.",
-        }
+        return cancel_scope(self.store, workflow_id)
 
     _cancel_workflow.__name__ = "cancel_workflow"
     _cancel_workflow.__qualname__ = "cancel_workflow"

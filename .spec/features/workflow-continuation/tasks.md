@@ -281,7 +281,7 @@ now: `11` · after: `0`
 
 ## Wave 8 — the control lift
 
-### [ ] T14 · `app/_workflow_control.py` — the funnel, the gate tool, and the advance
+### [x] T14 · `app/_workflow_control.py` — the funnel, the gate tool, and the advance
 
 **Files:** `src/functualize/app/_workflow_control.py` (new), `src/functualize/app/utils.py`
 
