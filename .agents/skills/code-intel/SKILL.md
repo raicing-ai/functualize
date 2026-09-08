@@ -159,3 +159,21 @@ turns out to be wrong rather than leaving it to mislead.
   objects only. A freshly committed blob is loose, so the pack figure does not
   move and the repo looks unchanged. Read `size:` as well before claiming a
   commit was cheap.
+
+- **2026-09-08** — Verified end-to-end on a real multica worker (contabo,
+  issue MCH-11). A task worktree landed at
+  `/home/ubuntu/multica_workspaces/<ws>/<issue>/workdir/functualize` — a
+  different user and an unrelated path — and `graphify-out/graph.json` arrived
+  intact with **8,608 nodes, 292 named communities, 0 absolute paths**, no
+  build step, ~20 s from checkout. `.serena/memories/` and `project.yml` came
+  too; `.zvec-grep/` and `.serena/cache/` were correctly absent. The
+  portability rule holds across machines, not just across worktrees.
+
+- **2026-09-08** — **The data travels; the tools do not.** That same worker had
+  no `graphify`, no `zg` and no `uvx` on PATH (confirmed by hand over SSH), so
+  it could read `graph.json` as JSON but could not run `graphify query` or
+  `get_neighbors`, and had no semantic search at all. A committed graph is
+  therefore warm as *data* on any worker, but the traversal tooling is a
+  separate prerequisite. Either install the tools on the worker image, or write
+  prompts that treat `graph.json` as a plain JSON file — do not assume a remote
+  agent can run the commands in this skill.
