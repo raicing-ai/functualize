@@ -801,21 +801,6 @@ def _plugin_namespace_names(plugin_commands: list[Any]) -> set[str]:
     return names
 
 
-def _job_trie_path(job: Any) -> str:
-    """The dotted path a job occupies in the group trie.
-
-    Normally just ``job.name``, which already carries its group as a prefix.
-    Mirrors the trie's own leaf derivation for the degenerate case where a
-    descriptor's ``group`` is not a prefix of its ``name`` — there the trie
-    nests the whole name under the group, and a lookup keyed on ``name`` alone
-    would miss it.
-    """
-    group = getattr(job, "group", None)
-    if group and not job.name.startswith(f"{group}."):
-        return f"{group}.{job.name}"
-    return str(job.name)
-
-
 def _run_adhoc_command(
     name: str,
     fn: Any,
@@ -955,28 +940,28 @@ def _dispatch_group(
         create_job_click_command,
         invoke_command_capturing,
     )
+    from functualize.app.commands import (
+        job_trie_path,
+        plugin_command_path,
+        unshadowed_plugin_commands,
+    )
     from functualize.app.utils import build_group_trie, read_group_options_from_cache
 
     all_jobs = app.get_jobs()
-    plugin_commands = app.get_plugin_commands()
 
-    jobs_by_path = {_job_trie_path(j): j for j in all_jobs}
-    plugins_by_path: dict[str, Any] = {}
-    plugin_rows: list[tuple[str | None, str]] = []
-    for cmd in plugin_commands:
-        namespace = getattr(cmd, "namespace", None)
-        path = f"{namespace}.{cmd.name}" if namespace else cmd.name
-        if path in jobs_by_path:
-            logger.debug(
-                "Plugin command '%s' in namespace '%s' shadowed by a job; skipping",
-                cmd.name,
-                namespace,
-            )
-            continue
-        if path in plugins_by_path:
-            continue
-        plugins_by_path[path] = cmd
-        plugin_rows.append((namespace, cmd.name))
+    jobs_by_path = {job_trie_path(j): j for j in all_jobs}
+    # Precedence lives in `app.commands`, not here. It used to be an inline
+    # loop, and the shell's command tree grew a second copy of the same rule --
+    # which is how `app.cli_command` ended up letting a plugin command silently
+    # displace a job while this path gave the job the win. One resolver, read by
+    # both, is what makes "lists here, runs there" impossible.
+    plugin_commands = unshadowed_plugin_commands(app)
+    plugins_by_path: dict[str, Any] = {
+        plugin_command_path(cmd): cmd for cmd in plugin_commands
+    }
+    plugin_rows: list[tuple[str | None, str]] = [
+        (getattr(cmd, "namespace", None), cmd.name) for cmd in plugin_commands
+    ]
 
     # Per-group declared flags (S6a). Read from the cache — the section is
     # written by the same scan that produced the jobs above, and reading it
@@ -1375,7 +1360,12 @@ def _handle_job(
         # emitting the error. Precedence: pre-boot resolution already gave
         # `.py` files / builtins / job groups / job names / aliases priority,
         # so reaching here means nothing else matched (D3).
-        plugin_commands = app.get_plugin_commands()
+        # Shadowed commands are dropped here too, so a namespace whose every
+        # command is occupied by a job does not stay navigable and then list
+        # nothing.
+        from functualize.app.commands import unshadowed_plugin_commands
+
+        plugin_commands = unshadowed_plugin_commands(app)
         plugin_namespaces = _plugin_namespace_names(plugin_commands)
         # Recompute job group names (+ ancestors) so mixed job/plugin groups
         # behave identically to GROUP mode.

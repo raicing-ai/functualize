@@ -28,8 +28,18 @@ if TYPE_CHECKING:
     from functualize.plugin import CommandNode
 
 __all__ = [
+    "COMMAND_KIND_BUILTIN",
+    "COMMAND_KIND_JOB",
+    "COMMAND_KIND_PLUGIN",
     "ClickCommandProvider",
+    "command_kind",
     "JobCommandProvider",
+    "PluginCommandNode",
+    "PluginCommandProvider",
+    "PluginNamespaceNode",
+    "job_trie_path",
+    "plugin_command_path",
+    "unshadowed_plugin_commands",
     "build_command_tree",
     "builtin_context_obj",
     "resolve_command_path",
@@ -365,15 +375,278 @@ class ClickCommandProvider:
         ]
 
 
-def build_command_tree(app: FunctualizeApp) -> list[CommandNode]:
-    """The shell's **one** command tree: user jobs plus the reserved subtree.
+def job_trie_path(job: Any) -> str:
+    """The dotted path a job occupies in the namespace trie.
 
-    Composing the two providers here is what lets every downstream surface —
-    listing, completion, preflight, execution — stop asking "is this a builtin?".
-    Jobs come first so the reserved node sorts last in listings, matching the
-    CLI's own help ordering.
+    Normally just ``job.name``, which already carries its group as a prefix.
+    The degenerate case is a descriptor whose ``group`` is *not* a prefix of its
+    ``name``: the trie nests the whole name under the group there, so a lookup
+    keyed on ``name`` alone would miss it and the job would fail to shadow a
+    plugin command sitting at the same path.
+    """
+    group = getattr(job, "group", None)
+    name = str(getattr(job, "name", ""))
+    if group and not name.startswith(f"{group}."):
+        return f"{group}.{name}"
+    return name
+
+
+def plugin_command_path(cmd: Any) -> str:
+    """Where a plugin command sits in the same namespace, as one dotted string.
+
+    ``namespace="mcp"`` + ``name="serve"`` -> ``"mcp.serve"``; a command with no
+    namespace is its own path. This is the key both precedence sites compare
+    against :func:`job_trie_path`, and it is a *function* rather than an inline
+    f-string in two files because the two drifting is the whole defect.
+    """
+    namespace = getattr(cmd, "namespace", None)
+    return f"{namespace}.{cmd.name}" if namespace else str(cmd.name)
+
+
+def unshadowed_plugin_commands(app: FunctualizeApp) -> list[Any]:
+    """Plugin commands a job does not already occupy the path of.
+
+    **A job wins, and the shadowed plugin command is absent rather than skipped
+    at each lookup.** Resolving it once, here, is what lets every surface agree:
+    the shell's command tree, the CLI's group dispatch and the click adapter all
+    read this list, so a command cannot list on one surface and run on another.
+
+    Duplicate plugin paths collapse to the first registration, matching the
+    registrar's own first-wins ordering.
+    """
+    occupied = {job_trie_path(job) for job in app.get_jobs()}
+    seen: set[str] = set()
+    kept: list[Any] = []
+    for cmd in app.get_plugin_commands():
+        path = plugin_command_path(cmd)
+        if path in occupied or path in seen:
+            continue
+        seen.add(path)
+        kept.append(cmd)
+    return kept
+
+
+class PluginCommandNode:
+    """One command a plugin registered, as a tree node.
+
+    A leaf: plugin commands are a flat ``namespace`` plus a ``name``, never a
+    deeper hierarchy, so there is nothing under it to navigate to.
+    """
+
+    def __init__(self, cmd: Any, *, path: tuple[str, ...]) -> None:
+        self._cmd = cmd
+        self._path = path
+
+    @property
+    def name(self) -> str:
+        return str(self._cmd.name)
+
+    @property
+    def help_text(self) -> str:
+        return (self._cmd.help_text or "").strip().split("\n")[0]
+
+    @property
+    def needs_terminal(self) -> bool:
+        """The plugin author's declaration, carried straight through.
+
+        Defaults to ``False`` for a plugin that predates the field, which is
+        the safe answer: a front-end that captures output from a command that
+        did not need the terminal renders it in a panel, where the reverse
+        corrupts whatever protocol the command speaks on stdout.
+        """
+        return bool(getattr(self._cmd, "needs_terminal", False))
+
+    def children(self) -> list[CommandNode]:
+        return []
+
+    def params(self) -> list[FieldDescriptor]:
+        """The callback's own signature, bridged onto ``FieldDescriptor``.
+
+        Reuses the builder the CLI already runs this callback through, so the
+        parameters a pre-flight panel shows are the ones click will parse.
+        """
+        from functualize._types.descriptors import FieldDescriptor
+        from functualize.app.adapters.click_params import (
+            create_callback_click_command,
+        )
+
+        command = create_callback_click_command(
+            self._cmd.name, self._cmd.callback, self._cmd.help_text
+        )
+        fields: list[FieldDescriptor] = []
+        for param in getattr(command, "params", []):
+            pname = _param_public_name(param)
+            if not pname or pname == "help":
+                continue
+            param_type = getattr(param, "type", None)
+            fields.append(
+                FieldDescriptor(
+                    name=pname,
+                    type_annotation=getattr(param_type, "name", "str") or "str",
+                    default=getattr(param, "default", None),
+                    description=(getattr(param, "help", "") or ""),
+                    required=bool(getattr(param, "required", False)),
+                    choices=list(getattr(param_type, "choices", []) or []) or None,
+                    positional=getattr(param, "param_type_name", "") != "option",
+                )
+            )
+        return fields
+
+    def execute(self, args: Sequence[str]) -> int:
+        """Run the callback through click, under the path the user typed.
+
+        ``prog_name`` is the full path rather than the bare command name, so
+        ``--help`` prints ``Usage: func mcp serve`` — a line that can be copied
+        and run, which ``Usage: serve`` could not.
+        """
+        from functualize.app.adapters.click_params import (
+            create_callback_click_command,
+            invoke_command_capturing,
+        )
+
+        command = create_callback_click_command(
+            self._cmd.name, self._cmd.callback, self._cmd.help_text
+        )
+        return invoke_command_capturing(
+            command,
+            list(args),
+            "none",
+            prog_name=" ".join(self._path),
+            emit_return=True,
+        )
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"PluginCommandNode({'.'.join(self._path)!r})"
+
+
+class PluginNamespaceNode:
+    """A plugin namespace — navigable, and not runnable on its own.
+
+    ``func mcp`` names no command; it names the place ``serve`` and its five
+    siblings live. Mirrors a pure group ``JobNode``, which likewise carries
+    children and refuses to run.
+    """
+
+    def __init__(self, namespace: str, commands: list[Any]) -> None:
+        self._namespace = namespace
+        self._commands = commands
+
+    @property
+    def name(self) -> str:
+        return self._namespace
+
+    @property
+    def help_text(self) -> str:
+        n = len(self._commands)
+        return f"{n} command{'' if n == 1 else 's'}"
+
+    @property
+    def needs_terminal(self) -> bool:
+        """A namespace runs nothing, so it can never own the terminal."""
+        return False
+
+    def children(self) -> list[CommandNode]:
+        return [
+            PluginCommandNode(cmd, path=(self._namespace, str(cmd.name)))
+            for cmd in sorted(self._commands, key=lambda c: str(c.name))
+        ]
+
+    def params(self) -> list[FieldDescriptor]:
+        return []
+
+    def execute(self, args: Sequence[str]) -> int:
+        """Not runnable — the caller should have listed :meth:`children`."""
+        return 1
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"PluginNamespaceNode({self._namespace!r})"
+
+
+class PluginCommandProvider:
+    """Commands registered by plugins, as top-level nodes.
+
+    The third provider, and the reason the others stopped being enough: a
+    plugin's commands were reachable through ``func <namespace> <cmd>`` and
+    through ``app.cli_command``, but absent from the one tree every shell
+    surface reads. So an installed ``functualize-mcp`` was invisible in the
+    browser, uncompletable in the input bar, and typing ``mcp serve`` produced
+    silence rather than a pre-flight or an error.
+
+    Shadowed commands never reach here — :func:`unshadowed_plugin_commands`
+    removes them, so this provider has no precedence policy of its own to drift
+    from anyone else's.
+    """
+
+    def __init__(self, app: FunctualizeApp) -> None:
+        self._app = app
+
+    def nodes(self) -> list[CommandNode]:
+        namespaces: dict[str, list[Any]] = {}
+        top_level: list[Any] = []
+        for cmd in unshadowed_plugin_commands(self._app):
+            namespace = getattr(cmd, "namespace", None)
+            if namespace:
+                # Only the first segment is a top-level node; a dotted
+                # namespace is flat here, matching `PluginCommand.namespace`,
+                # which is documented as a flat name and not a dotted group.
+                namespaces.setdefault(str(namespace), []).append(cmd)
+            else:
+                top_level.append(cmd)
+
+        nodes: list[CommandNode] = [
+            PluginCommandNode(cmd, path=(str(cmd.name),))
+            for cmd in sorted(top_level, key=lambda c: str(c.name))
+        ]
+        nodes.extend(
+            PluginNamespaceNode(namespace, commands)
+            for namespace, commands in sorted(namespaces.items())
+        )
+        return nodes
+
+
+#: What a tree node came from, for surfaces that must *say* so.
+#:
+#: ``CommandNode`` deliberately does not distinguish a job from a builtin --
+#: "Nothing here distinguishes a job from a builtin; that is the point" -- and
+#: nothing about *running* a node needs to. But two surfaces have to report
+#: provenance rather than act on it: the job browser prints a source column,
+#: and `builtin info schema` publishes a `kind` an agent filters on. Answering
+#: that here, in one function, keeps it off the protocol and keeps the two
+#: surfaces from inventing separate answers.
+COMMAND_KIND_JOB = "job"
+COMMAND_KIND_PLUGIN = "plugin"
+COMMAND_KIND_BUILTIN = "builtin"
+
+
+def command_kind(node: Any) -> str:
+    """Which provider produced ``node`` — for display and filtering only.
+
+    Never branch execution on this. A caller that needs to *do* something
+    different per kind is re-introducing the special-casing the one tree
+    removed; ``needs_terminal`` and ``params()`` already carry every behavioural
+    difference a surface legitimately needs.
+    """
+    if isinstance(node, (PluginCommandNode, PluginNamespaceNode)):
+        return COMMAND_KIND_PLUGIN
+    if isinstance(node, ClickCommandNode):
+        return COMMAND_KIND_BUILTIN
+    return COMMAND_KIND_JOB
+
+
+def build_command_tree(app: FunctualizeApp) -> list[CommandNode]:
+    """The shell's one command tree: jobs, plugin commands, reserved subtree.
+
+    Composing the providers here is what lets every downstream surface —
+    listing, completion, preflight, execution — stop asking "is this a builtin?"
+    or "is this from a plugin?". Jobs come first and the reserved node sorts
+    last, matching the CLI's own help ordering.
+
+    A job wins over a plugin command on an exact path conflict, and the
+    shadowed command is absent rather than skipped at lookup — see
+    :func:`unshadowed_plugin_commands`, which the CLI's own dispatch reads too.
     """
     nodes: list[CommandNode] = list(JobCommandProvider(app).nodes())
+    nodes.extend(PluginCommandProvider(app).nodes())
     nodes.extend(ClickCommandProvider(app).nodes())
     return nodes
 

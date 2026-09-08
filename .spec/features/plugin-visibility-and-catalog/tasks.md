@@ -62,7 +62,7 @@ that gate is green against the code as it actually stands.
 
 ## Wave 2 — the command tree (the original bug)
 
-- [ ] **T2.1 — `PluginCommandProvider`**
+- [x] **T2.1 — `PluginCommandProvider`**
   Namespace node (navigable) + leaf node (runnable) satisfying `CommandNode`.
   `needs_terminal` from T1.2. `params()` from the callback signature.
   `execute()` invokes the callback, returns an exit code. Compose into
@@ -71,7 +71,7 @@ that gate is green against the code as it actually stands.
   *Gate:* AC-A1, AC-A2, AC-A4, AC-A6, AC-A7 against a fake plugin — never
   against `functualize-mcp` being installed.
 
-- [ ] **T2.2 — Precedence in the tree**
+- [x] **T2.2 — Precedence in the tree**
   Job wins on exact path conflict; the shadowed plugin command is **absent**,
   not skipped at lookup. Extract the predicate `_dispatch_group`
   (`_cli/main.py:936-939`) already applies so both read one rule.
@@ -79,14 +79,14 @@ that gate is green against the code as it actually stands.
   *Gate:* AC-A3 — tree and `_dispatch_group` resolve the same conflict
   identically, asserted in one test over both.
 
-- [ ] **T2.3 — Kind-aware `source_label`**
+- [x] **T2.3 — Kind-aware `source_label`**
   `command_tree_rows` hardcodes `source_label="builtin"` for descriptor-less
   nodes; ask the node instead.
   *Files:* `_cli/tui/job_listing.py`
   *Gate:* AC-A5 — plugin node labels as a plugin, reserved subtree still
   `builtin`.
 
-- [ ] **T2.4 — `info schema` kind**
+- [x] **T2.4 — `info schema` kind**
   `_cli/info.py:244` derives `"builtin" if path[0] == BUILTIN_ROOT_SEGMENT else
   "job"`, which mislabels plugin commands as `job`. Add the third value and
   extend the `--kind` filter.

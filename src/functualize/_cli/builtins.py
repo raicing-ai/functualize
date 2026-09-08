@@ -2127,9 +2127,12 @@ def register_builtin_commands(cli_group: Any) -> None:
     @click.argument("name", required=False)
     @click.option(
         "--kind",
-        type=click.Choice(["job", "builtin"]),
+        type=click.Choice(["job", "builtin", "plugin"]),
         default=None,
-        help="Restrict to jobs, or to builtin commands. Default: both.",
+        help=(
+            "Restrict to jobs, builtin commands, or plugin-registered "
+            "commands. Default: all three."
+        ),
     )
     @click.pass_context
     def info_schema(ctx: click.Context, name: str | None, kind: str | None) -> None:

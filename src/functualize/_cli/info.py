@@ -23,11 +23,6 @@ if TYPE_CHECKING:
 
     from functualize.app.core import FunctualizeApp
 
-#: The one reserved top-level segment. Mirrors ``_cli.builtins.BUILTIN_ROOT``;
-#: kept as a literal here so this module stays importable from ``--help``
-#: without pulling the builtin registry in.
-BUILTIN_ROOT_SEGMENT = "builtin"
-
 __all__ = [
     "RENDERERS",
     "discovery_failures",
@@ -221,19 +216,22 @@ def command_schemas(
         app: A booted app.
         name: Restrict to one command, addressed by its dotted path
             (``demo.report``, ``builtin.skills.materialize``).
-        kind: Restrict to ``"job"`` or ``"builtin"``.
+        kind: Restrict to ``"job"``, ``"plugin"`` or ``"builtin"``.
 
     The entry shape keeps the MCP tool fields (``name`` / ``description`` /
     ``inputSchema``) so agent tooling reads it unchanged, and adds two:
 
     ``kind``
-        ``"job"`` or ``"builtin"`` — the filter an MCP surface applies.
+        ``"job"``, ``"plugin"`` or ``"builtin"`` — the filter an MCP surface
+        applies. ``"plugin"`` is a command a plugin registered, reachable as
+        ``func <namespace> <command>``; it is neither first-party nor a job, and
+        collapsing it into either would misdescribe what running it does.
     ``path``
         The segments to type, as an array. Structured over opaque: a dotted
         string would have to be re-split, and the split is not obvious for a
         job whose group contains a dot-free name.
     """
-    from functualize.app.commands import build_command_tree
+    from functualize.app.commands import build_command_tree, command_kind
     from functualize.app.utils import input_schema
 
     entries: list[dict[str, Any]] = []
@@ -241,7 +239,12 @@ def command_schemas(
         if not _is_runnable(node, bool(node.children())):
             continue
 
-        entry_kind = "builtin" if path[0] == BUILTIN_ROOT_SEGMENT else "job"
+        # Asked of the node, not derived from `path[0]`. The path test could
+        # only ever answer "builtin or not", so once plugin commands entered
+        # the tree it labelled `func mcp serve` a job -- telling an agent that
+        # filters on `--kind job` to run something the job registry has never
+        # heard of.
+        entry_kind = command_kind(node)
         if kind is not None and entry_kind != kind:
             continue
 
@@ -259,7 +262,8 @@ def command_schemas(
             }
         )
 
-    return sorted(entries, key=lambda e: (e["kind"] != "job", e["name"]))
+    _order = {"job": 0, "plugin": 1, "builtin": 2}
+    return sorted(entries, key=lambda e: (_order.get(e["kind"], 3), e["name"]))
 
 
 def install_facts(*, include_manifest: bool) -> dict[str, Any]:
