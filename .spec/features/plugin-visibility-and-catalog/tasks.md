@@ -232,7 +232,7 @@ waves 2–3, not this one.
 
 ## Wave 6 — close
 
-- [ ] **T6.1 — Full gates**
+- [x] **T6.1 — Full gates**
   *Gate:* `ruff check` / `ruff format --check` / `mypy src/` / `lint-imports`
   (0 violations) / `pytest tests/skills/ tests/tui_audit/` (15/15) / full suite.
   AC-X1–X4.
