@@ -121,6 +121,19 @@ Routing per `.claude/skills/code-intel`: exact strings → `rg`; "what reference
 serena; "why is it like this" → zvec-grep; "what breaks if I change X" → graphify
 `get_neighbors`.
 
-**Caveat found:** `mcp__serena__activate_project` on the worktree path re-registered the
-name `functualize` to point at the worktree. A later session working in the main checkout
-must re-activate it there, or serena will answer about this branch.
+**Caveat — corrected.** An earlier draft of this section claimed
+`mcp__serena__activate_project` "re-registered the name `functualize` to point at the
+worktree", and that a main-checkout session would have to re-activate. That is **false**,
+and the real behaviour is worse in one direction and better in the other
+(measured; `.agents/skills/code-intel/SKILL.md` → *Worktrees and parallel sessions*):
+
+- The registry `~/.serena/serena_config.yml` is **path-keyed**. Activating a worktree
+  *adds* an entry; it re-points nothing. So a later main-checkout session needs no
+  re-activation — it just starts with `--project-from-cwd`.
+- The hazard is **bare-name activation**. Every checkout of this repo carries
+  `project_name: functualize` from the committed `project.yml`, so with two or more
+  registered the bare name errors ("Multiple projects found"); and if the worktree is the
+  *only* registered entry, a bare-name session **silently binds to the worktree** and
+  answers from the wrong branch.
+- Rule: activate by absolute path, always. Unique per-worktree names are available via
+  the gitignored `.serena/project.local.yml`, which serena applies as an override layer.

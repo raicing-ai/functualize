@@ -131,9 +131,11 @@ in the wrong phase arrives too late to act on.
   composed from memory.
 - **Prior art outranks a fresh argument.** Contradicting an ADR, a guide, or a
   recorded pitfall is allowed; doing it silently is not.
-- **Pass an absolute worktree path.** Without one, zvec-grep walks up and
-  silently answers from the parent checkout's index — so a branch gets told about
-  master.
+- **Address every tool by absolute path.** Both fail silently, in different
+  ways: zvec-grep walks up and adopts the parent checkout's index, and serena's
+  registry is path-keyed while every checkout of this repo shares the name
+  `functualize` — so a bare name either errors as ambiguous or binds to whichever
+  checkout happens to be registered. Either way a branch gets told about master.
 
 Routing (which tool for which question) is
 [`.claude/skills/code-intel/SKILL.md`](../skills/code-intel/SKILL.md); timing and

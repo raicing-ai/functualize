@@ -61,6 +61,24 @@ Cost: `.serena/cache/` reaches ~1.8 MB for this repo. Free, no API calls.
 per-checkout and gitignored. `project.yml` and `memories/` are plain text and
 **are** committed — that is the part that travels.
 
+**Worktrees and parallel sessions.** The global registry
+`~/.serena/serena_config.yml` is **path-keyed**: activating a worktree *adds* an
+entry, it does not re-point anything. Every checkout of this repo carries the
+same `project_name: functualize` (committed `project.yml`), so the bare name is
+ambiguous. Measured failure modes: with two or more registered checkouts a
+bare-name activation fails with "Multiple projects found — reference it by
+location"; if the worktree is the *only* entry for that name (fresh
+`~/.serena`, main never activated on this machine), a bare-name session
+**silently binds to the worktree** and answers from the wrong branch. Always
+activate by absolute path: `--project "$(pwd)"` at server start or
+`activate_project("<abs path>")`. MCP server instances are independent, so a
+later session in the main checkout just starts with `--project-from-cwd` — no
+re-activation needed. Concurrent registration across parallel agents is safe:
+persistence reloads the disk copy and merges by path. Unique bare names are
+available via the gitignored `.serena/project.local.yml`
+(`project_name: "functualize-<branch>"`); serena applies that file as an
+override layer over `project.yml`.
+
 ## zvec-grep
 
 Hybrid lexical + semantic search over a local embedding index. Indexes markdown
@@ -256,3 +274,13 @@ turns out to be wrong rather than leaving it to mislead.
   prose: its top hits for "how does configuration precedence work" were
   `docs/guides/configuration.md` and `docs/guides/architecture.md`, which
   graphify cannot reach at all.
+
+- **2026-09-08** — Serena's project registry (`~/.serena/serena_config.yml`) is
+  path-keyed, and every checkout of this repo registers under the same name
+  `functualize` (the name comes from the committed `project.yml`). Activating a
+  worktree *adds* a registry entry; it does not re-point the name. Bare-name
+  activation errors once two checkouts are registered ("Multiple projects
+  found") and silently binds to the worktree if it is the only registered entry.
+  Rule: activate by absolute path (`--project "$(pwd)"` / `--project-from-cwd`);
+  optionally give worktrees unique names via gitignored
+  `.serena/project.local.yml` (verified: serena loads it as an override layer).
