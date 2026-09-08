@@ -370,7 +370,7 @@ untested warm path in `workflow-state-durability`.)
 
 ## Wave 11 — the removal
 
-### [ ] T18 · `--scope-id` deleted, both spellings
+### [x] T18 · `--scope-id` deleted, both spellings
 
 **Files:** `src/functualize/_cli/dispatch.py`, `src/functualize/_cli/main.py`,
 `src/functualize/app/adapters/click_params.py`, `src/functualize/app/adapters/cli.py`,
@@ -384,11 +384,23 @@ name `--wf-resume`. Spec AC-22, AC-23.
 Sequenced two waves after T17 deliberately (plan R-d): removing the only advance spelling
 before its replacement is wired would strand every blocked run.
 
-**Gate**
+**Gate** — corrected during execution. The first spelling counted *prose*: seven
+comments legitimately name the removed flag to explain why it went, and a gate that
+forbids explaining a removal is a gate that rewards deleting the explanation. Measure
+declarations instead.
+
 ```bash
-grep -rho -- '--scope-id' src/ | wc -l
+grep -rho '"--scope-id"' src/functualize/ | wc -l          # click declarations
+func <workflow> --help | grep -c 'scope-id'                # per-command surface
+func --help | grep -c 'scope-id'                           # pre-command surface
 ```
-now: `14` · after: `0`
+now: `7` declarations · `1` · `1` — after: `0` · `0` · `0`
+
+Verified at authoring-of-the-fix time: the pre-command form now exits **1** with
+`Error: Unknown command 'scope-id'`, exactly as `12-scope-id.md` §3 predicted —
+`detect_mode`'s scan skips boolean, always-value, optional-value, `--opt=value` and
+short options, so a bare `--scope-id` falls through and becomes the first positional.
+Loud, non-zero, and incapable of running the wrong thing.
 
 ---
 

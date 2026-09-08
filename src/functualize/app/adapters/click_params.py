@@ -48,30 +48,15 @@ logger = logging.getLogger(__name__)
 _DI_TYPE_NAMES = INJECTED_PARAM_TYPE_NAMES
 
 
-#: The kwarg a `--scope-id` command option binds to. A `@workflow` job command
-#: carries one; every other job does not, so it stays off their `--help` and
-#: cannot collide with a config field named `scope_id`.
-_SCOPE_ID_PARAM = "scope_id"
-
-
-def _scope_id_option() -> click.Option:
-    """The per-command `--scope-id`, for a job that declares a `@workflow`.
-
-    `func` has had a **pre-command** `--scope-id` since gates existed, and
-    `app/commands.py` never threaded it — so a `@workflow` with a `Gate` on a
-    `FunctualizeApp` blocked at exit 5 forever and the deposited input was never
-    read. There was no surface on an embedded app that could supply the scope.
-
-    Post-command, and on both surfaces, because that is where a reader looks:
-    the audit that found this got the pre-command position wrong twice before
-    reading `dispatch.py`. `func --scope-id X walk` still works.
-    """
-    return click.Option(
-        ["--scope-id", _SCOPE_ID_PARAM],
-        default=None,
-        required=False,
-        help="Resume the named workflow scope instead of starting a fresh one.",
-    )
+#: The programmatic seam for an embedded host, deliberately kept.
+#:
+#: `app/commands.py` never threaded the CLI flag, so a `@workflow` with a
+#: `Gate` on a `FunctualizeApp` blocked at exit 5 forever and the recorded input
+#: was never read. `--scope-id` was written to close that; the flag is gone and
+#: the seam is not, because removing it would re-open the hole for hosts that
+#: set the attribute directly. **API-only, with no CLI spelling** — the CLI
+#: addresses a scope with the post-command `--wf-resume`.
+_APP_SCOPE_ATTR = "_workflow_scope_id"
 
 
 def _declares_workflow(function: Any) -> bool:
@@ -994,12 +979,12 @@ def _report_blocked(result: Any) -> None:
     # the same reason — that is where a reader looks, and the pre-command form
     # is what the audit that found this got wrong twice.
     program = _program_name()
-    resume = f"{program} builtin workflow resume"
+    answer = f"{program} builtin workflow answer"
     if scope and gate:
-        print(f"  {resume} {scope} {gate} --input '{{…}}'", file=sys.stderr)
+        print(f"  {answer} {scope} {gate} --input '{{…}}'", file=sys.stderr)
     else:
         print(
-            f"  {resume} <scope> <gate> --input '{{…}}'  "
+            f"  {answer} <scope> <gate> --input '{{…}}'  "
             f"(run `{program} builtin workflow list` to find the scope)",
             file=sys.stderr,
         )
@@ -1011,7 +996,18 @@ def _report_blocked(result: Any) -> None:
         # `No such command 'audit.audit-run'`, which is worse than printing
         # nothing: it looks like the resume feature is the thing that is broken.
         command_path = job_name.replace(".", " ")
-        print(f"  {program} {command_path} --scope-id {scope}", file=sys.stderr)
+        # One line that finishes the run, rather than one that starts another
+        # attempt at it. `--scope-id` re-invoked the job and blocked again
+        # unless the gate had been answered separately; `--wf-resume
+        # --wf-input` answers and advances in the same command.
+        #
+        # This output is load-bearing now in a way it was not before: with no
+        # pre-command flag to fall back on, "re-run the command you remember"
+        # is gone, so exit 5 has to print the exact command that continues.
+        print(
+            f"  {program} {command_path} --wf-resume {scope} --wf-input '{{…}}'",
+            file=sys.stderr,
+        )
 
     if not logger.isEnabledFor(logging.DEBUG):
         return

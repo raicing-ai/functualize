@@ -1171,7 +1171,6 @@ def _handle_group(
     *,
     output_format: str = "none",
     _app_ref: list[Any] | None = None,
-    scope_id: str | None = None,
     prompt_gates: bool = False,
     force: bool = False,
 ) -> int:
@@ -1269,7 +1268,6 @@ def _handle_job(
     *,
     output_format: str = "none",
     _app_ref: list[Any] | None = None,
-    scope_id: str | None = None,
     prompt_gates: bool = False,
     force: bool = False,
 ) -> int:
@@ -1490,7 +1488,6 @@ def _handle_job(
         function=function,
         job_config_class=config_class,
         app=app,
-        workflow_scope_id=scope_id,
     )
 
     return invoke_command_capturing(
@@ -1573,7 +1570,6 @@ def _handle_single_file(
     *,
     output_format: str = "none",
     _app_ref: list[Any] | None = None,
-    scope_id: str | None = None,
     prompt_gates: bool = False,
     force: bool = False,
 ) -> int:
@@ -1691,7 +1687,6 @@ def _handle_single_file(
         function=target_fn,
         app=app,
         command_name=function_name,
-        workflow_scope_id=scope_id,
     )
 
     return invoke_command_capturing(
@@ -2046,7 +2041,6 @@ def _run_cli() -> None:
     app_ref: list[Any] = []  # handlers deposit FunctualizeApp here
 
     # ── Workflow gate flags ────────────────────────────────────────────────
-    scope_id = global_opts.scope_id
     prompt_gates = global_opts.prompt_gates
     force = global_opts.force
 
@@ -2057,7 +2051,6 @@ def _run_cli() -> None:
                 effective_args,
                 output_format=output_format,
                 _app_ref=app_ref,
-                scope_id=scope_id,
                 prompt_gates=prompt_gates,
                 force=force,
             )
@@ -2076,7 +2069,6 @@ def _run_cli() -> None:
                 cli_flags,
                 output_format=output_format,
                 _app_ref=app_ref,
-                scope_id=scope_id,
                 prompt_gates=prompt_gates,
                 force=force,
             )
@@ -2096,7 +2088,6 @@ def _run_cli() -> None:
                 group_names=group_names,
                 output_format=output_format,
                 _app_ref=app_ref,
-                scope_id=scope_id,
                 prompt_gates=prompt_gates,
                 force=force,
             )
@@ -2119,13 +2110,17 @@ def _run_cli() -> None:
         # Try to execute as a job first; if the full app boot can't find it
         # either, _handle_job returns 1 with its own error message.
         #
-        # `scope_id`/`prompt_gates` must be forwarded here exactly as Mode.JOB
+        # `prompt_gates`/`force` must be forwarded here exactly as Mode.JOB
         # forwards them. UNKNOWN is the same job about to run — the only
         # difference is that the cheap enumeration had not yet learned the
-        # name. Omitting them made `--scope-id` silently ignored on a cold
-        # discovery cache and honoured on every warm run afterwards, so a
-        # workflow minted a generated scope id on its first invocation and the
-        # caller's id addressed nothing.
+        # name. Omitting a flag here made it silently ignored on a cold
+        # discovery cache and honoured on every warm run afterwards.
+        #
+        # The flag that taught this lesson was `--scope-id`, a pre-command
+        # global addressing persisted state, and it is gone: a workflow's scope
+        # is now addressed by the post-command `--wf-resume`, which cannot
+        # reach this scan at all. The rule outlives it — anything added to
+        # Mode.JOB's call belongs in this one too.
         try:
             exit_code = _handle_job(
                 effective_args,
@@ -2135,7 +2130,6 @@ def _run_cli() -> None:
                 cli_flags,
                 output_format=output_format,
                 _app_ref=app_ref,
-                scope_id=scope_id,
                 prompt_gates=prompt_gates,
                 force=force,
             )

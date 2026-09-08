@@ -42,6 +42,8 @@ class TestAdapterDirectoryContents:
         # pipeline); shares the engine callback so the paths cannot drift
         # surface_gate.py: direct-run StdoutSurface gate shared by cli.py and
         # lazy_command.py so the two command paths cannot drift
+        # workflow_flags.py: the --wf-* option list *and* its resolution, shared
+        # by click_params.py and lazy_command.py for the same reason
         expected_files = [
             "__init__.py",
             "_validation.py",
@@ -50,6 +52,7 @@ class TestAdapterDirectoryContents:
             "lazy_command.py",
             "surface_gate.py",
             "tui.py",
+            "workflow_flags.py",
         ]
         assert py_files == expected_files, (
             f"app/adapters/ should contain exactly {expected_files}, "

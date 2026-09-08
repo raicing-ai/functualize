@@ -105,12 +105,16 @@ def deposit_gate_input(
     # is dotted (`audit.audit-run`) and the command path is not
     # (`audit audit-run`), so the dotted form would print something that
     # answers `No such command`.
+    #
+    # `--wf-resume` replaces `--scope-id`, and it does more than rename: this
+    # hint is now a command that *finishes the run*, where the old one only
+    # started another attempt at it.
     workflow_name = str(scope.get("workflow") or "")
     resume_hint = (
         f" Continue with: <your entry point> {workflow_name.replace('.', ' ')} "
-        f"--scope-id {scope_id}"
+        f"--wf-resume {scope_id}"
         if workflow_name
-        else f" Re-run the workflow job with --scope-id {scope_id}."
+        else f" Re-run the workflow job with --wf-resume {scope_id}."
     )
     return {
         "status": "input_accepted",
