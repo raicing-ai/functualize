@@ -224,7 +224,9 @@ Determine the target version, then:
    branch name, the changelog, or an explicit instruction. Never infer a major or minor
    bump silently.
 2. **Land everything else first.** Phase 0 runs against the exact `master` the tag will
-   point at. If a feature PR is still open, wait for it to merge and fast-forward.
+   point at. If the PR that carries the cut is still open, the bump goes into it
+   (step 6); everything else must already be merged so the tag points at the cut and
+   nothing after it.
 3. **Bump the version at every declaration site — there are seventeen**, and
    `grep` is what enumerates them, not this list:
 
@@ -259,12 +261,20 @@ Determine the target version, then:
    bottom: repoint `[Unreleased]` to `compare/vX.Y.Z...HEAD` and add the `[X.Y.Z]` row.
 5. **Regenerate `uv.lock`** (`uv sync --all-extras`) — it records workspace member
    versions and will otherwise be stale.
-6. **Open a prep PR** on a `chore/release-x-y-z` branch. Keep it purely mechanical so it
-   is trivially reviewable; do not fold unrelated changes into it.
-7. **Wait for its checks, merge it, and fast-forward** before proceeding to Gate 1.
+6. **Commit the bump to the branch that carries the cut** — normally the feature PR
+   itself. The bump travels in that PR like any other change: one review, one CI run,
+   one merge. Keep the bump commit purely mechanical so it stays trivially reviewable
+   beside the feature it releases; do not fold unrelated changes into it.
+   Only when the cut has no feature PR (e.g. a patch release straight off `master`)
+   does the bump get its own `chore/release-x-y-z` PR.
+7. **Wait for the PR's checks, merge it, and fast-forward** before proceeding to Gate 1.
 
-This costs one full CI cycle. That is the price of the tag pointing at a reviewed,
-CI-green commit, and it is the intended trade.
+The bump no longer costs a full CI cycle of its own: it shares the feature PR's run,
+and the post-merge run on `master` is the one `release.yml`'s `verify-ci` requires
+anyway. The spec-clearing push that precedes the merge is cheap too —
+`.github/workflows/ci.yml`'s `spec-only-change` gate skips the heavy jobs when a push
+touches only `.spec/features/`, leaving `spec-artifacts-cleared` to report green on
+the cleared head.
 
 **Gate execution order (fixed — never reorder):**
 

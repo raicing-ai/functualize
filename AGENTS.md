@@ -52,8 +52,8 @@ All checks must pass before any change is complete: `ruff check`, `ruff format -
   type below. `sdd/<slug>` is reserved for spec-driven working branches.
 - `master` carries a GitHub ruleset: changes arrive by PR, squash is the only
   merge method, and `lint`, `lint-imports`, `typecheck`, `test-fast`, `gitleaks`
-  and `lint-title` must pass. Admins can bypass it — do not, except for the
-  release commit.
+  and `lint-title` must pass. Admins can bypass it — do not, not even for the
+  release commit: the version bump rides the feature PR like any other change.
 - Commit subjects are [Conventional Commits](https://www.conventionalcommits.org/):
   `<type>(<scope>)!: <subject>` with types `feat fix docs refactor test perf ci
   build chore revert`. Imperative, lowercase, no trailing period, ≤72 chars.
