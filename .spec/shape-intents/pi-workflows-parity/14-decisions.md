@@ -16,7 +16,8 @@ Every accepted decision, renumbered clean. Reversals and retired arguments are i
 | **A5** | **Delete the early-parse `--scope-id` outright** — no refusal branch. `detect_mode` breaks on an unrecognised `--flag`, so deletion fails loud and cannot misexecute. | [12 §3](12-scope-id.md) |
 | **A6** | **Ambiguity never guesses.** Zero → error naming the survey verb; one → use it; several → list and exit 2. Never "newest wins". | [05 §5](05-target-surface.md) |
 | **A7** | **MCP parity is pinned by a test**, not asserted: one implementation per verb, same addressing, same result shape, same error codes. One honest exception — `--prompt-gates` is CLI-only. | [05 §4](05-target-surface.md) |
-| **A8** | **The blocked output is load-bearing.** Exit 5 prints the exact `resume` command with each step's contract stated inline; `func <wf>` hints when a scope of that workflow is waiting. | [06](06-lifecycles.md) |
+| **A8** | **`--wf-run-id <id>` for idempotent start.** An unknown `--scope-id` today *creates* the scope, so start-if-not-exists exists only as a side effect of the flag's double duty. `--wf-run-id` makes it explicit and unconditional (a *start* parameter, so it reintroduces none of the control-flag machinery), while `--wf-resume` errors on an unknown id. Serves CI's one-run-per-SHA, a scheduler's one-run-per-day, an agent's don't-start-twice. | [05 §2.2](05-target-surface.md) |
+| **A9** | **The blocked output is load-bearing.** Exit 5 prints the exact `resume` command with each step's contract stated inline; `func <wf>` hints when a scope of that workflow is waiting. | [06](06-lifecycles.md) |
 
 ## B. Defects — correctness, not design
 
@@ -96,9 +97,8 @@ Every accepted decision, renumbered clean. Reversals and retired arguments are i
 
 ## H. Open
 
-| # | Question |
-|---|---|
-| **O5** | **`--wf-run-id` for idempotent start.** Verified that an unknown `--scope-id` today *creates* the scope, so the capability exists and would otherwise be lost — CI's one-run-per-SHA, a scheduler's one-run-per-day, an agent's don't-start-twice. `resume` cannot express it. Recommended; needs a yes. |
+None. Every question is settled; see [CHANGELOG §3](CHANGELOG.md) for what not to
+re-litigate.
 
 ## I. Two parallel tracks
 
@@ -119,7 +119,7 @@ constraints:
 | **0 — blocking** | B1, B2 | State erasure. Nothing else is safe until this lands. |
 | **1 — small, independent** | B3, B4, B5, B6 | Four return dicts, one status check, two lines, one docs pass. |
 | **2 — the lift** | C1, C2, C3, F1, F6 | One projection, four callers, child addressing. Largest user-visible gain per line written. |
-| **3 — the surface** | A1-A8, B7, B8, D1-D4 | The three tiers, the vocabulary, `--scope-id` removal, gate drafts. |
+| **3 — the surface** | A1-A9, B7, B8, D1-D4 | The three tiers, the vocabulary, `--scope-id` removal, gate drafts. |
 | **4 — coordination** | D5, D6, F5 | Notes inside the scope record; task link addressing. |
 | **T — tasks (parallel)** | E1 → E2, E3, E4, E5 | Independent of 0-4; needs F6 from wave 2. |
 | **5 — the port** | C5, F3, F4 | `AgentStepExecutor` and the provider table. |

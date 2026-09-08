@@ -98,12 +98,11 @@ Each row is settled. The evidence is in the cited document.
 | `--fresh`? | **No** — absence of a resume flag already means a new scope. | [14 N8](14-decisions.md) |
 | Time columns / `--actor` in the survey? | **Not yet** — scope records carry no timestamps, and the gate-level `blocked_at` resets on every re-block. | [01 §C.6-C.7](01-current-state.md) |
 | Where should shared verb logic live? | **`app/`, re-exported through `functualize.app.utils`** — the only arrangement `_cli` may legally import. | [11 §1](11-boundaries.md) |
+| Preserve caller-chosen run ids? | **Yes — `--wf-run-id`.** A *start* parameter, unconditional, separate from `--wf-resume` which errors on an unknown id. | [14 A8](14-decisions.md) |
 
 ## 4. Still open
 
-| # | Question |
-|---|---|
-| **O5** | `--wf-run-id` for idempotent start — recommended, needs a yes. Verified that an unknown `--scope-id` today *creates* the scope, so the capability exists and would otherwise be lost. [05 §2.2](05-target-surface.md) · [14 H](14-decisions.md) |
+None.
 
 ## 5. Document history
 
