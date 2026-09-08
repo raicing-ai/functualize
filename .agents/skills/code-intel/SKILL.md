@@ -133,3 +133,29 @@ turns out to be wrong rather than leaving it to mislead.
   across 26 files; zvec-grep surfaced `contributor/adr/008` explaining why the
   TUI keeps its own resolver; graphify gave typed `calls`/`imports`/`references`
   edges separating production callers from imports.
+
+- **2026-09-08** — When a long index build runs inside an agent session, kill
+  the **agent**, not the job. Killing `graphify extract` returned control to the
+  supervising omp agent, which diagnosed the timeout and relaunched it — twice,
+  at successively smaller `--token-budget` values. Killing the agent process
+  took its child job down with it. Three attempts and ~100 minutes were spent
+  before this was understood. Corollary: an instruction like "let it run, do not
+  interrupt it" makes an agent persistent through failures, so say what should
+  happen *on failure* too.
+
+- **2026-09-08** — `pgrep -f "<pattern>"` matches the shell command doing the
+  searching, because that command line contains the pattern. It reported a
+  killed process as still running. Filter the wrapper out
+  (`ps -eo pid,args | grep <pat> | grep -v shell-snapshots`) before concluding
+  anything about whether a process died.
+
+- **2026-09-08** — Verify a claim before writing it into a commit message. A
+  message here asserted a `.gitattributes` union merge driver for `graph.json`
+  that had been recommended hours earlier and never implemented; there was no
+  `.gitattributes` file at all. `git check-attr merge diff -- <path>` confirms
+  an attribute actually applies.
+
+- **2026-09-08** — `git count-objects -vH` reports `size-pack` for *packed*
+  objects only. A freshly committed blob is loose, so the pack figure does not
+  move and the repo looks unchanged. Read `size:` as well before claiming a
+  commit was cheap.
