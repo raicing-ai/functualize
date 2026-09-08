@@ -131,6 +131,12 @@ strictly better and is the same field.
 
 ### 2.3 The replacement surface
 
+> **Superseded by [18](18-three-tier-surface.md).** This section deleted the job-side
+> control surface entirely. The current design keeps it as a convenience subset:
+> `--wf-continue [id]` replaces `--scope-id`, with the rich verbs on
+> `builtin workflow` and MCP at parity. §1 (delete the early-parse flag) still stands.
+
+
 **One new verb per surface. Nothing on the job.**
 
 | Surface | Verb | Contract |

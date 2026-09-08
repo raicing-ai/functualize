@@ -74,6 +74,7 @@ release action — silently erases every in-flight run, and so does
 | [15-scope-id-early-parse-removal.md](15-scope-id-early-parse-removal.md) | Audit of removing the early-parse `--scope-id`: per-mode empirical coverage, a retraction, and the idiomatic removal |
 | [16-replacing-scope-id.md](16-replacing-scope-id.md) | Without compat pressure: delete the flag outright, and replace `--scope-id` with a **verb** (`builtin workflow continue <id>`) rather than another flag |
 | [17-lifecycle-without-scope-id.md](17-lifecycle-without-scope-id.md) | **The matrix and UX after `--scope-id` is dropped** — three layers collapse to two, nine lifecycles, and the one capability that would be lost |
+| [18-three-tier-surface.md](18-three-tier-surface.md) | **Current target surface** — rich `builtin workflow`, MCP at parity, `--wf-*` convenience subset. Supersedes 16 §2.3 and 17 §1-3 |
 | [13-decisions.md](13-decisions.md) | **Decision register** — 32 accepted decisions, 11 explicit non-goals, 4 open questions, implementation waves |
 | [evidence/verified.md](evidence/verified.md) | file:line index, re-derived |
 

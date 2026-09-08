@@ -10,7 +10,13 @@ is re-decided per [16 §1.1](16-replacing-scope-id.md) the pair becomes `deposit
 
 ---
 
+> **Superseded by [18](18-three-tier-surface.md)** for §1-§3: the job command keeps a
+> `--wf-*` convenience subset rather than becoming start-only. The lifecycles in §4, the
+> costs in §5 and the capability finding in §5.2 all still hold — read them with
+> `--wf-continue` available as the job-side shortcut.
+
 ## 1. The structural change: three layers collapse to two
+
 
 [09 §0](09-target-matrix-and-lifecycles.md) had record / invocation / execution. Under
 D1g the **invocation layer disappears as a control surface**:
