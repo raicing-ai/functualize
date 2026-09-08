@@ -72,6 +72,7 @@ release action — silently erases every in-flight run, and so does
 | [12-task-sinks.md](12-task-sinks.md) | Where `tasks-local` actually stores data, and the fan-out/reduce multi-sink idea — architectures, formats, traps |
 | [14-resume-deposit-collisions.md](14-resume-deposit-collisions.md) | Every current and future `resume`/`deposit` collision site, and why the fix is to rename the *flag* rather than the verb |
 | [15-scope-id-early-parse-removal.md](15-scope-id-early-parse-removal.md) | Audit of removing the early-parse `--scope-id`: per-mode empirical coverage, a retraction, and the idiomatic removal |
+| [16-replacing-scope-id.md](16-replacing-scope-id.md) | Without compat pressure: delete the flag outright, and replace `--scope-id` with a **verb** (`builtin workflow continue <id>`) rather than another flag |
 | [13-decisions.md](13-decisions.md) | **Decision register** — 32 accepted decisions, 11 explicit non-goals, 4 open questions, implementation waves |
 | [evidence/verified.md](evidence/verified.md) | file:line index, re-derived |
 
