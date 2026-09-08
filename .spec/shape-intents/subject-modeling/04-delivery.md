@@ -121,8 +121,15 @@ $ func rise diagnose    # rise's vocabulary
 
 The standalone `rise` is not the project's entry point; it is the
 **bootstrapper for where no project exists yet** — a bare machine, or a
-checkout you have not set up. That division is what keeps `rise` from needing
-to run jobs at all.
+checkout you have not set up. That division keeps `rise` out of the project's
+job graph entirely: it never runs `func build`, and never scans `jobs/`.
+
+It does run **its own modules' methods** — `rise tools mise install` is the
+bootstrap case and the reason the standalone delivery exists at all (`09` §2).
+Those methods are jobs, created by rise's own `ClassBinding` (`03` §4); they are
+just never *the project's* jobs. An earlier draft of this paragraph said the
+division "keeps `rise` from needing to run jobs at all," which was wrong and
+contradicted §1B's own example list.
 
 ## 4. Why both, rather than picking one
 

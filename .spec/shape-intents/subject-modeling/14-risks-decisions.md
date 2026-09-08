@@ -96,9 +96,16 @@ project with rise wired in**: the project's own jobs under `jobs/`, risekit as
 a dependency, so `func build` and `func rise diagnose` are one command tree.
 The standalone `rise` is the bootstrapper for where no project exists yet.
 
-This follows from a scoping decision: **`rise` is not a job runner.** It scans
-no `jobs/` directory and registers nothing but rise modules, so there is
-exactly one task runner (`func`) and no chance of two drifting.
+This follows from a scoping decision: **`rise` is not the *project's* job
+runner.** It scans no `jobs/` directory and registers nothing but rise modules,
+so there is exactly one runner for a project's own jobs (`func`) and no chance
+of two drifting.
+
+It does run the jobs its own binding creates — `rise tools mise install` is the
+bootstrap case (`09` §2), and the table below says as much ("installs them").
+The line to hold is *project jobs vs rise modules*, not *describing vs
+executing*; phrasing it as "rise is not a job runner" is wrong and was
+corrected here and in `04` §3a.
 
 **Settled — dependency coverage.** `rise diagnose` and `rise bootstrap` cover
 **all three layers**:

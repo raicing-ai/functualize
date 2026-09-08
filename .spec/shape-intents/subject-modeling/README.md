@@ -134,3 +134,11 @@ in func :  func rise tools jsonschema install | …
 ```
 
 Same class, same plugin object, two deliveries — `04`.
+
+**`tools jsonschema` is the class above, not a task in your project.** Rise
+binds its own modules' methods and runs those. It scans no `jobs/` directory, so
+`rise build` and `rise deploy` do not exist in either delivery — the project's
+own jobs stay `func`'s alone, and there is exactly one runner for them
+(`04` §1B). The standalone `rise` executes rise modules because that is what
+bootstrapping a bare machine requires: `rise tools mise install` has to work
+before any project or `func` exists (`09` §2).
