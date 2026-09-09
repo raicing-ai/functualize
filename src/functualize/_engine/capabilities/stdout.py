@@ -144,16 +144,29 @@ class WiredStdout:
 
 def _make_stdout(ctx: Any) -> WiredStdout:
     """Build the wired stdout channel for this invocation."""
-    # `--output` is a per-invocation CLI flag, not config: the CLI boundary
-    # deposits the resolved value on the app before dispatch. Absent
-    # (library/embedded use) it defaults to "auto" — dispatch by the emitted
-    # value's type — so `out.emit()` still works outside the CLI.
-    app = getattr(ctx.engine, "_app", None)
+    # `--output` is a per-invocation flag, so it rides the request that asked
+    # for this run. It used to be read off the app — the CLI boundary deposited
+    # the resolved value there before dispatch — which meant two concurrent runs
+    # shared one answer and the kernel depended on an attribute the app is not
+    # obliged to have (run-request-entry/T12 removed the deposits).
+    #
+    # Absent a request (library or embedded use, or a context built outside
+    # `engine.run`) it defaults to "auto" — dispatch by the emitted value's
+    # type — so `out.emit()` still works with no CLI in sight.
+    # `ctx` is a `CapabilityContext` — engine, ExecutionContext, caps — so the
+    # request is one hop in, on `ctx.context`. Reading `ctx.request` returns
+    # None for every run and the format silently falls back to "auto", which is
+    # indistinguishable from working for any value that renders the same both
+    # ways (a flat mapping does). Measure with `--output none`, which suppresses
+    # emission entirely, or `--output raw`; `json` vs `auto` proves nothing.
+    execution = getattr(ctx, "context", None)
+    request = getattr(execution, "request", None)
     # No `secrets=` here: config is resolved *after* DI wiring, so the values
     # are not known yet. `_arm_output_redaction` fills them in from the model
     # the job actually receives.
     return WiredStdout(
-        output_format=getattr(app, "_output_format", "auto") or "auto",
+        output_format=(request.output_format if request is not None else "auto")
+        or "auto",
     )
 
 

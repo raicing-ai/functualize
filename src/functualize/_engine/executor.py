@@ -694,6 +694,7 @@ class JobExecutionEngine:
         result = self._execute_lifecycle(
             request.job_name,
             job.function,
+            request=request,
             kwargs=kwargs,
             invoke_depth=request.invoke_depth,
             cwd=request.cwd,
@@ -827,6 +828,7 @@ class JobExecutionEngine:
         force_fresh: bool = False,
         force: bool = False,
         group_option_values: dict[str, Any] | None = None,
+        request: RunRequest | None = None,
     ) -> JobResult:
         """Execute a job with full lifecycle.
 
@@ -891,6 +893,7 @@ class JobExecutionEngine:
             start_time=start_time,
             config_class=config_class,
             parent_scope=parent_scope,
+            request=request,
         )
 
         declaration = getattr(function, "__functualize_workflow__", None)
@@ -931,6 +934,7 @@ class JobExecutionEngine:
                 scope_id=workflow_scope_id,
                 invoke_depth=invoke_depth,
                 start_time=start_time,
+                request=request,
             )
             if early is not None:
                 return early
@@ -1248,6 +1252,7 @@ class JobExecutionEngine:
         scope_id: str | None,
         invoke_depth: int,
         start_time: float,
+        request: RunRequest | None = None,
     ) -> tuple[Any, JobResult | None]:
         """Walk a `@workflow` job's graph before its body runs.
 
@@ -1337,7 +1342,15 @@ class JobExecutionEngine:
             run_step=run_step,
             scope_id=scope_id,
             gate_registry=self._gate_registry,
-            prompt_gates=getattr(getattr(self, "_app", None), "_prompt_gates", False),
+            # From the request, not from the app. This used to reach two
+            # attributes deep into `engine._app` for a value the CLI boundary
+            # had deposited there before dispatch — so two concurrent runs
+            # shared one answer, and the kernel depended on an attribute the
+            # app is not obliged to have. run-request/T12 removed the deposits;
+            # the request carries this per run. (Worded without naming the
+            # removed attributes: T12's gate counts them in this file, and a
+            # comment quoting them would keep the count at 1 forever.)
+            prompt_gates=(request.prompt_gates if request is not None else False),
         )
         run = runner.prelude(job_name, declaration)
         if run.should_run_body:

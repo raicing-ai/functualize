@@ -66,16 +66,6 @@ def _declares_workflow(function: Any) -> bool:
     return getattr(function, "__functualize_workflow__", None) is not None
 
 
-def _force_requested(app_ref: Any) -> bool:
-    """Did the caller ask to run anyway?
-
-    Deposited on the app by whichever CLI parsed it — both do, at the same
-    attribute — because the commands are built before the pre-command flags are
-    parsed. Same route `--output` takes.
-    """
-    return bool(getattr(app_ref, "_force", False))
-
-
 # ─── Small pure helpers (copies of the ones in adapters/cli.py) ──
 
 
@@ -1001,6 +991,9 @@ def build_job_engine_callback(
     group_option_values: dict[str, Any] | None = None,
     workflow_scope_id: str | None = None,
     surface: RunSurface = "app.cli",
+    prompt_gates: bool | None = None,
+    output_format: str | None = None,
+    force: bool | None = None,
 ) -> Callable[..., Any]:
     """Build the DI/config/lifecycle callback a click command invokes.
 
@@ -1017,6 +1010,12 @@ def build_job_engine_callback(
     ``stdin_markers`` at run-request/T11: the callback no longer resolves
     stdin, ``engine.run()`` does, and it re-derives the markers from the job's
     own signature.
+
+    ``prompt_gates``, ``output_format`` and ``force`` are the delivery inputs.
+    ``None`` means "this door did not parse them" — the app's own root callback
+    puts them in ``ctx.obj`` instead, because it runs after its subcommands were
+    built. Until run-request/T12 both routes were the same thing: an attribute
+    written onto the app object, which the kernel then read.
     """
     app_ref = app
 
@@ -1091,8 +1090,10 @@ def build_job_engine_callback(
                 kwargs=kwargs,
                 group_option_values=group_option_values,
                 workflow_scope_id=scope_id,
-                force=_force_requested(app_ref),
                 surface=surface,
+                prompt_gates=prompt_gates,
+                output_format=output_format,
+                force=force,
             )
             result = app_ref.execution_engine.run(request)  # type: ignore[union-attr]
         return deliver_job_result(result, name, app_ref)
@@ -1255,6 +1256,9 @@ def create_job_click_command(
     group_option_values: dict[str, Any] | None = None,
     workflow_scope_id: str | None = None,
     surface: RunSurface = "app.cli",
+    prompt_gates: bool | None = None,
+    output_format: str | None = None,
+    force: bool | None = None,
 ) -> click.Command:
     """Build a ``click.Command`` for a job — the click-native replacement.
 
@@ -1269,6 +1273,9 @@ def create_job_click_command(
             (S6a), passed through to the engine as the group-CLI layer.
         surface: The door building this command. Defaults to the app's own
             CLI; ``func``'s handlers pass their own (run-request/T11).
+        prompt_gates: Delivery input, ``None`` when this door did not parse it.
+        output_format: Delivery input, ``None`` when this door did not parse it.
+        force: Delivery input, ``None`` when this door did not parse it.
     """
     from functualize._discovery.providers import extract_capability_markers
 
@@ -1292,6 +1299,9 @@ def create_job_click_command(
         group_option_values=group_option_values,
         workflow_scope_id=workflow_scope_id,
         surface=surface,
+        prompt_gates=prompt_gates,
+        output_format=output_format,
+        force=force,
     )
     return click.Command(
         name=command_name or name,

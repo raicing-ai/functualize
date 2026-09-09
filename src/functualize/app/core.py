@@ -127,12 +127,17 @@ class FunctualizeApp:
     # Memo caches, invalidated by the mutators below.
     _jobs_memo: list[JobDescriptor] | None = None
     _cli_command_cache: Any = None
-    # Set by the CLI on the app it is about to run; read through
-    # `getattr(..., default)` off that path, so they stay undeclared at
-    # runtime until the CLI assigns them.
-    _output_format: str
-    _prompt_gates: bool
-    _force: bool
+    # The programmatic scope seam, kept deliberately: an embedded host sets
+    # this directly and it has no CLI spelling (`click_params.py` reads it).
+    #
+    # `_output_format`, `_prompt_gates` and `_force` used to be declared here
+    # too — the deposit protocol. The CLI wrote them onto the app it was about
+    # to run and the kernel read them back through `engine._app`, which meant
+    # the delivery behaviour of a run lived on a process-lifetime object rather
+    # than on the run. run-request/T12 removed all eleven writes: the doors that
+    # parse those flags now state them when they build the command, and the
+    # app's own root callback — which runs after its subcommands are built —
+    # puts them in the per-invocation `ctx.obj` instead.
     _workflow_scope_id: str | None
 
     def __init__(

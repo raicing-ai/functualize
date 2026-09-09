@@ -284,7 +284,7 @@ now: `2` *(`:1216`, `:1795`)* · after: `0`
 
 ## Wave 5 — the deposits die and the flags appear
 
-### [ ] T12 · The ten deposit writes are removed
+### [x] T12 · The ten deposit writes are removed
 
 **Files:** `src/functualize/_cli/main.py`
 
@@ -297,13 +297,16 @@ rg -c 'app\._(prompt_gates|output_format|force) *=' src/functualize/_cli/main.py
 ```
 now: `10` · after: `0`
 
+*(Eleven writes, not ten: `app/adapters/cli.py:1001` wrote `_force` too, and this gate is
+scoped to `main.py` so it could never see it. Counted and removed.)*
+
 **Gate — the kernel stops reading them**
 ```bash
 rg -c '_prompt_gates|_output_format' src/functualize/_engine/executor.py src/functualize/_engine/capabilities/stdout.py
 ```
 now: `executor.py:1`, `stdout.py:1` · after: `0`, `0`
 
-### [ ] T13 · `--prompt-gates` and `--output` on an app's own entry point — **D-1, D-2**
+### [x] T13 · `--prompt-gates` and `--output` on an app's own entry point — **D-1, D-2**
 
 **Files:** `src/functualize/app/adapters/cli.py`,
 `tests/cli/test_app_surface_prompt_gates.py`, `tests/cli/test_app_surface_output_format.py`

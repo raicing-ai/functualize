@@ -41,6 +41,12 @@ from functualize.app.adapters.click_params import (
     make_duality_group,
 )
 from functualize.app.adapters.lazy_command import make_lazy_command
+from functualize.types import OPTIONAL_VALUE_VALID_SET
+
+# `--output`'s vocabulary, read from the one flag grammar rather than repeated
+# here. `func` reads the same table, which is what keeps the two surfaces from
+# drifting on what the flag accepts (run-outcome-authority/T8).
+_OUTPUT_VALUES, _OUTPUT_DEFAULT = OPTIONAL_VALUE_VALID_SET["--output"]
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
@@ -918,6 +924,8 @@ class CliAdapter:
             perf_report: str | None = None,
             perf_filter: str | None = None,
             force: bool = False,
+            prompt_gates: bool = False,
+            output: str | None = None,
             **generated: Any,
         ) -> None:
             """Global options processed before any sub-command.
@@ -994,15 +1002,19 @@ class CliAdapter:
             else:
                 app_instance.job_registry.update_config_paths()
 
-            # Deposited on the app rather than passed down, because the
-            # commands were built before this callback ran — the same route
-            # `--output` already takes. `func` reaches the identical attributes
-            # from `_cli/main.py`, so the two surfaces agree.
-            app_instance._force = force
-
+            # Into the click context, not onto the app. This callback runs
+            # *after* its subcommands were built, so unlike `func`'s handlers it
+            # cannot hand `force` to the builder — but `ctx.obj` is created per
+            # invocation and torn down with it, where `app._force` lived for the
+            # process's lifetime and was read by the kernel through
+            # `engine._app` (run-request/T12 removed that). `build_request`
+            # reads this dict when a door states no value of its own.
             ctx.obj = {
                 "app": app_instance,
                 "fallbacks": fallbacks,
+                "force": force,
+                "prompt_gates": prompt_gates,
+                "output_format": output or "auto",
             }
 
             # Bare invocation of a self-contained app (C3.3). `func` itself
@@ -1056,16 +1068,43 @@ class CliAdapter:
                 default=None,
                 help="Filter pattern for --perf-report.",
             ),
-            # Parity with the bare `func` CLI, which has both as pre-command
-            # globals. Without them an app entry point could not force a run at
-            # all, and could not resume a gated workflow from any surface —
-            # a `@workflow` with a `Gate` blocked at exit 5 forever.
+            # Parity with the bare `func` CLI, which has all three as
+            # pre-command globals (D-1, D-2; run-request/T13). The comment here
+            # used to claim this parity while only `--force` existed — an app
+            # entry point could not prompt a gate's fields and could not choose
+            # a serialization for `out.emit()`, so a `@workflow` with a `Gate`
+            # blocked at exit 5 forever and a machine-readable run was
+            # impossible on any surface but `func` itself.
             click.Option(
                 ["--force"],
                 is_flag=True,
                 default=False,
                 help="Run even when up to date. Does not override a failed "
                 "precondition or a gate.",
+            ),
+            click.Option(
+                ["--prompt-gates"],
+                is_flag=True,
+                default=False,
+                help="Prompt for a gate's fields during a workflow walk "
+                "instead of blocking on it.",
+            ),
+            # Choices and default come from the one flag grammar
+            # (`_types/flag_grammar.py`), not a second copy: `func` reads the
+            # same table, so the two surfaces cannot drift on what `--output`
+            # accepts. A bare `--output` means the default, matching func's
+            # optional-value lookahead.
+            click.Option(
+                ["--output"],
+                type=click.Choice(sorted(_OUTPUT_VALUES)),
+                is_flag=False,
+                flag_value=_OUTPUT_DEFAULT,
+                default=None,
+                help=(
+                    "Serialization for out.emit(): "
+                    f"{', '.join(sorted(_OUTPUT_VALUES))} "
+                    f"(default {_OUTPUT_DEFAULT})."
+                ),
             ),
             *_generated_setting_options(),
             *self._cli_group.params,

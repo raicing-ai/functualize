@@ -905,6 +905,8 @@ def _dispatch_group(
     group_names: set[str],
     *,
     output_format: str = "none",
+    prompt_gates: bool = False,
+    force: bool = False,
 ) -> int:
     """Resolve and execute a group sub-command against an already-booted app.
 
@@ -941,11 +943,6 @@ def _dispatch_group(
     Returns:
         Exit code (0 = success).
     """
-    # Jobs reached through a group must honor `--output` too: deposit it here as
-    # well, since this is also entered directly from `_handle_job`'s UNKNOWN
-    # fallback, not only from `_handle_group` (which already set it).
-    app._output_format = output_format
-
     from functualize._cli.dispatch import is_known_global_flag, walk_group_path
     from functualize.app.adapters.click_params import (
         create_job_click_command,
@@ -1075,9 +1072,20 @@ def _dispatch_group(
                 group_option_values=group_option_values,
                 # This door is `func <group> <job>`, not the app's own CLI:
                 # it booted the app itself and owns the group flags consumed
-                # before the job name. It says so here rather than depositing
-                # it on the app (run-request/T11).
+                # before the job name, and it parsed the delivery flags. It
+                # states both here rather than depositing them on the app
+                # (run-request/T11, T12).
+                #
+                # All three delivery flags are parameters of this function
+                # because they have to be: before T12 they reached the job
+                # through `app._output_format` and friends, deposited by
+                # `_handle_group` before it called here. Taking `output_format`
+                # alone would have silently dropped `--force` and
+                # `--prompt-gates` on every grouped job.
                 surface="func.group",
+                prompt_gates=prompt_gates,
+                output_format=output_format,
+                force=force,
             )
             return invoke_command_capturing(
                 command, remaining, output_format, prog_name=job_descriptor.func_name
@@ -1250,9 +1258,6 @@ def _handle_group(
         if _disabled_plugins
         else None,
     )
-    app._output_format = output_format
-    app._prompt_gates = prompt_gates
-    app._force = force
 
     # Deposit app reference for perf reporting by caller
     if _app_ref is not None:
@@ -1260,7 +1265,14 @@ def _handle_group(
 
     # Post-boot resolution (job groups + plugin command groups) lives in
     # _dispatch_group, shared with the UNKNOWN fallback in _handle_job.
-    return _dispatch_group(app, args, group_names, output_format=output_format)
+    return _dispatch_group(
+        app,
+        args,
+        group_names,
+        output_format=output_format,
+        prompt_gates=prompt_gates,
+        force=force,
+    )
 
 
 # ─── Direct job handler ──────────────────────────────────────────────────
@@ -1370,9 +1382,6 @@ def _handle_job(
         if _disabled_plugins
         else None,
     )
-    app._output_format = output_format
-    app._prompt_gates = prompt_gates
-    app._force = force
 
     # Deposit app reference for perf reporting by caller
     if _app_ref is not None:
@@ -1419,6 +1428,8 @@ def _handle_job(
                 [job_name, *remaining_args],
                 merged_group_names,
                 output_format=output_format,
+                prompt_gates=prompt_gates,
+                force=force,
             )
 
         # Ungrouped plugin command matching the name → execute directly.
@@ -1496,6 +1507,9 @@ def _handle_job(
         job_config_class=config_class,
         app=app,
         surface="func.job",
+        prompt_gates=prompt_gates,
+        output_format=output_format,
+        force=force,
     )
 
     return invoke_command_capturing(
@@ -1671,9 +1685,6 @@ def _handle_single_file(
             dotenv_path=cli_config.dotenv_path,
         ),
     )
-    app._output_format = output_format
-    app._prompt_gates = prompt_gates
-    app._force = force
 
     # Deposit app reference for perf reporting by caller
     if _app_ref is not None:
@@ -1709,6 +1720,9 @@ def _handle_single_file(
         app=app,
         command_name=function_name,
         surface="func.single-file",
+        prompt_gates=prompt_gates,
+        output_format=output_format,
+        force=force,
     )
 
     return invoke_command_capturing(

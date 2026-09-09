@@ -37,27 +37,83 @@ from functualize._types.run_request import RunRequest, RunSurface
 _DEFAULT_SURFACE: RunSurface = "app.cli"
 
 
+def _click_obj() -> Mapping[str, Any]:
+    """The nearest ``ctx.obj`` dict on the live click context stack.
+
+    The one legitimate ambient channel for a delivery input, and only because
+    of the shape of the app's own CLI: its **root callback** parses ``--force``
+    (and, after T13, ``--prompt-gates`` and ``--output``) *after* the
+    subcommands were already built, so it cannot hand them to the builder the
+    way ``func``'s handlers do.
+
+    This is not the deposit protocol coming back. A deposit lived on the
+    **app** — a process-lifetime object — so two concurrent runs shared one
+    answer and the kernel read an attribute the app was not obliged to have.
+    A click context is created per invocation, torn down with it, and already
+    carries this dict (``adapters/cli.py`` fills it in). Ambient in scope but
+    not in lifetime.
+
+    Silent and defensive: outside click there is no context, and a caller that
+    put something other than a dict in ``obj`` is not an error here.
+    """
+    try:
+        import click
+
+        ctx = click.get_current_context(silent=True)
+    except Exception:  # pragma: no cover - click absent or no active context
+        return {}
+    while ctx is not None:
+        if isinstance(ctx.obj, dict):
+            return ctx.obj
+        ctx = ctx.parent
+    return {}
+
+
 def build_request(
     job_name: str,
     *,
     kwargs: Mapping[str, Any],
     group_option_values: Mapping[str, Any] | None = None,
     workflow_scope_id: str | None = None,
-    force: bool = False,
+    prompt_gates: bool | None = None,
+    output_format: str | None = None,
+    force: bool | None = None,
     surface: RunSurface = _DEFAULT_SURFACE,
 ) -> RunRequest:
     """Build the :class:`RunRequest` a click callback hands to the engine.
 
     Both the eager and lazy callbacks call this with the values they resolved
-    (scope id, force, group flags, kwargs) so that the request — not the loose
+    (scope id, group flags, kwargs) so that the request — not the loose
     arguments — is what travels. ``surface`` defaults to ``app.cli`` and is
     overridden by whichever ``func`` handler built the command.
+
+    The three **delivery inputs** — ``prompt_gates``, ``output_format``,
+    ``force`` — accept ``None`` meaning *not stated here*, in which case they
+    come from :func:`_click_obj`. ``func``'s handlers state them, because they
+    parsed the flags before building the command; the app's own root callback
+    cannot, and puts them in ``ctx.obj`` instead. Until T12 both routes were
+    one thing: an attribute written onto the app.
     """
+    ambient = (
+        _click_obj()
+        if prompt_gates is None or output_format is None or force is None
+        else {}
+    )
     return RunRequest(
         job_name=job_name,
         surface=surface,
         kwargs=kwargs,
         group_option_values=group_option_values,
         workflow_scope_id=workflow_scope_id,
-        force=force,
+        prompt_gates=(
+            bool(ambient.get("prompt_gates", False))
+            if prompt_gates is None
+            else prompt_gates
+        ),
+        output_format=(
+            str(ambient.get("output_format", "auto") or "auto")
+            if output_format is None
+            else output_format
+        ),
+        force=bool(ambient.get("force", False)) if force is None else force,
     )

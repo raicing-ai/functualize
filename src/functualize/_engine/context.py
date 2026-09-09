@@ -13,9 +13,12 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from functualize._types.enums import RunStatus
+
+if TYPE_CHECKING:
+    from functualize._types.run_request import RunRequest
 
 
 @dataclass
@@ -41,6 +44,15 @@ class ExecutionContext:
         capabilities: Per-invocation capability instances (type → instance).
         config_class: Optional Pydantic model class for job config validation.
         parent_scope: Optional workflow scope propagated from parent invoke.
+        request: The :class:`RunRequest` this execution was asked for, when it
+            came through :meth:`JobExecutionEngine.run`. It carries the delivery
+            inputs — ``prompt_gates``, ``output_format``, ``force`` — which the
+            kernel used to read off the app object as ``app._prompt_gates`` and
+            friends (run-request-entry/T12 removed those). A capability factory
+            or the workflow prelude reads them from here, so a run's delivery
+            behaviour travels *with the run* instead of sitting on a
+            process-lifetime object that a second, concurrent run would share.
+            ``None`` only for a context built outside ``run()``.
         injected: Names in ``call_kwargs`` the **executor** put there.
     """
 
@@ -56,6 +68,7 @@ class ExecutionContext:
     capabilities: dict[type, Any] = field(default_factory=dict)
     config_class: type | None = None
     parent_scope: Any | None = None
+    request: RunRequest | None = None
 
     #: Parameter names in ``call_kwargs`` that the executor injected — DI
     #: capabilities, the resolved config model, resolved group options, and

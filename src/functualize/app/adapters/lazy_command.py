@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING, Any
 import click
 
 from functualize.app.adapters.click_params import (
-    _force_requested,
     build_click_params_from_descriptor,
 )
 
@@ -37,6 +36,9 @@ def make_lazy_command(
     command_name: str | None = None,
     group_option_values: dict[str, Any] | None = None,
     surface: RunSurface = "app.cli",
+    prompt_gates: bool | None = None,
+    output_format: str | None = None,
+    force: bool | None = None,
 ) -> click.Command:
     """Build a ``click.Command`` from cached schema — no module import needed.
 
@@ -170,8 +172,10 @@ def make_lazy_command(
                 if group_option_values
                 else None,
                 workflow_scope_id=scope_id,
-                force=_force_requested(app),
                 surface=surface,
+                prompt_gates=prompt_gates,
+                output_format=output_format,
+                force=force,
             )
             result = engine.run(request)
 
