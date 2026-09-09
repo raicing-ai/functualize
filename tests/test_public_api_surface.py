@@ -155,6 +155,14 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "validate_extension_id",
     },
     "functualize.types": {
+        # The outcome authority (run-outcome-authority F2 T1/T2).
+        "ExitCode",
+        "exit_code_for_status",
+        "Family",
+        "is_failure",
+        "report_line",
+        "status_from_wire",
+        "wire_value",
         # The request a run is made from (run-request-entry F1 T1).
         "RunRequest",
         "RunSurface",

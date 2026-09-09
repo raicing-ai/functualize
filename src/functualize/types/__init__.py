@@ -23,10 +23,25 @@ from functualize._types.enums import (
     RunStatus,
     RunType,
 )
+from functualize._types.exit_codes import ExitCode, exit_code_for_status
 from functualize._types.http_status import http_status_for_status
+from functualize._types.outcome import (
+    Family,
+    is_failure,
+    report_line,
+    status_from_wire,
+    wire_value,
+)
 from functualize._types.run_request import RUN_SURFACES, RunRequest, RunSurface
 
 __all__ = [
+    "ExitCode",
+    "exit_code_for_status",
+    "Family",
+    "is_failure",
+    "report_line",
+    "status_from_wire",
+    "wire_value",
     "RUN_SURFACES",
     "RunRequest",
     "RunSurface",

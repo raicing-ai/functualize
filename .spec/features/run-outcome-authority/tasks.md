@@ -7,7 +7,7 @@ Run gates from the worktree root.
 
 ## Wave 0 — the module exists and nothing uses it
 
-### [ ] T1 · `_types/outcome.py`, with the two tables re-exported through it
+### [x] T1 · `_types/outcome.py`, with the two tables re-exported through it
 
 **Files:** `src/functualize/_types/outcome.py`, `src/functualize/_types/exit_codes.py`,
 `src/functualize/_types/http_status.py`, `src/functualize/types/__init__.py`,
@@ -34,7 +34,7 @@ now: `n/a` · after: `0`
 
 ## Wave 1 — the rules join the tables
 
-### [ ] T2 · `is_failure`, `report_line`, `status_from_wire`, `wire_value`
+### [x] T2 · `is_failure`, `report_line`, `status_from_wire`, `wire_value`
 
 **Files:** `src/functualize/_types/outcome.py`, `tests/types/test_outcome_families.py`
 

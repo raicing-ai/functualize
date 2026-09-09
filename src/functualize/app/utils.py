@@ -75,6 +75,13 @@ from functualize._types.naming import (
     normalize_segment,
     resolve_name,
 )
+from functualize._types.outcome import (
+    Family,
+    is_failure,
+    report_line,
+    status_from_wire,
+    wire_value,
+)
 from functualize._types.redaction import (
     MASK,
     display_value,
@@ -140,6 +147,11 @@ def job_config_fields(app: Any, job_name: str) -> list[Any]:
 
 
 __all__ = [
+    "Family",
+    "is_failure",
+    "report_line",
+    "status_from_wire",
+    "wire_value",
     "RUN_SURFACES",
     "RunRequest",
     "RunSurface",
