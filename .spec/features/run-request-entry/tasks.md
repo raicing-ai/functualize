@@ -432,6 +432,56 @@ Checkpoints get their own wave — they depend on all prior work.
 
 ---
 
+---
+
+## Wave Audit
+
+Read `.spec/AUDIT.md` first — it says what this section is for and how to run it. In short:
+an agent that did **not** execute this feature works down the table below, per wave, and
+tries to show each claim is false. Running the task's own gate and stopping is not an audit:
+the gate was written by whoever wrote the code.
+
+For every wave, do all five:
+
+| # | Check | How |
+|---|---|---|
+| 1 | **The claim is true** | Run the falsifier in the row. The row says what output means the claim is false. |
+| 2 | **The gate can fail** | Make the smallest edit that should break it, confirm the gate turns red, restore. A gate that stays green under that edit is **Blocking**. |
+| 3 | **The tests are wired** | Apply the wave's sabotage, confirm the named test fails, restore. **Commit before sabotaging** — `git checkout --` reverts everything uncommitted in the file. |
+| 4 | **Scope held** | `git show --stat <commit>` against the wave's `**Files:**` lines. Anything extra must be named in the commit message with a reason. |
+| 5 | **The answers** | A wave claiming to be behaviour-free must have changed none. A wave that changes one must name it, and a test must assert the *new* answer with the reason beside it. |
+
+Known hazards on this branch, all observed at least once — check for them specifically:
+
+- **A gate matching its own explanation.** `rg` for a removed literal also matches the comment
+  saying why it is gone. Three gates here needed rewording or narrowing for this reason.
+- **A gate whose `after:` is unreachable.** One counted docstrings that state the rule the
+  task enforces; another counted the authority module the task creates.
+- **A test that pins the defect.** Check that a changed assertion moved *toward* the spec, not
+  toward whatever the code now does.
+- **Scope widened into tests no task owns.** The wave graph guarantees source disjointness
+  only; the tests pinned to those sources belong to nobody.
+
+### Per-wave
+
+| Wave | The claim | Falsify it | Sabotage |
+|---|---|---|---|
+| 0 | `RunRequest` exists, is immutable, refuses an unknown surface, and imports nothing from functualize. | `python3 -c "import ast,sys;t=ast.parse(open('src/functualize/_types/run_request.py').read());print([n.module for n in ast.walk(t) if isinstance(n,ast.ImportFrom) and (n.module or '').startswith('functualize')])"` — a non-empty list falsifies it. Also construct one with `surface='nope'`: no `ValueError` falsifies it. | Delete the `__post_init__` surface check; `tests/types/test_run_request.py::test_unknown_surface_is_rejected` must fail. |
+| 1 | `engine.run(request)` and `engine.execute(...)` are the same execution. | Compare more fields than the test does — `metadata`, `duration_ms` shape — for one job through both entries. A divergence beyond timing falsifies it. | Replace `kwargs=dict(request.kwargs)` with `kwargs={}` in `run()`; 2 tests in `tests/engine/test_engine_run_entry.py` must fail. |
+| 2 | The facade takes a request, creates the scope, and calls `engine.run`. | `rg -n 'execution_engine\.execute' src/functualize/app/core.py` — any hit falsifies it. Then check the legacy form still works: `app.execute('job', k=1)`. | Delete the scope creation; `tests/app/test_facade_request.py::test_a_request_creates_an_addressable_scope` must fail. |
+| 3 | All seven doors build a request naming their own surface, and no door splats a caller dict into the facade. | `rg -n 'app\.execute\([a-z_]*name, \*\*' src/ plugins/` — any hit falsifies it (this is the accidental control channel). Then `rg -o 'surface="[a-z.-]+"' src/ plugins/ | sort -u` and check every surface against `RUN_SURFACES`: a door naming another door's surface falsifies it. | Restore the direct engine call in `_app/impl.py::on_job_submit_event`; 2 tests in `tests/app/test_event_submit_scope.py` must fail. **This wave's known debt:** `app._run_request` and `_builtin_delivery_inputs` are transitional bridges; confirm T11's gate still names both. |
+| 4 | *(fill from the wave's task headings: T11)* | run each task's gate **and** one command the task did not choose — a different spelling of the same question | *(the wave's `**Sabotage:**` line, or the smallest edit that should break its named test)* |
+| 5 | *(fill from the wave's task headings: T12, T13, T14, T15)* | run each task's gate **and** one command the task did not choose — a different spelling of the same question | *(the wave's `**Sabotage:**` line, or the smallest edit that should break its named test)* |
+| 6 | *(fill from the wave's task headings: T16)* | run each task's gate **and** one command the task did not choose — a different spelling of the same question | *(the wave's `**Sabotage:**` line, or the smallest edit that should break its named test)* |
+| 7 | *(fill from the wave's task headings: T17)* | run each task's gate **and** one command the task did not choose — a different spelling of the same question | *(the wave's `**Sabotage:**` line, or the smallest edit that should break its named test)* |
+| 8 | *(fill from the wave's task headings: T18, T19)* | run each task's gate **and** one command the task did not choose — a different spelling of the same question | *(the wave's `**Sabotage:**` line, or the smallest edit that should break its named test)* |
+| 9 | *(fill from the wave's task headings: T20)* | run each task's gate **and** one command the task did not choose — a different spelling of the same question | *(the wave's `**Sabotage:**` line, or the smallest edit that should break its named test)* |
+
+> The middle column is deliberately not pre-filled with the task's own gate. Derive the
+> falsifier from the **claim**, then check whether the task's gate asks the same question. If
+> it asks a narrower one, that difference is the finding.
+
+
 ## Task Dependency Graph
 
 ```json

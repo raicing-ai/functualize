@@ -244,6 +244,54 @@ test
 
 ---
 
+---
+
+## Wave Audit
+
+Read `.spec/AUDIT.md` first — it says what this section is for and how to run it. In short:
+an agent that did **not** execute this feature works down the table below, per wave, and
+tries to show each claim is false. Running the task's own gate and stopping is not an audit:
+the gate was written by whoever wrote the code.
+
+For every wave, do all five:
+
+| # | Check | How |
+|---|---|---|
+| 1 | **The claim is true** | Run the falsifier in the row. The row says what output means the claim is false. |
+| 2 | **The gate can fail** | Make the smallest edit that should break it, confirm the gate turns red, restore. A gate that stays green under that edit is **Blocking**. |
+| 3 | **The tests are wired** | Apply the wave's sabotage, confirm the named test fails, restore. **Commit before sabotaging** — `git checkout --` reverts everything uncommitted in the file. |
+| 4 | **Scope held** | `git show --stat <commit>` against the wave's `**Files:**` lines. Anything extra must be named in the commit message with a reason. |
+| 5 | **The answers** | A wave claiming to be behaviour-free must have changed none. A wave that changes one must name it, and a test must assert the *new* answer with the reason beside it. |
+
+Known hazards on this branch, all observed at least once — check for them specifically:
+
+- **A gate matching its own explanation.** `rg` for a removed literal also matches the comment
+  saying why it is gone. Three gates here needed rewording or narrowing for this reason.
+- **A gate whose `after:` is unreachable.** One counted docstrings that state the rule the
+  task enforces; another counted the authority module the task creates.
+- **A test that pins the defect.** Check that a changed assertion moved *toward* the spec, not
+  toward whatever the code now does.
+- **Scope widened into tests no task owns.** The wave graph guarantees source disjointness
+  only; the tests pinned to those sources belong to nobody.
+
+### Per-wave
+
+| Wave | The claim | Falsify it | Sabotage |
+|---|---|---|---|
+| 0 | The outcome module exists and nothing imports it. | `rg -l 'from functualize._types.outcome|from functualize.types import.*is_failure' src/ | grep -v '_types/\|types/__init__\|app/utils'` — any hit at this commit falsifies the 'inert' claim. | n/a — the wave's whole point is that a green suite proves it changed nothing. Check the commit touched no consumer. |
+| 1 | `is_failure` gives different answers per family, and the two code tables agree. | `is_failure(BLOCKED, family=PROCESS)` must be `True` and `family=PANEL` `False`. Then check `RUN` — every `RunStatus` must return a bool for every family with no `KeyError`. | Add `RunStatus.BLOCKED` to `_NOT_A_FAILURE[Family.PROCESS]`; `tests/types/test_outcome_families.py` must fail. |
+| 2 | Four consumers stopped deciding, and only one answer changed. | `rg -c 'RunStatus.SUCCESS, RunStatus.SKIPPED, RunStatus.BLOCKED' src/functualize/ --glob '!**/outcome.py'` must be 0. Then verify the **changed** answers are the two named in the T4 commit and no others — run the three plugin suites and confirm byte-identical outcomes. | Revert `_resume_exit`'s gate-vocabulary translation; `tests/integration/test_cli_workflow_parity.py::test_resume_with_incomplete_input_does_not_advance` must fail. |
+| 3 | The TUI answers PANEL and PROCESS separately: panel says done, process exits 5. | Run a blocked workflow through the inline TUI. The panel showing `✗ Failed` falsifies the PANEL half; a process exit of 0 falsifies the PROCESS half. Both must be checked — one branch answering both is the defect this wave removes. | Change the panel's family from `PANEL` to `PROCESS`; the parity test must fail. |
+| 4 | *(fill from the wave's task headings: T8)* | run each task's gate **and** one command the task did not choose — a different spelling of the same question | *(the wave's `**Sabotage:**` line, or the smallest edit that should break its named test)* |
+| 5 | *(fill from the wave's task headings: T9, T10, T11)* | run each task's gate **and** one command the task did not choose — a different spelling of the same question | *(the wave's `**Sabotage:**` line, or the smallest edit that should break its named test)* |
+| 6 | *(fill from the wave's task headings: T12)* | run each task's gate **and** one command the task did not choose — a different spelling of the same question | *(the wave's `**Sabotage:**` line, or the smallest edit that should break its named test)* |
+| 7 | *(fill from the wave's task headings: T13)* | run each task's gate **and** one command the task did not choose — a different spelling of the same question | *(the wave's `**Sabotage:**` line, or the smallest edit that should break its named test)* |
+
+> The middle column is deliberately not pre-filled with the task's own gate. Derive the
+> falsifier from the **claim**, then check whether the task's gate asks the same question. If
+> it asks a narrower one, that difference is the finding.
+
+
 ## Task Dependency Graph
 
 ```json
