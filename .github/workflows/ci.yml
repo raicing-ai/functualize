@@ -76,16 +76,18 @@ jobs:
     # `!cancelled()` keeps a user-cancelled run from restarting the suite;
     # a failed gate leaves `skip` unset, and `!= 'true'` then runs everything.
     #
-    # Known edge, stated so it is a decision and not a surprise: any `if:` here
-    # displaces the implicit `success()`, which is what makes the gate fail
-    # open — but it also means a *cancelled* run leaves these jobs `skipped`
-    # rather than `cancelled`, and GitHub counts `skipped` as a passing
-    # required check while `cancelled` blocks. Cancelling a CI run therefore
-    # satisfies seven of the nine required contexts with nothing executed.
-    # There is no `concurrency:` block in this workflow, so that needs a
-    # deliberate manual cancel. The fix is a ruleset edit, not a workflow one:
-    # require `spec-only-change`, which carries no `if:` and so reports
-    # `cancelled` and blocks.
+    # Known edge, and why it is closed: any `if:` here displaces the implicit
+    # `success()`, which is what makes the gate fail open — but it also means a
+    # *cancelled* run leaves these jobs `skipped` rather than `cancelled`, and
+    # GitHub counts `skipped` as a passing required check while `cancelled`
+    # blocks. On its own that would let a manual cancel satisfy every gated
+    # required context with nothing executed.
+    #
+    # `spec-only-change` is required by the ruleset for exactly this reason. It
+    # carries no `if:`, so a cancelled run reports it `cancelled` and the merge
+    # stays blocked however the gated jobs below resolve. Do not add an `if:`
+    # to that job, and do not drop it from the ruleset's required contexts —
+    # either one silently reopens this.
     if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
@@ -394,14 +396,13 @@ jobs:
   # push whose whole content is this job's subject, so skipping it there would
   # skip the only run that ever has something to say.
   #
-  # It is not, today, what *unlocks* the merge — it is not in the `master`
-  # ruleset's required contexts (those are lint, lint-imports, typecheck,
-  # test-fast, gitleaks, lint-title and test-full (3.11/3.12/3.13)), so a red
-  # tick here blocks nothing. Five documents claim otherwise; see
-  # .spec/CONSTITUTION.md, AGENTS.md, .claude/rules/spec-workflow.md,
-  # .claude/commands/agentic-verify.md and .claude/agents/spec-driven-developer.md.
-  # Closing that gap means adding this context to the ruleset, which is a repo
-  # settings change and not something a workflow file can do for itself.
+  # It IS a required context in the `master` ruleset, so a red tick here blocks
+  # the merge — which is what .spec/CONSTITUTION.md's tracking exception is
+  # granted on the condition of, and what AGENTS.md, .claude/rules/spec-workflow.md,
+  # .claude/commands/agentic-verify.md and .claude/agents/spec-driven-developer.md
+  # all describe. It was NOT required until 2026-09-09; those five documents
+  # asserted a guarantee nothing enforced. Dropping it from the ruleset puts
+  # them back to being wrong.
   spec-artifacts-cleared:
     runs-on: ubuntu-latest
     steps:

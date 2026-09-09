@@ -447,7 +447,7 @@ There is no `release:` type. A version bump is `chore(release): v0.2.0`.
 |------|--------|-------|
 | `conventional-pre-commit` | Commit subject type and shape, at commit time | `.pre-commit-config.yaml` (needs `pre-commit install --hook-type commit-msg`) |
 | PR Title workflow | PR title type, single-token scope, lowercase subject, no trailing period | `.github/workflows/pr-title.yml` |
-| `master` ruleset | Changes arrive by PR; squash is the only merge method; `lint`, `lint-imports`, `typecheck`, `test-fast`, `test-full` (3.11, 3.12, 3.13), `gitleaks` and `lint-title` must pass; no force-push; no branch deletion | GitHub repository ruleset named `master` |
+| `master` ruleset | Changes arrive by PR; squash is the only merge method; `lint`, `lint-imports`, `typecheck`, `test-fast`, `test-full` (3.11, 3.12, 3.13), `gitleaks`, `lint-title`, `spec-only-change` and `spec-artifacts-cleared` must pass; no force-push; no branch deletion | GitHub repository ruleset named `master` |
 | `release tags` ruleset | A `v*` tag cannot be deleted or moved once pushed | GitHub repository ruleset named `release tags` |
 
 The first two overlap deliberately. The hook cannot see a PR title, and the PR
@@ -471,6 +471,25 @@ by name. A bare `test-full` context is never reported by anything, so requiring
 it would wedge every PR. Adding or removing a Python version from the matrix
 means editing the ruleset to match, or the new version goes unenforced and the
 dropped one blocks every merge.
+
+`spec-only-change` and `spec-artifacts-cleared` were added on 2026-09-09, and
+each closes a hole rather than adding coverage.
+
+`spec-artifacts-cleared` is what `.spec/CONSTITUTION.md` grants its
+`.spec/features/` tracking exception *on the condition of* — "it blocks merge
+while `git ls-files .spec/features/` is non-empty, so master still accumulates
+none of it". Four other documents say the same. None of it was true: the job
+ran, reported, and blocked nothing. Requiring it is what makes those five
+statements accurate.
+
+`spec-only-change` is required for a subtler reason. The nine gated jobs carry
+`if: (!cancelled()) && …`, and any `if:` displaces the implicit `success()` —
+that is what makes the gate fail open when it errors. But it also means a
+*cancelled* run leaves those jobs `skipped`, and GitHub counts `skipped` as a
+passing required check while `cancelled` blocks. Cancelling a run would
+otherwise satisfy every gated context with nothing executed. `spec-only-change`
+carries no `if:`, so it reports `cancelled` and holds the merge. Do not give
+that job a condition.
 
 Repository and organization admins can bypass the ruleset. Do not use it:
 every change — the version bump included — reaches `master` through a PR.
