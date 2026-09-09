@@ -37,6 +37,7 @@ from functualize._primitives.config_class_detection import detect_config_class
 from functualize._types.enums import RunStatus
 from functualize._types.exit_codes import ExitCode, exit_code_for_status
 from functualize._types.naming import negative_flag_for
+from functualize._types.outcome import Family, is_failure, report_line
 
 if TYPE_CHECKING:
     from functualize.app.core import FunctualizeApp
@@ -1284,15 +1285,27 @@ def deliver_job_result(result: Any, name: str, app_ref: Any = None) -> Any:
     # and warns that scattering SystemExit "is how that contract silently
     # drifts", and this was the scattering. It is the same shape as D7 — a rule
     # stated in two places, one of which quietly answered 0.
-    if result.status is RunStatus.BLOCKED:
-        _report_blocked(result)
-    elif result.status is RunStatus.REFUSED:
-        _report_refused(result)
+    # This surface is PROCESS: it ends a process with a code a shell reads.
+    # The family answers; this site does not. What used to be here -- a
+    # hand-written pair of branches deciding which statuses owe a message, next
+    # to a table deciding the code -- was the scattering `_types/exit_codes.py`
+    # warns about in its own docstring.
+    # The module decides *which* statuses owe the caller a line. This surface
+    # decides how to say it, because only this surface holds the result: which
+    # gate, which scope, the resume incantation. A status the module later adds
+    # to the owing set gets its generic sentence here for free rather than
+    # silently saying nothing.
+    if (line := report_line(result.status)) is not None:
+        if result.status is RunStatus.BLOCKED:
+            _report_blocked(result)
+        elif result.status is RunStatus.REFUSED:
+            _report_refused(result)
+        else:
+            print(line, file=sys.stderr)
 
-    code = exit_code_for_status(result.status)
-    if code == ExitCode.OK:
+    if not is_failure(result.status, family=Family.PROCESS):
         return result.return_value
-    raise SystemExit(code)
+    raise SystemExit(exit_code_for_status(result.status))
 
 
 def _report_refused(result: Any) -> None:
@@ -1302,11 +1315,10 @@ def _report_refused(result: Any) -> None:
     way :func:`_report_blocked` already is — the code now comes from the table.
     """
     reason = str((getattr(result, "metadata", None) or {}).get("skip_reason") or "")
-    message = (
-        f"Refused: {reason}"
-        if reason
-        else "Refused: a declared precondition for running this job was not met."
-    )
+    # With no reason to add, the module's sentence is the message -- it used to
+    # be spelled out again here, one copy per surface, which is the shape this
+    # feature exists to remove.
+    message = f"Refused: {reason}" if reason else report_line(RunStatus.REFUSED)
     print(message, file=sys.stderr)
 
 

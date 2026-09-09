@@ -55,7 +55,7 @@ family=PANEL)` is `False`. The difference that lives in a comment becomes an ass
 
 ## Wave 2 — five consumers stop deciding
 
-### [ ] T3 · `deliver_job_result` declares `PROCESS` and loses its rules
+### [x] T3 · `deliver_job_result` declares `PROCESS` and loses its rules
 
 **Files:** `src/functualize/app/adapters/click_params.py`
 
