@@ -1,0 +1,4645 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A reusable Python CLI framework with auto-discovery, structured run context, layered configuration, and TUI integration.">
+      
+      
+      
+        <link rel="canonical" href="https://raicing-ai.github.io/functualize/guides/configuration/">
+      
+      
+        <link rel="prev" href="../../diagrams/">
+      
+      
+        <link rel="next" href="../jobs-discovery/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Configuration System - Functualize</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/panzoom.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  <meta name="panzoom-theme" content="material">
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#configuration-system" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Functualize" class="md-header__button md-logo" aria-label="Functualize" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Functualize
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Configuration System
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/raicing-ai/functualize" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    raicing-ai/functualize
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/" class="md-tabs__link">
+          
+  
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
+          
+  
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../api/" class="md-tabs__link">
+          
+  
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../cli/" class="md-tabs__link">
+          
+  
+  
+  CLI Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../testing/tui-command-panel-manual-test/" class="md-tabs__link">
+          
+  
+  
+  Testing
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../examples/" class="md-tabs__link">
+          
+  
+  
+  Examples
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../contributing/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Contributing
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Functualize" class="md-nav__button md-logo" aria-label="Functualize" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Functualize
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/raicing-ai/functualize" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    raicing-ai/functualize
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/project-structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../modes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage Modes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../diagrams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Diagrams
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration System
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#config-directory-discovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Config Directory Discovery
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Config Directory Discovery">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#upward-directory-walk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Upward Directory Walk
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#config-file-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Config File Pattern
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Config File Pattern">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#custom-regex-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom Regex Pattern
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#base-config-and-environment-overlays" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Base Config and Environment Overlays
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resolution-priority" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resolution Priority
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Resolution Priority">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#environment-variable-convention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment Variable Convention
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environment-variables-and-env-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment Variables and .env Files
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Environment Variables and .env Files">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-env-loading-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How .env Loading Works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-env-affects-config-file-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How .env Affects Config File Selection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#precedence-shell-vs-env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Precedence: Shell vs .env
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#boot-time-env-loading-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Boot-Time .env Loading Rules
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#practical-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Practical Patterns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#introspection-with-builtin-info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Introspection with builtin info
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#per-job-config-sections" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-Job Config Sections
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#jobconfig-field-resolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JobConfig Field Resolution
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#credentials" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Credentials
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Credentials">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#finding-out-what-a-job-needs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Finding out what a job needs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#where-credentials-come-from" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where credentials come from
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#remote-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Remote Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Remote Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-vault-and-why-reads-never-hit-the-network" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The vault, and why reads never hit the network
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#getting-started" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Getting started
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#where-the-vault-sits-in-the-chain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the vault sits in the chain
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The key
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#three-things-that-warn-rather-than-fail" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Three things that warn rather than fail
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-builtin-vault-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The builtin vault commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fallback-chains" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fallback chains
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#provider-specific-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider-specific references
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#complete-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Complete Example
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Complete Example">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#base-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Base Config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#environment-overlay" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment Overlay
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#jobconfig-model-and-job-function" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JobConfig Model and Job Function
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#runtime-resolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runtime Resolution
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#application-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Application Setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#using-the-jobconfigview-class-directly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Using the JobConfigView Class Directly
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#introspection-with-builtin-info_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Introspection with builtin info
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../jobs-discovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Jobs and Auto-Discovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../subjects/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subjects
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../group-options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Group Options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../job-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    JobConfig with Pydantic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../run-context/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RunContext Lifecycle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../domain-sdks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Domain SDKs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI Capability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Adapter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interactivity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interactivity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TUI Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hooks-vs-plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hooks vs Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../hierarchy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Projects
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hierarchy-validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchy Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../shell/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Shell Capability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-runner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task Runner
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../composition/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Composing Capabilities
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hosting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hosting Functualize
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/context/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Context
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/core/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Core
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/discovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/hierarchy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/hooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    CLI Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/aliases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Aliases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/discovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/global-config-directory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Global Config Directory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/inline-tui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inline TUI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/modes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Modes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/scaffold/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scaffold Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/user-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User App Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Testing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../testing/tui-command-panel-manual-test/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TUI Command Panel Manual Test
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Examples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart (Steps 1-8)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_7_3" id="__nav_7_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Standalone
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Standalone
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/standalone/hello-world/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hello World
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/standalone/inline-dependencies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inline Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/standalone/ai-inbound/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI Inbound
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/standalone/ai-outbound/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI Outbound
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_7_4" id="__nav_7_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Project
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/project/http-service/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HTTP Service (functualize-http)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/project/lambda-handler/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lambda Handler (functualize-lambda)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_7_5" id="__nav_7_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Plugins
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/plugins/custom-state-backend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom State Backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/plugins/custom-adapter/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Adapter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/plugins/file-based-plugin/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    File-Based Plugin
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-presets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration Presets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#config-directory-discovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Config Directory Discovery
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Config Directory Discovery">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#upward-directory-walk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Upward Directory Walk
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#config-file-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Config File Pattern
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Config File Pattern">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#custom-regex-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom Regex Pattern
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#base-config-and-environment-overlays" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Base Config and Environment Overlays
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resolution-priority" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resolution Priority
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Resolution Priority">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#environment-variable-convention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment Variable Convention
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environment-variables-and-env-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment Variables and .env Files
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Environment Variables and .env Files">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-env-loading-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How .env Loading Works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-env-affects-config-file-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How .env Affects Config File Selection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#precedence-shell-vs-env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Precedence: Shell vs .env
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#boot-time-env-loading-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Boot-Time .env Loading Rules
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#practical-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Practical Patterns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#introspection-with-builtin-info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Introspection with builtin info
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#per-job-config-sections" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-Job Config Sections
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#jobconfig-field-resolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JobConfig Field Resolution
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#credentials" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Credentials
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Credentials">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#finding-out-what-a-job-needs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Finding out what a job needs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#where-credentials-come-from" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where credentials come from
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#remote-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Remote Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Remote Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-vault-and-why-reads-never-hit-the-network" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The vault, and why reads never hit the network
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#getting-started" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Getting started
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#where-the-vault-sits-in-the-chain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the vault sits in the chain
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The key
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#three-things-that-warn-rather-than-fail" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Three things that warn rather than fail
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-builtin-vault-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The builtin vault commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fallback-chains" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fallback chains
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#provider-specific-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider-specific references
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#complete-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Complete Example
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Complete Example">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#base-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Base Config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#environment-overlay" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment Overlay
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#jobconfig-model-and-job-function" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JobConfig Model and Job Function
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#runtime-resolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runtime Resolution
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#application-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Application Setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#using-the-jobconfigview-class-directly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Using the JobConfigView Class Directly
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#introspection-with-builtin-info_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Introspection with builtin info
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="configuration-system">Configuration System<a class="headerlink" href="#configuration-system" title="Permanent link">&para;</a></h1>
+<p>Functualize uses a layered TOML-based configuration system that resolves values from multiple sources with a clear priority order. This guide covers how config files are discovered, how values are resolved, how to use per-job configuration sections with Pydantic models, and how to declare a credential.</p>
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+<p>The configuration system provides:</p>
+<ul>
+<li><strong>Preset factory functions</strong> — named configuration strategies (<code>classic</code>, <code>twelve_factor</code>, <code>env_only</code>, <code>remote_first</code>)</li>
+<li><strong>Upward directory search</strong> for config files starting from the current working directory</li>
+<li><strong>Base + environment overlay</strong> pattern using TOML files</li>
+<li><strong>Environment variable precedence</strong> over file-based config</li>
+<li><strong>Per-job sections</strong> that map directly to <code>JobConfig</code> Pydantic models</li>
+<li><strong>Tracking</strong> of which settings were accessed and where values came from</li>
+<li><strong><a href="#credentials">Credentials</a></strong> declared with <code>Secret[str]</code>, masked on every surface that renders configuration</li>
+<li><strong><a href="#remote-configuration">Remote configuration</a></strong> — values declared as <code>aws-sm://prod/db-password</code>, synced into an encrypted local vault</li>
+</ul>
+<h2 id="configuration-presets">Configuration Presets<a class="headerlink" href="#configuration-presets" title="Permanent link">&para;</a></h2>
+<p>Functualize provides preset factory functions that return a <code>ConfigSources</code> instance configured for common deployment scenarios:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">functualize.app</span><span class="w"> </span><span class="kn">import</span> <span class="n">FunctualizeApp</span><span class="p">,</span> <span class="n">JobSources</span><span class="p">,</span> <span class="n">classic</span><span class="p">,</span> <span class="n">twelve_factor</span><span class="p">,</span> <span class="n">env_only</span><span class="p">,</span> <span class="n">remote_first</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># Classic: CLI → Env → Files (upward search) → Defaults (the default behavior)</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">app</span> <span class="o">=</span> <span class="n">FunctualizeApp</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;myapp&quot;</span><span class="p">,</span> <span class="n">config_sources</span><span class="o">=</span><span class="n">classic</span><span class="p">())</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="c1"># Twelve-factor: CLI → Env → Defaults (no file discovery)</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="n">app</span> <span class="o">=</span> <span class="n">FunctualizeApp</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;myapp&quot;</span><span class="p">,</span> <span class="n">config_sources</span><span class="o">=</span><span class="n">twelve_factor</span><span class="p">())</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="c1"># Env-only: CLI → Env → Defaults (minimal, with optional dotenv)</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="n">app</span> <span class="o">=</span> <span class="n">FunctualizeApp</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;myapp&quot;</span><span class="p">,</span> <span class="n">config_sources</span><span class="o">=</span><span class="n">env_only</span><span class="p">(</span><span class="n">dotenv</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="c1"># Remote-first: CLI → Vault → Env → Files → Defaults</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="n">app</span> <span class="o">=</span> <span class="n">FunctualizeApp</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;myapp&quot;</span><span class="p">,</span> <span class="n">config_sources</span><span class="o">=</span><span class="n">remote_first</span><span class="p">())</span>
+</code></pre></div>
+<div class="admonition info">
+<p class="admonition-title"><code>remote_first()</code> requires a provider plugin</p>
+<p>It resolves declared <code>provider://reference</code> annotations from the project's
+encrypted local vault, which <code>func builtin vault sync</code> fills. Selecting it
+with <strong>no</strong> remote provider registered raises at construction rather than
+quietly resolving from local files. See
+<a href="#remote-configuration">Remote Configuration</a>.</p>
+<p>Before 0.2.4 this preset silently <em>was</em> <code>classic()</code>: it returned
+<code>config_resolution_chain=None</code> and no boot path built a remote source, so
+an operator choosing it for AWS Secrets Manager got local files and
+environment variables with no warning.</p>
+</div>
+<p>When no <code>config_sources</code> is specified, the default behavior is identical to <code>classic()</code>.</p>
+<p>You can also create custom presets — any function returning a <code>ConfigSources</code> instance works:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">functualize.app</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConfigSources</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="k">def</span><span class="w"> </span><span class="nf">my_custom_preset</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ConfigSources</span><span class="p">:</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="k">return</span> <span class="n">ConfigSources</span><span class="p">(</span><span class="n">dotenv</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">file_pattern</span><span class="o">=</span><span class="sa">r</span><span class="s2">&quot;^app_config\.(\w+)\.toml$&quot;</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="config-directory-discovery">Config Directory Discovery<a class="headerlink" href="#config-directory-discovery" title="Permanent link">&para;</a></h2>
+<p>When a <code>FunctualizeApp</code> is instantiated, it discovers the config directory by searching upward from the current working directory for files matching a regex pattern.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">functualize.app</span><span class="w"> </span><span class="kn">import</span> <span class="n">FunctualizeApp</span><span class="p">,</span> <span class="n">JobSources</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">app</span> <span class="o">=</span> <span class="n">FunctualizeApp</span><span class="p">(</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;myapp&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="n">job_sources</span><span class="o">=</span><span class="n">JobSources</span><span class="p">(</span><span class="n">directories</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;jobs&quot;</span><span class="p">]),</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="p">)</span>
+</code></pre></div>
+<p>The <code>name</code> parameter serves as the fallback identifier. If no config files are found during the upward search, Functualize falls back to <code>~/.config/&lt;name&gt;/</code> (for example <code>~/.config/myapp/</code>). This XDG-style path is used on every platform — <code>discover_config_path</code> returns <code>Path.home() / ".config" / name</code> directly, without any OS-specific branch.</p>
+<h3 id="upward-directory-walk">Upward Directory Walk<a class="headerlink" href="#upward-directory-walk" title="Permanent link">&para;</a></h3>
+<p>The discovery algorithm works as follows:</p>
+<ol>
+<li>Start at the current working directory (<code>os.getcwd()</code>)</li>
+<li>List files in the current directory and match against the config file regex</li>
+<li>If matches are found, use that directory as the config path</li>
+<li>If no matches, move to the parent directory and repeat</li>
+<li>Stop at the user's home directory (<code>~</code>) or the filesystem root (<code>/</code>), whichever is reached first</li>
+<li>If no matches are found anywhere, fall back to <code>~/.config/&lt;name&gt;/</code></li>
+</ol>
+<div class="panzoom-box" data-key="alt" id="panzoom0" oncontextmenu="return false;">
+    
+    <nav class="panzoom-nav">
+    <button class="panzoom-info panzoom-button">
+    <svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+        <path d="M464 256A208 208 0 1 0 48 256a208 208 0 1 0 416 0zM0 256a256 256 0 1 1 512 0A256 256 0 1 1 0 256zm169.8-90.7c7.9-22.3 29.1-37.3 52.8-37.3l58.3 0c34.9 0 63.1 28.3 63.1 63.1c0 22.6-12.1 43.5-31.7 54.8L280 264.4c-.2 13-10.9 23.6-24 23.6c-13.3 0-24-10.7-24-24l0-13.5c0-8.6 4.6-16.5 12.1-20.8l44.3-25.4c4.7-2.7 7.6-7.7 7.6-13.1c0-8.4-6.8-15.1-15.1-15.1l-58.3 0c-3.4 0-6.4 2.1-7.5 5.3l-.4 1.2c-4.4 12.5-18.2 19-30.6 14.6s-19-18.2-14.6-30.6l.4-1.2zM224 352a32 32 0 1 1 64 0 32 32 0 1 1 -64 0z"></path>
+    </svg>
+</button><button class="panzoom-reset panzoom-button">
+    <svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+        <path d="M125.7 160l50.3 0c17.7 0 32 14.3 32 32s-14.3 32-32 32L48 224c-17.7 0-32-14.3-32-32L16 64c0-17.7 14.3-32 32-32s32 14.3 32 32l0 51.2L97.6 97.6c87.5-87.5 229.3-87.5 316.8 0s87.5 229.3 0 316.8s-229.3 87.5-316.8 0c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0c62.5 62.5 163.8 62.5 226.3 0s62.5-163.8 0-226.3s-163.8-62.5-226.3 0L125.7 160z"></path>
+    </svg>
+</button><button class="panzoom-max panzoom-button">
+    <svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg">
+        <path d="M32 32C14.3 32 0 46.3 0 64l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L32 32zM64 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 32c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM448 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96z"></path>
+    </svg>
+</button><button class="panzoom-min panzoom-button panzoom-hidden">
+    <svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg">
+        <path d="M160 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96zM32 320c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM352 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 320c-17.7 0-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-96 0z"></path>
+    </svg>
+</button>
+    </nav>
+    <pre class="mermaid"><code>flowchart TD
+    A[Start at CWD] --&gt; B{Files match config regex?}
+    B --&gt;|Yes| C[Use this directory as config path]
+    B --&gt;|No| D{Reached home dir or root?}
+    D --&gt;|No| E[Move to parent directory]
+    E --&gt; B
+    D --&gt;|Yes| F[Fall back to ~/.config/name]</code></pre> 
+    <div class="panzoom-info-box panzoom-info-box-bottom panzoom-hidden">
+Hold "Alt" / "Option" to enable pan &amp; zoom
+</div>
+</div>
+<div class="admonition info">
+<p class="admonition-title">CLI Override</p>
+<p>The <code>--config-directory</code> global CLI option overrides the discovered config path entirely. When provided, no upward search is performed.</p>
+</div>
+<h2 id="config-file-pattern">Config File Pattern<a class="headerlink" href="#config-file-pattern" title="Permanent link">&para;</a></h2>
+<p>By default, Functualize looks for files matching the regex pattern:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>^config\.(\w+)\.(\w+)$
+</code></pre></div>
+<p>This matches filenames like <code>config.base.toml</code>, <code>config.dev.toml</code>, <code>config.prod.toml</code>, etc.</p>
+<h3 id="custom-regex-pattern">Custom Regex Pattern<a class="headerlink" href="#custom-regex-pattern" title="Permanent link">&para;</a></h3>
+<p>You can customize the pattern via the <code>file_pattern</code> in <code>ConfigSources</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">functualize.app</span><span class="w"> </span><span class="kn">import</span> <span class="n">FunctualizeApp</span><span class="p">,</span> <span class="n">JobSources</span><span class="p">,</span> <span class="n">ConfigSources</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">app</span> <span class="o">=</span> <span class="n">FunctualizeApp</span><span class="p">(</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;myapp&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="n">job_sources</span><span class="o">=</span><span class="n">JobSources</span><span class="p">(</span><span class="n">directories</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;jobs&quot;</span><span class="p">]),</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="n">config_sources</span><span class="o">=</span><span class="n">ConfigSources</span><span class="p">(</span><span class="n">file_pattern</span><span class="o">=</span><span class="sa">r</span><span class="s2">&quot;^settings\.(\w+)\.toml$&quot;</span><span class="p">),</span>  <span class="c1"># matches settings.base.toml, etc.</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="p">)</span>
+</code></pre></div>
+<p>The regex is applied to filenames (not full paths), both when anchoring the config directory during the upward walk and when the file source selects which files to parse. Files still need an extension that a registered format provider handles — <code>.toml</code> alone by default. A plugin can register more by calling <code>app.config_registry.register_format_provider(...)</code>, or a package can declare one in the <code>functualize.format_providers</code> entry-point group.</p>
+<h2 id="base-config-and-environment-overlays">Base Config and Environment Overlays<a class="headerlink" href="#base-config-and-environment-overlays" title="Permanent link">&para;</a></h2>
+<p>Functualize loads configuration in two layers:</p>
+<ol>
+<li><strong>Base config</strong> — <code>config.base.toml</code> (always loaded first)</li>
+<li><strong>Environment overlay</strong> — <code>config.{env}.toml</code> (merged on top of base)</li>
+</ol>
+<p>The environment name comes from the first of these that is set to a valid name, defaulting to <code>"DEV"</code>:</p>
+<ol>
+<li><code>FUNCTUALIZE_ENV</code></li>
+<li><code>ENVIRONMENT</code></li>
+<li><code>ENV</code></li>
+</ol>
+<p>A value that is blank, or that isn't a valid filename segment (<code>[A-Za-z0-9_-]+</code>), is skipped rather than being an error — the next variable is tried. This matters for <code>ENV</code> in particular: POSIX <code>sh</code>/<code>ksh</code> set it to the path of a startup file, which is not an environment name.</p>
+<p>Matching is <strong>case-insensitive</strong>, comparing the environment name against the file's slot. The filename is not lowercased, so <code>config.Prod.toml</code> is selectable too.</p>
+<table>
+<thead>
+<tr>
+<th>Environment value</th>
+<th>Overlay file loaded</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><em>(not set)</em></td>
+<td><code>config.dev.toml</code></td>
+</tr>
+<tr>
+<td><code>DEV</code></td>
+<td><code>config.dev.toml</code></td>
+</tr>
+<tr>
+<td><code>PROD</code></td>
+<td><code>config.prod.toml</code></td>
+</tr>
+<tr>
+<td><code>STAGING</code></td>
+<td><code>config.staging.toml</code></td>
+</tr>
+</tbody>
+</table>
+<p>A file naming any <em>other</em> environment is discovered but never merged. <code>func</code>'s inline TUI lists it as <code>○ inactive</code>, so a file that plainly exists but isn't taking effect is visible rather than mysterious.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The overlay is deep-merged on top of the base config through the file's registered <code>FormatProvider</code> — the mechanism is format-agnostic rather than tied to any one parser, so a format a plugin registers behaves the same way. Keys in the overlay override the same keys in the base file; keys only present in the base file are preserved.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Precedence across directories</p>
+<p>When config files exist in several directories (project, parents, global), the <strong>nearest directory wins overall</strong>, and within a single directory the overlay beats that directory's base. A project's <code>config.base.toml</code> therefore still outranks a global <code>config.prod.toml</code> — the ladder is about <em>whose</em> config it is, not which environment it names.</p>
+</div>
+<h2 id="resolution-priority">Resolution Priority<a class="headerlink" href="#resolution-priority" title="Permanent link">&para;</a></h2>
+<p>Configuration values are resolved with the following priority (highest to lowest):</p>
+<div class="panzoom-box" data-key="alt" id="panzoom0" oncontextmenu="return false;">
+    
+    <nav class="panzoom-nav">
+    <button class="panzoom-info panzoom-button">
+    <svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+        <path d="M464 256A208 208 0 1 0 48 256a208 208 0 1 0 416 0zM0 256a256 256 0 1 1 512 0A256 256 0 1 1 0 256zm169.8-90.7c7.9-22.3 29.1-37.3 52.8-37.3l58.3 0c34.9 0 63.1 28.3 63.1 63.1c0 22.6-12.1 43.5-31.7 54.8L280 264.4c-.2 13-10.9 23.6-24 23.6c-13.3 0-24-10.7-24-24l0-13.5c0-8.6 4.6-16.5 12.1-20.8l44.3-25.4c4.7-2.7 7.6-7.7 7.6-13.1c0-8.4-6.8-15.1-15.1-15.1l-58.3 0c-3.4 0-6.4 2.1-7.5 5.3l-.4 1.2c-4.4 12.5-18.2 19-30.6 14.6s-19-18.2-14.6-30.6l.4-1.2zM224 352a32 32 0 1 1 64 0 32 32 0 1 1 -64 0z"></path>
+    </svg>
+</button><button class="panzoom-reset panzoom-button">
+    <svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+        <path d="M125.7 160l50.3 0c17.7 0 32 14.3 32 32s-14.3 32-32 32L48 224c-17.7 0-32-14.3-32-32L16 64c0-17.7 14.3-32 32-32s32 14.3 32 32l0 51.2L97.6 97.6c87.5-87.5 229.3-87.5 316.8 0s87.5 229.3 0 316.8s-229.3 87.5-316.8 0c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0c62.5 62.5 163.8 62.5 226.3 0s62.5-163.8 0-226.3s-163.8-62.5-226.3 0L125.7 160z"></path>
+    </svg>
+</button><button class="panzoom-max panzoom-button">
+    <svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg">
+        <path d="M32 32C14.3 32 0 46.3 0 64l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L32 32zM64 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 32c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM448 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96z"></path>
+    </svg>
+</button><button class="panzoom-min panzoom-button panzoom-hidden">
+    <svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg">
+        <path d="M160 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96zM32 320c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM352 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 320c-17.7 0-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-96 0z"></path>
+    </svg>
+</button>
+    </nav>
+    <pre class="mermaid"><code>flowchart TD
+    A[Request config value] --&gt; B{Environment variable set?}
+    B --&gt;|Yes| C[Use env var value]
+    B --&gt;|No| D{Key in env-specific config?}
+    D --&gt;|Yes| E[Use env config value]
+    D --&gt;|No| F{Key in base config?}
+    F --&gt;|Yes| G[Use base config value]
+    F --&gt;|No| H{Default provided?}
+    H --&gt;|Yes| I[Use default value]
+    H --&gt;|No| J[Return None or raise error]</code></pre> 
+    <div class="panzoom-info-box panzoom-info-box-bottom panzoom-hidden">
+Hold "Alt" / "Option" to enable pan &amp; zoom
+</div>
+</div>
+<h3 id="environment-variable-convention">Environment Variable Convention<a class="headerlink" href="#environment-variable-convention" title="Permanent link">&para;</a></h3>
+<p>Environment variables follow the <code>SECTION_KEY</code> naming convention — both the section name and key name are uppercased and joined with an underscore.</p>
+<table>
+<thead>
+<tr>
+<th>Section</th>
+<th>Key</th>
+<th>Environment Variable</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>server</code></td>
+<td><code>api_url</code></td>
+<td><code>SERVER_API_URL</code></td>
+</tr>
+<tr>
+<td><code>database</code></td>
+<td><code>host</code></td>
+<td><code>DATABASE_HOST</code></td>
+</tr>
+<tr>
+<td><code>general</code></td>
+<td><code>debug</code></td>
+<td><code>GENERAL_DEBUG</code></td>
+</tr>
+</tbody>
+</table>
+<p>When the section is an empty string, only the key name (uppercased) is used as the environment variable name.</p>
+<h2 id="environment-variables-and-env-files">Environment Variables and <code>.env</code> Files<a class="headerlink" href="#environment-variables-and-env-files" title="Permanent link">&para;</a></h2>
+<p>Functualize resolves environment variables from <code>os.environ</code> at config resolution time. A <code>.env</code> file can populate <code>os.environ</code> with additional values in two ways: the <code>--dotenv-file</code> CLI flag, or the app's <code>ConfigSources.dotenv</code> / <code>dotenv_path</code> settings, which boot honors before building the resolution chain.</p>
+<h3 id="how-env-loading-works">How <code>.env</code> Loading Works<a class="headerlink" href="#how-env-loading-works" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Explicit: load .env before config resolution runs</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>myapp<span class="w"> </span>--dotenv-file<span class="w"> </span>.env<span class="w"> </span>data-sync<span class="w"> </span>run
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="c1"># No flag: loading depends on the app&#39;s ConfigSources (see below)</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>myapp<span class="w"> </span>data-sync<span class="w"> </span>run
+</code></pre></div>
+<p>When <code>--dotenv-file</code> is passed, the CLI adapter calls <code>python-dotenv</code>'s <code>load_dotenv()</code> in the root group callback — <strong>before</strong> any subcommand executes and before config resolution runs. This means <code>.env</code> values are available in <code>os.environ</code> by the time the resolution chain reads them.</p>
+<p>Independently of the flag, application boot loads a <code>.env</code> file when <code>ConfigSources.dotenv</code> is true (the dataclass default) or <code>ConfigSources.dotenv_path</code> names a file — at the very start of both boot paths, so <code>EnvSource</code> sees the values. Loading always uses <code>override=False</code>: values already in the environment win.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">functualize.app</span><span class="w"> </span><span class="kn">import</span> <span class="n">FunctualizeApp</span><span class="p">,</span> <span class="n">ConfigSources</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">functualize.app.presets</span><span class="w"> </span><span class="kn">import</span> <span class="n">env_only</span><span class="p">,</span> <span class="n">twelve_factor</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="n">app</span> <span class="o">=</span> <span class="n">FunctualizeApp</span><span class="p">(</span><span class="s2">&quot;myapp&quot;</span><span class="p">)</span>                                    <span class="c1"># dotenv=True default: loads ./.env if present</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="n">app</span> <span class="o">=</span> <span class="n">FunctualizeApp</span><span class="p">(</span><span class="s2">&quot;myapp&quot;</span><span class="p">,</span> <span class="n">config_sources</span><span class="o">=</span><span class="n">ConfigSources</span><span class="p">(</span><span class="n">dotenv</span><span class="o">=</span><span class="kc">False</span><span class="p">))</span>  <span class="c1"># never loads</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="n">app</span> <span class="o">=</span> <span class="n">FunctualizeApp</span><span class="p">(</span><span class="s2">&quot;myapp&quot;</span><span class="p">,</span> <span class="n">config_sources</span><span class="o">=</span><span class="n">env_only</span><span class="p">(</span><span class="n">dotenv_path</span><span class="o">=</span><span class="s2">&quot;.env.local&quot;</span><span class="p">))</span>  <span class="c1"># explicit path</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="n">app</span> <span class="o">=</span> <span class="n">FunctualizeApp</span><span class="p">(</span><span class="s2">&quot;myapp&quot;</span><span class="p">,</span> <span class="n">config_sources</span><span class="o">=</span><span class="n">twelve_factor</span><span class="p">())</span>   <span class="c1"># dotenv=False default: pure 12-factor</span>
+</code></pre></div>
+<h3 id="how-env-affects-config-file-selection">How <code>.env</code> Affects Config File Selection<a class="headerlink" href="#how-env-affects-config-file-selection" title="Permanent link">&para;</a></h3>
+<p>Because <code>.env</code> is loaded into <code>os.environ</code> before boot runs, it can influence <strong>which config files</strong> get loaded. The <code>ENVIRONMENT</code> variable (read from <code>os.environ</code> during boot) controls the environment overlay:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># .env file</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="nv">ENVIRONMENT</span><span class="o">=</span>prod
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="nv">DATA_SYNC_API_URL</span><span class="o">=</span>https://api.prod.example.com
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># This loads .env → sets ENVIRONMENT=prod → boot loads config.base.toml + config.prod.toml</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>myapp<span class="w"> </span>--dotenv-file<span class="w"> </span>.env<span class="w"> </span>data-sync<span class="w"> </span>run
+</code></pre></div>
+<p>Without <code>--dotenv-file</code>, the <code>ENVIRONMENT</code> variable must be set in the shell:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Shell sets ENVIRONMENT directly</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="nv">ENVIRONMENT</span><span class="o">=</span>prod<span class="w"> </span>myapp<span class="w"> </span>data-sync<span class="w"> </span>run
+</code></pre></div>
+<p>In both cases, the config system loads <code>config.base.toml</code> first, then merges <code>config.prod.toml</code> on top (values in the overlay override the base).</p>
+<h3 id="precedence-shell-vs-env">Precedence: Shell vs <code>.env</code><a class="headerlink" href="#precedence-shell-vs-env" title="Permanent link">&para;</a></h3>
+<p>Python-dotenv does <strong>not</strong> override existing shell environment variables by default. This means:</p>
+<table>
+<thead>
+<tr>
+<th>Source</th>
+<th>Priority</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CLI flags</td>
+<td>Highest</td>
+<td><code>--batch-size 2000</code></td>
+</tr>
+<tr>
+<td>Shell environment variables</td>
+<td>High</td>
+<td><code>export DATA_SYNC_BATCH_SIZE=500</code></td>
+</tr>
+<tr>
+<td><code>.env</code> file values (via <code>--dotenv-file</code>)</td>
+<td>Medium</td>
+<td><code>DATA_SYNC_BATCH_SIZE=100</code> in <code>.env</code></td>
+</tr>
+<tr>
+<td>Config files (TOML)</td>
+<td>Low</td>
+<td><code>batch_size = 50</code> in <code>config.base.toml</code></td>
+</tr>
+<tr>
+<td>Pydantic model defaults</td>
+<td>Lowest</td>
+<td><code>Field(default=25)</code></td>
+</tr>
+</tbody>
+</table>
+<p>If <code>DATA_SYNC_BATCH_SIZE=500</code> is already set in your shell, a <code>.env</code> file containing <code>DATA_SYNC_BATCH_SIZE=100</code> will <strong>not</strong> override it. The shell value wins.</p>
+<p>This applies to the <code>ENVIRONMENT</code> variable too — if your shell has <code>export ENVIRONMENT=staging</code> and your <code>.env</code> has <code>ENVIRONMENT=prod</code>, the staging overlay is used because shell takes precedence.</p>
+<h3 id="boot-time-env-loading-rules">Boot-Time <code>.env</code> Loading Rules<a class="headerlink" href="#boot-time-env-loading-rules" title="Permanent link">&para;</a></h3>
+<p>Boot's <code>.env</code> handling is driven entirely by <code>ConfigSources</code>:</p>
+<ul>
+<li><code>dotenv=True</code> (the <code>ConfigSources</code> default and the <code>env_only()</code> preset default): boot loads <code>./.env</code> from the current working directory if it exists — missing file is not an error.</li>
+<li><code>dotenv_path="..."</code>: boot loads that specific file; a missing file logs a warning and skips.</li>
+<li><code>dotenv=False</code> (the <code>twelve_factor()</code> preset default): boot never calls <code>load_dotenv()</code>.</li>
+<li>Loading happens at the very start of boot (both the standard and static paths), before the resolution chain is built.</li>
+<li>Only the current directory is checked — there is <strong>no upward directory scan</strong>, so a <code>.env</code> forgotten in a parent directory is never silently picked up.</li>
+</ul>
+<p>For the <code>func</code> CLI, the resolved CLI config (<code>dotenv</code> / <code>dotenv_path</code> from <code>pyproject.toml</code> <code>[tool.functualize]</code>, <code>FUNCTUALIZE_DOTENV</code>, <code>FUNCTUALIZE_DOTENV_PATH</code>) controls loading, with <code>--dotenv-file</code> / <code>--no-dotenv</code> as overrides. The CLI default is <code>dotenv = false</code> — opt in per project.</p>
+<div class="admonition info">
+<p class="admonition-title">Disabling for reproducibility</p>
+<p>Automatic <code>.env</code> loading can cause differences between environments. For CI or production, use <code>twelve_factor()</code> (or <code>ConfigSources(dotenv=False)</code>, or <code>--no-dotenv</code> on the CLI) so environment variables come only from the orchestrator.</p>
+</div>
+<h3 id="practical-patterns">Practical Patterns<a class="headerlink" href="#practical-patterns" title="Permanent link">&para;</a></h3>
+<p><strong>Local development with <code>.env</code>:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Create a .env for local secrets</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;DATA_SYNC_API_KEY=dev-secret-123&quot;</span><span class="w"> </span>&gt;<span class="w"> </span>.env
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;DATA_SYNC_API_URL=http://localhost:8080&quot;</span><span class="w"> </span>&gt;&gt;<span class="w"> </span>.env
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="c1"># Run with dotenv</span>
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>myapp<span class="w"> </span>--dotenv-file<span class="w"> </span>.env<span class="w"> </span>data-sync<span class="w"> </span>run
+</code></pre></div>
+<p><strong>CI/Docker (no <code>.env</code> needed):</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># Real env vars are set by the orchestrator</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">DATA_SYNC_API_KEY</span><span class="o">=</span><span class="nv">$VAULT_SECRET</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="nb">export</span><span class="w"> </span><span class="nv">DATA_SYNC_API_URL</span><span class="o">=</span>https://api.prod.example.com
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>myapp<span class="w"> </span>data-sync<span class="w"> </span>run
+</code></pre></div>
+<p><strong>Verifying what's loaded:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># builtin info displays whether a dotenv file was loaded and its contents</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>myapp<span class="w"> </span>--dotenv-file<span class="w"> </span>.env<span class="w"> </span><span class="nb">builtin</span><span class="w"> </span>info<span class="w"> </span>all
+</code></pre></div>
+<h3 id="introspection-with-builtin-info">Introspection with <code>builtin info</code><a class="headerlink" href="#introspection-with-builtin-info" title="Permanent link">&para;</a></h3>
+<p>The <code>builtin info</code> command reports the current dotenv status:</p>
+<ul>
+<li>If <code>--dotenv-file</code> was passed, it displays the file path and its key-value contents</li>
+<li>If no dotenv file was loaded, it prints a notice: "No dotenv file loaded"</li>
+<li>Use <code>--show-env-vars</code> to see the full <code>os.environ</code> snapshot (including any values injected from <code>.env</code>)</li>
+</ul>
+<h2 id="per-job-config-sections">Per-Job Config Sections<a class="headerlink" href="#per-job-config-sections" title="Permanent link">&para;</a></h2>
+<p>Each job can have its own config section where the section name matches the <code>JOB_GROUP</code> value defined in the job module. When a job uses a <code>JobConfig</code> Pydantic model, fields are resolved from the matching section.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="c1"># config.base.toml</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="k">[general]</span>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="n">debug</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="n">log_format</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;json&quot;</span>
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>
+<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="k">[data_sync]</span>
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="n">api_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://api.example.com&quot;</span>
+<a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a><span class="n">batch_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">100</span>
+<a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a><span class="n">timeout</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">30</span>
+<a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a>
+<a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a><span class="k">[report_gen]</span>
+<a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a><span class="n">output_dir</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;./reports&quot;</span>
+<a id="__codelineno-13-14" name="__codelineno-13-14" href="#__codelineno-13-14"></a><span class="n">format</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;pdf&quot;</span>
+</code></pre></div>
+<p>In this example, a job with <code>JOB_GROUP = "data_sync"</code> reads from the <code>[data_sync]</code> section.</p>
+<h2 id="jobconfig-field-resolution">JobConfig Field Resolution<a class="headerlink" href="#jobconfig-field-resolution" title="Permanent link">&para;</a></h2>
+<p>When a job function declares a <code>JobConfig</code> Pydantic model parameter, each field is resolved with this precedence:</p>
+<ol>
+<li><strong>Runtime override</strong> — a value deposited by <code>rc.config.set("batch_size", 200)</code> during the run</li>
+<li><strong>CLI argument</strong> — explicitly passed via the command line (e.g., <code>--batch-size 200</code>)</li>
+<li><strong>Environment variable</strong> — <code>JOBNAME_FIELDNAME</code> uppercased (e.g., <code>DATA_SYNC_BATCH_SIZE</code>)</li>
+<li><strong>Config file section</strong> — the <code>[job_name]</code> section in the loaded config files</li>
+<li><strong>Model default</strong> — the default value defined on the Pydantic field</li>
+</ol>
+<p>An override outranks the command line: it is written after the command line was
+read, and it is what the rest of the run reads back.</p>
+<div class="panzoom-box" data-key="alt" id="panzoom0" oncontextmenu="return false;">
+    
+    <nav class="panzoom-nav">
+    <button class="panzoom-info panzoom-button">
+    <svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+        <path d="M464 256A208 208 0 1 0 48 256a208 208 0 1 0 416 0zM0 256a256 256 0 1 1 512 0A256 256 0 1 1 0 256zm169.8-90.7c7.9-22.3 29.1-37.3 52.8-37.3l58.3 0c34.9 0 63.1 28.3 63.1 63.1c0 22.6-12.1 43.5-31.7 54.8L280 264.4c-.2 13-10.9 23.6-24 23.6c-13.3 0-24-10.7-24-24l0-13.5c0-8.6 4.6-16.5 12.1-20.8l44.3-25.4c4.7-2.7 7.6-7.7 7.6-13.1c0-8.4-6.8-15.1-15.1-15.1l-58.3 0c-3.4 0-6.4 2.1-7.5 5.3l-.4 1.2c-4.4 12.5-18.2 19-30.6 14.6s-19-18.2-14.6-30.6l.4-1.2zM224 352a32 32 0 1 1 64 0 32 32 0 1 1 -64 0z"></path>
+    </svg>
+</button><button class="panzoom-reset panzoom-button">
+    <svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+        <path d="M125.7 160l50.3 0c17.7 0 32 14.3 32 32s-14.3 32-32 32L48 224c-17.7 0-32-14.3-32-32L16 64c0-17.7 14.3-32 32-32s32 14.3 32 32l0 51.2L97.6 97.6c87.5-87.5 229.3-87.5 316.8 0s87.5 229.3 0 316.8s-229.3 87.5-316.8 0c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0c62.5 62.5 163.8 62.5 226.3 0s62.5-163.8 0-226.3s-163.8-62.5-226.3 0L125.7 160z"></path>
+    </svg>
+</button><button class="panzoom-max panzoom-button">
+    <svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg">
+        <path d="M32 32C14.3 32 0 46.3 0 64l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L32 32zM64 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 32c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM448 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96z"></path>
+    </svg>
+</button><button class="panzoom-min panzoom-button panzoom-hidden">
+    <svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg">
+        <path d="M160 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96zM32 320c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM352 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 320c-17.7 0-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-96 0z"></path>
+    </svg>
+</button>
+    </nav>
+    <pre class="mermaid"><code>flowchart TD
+    A[Resolve JobConfig field] --&gt; B{CLI argument provided?}
+    B --&gt;|Yes| C[Use CLI value]
+    B --&gt;|No| D{Env var JOBNAME_FIELDNAME set?}
+    D --&gt;|Yes| E[Use env var value]
+    D --&gt;|No| F{Key in config section?}
+    F --&gt;|Yes| G[Use config file value]
+    F --&gt;|No| H{Field has default?}
+    H --&gt;|Yes| I[Use model default]
+    H --&gt;|No| J[Pydantic ValidationError]</code></pre> 
+    <div class="panzoom-info-box panzoom-info-box-bottom panzoom-hidden">
+Hold "Alt" / "Option" to enable pan &amp; zoom
+</div>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>If a required field (no default value) has no value from any source, an interactive surface asks for it. Off one — CI, a pipe, a cron job — Pydantic's <code>ValidationError</code> is reported with field-level details, the config files that were actually read, and the environment variable that would set the field.</p>
+</div>
+<h2 id="credentials">Credentials<a class="headerlink" href="#credentials" title="Permanent link">&para;</a></h2>
+<p>A credential is an ordinary config field that you mark as secret. Nothing else
+about it changes: it resolves through the same ladder, in the same section, under
+the same environment variable name.</p>
+<div class="highlight"><span class="filename">jobs/sync.py</span><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseModel</span><span class="p">,</span> <span class="n">Field</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">functualize.job</span><span class="w"> </span><span class="kn">import</span> <span class="n">RunContext</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">functualize.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">Secret</span>
+<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>
+<a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>
+<a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="k">class</span><span class="w"> </span><span class="nc">SyncConfig</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+<a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a>    <span class="n">api_url</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="s2">&quot;https://api.example.com&quot;</span><span class="p">)</span>
+<a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a>    <span class="n">credential</span><span class="p">:</span> <span class="n">Secret</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;API token&quot;</span><span class="p">)</span>
+<a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a>
+<a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a>
+<a id="__codelineno-14-12" name="__codelineno-14-12" href="#__codelineno-14-12"></a><span class="k">def</span><span class="w"> </span><span class="nf">sync</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">SyncConfig</span><span class="p">,</span> <span class="n">rc</span><span class="p">:</span> <span class="n">RunContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-14-13" name="__codelineno-14-13" href="#__codelineno-14-13"></a>    <span class="n">rc</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;connecting to </span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">api_url</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-14-14" name="__codelineno-14-14" href="#__codelineno-14-14"></a>    <span class="n">client</span><span class="o">.</span><span class="n">authenticate</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">credential</span><span class="o">.</span><span class="n">get_secret_value</span><span class="p">())</span>
+</code></pre></div>
+<p><code>Secret[str]</code> is the declaration. It is a real type: it validates from a plain
+string, refuses to render its value in <code>str()</code>, <code>repr()</code> or a log line, serializes
+to the mask in JSON (<code>model_dump_json()</code>, <code>model_dump(mode="json")</code>), and yields
+the real value only through <code>.get_secret_value()</code>.</p>
+<p>A plain <code>model_dump()</code> returns the <code>Secret</code> object itself rather than the mask.
+That is deliberate: the framework passes config models between jobs by dumping
+and rebuilding them — <code>rc.invoke(child, config=…)</code> is the common case — and
+flattening the wrapper there would hand the child <code>•••</code> instead of the
+credential, silently. The object still masks itself wherever it is rendered, so
+nothing leaks by keeping it.</p>
+<p>A field that must stay a plain <code>str</code> for some other reason can carry the marker
+instead, and is treated identically everywhere:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="n">credential</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="n">json_schema_extra</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;secret&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">})</span>
+</code></pre></div>
+<p>Both markers answer one question — <em>is this field a secret?</em> — asked in one
+place. Every surface that renders configuration asks it: <code>func builtin info
+--job</code>, <code>func builtin env</code>, the inline TUI's config table and source-chain
+view, and the bar while you type into the field. None of them will show you the
+value.</p>
+<div class="admonition warning">
+<p class="admonition-title">Detection is by declaration, never by name</p>
+<p>A field called <code>sort_key</code> is not a secret, and a field called <code>x</code> is one if
+you declared it so. Name matching was tried and removed: it masked the wrong
+fields and, far worse, left real credentials in cleartext whenever the name
+did not match a pattern.</p>
+</div>
+<h3 id="finding-out-what-a-job-needs">Finding out what a job needs<a class="headerlink" href="#finding-out-what-a-job-needs" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="gp">$ </span><span class="nv">SYNC_CREDENTIAL</span><span class="o">=</span>hunter2-real<span class="w"> </span>func<span class="w"> </span><span class="nb">builtin</span><span class="w"> </span>env<span class="w"> </span>sync
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="go">export SYNC_API_URL=https://api.example.com  # source: file</span>
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="go">export SYNC_CREDENTIAL=&#39;•••&#39;  # source: env</span>
+</code></pre></div>
+<p>The comment names the <em>kind</em> of source a value came from — <code>file</code>, <code>env</code>, <code>cli</code>,
+<code>default</code> — not the particular file. A plain value is printed unquoted; the mask
+is quoted because it is not a value you could paste back.</p>
+<p>Unset fields come back commented, so the output doubles as a <code>.env</code> skeleton and
+"is the credential configured?" has a visible answer:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="gp">$ </span>func<span class="w"> </span><span class="nb">builtin</span><span class="w"> </span>env<span class="w"> </span>strict
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="gp"># </span><span class="nv">STRICT_TOKEN</span><span class="o">=</span><span class="w">  </span><span class="c1"># REQUIRED — not set</span>
+</code></pre></div>
+<p><code>func builtin env &lt;job&gt; -- &lt;command&gt;</code> runs a command with the resolved values in
+its environment instead of printing them. Secret fields are <strong>masked</strong> in the
+print form and <strong>omitted</strong> from the exec environment unless you pass
+<code>--include-secrets</code>, so the default output is safe to paste into a bug report
+while the exec form never puts a credential in a child process it did not ask
+for.</p>
+<h3 id="where-credentials-come-from">Where credentials come from<a class="headerlink" href="#where-credentials-come-from" title="Permanent link">&para;</a></h3>
+<p>Set them in the environment, or in a <code>.env</code> file that is not committed — or
+name a remote secret store with an annotation, covered in
+<a href="#remote-configuration">Remote Configuration</a>.</p>
+<p>A <code>${env:VAR}</code> interpolation syntax was considered and <strong>rejected</strong>, and that
+decision stands. It reads as indirection but resolves to the same environment
+variable the field would have read anyway — so it adds a syntax, a parse step
+and a failure mode, and buys nothing except the appearance of a secrets
+feature. That appearance is the danger: it invites putting the real value there
+"just for now". A field that resolves from the environment does so because that
+is the ladder, not because a config file pointed at it.</p>
+<p>An annotation is a different thing, and the difference is the whole reason it
+was accepted where <code>${env:VAR}</code> was not: <code>aws-sm://prod/db-password</code> names a
+location the config file could not otherwise reach, and nothing about it
+tempts anyone to paste a password in its place. It names <strong>where</strong> a credential
+lives and never carries its <strong>value</strong> (ADR-016).</p>
+<p>There is no <code>[secrets]</code> section. A credential is a field in its job's own
+section, marked secret — one concept, not two.</p>
+<h2 id="remote-configuration">Remote Configuration<a class="headerlink" href="#remote-configuration" title="Permanent link">&para;</a></h2>
+<p>A config value can name <strong>where</strong> a credential lives instead of carrying it:</p>
+<div class="highlight"><span class="filename">config.base.toml</span><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">[data-sync]</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="n">password</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;aws-sm://prod/db-password&quot;</span>
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="n">api_token</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;aws-ssm:///platform/api-token&quot;</span>
+<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="n">webhook</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;bws://8a9c2f0e-1b3d-4c5e-9f70-2a1b3c4d5e6f&quot;</span>
+<a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a><span class="n">region</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;eu-west-1&quot;</span><span class="w">                      </span><span class="c1"># an ordinary value, untouched</span>
+<a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a><span class="n">docs_url</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://docs.example.com&quot;</span><span class="w">       </span><span class="c1"># an ordinary URL, untouched</span>
+</code></pre></div>
+<p>Two rules make that safe to put in a committed file:</p>
+<ul>
+<li>The annotation names a <strong>location</strong>, never a <strong>value</strong>. Reading the file
+  tells you a credential exists and which store holds it, which is what the
+  file previously could not say at all.</li>
+<li>A value is an annotation only when its scheme matches a <strong>registered
+  provider</strong>. <code>https://docs.example.com</code> stays a string because no plugin
+  registers <code>https</code>.</li>
+</ul>
+<h3 id="the-vault-and-why-reads-never-hit-the-network">The vault, and why reads never hit the network<a class="headerlink" href="#the-vault-and-why-reads-never-hit-the-network" title="Permanent link">&para;</a></h3>
+<p>Values are fetched by <code>func builtin vault sync</code> and written to a per-project
+encrypted store. A job run reads that store and <strong>never</strong> the network.</p>
+<p>That is a deliberate trade (ADR-016). Resolving annotations live would put a
+network round-trip and a 30-second timeout between the operator and every job
+run, including runs of jobs that use no secret at all — and it would stop you
+working offline. Here the network is touched when <em>you</em> sync.</p>
+<div class="panzoom-box" data-key="alt" id="panzoom0" oncontextmenu="return false;">
+    
+    <nav class="panzoom-nav">
+    <button class="panzoom-info panzoom-button">
+    <svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+        <path d="M464 256A208 208 0 1 0 48 256a208 208 0 1 0 416 0zM0 256a256 256 0 1 1 512 0A256 256 0 1 1 0 256zm169.8-90.7c7.9-22.3 29.1-37.3 52.8-37.3l58.3 0c34.9 0 63.1 28.3 63.1 63.1c0 22.6-12.1 43.5-31.7 54.8L280 264.4c-.2 13-10.9 23.6-24 23.6c-13.3 0-24-10.7-24-24l0-13.5c0-8.6 4.6-16.5 12.1-20.8l44.3-25.4c4.7-2.7 7.6-7.7 7.6-13.1c0-8.4-6.8-15.1-15.1-15.1l-58.3 0c-3.4 0-6.4 2.1-7.5 5.3l-.4 1.2c-4.4 12.5-18.2 19-30.6 14.6s-19-18.2-14.6-30.6l.4-1.2zM224 352a32 32 0 1 1 64 0 32 32 0 1 1 -64 0z"></path>
+    </svg>
+</button><button class="panzoom-reset panzoom-button">
+    <svg class="panzoom-icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+        <path d="M125.7 160l50.3 0c17.7 0 32 14.3 32 32s-14.3 32-32 32L48 224c-17.7 0-32-14.3-32-32L16 64c0-17.7 14.3-32 32-32s32 14.3 32 32l0 51.2L97.6 97.6c87.5-87.5 229.3-87.5 316.8 0s87.5 229.3 0 316.8s-229.3 87.5-316.8 0c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0c62.5 62.5 163.8 62.5 226.3 0s62.5-163.8 0-226.3s-163.8-62.5-226.3 0L125.7 160z"></path>
+    </svg>
+</button><button class="panzoom-max panzoom-button">
+    <svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg">
+        <path d="M32 32C14.3 32 0 46.3 0 64l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L32 32zM64 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 32c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM448 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96z"></path>
+    </svg>
+</button><button class="panzoom-min panzoom-button panzoom-hidden">
+    <svg class="panzoom-icon" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg">
+        <path d="M160 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96zM32 320c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM352 64c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 320c-17.7 0-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-96 0z"></path>
+    </svg>
+</button>
+    </nav>
+    <pre class="mermaid"><code>flowchart LR
+    sync["func builtin vault sync"] --&gt;|"fetch"| remote["AWS / Bitwarden / ..."]
+    sync --&gt;|"encrypt + store"| vault[("local vault")]
+    run["func data-sync"] --&gt;|"read"| vault
+    run -.-&gt;|"never"| remote</code></pre> 
+    <div class="panzoom-info-box panzoom-info-box-bottom panzoom-hidden">
+Hold "Alt" / "Option" to enable pan &amp; zoom
+</div>
+</div>
+<p>Only the <strong>value</strong> is encrypted. <code>key</code>, <code>annotation</code>, <code>provider</code> and
+<code>synced_at</code> are stored in clear on purpose, so <code>vault list</code> can report what is
+held and how fresh it is on a machine that cannot open the store. None of them
+is the secret: knowing that <code>data-sync.password</code> came from
+<code>aws-sm://prod/db-password</code> reveals nothing the config file did not already say
+out loud.</p>
+<p>Each project gets its own vault, keyed the same way the discovery cache is. A
+repository you cloned to look at cannot read the secrets of a project you
+actually work on.</p>
+<h3 id="getting-started">Getting started<a class="headerlink" href="#getting-started" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="c1"># 1. Install a provider plugin.</span>
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>pip<span class="w"> </span>install<span class="w"> </span>functualize-aws<span class="w">          </span><span class="c1"># aws-sm, aws-ssm (also in functualize[all])</span>
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>pip<span class="w"> </span>install<span class="w"> </span>functualize-bitwarden<span class="w">    </span><span class="c1"># bws (separate: its SDK has no musl build)</span>
+<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a>
+<a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="c1"># 2. Create a vault key and keep it somewhere your shell can read.</span>
+<a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a><span class="nb">export</span><span class="w"> </span><span class="nv">FUNCTUALIZE_VAULT_KEY</span><span class="o">=</span><span class="k">$(</span>func<span class="w"> </span><span class="nb">builtin</span><span class="w"> </span>vault<span class="w"> </span>keygen<span class="k">)</span>
+<a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a>
+<a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a><span class="c1"># 3. Declare annotations in your config file, then fill the vault.</span>
+<a id="__codelineno-19-9" name="__codelineno-19-9" href="#__codelineno-19-9"></a>func<span class="w"> </span><span class="nb">builtin</span><span class="w"> </span>vault<span class="w"> </span>sync
+<a id="__codelineno-19-10" name="__codelineno-19-10" href="#__codelineno-19-10"></a>
+<a id="__codelineno-19-11" name="__codelineno-19-11" href="#__codelineno-19-11"></a><span class="c1"># 4. Run jobs as usual. Nothing else contacts the network.</span>
+<a id="__codelineno-19-12" name="__codelineno-19-12" href="#__codelineno-19-12"></a>func<span class="w"> </span>data-sync
+</code></pre></div>
+<p>Select the preset in your <code>main.py</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">functualize.app</span><span class="w"> </span><span class="kn">import</span> <span class="n">FunctualizeApp</span><span class="p">,</span> <span class="n">JobSources</span><span class="p">,</span> <span class="n">remote_first</span>
+<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a>
+<a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="n">app</span> <span class="o">=</span> <span class="n">FunctualizeApp</span><span class="p">(</span>
+<a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a>    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my-platform&quot;</span><span class="p">,</span>
+<a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a>    <span class="n">job_sources</span><span class="o">=</span><span class="n">JobSources</span><span class="p">(</span><span class="n">directories</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;my_platform.jobs&quot;</span><span class="p">]),</span>
+<a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a>    <span class="n">config_sources</span><span class="o">=</span><span class="n">remote_first</span><span class="p">(),</span>
+<a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a><span class="p">)</span>
+</code></pre></div>
+<h3 id="where-the-vault-sits-in-the-chain">Where the vault sits in the chain<a class="headerlink" href="#where-the-vault-sits-in-the-chain" title="Permanent link">&para;</a></h3>
+<p><code>remote_first()</code> builds <strong>CLI → Vault → Env → Files → Defaults</strong>. A synced
+secret outranks the environment and the config file; an explicit CLI argument
+still wins.</p>
+<p>Note what that means in practice: once <code>data-sync.password</code> is in the vault, an
+environment variable no longer overrides it. That is the preset's whole
+proposition — the value comes from the store you named — but it is a change
+from <code>classic()</code> worth knowing before you switch.</p>
+<h3 id="the-key">The key<a class="headerlink" href="#the-key" title="Permanent link">&para;</a></h3>
+<p>The vault key is resolved by a <code>VaultKeyProvider</code>, non-interactive sources
+first:</p>
+<table>
+<thead>
+<tr>
+<th>Provider</th>
+<th>Source</th>
+<th>Interactive</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>env</code></td>
+<td><code>$FUNCTUALIZE_VAULT_KEY</code> (64 hex characters)</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>keychain</code></td>
+<td>the OS keyring</td>
+<td>yes</td>
+</tr>
+</tbody>
+</table>
+<p>The environment wins <strong>when set</strong>, so an automated run is deterministic and
+never blocks on a prompt. Interactive providers are consulted only on a real
+terminal — a Lambda must not hang on a keychain dialog.</p>
+<p>With no key at all the vault does not open. There is <strong>no plaintext fallback</strong>:
+resolution falls through to the next source, and says so.</p>
+<h3 id="three-things-that-warn-rather-than-fail">Three things that warn rather than fail<a class="headerlink" href="#three-things-that-warn-rather-than-fail" title="Permanent link">&para;</a></h3>
+<p>Offline work has to keep working, so none of these stops a run.</p>
+<p><strong>A key declared remotely with nothing synced for it.</strong> Resolution continues to
+the next source, and the warning names the key, its annotation, which source
+answered instead, and the fix:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>Config key &#39;data-sync.password&#39; is declared remotely as
+<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>&#39;aws-sm://prod/db-password&#39;, but the vault holds no synced value for it. The
+<a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>job will receive the literal annotation string from
+<a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a>file (/srv/my-platform/config.base.toml), not the secret it names. Run
+<a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a>`func builtin vault sync` to fill the vault.
+</code></pre></div>
+<p>That is also what a <strong>first run</strong> looks like — a key exported and <code>vault sync</code>
+not yet run. It warns per declared key rather than once, because unlike a
+missing key it has a one-command fix the message can name.</p>
+<p>Once per key per run, not once per access.</p>
+<p><strong>A stale vault.</strong> Past <code>max_age</code> (default <code>24h</code>, judged on the oldest entry)
+the first vault read of a run warns once and the run continues:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="n">config_sources</span><span class="o">=</span><span class="n">remote_first</span><span class="p">(</span><span class="n">max_age</span><span class="o">=</span><span class="s2">&quot;7d&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p><code>$FUNCTUALIZE_VAULT_MAX_AGE</code> overrides that. Durations are
+<code>&lt;number&gt;&lt;unit&gt;</code> terms — <code>30s</code>, <code>45m</code>, <code>24h</code>, <code>7d</code>, <code>2w</code>, or <code>1d12h</code>. A bare
+number is refused rather than guessed, and so is <code>1M</code>: a month has no fixed
+length, and reading it as minutes would be wrong by a factor of 43,200.</p>
+<p><strong>An annotation whose plugin is not installed.</strong> <code>aws-sm://prod/db</code> with
+<code>functualize-aws</code> absent is reported by <code>vault sync</code> rather than passed over,
+because the alternative is a job receiving the literal string as its password.</p>
+<h3 id="the-builtin-vault-commands">The <code>builtin vault</code> commands<a class="headerlink" href="#the-builtin-vault-commands" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>func<span class="w"> </span><span class="nb">builtin</span><span class="w"> </span>vault<span class="w"> </span>sync<span class="w">      </span><span class="c1"># fetch every annotation, write the vault</span>
+<a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a>func<span class="w"> </span><span class="nb">builtin</span><span class="w"> </span>vault<span class="w"> </span>list<span class="w">      </span><span class="c1"># names, providers, synced_at -- never values</span>
+<a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a>func<span class="w"> </span><span class="nb">builtin</span><span class="w"> </span>vault<span class="w"> </span>status<span class="w">    </span><span class="c1"># key provider in use, age, entry count</span>
+<a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a>func<span class="w"> </span><span class="nb">builtin</span><span class="w"> </span>vault<span class="w"> </span>clear<span class="w">     </span><span class="c1"># delete this project&#39;s vault</span>
+<a id="__codelineno-23-5" name="__codelineno-23-5" href="#__codelineno-23-5"></a>func<span class="w"> </span><span class="nb">builtin</span><span class="w"> </span>vault<span class="w"> </span>keygen<span class="w">    </span><span class="c1"># print a fresh 32-byte key, hex-encoded</span>
+</code></pre></div>
+<p><code>sync</code>, <code>list</code> and <code>status</code> take <code>--json</code>.</p>
+<p><code>list</code> and <code>status</code> need <strong>no key</strong> — they read the cleartext metadata columns,
+which is what makes them useful on the machine where something is wrong.
+<code>status</code> also never prompts, so it is safe in a script.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="gp">$ </span>func<span class="w"> </span><span class="nb">builtin</span><span class="w"> </span>vault<span class="w"> </span>status
+<a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="go">Path:         ~/.local/share/functualize/vaults/0f8c5900f3b1/vault.db</span>
+<a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a><span class="go">Exists:       yes</span>
+<a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a><span class="go">Entries:      3</span>
+<a id="__codelineno-24-5" name="__codelineno-24-5" href="#__codelineno-24-5"></a><span class="go">Key provider: env</span>
+<a id="__codelineno-24-6" name="__codelineno-24-6" href="#__codelineno-24-6"></a><span class="go">Last synced:  4d 2h ago  ← stale</span>
+<a id="__codelineno-24-7" name="__codelineno-24-7" href="#__codelineno-24-7"></a><span class="go">Max age:      1d</span>
+<a id="__codelineno-24-8" name="__codelineno-24-8" href="#__codelineno-24-8"></a><span class="go">Providers:    aws-sm, aws-ssm, bws</span>
+<a id="__codelineno-24-9" name="__codelineno-24-9" href="#__codelineno-24-9"></a>
+<a id="__codelineno-24-10" name="__codelineno-24-10" href="#__codelineno-24-10"></a><span class="go">Run `func builtin vault sync` to refresh it.</span>
+</code></pre></div>
+<p><code>sync</code> collects failures rather than stopping at the first: one unreachable
+provider must not abandon the other twelve secrets. It exits non-zero when
+anything declared did not land, so a pipeline still notices.</p>
+<p>Only config <strong>files</strong> are scanned. An annotation set in an environment variable
+would, once synced, be answered by the vault instead — the vault sits above Env
+— so re-exporting the variable would silently stop changing anything.</p>
+<h3 id="fallback-chains">Fallback chains<a class="headerlink" href="#fallback-chains" title="Permanent link">&para;</a></h3>
+<p>An annotation may name more than one store, tried in order:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">[data-sync]</span>
+<a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="n">password</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;aws-sm://prod/db-password | bws://DB_PASSWORD&quot;</span>
+</code></pre></div>
+<p>Up to five entries. Each keeps its own provider-specific options, and <code>sync</code>
+reports every entry's reason when the whole chain is exhausted.</p>
+<h3 id="provider-specific-references">Provider-specific references<a class="headerlink" href="#provider-specific-references" title="Permanent link">&para;</a></h3>
+<p>Everything after <code>://</code> is opaque to functualize and is handed to the provider
+whole, which is what lets a provider define its own options:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">[data-sync]</span>
+<a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a><span class="n">password</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;aws-sm://prod/db-password?profile=prod-admin&quot;</span>
+<a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a><span class="n">replica</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;aws-sm://prod/db?account=123456789012&amp;region=eu-west-1&quot;</span>
+<a id="__codelineno-26-4" name="__codelineno-26-4" href="#__codelineno-26-4"></a><span class="n">audit</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;aws-ssm:///p/audit?role=arn:aws:iam::123456789012:role/Deploy&quot;</span>
+<a id="__codelineno-26-5" name="__codelineno-26-5" href="#__codelineno-26-5"></a><span class="n">scoped</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;bws://DB_PASSWORD?project=aaaaaaaa-1111-2222-3333-444444444444&quot;</span>
+</code></pre></div>
+<p>See each plugin's README for the options it honours. Both shipped plugins
+refuse an unknown option rather than ignoring it.</p>
+<h2 id="complete-example">Complete Example<a class="headerlink" href="#complete-example" title="Permanent link">&para;</a></h2>
+<p>Here's a full example showing a base config, environment overlay, and a <code>JobConfig</code> model that reads from the config system.</p>
+<h3 id="base-config">Base Config<a class="headerlink" href="#base-config" title="Permanent link">&para;</a></h3>
+<div class="highlight"><span class="filename">config.base.toml</span><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">[general]</span>
+<a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a><span class="n">debug</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span>
+<a id="__codelineno-27-3" name="__codelineno-27-3" href="#__codelineno-27-3"></a><span class="n">environment</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;development&quot;</span>
+<a id="__codelineno-27-4" name="__codelineno-27-4" href="#__codelineno-27-4"></a>
+<a id="__codelineno-27-5" name="__codelineno-27-5" href="#__codelineno-27-5"></a><span class="k">[data_sync]</span>
+<a id="__codelineno-27-6" name="__codelineno-27-6" href="#__codelineno-27-6"></a><span class="n">api_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://api.example.com&quot;</span>
+<a id="__codelineno-27-7" name="__codelineno-27-7" href="#__codelineno-27-7"></a><span class="n">batch_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">50</span>
+<a id="__codelineno-27-8" name="__codelineno-27-8" href="#__codelineno-27-8"></a><span class="n">timeout</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">30</span>
+<a id="__codelineno-27-9" name="__codelineno-27-9" href="#__codelineno-27-9"></a><span class="n">retry_enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+</code></pre></div>
+<h3 id="environment-overlay">Environment Overlay<a class="headerlink" href="#environment-overlay" title="Permanent link">&para;</a></h3>
+<div class="highlight"><span class="filename">config.prod.toml</span><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">[general]</span>
+<a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a><span class="n">debug</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span>
+<a id="__codelineno-28-3" name="__codelineno-28-3" href="#__codelineno-28-3"></a><span class="n">environment</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;production&quot;</span>
+<a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a>
+<a id="__codelineno-28-5" name="__codelineno-28-5" href="#__codelineno-28-5"></a><span class="k">[data_sync]</span>
+<a id="__codelineno-28-6" name="__codelineno-28-6" href="#__codelineno-28-6"></a><span class="n">api_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://api.prod.example.com&quot;</span>
+<a id="__codelineno-28-7" name="__codelineno-28-7" href="#__codelineno-28-7"></a><span class="n">batch_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">500</span>
+<a id="__codelineno-28-8" name="__codelineno-28-8" href="#__codelineno-28-8"></a><span class="n">timeout</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">60</span>
+</code></pre></div>
+<h3 id="jobconfig-model-and-job-function">JobConfig Model and Job Function<a class="headerlink" href="#jobconfig-model-and-job-function" title="Permanent link">&para;</a></h3>
+<div class="highlight"><span class="filename">jobs/sync.py</span><pre><span></span><code><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseModel</span><span class="p">,</span> <span class="n">Field</span>
+<a id="__codelineno-29-2" name="__codelineno-29-2" href="#__codelineno-29-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">functualize.job</span><span class="w"> </span><span class="kn">import</span> <span class="n">RunContext</span>
+<a id="__codelineno-29-3" name="__codelineno-29-3" href="#__codelineno-29-3"></a>
+<a id="__codelineno-29-4" name="__codelineno-29-4" href="#__codelineno-29-4"></a><span class="n">JOB_GROUP</span> <span class="o">=</span> <span class="s2">&quot;data_sync&quot;</span>
+<a id="__codelineno-29-5" name="__codelineno-29-5" href="#__codelineno-29-5"></a>
+<a id="__codelineno-29-6" name="__codelineno-29-6" href="#__codelineno-29-6"></a>
+<a id="__codelineno-29-7" name="__codelineno-29-7" href="#__codelineno-29-7"></a><span class="k">class</span><span class="w"> </span><span class="nc">SyncConfig</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+<a id="__codelineno-29-8" name="__codelineno-29-8" href="#__codelineno-29-8"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Configuration for the data sync job.&quot;&quot;&quot;</span>
+<a id="__codelineno-29-9" name="__codelineno-29-9" href="#__codelineno-29-9"></a>
+<a id="__codelineno-29-10" name="__codelineno-29-10" href="#__codelineno-29-10"></a>    <span class="n">api_url</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;Target API endpoint URL&quot;</span><span class="p">)</span>
+<a id="__codelineno-29-11" name="__codelineno-29-11" href="#__codelineno-29-11"></a>    <span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Number of records per batch&quot;</span><span class="p">)</span>
+<a id="__codelineno-29-12" name="__codelineno-29-12" href="#__codelineno-29-12"></a>    <span class="n">timeout</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Request timeout in seconds&quot;</span><span class="p">)</span>
+<a id="__codelineno-29-13" name="__codelineno-29-13" href="#__codelineno-29-13"></a>    <span class="n">retry_enabled</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Enable automatic retries&quot;</span><span class="p">)</span>
+<a id="__codelineno-29-14" name="__codelineno-29-14" href="#__codelineno-29-14"></a>
+<a id="__codelineno-29-15" name="__codelineno-29-15" href="#__codelineno-29-15"></a>
+<a id="__codelineno-29-16" name="__codelineno-29-16" href="#__codelineno-29-16"></a><span class="k">def</span><span class="w"> </span><span class="nf">sync</span><span class="p">(</span><span class="n">rc</span><span class="p">:</span> <span class="n">RunContext</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">SyncConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-29-17" name="__codelineno-29-17" href="#__codelineno-29-17"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Synchronize data from the configured API endpoint.&quot;&quot;&quot;</span>
+<a id="__codelineno-29-18" name="__codelineno-29-18" href="#__codelineno-29-18"></a>    <span class="n">rc</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Connecting to </span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">api_url</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">)</span>
+<a id="__codelineno-29-19" name="__codelineno-29-19" href="#__codelineno-29-19"></a>    <span class="n">rc</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Batch size: </span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">batch_size</span><span class="si">}</span><span class="s2">, timeout: </span><span class="si">{</span><span class="n">config</span><span class="o">.</span><span class="n">timeout</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">)</span>
+<a id="__codelineno-29-20" name="__codelineno-29-20" href="#__codelineno-29-20"></a>
+<a id="__codelineno-29-21" name="__codelineno-29-21" href="#__codelineno-29-21"></a>    <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">retry_enabled</span><span class="p">:</span>
+<a id="__codelineno-29-22" name="__codelineno-29-22" href="#__codelineno-29-22"></a>        <span class="n">rc</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;Retries enabled&quot;</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="s2">&quot;debug&quot;</span><span class="p">)</span>
+<a id="__codelineno-29-23" name="__codelineno-29-23" href="#__codelineno-29-23"></a>
+<a id="__codelineno-29-24" name="__codelineno-29-24" href="#__codelineno-29-24"></a>    <span class="c1"># ... sync logic here</span>
+</code></pre></div>
+<h3 id="runtime-resolution">Runtime Resolution<a class="headerlink" href="#runtime-resolution" title="Permanent link">&para;</a></h3>
+<p>With <code>ENVIRONMENT=PROD</code>, running the job resolves values as:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Resolved Value</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>api_url</code></td>
+<td><code>https://api.prod.example.com</code></td>
+<td><code>config.prod.toml</code> (overrides base)</td>
+</tr>
+<tr>
+<td><code>batch_size</code></td>
+<td><code>500</code></td>
+<td><code>config.prod.toml</code> (overrides base)</td>
+</tr>
+<tr>
+<td><code>timeout</code></td>
+<td><code>60</code></td>
+<td><code>config.prod.toml</code> (overrides base)</td>
+</tr>
+<tr>
+<td><code>retry_enabled</code></td>
+<td><code>true</code></td>
+<td><code>config.base.toml</code> (not overridden in prod)</td>
+</tr>
+</tbody>
+</table>
+<p>Override any value with an environment variable:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">DATA_SYNC_BATCH_SIZE</span><span class="o">=</span><span class="m">1000</span>
+</code></pre></div>
+<p>Or via CLI:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a>myapp<span class="w"> </span>data-sync<span class="w"> </span>sync<span class="w"> </span>--batch-size<span class="w"> </span><span class="m">2000</span>
+</code></pre></div>
+<h3 id="application-setup">Application Setup<a class="headerlink" href="#application-setup" title="Permanent link">&para;</a></h3>
+<div class="highlight"><span class="filename">main.py</span><pre><span></span><code><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">functualize.app</span><span class="w"> </span><span class="kn">import</span> <span class="n">FunctualizeApp</span><span class="p">,</span> <span class="n">JobSources</span>
+<a id="__codelineno-32-2" name="__codelineno-32-2" href="#__codelineno-32-2"></a>
+<a id="__codelineno-32-3" name="__codelineno-32-3" href="#__codelineno-32-3"></a><span class="n">app</span> <span class="o">=</span> <span class="n">FunctualizeApp</span><span class="p">(</span>
+<a id="__codelineno-32-4" name="__codelineno-32-4" href="#__codelineno-32-4"></a>    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;myapp&quot;</span><span class="p">,</span>
+<a id="__codelineno-32-5" name="__codelineno-32-5" href="#__codelineno-32-5"></a>    <span class="n">job_sources</span><span class="o">=</span><span class="n">JobSources</span><span class="p">(</span><span class="n">directories</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;jobs&quot;</span><span class="p">]),</span>
+<a id="__codelineno-32-6" name="__codelineno-32-6" href="#__codelineno-32-6"></a><span class="p">)</span>
+<a id="__codelineno-32-7" name="__codelineno-32-7" href="#__codelineno-32-7"></a>
+<a id="__codelineno-32-8" name="__codelineno-32-8" href="#__codelineno-32-8"></a><span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+<a id="__codelineno-32-9" name="__codelineno-32-9" href="#__codelineno-32-9"></a>    <span class="n">app</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+</code></pre></div>
+<h2 id="using-the-jobconfigview-class-directly">Using the JobConfigView Class Directly<a class="headerlink" href="#using-the-jobconfigview-class-directly" title="Permanent link">&para;</a></h2>
+<p>For advanced use cases, you can use the <code>JobConfigView</code> class directly (requires a <code>ResolutionChain</code> instance):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">functualize.job</span><span class="w"> </span><span class="kn">import</span> <span class="n">JobConfigView</span>
+<a id="__codelineno-33-2" name="__codelineno-33-2" href="#__codelineno-33-2"></a>
+<a id="__codelineno-33-3" name="__codelineno-33-3" href="#__codelineno-33-3"></a><span class="c1"># JobConfigView is available as rc.config inside job functions</span>
+<a id="__codelineno-33-4" name="__codelineno-33-4" href="#__codelineno-33-4"></a><span class="c1"># For advanced use, you can access it directly:</span>
+<a id="__codelineno-33-5" name="__codelineno-33-5" href="#__codelineno-33-5"></a><span class="n">config_view</span> <span class="o">=</span> <span class="n">rc</span><span class="o">.</span><span class="n">config</span>
+<a id="__codelineno-33-6" name="__codelineno-33-6" href="#__codelineno-33-6"></a>
+<a id="__codelineno-33-7" name="__codelineno-33-7" href="#__codelineno-33-7"></a><span class="c1"># Get a value with fallback</span>
+<a id="__codelineno-33-8" name="__codelineno-33-8" href="#__codelineno-33-8"></a><span class="n">debug</span> <span class="o">=</span> <span class="n">config_view</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;debug&quot;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="s2">&quot;false&quot;</span><span class="p">,</span> <span class="n">section</span><span class="o">=</span><span class="s2">&quot;general&quot;</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="introspection-with-builtin-info_1">Introspection with <code>builtin info</code><a class="headerlink" href="#introspection-with-builtin-info_1" title="Permanent link">&para;</a></h2>
+<p>Use the built-in <code>builtin info</code> command to inspect resolved configuration at runtime:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="c1"># Show general config info and loaded files</span>
+<a id="__codelineno-34-2" name="__codelineno-34-2" href="#__codelineno-34-2"></a>myapp<span class="w"> </span><span class="nb">builtin</span><span class="w"> </span>info<span class="w"> </span>all
+<a id="__codelineno-34-3" name="__codelineno-34-3" href="#__codelineno-34-3"></a>
+<a id="__codelineno-34-4" name="__codelineno-34-4" href="#__codelineno-34-4"></a><span class="c1"># Show resolved JobConfig for a specific job</span>
+<a id="__codelineno-34-5" name="__codelineno-34-5" href="#__codelineno-34-5"></a>myapp<span class="w"> </span><span class="nb">builtin</span><span class="w"> </span>info<span class="w"> </span>--job<span class="w"> </span>data_sync
+<a id="__codelineno-34-6" name="__codelineno-34-6" href="#__codelineno-34-6"></a>
+<a id="__codelineno-34-7" name="__codelineno-34-7" href="#__codelineno-34-7"></a><span class="c1"># Show all environment variables</span>
+<a id="__codelineno-34-8" name="__codelineno-34-8" href="#__codelineno-34-8"></a>myapp<span class="w"> </span><span class="nb">builtin</span><span class="w"> </span>info<span class="w"> </span>--show-env-vars
+</code></pre></div>
+<p>This displays which config files were loaded, their interpolated values, and the source of each resolved field (env var, config file, or model default).</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../assets/javascripts/panzoom.min.js"></script>
+      
+        <script src="../../assets/javascripts/zoompan.js"></script>
+      
+    
+  </body>
+</html>
