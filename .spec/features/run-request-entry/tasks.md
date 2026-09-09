@@ -47,7 +47,7 @@ now: `n/a` · after: `0`
 
 ## Wave 1 — the engine gains an entry
 
-### [ ] T2 · `engine.run(request)` beside `execute()`, labelled transitional
+### [x] T2 · `engine.run(request)` beside `execute()`, labelled transitional
 
 **Files:** `src/functualize/_engine/executor.py`, `tests/engine/test_engine_run_entry.py`
 

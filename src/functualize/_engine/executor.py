@@ -47,6 +47,7 @@ NoneType = type(None)
 if TYPE_CHECKING:
     from functualize._engine.middleware import ExecutionMiddlewareChain
     from functualize._engine.result import RegisteredJob
+    from functualize._types.run_request import RunRequest
 
 logger = logging.getLogger(__name__)
 
@@ -653,6 +654,40 @@ class JobExecutionEngine:
             raise KeyError(f"Job '{name}' not found in engine registry") from exc
 
         return self._ensure_materialized(self._registered_jobs[resolved])
+
+    def run(self, request: RunRequest) -> JobResult:
+        """Resolve, materialize, and execute the job named by ``request``.
+
+        The one entry the framework is converging on. Every surface builds a
+        :class:`RunRequest` and arrives here; nothing outside this module holds
+        a job function in order to execute it.
+
+        # TRANSITIONAL(run-request/T11): run() delegates to execute(); resolution
+        # moves in at T11. Until then this method resolves the name the way the
+        # eight call sites outside `_engine/` currently each do it, so that the
+        # doors can migrate one at a time (wave 3) with the suite green. T11
+        # deletes `execute()` and this body becomes the lifecycle call.
+        """
+        job = self.get_job(request.job_name)
+        return self.execute(
+            request.job_name,
+            job.function,
+            kwargs=dict(request.kwargs),
+            invoke_depth=request.invoke_depth,
+            cwd=request.cwd,
+            job_directory=request.job_directory,
+            config_class=job.config_class,
+            parent_scope=request.parent_scope,
+            workflow_scope_id=request.workflow_scope_id,
+            run_dependencies=request.run_dependencies,
+            force_fresh=request.force_fresh,
+            force=request.force,
+            group_option_values=(
+                dict(request.group_option_values)
+                if request.group_option_values is not None
+                else None
+            ),
+        )
 
     def execute(
         self,
