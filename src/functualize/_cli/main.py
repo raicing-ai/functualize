@@ -43,7 +43,6 @@ logger = logging.getLogger(__name__)
 # Delivery inputs for the BUILTIN path, which boots its own app inside the
 # ``cli_app`` click callback — a scope ``_run_cli`` cannot reach directly.
 # Set by ``_run_cli`` before ``cli_app()`` runs, read by the callback.
-_builtin_delivery_inputs: dict[str, Any] = {}
 
 # ─── click group for BUILTIN mode (plain Group, no FallbackGroup) ────────
 
@@ -336,19 +335,6 @@ def cli_app(
 
     _cli_parse_duration_ms = (_time.perf_counter() - _cli_parse_start) * 1000
     _command = ctx.invoked_subcommand or ""
-    # TRANSITIONAL(run-request/T11): the BUILTIN door builds a request with
-    # the func.builtin surface, carrying the delivery inputs ``_run_cli``
-    # stashed before delegating to click. T11 wires the subcommands to read
-    # it; T12 removes the deposits that duplicate it.
-    from functualize.app.utils import RunRequest
-
-    app._run_request = RunRequest(  # type: ignore[attr-defined]
-        job_name=_command,
-        surface="func.builtin",
-        prompt_gates=_builtin_delivery_inputs.get("prompt_gates", False),
-        output_format=_builtin_delivery_inputs.get("output_format", "auto"),
-        force=_builtin_delivery_inputs.get("force", False),
-    )
     with contextlib.suppress(Exception):
         app.event_bus.emit(
             "cli.parse.end",
@@ -1087,6 +1073,11 @@ def _dispatch_group(
                 app=app,
                 command_name=job_descriptor.func_name,
                 group_option_values=group_option_values,
+                # This door is `func <group> <job>`, not the app's own CLI:
+                # it booted the app itself and owns the group flags consumed
+                # before the job name. It says so here rather than depositing
+                # it on the app (run-request/T11).
+                surface="func.group",
             )
             return invoke_command_capturing(
                 command, remaining, output_format, prog_name=job_descriptor.func_name
@@ -1262,18 +1253,6 @@ def _handle_group(
     app._output_format = output_format
     app._prompt_gates = prompt_gates
     app._force = force
-    # TRANSITIONAL(run-request/T11): the request carries the surface and
-    # delivery inputs the deposits currently also carry. T11 wires the
-    # callback to read the request; T12 removes the deposit writes.
-    from functualize.app.utils import RunRequest
-
-    app._run_request = RunRequest(  # type: ignore[attr-defined]
-        job_name=args[0] if args else "",
-        surface="func.group",
-        prompt_gates=prompt_gates,
-        output_format=output_format,
-        force=force,
-    )
 
     # Deposit app reference for perf reporting by caller
     if _app_ref is not None:
@@ -1394,18 +1373,6 @@ def _handle_job(
     app._output_format = output_format
     app._prompt_gates = prompt_gates
     app._force = force
-    # TRANSITIONAL(run-request/T11): the request carries the surface and
-    # delivery inputs the deposits currently also carry. T11 wires the
-    # callback to read the request; T12 removes the deposit writes.
-    from functualize.app.utils import RunRequest
-
-    app._run_request = RunRequest(  # type: ignore[attr-defined]
-        job_name=job_name,
-        surface="func.job",
-        prompt_gates=prompt_gates,
-        output_format=output_format,
-        force=force,
-    )
 
     # Deposit app reference for perf reporting by caller
     if _app_ref is not None:
@@ -1528,6 +1495,7 @@ def _handle_job(
         function=function,
         job_config_class=config_class,
         app=app,
+        surface="func.job",
     )
 
     return invoke_command_capturing(
@@ -1706,18 +1674,6 @@ def _handle_single_file(
     app._output_format = output_format
     app._prompt_gates = prompt_gates
     app._force = force
-    # TRANSITIONAL(run-request/T11): the request carries the surface and
-    # delivery inputs the deposits currently also carry. T11 wires the
-    # callback to read the request; T12 removes the deposit writes.
-    from functualize.app.utils import RunRequest
-
-    app._run_request = RunRequest(  # type: ignore[attr-defined]
-        job_name=function_name or "",
-        surface="func.single-file",
-        prompt_gates=prompt_gates,
-        output_format=output_format,
-        force=force,
-    )
 
     # Deposit app reference for perf reporting by caller
     if _app_ref is not None:
@@ -1726,6 +1682,19 @@ def _handle_single_file(
     # Register peer functions from the single-file module so rc.invoke()
     # can cross-call within the same file.
     _register_single_file_peers(file_path, target_fn, app, module_name=file_path.stem)
+
+    # The target itself, under the exact name the command carries. The peer
+    # loop above skips it deliberately, and before run-request-entry/T11 that
+    # was fine: the click command held the function. `engine.run()` resolves by
+    # *name*, so an unregistered target now fails with "not found in engine
+    # registry" — which is precisely the class of bug the one-entry rule
+    # exists to make impossible to have twice.
+    if app.get_job(function_name) is None:
+        app.register_dynamic_job(
+            name=function_name,
+            function=target_fn,
+            config_class=_detect_config_class(target_fn),
+        )
 
     # Execute through the engine via a click command built directly from the
     # target function's signature (handles DI, config, hooks).
@@ -1739,6 +1708,7 @@ def _handle_single_file(
         function=target_fn,
         app=app,
         command_name=function_name,
+        surface="func.single-file",
     )
 
     return invoke_command_capturing(
@@ -1912,9 +1882,11 @@ def _run_cli() -> None:
     # version; `func deploy --version v1` passes --version to the job. This is
     # the same convention as other global flags (--log-level, --output, etc.)
     # and unlike --help which Click handles per-command.
-    from functualize._cli.dispatch import (
-        _GLOBAL_OPTIONS_ALWAYS_VALUE,
-        _GLOBAL_OPTIONS_OPTIONAL_VALUE,
+    # The one flag grammar (`_types/flag_grammar.py`), reached through the
+    # public corridor because `_cli` may import public folders only.
+    from functualize.app.utils import (
+        GLOBAL_OPTIONS_ALWAYS_VALUE,
+        GLOBAL_OPTIONS_OPTIONAL_VALUE,
     )
 
     _argv_tail = sys.argv[1:]
@@ -1936,9 +1908,9 @@ def _run_cli() -> None:
             # A flag — skip it (and its value if it takes one)
             if "=" in _tok:
                 _i += 1
-            elif _tok in _GLOBAL_OPTIONS_ALWAYS_VALUE:
+            elif _tok in GLOBAL_OPTIONS_ALWAYS_VALUE:
                 _i += 2  # skip flag + value
-            elif _tok in _GLOBAL_OPTIONS_OPTIONAL_VALUE:
+            elif _tok in GLOBAL_OPTIONS_OPTIONAL_VALUE:
                 _i += 1  # conservative: don't consume the next token
             else:
                 _i += 1  # unknown flag or bool flag (--no-dotenv, --help)
@@ -2193,8 +2165,5 @@ def _run_cli() -> None:
     # BUILTIN mode: plain Click group (no FallbackGroup)
     # Delivery inputs travel to the ``cli_app`` callback (which boots its own
     # app in a scope ``_run_cli`` cannot reach) via the module-level dict.
-    _builtin_delivery_inputs["output_format"] = output_format
-    _builtin_delivery_inputs["prompt_gates"] = prompt_gates
-    _builtin_delivery_inputs["force"] = force
     register_builtin_commands(cli_app)
     cli_app()

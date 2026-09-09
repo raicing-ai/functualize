@@ -231,6 +231,9 @@ class TestCreateJobCommand:
         )
         wrapped = registry.create_job_command("my_job", my_job)
 
+        # Register the job with the app so engine.run() can resolve by name
+        app.register_dynamic_job("my_job", my_job)
+
         result = wrapped(name="world")
 
         assert result == "Hello, world!"
@@ -291,6 +294,9 @@ class TestCreateJobCommand:
         )
         wrapped = registry.create_job_command("simple_job", simple_job)
 
+        # Register the job with the app so engine.run() can resolve by name
+        app.register_dynamic_job("simple_job", simple_job)
+
         result = wrapped(message="test")
         assert result == "test"
 
@@ -340,6 +346,9 @@ class TestCreateJobCommand:
         )
         wrapped = registry.create_job_command("my_job", my_job)
 
+        # Register the job with the app so engine.run() can resolve by name
+        app.register_dynamic_job("my_job", my_job)
+
         result = wrapped()
         assert result == "done"
         assert called == [True]
@@ -359,6 +368,10 @@ class TestCreateJobCommand:
             cli_wiring_factory={"create_job_command": create_job_command},
         )
         wrapped = registry.create_job_command("my_job", my_job)
+
+        # Register the job with the app so engine.run() can resolve by name
+        app.register_dynamic_job("my_job", my_job)
+
         wrapped()
 
         assert received_rc[0].name == "my_job"

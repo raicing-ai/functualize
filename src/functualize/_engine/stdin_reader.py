@@ -22,12 +22,14 @@ import sys
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator, Mapping
 
-    from functualize.job.markers import Stdin
+    from functualize._types.cli_markers import Stdin
 
 __all__ = [
     "is_stdin_available",
+    "stdin_markers_for",
+    "streaming_stdin_params",
     "iter_stdin_ndjson",
     "read_stdin",
     "resolve_stdin_params",
@@ -174,3 +176,81 @@ def resolve_stdin_params(
         f"flag value. Stdin is a terminal — refusing to block for input.\n"
     )
     raise SystemExit(1)
+
+
+def stdin_markers_for(function: Callable[..., Any]) -> dict[str, Stdin]:
+    """Which of ``function``'s parameters carry a ``Stdin`` marker.
+
+    Re-derived from the signature rather than handed in, because the engine is
+    now the only place that resolves stdin (run-request/T11) and it is reached
+    from surfaces that never built click parameters. The click builder finds
+    the same markers through ``_cli/annotation_utils.py``; both are asking the
+    one question "is there a ``Stdin`` instance in this parameter's
+    ``Annotated`` metadata", so the answers agree by construction.
+
+    Annotations are read through ``resolved_hints`` so a module compiled under
+    ``from __future__ import annotations`` (PEP 563) still yields live marker
+    objects rather than strings. An unresolvable signature yields no markers,
+    which is the same outcome as declaring none.
+    """
+    import typing as _typing
+
+    from functualize._types.annotations import resolved_hints
+    from functualize._types.cli_markers import Stdin as _Stdin
+
+    markers: dict[str, Stdin] = {}
+    for pname, hint in resolved_hints(function).items():
+        if pname == "return" or _typing.get_origin(hint) is not _typing.Annotated:
+            continue
+        for meta in _typing.get_args(hint)[1:]:
+            if isinstance(meta, _Stdin):
+                markers[pname] = meta
+                break
+    return markers
+
+
+def streaming_stdin_params(
+    function: Callable[..., Any], stdin_markers: Mapping[str, Any]
+) -> frozenset[str]:
+    """Which ``Stdin``-marked params are typed as a stream (§C.2).
+
+    A parameter annotated ``Iterator[Row]`` / ``Iterable[Row]`` /
+    ``Generator[...]`` wants the lazy NDJSON stream; anything else keeps the
+    eager whole-of-stdin string. ``str``/``bytes`` are iterable but are
+    emphatically *not* streams, and are excluded by construction: this tests
+    the annotation's generic **origin**, which is ``None`` for a bare ``str``.
+
+    Annotations are read through ``resolved_hints`` rather than raw, so a
+    module compiled under ``from __future__ import annotations`` (PEP 563) does
+    not silently report every type as the string ``"Iterator[Row]"``.
+    """
+    import collections.abc as _abc
+    import typing as _typing
+
+    if not stdin_markers:
+        return frozenset()
+    try:
+        from functualize._types.annotations import resolved_hints
+
+        hints = resolved_hints(function)
+    except Exception:
+        return frozenset()
+
+    stream_origins = {
+        _abc.Iterator,
+        _abc.Iterable,
+        _abc.Generator,
+        _abc.AsyncIterator,
+        _abc.AsyncIterable,
+    }
+    streaming: set[str] = set()
+    for pname in stdin_markers:
+        hint = hints.get(pname)
+        if hint is None:
+            continue
+        # Unwrap Annotated[...] so `Annotated[Iterator[Row], Stdin()]` is seen.
+        if _typing.get_origin(hint) is _typing.Annotated:
+            hint = _typing.get_args(hint)[0]
+        if _typing.get_origin(hint) in stream_origins:
+            streaming.add(pname)
+    return frozenset(streaming)

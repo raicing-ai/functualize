@@ -19,6 +19,7 @@ from functualize._config.job_config import JobConfigView
 from functualize._engine.executor import JobExecutionEngine
 from functualize._engine.middleware import ExecutionMiddlewareChain
 from functualize._events.hooks import HookRegistry
+from tests._support.engine_run import register
 
 if TYPE_CHECKING:
     import pytest
@@ -137,6 +138,9 @@ class TestCreateJobCommandConstructsJobConfigView:
         # Create the wrapped command
         wrapped = registry.create_job_command("myjob", my_job)
 
+        # Register the job with the engine so engine.run() can resolve by name
+        register(mock_app._execution_engine, "myjob", my_job)
+
         # Set AppState as the wrapper expects
         AppState.set("config_directory", str(config_dir))
         AppState.set("environment", "DEV")
@@ -181,6 +185,9 @@ class TestCreateJobCommandConstructsJobConfigView:
             return "done"
 
         wrapped = registry.create_job_command("myjob", my_job)
+
+        # Register the job with the engine so engine.run() can resolve by name
+        register(mock_app._execution_engine, "myjob", my_job)
 
         AppState.set("config_directory", str(config_dir))
         AppState.set("environment", "DEV")
@@ -258,6 +265,10 @@ class TestResolutionChainSharedInstance:
 
         wrapped_a = registry.create_job_command("job_a", job_a)
         wrapped_b = registry.create_job_command("job_b", job_b)
+
+        # Register the jobs with the engine so engine.run() can resolve by name
+        register(mock_app._execution_engine, "job_a", job_a)
+        register(mock_app._execution_engine, "job_b", job_b)
 
         AppState.set("config_directory", str(config_dir))
         AppState.set("environment", "DEV")
@@ -346,6 +357,9 @@ class TestEndToEndJobExecution:
 
         wrapped = registry.create_job_command("my_job", my_job)
 
+        # Register the job with the engine so engine.run() can resolve by name
+        register(mock_app._execution_engine, "my_job", my_job)
+
         AppState.set("config_directory", str(config_dir))
         AppState.set("environment", "DEV")
 
@@ -388,6 +402,9 @@ class TestEndToEndJobExecution:
             return "done"
 
         wrapped = registry.create_job_command("my_job", my_job)
+
+        # Register the job with the engine so engine.run() can resolve by name
+        register(mock_app._execution_engine, "my_job", my_job)
 
         AppState.set("config_directory", str(config_dir))
         AppState.set("environment", "DEV")
@@ -437,6 +454,9 @@ class TestEndToEndJobExecution:
 
         wrapped = registry.create_job_command("my_job", my_job)
 
+        # Register the job with the engine so engine.run() can resolve by name
+        register(mock_app._execution_engine, "my_job", my_job)
+
         AppState.set("config_directory", str(config_dir))
         AppState.set("environment", "DEV")
 
@@ -484,6 +504,9 @@ class TestEndToEndJobExecution:
             return "done"
 
         wrapped = registry.create_job_command("my_job", my_job)
+
+        # Register the job with the engine so engine.run() can resolve by name
+        register(mock_app._execution_engine, "my_job", my_job)
 
         AppState.set("config_directory", str(config_dir))
         AppState.set("environment", "DEV")

@@ -43,9 +43,35 @@ RunSurface = Literal[
 ]
 
 RUN_SURFACES: Final[frozenset[str]] = frozenset(get_args(RunSurface))
+
 """Every legal value of :attr:`RunRequest.surface`.
 
 Derived from the ``Literal`` rather than repeated, so the two cannot drift.
+"""
+
+CONSOLE_SURFACES: Final[frozenset[str]] = frozenset(
+    {
+        "func.job",
+        "func.group",
+        "func.single-file",
+        "func.bare",
+        "func.builtin",
+        "app.cli",
+    }
+)
+"""The surfaces whose caller owns the process's stdin.
+
+``Stdin``-marked parameters are resolved by ``engine.run()`` (run-request/T11),
+which every surface reaches — so the engine has to know which callers actually
+have a pipe. Only a console invocation does. An HTTP or Lambda request that
+omits a ``Stdin`` parameter must get the parameter's default, not a read of the
+server process's stdin, which is typically ``/dev/null`` (non-tty, so the
+``isatty`` guard does not save it) and would silently substitute an empty
+string. The TUI surfaces are excluded for the opposite reason: their stdin is a
+live terminal the UI owns, and reading it would steal the user's keystrokes.
+
+Before T11 this was implicit — stdin resolution lived in the click adapters, so
+only click did it. Naming the set keeps that true now that the code moved.
 """
 
 _EMPTY: Final[Mapping[str, Any]] = MappingProxyType({})
@@ -128,4 +154,4 @@ class RunRequest:
         return _dc_replace(self, **changes)
 
 
-__all__ = ["RUN_SURFACES", "RunRequest", "RunSurface"]
+__all__ = ["CONSOLE_SURFACES", "RUN_SURFACES", "RunRequest", "RunSurface"]

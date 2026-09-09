@@ -126,9 +126,9 @@ def negative_flag_for(name: str, siblings: Iterable[str] = ()) -> str | None:
     Returns:
         ``--no-<hyphenated-name>``, or ``None`` when a sibling owns it.
     """
-    if f"no_{name}" in siblings:
-        return None
-    return f"--no-{name.replace('_', '-')}"
+    from functualize._types.flag_grammar import negative_flag_for as _negative_flag_for
+
+    return _negative_flag_for(name, siblings)
 
 
 def resolve_name(candidate: str, known: Iterable[str]) -> str:

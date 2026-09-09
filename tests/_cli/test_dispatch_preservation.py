@@ -21,11 +21,11 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.dispatch import (
-    _OPTIONAL_VALUE_VALID_SET,
     Mode,
     _extract_global_options,
     detect_mode,
 )
+from functualize.types import OPTIONAL_VALUE_VALID_SET
 
 # =============================================================================
 # Strategies
@@ -330,7 +330,7 @@ class TestPreservationEqualsStyleSyntax:
 
     @given(
         format_value=st.sampled_from(
-            sorted(_OPTIONAL_VALUE_VALID_SET["--perf-report"][0])
+            sorted(OPTIONAL_VALUE_VALID_SET["--perf-report"][0])
         ),
         job_name=_job_name,
     )
@@ -351,7 +351,7 @@ class TestPreservationEqualsStyleSyntax:
 
     @given(
         format_value=st.sampled_from(
-            sorted(_OPTIONAL_VALUE_VALID_SET["--perf-report"][0])
+            sorted(OPTIONAL_VALUE_VALID_SET["--perf-report"][0])
         ),
         job_name=_job_name,
     )
@@ -370,8 +370,7 @@ class TestPreservationEqualsStyleSyntax:
         assert opts.first_positional_index == 1
 
     @given(
-        format_value=st.sampled_from(sorted(_OPTIONAL_VALUE_VALID_SET["--output"][0])),
-        job_name=_job_name,
+        format_value=st.sampled_from(sorted(OPTIONAL_VALUE_VALID_SET["--output"][0])),
     )
     def test_output_equals_syntax_routes_job(
         self, format_value: str, job_name: str
@@ -389,8 +388,7 @@ class TestPreservationEqualsStyleSyntax:
         assert job_name in effective_args
 
     @given(
-        format_value=st.sampled_from(sorted(_OPTIONAL_VALUE_VALID_SET["--output"][0])),
-        job_name=_job_name,
+        format_value=st.sampled_from(sorted(OPTIONAL_VALUE_VALID_SET["--output"][0])),
     )
     def test_output_equals_syntax_parses_value(
         self, format_value: str, job_name: str
@@ -507,7 +505,7 @@ class TestPreservationMultipleFlags:
     @given(
         log_level=st.sampled_from(_VALID_LOG_LEVELS),
         perf_format=st.sampled_from(
-            sorted(_OPTIONAL_VALUE_VALID_SET["--perf-report"][0])
+            sorted(OPTIONAL_VALUE_VALID_SET["--perf-report"][0])
         ),
         job_name=_job_name,
     )
@@ -623,14 +621,14 @@ class TestPreservationMultipleFlags:
         # Optionally add --perf-report=FORMAT (equals style only)
         if data.draw(st.booleans()):
             fmt = data.draw(
-                st.sampled_from(sorted(_OPTIONAL_VALUE_VALID_SET["--perf-report"][0]))
+                st.sampled_from(sorted(OPTIONAL_VALUE_VALID_SET["--perf-report"][0]))
             )
             flag_tokens.append(f"--perf-report={fmt}")
 
         # Optionally add --output=FORMAT (equals style only)
         if data.draw(st.booleans()):
             fmt = data.draw(
-                st.sampled_from(sorted(_OPTIONAL_VALUE_VALID_SET["--output"][0]))
+                st.sampled_from(sorted(OPTIONAL_VALUE_VALID_SET["--output"][0]))
             )
             flag_tokens.append(f"--output={fmt}")
 

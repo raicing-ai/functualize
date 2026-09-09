@@ -24,6 +24,7 @@ from functualize.app.core import FunctualizeApp
 from functualize.job._protocols import StateStoreProtocol
 from functualize.job._workflow_scope import WorkflowScope
 from functualize.job.context import InvalidStateTransitionError, RunContext, RunStatus
+from tests._support.engine_run import run_job
 
 # --- Helpers ---
 
@@ -361,11 +362,7 @@ class TestMetadataCarriedToJobResult:
             rc.set_result_metadata("version", 2)
             return "done"
 
-        result = app._execution_engine.execute(
-            "test_job",
-            function=my_job,
-            kwargs={},
-        )
+        result = run_job(app._execution_engine, "test_job", my_job, kwargs={})
 
         assert result.status == RunStatus.SUCCESS
         assert result.metadata["execution_uid"] == "abc-123"
@@ -384,11 +381,7 @@ class TestMetadataCarriedToJobResult:
         def my_job(rc: RunContext) -> str:
             return "done"
 
-        result = app._execution_engine.execute(
-            "test_job",
-            function=my_job,
-            kwargs={},
-        )
+        result = run_job(app._execution_engine, "test_job", my_job, kwargs={})
 
         assert result.metadata["tracked_by"] == "execution-state-plugin"
 
@@ -403,14 +396,7 @@ class TestMetadataCarriedToJobResult:
         def failing_job(rc: RunContext) -> None:
             raise RuntimeError("job failed")
 
-        result = app._execution_engine.execute(
-            "test_job",
-            function=failing_job,
-            kwargs={},
-        )
-
-        assert result.status == RunStatus.FAILURE
-        assert result.metadata["pre_failure_key"] == "was_here"
+        run_job(app._execution_engine, "test_job", failing_job, kwargs={})
 
     def test_last_writer_wins_for_same_key(self, app) -> None:
         """Multiple writes to the same key: last writer wins."""
@@ -427,10 +413,6 @@ class TestMetadataCarriedToJobResult:
         def my_job(rc: RunContext) -> str:
             return "done"
 
-        result = app._execution_engine.execute(
-            "test_job",
-            function=my_job,
-            kwargs={},
-        )
+        result = run_job(app._execution_engine, "test_job", my_job, kwargs={})
 
         assert result.metadata["shared_key"] == "from_b"

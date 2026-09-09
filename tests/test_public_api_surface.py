@@ -181,6 +181,16 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         # The one RunStatus -> HTTP table, beside RunStatus itself, so a
         # trigger plugin consumes it instead of writing a second opinion.
         "http_status_for_status",
+        # Flag vocabulary and alias matching (run-outcome-authority F2 T8).
+        "GLOBAL_OPTIONS_ALWAYS_VALUE",
+        "GLOBAL_OPTIONS_OPTIONAL_VALUE",
+        "OPTIONAL_VALUE_VALID_SET",
+        "GLOBAL_OPTIONS_WITH_VALUE",
+        "GLOBAL_BOOL_FLAGS",
+        "flag_aliases",
+        "negative_aliases",
+        "match_group_flag",
+        "negative_flag_for",
     },
     "functualize.workflow": {
         # A gate offers jobs; Tool narrows which of their arguments the

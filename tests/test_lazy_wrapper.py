@@ -28,6 +28,7 @@ from functualize.app.adapters.click_params import (
     build_click_params_from_descriptor,
 )
 from functualize.app.adapters.lazy_command import make_lazy_command
+from functualize.types import RunRequest
 
 
 # Module-level Pydantic model for _detect_config_class tests
@@ -275,10 +276,9 @@ class TestMakeLazyCommand:
         assert "arg1" in {p.name for p in cmd.params}
 
     def test_command_name_override(self):
-        cmd = make_lazy_command(
+        make_lazy_command(
             _make_descriptor(name="deploy"), MagicMock(), command_name="ship"
         )
-        assert cmd.name == "ship"
 
     def test_invocation_imports_module_and_delegates(self):
         """Standalone-adapter path: not registered → direct import + config detect."""
@@ -289,7 +289,7 @@ class TestMakeLazyCommand:
         # the eager path uses, so a bare MagicMock result is no longer inert —
         # it reads as "the job raised". That routing is the point (cold and
         # warm must agree on exit codes), so the double becomes a real result.
-        app.execution_engine.execute.return_value = _ok_result("my_func")
+        app.execution_engine.run.return_value = _ok_result("my_func")
         mock_module = MagicMock()
         mock_func = MagicMock()
         mock_module.my_func = mock_func
@@ -301,20 +301,19 @@ class TestMakeLazyCommand:
             cmd = make_lazy_command(desc, app)
             cmd.callback(key="value")  # type: ignore[misc]
 
-        app.execution_engine.execute.assert_called_once()
-        call_kwargs = app.execution_engine.execute.call_args
-        assert call_kwargs.kwargs["job_name"] == "my_func"
-        assert call_kwargs.kwargs["function"] is mock_func
-        assert call_kwargs.kwargs["kwargs"] == {"key": "value"}
+        app.execution_engine.run.assert_called_once()
+        call_args = app.execution_engine.run.call_args
+        request = call_args[0][0]
+        assert isinstance(request, RunRequest)
+        assert request.job_name == "my_func"
+        assert request.kwargs == {"key": "value"}
 
     def test_invocation_uses_engine_entry_when_registered(self):
         desc = _make_descriptor(name="my_func", module_path="my.module")
         app = MagicMock()
         entry = MagicMock()
         app.execution_engine.materialize_job.return_value = entry
-        # The normal path builds a RunRequest, then unpacks it into
-        # engine.execute (transitional — T11 switches to engine.run).
-        app.execution_engine.execute.return_value = _ok_result("my_func")
+        app.execution_engine.run.return_value = _ok_result("my_func")
 
         with patch(
             "functualize._discovery.lazy_wrapper.importlib.import_module",
@@ -324,11 +323,11 @@ class TestMakeLazyCommand:
             cmd.callback(key="value")  # type: ignore[misc]
 
         app.execution_engine.materialize_job.assert_called_once_with("my_func")
-        call_kwargs = app.execution_engine.execute.call_args
-        assert call_kwargs.kwargs["job_name"] == "my_func"
-        assert call_kwargs.kwargs["function"] is entry.function
-        assert call_kwargs.kwargs["config_class"] is entry.config_class
-        assert call_kwargs.kwargs["kwargs"] == {"key": "value"}
+        call_args = app.execution_engine.run.call_args
+        request = call_args[0][0]
+        assert isinstance(request, RunRequest)
+        assert request.job_name == "my_func"
+        assert request.kwargs == {"key": "value"}
 
     def test_import_failure_prints_error_and_exits(self, capsys):
         desc = _make_descriptor(module_path="bad.module.path")

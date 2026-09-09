@@ -27,6 +27,7 @@ from functualize.app.adapters.click_params import (
 
 if TYPE_CHECKING:
     from functualize._types.descriptors import JobDescriptor
+    from functualize._types.run_request import RunSurface
 
 
 def make_lazy_command(
@@ -35,6 +36,7 @@ def make_lazy_command(
     *,
     command_name: str | None = None,
     group_option_values: dict[str, Any] | None = None,
+    surface: RunSurface = "app.cli",
 ) -> click.Command:
     """Build a ``click.Command`` from cached schema — no module import needed.
 
@@ -118,14 +120,18 @@ def make_lazy_command(
 
         engine = app.execution_engine
         try:
-            entry = engine.materialize_job(descriptor.name)
+            engine.materialize_job(descriptor.name)
         except KeyError:
-            # TRANSITIONAL(run-request/T11): Descriptor not registered with
-            # this app's engine — legacy direct-import path (adapter used
-            # standalone). The normal path builds a RunRequest; this fallback
-            # still calls engine.execute because run() resolves by name and
-            # this job is not registered. T11 moves resolution into run().
+            # The descriptor is not registered with this app's engine — the
+            # legacy direct-import path, where the adapter is used standalone.
+            # `engine.run()` resolves by *name*, so the job has to exist in the
+            # registry before it can be asked for: import the module, build the
+            # entry, register it, and then take the one entry like everybody
+            # else. Before T11 this branch called the engine's deleted
+            # name-and-function entry directly, which is precisely the second
+            # door the feature exists to remove.
             from functualize._discovery.lazy_wrapper import _detect_config_class
+            from functualize._types.descriptors import RegisteredJob
 
             try:
                 module = importlib.import_module(descriptor.module_path)
@@ -136,32 +142,24 @@ def make_lazy_command(
                 )
                 sys.exit(1)
             func = getattr(module, descriptor.func_name)
-            config_class = _detect_config_class(func)
-
-            with live_ctx, scope_store_refusal():
-                result = engine.execute(
-                    job_name=descriptor.name,
+            engine.register_job(
+                RegisteredJob(
+                    name=descriptor.name,
                     function=func,
-                    config_class=config_class,
-                    kwargs=kwargs,
-                    group_option_values=dict(group_option_values)
-                    if group_option_values
-                    else None,
-                    workflow_scope_id=scope_id,
-                    force=_force_requested(app),
+                    config_class=_detect_config_class(func),
+                    group=getattr(descriptor, "group", None),
+                    module_path=descriptor.module_path,
+                    job_directory=getattr(descriptor, "job_directory", None),
                 )
-
-            return deliver_job_result(result, descriptor.name, app)
+            )
         except JobMaterializationError as exc:
             print(f"Error: {exc}", file=sys.stderr)
             sys.exit(1)
 
-        # Normal path: the job is registered. Build a RunRequest — the same
-        # contract the eager path in click_params builds (pitfalls.md §23:
-        # two dispatch paths, one contract).
-        # TRANSITIONAL(run-request/T11): the request is the contract, but
-        # engine.run() resolves by name and this path holds a live function.
-        # T11 moves resolution into run() and this becomes engine.run(request).
+        # One contract, one entry — the same request the eager path in
+        # click_params builds, handed to the same `engine.run()`
+        # (`pitfalls.md` §23: two dispatch paths, one result-handling
+        # contract). Neither path holds a job function any more.
         from functualize.app.adapters._request_builder import build_request
 
         with live_ctx, scope_store_refusal():
@@ -173,20 +171,9 @@ def make_lazy_command(
                 else None,
                 workflow_scope_id=scope_id,
                 force=_force_requested(app),
+                surface=surface,
             )
-            result = engine.execute(
-                job_name=request.job_name,
-                function=entry.function,
-                config_class=entry.config_class,
-                kwargs=dict(request.kwargs),
-                group_option_values=(
-                    dict(request.group_option_values)
-                    if request.group_option_values is not None
-                    else None
-                ),
-                workflow_scope_id=request.workflow_scope_id,
-                force=request.force,
-            )
+            result = engine.run(request)
 
         return deliver_job_result(result, descriptor.name, app)
 

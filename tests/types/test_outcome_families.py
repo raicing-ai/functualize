@@ -115,15 +115,18 @@ class TestReportLine:
 
 def test_module_imports_no_upper_layer() -> None:
     """Stdlib and `_types` only — every surface must be able to import it."""
-    tree = ast.parse(
-        pathlib.Path("src/functualize/_types/outcome.py").read_text()
-    )
+    tree = ast.parse(pathlib.Path("src/functualize/_types/outcome.py").read_text())
     bad = [
         node.module
         for node in ast.walk(tree)
         if isinstance(node, ast.ImportFrom)
         and (node.module or "").startswith(
-            ("functualize.app", "functualize._app", "functualize._engine", "functualize._cli")
+            (
+                "functualize.app",
+                "functualize._app",
+                "functualize._engine",
+                "functualize._cli",
+            )
         )
     ]
     assert not bad, bad

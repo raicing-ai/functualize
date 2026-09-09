@@ -40,6 +40,7 @@ from functualize._types.naming import negative_flag_for
 from functualize._types.outcome import Family, is_failure, report_line
 
 if TYPE_CHECKING:
+    from functualize._types.run_request import RunSurface
     from functualize.app.core import FunctualizeApp
 
 logger = logging.getLogger(__name__)
@@ -886,53 +887,6 @@ def build_click_params(
     return arguments + options, job_config_class, stdin_markers
 
 
-def _streaming_stdin_params(
-    function: Callable[..., Any], stdin_markers: dict[str, Any]
-) -> frozenset[str]:
-    """Which ``Stdin``-marked params are typed as a stream (§C.2).
-
-    A parameter annotated ``Iterator[Row]`` / ``Iterable[Row]`` /
-    ``Generator[...]`` wants the lazy NDJSON stream; anything else keeps the
-    eager whole-of-stdin string. ``str``/``bytes`` are iterable but are emphatically
-    *not* streams, and are excluded by construction: this tests the annotation's
-    generic **origin**, which is ``None`` for a bare ``str``.
-
-    Annotations are read through ``resolved_hints`` rather than raw, so a module
-    compiled under ``from __future__ import annotations`` (PEP 563) does not
-    silently report every type as the string ``"Iterator[Row]"``.
-    """
-    import collections.abc as _abc
-    import typing as _typing
-
-    if not stdin_markers:
-        return frozenset()
-    try:
-        from functualize._types.annotations import resolved_hints
-
-        hints = resolved_hints(function)
-    except Exception:
-        return frozenset()
-
-    stream_origins = {
-        _abc.Iterator,
-        _abc.Iterable,
-        _abc.Generator,
-        _abc.AsyncIterator,
-        _abc.AsyncIterable,
-    }
-    streaming: set[str] = set()
-    for pname in stdin_markers:
-        hint = hints.get(pname)
-        if hint is None:
-            continue
-        # Unwrap Annotated[...] so `Annotated[Iterator[Row], Stdin()]` is seen.
-        if _typing.get_origin(hint) is _typing.Annotated:
-            hint = _typing.get_args(hint)[0]
-        if _typing.get_origin(hint) in stream_origins:
-            streaming.add(pname)
-    return frozenset(streaming)
-
-
 def _exit_quietly_on_broken_pipe() -> None:
     """Redirect stdout to ``/dev/null`` and exit 0 after a broken pipe.
 
@@ -1041,12 +995,12 @@ def build_job_engine_callback(
     function: Callable[..., Any],
     job_config_class: type[BaseModel] | None,
     app: FunctualizeApp | None,
-    stdin_markers: dict[str, Any],
     *,
     uses_live: bool,
     requires_tty: bool,
     group_option_values: dict[str, Any] | None = None,
     workflow_scope_id: str | None = None,
+    surface: RunSurface = "app.cli",
 ) -> Callable[..., Any]:
     """Build the DI/config/lifecycle callback a click command invokes.
 
@@ -1058,6 +1012,11 @@ def build_job_engine_callback(
     *before* the job name (S6a). They are not click params of this command —
     position is what scopes them (D-d) — so they ride the closure rather than
     ``kwargs``, and the engine resolves them against the group, not the job.
+
+    ``surface`` is the door that built this command. It stopped taking
+    ``stdin_markers`` at run-request/T11: the callback no longer resolves
+    stdin, ``engine.run()`` does, and it re-derives the markers from the job's
+    own signature.
     """
     app_ref = app
 
@@ -1104,32 +1063,11 @@ def build_job_engine_callback(
             # this attribute directly. It has no CLI spelling.
             scope_id = getattr(app_ref, "_workflow_scope_id", None)
 
-        cli_values: dict[str, Any] = {}
-        if job_config_class is not None:
-            config_field_names = set(job_config_class.model_fields.keys())
-            for field_name in list(kwargs.keys()):
-                if field_name in config_field_names:
-                    cli_values[field_name] = kwargs.pop(field_name)
-
-        direct_kwargs = dict(kwargs)
-
-        if stdin_markers:
-            from functualize._cli.stdin_reader import resolve_stdin_params
-
-            stdin_cli_values = {
-                pname: direct_kwargs.get(pname) for pname in stdin_markers
-            }
-            resolved = resolve_stdin_params(
-                stdin_markers,
-                stdin_cli_values,
-                _streaming_stdin_params(function, stdin_markers),
-            )
-            direct_kwargs.update(resolved)
-            for pname in stdin_markers:
-                if pname in resolved:
-                    pass
-                elif direct_kwargs.get(pname) is None:
-                    direct_kwargs.pop(pname, None)
+        # The config-model split and stdin resolution used to happen here.
+        # Both moved into `engine.run()` at run-request/T11: they are the same
+        # work whichever door was used, and this one only ever did it for
+        # click. `stdin_markers` still shapes the click *parameters* above —
+        # that half genuinely is this module's business.
 
         from functualize.app.adapters.surface_gate import wants_stdout_surface
 
@@ -1150,28 +1088,13 @@ def build_job_engine_callback(
 
             request = build_request(
                 job_name=name,
-                kwargs={**direct_kwargs, **cli_values},
+                kwargs=kwargs,
                 group_option_values=group_option_values,
                 workflow_scope_id=scope_id,
                 force=_force_requested(app_ref),
+                surface=surface,
             )
-            # TRANSITIONAL(run-request/T11): the request is the contract both
-            # paths agree on, but engine.run() resolves by name and the click
-            # path holds a live function. T11 moves resolution into run() and
-            # this becomes engine.run(request).
-            result = app_ref.execution_engine.execute(  # type: ignore[union-attr]
-                job_name=request.job_name,
-                function=function,
-                config_class=job_config_class,
-                kwargs=dict(request.kwargs),
-                group_option_values=(
-                    dict(request.group_option_values)
-                    if request.group_option_values is not None
-                    else None
-                ),
-                workflow_scope_id=request.workflow_scope_id,
-                force=request.force,
-            )
+            result = app_ref.execution_engine.run(request)  # type: ignore[union-attr]
         return deliver_job_result(result, name, app_ref)
 
     return wrapper
@@ -1331,6 +1254,7 @@ def create_job_click_command(
     command_name: str | None = None,
     group_option_values: dict[str, Any] | None = None,
     workflow_scope_id: str | None = None,
+    surface: RunSurface = "app.cli",
 ) -> click.Command:
     """Build a ``click.Command`` for a job — the click-native replacement.
 
@@ -1343,10 +1267,12 @@ def create_job_click_command(
             bare function name for a grouped job). Defaults to ``name``.
         group_option_values: Group flags consumed mid-path by the dispatcher
             (S6a), passed through to the engine as the group-CLI layer.
+        surface: The door building this command. Defaults to the app's own
+            CLI; ``func``'s handlers pass their own (run-request/T11).
     """
     from functualize._discovery.providers import extract_capability_markers
 
-    params, resolved_config, stdin_markers = build_click_params(
+    params, resolved_config, _stdin_markers = build_click_params(
         function, job_config_class
     )
     if _declares_workflow(function):
@@ -1361,11 +1287,11 @@ def create_job_click_command(
         function,
         resolved_config,
         app,
-        stdin_markers,
         uses_live=markers["uses_live"],
         requires_tty=markers["requires_tty"],
         group_option_values=group_option_values,
         workflow_scope_id=workflow_scope_id,
+        surface=surface,
     )
     return click.Command(
         name=command_name or name,
@@ -1442,7 +1368,7 @@ def create_job_command(
     """
     from functualize._discovery.providers import extract_capability_markers
 
-    params, resolved_config, stdin_markers = build_click_params(
+    params, resolved_config, _stdin_markers = build_click_params(
         function, job_config_class
     )
     markers = extract_capability_markers(function)
@@ -1451,7 +1377,6 @@ def create_job_command(
         function,
         resolved_config,
         app,
-        stdin_markers,
         uses_live=markers["uses_live"],
         requires_tty=markers["requires_tty"],
     )

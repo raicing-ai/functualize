@@ -128,21 +128,10 @@ class JobNode:
         if descriptor is None:
             return 1
 
-        # run-request-entry (T6): the app's own command-tree door names its
-        # run. A job node executed from the one tree deposits the request the
-        # way func's handlers do (`_cli/main.py`), carrying the app.cli
-        # surface and the force flag the app-side root callback deposits.
-        # TRANSITIONAL(run-request/T11): the request carries the surface and
-        # delivery inputs the deposits currently also carry. T11 wires the
-        # callback to read the request; T12 removes the deposit writes.
-        from functualize._types.run_request import RunRequest
-
-        self._app._run_request = RunRequest(  # type: ignore[attr-defined]
-            job_name=descriptor.name,
-            surface="app.cli",
-            force=bool(getattr(self._app, "_force", False)),
-        )
-
+        # run-request-entry (T6/T11): the app's own command tree is the
+        # `app.cli` door, which is `create_job_click_command`'s default
+        # surface, so this node names nothing extra — the callback it builds
+        # constructs the request.
         registered = self._app.execution_engine.materialize_job(descriptor.name)
         command = create_job_click_command(
             name=descriptor.name,

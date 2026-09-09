@@ -21,6 +21,7 @@ from functualize._events.bus import EventBus
 from functualize._events.hooks import HookRegistry
 from functualize._events.middleware_stack import MiddlewareStack
 from functualize.job._middleware import MiddlewareRegistry
+from tests._support.engine_run import register
 
 
 def _build_cli(app_mock, registry: JobRegistry) -> click.Group:
@@ -36,6 +37,8 @@ def _build_cli(app_mock, registry: JobRegistry) -> click.Group:
     for prefix, entry in registry._registered_jobs.items():
         if entry.function is None:
             continue
+        # Register the job with the engine so engine.run() can resolve by name
+        register(app_mock._execution_engine, prefix, entry.function)
         command = create_job_click_command(
             prefix, entry.function, entry.config_class, app=app_mock
         )
@@ -298,7 +301,7 @@ class TestInstrumentationFaultTolerance:
         registry = JobRegistry()
         registry.scan_and_register(None, [jobs_dir])
 
-        result = CliRunner().invoke(_build_cli(None, registry), ["basic"])
+        result = CliRunner().invoke(_build_cli(MagicMock(), registry), ["basic"])
         assert result.exit_code != 0
         assert result.exception is not None
         assert isinstance(result.exception, RuntimeError)

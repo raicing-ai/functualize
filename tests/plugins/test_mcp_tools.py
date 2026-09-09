@@ -10,11 +10,14 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from functualize_mcp._config import MCPConfig
 from functualize_mcp._tools import MCPToolRegistry
+
+if TYPE_CHECKING:
+    from functualize.types import RunRequest
 
 # ---------------------------------------------------------------------------
 # Test helpers — minimal app and descriptor fakes
@@ -77,16 +80,17 @@ class FakeApp:
         for d in self._descriptors:
             if d.name == name:
                 return d
-        return None
 
-    def execute(self, job_name: str, **kwargs: Any) -> FakeJobResult:
+    def execute(self, request: RunRequest) -> FakeJobResult:
         if self._execute_delay > 0:
             time.sleep(self._execute_delay)
         if self._execute_error:
             raise self._execute_error
-        if job_name in self._execute_results:
-            return self._execute_results[job_name]
-        return FakeJobResult(status="success", return_value=f"executed {job_name}")
+        if request.job_name in self._execute_results:
+            return self._execute_results[request.job_name]
+        return FakeJobResult(
+            status="success", return_value=f"executed {request.job_name}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -333,8 +337,8 @@ class TestRunJob:
         called_with: dict[str, Any] = {}
 
         class TrackingApp(FakeApp):
-            def execute(self, job_name: str, **kwargs: Any) -> FakeJobResult:
-                called_with.update(kwargs)
+            def execute(self, request: RunRequest) -> FakeJobResult:
+                called_with.update(request.kwargs)
                 return FakeJobResult()
 
         app = TrackingApp(descriptors=basic_descriptors)

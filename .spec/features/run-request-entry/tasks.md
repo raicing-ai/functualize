@@ -212,7 +212,7 @@ now: `1` · after: `1` *(unchanged — this gate asserts the deliberate behaviou
 
 ## Wave 4 — the cutover
 
-### [ ] T11 · Delete `execute()`; resolution, kwargs-split and stdin move into `run()`
+### [x] T11 · Delete `execute()`; resolution, kwargs-split and stdin move into `run()`
 
 **Files:** `src/functualize/_engine/executor.py`,
 `src/functualize/app/adapters/click_params.py`, `src/functualize/app/adapters/lazy_command.py`
@@ -234,18 +234,29 @@ now: `1` · after: `0`
 ```bash
 rg -n 'engine\.execute\(|execution_engine\.execute\(' src/functualize/ plugins/*/src/ | wc -l
 ```
-now: `6` *(`_app/impl.py:861`, `invoke.py:401`, `invoke.py:598`, `click_params.py:1148`,
-`lazy_command.py:153`, `core.py:621`)* · after: `0`
+now at wave 4 entry: `3` *(`lazy_command.py:142` and `:177`, `click_params.py:1162`)* ·
+after: `0`
+
+*(The `6` this gate was authored against — `_app/impl.py:861`, `invoke.py:401`, `:598`,
+`core.py:621` and the two click paths — is the wave-0 number. Waves 1–3 took four of them
+through the facade, and `lazy_command.py` grew a second call, so wave 4 opened at 3. The
+falsifying command is unchanged; only the starting count is.)*
 
 **Gate — T4's transitional bridges are gone** *(added during execution)*
 ```bash
-rg -n '\bapp\._run_request|_builtin_delivery_inputs' src/functualize/ | wc -l
+rg -n '_run_request|_builtin_delivery_inputs' src/functualize/ \
+  --glob '!**/run_request.py' | wc -l
 ```
-now: `12` · after: `0`
+now: `13` · after: `0`
 
-*(Widened during execution: T6 mirrored T4's deposit into `app/adapters/cli.py` and
-`app/commands.py`, so a gate scoped to `_cli/main.py` would have missed two thirds of it.
-The `\bapp\.` anchor keeps `run_request.py`'s own docstring out of the count.)*
+*(Widened twice during execution. First: T6 mirrored T4's deposit into
+`app/adapters/cli.py` and `app/commands.py`, so a gate scoped to `_cli/main.py` would have
+missed two thirds of it. Second, and worse: the anchor was `\bapp\._run_request`, and `\b`
+**cannot match `self._app._run_request`** — the character before `app` is `_`, which is a
+word character — so `app/commands.py:140` was invisible to a gate written specifically to
+find it, and the count read 12 where the truth was 13. The `\b` anchor was there to keep
+`_types/run_request.py`'s own docstring out of the count; a `--glob` exclusion does that
+without blinding the pattern.)*
 
 > **Why this gate exists.** T4 could not call the facade directly: the four `func` paths
 > execute *through* click commands, and the callback that runs the job belongs to T5/T11.
@@ -470,7 +481,7 @@ Known hazards on this branch, all observed at least once — check for them spec
 | 1 | `engine.run(request)` and `engine.execute(...)` are the same execution. | Compare more fields than the test does — `metadata`, `duration_ms` shape — for one job through both entries. A divergence beyond timing falsifies it. | Replace `kwargs=dict(request.kwargs)` with `kwargs={}` in `run()`; 2 tests in `tests/engine/test_engine_run_entry.py` must fail. |
 | 2 | The facade takes a request, creates the scope, and calls `engine.run`. | `rg -n 'execution_engine\.execute' src/functualize/app/core.py` — any hit falsifies it. Then check the legacy form still works: `app.execute('job', k=1)`. | Delete the scope creation; `tests/app/test_facade_request.py::test_a_request_creates_an_addressable_scope` must fail. |
 | 3 | All seven doors build a request naming their own surface, and no door splats a caller dict into the facade. | `rg -n 'app\.execute\([a-z_]*name, \*\*' src/ plugins/` — any hit falsifies it (this is the accidental control channel). Then `rg -o 'surface="[a-z.-]+"' src/ plugins/ | sort -u` and check every surface against `RUN_SURFACES`: a door naming another door's surface falsifies it. | Restore the direct engine call in `_app/impl.py::on_job_submit_event`; 2 tests in `tests/app/test_event_submit_scope.py` must fail. **This wave's known debt:** `app._run_request` and `_builtin_delivery_inputs` are transitional bridges; confirm T11's gate still names both. |
-| 4 | *(fill from the wave's task headings: T11)* | run each task's gate **and** one command the task did not choose — a different spelling of the same question | *(the wave's `**Sabotage:**` line, or the smallest edit that should break its named test)* |
+| 4 | The engine has exactly one entry. `execute(job_name, function, …)` is gone with no shim, every caller — the two click paths and the engine's own two recursions — arrives through `run(request)`, and T4/T6's deposit bridges are gone with the doors still naming their surfaces. | `rg -n 'def execute\(|self\.execute\(' src/functualize/_engine/executor.py` and `rg -n 'engine\.execute\(|execution_engine\.execute\(' src/functualize/ plugins/*/src/` — any hit falsifies it. Then ask it a way the task did not: `python3 -c "from functualize._engine.executor import JobExecutionEngine as E; print(hasattr(E,'execute'))"` must print `False` (`rg` cannot see an inherited or dynamically added method). For the bridges, run the gate **without** its `\b` anchor — `rg -n '_run_request' src/functualize/ --glob '!**/run_request.py'` — because the authored anchor could not match `self._app._run_request` and hid one site. For the surfaces, `rg -o 'surface="[a-z.-]+"' src/functualize/ plugins/*/src/ | sort -u`: `func.job`, `func.group` and `func.single-file` must each appear; `app.cli` is `_request_builder._DEFAULT_SURFACE`. **Two of the nineteen declared surfaces — `func.builtin` and `func.bare` — are produced by nothing.** That is recorded (OPEN-QUESTIONS 11), not an oversight; a claim that all nineteen are reachable would be false. | Break the config-model/kwargs split in `_request_kwargs` (drop the `config_fields` exclusion); `tests/group_options/` must go red. Then make `stdin_markers_for` return `{}` unconditionally; `tests/cli/test_stdin_integration_unit.py` must go red — that pair proves the two blocks that moved out of `click_params.py` are both still on the production path. |
 | 5 | *(fill from the wave's task headings: T12, T13, T14, T15)* | run each task's gate **and** one command the task did not choose — a different spelling of the same question | *(the wave's `**Sabotage:**` line, or the smallest edit that should break its named test)* |
 | 6 | *(fill from the wave's task headings: T16)* | run each task's gate **and** one command the task did not choose — a different spelling of the same question | *(the wave's `**Sabotage:**` line, or the smallest edit that should break its named test)* |
 | 7 | *(fill from the wave's task headings: T17)* | run each task's gate **and** one command the task did not choose — a different spelling of the same question | *(the wave's `**Sabotage:**` line, or the smallest edit that should break its named test)* |

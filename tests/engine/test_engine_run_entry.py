@@ -1,13 +1,12 @@
-"""`engine.run(request)` and `engine.execute(...)` must agree.
+"""`engine.run(request)` is the single entry to job execution.
 
-This equality is what makes wave 3 of `run-request-entry` safe. Seven doors
+This is what makes wave 3 of `run-request-entry` safe. Seven doors
 migrate to building a `RunRequest` one at a time, each landing on its own with
-the suite green — which is only true if the two entries are the same execution
-by construction.
+the suite green — which is only true if every surface arrives the same way by
+construction.
 
-The test is written against observable `JobResult` fields rather than against
-`execute`'s internals: it must keep meaning at T11, when `execute()` is deleted
-and `run()` stops delegating.
+The test is written against observable `JobResult` fields: it must keep meaning
+at T11, when `execute()` is deleted and `run()` is the only entry.
 """
 
 from __future__ import annotations
@@ -17,6 +16,7 @@ from collections.abc import Generator
 import pytest
 
 from functualize._app.state import AppState
+from functualize._types.enums import RunStatus
 from functualize.app.core import FunctualizeApp
 from functualize.types import RunRequest
 
@@ -39,19 +39,17 @@ def _greet(name: str = "world") -> str:
     return f"hello {name}"
 
 
-def test_run_and_execute_produce_equal_results(app: FunctualizeApp) -> None:
+def test_run_produces_expected_result(app: FunctualizeApp) -> None:
     engine = app.execution_engine
-    job = engine.get_job("greet")
 
-    via_execute = engine.execute("greet", job.function, kwargs={"name": "a"})
-    via_run = engine.run(
+    result = engine.run(
         RunRequest(job_name="greet", surface="app.execute", kwargs={"name": "a"})
     )
 
-    assert via_run.status == via_execute.status
-    assert via_run.return_value == via_execute.return_value
-    assert via_run.job_name == via_execute.job_name
-    assert via_run.exception is None and via_execute.exception is None
+    assert result.status == RunStatus.SUCCESS
+    assert result.return_value == "hello a"
+    assert result.job_name == "greet"
+    assert result.exception is None
 
 
 def test_run_resolves_the_name_the_caller_did_not(app: FunctualizeApp) -> None:

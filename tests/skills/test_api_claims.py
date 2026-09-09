@@ -18,8 +18,8 @@ import re
 import pytest
 
 from functualize._cli.builtins import BUILTIN_COMMANDS, BUILTIN_ROOT
-from functualize._cli.dispatch import _OPTIONAL_VALUE_VALID_SET
 from functualize._cli.scaffold.registry import TEMPLATES
+from functualize.types import OPTIONAL_VALUE_VALID_SET
 
 from .conftest import SKILLS_ROOT, backticked, markdown_files
 
@@ -158,7 +158,7 @@ def test_no_invented_public_names(path):
 
 def test_documented_output_values_match_the_flag():
     """The `--output` vocabulary in prose is the one dispatch accepts."""
-    valid, default = _OPTIONAL_VALUE_VALID_SET["--output"]
+    valid, default = OPTIONAL_VALUE_VALID_SET["--output"]
     text = "\n".join(p.read_text(encoding="utf-8") for p in markdown_files())
 
     # Wherever the skills enumerate the vocabulary, the default must be in it —

@@ -15,6 +15,7 @@ from functualize._events.bus import EventBus
 from functualize._events.hooks import HookRegistry
 from functualize.job import Shell, ShellError, ShellResult
 from functualize.testing import FakeShell
+from tests._support.engine_run import run_job
 
 
 @pytest.fixture
@@ -311,7 +312,7 @@ class TestDIInjection:
             return sh(["echo", "injected"]).stdout.strip()
 
         engine = self._engine()
-        result = engine.execute("my_job", my_job, kwargs={})
+        result = run_job(engine, "my_job", my_job, kwargs={})
 
         assert isinstance(captured["sh"], Shell)
         assert isinstance(captured["sh"], WiredShell)

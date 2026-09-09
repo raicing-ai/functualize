@@ -12,8 +12,10 @@ import io
 from collections.abc import Iterable, Iterator
 from typing import Annotated
 
-from functualize._cli.stdin_reader import iter_stdin_ndjson, resolve_stdin_params
-from functualize.app.adapters.click_params import _streaming_stdin_params
+from functualize._engine.stdin_reader import iter_stdin_ndjson, resolve_stdin_params
+from functualize._engine.stdin_reader import (
+    streaming_stdin_params as _streaming_stdin_params,
+)
 from functualize.job import Stdin
 
 

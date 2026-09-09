@@ -18,11 +18,11 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.dispatch import (
-    _OPTIONAL_VALUE_VALID_SET,
     Mode,
     _extract_global_options,
     detect_mode,
 )
+from functualize.types import OPTIONAL_VALUE_VALID_SET
 
 # =============================================================================
 # Strategies
@@ -34,8 +34,8 @@ from functualize._cli.dispatch import (
 # {"auto", "json", "ndjson", "raw", "none"}, so the "non-format token"
 # strategies below could emit a value that *is* a format and the assertions
 # would be testing the opposite of what they claim.
-_PERF_REPORT_VALID, _PERF_REPORT_DEFAULT = _OPTIONAL_VALUE_VALID_SET["--perf-report"]
-_OUTPUT_VALID, _OUTPUT_DEFAULT = _OPTIONAL_VALUE_VALID_SET["--output"]
+_PERF_REPORT_VALID, _PERF_REPORT_DEFAULT = OPTIONAL_VALUE_VALID_SET["--perf-report"]
+_OUTPUT_VALID, _OUTPUT_DEFAULT = OPTIONAL_VALUE_VALID_SET["--output"]
 
 # Characters safe for job-name-like tokens
 _identifier_first_char = st.sampled_from("abcdefghijklmnopqrstuvwxyz")

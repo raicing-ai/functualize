@@ -12,6 +12,7 @@ from functualize._discovery.registry import JobRegistry
 from functualize._events.hooks import HookEvent
 from functualize._types.descriptors import JobDescriptor
 from functualize.app.core import FunctualizeApp
+from functualize.types import RunRequest
 
 if TYPE_CHECKING:
     from functualize.job.context import RunContext
@@ -236,13 +237,13 @@ class TestDynamicJobRegistration:
 
         app.register_dynamic_job("exec-job", my_job)
 
-        # Execute via engine
-        registered = app.job_registry.get_job("exec-job")
-        result = app.execution_engine.execute(
-            job_name="exec-job",
-            function=registered.function,
-            config_class=registered.config_class,
-            kwargs={},
+        # Execute via engine — job is already registered, so use engine.run()
+        result = app.execution_engine.run(
+            RunRequest(
+                job_name="exec-job",
+                surface="app.execute",
+                kwargs={},
+            )
         )
 
         assert result.return_value == "executed"
@@ -310,13 +311,13 @@ class TestDynamicJobRegistration:
         app.register_dynamic_job("child-job", child_job)
         app.register_dynamic_job("parent-job", parent_job)
 
-        # Execute parent, which invokes child
-        registered = app.job_registry.get_job("parent-job")
-        result = app.execution_engine.execute(
-            job_name="parent-job",
-            function=registered.function,
-            config_class=registered.config_class,
-            kwargs={},
+        # Execute parent, which invokes child — job is already registered
+        result = app.execution_engine.run(
+            RunRequest(
+                job_name="parent-job",
+                surface="app.execute",
+                kwargs={},
+            )
         )
 
         assert result.return_value == "child result"

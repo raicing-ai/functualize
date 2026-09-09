@@ -14,6 +14,7 @@ from functualize._events.bus import EventBus
 from functualize._events.hooks import HookDecision, HookEvent, HookRegistry
 from functualize._events.middleware_stack import MiddlewareStack
 from functualize._types.enums import RunStatus
+from tests._support.engine_run import run_job
 
 
 def _make_app() -> MagicMock:
@@ -57,7 +58,7 @@ class TestEnginePreExecuteBlock:
         def my_job():
             executed.append(True)
 
-        result = engine.execute("my_job", my_job, kwargs={})
+        result = run_job(engine, "my_job", my_job, kwargs={})
 
         assert executed == []
         assert result.status == RunStatus.FAILURE
@@ -83,7 +84,7 @@ class TestEnginePreExecuteBlock:
             lambda rc: teardown_called.append(True),
         )
 
-        result = engine.execute("my_job", lambda: None, kwargs={})
+        result = run_job(engine, "my_job", lambda: None, kwargs={})
 
         assert result.status == RunStatus.FAILURE
         assert teardown_called == [True]
@@ -109,7 +110,7 @@ class TestEnginePreExecuteBlock:
             lambda rc: before_job_called.append(True),
         )
 
-        engine.execute("my_job", lambda: None, kwargs={})
+        run_job(engine, "my_job", lambda: None, kwargs={})
 
         assert before_job_called == []
 
@@ -137,7 +138,7 @@ class TestEnginePreExecuteModify:
         def my_job(value=0):
             received.append(value)
 
-        engine.execute("my_job", my_job, kwargs={"value": 1})
+        run_job(engine, "my_job", my_job, kwargs={"value": 1})
 
         assert received == [42]
 
@@ -165,7 +166,7 @@ class TestEnginePreExecuteModify:
         def my_job(value=0):
             received.append(value)
 
-        engine.execute("my_job", my_job, kwargs={"value": 1})
+        run_job(engine, "my_job", my_job, kwargs={"value": 1})
 
         assert received == [111]
 
@@ -193,7 +194,7 @@ class TestEnginePreExecuteProceed:
         def my_job(value=0):
             received.append(value)
 
-        engine.execute("my_job", my_job, kwargs={"value": 7})
+        run_job(engine, "my_job", my_job, kwargs={"value": 7})
 
         assert received == [7]
 
@@ -212,7 +213,7 @@ class TestEnginePreExecuteProceed:
         def my_job():
             executed.append(True)
 
-        result = engine.execute("my_job", my_job, kwargs={})
+        result = run_job(engine, "my_job", my_job, kwargs={})
 
         assert executed == [True]
         assert result.status == RunStatus.SUCCESS
@@ -241,7 +242,7 @@ class TestEnginePreExecuteExceptionHandling:
         def my_job():
             executed.append(True)
 
-        result = engine.execute("my_job", my_job, kwargs={})
+        result = run_job(engine, "my_job", my_job, kwargs={})
 
         assert executed == [True]
         assert result.status == RunStatus.SUCCESS

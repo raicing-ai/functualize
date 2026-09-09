@@ -27,7 +27,18 @@ runner = CliRunner()
 
 
 def _command(name, fn, app=None):
-    """Build the click command for a job function under test."""
+    """Build the click command for a job function under test.
+
+    The job is registered with the app's engine when there is one:
+    `engine.run()` resolves by *name* (run-request-entry/T11), so a command
+    whose job the registry has never heard of cannot execute. Production
+    discovery registers; these unit tests build a command by hand and used to
+    get away with it because the command carried the function.
+    """
+    if app is not None and getattr(app, "_execution_engine", None) is not None:
+        from tests._support.engine_run import register
+
+        register(app._execution_engine, name, fn)
     return create_job_click_command(name, fn, app=app)
 
 

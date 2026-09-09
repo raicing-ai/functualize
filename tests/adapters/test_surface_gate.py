@@ -247,7 +247,7 @@ class TestLazyCommandPath:
         from functualize._engine.result import JobResult
         from functualize._types.enums import RunStatus
 
-        app.execution_engine.execute.return_value = JobResult(
+        app.execution_engine.run.return_value = JobResult(
             status=RunStatus.SUCCESS,
             return_value=None,
             duration_ms=0.0,
@@ -290,9 +290,7 @@ class TestCreateJobCommandPath:
         # to 0. That fall-through was the trap D-6 removed, and this fixture is
         # a small instance of it — the test asserted surface behaviour while
         # silently modelling a run with no outcome.
-        engine.execute.return_value = MagicMock(
-            exception=None, status=RunStatus.SUCCESS
-        )
+        engine.run.return_value = MagicMock(exception=None, status=RunStatus.SUCCESS)
         app._execution_engine = engine
         app.execution_engine = engine
         app.get_job.return_value = descriptor

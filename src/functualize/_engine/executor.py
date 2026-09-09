@@ -41,13 +41,13 @@ from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
 from functualize._types import AmbiguousJobError, JobResult, RunStatus
 from functualize._types.annotations import resolved_hints
 from functualize._types.redaction import Secret, redacted_snapshot
+from functualize._types.run_request import CONSOLE_SURFACES, RunRequest
 
 NoneType = type(None)
 
 if TYPE_CHECKING:
     from functualize._engine.middleware import ExecutionMiddlewareChain
     from functualize._engine.result import RegisteredJob
-    from functualize._types.run_request import RunRequest
 
 logger = logging.getLogger(__name__)
 
@@ -658,21 +658,43 @@ class JobExecutionEngine:
     def run(self, request: RunRequest) -> JobResult:
         """Resolve, materialize, and execute the job named by ``request``.
 
-        The one entry the framework is converging on. Every surface builds a
+        The one entry the framework has. Every surface builds a
         :class:`RunRequest` and arrives here; nothing outside this module holds
-        a job function in order to execute it.
+        a job function in order to execute it. There is no second entry taking
+        a name *and* a function — that signature is what let eight call sites
+        each resolve a name their own way, and it was deleted here (T11) rather
+        than deprecated.
 
-        # TRANSITIONAL(run-request/T11): run() delegates to execute(); resolution
-        # moves in at T11. Until then this method resolves the name the way the
-        # eight call sites outside `_engine/` currently each do it, so that the
-        # doors can migrate one at a time (wave 3) with the suite green. T11
-        # deletes `execute()` and this body becomes the lifecycle call.
+        Two pieces of work moved in from the click adapters, because they are
+        the same work whichever door was used:
+
+        * **The config-model split.** A ``Stdin`` marker never sits on a config
+          model's field, so config values are held out of stdin resolution and
+          merged back afterwards. Both halves reach the lifecycle in one dict
+          either way; the split exists only to scope the step below.
+        * **Stdin resolution.** For console surfaces only
+          (:data:`~functualize._types.run_request.CONSOLE_SURFACES`), which is
+          what "it lived in the click adapters" used to mean implicitly.
+
+        History is written here, on *every* way out of the lifecycle — the
+        normal return, a validation failure, a blocked pre-flight, a failed
+        dependency — from one place rather than five. Instrumenting five return
+        points by hand is how one of them ends up forgotten and a whole class
+        of run silently stops being recorded.
+
+        Only **top-level** runs are recorded (``invoke_depth == 0``). A
+        workflow's steps, a job's dependencies, and ``rc.invoke`` children all
+        run at ``invoke_depth + 1``; recording them would bury the handful of
+        things the user actually launched under the internals of one of them,
+        and a 200-record ring would evict real history within a single deep
+        workflow.
         """
         job = self.get_job(request.job_name)
-        return self.execute(
+        kwargs = self._request_kwargs(request, job)
+        result = self._execute_lifecycle(
             request.job_name,
             job.function,
-            kwargs=dict(request.kwargs),
+            kwargs=kwargs,
             invoke_depth=request.invoke_depth,
             cwd=request.cwd,
             job_directory=request.job_directory,
@@ -688,58 +710,58 @@ class JobExecutionEngine:
                 else None
             ),
         )
-
-    def execute(
-        self,
-        job_name: str,
-        function: Callable[..., Any],
-        *,
-        kwargs: dict[str, Any],
-        invoke_depth: int = 0,
-        cwd: Path | None = None,
-        job_directory: Path | None = None,
-        config_class: type | None = None,
-        parent_scope: Any | None = None,
-        workflow_scope_id: str | None = None,
-        run_dependencies: bool = True,
-        force_fresh: bool = False,
-        force: bool = False,
-        group_option_values: dict[str, Any] | None = None,
-    ) -> JobResult:
-        """Execute a job, then record the run in history (T42).
-
-        The lifecycle itself is :meth:`_execute_lifecycle`; this wrapper exists
-        only so that history is written on **every** way out of it — the normal
-        return, a validation failure, a blocked pre-flight, a failed dependency
-        — from one place rather than five. Instrumenting the five return points
-        by hand is how one of them ends up forgotten and a whole class of run
-        silently stops being recorded.
-
-        Only **top-level** runs are recorded (``invoke_depth == 0``). A
-        workflow's steps, a job's dependencies, and ``rc.invoke`` children all
-        run at ``invoke_depth + 1``; recording them would bury the handful of
-        things the user actually launched under the internals of one of them,
-        and a 200-record ring would evict real history within a single deep
-        workflow.
-        """
-        result = self._execute_lifecycle(
-            job_name,
-            function,
-            kwargs=kwargs,
-            invoke_depth=invoke_depth,
-            cwd=cwd,
-            job_directory=job_directory,
-            config_class=config_class,
-            parent_scope=parent_scope,
-            workflow_scope_id=workflow_scope_id,
-            run_dependencies=run_dependencies,
-            force_fresh=force_fresh,
-            force=force,
-            group_option_values=group_option_values,
-        )
-        if invoke_depth == 0:
-            self._record_history(job_name, kwargs, result)
+        if request.invoke_depth == 0:
+            self._record_history(request.job_name, kwargs, result)
         return result
+
+    def _request_kwargs(
+        self, request: RunRequest, job: RegisteredJob
+    ) -> dict[str, Any]:
+        """The kwargs the lifecycle receives, with stdin resolved (T11).
+
+        A non-console surface returns the request's kwargs untouched. That is
+        not an optimisation: an HTTP or Lambda caller that omits a
+        ``Stdin``-marked parameter must get the parameter's default, and the
+        server process's stdin is usually ``/dev/null`` — not a tty, so
+        ``resolve_stdin_params``' own guard would read it and hand the job an
+        empty string instead.
+        """
+        kwargs = dict(request.kwargs)
+        if request.surface not in CONSOLE_SURFACES:
+            return kwargs
+
+        from functualize._engine.stdin_reader import (
+            resolve_stdin_params,
+            stdin_markers_for,
+            streaming_stdin_params,
+        )
+
+        markers = stdin_markers_for(job.function)
+        if not markers:
+            return kwargs
+
+        # `config_class` is typed `type | None` on the entry, not
+        # `type[BaseModel]`: the engine deliberately does not import pydantic
+        # to name it. Read the field map defensively for the same reason.
+        config_fields: set[str] = set(
+            getattr(job.config_class, "model_fields", None) or ()
+        )
+        cli_values = {k: v for k, v in kwargs.items() if k in config_fields}
+        direct = {k: v for k, v in kwargs.items() if k not in config_fields}
+
+        resolved = resolve_stdin_params(
+            markers,
+            {pname: direct.get(pname) for pname in markers},
+            streaming_stdin_params(job.function, markers),
+        )
+        direct.update(resolved)
+        for pname in markers:
+            # A marked parameter that stdin did not supply and the caller left
+            # as None is dropped, not passed: the job's own default has to win,
+            # and an explicit ``None`` would override it.
+            if pname not in resolved and direct.get(pname) is None:
+                direct.pop(pname, None)
+        return {**direct, **cli_values}
 
     def _record_history(
         self, job_name: str, kwargs: dict[str, Any], result: JobResult
@@ -1248,35 +1270,35 @@ class JobExecutionEngine:
 
         def run_step(step_name: str) -> Any:
             entry = self.get_job(step_name)
-            step_result = self.execute(
-                step_name,
-                entry.function,
-                kwargs={},
-                invoke_depth=invoke_depth + 1,
-                config_class=entry.config_class,
-                # Run the step *inside* the scope, so a `FromJob` parameter
-                # resolves against what the walk has already recorded rather
-                # than falling through to the fingerprint store and, finding
-                # nothing, silently taking the parameter's default.
-                #
-                # Unless the step is itself a workflow: a nested workflow owns
-                # its own scope (§A.7), and handing it the parent's would make
-                # the two walks share one set of step records and one epilogue
-                # slot — the inner body's return value would surface as the
-                # outer's.
-                # A nested workflow's scope is *derived*, not fresh. It must
-                # still be its own scope — sharing the parent's would merge
-                # two sets of step records and two epilogue slots, surfacing
-                # the inner body's return value as the outer's — but it must
-                # also be the *same* scope on re-entry, or a gate inside it
-                # can never be resumed: each parent run would spawn a new
-                # child, and the input an agent deposited would belong to a
-                # scope nothing re-enters (Part I cell G×W×W).
-                workflow_scope_id=(
-                    f"{runner.scope_id}::{step_name}"
-                    if getattr(entry.function, "__functualize_workflow__", None)
-                    else runner.scope_id
-                ),
+            step_result = self.run(
+                RunRequest(
+                    job_name=step_name,
+                    surface="engine.step",
+                    invoke_depth=invoke_depth + 1,
+                    # Run the step *inside* the scope, so a `FromJob` parameter
+                    # resolves against what the walk has already recorded rather
+                    # than falling through to the fingerprint store and, finding
+                    # nothing, silently taking the parameter's default.
+                    #
+                    # Unless the step is itself a workflow: a nested workflow owns
+                    # its own scope (§A.7), and handing it the parent's would make
+                    # the two walks share one set of step records and one epilogue
+                    # slot — the inner body's return value would surface as the
+                    # outer's.
+                    # A nested workflow's scope is *derived*, not fresh. It must
+                    # still be its own scope — sharing the parent's would merge
+                    # two sets of step records and two epilogue slots, surfacing
+                    # the inner body's return value as the outer's — but it must
+                    # also be the *same* scope on re-entry, or a gate inside it
+                    # can never be resumed: each parent run would spawn a new
+                    # child, and the input an agent deposited would belong to a
+                    # scope nothing re-enters (Part I cell G×W×W).
+                    workflow_scope_id=(
+                        f"{runner.scope_id}::{step_name}"
+                        if getattr(entry.function, "__functualize_workflow__", None)
+                        else runner.scope_id
+                    ),
+                )
             )
             # SKIPPED counts as satisfied: a step whose guards or fingerprint
             # said "no work to do" has done its job, and failing the walk over
@@ -1822,26 +1844,26 @@ class JobExecutionEngine:
             ):
                 return True
 
-            # `get_job`, not a raw registry read: on a warm boot the entry's
-            # function is a deferred-import stand-in, and only materializing
-            # yields something runnable. Reading the entry directly worked
-            # cold and failed warm with "dependencies failed".
-            entry = self.get_job(node)
-            result = self.execute(
-                node,
-                entry.function,
-                kwargs={},
-                invoke_depth=invoke_depth + 1,
-                config_class=entry.config_class,
-                # The plan already contains this node's own dependencies, in
-                # order. Letting it schedule them again would run a shared
-                # upstream once per path into it — a diamond ran its base
-                # three times before this.
-                run_dependencies=False,
-                # A `FromJob` dependent needs this job's *value*, and the
-                # recorded one cannot be reused, so freshness must not stand
-                # in for it (resolved Q19, T32b).
-                force_fresh=node in unreusable_upstreams,
+            # `run()` resolves the name itself, `get_job` included, so a warm
+            # boot's deferred-import stand-in is materialized on the way
+            # through. Reading the registry entry directly here worked cold and
+            # failed warm with "dependencies failed"; naming the node and
+            # letting the one entry resolve it is what makes that unrepeatable.
+            result = self.run(
+                RunRequest(
+                    job_name=node,
+                    surface="engine.dependency",
+                    invoke_depth=invoke_depth + 1,
+                    # The plan already contains this node's own dependencies,
+                    # in order. Letting it schedule them again would run a
+                    # shared upstream once per path into it — a diamond ran
+                    # its base three times before this.
+                    run_dependencies=False,
+                    # A `FromJob` dependent needs this job's *value*, and the
+                    # recorded one cannot be reused, so freshness must not
+                    # stand in for it (resolved Q19, T32b).
+                    force_fresh=node in unreusable_upstreams,
+                )
             )
             # Keep the value of any upstream that just ran for this job's
             # `FromJob` parameters. Injection otherwise reads the fingerprint

@@ -31,6 +31,7 @@ from functualize._events.hooks import HookRegistry
 from functualize._primitives import DIRegistry
 from functualize._types.descriptors import JobDescriptor, RegisteredJob
 from functualize._types.errors import JobMaterializationError
+from tests._support.engine_run import run_job
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -262,7 +263,7 @@ class TestEngineMaterialization:
         entry = _lazy_entry(descriptor)
         engine.register_job(entry)
 
-        result = engine.execute("myjob", entry.function, kwargs={"x": 7})
+        result = run_job(engine, "myjob", entry.function, kwargs={"x": 7})
 
         assert result.return_value == 7
         assert _import_count(marker) == 1

@@ -179,7 +179,7 @@ class TestInvokeParallelInputOrder:
     @given(n=st.integers(min_value=2, max_value=10))
     def test_results_order_with_mock_engine(self, n: int):
         """For any N jobs (unit-level), results maintain input positional order
-        regardless of which engine.execute calls complete first.
+        regardless of which engine.run calls complete first.
 
         **Validates: Requirements 21.3**
         """

@@ -56,6 +56,7 @@ from functualize._types.descriptors import FieldDescriptor, GroupOptionsSpec
 from functualize.app.core import FunctualizeApp
 from functualize.app.utils import build_group_trie
 from functualize.job import RunStatus
+from functualize.types import RunRequest
 
 _JOB_MODULE = """
 from typing import Annotated
@@ -227,13 +228,13 @@ def _app(module: ModuleType) -> FunctualizeApp:
 def _via_engine(
     app: FunctualizeApp, job_name: str, group_options: dict[str, Any] | None
 ) -> Any:
-    entry = app.job_registry.get_job(job_name)
-    return app._execution_engine.execute(
-        job_name,
-        entry.function,
-        config_class=entry.config_class,
-        kwargs={},
-        group_option_values=group_options,
+    return app._execution_engine.run(
+        RunRequest(
+            job_name=job_name,
+            surface="app.execute",
+            kwargs={},
+            group_option_values=group_options,
+        )
     )
 
 

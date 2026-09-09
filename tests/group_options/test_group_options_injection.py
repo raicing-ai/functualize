@@ -33,6 +33,7 @@ import pytest
 from functualize._app.state import AppState
 from functualize.app.core import FunctualizeApp
 from functualize.job import RunStatus
+from functualize.types import RunRequest
 
 _JOB_MODULE = """
 {future_import}
@@ -125,13 +126,13 @@ def _execute(
     command line. The dispatcher reaches the engine directly, so the tests
     that exercise the CLI layer do too.
     """
-    entry = app.job_registry.get_job(job_name)
-    return app._execution_engine.execute(
-        job_name,
-        entry.function,
-        config_class=entry.config_class,
-        kwargs=kwargs,
-        group_option_values=group_options,
+    return app._execution_engine.run(
+        RunRequest(
+            job_name=job_name,
+            surface="app.execute",
+            kwargs=kwargs,
+            group_option_values=group_options,
+        )
     )
 
 

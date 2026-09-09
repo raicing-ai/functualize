@@ -22,11 +22,19 @@ from typing import Any
 
 from functualize._types.run_request import RunRequest, RunSurface
 
-# The surface both click constructors report. They are the app's own CLI door
-# (contracts.md §5): the eager path builds from a live signature, the lazy
-# path from a cached descriptor, but the user typed the same command in both
-# cases. One surface, not two.
-_SURFACE: RunSurface = "app.cli"
+# The default surface: the app's own CLI door (contracts.md §5). The eager
+# path builds from a live signature and the lazy path from a cached
+# descriptor, but the user typed the same command in both cases — one surface,
+# not two.
+#
+# `func`'s own handlers build click commands too, and they are *not* this
+# door: `func <job>`, `func <group> <job>` and `func <file.py>::<fn>` boot
+# their own app first and each answer differently when something goes wrong.
+# They pass their surface at build time (run-request/T11). It is a parameter
+# rather than an attribute on the app because the door that knows the answer
+# is the one constructing the command, and an attribute would be the eleventh
+# deposit — which is what this feature exists to remove.
+_DEFAULT_SURFACE: RunSurface = "app.cli"
 
 
 def build_request(
@@ -36,18 +44,18 @@ def build_request(
     group_option_values: Mapping[str, Any] | None = None,
     workflow_scope_id: str | None = None,
     force: bool = False,
+    surface: RunSurface = _DEFAULT_SURFACE,
 ) -> RunRequest:
-    """Build the :class:`RunRequest` a click callback hands to the facade.
+    """Build the :class:`RunRequest` a click callback hands to the engine.
 
     Both the eager and lazy callbacks call this with the values they resolved
-    (scope id, force, group flags, the split kwargs) so that the request — not
-    the loose arguments — is what travels to the facade. The surface is fixed
-    at ``app.cli``: these are the app's own click commands, and a door names
-    itself.
+    (scope id, force, group flags, kwargs) so that the request — not the loose
+    arguments — is what travels. ``surface`` defaults to ``app.cli`` and is
+    overridden by whichever ``func`` handler built the command.
     """
     return RunRequest(
         job_name=job_name,
-        surface=_SURFACE,
+        surface=surface,
         kwargs=kwargs,
         group_option_values=group_option_values,
         workflow_scope_id=workflow_scope_id,

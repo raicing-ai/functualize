@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 import pytest
 
-from functualize._cli.stdin_reader import resolve_stdin_params
+from functualize._engine.stdin_reader import resolve_stdin_params
 from functualize.job.markers import Stdin
 
 # =============================================================================
@@ -36,9 +36,11 @@ class TestPipePopulatesParam:
         cli_values: dict[str, Any] = {}
 
         with (
-            patch("functualize._cli.stdin_reader.sys.stdin.isatty", return_value=False),
             patch(
-                "functualize._cli.stdin_reader.sys.stdin.read",
+                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
+            ),
+            patch(
+                "functualize._engine.stdin_reader.sys.stdin.read",
                 return_value="piped data",
             ),
         ):
@@ -52,9 +54,11 @@ class TestPipePopulatesParam:
         cli_values: dict[str, Any] = {"content": None}
 
         with (
-            patch("functualize._cli.stdin_reader.sys.stdin.isatty", return_value=False),
             patch(
-                "functualize._cli.stdin_reader.sys.stdin.read",
+                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
+            ),
+            patch(
+                "functualize._engine.stdin_reader.sys.stdin.read",
                 return_value="hello world",
             ),
         ):
@@ -69,9 +73,11 @@ class TestPipePopulatesParam:
         content = "line1\nline2\nline3\n"
 
         with (
-            patch("functualize._cli.stdin_reader.sys.stdin.isatty", return_value=False),
             patch(
-                "functualize._cli.stdin_reader.sys.stdin.read",
+                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
+            ),
+            patch(
+                "functualize._engine.stdin_reader.sys.stdin.read",
                 return_value=content,
             ),
         ):
@@ -97,9 +103,11 @@ class TestExplicitFlagWins:
         cli_values: dict[str, Any] = {"data": "explicit value"}
 
         with (
-            patch("functualize._cli.stdin_reader.sys.stdin.isatty", return_value=False),
             patch(
-                "functualize._cli.stdin_reader.sys.stdin.read",
+                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
+            ),
+            patch(
+                "functualize._engine.stdin_reader.sys.stdin.read",
                 return_value="piped data",
             ),
         ):
@@ -114,9 +122,11 @@ class TestExplicitFlagWins:
         cli_values: dict[str, Any] = {"data": ""}
 
         with (
-            patch("functualize._cli.stdin_reader.sys.stdin.isatty", return_value=False),
             patch(
-                "functualize._cli.stdin_reader.sys.stdin.read",
+                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
+            ),
+            patch(
+                "functualize._engine.stdin_reader.sys.stdin.read",
                 return_value="piped data",
             ),
         ):
@@ -129,7 +139,9 @@ class TestExplicitFlagWins:
         stdin_markers = {"data": Stdin()}
         cli_values: dict[str, Any] = {"data": "flag value"}
 
-        with patch("functualize._cli.stdin_reader.sys.stdin.isatty", return_value=True):
+        with patch(
+            "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
+        ):
             result = resolve_stdin_params(stdin_markers, cli_values)
 
         assert result == {}
@@ -154,7 +166,9 @@ class TestTtyRequiredNoDefault:
         cli_values: dict[str, Any] = {}
 
         with (
-            patch("functualize._cli.stdin_reader.sys.stdin.isatty", return_value=True),
+            patch(
+                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
+            ),
             pytest.raises(SystemExit) as exc_info,
         ):
             resolve_stdin_params(stdin_markers, cli_values)
@@ -167,7 +181,9 @@ class TestTtyRequiredNoDefault:
         cli_values: dict[str, Any] = {"content": None}
 
         with (
-            patch("functualize._cli.stdin_reader.sys.stdin.isatty", return_value=True),
+            patch(
+                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
+            ),
             pytest.raises(SystemExit) as exc_info,
         ):
             resolve_stdin_params(stdin_markers, cli_values)
@@ -182,8 +198,10 @@ class TestTtyRequiredNoDefault:
         cli_values: dict[str, Any] = {}
 
         with (
-            patch("functualize._cli.stdin_reader.sys.stdin.isatty", return_value=True),
-            patch("functualize._cli.stdin_reader.sys.stderr") as mock_stderr,
+            patch(
+                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
+            ),
+            patch("functualize._engine.stdin_reader.sys.stderr") as mock_stderr,
             pytest.raises(SystemExit),
         ):
             resolve_stdin_params(stdin_markers, cli_values)
@@ -222,7 +240,9 @@ class TestTtyWithDefault:
         cli_values: dict[str, Any] = {}
 
         with (
-            patch("functualize._cli.stdin_reader.sys.stdin.isatty", return_value=True),
+            patch(
+                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
+            ),
             pytest.raises(SystemExit) as exc_info,
         ):
             resolve_stdin_params(stdin_markers, cli_values)
@@ -240,7 +260,9 @@ class TestTtyWithDefault:
         stdin_markers = {"data": Stdin()}
         cli_values: dict[str, Any] = {"data": "some value"}
 
-        with patch("functualize._cli.stdin_reader.sys.stdin.isatty", return_value=True):
+        with patch(
+            "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
+        ):
             result = resolve_stdin_params(stdin_markers, cli_values)
 
         # No stdin check needed — CLI value resolves the param
@@ -267,7 +289,9 @@ class TestMultipleStdinParams:
         cli_values: dict[str, Any] = {}
 
         with (
-            patch("functualize._cli.stdin_reader.sys.stdin.isatty", return_value=False),
+            patch(
+                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
+            ),
             pytest.raises(ValueError, match="Multiple Stdin-marked parameters"),
         ):
             resolve_stdin_params(stdin_markers, cli_values)
@@ -282,7 +306,9 @@ class TestMultipleStdinParams:
         cli_values: dict[str, Any] = {}
 
         with (
-            patch("functualize._cli.stdin_reader.sys.stdin.isatty", return_value=False),
+            patch(
+                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
+            ),
             pytest.raises(ValueError, match="Multiple Stdin-marked parameters"),
         ):
             resolve_stdin_params(stdin_markers, cli_values)
@@ -293,7 +319,9 @@ class TestMultipleStdinParams:
         cli_values: dict[str, Any] = {}
 
         with (
-            patch("functualize._cli.stdin_reader.sys.stdin.isatty", return_value=True),
+            patch(
+                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
+            ),
             pytest.raises(ValueError, match="Multiple Stdin-marked parameters"),
         ):
             resolve_stdin_params(stdin_markers, cli_values)
@@ -304,9 +332,11 @@ class TestMultipleStdinParams:
         cli_values: dict[str, Any] = {"data": "explicit"}
 
         with (
-            patch("functualize._cli.stdin_reader.sys.stdin.isatty", return_value=False),
             patch(
-                "functualize._cli.stdin_reader.sys.stdin.read",
+                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
+            ),
+            patch(
+                "functualize._engine.stdin_reader.sys.stdin.read",
                 return_value="piped value",
             ),
         ):
@@ -321,6 +351,8 @@ class TestMultipleStdinParams:
 
         with (
             pytest.raises(ValueError, match="alpha.*beta|beta.*alpha"),
-            patch("functualize._cli.stdin_reader.sys.stdin.isatty", return_value=False),
+            patch(
+                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
+            ),
         ):
             resolve_stdin_params(stdin_markers, cli_values)
