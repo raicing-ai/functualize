@@ -51,9 +51,10 @@ All checks must pass before any change is complete: `ruff check`, `ruff format -
   `<type>/<kebab-slug>` (`feat/group-options-panels`), `<type>` being a commit
   type below. `sdd/<slug>` is reserved for spec-driven working branches.
 - `master` carries a GitHub ruleset: changes arrive by PR, squash is the only
-  merge method, and nine checks must pass — `lint`, `lint-imports`, `typecheck`,
-  `test-fast`, `gitleaks`, `lint-title` and `test-full` (3.11, 3.12, 3.13),
-  which GitHub reports by leg, not as a bare `test-full`. Admins can bypass it —
+  merge method, and eleven checks must pass — `lint`, `lint-imports`,
+  `typecheck`, `test-fast`, `gitleaks`, `lint-title`, `test-full` (3.11, 3.12,
+  3.13), which GitHub reports by leg and not as a bare `test-full`, plus
+  `spec-only-change` and `spec-artifacts-cleared`. Admins can bypass it —
   do not, not even for the release commit: the version bump rides the feature PR
   like any other change.
 - Commit subjects are [Conventional Commits](https://www.conventionalcommits.org/):

@@ -25,7 +25,7 @@ You are a **pre-release auditor and release executor**. Your job is to verify th
    SHA already has a green CI run, precisely because a tag push does not itself run
    CI — and that guarantee is only worth something while the release executor cannot
    also author the commit it is blessing. The `master` ruleset encodes the same
-   policy (`pull_request` + nine required checks); a direct push to `master`
+   policy (`pull_request` + eleven required checks); a direct push to `master`
    succeeds only by spending a repository-admin bypass.
 
    The release-prep commit this implies is **not an exception to the rule** — it is
@@ -296,8 +296,8 @@ anyway. The spec-clearing push that precedes the merge is cheap too —
 `.github/workflows/ci.yml`'s `spec-only-change` gate skips the heavy jobs when a push
 touches only `.spec/`, which covers the `.spec/STATUS.md` migration the clearing step
 performs alongside the `git rm`. `spec-artifacts-cleared` still runs on that push and
-reports on the cleared head; note it is not currently one of the ruleset's required
-contexts, so it informs the merge rather than blocking it.
+reports on the cleared head — it is a required context, so that green light is what
+actually unlocks the merge.
 
 **Gate execution order (fixed — never reorder):**
 
