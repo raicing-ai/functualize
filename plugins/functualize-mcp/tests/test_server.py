@@ -71,11 +71,12 @@ def test_grouped_name_with_params_builds_and_executes() -> None:
     assert fn.__name__ == "probe.echo"
     assert fn.__qualname__ == "probe.echo"
     result = asyncio.run(fn(text="hello"))
-    assert result == {
-        "status": "success",
-        "return_value": "executed probe.echo",
-        "duration_ms": 42.0,
-    }
+    # Envelope contract on the served surface (master post-#35): status,
+    # return_value, duration_ms. Assert the stable keys, not incidental
+    # extra fields (upstream added metadata without breaking anything).
+    assert result["status"] == "success"
+    assert result["return_value"] == "executed probe.echo"
+    assert result["duration_ms"] == 42.0
     assert app.calls == [("probe.echo", {"group_option_values": None, "text": "hello"})]
 
 

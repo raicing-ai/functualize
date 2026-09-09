@@ -105,14 +105,14 @@ def test_typed_argument_survives_in_tool_schema(func_bin: str) -> None:
 def test_no_arg_job_round_trips_envelope(func_bin: str) -> None:
     _, text = _tools_and_call(func_bin, "probe.ping", None)
     envelope = json.loads(text)
-    assert envelope["status"] == "Success"
+    assert envelope["status"] == "success"
     assert envelope["return_value"] == "pong"
 
 
 def test_typed_job_round_trips_envelope(func_bin: str) -> None:
     _, text = _tools_and_call(func_bin, "probe.echo", {"text": "hello from mcp"})
     envelope = json.loads(text)
-    assert envelope["status"] == "Success"
+    assert envelope["status"] == "success"
     assert envelope["return_value"] == "hello from mcp"
 
 
@@ -123,5 +123,5 @@ def test_hostile_docstring_job_serves_with_description_intact(
     quote = next(t for t in tools if t.name == "probe.quote")
     assert quote.description.startswith("Wrap text in quotes.")
     envelope = json.loads(text)
-    assert envelope["status"] == "Success"
+    assert envelope["status"] == "success"
     assert envelope["return_value"] == "'hi'"

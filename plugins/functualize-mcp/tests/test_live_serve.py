@@ -154,7 +154,7 @@ def test_grouped_project_serves_dotted_tools_and_executes(
 
     # B1.4: envelope round-trip (status + return_value on the served surface).
     assert envelope is not None
-    assert envelope["status"] == "Success"
+    assert envelope["status"] == "success"
     assert envelope["return_value"] == "hello"
 
     # AC3: quiet boot — no PyPI update check, no FastMCP ASCII banner.
@@ -211,6 +211,6 @@ def test_hostile_description_job_calls_end_to_end(
     )
     assert "probe.quote" in names
     assert envelope is not None
-    assert envelope["status"] == "Success"
+    assert envelope["status"] == "success"
     assert envelope["return_value"] == "'hi'"
     assert "pypi.org" not in stderr
