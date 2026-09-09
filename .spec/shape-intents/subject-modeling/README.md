@@ -1,5 +1,10 @@
 # rise-on-functualize — v3
 
+> **Joining cold, or handing this to another agent? Read**
+> [`HANDOFF.md`](HANDOFF.md) **first.** It carries the state of the review,
+> the two corrections the owner's feedback forced, the open decisions, and
+> the base drift to functualize 0.3.0 that this corpus has not yet absorbed.
+
 > **This directory is self-contained. Nothing outside it is needed to read the
 > design or start the work.**
 >
@@ -110,6 +115,7 @@ first — it is the only file in the corpus that answers that question.
 | `17-subject-modeling.md` | **The pattern generalized:** subject modeling as a functualize practice; rise as one vocabulary + tooling instance on it |
 | `18-display-provider.md` | Ambient awareness: rise's one `DisplayProvider` for the inline TUI, in both deliveries — and why a project cannot override it |
 | `19-dagger-parity.md` | **Dagger audit:** where the two designs independently agreed, six gaps ranked by value-per-cost, and the two things not to copy |
+| [`HANDOFF.md`](HANDOFF.md) | **state of play**: the review so far, open decisions, base drift, house rules |
 | `guide/` | the proposed functualize guide (`subjects.md`) and its landing instructions |
 | `evidence/` | 18 probes + transcript |
 
