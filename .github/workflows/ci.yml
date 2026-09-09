@@ -203,6 +203,36 @@ jobs:
       - name: Run example tests
         run: uv run pytest examples/ -v
 
+  # The functualize-mcp plugin's own suites: unit/registration tests plus the
+  # examples' live-serve harnesses. The root `testpaths = ["tests"]`
+  # (pyproject.toml) never collects plugin tests, and the grouped-job serve
+  # crash (F1, `fix/mcp-server-fixes`) shipped precisely because no check ran
+  # a live serve. The capability tests in
+  # plugins/functualize-mcp/tests/test_live_serve.py and the grouped_tools
+  # example harness are the regression net for it; this job is what keeps
+  # that net running.
+  plugin-mcp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies (workspace packages, not just extras)
+        run: uv sync --all-packages
+
+      - name: Run functualize-mcp plugin tests
+        run: uv run pytest plugins/functualize-mcp/tests -q
+
+      - name: Run functualize-mcp examples
+        run: uv run pytest plugins/functualize-mcp/examples -v
+
   # Every example command this repository publishes, run from a CLEAN CLONE.
   #
   # This closes a class the other jobs structurally cannot see. `055310b` and
