@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 from functualize._app.environment import DEFAULT_ENVIRONMENT
 from functualize._types.enums import EnvironmentSource
+from functualize._types.run_request import RunRequest, RunSurface
 from functualize.app.config import (
     ConfigSources,
     DiscoveryConfig,
@@ -572,13 +573,27 @@ class FunctualizeApp:
 
     def execute(
         self,
-        job_name: str,
+        request: RunRequest | str,
         *,
         scope_id: str | None = None,
         group_option_values: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> JobResult:
-        """Execute a job by name — convenience facade.
+        """Execute a job — the single surface-facing entry.
+
+        Takes a :class:`RunRequest`. Every door builds one; the request names
+        the surface it came from, so a run's origin is carried rather than
+        reconstructed.
+
+        # TRANSITIONAL(run-request/T15): the legacy ``(job_name, *, scope_id,
+        # group_option_values, **kwargs)`` form is still accepted so wave 3 can
+        # migrate the seven doors one at a time with the suite green. T15
+        # deletes it, which is also what makes the accidental control channel
+        # (spec 1.6a) unrepresentable: `scope_id` in a splatted body becomes a
+        # job argument, not a control input.
+
+        Automatically creates a WorkflowScope for each top-level execution.
+        The scope groups related invocations under a single traceable context.
 
         Automatically creates a WorkflowScope for each top-level execution.
         The scope groups related invocations under a single traceable context.
@@ -605,6 +620,32 @@ class FunctualizeApp:
         """
         from uuid import uuid4
 
+        if isinstance(request, RunRequest):
+            if scope_id is not None or group_option_values is not None or kwargs:
+                # A request already carries these. Accepting both spellings at
+                # once would leave two answers to "what is this run's scope?".
+                raise TypeError(
+                    "execute(request) takes no other arguments; "
+                    "put them on the RunRequest"
+                )
+        else:
+            request = RunRequest(
+                job_name=request,
+                surface="app.execute",
+                kwargs=kwargs,
+                workflow_scope_id=scope_id,
+                group_option_values=group_option_values,
+            )
+
+        job_name = request.job_name
+        scope_id = request.workflow_scope_id
+        group_option_values = (
+            dict(request.group_option_values)
+            if request.group_option_values is not None
+            else None
+        )
+        kwargs = dict(request.kwargs)
+
         # Determine scope: explicit or auto-generated
         if scope_id is not None:
             # Use explicit scope — reuse if exists, create if not
@@ -617,15 +658,13 @@ class FunctualizeApp:
             auto_id = f"{job_name}-{uuid4().hex[:8]}"
             scope = self.create_workflow_scope(auto_id)
 
-        registered_job = self.job_registry.get_job(job_name)
-        return self._execution_engine.execute(
-            job_name,
-            registered_job.function,
-            config_class=registered_job.config_class,
-            kwargs=kwargs,
-            parent_scope=scope,
-            workflow_scope_id=scope.scope_id,
-            group_option_values=group_option_values,
+        return self._execution_engine.run(
+            request.replace(
+                kwargs=kwargs,
+                parent_scope=scope,
+                workflow_scope_id=scope.scope_id,
+                group_option_values=group_option_values,
+            )
         )
 
     def execute_parallel(
@@ -1326,3 +1365,20 @@ class FunctualizeApp:
                 resolution_chain=self._resolution_chain,
                 default_section_prefix=rc.name,
             )
+
+
+def request_for(
+    job_name: str, *, surface: RunSurface = "app.execute", **kwargs: Any
+) -> RunRequest:
+    """Build a request for the common programmatic case.
+
+    ``app.execute(request_for("build", target="x"))`` — the short spelling, with
+    the surface defaulted rather than omitted, so even the convenience path
+    names the door it came through.
+
+    Control inputs are **not** accepted here: ``scope_id`` and
+    ``group_option_values`` passed as keywords become job arguments, which is
+    the point. A caller that means them as control inputs constructs a
+    :class:`RunRequest` and says so (spec 1.6a).
+    """
+    return RunRequest(job_name=job_name, surface=surface, kwargs=kwargs)

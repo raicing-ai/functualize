@@ -76,7 +76,7 @@ now: `0` · after: `1`
 
 ## Wave 2 — the facade takes a request
 
-### [ ] T3 · `FunctualizeApp.execute(request)`
+### [x] T3 · `FunctualizeApp.execute(request)`
 
 **Files:** `src/functualize/app/core.py`, `tests/app/test_facade_request.py`
 
@@ -84,11 +84,18 @@ Signature becomes `execute(self, request: RunRequest) -> JobResult`. Scope creat
 (`core.py:606-628`) is unchanged and now unavoidable. Add `request_for(...)` for the
 programmatic case (`contracts.md` §3).
 
-**Gate**
+**Gate** *(narrowed during execution: `ruff format` wraps the signature across lines, so
+the single-line spelling can never match — the gate now reads the signature multi-line)*
 ```bash
-rg -c 'def execute\(self, request' src/functualize/app/core.py
+rg -U -c 'def execute\(\n\s+self,\n\s+request' src/functualize/app/core.py
 ```
 now: `0` · after: `1`
+
+> **The legacy form survives to T15.** T3 lands a facade that accepts *either* a
+> `RunRequest` or the old `(job_name, *, scope_id, group_option_values, **kwargs)`,
+> labelled `TRANSITIONAL(run-request/T15)`. Wave 3 migrates the seven doors one at a time,
+> which is only green if the un-migrated ones still work. T15's own gate confirms this was
+> the intent: it records `now: 1` for the legacy signature at wave 5 entry.
 
 **Sabotage:** remove the scope creation; the D-13 test at T8 must fail.
 

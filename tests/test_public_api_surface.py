@@ -155,6 +155,10 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "validate_extension_id",
     },
     "functualize.types": {
+        # The request a run is made from (run-request-entry F1 T1).
+        "RunRequest",
+        "RunSurface",
+        "RUN_SURFACES",
         "JobResult",
         "JobDescriptor",
         "FieldDescriptor",
