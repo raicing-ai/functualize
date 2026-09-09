@@ -199,11 +199,42 @@ rg -c 'negative_flag_for' src/functualize/_cli/tui/bar.py src/functualize/_cli/t
 ```
 now: `bar.py:3`, `sync.py:2` · after: unchanged counts, resolved through `app.utils`
 
-### [ ] T11 · Completions read the grammar
+### [x] T11 · Completions read the grammar
 
-**Files:** `src/functualize/_cli/completions/data.py`
+**Files:** `src/functualize/_cli/completions/data.py`,
+`tests/_cli/test_completion_flag_pairs.py`
 
 The fourth consumer group. It computes flag partitions independently today.
+
+*(Authored without a gate, which cost an agent an hour of guessing — it read
+"reads the grammar" as "must mention `negative_flag_for`" and came within one
+step of adding an unused import to make a grep non-zero. It stopped instead and
+wrote `T11-HANDOFF.md`. What the terse description actually names, measured:
+`_flag_opts` loops `param.opts` only, while the builder renders a boolean as the
+click pair `--x/--no-x` and click puts the negative half in
+`param.secondary_opts` — so **shell completion offered no `--no-` flag at all**,
+though the CLI accepts it and the SmartBar offers it.)*
+
+**Gate — the whole partition is read** *(added during execution)*
+```bash
+rg -c 'secondary_opts' src/functualize/_cli/completions/data.py
+```
+now: `0` · after: `2`
+
+**Gate — behaviour, not text**
+```bash
+uv run python -c "from functualize._cli.completions.data import _flag_opts; \
+from functualize._types.descriptors import FieldDescriptor; \
+print(_flag_opts([FieldDescriptor(name='cache', type_annotation='bool', \
+default=True, description='', required=False)]))"
+```
+now: `['--cache']` · after: `['--cache', '--no-cache']`
+
+**Verification:** `tests/_cli/test_completion_flag_pairs.py` — four tests, the
+last of which pins `_flag_opts` output to the union of every param's `opts` and
+`secondary_opts`, so completion cannot drift from what click parses.
+**Sabotage:** restore the `opts`-only loop; 3 of the 4 fail (the non-boolean test
+correctly does not).
 
 ---
 

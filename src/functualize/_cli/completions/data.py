@@ -62,12 +62,22 @@ def _flag_opts(fields: list[Any]) -> list[str]:
     exactly like the one that parses — the same helper the SmartBar and the CLI
     use (C-D1). A second copy of this loop is how a completion flag would drift
     from the flag it is supposed to complete.
+
+    Both halves of a boolean's click pair are read: the builder renders a
+    ``bool`` field as ``--x/--no-x``, click stores the positive spelling in
+    ``param.opts`` and the negative in ``param.secondary_opts``, and
+    ``negative_flag_for`` (applied inside the builder) decides whether the
+    negative half exists at all — a sibling field literally named ``no_x`` owns
+    that spelling, so the pair collapses to ``--x`` alone. Reading only ``opts``
+    silently dropped every ``--no-`` flag the builder had just rendered.
     """
     from functualize.app.adapters.click_params import build_click_params_from_fields
 
     opts: list[str] = []
     for param in build_click_params_from_fields(fields):
-        for opt in getattr(param, "opts", ()):
+        # Positive spellings first, then the negative half of any `--x/--no-x`
+        # pair — a negative reads naturally after its positive.
+        for opt in (*getattr(param, "opts", ()), *getattr(param, "secondary_opts", ())):
             if opt.startswith("-"):
                 opts.append(opt)
     return opts
