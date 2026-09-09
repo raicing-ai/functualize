@@ -105,7 +105,7 @@ now: `0` · after: `1`
 
 Seven tasks, file-disjoint by owning package. Each keeps the suite green on its own.
 
-### [ ] T4 · `func`'s four entry paths build requests
+### [x] T4 · `func`'s four entry paths build requests
 
 **Files:** `src/functualize/_cli/main.py`
 
@@ -236,6 +236,23 @@ rg -n 'engine\.execute\(|execution_engine\.execute\(' src/functualize/ plugins/*
 ```
 now: `6` *(`_app/impl.py:861`, `invoke.py:401`, `invoke.py:598`, `click_params.py:1148`,
 `lazy_command.py:153`, `core.py:621`)* · after: `0`
+
+**Gate — T4's transitional bridges are gone** *(added during execution)*
+```bash
+rg -c '_run_request|_builtin_delivery_inputs' src/functualize/_cli/main.py
+```
+now: `11` · after: `0`
+
+> **Why this gate exists.** T4 could not call the facade directly: the four `func` paths
+> execute *through* click commands, and the callback that runs the job belongs to T5/T11.
+> It therefore built each `RunRequest` and **deposited it** as `app._run_request`, plus a
+> module-level `_builtin_delivery_inputs` dict for `func.builtin`, whose callback boots its
+> own app in a scope `_run_cli` cannot reach (the audit's pre-boot cause, C-V).
+>
+> That is an eleventh deposit and a process-global, added by the feature whose purpose is to
+> kill the deposit protocol. It is legitimate *only* as a bridge across two waves. **T12's
+> gate does not catch it** — that gate names `_prompt_gates|_output_format|_force` — so
+> without this gate the bridge would outlive the thing it was bridging to.
 
 **Gate — the engine's own recursions moved too**
 ```bash

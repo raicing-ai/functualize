@@ -40,6 +40,10 @@ except ModuleNotFoundError as exc:  # pragma: no cover - no-extra install only
     raise SystemExit(1) from None
 
 logger = logging.getLogger(__name__)
+# Delivery inputs for the BUILTIN path, which boots its own app inside the
+# ``cli_app`` click callback — a scope ``_run_cli`` cannot reach directly.
+# Set by ``_run_cli`` before ``cli_app()`` runs, read by the callback.
+_builtin_delivery_inputs: dict[str, Any] = {}
 
 # ─── click group for BUILTIN mode (plain Group, no FallbackGroup) ────────
 
@@ -328,11 +332,23 @@ def cli_app(
         "cli_config": cli_config,
         "anchor": cli_config.anchor,
     }
-
     # ── Emit parse event ─────────────────────────────────────────────────
 
     _cli_parse_duration_ms = (_time.perf_counter() - _cli_parse_start) * 1000
     _command = ctx.invoked_subcommand or ""
+    # TRANSITIONAL(run-request/T11): the BUILTIN door builds a request with
+    # the func.builtin surface, carrying the delivery inputs ``_run_cli``
+    # stashed before delegating to click. T11 wires the subcommands to read
+    # it; T12 removes the deposits that duplicate it.
+    from functualize.app.utils import RunRequest
+
+    app._run_request = RunRequest(  # type: ignore[attr-defined]
+        job_name=_command,
+        surface="func.builtin",
+        prompt_gates=_builtin_delivery_inputs.get("prompt_gates", False),
+        output_format=_builtin_delivery_inputs.get("output_format", "auto"),
+        force=_builtin_delivery_inputs.get("force", False),
+    )
     with contextlib.suppress(Exception):
         app.event_bus.emit(
             "cli.parse.end",
@@ -1246,6 +1262,18 @@ def _handle_group(
     app._output_format = output_format
     app._prompt_gates = prompt_gates
     app._force = force
+    # TRANSITIONAL(run-request/T11): the request carries the surface and
+    # delivery inputs the deposits currently also carry. T11 wires the
+    # callback to read the request; T12 removes the deposit writes.
+    from functualize.app.utils import RunRequest
+
+    app._run_request = RunRequest(  # type: ignore[attr-defined]
+        job_name=args[0] if args else "",
+        surface="func.group",
+        prompt_gates=prompt_gates,
+        output_format=output_format,
+        force=force,
+    )
 
     # Deposit app reference for perf reporting by caller
     if _app_ref is not None:
@@ -1366,6 +1394,18 @@ def _handle_job(
     app._output_format = output_format
     app._prompt_gates = prompt_gates
     app._force = force
+    # TRANSITIONAL(run-request/T11): the request carries the surface and
+    # delivery inputs the deposits currently also carry. T11 wires the
+    # callback to read the request; T12 removes the deposit writes.
+    from functualize.app.utils import RunRequest
+
+    app._run_request = RunRequest(  # type: ignore[attr-defined]
+        job_name=job_name,
+        surface="func.job",
+        prompt_gates=prompt_gates,
+        output_format=output_format,
+        force=force,
+    )
 
     # Deposit app reference for perf reporting by caller
     if _app_ref is not None:
@@ -1666,6 +1706,18 @@ def _handle_single_file(
     app._output_format = output_format
     app._prompt_gates = prompt_gates
     app._force = force
+    # TRANSITIONAL(run-request/T11): the request carries the surface and
+    # delivery inputs the deposits currently also carry. T11 wires the
+    # callback to read the request; T12 removes the deposit writes.
+    from functualize.app.utils import RunRequest
+
+    app._run_request = RunRequest(  # type: ignore[attr-defined]
+        job_name=function_name or "",
+        surface="func.single-file",
+        prompt_gates=prompt_gates,
+        output_format=output_format,
+        force=force,
+    )
 
     # Deposit app reference for perf reporting by caller
     if _app_ref is not None:
@@ -2139,5 +2191,10 @@ def _run_cli() -> None:
         raise SystemExit(exit_code)
 
     # BUILTIN mode: plain Click group (no FallbackGroup)
+    # Delivery inputs travel to the ``cli_app`` callback (which boots its own
+    # app in a scope ``_run_cli`` cannot reach) via the module-level dict.
+    _builtin_delivery_inputs["output_format"] = output_format
+    _builtin_delivery_inputs["prompt_gates"] = prompt_gates
+    _builtin_delivery_inputs["force"] = force
     register_builtin_commands(cli_app)
     cli_app()
