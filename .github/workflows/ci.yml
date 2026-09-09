@@ -7,7 +7,86 @@ on:
     branches: [master]
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # Gate: detect a push whose ONLY changed paths are under .spec/.
+  #
+  # The spec-driven workflow commits .spec/features/<name>/ on the branch so the
+  # spec artifacts are reviewable, then clears them before merge. That clearing
+  # push used to re-run this entire workflow for nothing: no test, lint, example
+  # or docs job reads a file anywhere under .spec/. This job inspects the exact
+  # pushed commit range (github.event.before..after) so the heavy jobs below can
+  # skip it.
+  #
+  # `^\.spec/`, NOT `^\.spec/features/`. The clearing step is not a bare
+  # `git rm`: `.claude/rules/spec-workflow.md` says to migrate the durable half
+  # to `.spec/STATUS.md` or `contributor/adr/` FIRST, and the error message in
+  # spec-artifacts-cleared below repeats it. Both land in the same commit, so a
+  # real clearing push touches `.spec/STATUS.md` — and often
+  # `.spec/shape-intents/` — alongside `.spec/features/`. Replaying the narrower
+  # pattern over all 31 inter-push diffs in this workflow's recorded history
+  # matched ZERO of them; `^\.spec/` matches 6, which is about one full suite
+  # run saved per feature cycle. A pattern that never fires is not conservative,
+  # it is dead code.
+  #
+  # The widening stops at `.spec/`. `contributor/adr/` is deliberately NOT
+  # included even though the same step writes there: doc-verify and docs-build
+  # do read files outside `.spec/`, and the whole boundary rests on `.spec/`
+  # being a directory no job in this workflow opens.
+  #
+  # Conservative by construction: the suite skips only when the diff is
+  # non-empty and every changed path matches. A missing or zero before-SHA
+  # (new branch), a failed or empty diff, a force-push whose before-SHA is no
+  # longer reachable in the clone, and any non-spec path all default to a full
+  # run.
+  # ---------------------------------------------------------------------------
+  spec-only-change:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.detect.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # before/after are arbitrary SHAs; a shallow clone may not have them.
+          fetch-depth: 0
+
+      - name: Detect .spec/-only pushes
+        id: detect
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+        run: |
+          set -euo pipefail
+          skip=false
+          if [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            if changed="$(git diff --name-only "$BEFORE" "$AFTER" 2>/dev/null)" && [ -n "$changed" ]; then
+              if ! printf '%s\n' "$changed" | grep -qv '^\.spec/'; then
+                skip=true
+              fi
+            fi
+          fi
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+          if [ "$skip" = true ]; then
+            echo "Push touched only .spec/; heavy jobs will skip."
+          else
+            echo "Full CI run."
+          fi
+
   lint:
+    needs: spec-only-change
+    # `!cancelled()` keeps a user-cancelled run from restarting the suite;
+    # a failed gate leaves `skip` unset, and `!= 'true'` then runs everything.
+    #
+    # Known edge, stated so it is a decision and not a surprise: any `if:` here
+    # displaces the implicit `success()`, which is what makes the gate fail
+    # open — but it also means a *cancelled* run leaves these jobs `skipped`
+    # rather than `cancelled`, and GitHub counts `skipped` as a passing
+    # required check while `cancelled` blocks. Cancelling a CI run therefore
+    # satisfies seven of the nine required contexts with nothing executed.
+    # There is no `concurrency:` block in this workflow, so that needs a
+    # deliberate manual cancel. The fix is a ruleset edit, not a workflow one:
+    # require `spec-only-change`, which carries no `if:` and so reports
+    # `cancelled` and blocks.
+    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,6 +109,8 @@ jobs:
         run: uv run ruff format --check src/ tests/ plugins/ examples/
 
   lint-imports:
+    needs: spec-only-change
+    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,6 +130,8 @@ jobs:
         run: uv run lint-imports
 
   typecheck:
+    needs: spec-only-change
+    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -70,6 +153,8 @@ jobs:
   # Fast feedback: unit tests only, single Python version, no coverage.
   # Finishes quickly to give immediate signal on PRs.
   test-fast:
+    needs: spec-only-change
+    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -96,6 +181,8 @@ jobs:
   # `--all-packages`, not `--all-extras`: the AI and plugin examples import
   # workspace packages.
   examples:
+    needs: spec-only-change
+    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -131,6 +218,8 @@ jobs:
   # self-contained command. Widening it to all 20 is worth doing and is a
   # separate change — a guard that is hard to keep green stops being run.
   clean-clone-examples:
+    needs: spec-only-change
+    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -199,6 +288,8 @@ jobs:
   # The only owner those tiers actually have today is the manual release gate
   # (`.agents/skills/release/SKILL.md` Phase 4). No scheduled workflow exists.
   doc-verify:
+    needs: spec-only-change
+    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -237,6 +328,8 @@ jobs:
   # `--group docs`, not `--all-extras`: mkdocs is not an extra, and a job
   # copying its neighbours here fails on a missing `mkdocs` executable.
   docs-build:
+    needs: spec-only-change
+    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -258,6 +351,8 @@ jobs:
   # Full suite: property tests + coverage + multi-version + parallel.
   # Thorough validation, runs alongside test-fast.
   test-full:
+    needs: spec-only-change
+    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -294,6 +389,19 @@ jobs:
   # It runs on pull_request AND on push to master, so the single job is both the
   # blocking PR check and the post-merge master guard. No sparse-checkout:
   # `git ls-files` needs a real index.
+  #
+  # Deliberately NOT gated by spec-only-change: the clearing push is the one
+  # push whose whole content is this job's subject, so skipping it there would
+  # skip the only run that ever has something to say.
+  #
+  # It is not, today, what *unlocks* the merge — it is not in the `master`
+  # ruleset's required contexts (those are lint, lint-imports, typecheck,
+  # test-fast, gitleaks, lint-title and test-full (3.11/3.12/3.13)), so a red
+  # tick here blocks nothing. Five documents claim otherwise; see
+  # .spec/CONSTITUTION.md, AGENTS.md, .claude/rules/spec-workflow.md,
+  # .claude/commands/agentic-verify.md and .claude/agents/spec-driven-developer.md.
+  # Closing that gap means adding this context to the ruleset, which is a repo
+  # settings change and not something a workflow file can do for itself.
   spec-artifacts-cleared:
     runs-on: ubuntu-latest
     steps:

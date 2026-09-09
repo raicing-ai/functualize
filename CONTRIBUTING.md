@@ -331,23 +331,36 @@ in the commit footer instead.
 #    - Add date: ## [X.Y.Z] - YYYY-MM-DD
 #    - Update comparison links at bottom
 
-# 3. Commit and tag
+# 3. Commit the bump on the branch that carries the cut — normally the feature
+#    PR itself. Every change reaches master through a PR; the bump is no
+#    exception, and it has no CI cost of its own: it rides the feature PR's run.
+#    Only when the cut has no feature PR (e.g. a patch release straight off
+#    master) does the bump get its own chore/release-x-y-z PR.
 git add -A
 git commit -m "chore(release): vX.Y.Z"
-git tag vX.Y.Z
+git push origin <branch>
 
-# 4. Push (tag triggers release workflow → PyPI publish)
-git push origin master
+# 4. After the PR is merged and CI is green on the merge commit: tag and push
+#    the tag only (tag triggers release workflow → PyPI publish).
+git checkout master && git pull
+git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
 The release workflow will not publish until CI is green **on the tagged
 commit**. `ci.yml` runs on pushes to `master` and on pull requests, never on
 tags, so the run the `verify-ci` job looks for is the one that commit got when
-it landed on `master` — push the branch first, as step 4 does, and the tag
-finds it. Pushing the tag straight after the branch is fine: the gate waits for
-the in-flight run (up to 45 minutes, since the slow tier alone takes 20-24 on
-GitHub runners) rather than racing it.
+it landed on `master` — the merge that step 3's PR performed. Pushing the tag
+straight after the merge is fine: the gate waits for the in-flight run (up to
+45 minutes, since the slow tier alone takes 20-24 on GitHub runners) rather
+than racing it.
+
+Two costs this flow deliberately avoids: the spec-clearing push that precedes
+the merge no longer re-runs the suite (`ci.yml`'s `spec-only-change` gate skips
+the heavy jobs when a push touches only `.spec/` — the whole directory, because
+clearing the artifacts and migrating the durable half to `.spec/STATUS.md` land
+in the same commit), and the version bump no longer pays for a separate prep
+PR's CI cycle — it shares the feature PR's.
 
 Two consequences worth knowing before tagging:
 
@@ -459,9 +472,8 @@ it would wedge every PR. Adding or removing a Python version from the matrix
 means editing the ruleset to match, or the new version goes unenforced and the
 dropped one blocks every merge.
 
-Repository and organization admins can bypass the ruleset, so the release commit
-described below can still be pushed straight to `master`. That bypass is a
-convenience, not a licence: use a PR unless you are cutting a release.
+Repository and organization admins can bypass the ruleset. Do not use it:
+every change — the version bump included — reaches `master` through a PR.
 
 ### The changelog is written by hand
 
