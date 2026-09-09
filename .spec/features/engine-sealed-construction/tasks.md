@@ -99,15 +99,21 @@ test, so a restored write fails the suite rather than being noticed in an audit.
 ### [ ] T4 · Every `_app` reach-through becomes a host call — **one commit**
 
 **Files:** `src/functualize/_engine/capabilities/runcontext.py`,
-`src/functualize/_engine/surface_routing.py`,
 `src/functualize/_engine/capabilities/live.py`,
 `src/functualize/_engine/capabilities/tty.py`,
 `src/functualize/_engine/capabilities/stdout.py`,
 `src/functualize/_engine/capabilities/invoke.py`,
 `src/functualize/_engine/executor.py`
 
-Fourteen reads. Thirteen use `getattr(..., "_app", None)`; one is the unguarded three-hop
-chain at `runcontext.py:698`.
+Twelve reads across six files. Eleven use `getattr(..., "_app", None)`; one is the
+unguarded three-hop chain at `runcontext.py:698`.
+
+> **The gate matches code, not prose.** A broader pattern (`rg '_app' _engine/`) returns
+> 21 and can never reach `0`: six hits are docstrings that name `_app/boot.py` and
+> `_app/impl.py` — including `_engine/__init__.py:8`, which states the very layering rule
+> this task enforces — and three are `_apply_prefix` in `capabilities/shell.py`, where
+> `_app` is an unrelated substring. Those nine must survive. `surface_routing.py` is named
+> in the audit's prose but holds no `_app` read; it is out of this task's file scope.
 
 > **These are load-bearing for live zones** — the TUI's running-job panel resolves through
 > `surface_routing.py`. Re-point them **all in one commit**. A half-migrated read set is the
@@ -117,9 +123,9 @@ Spec AC-7, AC-12.
 
 **Gate**
 ```bash
-rg -n '_app' src/functualize/_engine/ | grep -v 'host' | wc -l
+rg -n 'getattr\([^,]*, "_app"|\._app\b' src/functualize/_engine/ | wc -l
 ```
-now: `14` · after: `0`
+now: `12` · after: `0`
 
 **Verification:** `tests/tui_audit/` — the suite that exists for exactly this surface — plus
 the full fast suite.
@@ -217,7 +223,7 @@ s=open('src/functualize/_engine/capabilities/runcontext.py').read().splitlines()
 st=[i for i,l in enumerate(s,1) if l.startswith('class RunContext:')][0]
 print(len(s)-st+1)"
 ```
-now: `782` *(class starts at `:117`; note `:52` is `RunContextMetadata`, a TypedDict)* ·
+now: `788` *(class starts at `:117`; note `:52` is `RunContextMetadata`, a TypedDict)* ·
 after: `≤500`
 
 ### [ ] T9 · `FunctualizeApp` diet

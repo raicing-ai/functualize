@@ -3,7 +3,11 @@
 Implements **F7** of `contributor/architecture/run-model/13-roadmap.md` — pi-workflows roadmap
 **item 9**, sized by that roadmap as *"Incremental"*.
 
-**Depends on:** `durable-run-layer` (F5). **Blocks:** nothing — this is the last feature in the
+**Depends on:** `durable-run-layer` (F5) **and `agent-step-port` (F6)** — F7 edits four
+files F6 owns (`_engine/workflow_walker.py`, `_engine/agent_providers.py`,
+`workflow/__init__.py`, `workflow/_validation.py`), and `agent_providers.py` does not
+exist until F6 T2 creates it. The roadmap order (`F5 ∥ F6 → F7`) already sequences them;
+this line records *why*, so F7 is never read as independent of F6. **Blocks:** nothing — this is the last feature in the
 set.
 
 ---
