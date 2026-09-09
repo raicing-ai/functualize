@@ -67,7 +67,7 @@ rg -c 'Family.PROCESS' src/functualize/app/adapters/click_params.py
 ```
 now: `0` · after: `≥1`
 
-### [ ] T4 · `func builtin parallel` and `_resume_exit` read the module
+### [x] T4 · `func builtin parallel` and `_resume_exit` read the module
 
 **Files:** `src/functualize/_cli/builtins.py`
 

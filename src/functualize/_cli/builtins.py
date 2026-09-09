@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from functualize._cli.parallel_output import OUTPUT_MODES
-from functualize.app.utils import WORKFLOW_STATES, ExitCode
+from functualize.app.utils import WORKFLOW_STATES, ExitCode, Family, is_failure
 
 
 @dataclass(frozen=True)
@@ -595,7 +595,16 @@ def _report_parallel(job_names: tuple[str, ...], results: list[Any]) -> None:
         if status is not RunStatus.SUCCESS and result.exception is not None:
             detail = f" — {type(result.exception).__name__}: {result.exception}"
         click.echo(f"{status.value:<8} {name}{detail}", err=True)
-        if status not in (RunStatus.SUCCESS, RunStatus.SKIPPED, RunStatus.BLOCKED):
+        # `func builtin parallel` is a PROCESS surface: it terminates the
+        # process with an exit code a shell reads. The family answers, this
+        # site does not.
+        #
+        # This *changes* one answer, deliberately. The tuple that used to live
+        # here counted BLOCKED as not-a-failure, so a batch in which a job
+        # paused at a gate exited 0 — "all good" — and the pause was invisible
+        # to anything reading only the exit code. That is the same false clean
+        # as D-7, and the reason the exit-code table reserves 5 for it.
+        if is_failure(status, family=Family.PROCESS):
             failed.append(result)
 
     if not failed:
@@ -1357,13 +1366,36 @@ def register_builtin_commands(cli_group: Any) -> None:
         and it is the point: a script that resumes in a loop needs to know
         whether it finished.
         """
-        from functualize.app.utils import RunStatus, exit_code_for_status
+        from functualize.app.utils import (
+            RunStatus,
+            exit_code_for_status,
+            status_from_wire,
+        )
 
-        status = str(result.get("status") or "").lower()
-        for member in RunStatus:
-            if member.value.lower() == status:
-                return int(exit_code_for_status(member))
-        return 0 if status in {"answered", "drafted"} else 1
+        raw = str(result.get("status") or "")
+
+        # `resume` reports in **two vocabularies through one field**: the walk's
+        # RunStatus when it ran, and the gate-answer state when it did not. The
+        # gate states are not run statuses, and the old fallback papered over
+        # that by answering 0 for them -- which is how a still-waiting gate came
+        # to report success, in direct contradiction of this method's own
+        # docstring. Translate the gate vocabulary first, explicitly.
+        gate_states = {
+            # The input was incomplete, so it was saved and the gate still
+            # blocks. That is a blocked run, and a blocked run exits 5.
+            "drafted": RunStatus.BLOCKED,
+        }
+        status = gate_states.get(raw.strip().lower()) or status_from_wire(raw)
+        if status is None:
+            # The verb reported something that names no RunStatus. The old
+            # fallback special-cased two gate-state strings that are not run
+            # statuses at all and returned 0 for them, and 1 for everything
+            # else. Returning 0 for an unrecognised string is how a resume loop
+            # concludes it has finished when it has not. USAGE says what
+            # actually happened: the caller and the verb disagree about the
+            # vocabulary.
+            return int(ExitCode.USAGE)
+        return int(exit_code_for_status(status))
 
     @workflow_app.command("gate-tool")
     @click.argument("workflow_id")

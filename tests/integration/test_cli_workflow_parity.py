@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from functualize._app.state import AppState
 from functualize._cli.builtins import register_builtin_commands
 from functualize.app.core import FunctualizeApp
-from functualize.app.utils import StateStore
+from functualize.app.utils import ExitCode, StateStore
 from functualize.job import RunStatus
 from functualize.workflow import END, Edge, Gate, Step, workflow
 
@@ -167,7 +167,14 @@ class TestCliDrivesABlockedWorkflow:
                 json.dumps({"environment": "prod"}),
             ],
         )
-        assert code == 0
+        # Exit 5: the draft was saved and the gate still blocks. `_resume_exit`
+        # promises this in its own docstring -- "a still-blocked run exits 5 ...
+        # a script that resumes in a loop needs to know whether it finished" --
+        # but until run-outcome-authority T4 the verb answered 0 here, because
+        # "drafted" is a gate state rather than a RunStatus and the hand-rolled
+        # fallback mapped it to success. A loop reading 0 would have stopped
+        # resuming with the gate still waiting.
+        assert code == int(ExitCode.BLOCKED)
         assert "not advanced" in capsys.readouterr().out
         assert app.ran == []  # type: ignore[attr-defined]
 
