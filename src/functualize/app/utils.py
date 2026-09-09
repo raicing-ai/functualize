@@ -45,6 +45,10 @@ from functualize._primitives.parameter_types import (
     is_cli_value_type,
 )
 from functualize._primitives.plugin_kinds import PluginKind, classify_group
+from functualize._primitives.scope_format import (
+    SCOPES_VERSION,
+    resolve_scopes_path,
+)
 from functualize._primitives.state_format import (
     resolve_state_location,
     resolve_state_path,
@@ -53,7 +57,11 @@ from functualize._primitives.state_store import StateStore
 from functualize._types.annotations import resolved_hints
 from functualize._types.descriptors import FieldDescriptor, GroupOptionsSpec
 from functualize._types.enums import RunStatus
-from functualize._types.errors import JobMaterializationError
+from functualize._types.errors import (
+    JobMaterializationError,
+    ScopeCancelledError,
+    ScopeStoreUnreadableError,
+)
 from functualize._types.exit_codes import ExitCode, exit_code_for_status
 from functualize._types.naming import (
     BUILTIN_SEGMENT,
@@ -73,7 +81,23 @@ from functualize._types.redaction import (
     is_secret_field,
     reveal,
 )
+from functualize.app._workflow_answer import answer_gate, gate_draft, resolve_gate
+from functualize.app._workflow_control import (
+    GateToolPolicy,
+    advanceable_scopes,
+    call_gate_tool,
+    cancel_scope,
+    purge_scopes,
+    resolve_advanceable,
+    resume_scope,
+)
 from functualize.app._workflow_resume import deposit_gate_input, pending_gates
+from functualize.app._workflow_view import (
+    LIVE_STATUSES,
+    WORKFLOW_STATES,
+    describe_scope,
+    list_scopes,
+)
 from functualize.app.config import JobSources
 
 
@@ -127,6 +151,20 @@ __all__ = [
     "BUILTIN_SEGMENT",
     "coerce_kwargs",
     "deposit_gate_input",
+    "WORKFLOW_STATES",
+    "GateToolPolicy",
+    "advanceable_scopes",
+    "answer_gate",
+    "call_gate_tool",
+    "cancel_scope",
+    "purge_scopes",
+    "resolve_advanceable",
+    "resume_scope",
+    "gate_draft",
+    "resolve_gate",
+    "describe_scope",
+    "list_scopes",
+    "LIVE_STATUSES",
     "DiscoveryOverrides",
     "display_value",
     "DiscoveryResult",
@@ -153,6 +191,15 @@ __all__ = [
     "resolve_state_location",
     "resolve_state_path",
     "StateStore",
+    # The scope store's location and version, for `builtin state show` and
+    # `builtin info`: a file whose path nothing reports is a file nobody finds.
+    "resolve_scopes_path",
+    "SCOPES_VERSION",
+    # Raised when the scope store cannot be honoured. Public because `_cli`,
+    # `app/adapters` and the MCP plugin all have to turn it into a refusal, and
+    # `_cli` may import public folders only.
+    "ScopeCancelledError",
+    "ScopeStoreUnreadableError",
     "resolved_hints",
     "detect_config_class",
     "CLI_MARKER_TYPE_NAMES",

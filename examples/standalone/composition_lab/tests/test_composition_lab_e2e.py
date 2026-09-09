@@ -9,7 +9,7 @@ Why both, and why subprocesses:
 * **Two builders, one declaration set.** `func` has a pre-boot dispatch layer
   and builds job commands from the live signature; an app entry point has none
   of it, and builds them from cached descriptors on a warm boot. Those two have
-  disagreed — on a config field's default, and on whether `--scope-id` existed
+  disagreed — on a config field's default, and on whether the scope-addressing flag existed
   at all, which left a gated walk on an app permanently unresumable. Anything
   that passes on one surface and fails on the other is the finding.
 * **Freshness is only observable across processes.** A capability instance's
@@ -251,9 +251,14 @@ class TestTheStatusGuardAndsWithStaleness:
 
 
 class TestTheGatedWalk:
-    """The defect that made this lab need a second surface at all: `--scope-id`
-    was a pre-command global of `func` only, so a gated walk on an app entry
-    point blocked, accepted a deposit, and could never be run with that scope.
+    """The defect that made this lab need a second surface at all: scope
+    addressing was a pre-command global of `func` only, so a gated walk on an
+    app entry point blocked, accepted a deposit, and could never be run with
+    that scope.
+
+    The flag that fixed it has since been replaced by `--wf-resume`, which does
+    more: it answers the gate in the same command, and it **errors** on an id
+    that does not exist instead of silently starting a new run under it.
     """
 
     GATE = "approval-gate"
@@ -269,10 +274,17 @@ class TestTheGatedWalk:
         out = lab.both(proc)
         assert f"gate '{self.GATE}'" in out
         # The message must name the flag AND its position, or a reader cannot
-        # act on it. `--scope-id` is post-command on both surfaces.
-        assert re.search(r"lab release --scope-id [0-9a-f]+", out), out
+        # act on it. The `--wf-*` family is post-command on both surfaces.
+        #
+        # It must also name the command that *finishes* the run. With no
+        # pre-command flag to fall back on, "re-run the command you remember"
+        # is gone, so exit 5 carries the whole continuation.
+        assert re.search(r"lab release --wf-resume [0-9a-f]+", out), out
+        assert "--wf-input" in out, out
 
-    def test_a_deposited_input_lets_the_same_walk_finish(self, lab: Lab) -> None:
+    def test_a_recorded_answer_lets_the_same_walk_finish(self, lab: Lab) -> None:
+        """`answer` records, then `resume` advances — the two-actor flow, where
+        whoever answers the gate need not be whoever runs the walk."""
         blocked = lab.run("lab", "release")
         assert blocked.returncode == 5
         scope = self._scope_of(blocked)
@@ -280,25 +292,55 @@ class TestTheGatedWalk:
         lab.ok(
             "builtin",
             "workflow",
-            "resume",
+            "answer",
             scope,
             self.GATE,
             "--input",
             json.dumps({"note": "ship it", "author": "ai"}),
         )
 
-        resumed = lab.run("lab", "release", "--scope-id", scope)
+        resumed = lab.run("lab", "release", "--wf-resume", scope)
         assert resumed.returncode == 0, (
-            f"[{lab.surface}] the deposited input was never read\n"
+            f"[{lab.surface}] the recorded answer was never read\n"
             f"{resumed.stdout}\n{resumed.stderr}"
         )
         assert "RELEASE complete" in lab.both(resumed)
 
+    def test_answer_and_advance_in_one_command(self, lab: Lab) -> None:
+        """The one-actor flow, on the job command itself."""
+        scope = self._scope_of(lab.run("lab", "release"))
+
+        resumed = lab.run(
+            "lab",
+            "release",
+            "--wf-resume",
+            scope,
+            "--wf-input",
+            json.dumps({"note": "ship it", "author": "ai"}),
+        )
+
+        assert resumed.returncode == 0, (
+            f"[{lab.surface}] {resumed.stdout}\n{resumed.stderr}"
+        )
+        assert "RELEASE complete" in lab.both(resumed)
+
+    def test_resuming_an_unknown_scope_errors_instead_of_starting_one(
+        self, lab: Lab
+    ) -> None:
+        """The defect `--wf-resume` fixes that `--scope-id` had: a typo'd id
+        silently became a blocked run under the typo, which the caller could
+        not find while the real run stayed blocked."""
+        result = lab.run("lab", "release", "--wf-resume", "deadbeefdeadbeef")
+
+        assert result.returncode != 0
+        assert "deadbeefdeadbeef" in lab.both(result)
+        assert "RELEASE complete" not in lab.both(result)
+
     def test_a_bare_rerun_opens_a_new_scope_instead_of_continuing(
         self, lab: Lab
     ) -> None:
-        """Resuming is opt-in. Without `--scope-id` the walk starts over, which
-        is why the flag not existing on a surface was fatal rather than
+        """Advancing is opt-in. Without `--wf-resume` the walk starts over,
+        which is why the flag not existing on a surface was fatal rather than
         cosmetic."""
         first = lab.run("lab", "release")
         second = lab.run("lab", "release")

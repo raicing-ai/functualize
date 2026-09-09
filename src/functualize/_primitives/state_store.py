@@ -1,25 +1,37 @@
-"""Typed accessors over the runtime state envelope (schema.md §1, Part F).
+"""Typed accessors over the runtime state envelope, and the façade over both stores.
 
-``StateStore`` is the only thing that reads or writes runtime state records —
-fingerprints, per-scope workflow records, run history, and the session-scoped
-precondition cache. It sits on :mod:`functualize._primitives.state_format`,
-which owns the file format, locking, and atomic write.
+``StateStore`` reads and writes **derived** runtime state — fingerprints, run
+history, and the session-scoped precondition cache. It sits on
+:mod:`functualize._primitives.state_format`, which owns that file's format,
+locking, and atomic write.
+
+**Two files, one façade.** Workflow scopes used to live in this envelope and no
+longer do: they are a *record* of an in-flight run, not derived data, and the
+version-mismatch rule that is correct for a cache silently erased them. They now
+live in ``scopes.json`` behind :class:`~functualize._primitives.scope_store.ScopeStore`,
+whose read fails closed. ``StateStore`` owns one and forwards every scope method
+to it, so **which file a section lives in is not a caller's concern** — nothing
+outside ``_primitives`` changed when they split.
+
+The scope file is always this file's sibling, derived via
+``ScopeStore.beside_state``. One upward walk decides both, so the two can never
+land in different directories or different modes.
 
 **Write discipline.** Every mutation is a locked read-modify-write, so two
-concurrent runs touching *different* job keys merge rather than clobber
-(Part F: last-writer-wins per key, not per file). A run that makes many
-mutations should use :meth:`StateStore.batch` to take the lock once.
+concurrent runs touching *different* keys merge rather than clobber
+(last-writer-wins per key, not per file). A walk that makes several scope
+mutations for one node takes the lock once with :meth:`StateStore.scope_batch`.
 
-**Relationship to ``functualize-state`` (Part F).** Every section here is a
-flat ``{str: record}`` mapping, which is exactly the shape the plugin's
+**Relationship to ``functualize-state``.** Every section in both files is a flat
+``{str: record}`` mapping, which is exactly the shape the plugin's
 ``StateBackend`` KV protocol addresses (``get``/``set``/``delete``/``keys``).
-That correspondence is deliberate so ``functualize-state-sqlite`` can back this
-store later without a record-format change. The backend indirection itself is
+That correspondence is deliberate so ``functualize-state-sqlite`` can back these
+stores later without a record-format change. The backend indirection itself is
 not built here — there is no second backend to serve yet, and a swap seam with
 one implementation is speculation, not design.
 
-Lives in ``_primitives/`` (stdlib-only) because both the engine and the CLI
-(`func history`, `func state clear`) read it.
+Lives in ``_primitives/`` because both the engine and the CLI (`func history`,
+`func builtin state clear`) read it.
 """
 
 from __future__ import annotations
@@ -28,6 +40,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from functualize._primitives.scope_store import ScopeStore
 from functualize._primitives.state_format import (
     HISTORY_LIMIT,
     empty_state,
@@ -42,31 +55,20 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 
-def _blank_scope() -> dict[str, Any]:
-    """A scope record with every §D.7 sub-section present."""
-    return {
-        "workflow": None,
-        "status": "running",
-        "steps": {},
-        "branches": {},
-        "gates": {},
-        "position": None,
-        "epilogue": None,
-        "tool_calls": [],
-    }
-
-
 class StateStore:
-    """Typed read/write access to ``.functualize/state.json``.
+    """Typed read/write access to ``.functualize/state.json`` and its sibling.
 
     Args:
         path: The state file. Use :meth:`for_project` to resolve it the same
-            way the discovery cache is resolved.
+            way the discovery cache is resolved. The scope file is derived from
+            it, so a test constructing ``StateStore(tmp / "state.json")`` gets
+            ``tmp / "scopes.json"`` with no extra wiring.
     """
 
     def __init__(self, path: Path | str) -> None:
         self._path = Path(path)
         self._batch: dict[str, Any] | None = None
+        self._scopes = ScopeStore.beside_state(self._path)
 
     @classmethod
     def for_project(cls, start: Path | str) -> StateStore:
@@ -77,6 +79,11 @@ class StateStore:
     def path(self) -> Path:
         """The state file this store reads and writes."""
         return self._path
+
+    @property
+    def scopes_path(self) -> Path:
+        """The scope file beside it."""
+        return self._scopes.path
 
     # ------------------------------------------------------------------
     # Read / write plumbing
@@ -96,25 +103,24 @@ class StateStore:
         update_state(self._path, mutate)
 
     @contextmanager
-    def batch(self) -> Iterator[StateStore]:
-        """Hold the lock for many mutations, writing once at the end.
+    def scope_batch(self) -> Iterator[StateStore]:
+        """Hold the scope-file lock for many mutations, writing once at the end.
 
-        Without this, a run that records N fingerprints does N locked
-        read-modify-writes of the whole file.
+        Without this, a walk that records a step, sets the position and sets the
+        status does three locked read-modify-writes of the whole scope file for
+        one node.
+
+        Scoped to the scope store deliberately. There is no ``batch()`` for the
+        derived store: nothing in ``src/`` or ``plugins/`` ever called the one
+        that used to exist, while the module docstring instructed callers to use
+        it. A mechanism nothing calls is worse than no mechanism, because it
+        reads as a solved problem.
         """
-        if self._batch is not None:  # already batching — reuse the outer one
+        with self._scopes.batch():
             yield self
-            return
-        with state_lock(self._path):
-            self._batch = load_state(self._path)
-            try:
-                yield self
-                save_state(self._path, self._batch)
-            finally:
-                self._batch = None
 
     # ------------------------------------------------------------------
-    # Fingerprints (§D.3)
+    # Fingerprints
     # ------------------------------------------------------------------
 
     def get_fingerprint(self, key: str) -> dict[str, Any] | None:
@@ -143,170 +149,104 @@ class StateStore:
         return sorted(k for k in self._read()["fingerprints"] if k.startswith(prefix))
 
     # ------------------------------------------------------------------
-    # Scopes: steps, branches, gates, position, epilogue (§D.7c/§D.7d)
+    # Scopes — forwarded to the scope store (scopes.json)
+    #
+    # Signatures are identical to when these lived here, so no caller outside
+    # `_primitives` needed editing when the two files split. Reads raise
+    # `ScopeStoreUnreadableError` rather than degrading to "no scopes"; that is
+    # the whole point of the separation, and callers at a delivery boundary turn
+    # it into a refusal.
     # ------------------------------------------------------------------
 
     def get_scope(self, scope_id: str) -> dict[str, Any] | None:
         """Return the scope record, or None if the scope is unknown."""
-        record = self._read()["scopes"].get(scope_id)
-        return record if isinstance(record, dict) else None
+        return self._scopes.get_scope(scope_id)
 
     def ensure_scope(self, scope_id: str, workflow: str | None = None) -> None:
         """Create the scope record if absent (idempotent)."""
-
-        def _apply(state: dict[str, Any]) -> None:
-            scope = state["scopes"].setdefault(scope_id, _blank_scope())
-            if workflow is not None:
-                scope["workflow"] = workflow
-
-        self._mutate(_apply)
+        self._scopes.ensure_scope(scope_id, workflow)
 
     def set_scope_status(self, scope_id: str, status: str) -> None:
         """Set a scope's status (running/blocked/completed/failed/cancelled)."""
-
-        def _apply(state: dict[str, Any]) -> None:
-            state["scopes"].setdefault(scope_id, _blank_scope())["status"] = status
-
-        self._mutate(_apply)
+        self._scopes.set_scope_status(scope_id, status)
 
     def record_step(self, scope_id: str, step_key: str, record: dict[str, Any]) -> None:
-        """Record a per-scope step result, keyed ``<job_name>::<args_hash>``.
-
-        One record serves four consumers (§D.7d): replay-skip on resume,
-        branch-choice stability, persistent run-once/when-changed dedupe, and
-        epilogue ``FromJob[step]`` injection.
-        """
-
-        def _apply(state: dict[str, Any]) -> None:
-            scope = state["scopes"].setdefault(scope_id, _blank_scope())
-            scope["steps"][step_key] = record
-
-        self._mutate(_apply)
+        """Record a per-scope step result, keyed ``<job_name>::<args_hash>``."""
+        self._scopes.record_step(scope_id, step_key, record)
 
     def get_step(self, scope_id: str, step_key: str) -> dict[str, Any] | None:
         """Return a recorded step result for this scope, or None."""
-        scope = self.get_scope(scope_id)
-        if scope is None:
-            return None
-        record = scope.get("steps", {}).get(step_key)
-        return record if isinstance(record, dict) else None
+        return self._scopes.get_step(scope_id, step_key)
 
     def record_branch(self, scope_id: str, source: str, target: str) -> None:
-        """Record a chosen ``ConditionalEdge`` target on first evaluation.
-
-        Read (never re-evaluated) on replay, so a non-deterministic condition
-        cannot change branches between pause and resume (§D.7d).
-        """
-
-        def _apply(state: dict[str, Any]) -> None:
-            scope = state["scopes"].setdefault(scope_id, _blank_scope())
-            scope["branches"][source] = target
-
-        self._mutate(_apply)
+        """Record a chosen ``ConditionalEdge`` target on first evaluation."""
+        self._scopes.record_branch(scope_id, source, target)
 
     def get_branch(self, scope_id: str, source: str) -> str | None:
         """Return the branch target recorded for ``source``, or None."""
-        scope = self.get_scope(scope_id)
-        if scope is None:
-            return None
-        target = scope.get("branches", {}).get(source)
-        return target if isinstance(target, str) else None
+        return self._scopes.get_branch(scope_id, source)
 
     def put_gate(self, scope_id: str, gate_name: str, record: dict[str, Any]) -> None:
-        """Persist a blocked gate: model name, input schema, payload (§D.7c)."""
-
-        def _apply(state: dict[str, Any]) -> None:
-            scope = state["scopes"].setdefault(scope_id, _blank_scope())
-            scope["gates"][gate_name] = record
-
-        self._mutate(_apply)
+        """Persist a blocked gate: model name, input schema, payload."""
+        self._scopes.put_gate(scope_id, gate_name, record)
 
     def get_gate(self, scope_id: str, gate_name: str) -> dict[str, Any] | None:
         """Return a persisted gate record, or None."""
-        scope = self.get_scope(scope_id)
-        if scope is None:
-            return None
-        record = scope.get("gates", {}).get(gate_name)
-        return record if isinstance(record, dict) else None
+        return self._scopes.get_gate(scope_id, gate_name)
 
     def deposit_gate_payload(self, scope_id: str, gate_name: str, payload: Any) -> bool:
         """Deposit resolved input for a blocked gate. False if no such gate."""
-        if self.get_gate(scope_id, gate_name) is None:
-            return False
+        return self._scopes.deposit_gate_payload(scope_id, gate_name, payload)
 
-        def _apply(state: dict[str, Any]) -> None:
-            state["scopes"][scope_id]["gates"][gate_name]["payload"] = payload
+    def get_gate_draft(self, scope_id: str, gate_name: str) -> dict[str, Any] | None:
+        """The gate's accumulated partial input, or None."""
+        return self._scopes.get_gate_draft(scope_id, gate_name)
 
-        self._mutate(_apply)
-        return True
+    def put_gate_draft(
+        self, scope_id: str, gate_name: str, values: dict[str, Any]
+    ) -> bool:
+        """Replace the gate's draft values. False if no such gate."""
+        return self._scopes.put_gate_draft(scope_id, gate_name, values)
+
+    def clear_gate_draft(self, scope_id: str, gate_name: str) -> bool:
+        """Discard the gate's draft. False if no such gate."""
+        return self._scopes.clear_gate_draft(scope_id, gate_name)
+
+    def reopen_gate(self, scope_id: str, gate_name: str) -> bool:
+        """Move an answered gate's payload back into its draft."""
+        return self._scopes.reopen_gate(scope_id, gate_name)
+
+    def delete_scope(self, scope_id: str) -> bool:
+        """Remove a scope entirely. False if it was not there."""
+        return self._scopes.delete_scope(scope_id)
 
     def set_position(self, scope_id: str, node: str | None) -> None:
-        """Persist the blocked-walk position so a walk survives (§D.7c)."""
-
-        def _apply(state: dict[str, Any]) -> None:
-            state["scopes"].setdefault(scope_id, _blank_scope())["position"] = node
-
-        self._mutate(_apply)
+        """Persist the blocked-walk position so a walk survives."""
+        self._scopes.set_position(scope_id, node)
 
     def get_position(self, scope_id: str) -> str | None:
         """Return the persisted walk position, or None."""
-        scope = self.get_scope(scope_id)
-        if scope is None:
-            return None
-        node = scope.get("position")
-        return node if isinstance(node, str) else None
+        return self._scopes.get_position(scope_id)
 
     def record_epilogue(self, scope_id: str, record: dict[str, Any]) -> None:
         """Record the once-per-scope epilogue body result."""
-
-        def _apply(state: dict[str, Any]) -> None:
-            scope = state["scopes"].setdefault(scope_id, _blank_scope())
-            scope["epilogue"] = record
-
-        self._mutate(_apply)
+        self._scopes.record_epilogue(scope_id, record)
 
     def get_epilogue(self, scope_id: str) -> dict[str, Any] | None:
         """Return the epilogue record, or None if it has not run."""
-        scope = self.get_scope(scope_id)
-        if scope is None:
-            return None
-        record = scope.get("epilogue")
-        return record if isinstance(record, dict) else None
+        return self._scopes.get_epilogue(scope_id)
 
     def record_tool_call(self, scope_id: str, record: dict[str, Any]) -> None:
-        """Append a gate-tool invocation to this scope's audit log.
-
-        Deliberately **append-only and never memoized**, unlike step records.
-        A step is part of the plan and must not run twice on replay; a tool
-        call is exploration, and an agent that calls ``check_inventory`` three
-        times before deciding meant to. Replaying a scope must therefore not
-        skip a call, and the third call must not silently return the first
-        one's answer.
-
-        Recorded all the same, because "which tools did the agent use before
-        approving this refund?" is exactly the question an auditor asks, and
-        the answer lives nowhere else — the agent's own context is gone.
-        """
-
-        def _apply(state: dict[str, Any]) -> None:
-            scope = state["scopes"].setdefault(scope_id, _blank_scope())
-            scope.setdefault("tool_calls", []).append(record)
-
-        self._mutate(_apply)
+        """Append a gate-tool invocation to this scope's audit log."""
+        self._scopes.record_tool_call(scope_id, record)
 
     def get_tool_calls(self, scope_id: str) -> list[dict[str, Any]]:
         """Every tool call recorded in this scope, oldest first."""
-        scope = self.get_scope(scope_id)
-        if scope is None:
-            return []
-        calls = scope.get("tool_calls", [])
-        return (
-            [c for c in calls if isinstance(c, dict)] if isinstance(calls, list) else []
-        )
+        return self._scopes.get_tool_calls(scope_id)
 
     def scope_ids(self) -> list[str]:
         """All known scope ids."""
-        return sorted(self._read()["scopes"])
+        return self._scopes.scope_ids()
 
     # ------------------------------------------------------------------
     # History ring buffer (`func history`)
@@ -329,7 +269,7 @@ class StateStore:
         return history[:limit] if limit is not None else history
 
     # ------------------------------------------------------------------
-    # Session-scoped precondition cache (§D.2)
+    # Session-scoped precondition cache
     # ------------------------------------------------------------------
 
     def get_precondition(self, key: str) -> bool | None:
@@ -355,11 +295,28 @@ class StateStore:
         self._mutate(_apply)
 
     # ------------------------------------------------------------------
-    # Lifecycle (`func state clear`)
+    # Lifecycle (`func builtin state clear`)
     # ------------------------------------------------------------------
 
-    def clear(self) -> None:
-        """Reset all runtime state. Never touches the discovery cache (§D.3
-        Fix 2) — the two stores have different lifecycles."""
+    def clear(self, *, scopes: bool = False) -> Path | None:
+        """Reset derived runtime state. Keeps workflow scopes unless asked.
+
+        Fingerprints, history and the session cache are derived — clearing them
+        costs a rebuild. A scope is a run somebody is waiting on, so clearing it
+        is a separate decision that has to be made deliberately. It used to be
+        made for you: this method reset everything, under help text naming only
+        "fingerprints, history".
+
+        Never touches the discovery cache — the two have different lifecycles.
+
+        Args:
+            scopes: Also discard persisted workflow scopes.
+
+        Returns:
+            Where the scope file was moved, or None if scopes were kept or
+            there were none. Scopes are moved aside rather than deleted, so a
+            run discarded by mistake is still recoverable.
+        """
         with state_lock(self._path):
             save_state(self._path, empty_state())
+        return self._scopes.clear() if scopes else None

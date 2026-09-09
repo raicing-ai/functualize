@@ -312,16 +312,30 @@ class JobToolTranslator:
         """Filter descriptors based on MCPConfig visibility rules.
 
         Filtering rules:
+        0. ``job_tools`` decides the candidate set — "none" publishes no
+           per-job tools at all, "tagged" only those carrying
+           ``job_tools_tag``. Applied first because it answers a different
+           question from the rest: whether to publish per-job tools, not which
+           of the published ones to show.
         1. Exclude jobs with visibility="internal"
         2. Exclude jobs listed in config.exclude_jobs
         3. Exclude jobs tagged with any tag in config.exclude_tags
         4. If config.include_tags is non-empty, include only jobs tagged
            with at least one of the specified tags
         """
+        if config.job_tools == "none":
+            return []
+
         result: list[Any] = []
 
         for descriptor in descriptors:
             metadata = self._get_metadata(descriptor)
+
+            # 0. Candidate set.
+            if config.job_tools == "tagged":
+                candidate_tags = _get_attr_or_key(metadata, "tags") or []
+                if config.job_tools_tag not in candidate_tags:
+                    continue
 
             # 1. Exclude internal jobs
             visibility = _get_attr_or_key(metadata, "visibility")

@@ -7,6 +7,7 @@ public contract for job authors and platform developers.
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 
@@ -183,6 +184,72 @@ class AmbiguousJobError(Exception):
         )
 
 
+class ScopeStoreUnreadableError(Exception):
+    """Raised when the workflow scope store exists but cannot be honoured.
+
+    A version mismatch or corrupt content. **Never** degrades to "no scopes":
+    the scope store is the only record of an in-flight run, including a human's
+    recorded gate answers, so an unreadable one is a refusal, not an empty list.
+    That is a deliberate divergence from the derived state store beside it,
+    whose discard-on-mismatch rule is correct for a cache and wrong here.
+
+    The file is **left where it is**. Refusing has to be a repeatable state: if
+    the read moved the file aside, the next run would find nothing, read it as
+    "no scopes", and start the workflow over silently — the exact failure this
+    error exists to prevent. It moves only when a human asks, at
+    ``func builtin state clear --scopes``, which the message names.
+
+    Attributes:
+        path: The scope file that could not be read.
+        scope_count: How many scopes were visible in it, or None if it could
+            not be parsed at all.
+        found_version: The format version on disk, when that is the cause.
+        expected_version: The format version this build understands.
+
+    ``scope_count`` is a **count, never content**. Scope records hold gate
+    payloads and step return values, which may be secrets — the same reason run
+    history stores ``args_hash`` and never argument values.
+    """
+
+    def __init__(
+        self,
+        path: Path,
+        *,
+        scope_count: int | None = None,
+        found_version: int | None = None,
+        expected_version: int,
+    ) -> None:
+        self.path = path
+        self.scope_count = scope_count
+        self.found_version = found_version
+        self.expected_version = expected_version
+        super().__init__(self._message())
+
+    def _message(self) -> str:
+        if self.found_version is not None:
+            cause = (
+                f"found version {self.found_version}, expected {self.expected_version}"
+            )
+        else:
+            cause = "its contents could not be parsed"
+        if self.scope_count is None:
+            holds = "It may hold workflow scopes, including recorded gate input."
+        else:
+            plural = "" if self.scope_count == 1 else "s"
+            holds = (
+                f"It holds {self.scope_count} workflow scope{plural}, "
+                "including any recorded gate input."
+            )
+        return (
+            f"{self.path} cannot be read ({cause}).\n"
+            f"       {holds}\n"
+            "\n"
+            "  The file has been left where it is. To move it aside and "
+            "start fresh:\n"
+            "      func builtin state clear --scopes"
+        )
+
+
 class TerminalUnavailable(Exception):  # noqa: N818 — reads as a state, not an error
     """Raised when a job needs an interactive terminal but none is available.
 
@@ -203,4 +270,37 @@ class TerminalUnavailable(Exception):  # noqa: N818 — reads as a state, not an
         super().__init__(
             message
             or "This job needs an interactive terminal (it declares `tty: TTY`)."
+        )
+
+
+class ScopeCancelledError(Exception):
+    """Raised when a walk is asked to advance a scope that was cancelled.
+
+    ``cancel_workflow``'s own description has always said *"Cancelled scopes
+    are not resumable"* and nothing enforced it: the string ``cancelled``
+    appeared zero times across the executor, the walker and the runner, so
+    invoking the workflow job against a cancelled scope walked it to completion
+    and overwrote the status. The promise was documentation, not a rule.
+
+    Enforced in ``WorkflowRunner.prelude`` rather than at each calling surface,
+    because a check a caller can skip by not calling it is not a rule either —
+    the same reasoning that puts the gate-tool policy at the MCP execute funnel.
+
+    Terminal means terminal: there is no ``--force`` and no un-cancel. The
+    recovery is a fresh run, which the message names.
+
+    Attributes:
+        scope_id: The cancelled scope.
+        workflow: The workflow it belongs to, when known — a caller starting
+            fresh needs the job name, not just the id it cannot reuse.
+    """
+
+    def __init__(self, scope_id: str, *, workflow: str | None = None) -> None:
+        self.scope_id = scope_id
+        self.workflow = workflow
+        start = (
+            f"Start a fresh run with: {workflow}" if workflow else "Start a fresh run"
+        )
+        super().__init__(
+            f"Workflow scope '{scope_id}' was cancelled and cannot be resumed. {start}."
         )

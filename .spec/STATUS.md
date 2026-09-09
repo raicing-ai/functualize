@@ -2118,6 +2118,131 @@ Items identified during development that are worth doing but not yet designed:
     Close this by adding that per-scan memo, or by deciding the cold-boot cost
     is acceptable and saying so.
 
+## Recently Completed (2026-09)
+
+### workflow-continuation
+
+Roadmap items 1–6 of the pi-workflows parity study, landed as `0.3.0`. The verbs
+that drive a workflow now exist on every surface, and `--scope-id` is gone.
+
+**The decision worth keeping.** *`answer` records. `resume` advances.* One
+meaning each. Until this split, **every** verb called *resume* on every surface
+was a deposit, and nothing anywhere advanced a blocked walk except re-invoking
+the job process — which an agent driving the workflow over MCP cannot do. A
+workflow could be inspected and answered by an agent and finished only by a
+human at a terminal.
+
+**Rules that outlive the feature:**
+
+- **A capability that is "about the program" gets one spelling, reachable
+  identically from every surface.** Which spelling can change — this feature
+  deleted the fix that an earlier application of the same rule produced — but
+  that there is exactly one does not. `contributor/architecture/surface-boundary.md`
+  now carries the three-revision history as its worked example.
+- **A verb that runs a job goes through the funnel, whatever surface it is on.**
+  MCP enforced its gate-tool policy at `_execute_job`, "the one place a
+  job-executing call cannot get past". Making the CLI's `resume` advance created
+  a second such door, so the funnel and the policy moved into `app/`.
+  A check a caller can skip by not calling it is not a permission.
+- **…and the funnel's exemptions are as load-bearing as the funnel.** Passing
+  the gate-tool policy to `resume` made every gate that declared `tools=[…]`
+  refuse its own workflow — the walk that is the only way out of the block. The
+  rule was already written down for the read tools; `resume` is the third member
+  of that set.
+- **One projection, plus a test that checks the callers against it.** Two
+  projections of the same store existed in the same process and the poorer one
+  faced humans. Lifting them into one function removes the drift; the test is
+  what keeps it removed (`pitfalls.md` §6 — a registry nothing verifies is just
+  another copy).
+- **A parity test enumerates; it does not sample.** Both sets are derived from
+  the live surfaces, so neither can grow a verb the other lacks without failing,
+  and nobody has to remember to edit the test (`pitfalls.md` §19).
+- **Ambiguity is listed, never guessed.** Zero candidates names the survey verb,
+  one is used, several are listed and the call fails. Never "newest wins" —
+  `blocked_at` resets on every re-block, so recency is not computable anyway.
+- **A flag that may *create* state and one that may only *address* it are two
+  flags.** `--scope-id` did both, so a typo silently became a blocked run under
+  the typo. `--wf-run-id` may mint; `--wf-resume` may not.
+
+**What writing the tests found that reading did not:**
+
+1. The gate-policy-refuses-its-own-resume bug above.
+2. `--reopen` could not address its own target: `resolve_gate` searched only
+   *pending* gates, and an answered gate is by definition not pending.
+3. The consumed-gate guard read a completed walk as "hasn't passed the gate",
+   because a finished walk sets `position` back to `None`.
+4. The parity test's own helper filtered parameters by *name* to skip variadics,
+   and `call_gate_tool` has a real parameter named `args` — a false gap. A test
+   that cries wolf is how a real gap later gets waved through.
+
+**One roadmap item was withdrawn as false.** `04-mcp.md` §3 asked for per-job
+tool descriptions to stop repeating examples "the schema already carries". The
+schema carries no examples at all — `field_property` emits type, description,
+default and enum, and `FieldDescriptor` has no `examples` attribute. Removing
+them would have deleted the only copy and made tool selection worse.
+
+**Known limitation, shipped deliberately:** concurrent `resume` is not fenced.
+Two invocations against one scope both walk it; the file lock serializes writes
+so nothing corrupts, but the second overwrites the first's step records. Making
+`resume` easy makes the race easy. The fix is a lease with a fencing token,
+which belongs with the durable run layer (roadmap item 8) rather than being
+half-built here.
+
+**Still outstanding from the roadmap:** Tier 2 — item 7 (agent-step port as a
+Protocol with capability flags, gated on this feature), item 8 (durable run
+layer: events, lifecycle verbs, leases, per-step timeouts, effects outbox), and
+item 9 (loops, failure routing, watch, notify). The study lives at
+`~/code/raicing-ai/pi-workflow-parity/`; its `CHANGELOG.md` §3 is the
+do-not-re-litigate table.
+
+### workflow-state-durability
+
+Workflow scopes moved out of `.functualize/state.json` into
+`.functualize/scopes.json`, with an independent format version and a
+**fail-closed** read.
+
+**The decision worth keeping.** Runtime persistence is two files, and the line
+between them is the discard rule, not the subject matter:
+
+| | `state.json` | `scopes.json` |
+|---|---|---|
+| holds | fingerprints, history, session cache | workflow scope records |
+| is | **derived** — recomputable from the source tree | a **record** — recomputable from nothing |
+| bad version / corrupt | degrades to empty | **refuses**, file left in place |
+
+A `STATE_VERSION` bump — an ordinary release action — used to erase every
+in-flight run, gate payloads and all, and so did `func builtin state clear`,
+under help text naming only "fingerprints, history".
+
+**Rules that outlive the feature:**
+
+- **When adding a section to either file, pick the file first.** If losing it
+  would upset someone it is not derived, and does not belong in `state.json`.
+- **The scope file is the state file's sibling**, derived via `with_name`, never
+  a second upward walk — two walks can disagree (`pitfalls.md` §22).
+- **A fail-closed read must not move the file.** Refusing has to be repeatable;
+  renaming aside makes the *next* run find nothing, read it as "no scopes", and
+  start over silently — the failure the split exists to remove.
+- **A refusal reports a count, never content.** Scope records hold gate payloads
+  and step return values.
+- **Both dispatch paths, or neither** (`pitfalls.md` §23). A sabotage check found
+  the warm path (`lazy_command`) uncovered *after* the task, the code and the
+  tests had all been written to prevent exactly that. A green suite never
+  detects this; only breaking the call does.
+
+**No migration**: scopes in the old envelope are lost once, on upgrade. Pre-1.0,
+and a permanent read-time shim for a one-time transition is the two-store shape
+the change exists to remove. Recorded in `CHANGELOG.md`, which is the only
+warning anyone gets.
+
+Reference: `contributor/reference/state-store.md` — marked "shipped", cited by
+nothing, and already drifted before this feature touched it.
+
+**Still open, deliberately out of scope:** the `--scope-id` removal and the
+`--wf-*` verb surface (see `~/code/raicing-ai/pi-workflow-parity/`, docs 05 and
+12); `WorkflowWalker._key(name)` hashing args to the empty string; and the walk
+rewriting a replayed step's `completed_at` without re-executing it.
+
 ## Recently Completed (2026-08)
 
 | Feature | Description |

@@ -51,7 +51,7 @@ every sequence against **each** surface.
 | `lab counter` | `State` does **not** persist; a file you own does |
 | `lab bundle` | `Fingerprint(generates=[<glob>])` — a **pattern**, not a literal path, plus `GroupOptions` |
 | `check signoff` | a **second group**; `Deps` crossing a group boundary, and a `GroupOptions` type read from outside its own group |
-| `lab release` | `@workflow` × `Gate` — a walk that pauses for approval and resumes with `--scope-id` |
+| `lab release` | `@workflow` × `Gate` — a walk that pauses for approval and advances with `--wf-resume` |
 
 ## One flag, every job in the group
 
@@ -114,6 +114,6 @@ the framework underneath.
 - [ ] from a clean slate, `func lab --strict release` reports `strict=False` at
       the bundle step — a mid-path flag is not inherited by a walk
 - [ ] `LAB__STRICT=true func lab release` reports `strict=True` at that step
-- [ ] `func lab release` exits **5** and names `--scope-id` in the message
-- [ ] depositing the gate's input and re-running with `--scope-id <id>` exits
+- [ ] `func lab release` exits **5** and names `--wf-resume` in the message
+- [ ] answering the gate and running `--wf-resume <id>` exits
       **0** and prints `RELEASE complete` — on **both** surfaces

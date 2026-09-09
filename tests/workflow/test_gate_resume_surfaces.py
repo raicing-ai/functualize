@@ -1,25 +1,23 @@
-"""A gated `@workflow` resumes on both surfaces (D-5).
+"""A gated `@workflow` is addressed and advanced on both surfaces.
 
-`--scope-id` was a **pre-command global of the bare `func` CLI**, and
-`_cli/main.py` was the only caller that threaded it into
-`create_job_click_command(..., workflow_scope_id=...)`. The builder every
-`FunctualizeApp` entry point uses never passed it and exposed no equivalent.
+The original defect: `--scope-id` was a **pre-command global of the bare `func`
+CLI**, and `_cli/main.py` was the only caller that threaded it. The builder
+every `FunctualizeApp` entry point uses never passed it and exposed no
+equivalent — so on an embedded app a gated `@workflow` blocked at exit 5,
+accepted input, and then had **no way to be run with that scope id**. Every
+later run opened a fresh scope and blocked again, forever.
 
-So on an embedded app — which is what the acceptance fixture, the reference
-workspace and every example use — a `@workflow` with a `Gate`:
+`--scope-id` is now **removed in both spellings** and replaced by the
+post-command `--wf-resume`, which does strictly more: it may omit the id when
+unambiguous, it can answer the gate in the same command, and — the defect fix —
+an unknown id **errors** rather than silently starting a new run under it.
 
-* blocked on the first run, exit 5 (correct);
-* accepted input via `builtin workflow resume` (correct);
-* and then had **no way to be run with that scope id**. Every later run opened a
-  fresh scope and blocked again, forever. The deposited input was never read.
+Post-command because that is where a reader looks: the audit that found the
+original bug got the pre-command position wrong twice before reading
+`dispatch.py`.
 
-The flag is now a **post-command** option on job commands that declare a
-workflow, on both surfaces. Post-command because that is where a reader looks:
-the audit that found this got the pre-command position wrong twice before
-reading `dispatch.py`. `func --scope-id X walk` still works.
-
-Scoped to workflow-declaring jobs, so it stays off every ordinary job's `--help`
-and cannot collide with a config field named `scope_id`.
+Scoped to workflow-declaring jobs, so the flags stay off every ordinary job's
+`--help` and cannot collide with a config field of the same name.
 """
 
 from __future__ import annotations
@@ -169,7 +167,7 @@ def test_block_deposit_resume_completes(surface: str, tmp_path: Path) -> None:
         surface,
         "builtin",
         "workflow",
-        "resume",
+        "answer",
         scope,
         "pause",
         "--input",
@@ -177,7 +175,7 @@ def test_block_deposit_resume_completes(surface: str, tmp_path: Path) -> None:
     )
     assert deposited.returncode == 0, deposited.stdout + deposited.stderr
 
-    resumed = _run(project, surface, "walk", "--scope-id", scope)
+    resumed = _run(project, surface, "walk", "--wf-resume", scope)
     blob = resumed.stdout + resumed.stderr
     assert "No such option" not in blob, blob
     assert resumed.returncode == 0, blob
@@ -201,60 +199,70 @@ def test_the_blocked_message_names_a_runnable_resume_command(
     err = blocked.stderr
 
     assert "--log-level DEBUG" not in err, err
-    assert "--scope-id" in err, err
-    # The flag is spelled after the job name, which is where it now works.
-    assert re.search(r"\bwalk --scope-id [0-9a-f]+", err), err
+    assert "--wf-resume" in err, err
+    # The flag is spelled after the job name, which is where it works.
+    assert re.search(r"\bwalk --wf-resume [0-9a-f]+", err), err
     program = "func" if surface == "func" else "main.py"
     assert program in err, err
+    # It names the command that *finishes* the run, not one that starts
+    # another attempt at it. With no pre-command flag to fall back on, "re-run
+    # the command you remember" is gone, so exit 5 has to carry the whole
+    # continuation.
+    assert "--wf-input" in err, err
 
 
 @pytest.mark.parametrize("surface", SURFACES)
-def test_an_ordinary_job_has_no_scope_id_flag(surface: str, tmp_path: Path) -> None:
-    """The flag is scoped to jobs that declare a workflow.
+def test_an_ordinary_job_has_no_workflow_flags(surface: str, tmp_path: Path) -> None:
+    """The flags are scoped to jobs that declare a workflow.
 
-    A job with nothing to resume should not advertise resumption, and a config
-    field named `scope_id` must not collide with a flag every command carries.
+    A job with nothing to advance should not advertise advancing, and a config
+    field must not collide with a flag every command carries.
     """
     project = _project(tmp_path)
 
     helped = _run(project, surface, "plain", "--help")
     options = helped.stdout.split("Options:", 1)[-1]
-    assert "--scope-id" not in options, helped.stdout
+    assert "--wf-resume" not in options, helped.stdout
 
-    rejected = _run(project, surface, "plain", "--scope-id", "abc")
+    rejected = _run(project, surface, "plain", "--wf-resume", "abc")
     assert rejected.returncode != 0
     assert "No such option" in rejected.stdout + rejected.stderr
 
 
-def test_the_pre_command_flag_still_works(tmp_path: Path) -> None:
-    """`func --scope-id X walk` is unchanged.
+def test_the_pre_command_flag_is_gone_and_fails_loudly(tmp_path: Path) -> None:
+    """AC-22. `func --scope-id X walk` no longer exists, and cannot run the
+    wrong thing.
 
-    It has been the documented form since gates existed; the post-command
-    option is additive, and when both are given the per-command value wins.
+    No deprecation shim. `detect_mode`'s scan skips boolean, always-value,
+    optional-value, `--opt=value` and short options, so a bare `--scope-id`
+    matches none of them and falls through: **the flag itself becomes the first
+    positional** and its value is never examined. The result is confusing but
+    loud, non-zero, and incapable of mistaking the stray id for a job name.
+
+    A refusal branch would give a better message. Its only justification is
+    courtesy to muscle memory, and the recognition set it would need exists so
+    the scan can skip a flag *and its value* while hunting the first positional
+    — which only matters for the invocation that is now invalid.
     """
     project = _project(tmp_path)
 
-    blocked = _run(project, "func", "walk")
-    match = re.search(r"scope '([0-9a-f]+)'", blocked.stdout + blocked.stderr)
-    assert match is not None
-    scope = match.group(1)
+    rejected = _run(project, "func", "--scope-id", "abc", "walk")
 
-    _run(
-        project,
-        "func",
-        "builtin",
-        "workflow",
-        "resume",
-        scope,
-        "pause",
-        "--input",
-        '{"text": "hi"}',
-    )
+    assert rejected.returncode != 0
+    blob = rejected.stdout + rejected.stderr
+    assert "scope-id" in blob, blob
+    # The job did not run, and the stray id was never taken for a job name.
+    assert "WALK BODY RAN" not in blob, blob
 
-    resumed = _run(project, "func", "--scope-id", scope, "walk")
-    blob = resumed.stdout + resumed.stderr
-    assert resumed.returncode == 0, blob
-    assert "WALK BODY RAN" in blob, blob
+
+def test_the_per_command_flag_is_gone_too(tmp_path: Path) -> None:
+    """AC-22, the second spelling. Both, not just the global."""
+    project = _project(tmp_path)
+
+    rejected = _run(project, "func", "walk", "--scope-id", "abc")
+
+    assert rejected.returncode != 0
+    assert "No such option" in rejected.stdout + rejected.stderr
 
 
 @pytest.mark.parametrize("surface", SURFACES)
@@ -282,16 +290,38 @@ def test_the_blocked_message_names_a_command_path_not_a_job_address(
     assert blocked.returncode == 5, blocked.stdout + blocked.stderr
     err = blocked.stderr
 
-    assert "flow.grouped-walk --scope-id" not in err, (
+    assert "flow.grouped-walk --wf-resume" not in err, (
         "the message printed the job address, which is not a runnable command"
     )
-    assert re.search(r"flow grouped-walk --scope-id [0-9a-f]+", err), err
+    assert re.search(r"flow grouped-walk --wf-resume [0-9a-f]+", err), err
 
     # And the command it printed actually runs.
-    match = re.search(r"--scope-id ([0-9a-f]+)", err)
+    match = re.search(r"--wf-resume ([0-9a-f]+)", err)
     assert match is not None
     resumed = _run(
-        project, surface, "flow", "grouped-walk", "--scope-id", match.group(1)
+        project, surface, "flow", "grouped-walk", "--wf-resume", match.group(1)
     )
     assert "No such command" not in resumed.stdout + resumed.stderr
     assert "No such option" not in resumed.stdout + resumed.stderr
+
+
+def test_the_flag_is_declared_nowhere_in_the_source() -> None:
+    """AC-23. A negative about the whole tree, so it is answered by searching
+    it rather than by reading a file.
+
+    Counts **declarations**, not prose: several comments name the removed flag
+    to explain why it went, and a check that forbids explaining a removal is a
+    check that rewards deleting the explanation.
+    """
+    import subprocess
+
+    src = PROJECT_ROOT / "src" / "functualize"
+    result = subprocess.run(
+        ["grep", "-rho", '"--scope-id"', str(src)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.stdout.strip() == "", (
+        f"--scope-id is still declared as a click option:\n{result.stdout}"
+    )

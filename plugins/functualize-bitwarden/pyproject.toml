@@ -1,6 +1,6 @@
 [project]
 name = "functualize-bitwarden"
-version = "0.2.3"
+version = "0.3.0"
 description = "Bitwarden Secrets Manager provider for functualize"
 readme = "README.md"
 license = "MIT"

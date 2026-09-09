@@ -7,6 +7,184 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-09
+
+### Added — a workflow can be driven to completion without a shell
+
+**`answer` records. `resume` advances.** One meaning each, on every surface.
+
+Until now every verb called *resume* on every surface was a **deposit**. The
+CLI's `builtin workflow resume` said so in its own docstring — *"Accepting input
+does not run the workflow"* — and MCP's `resume_gate` and `resume_workflow` did
+the same. The only thing that advanced a blocked walk was re-invoking the job
+process, which an agent driving the workflow over MCP cannot do. So a workflow
+could be inspected and answered by an agent, and finished only by a human at a
+terminal.
+
+The vocabulary now matches what the repository already documented:
+`docs/guides/mcp.md` described `resume_workflow` as *"Advance a paused
+workflow"* long before anything did.
+
+**`func builtin workflow`** goes from four verbs to seven:
+
+| Verb | |
+|---|---|
+| `list` | now filters by `--workflow`, `--state`, `--blocked-on` |
+| `show` | **replaces `state`** — the full projection, not five fields |
+| `answer` | **new** — record gate input, partial or whole, or correct it |
+| `resume` | **advances the walk** rather than depositing |
+| `gate-tool` | **new** — run a tool a waiting gate offers |
+| `cancel` | unchanged in spelling, now enforced |
+| `purge` | **new** — delete finished scopes |
+
+**MCP** matches it verb for verb, held by a parity test that derives both sets
+from the live surfaces — so neither can grow a verb or a parameter the other
+lacks without failing. `list_active_workflows` becomes `list_workflows` with the
+same three filters; `resume_gate` becomes `answer_gate`; `get_gate_draft` and
+`purge_workflows` are new.
+
+**Seven `--wf-*` flags** on a job that declares a `@workflow`, for the invoker
+who already knows which workflow it is:
+
+```bash
+func release                       # blocks at the gate, exit 5
+func release --wf-status           # its scopes, then exit 0
+func release --wf-resume --wf-input '{"approved": true}'   # answer and finish
+```
+
+Plus `--wf-gate`, `--wf-show`, `--wf-retry-epilogue` and `--wf-run-id`. A plain
+`@job` carries none of them.
+
+**Gates can be answered a field at a time.** Input accumulates in a draft and
+the gate opens only when the draft validates whole, so two actors can fill
+different fields of one gate and neither has to hold the whole answer.
+`--reopen` corrects an answer that has not yet been consumed by the walk.
+
+**A derived `state`** — `waiting`, `ready`, `running`, `completed`, `stalled`,
+`failed`, `cancelled`. `ready` is exactly the set `resume` can advance without
+input, and exactly what a scheduler polls for; before it, an answered scope read
+`blocked` with no pending gates and looked stuck. Derived, not stored: no format
+version moves.
+
+**`MCPConfig.job_tools`** — `"all"` (default, unchanged), `"tagged"`, `"none"`.
+A per-job tool duplicates `run_job(name, config)` completely and costs a full
+JSON Schema per job in every session's connect-time tool list. Turning them off
+used to cost information; it no longer does (see below).
+
+### Changed
+
+- **Every MCP execution door returns `metadata`.** An agent that blocked a
+  workflow received `"Blocked"` and nothing else: the executor built
+  `{workflow_scope, workflow_status, blocked_on, blocked_reason}` all along and
+  all four doors dropped it, so the agent's honest next move was to list every
+  live scope in the project and guess which was its own. The key is always
+  present, `{}` when empty.
+- **`status` is a lowercase string on every MCP door.** `_execute_job` returned
+  the raw `RunStatus` enum into a dict that then had to survive JSON
+  serialization while `run_job` returned `.value`; and the wire value was
+  `"Blocked"` where every document describing the protocol says `"blocked"`.
+  `RunStatus` itself is unchanged — this is a boundary normalization.
+- **One gate, one stored shape.** `deposit_gate_input` validated with
+  `model(**payload)` and then stored the *raw dict*, discarding every default
+  and coercion the validation had just applied, while the walker's own strategy
+  path stored `model_dump()`. The same gate produced different objects depending
+  on who answered it. `payload` is now only ever a complete, successful
+  validation, dumped.
+- **`func builtin workflow show --format json` and MCP `get_workflow_state`
+  return byte-identical JSON** — asserted, not intended. The CLI's projection
+  emitted five fields over records that held the graph, each step's return value
+  and resolved inputs, and every gate's schema.
+
+### Fixed
+
+- **`cancel` means something.** Its description said *"Cancelled scopes are not
+  resumable"* and the string `cancelled` appeared **zero** times across the
+  executor, the walker and the runner — so invoking the job against a cancelled
+  scope walked it to completion and overwrote the status. Enforced in
+  `WorkflowRunner.prelude`, the one point every continuation passes through.
+- **`func file.py job` works from the file's own directory.** It crashed with an
+  unhandled `ValueError` while the identical command from one directory up
+  worked — the common case was the broken one.
+
+### Removed
+
+- **`--scope-id`, in both spellings.** BREAKING. Use `--wf-resume` to advance an
+  existing scope, or `--wf-run-id` to start one under a chosen id.
+
+  The pre-command form was the only member of `_GLOBAL_OPTIONS_ALWAYS_VALUE`
+  addressing *persisted state* rather than discovery, config or performance, so
+  `func --help` listed it among global config flags where it silently did
+  nothing on a non-workflow job. Per-command coverage was already complete
+  across every dispatch mode, cold and warm.
+
+  It also minted phantom runs. `WorkflowRunner` does `scope_id or
+  new_scope_id()` and the walk creates the scope, so a **typo'd id silently
+  became a blocked run under the typo** — one the caller could not find, while
+  the real run stayed blocked. Splitting *start under an id* (`--wf-run-id`)
+  from *advance an id* (`--wf-resume`, which requires the scope to exist) fixes
+  that while keeping idempotent start.
+
+  No deprecation shim: `func --scope-id X job` now exits 1 with
+  `Error: Unknown command 'scope-id'`. Confusing, but loud, non-zero, and
+  incapable of running the wrong thing. `app._workflow_scope_id` remains as an
+  API-only seam for embedded hosts.
+- **MCP `resume_gate` and `list_active_workflows`.** Replaced by `answer_gate`
+  and `list_workflows`. Removed, not aliased — the addressing changed, not just
+  the name.
+- **`func builtin workflow state`.** Replaced by `show`: same argument, strictly
+  more output.
+
+### Upgrade notes
+
+- Scripts calling `func <workflow> --scope-id X` become
+  `func <workflow> --wf-resume X`.
+- **`builtin workflow resume` now returns the walk's exit code**, so a run still
+  blocked exits 5 where it used to exit 0. This is the point — a script
+  resuming in a loop needs to know whether it finished — but it will change the
+  behaviour of a script that ignored the code.
+- Agents calling `resume_gate(gate, input)` become
+  `answer_gate(input, gate=gate)`, then `resume_workflow(id)` to advance.
+
+### Changed — workflow scopes are their own file
+
+Persisted workflow scopes move out of `.functualize/state.json` into
+`.functualize/scopes.json`, with their own format version.
+
+They should never have shared an envelope. `state.json` holds derived data —
+fingerprints, run history, the session precondition cache — all of it recomputable, so a
+`format_version` mismatch discards the file and the worst case is one extra run. Scopes
+are not derived. A scope is the only record of an in-flight run: which steps completed,
+which branch the walk took, where it stopped, and the gate payload a human deposited when
+they approved something.
+
+Two ordinary actions destroyed them, silently:
+
+- **a version bump.** Bumping `STATE_VERSION` is what a release does. The next unrelated
+  write then persisted an empty envelope over every in-flight run — no error, no warning,
+  no backup.
+- **`func builtin state clear`**, whose help text named only "fingerprints, history".
+
+Now:
+
+- A `STATE_VERSION` bump leaves every scope untouched. The two versions are independent.
+- `state clear` keeps scopes and reports how many: *"Kept 3 workflow scopes — pass
+  --scopes to clear those too."* `--scopes` discards them, **moving the file aside** rather
+  than deleting it, and says where it went.
+- An unreadable scope file **refuses** instead of reading as "no scopes" — exit 2 from the
+  CLI, `{"error": "scope_store_unreadable"}` from the MCP tools. The refusal leaves the
+  file in place so it is repeatable, reports a count rather than content (scope records may
+  hold secrets), and names `state clear --scopes` as the way out.
+- `state show` and `builtin info` report the scope file's path and version. `state show`
+  on an unreadable store prints every other statistic and marks the scope line as the
+  fault before exiting 2.
+- The walk writes the scope file **once per node** instead of three times.
+
+**Upgrading:** there is no migration. A project holding an in-flight run in the old
+`state.json` loses that run once, on the upgrade. Finish or re-start blocked workflows
+before upgrading if they matter. (Pre-1.0: breaking changes are free, and a permanent
+read-time shim for a one-time transition is the two-store shape this change exists to
+remove.)
+
 ### Changed — `_events/` no longer reaches into `_config/`
 
 Installing the config event sink moved out of `_events/adapter.py` into a new
@@ -175,6 +353,15 @@ covers them end to end.
   now extracts parameters and field descriptors, so such a job renders like a
   discovered one.
 
+
+### Known limitation
+
+**Concurrent `resume` is not fenced.** Two invocations against the same scope
+will both walk it. The scope-file lock serializes the *writes*, so the file
+never corrupts, but neither walker knows the other exists and the second
+overwrites the first's step records. Making `resume` easy makes this race easy;
+the fix is a lease with a fencing token, which belongs with the durable run
+layer rather than being half-built here.
 
 ## [0.2.3] - 2026-09-04
 
@@ -1383,7 +1570,8 @@ function knowing which.
   through the injected `Log` is deferred to a later release.
   *(Fixed in 0.1.1.)*
 
-[Unreleased]: https://github.com/raicing-ai/functualize/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/raicing-ai/functualize/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/raicing-ai/functualize/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/raicing-ai/functualize/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/raicing-ai/functualize/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/raicing-ai/functualize/compare/v0.2.0...v0.2.1

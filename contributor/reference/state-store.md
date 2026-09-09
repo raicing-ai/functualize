@@ -5,39 +5,96 @@
 
 ## 1. Purpose
 
-The runtime state store holds **"what happened at runtime"** — fingerprints, guard results,
-workflow step records, branch choices, execution history. It is deliberately separate from
-the discovery cache (which holds "what jobs exist and their metadata").
+Runtime persistence is **two files**, not one, and the difference between them is the
+discard rule:
 
-- **State store** — runtime results, history, workflow position
-- **Discovery cache** — job descriptors, params, module metadata
+| | `state.json` | `scopes.json` |
+|---|---|---|
+| Holds | fingerprints, run history, session precondition cache | workflow scope records: steps, branch choices, gate payloads, position, epilogue |
+| Is | **derived** — recomputable from the source tree | a **record** — recomputable from nothing |
+| Unreadable or wrong version | degrades to empty; worst case is one extra run | **refuses**, leaving the file in place |
+| Module | `_primitives/state_format.py` | `_primitives/scope_format.py` |
+| Cleared by | `func builtin state clear` | `func builtin state clear --scopes` |
 
-The two never invalidate each other:
-- `func cache clear` clears discovery cache only
-- `func builtin state clear` clears runtime state only
+Scopes lived in `state.json` until 2026-09-09. They should not have: a `STATE_VERSION`
+bump — an ordinary release action — silently erased every in-flight run, gate payloads and
+all, because the envelope's discard rule was written for fingerprints. A blocked run
+holding a human's approval is not derived state.
+
+**When adding a section, pick the file first.** If losing it would upset someone, it is not
+derived and does not belong in `state.json`.
+
+Both are separate again from the discovery cache (which holds "what jobs exist and their
+metadata"). None of the three invalidates another:
+- `func cache clear` clears the discovery cache only
+- `func builtin state clear` clears derived runtime state only, and keeps scopes
+- `func builtin state clear --scopes` also discards scopes, moving the file aside
 
 ## 2. File Format
 
-- **Location:** `.functualize/state.json` (same XDG fallback rules as `cache.json`,
-  resolved via `locator.py`)
-- **Module:** `_primitives/state_format.py`
-- **Version:** `STATE_VERSION` constant; bump on incompatible schema changes
-- **Concurrency:** advisory file lock on write; last-writer-wins per job-key (two
-  concurrent runs of *different* jobs don't clobber each other's records)
+- **Location:** `.functualize/state.json` and `.functualize/scopes.json` (same XDG
+  fallback rules as `cache.json`, resolved via `locator.py`)
+- **Modules:** `_primitives/state_format.py`, `_primitives/scope_format.py`
+- **Versions:** `STATE_VERSION` and `SCOPES_VERSION`, **independent of each other** —
+  bumping one says nothing about the other, which is the point of the split
+- **Concurrency:** advisory file lock on write; last-writer-wins per key (two concurrent
+  runs touching *different* jobs or scopes don't clobber each other's records)
+- **Atomic write:** one implementation, `state_format.atomic_write_json`, shared by both.
+  A second copy is how one of them loses its `fsync`.
 - **Format:** versioned JSON to start. Migrate to sqlite only if history/pruning
-  pressure demands it — measured, not assumed.
+  pressure demands it — measured, not assumed. Both files keep every section as a flat
+  `{str: record}` mapping, which is the shape `StateBackend`'s KV protocol addresses, so
+  that migration needs no record-format change.
 
-The envelope:
+`state.json`:
 ```json
 {
-  "version": 1,
-  "functualize_version": "0.15.0",
-  "generated_at": "2026-07-24T12:00:00Z",
+  "format_version": 1,
   "fingerprints": { ... },
-  "scope_records": { ... },
-  "history": [ ... ]
+  "history": [ ... ],
+  "session": {"preconditions": { ... }}
 }
 ```
+
+`scopes.json` — two keys, no more:
+```json
+{
+  "format_version": 1,
+  "scopes": {
+    "<scope_id>": {
+      "workflow": "release", "status": "blocked",
+      "steps": {}, "branches": {}, "gates": {},
+      "position": "approve", "epilogue": null, "tool_calls": []
+    }
+  }
+}
+```
+
+**The scope file is always the state file's sibling**, derived via
+`resolve_state_location(...).with_name(SCOPES_FILENAME)` rather than a second upward walk.
+Two walks can disagree; one cannot. So the pair can never land in different directories or
+different modes.
+
+### 2.1 Reading, side by side
+
+| Condition | `state.json` | `scopes.json` |
+|---|---|---|
+| absent | empty envelope | empty — "no scopes" |
+| unparseable / not a dict | empty envelope | **`ScopeStoreUnreadableError`** |
+| version mismatch | empty envelope | **`ScopeStoreUnreadableError`** |
+
+A refusal **never moves the file**. It has to be a repeatable state: if the read renamed
+the file aside, the next run would find nothing, read it as "no scopes", and start the
+workflow over — silently, which is the failure the split exists to prevent. The file moves
+only at `func builtin state clear --scopes`, and even then it is moved, not deleted.
+
+The error reports a **count, never content**: scope records hold gate payloads and step
+return values, which may be secrets.
+
+Every delivery surface turns that error into a refusal — the CLI exits 2 (from both the
+cold and warm dispatch paths), and the MCP workflow tools return
+`{"error": "scope_store_unreadable", ...}` rather than claiming the workflow was not
+found.
 
 ## 3. Fingerprint Model
 
@@ -119,7 +176,14 @@ build
 
 ## 8. `func builtin state clear`
 
-- Clears runtime state only (fingerprints, scope records, history, preconditions)
-- Does NOT touch the discovery cache
-- `func cache clear` does NOT touch state
-- The two operations are independent and deliberate
+- Clears **derived** runtime state: fingerprints, history, session preconditions
+- **Keeps workflow scopes**, and says how many it kept. A scope is a run somebody is
+  waiting on, not a cache; discarding one is a separate decision
+- `--scopes` also discards scopes, **moving the file aside** rather than deleting it, and
+  reports where it went. This is also the escape hatch from a scope file that cannot be
+  read, so it never reads the file first
+- Does NOT touch the discovery cache; `func cache clear` does NOT touch state
+- `func builtin state show` reports both files, their counts, and the scope format
+  version. On an unreadable scope store it prints every other statistic, renders the scope
+  line as the fault, and exits 2 — it is the command people run to find out what is
+  wrong, so it diagnoses rather than stonewalls

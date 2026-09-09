@@ -14,7 +14,10 @@ Prerequisite: all tasks in `.spec/features/<name>/tasks.md` are [x].
    as such rather than closing over them. (`func why` was listed as an S3
    deliverable, was committed at the S3 gate, and did not exist as a command;
    this step is what would have caught it.)
-2c. **Orphan scan.** List symbols defined in `src/` that only tests reference.
+2c. **Orphan scan** — this is a *retrieval pass*, not a reading of the diff.
+   Run **serena** `find_referencing_symbols` over each symbol the feature added;
+   its per-file reference counts are the answer. List symbols defined in `src/`
+   that only tests reference.
    Treat each hit as a question to answer, not a failure — public API meant for
    users, plugin extension points, and symbols called from within their own
    defining module are legitimate. A hit that is none of those is unwired code.

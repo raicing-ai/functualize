@@ -11,10 +11,11 @@ from typing import TYPE_CHECKING, Any
 
 from fastmcp import FastMCP
 
+from functualize._types.errors import ScopeCancelledError
 from functualize_mcp._history_tools import MCPHistoryToolRegistry
 from functualize_mcp._management_tools import MCPManagementToolRegistry
 from functualize_mcp._task_tools import MCPTaskToolRegistry
-from functualize_mcp._tools import MCPToolRegistry
+from functualize_mcp._tools import MCPToolRegistry, wire_metadata, wire_status
 from functualize_mcp._translator import (
     JobToolTranslator,
     MCPToolDef,
@@ -254,9 +255,13 @@ def _execute_job(
             passing one through would fail argument validation.
 
     Returns:
-        Dict with status, return_value, and duration_ms on success, or an
-        error envelope — ``tool_not_permitted`` when a gate forbids the call,
+        Dict with status, return_value, duration_ms and metadata on success, or
+        an error envelope — ``tool_not_permitted`` when a gate forbids the call,
         otherwise the raised error.
+
+        ``status`` is a lowercase string. It used to be the raw ``RunStatus``
+        enum object here and the ``.value`` string in ``run_job``, so the two
+        doors into the same room disagreed about the shape of their answer.
     """
     if policy is not None and not policy.permitted(job_name):
         logger.info(
@@ -273,10 +278,14 @@ def _execute_job(
             job_name, group_option_values=group_values or None, **job_kwargs
         )
         return {
-            "status": result.status,
+            "status": wire_status(result.status),
             "return_value": result.return_value,
             "duration_ms": result.duration_ms,
+            "metadata": wire_metadata(result),
         }
+    except ScopeCancelledError as e:
+        # Same refusal, same code, as `run_job` — one error table, both doors.
+        return {"error": "scope_cancelled", "message": str(e), "job_name": job_name}
     except Exception as e:
         logger.error("MCPServer: Error executing job '%s': %s", job_name, e)
         return {"error": str(e), "job_name": job_name}

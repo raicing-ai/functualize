@@ -98,12 +98,13 @@ class FrontierWalk:
         Resuming is *replay*: a scope with a persisted position resumes there
         rather than re-entering at the graph entry.
         """
-        self._store.ensure_scope(self._scope_id, workflow)
-        position = self._store.get_position(self._scope_id)
-        if position is not None:
-            return [position]
-        self._store.set_scope_status(self._scope_id, WalkState.RUNNING)
-        self._store.set_position(self._scope_id, self._graph.entry)
+        with self._store.scope_batch():
+            self._store.ensure_scope(self._scope_id, workflow)
+            position = self._store.get_position(self._scope_id)
+            if position is not None:
+                return [position]
+            self._store.set_scope_status(self._scope_id, WalkState.RUNNING)
+            self._store.set_position(self._scope_id, self._graph.entry)
         return [self._graph.entry]
 
     def complete(
@@ -133,32 +134,37 @@ class FrontierWalk:
         from functualize._primitives.fingerprint import classify_return_value
 
         reusable, kind, type_name, stored = classify_return_value(return_value)
-        self._store.record_step(
-            self._scope_id,
-            step_key(node, args_hash),
-            {
-                "status": status,
-                "return_value": stored if reusable else None,
-                "return_value_reusable": reusable,
-                "return_value_kind": kind,
-                "return_value_type": type_name,
-                "inputs": dict(inputs or {}),
-                "completed_at": completed_at,
-            },
-        )
+        # One locked write for the node, not three. Everything inside is
+        # in-memory — `classify_return_value` and the graph lookups touch no
+        # disk — so the lock is held for microseconds. An exception in here
+        # discards the node's writes rather than leaving two of three applied.
+        with self._store.scope_batch():
+            self._store.record_step(
+                self._scope_id,
+                step_key(node, args_hash),
+                {
+                    "status": status,
+                    "return_value": stored if reusable else None,
+                    "return_value_reusable": reusable,
+                    "return_value_kind": kind,
+                    "return_value_type": type_name,
+                    "inputs": dict(inputs or {}),
+                    "completed_at": completed_at,
+                },
+            )
 
-        if self._graph.is_conditional(node):
-            choice = self._resolve_branch(node, choice)
+            if self._graph.is_conditional(node):
+                choice = self._resolve_branch(node, choice)
 
-        successors = self._graph.successors(node, choice)
-        runnable = [n for n in successors if n != END]
+            successors = self._graph.successors(node, choice)
+            runnable = [n for n in successors if n != END]
 
-        if not successors or successors == [END]:
-            self._store.set_position(self._scope_id, None)
-            self._store.set_scope_status(self._scope_id, WalkState.COMPLETED)
-            return []
+            if not successors or successors == [END]:
+                self._store.set_position(self._scope_id, None)
+                self._store.set_scope_status(self._scope_id, WalkState.COMPLETED)
+                return []
 
-        self._store.set_position(self._scope_id, runnable[0] if runnable else None)
+            self._store.set_position(self._scope_id, runnable[0] if runnable else None)
         return runnable
 
     def block(
@@ -186,19 +192,20 @@ class FrontierWalk:
         the declaration at call time, which has to import it anyway to run the
         job.
         """
-        self._store.set_position(self._scope_id, node)
-        self._store.set_scope_status(self._scope_id, WalkState.BLOCKED)
-        self._store.put_gate(
-            self._scope_id,
-            gate_name,
-            {
-                "model": model,
-                "input_schema": dict(input_schema or {}),
-                "tools": [dict(entry) for entry in tools],
-                "payload": None,
-                "blocked_at": blocked_at,
-            },
-        )
+        with self._store.scope_batch():
+            self._store.set_position(self._scope_id, node)
+            self._store.set_scope_status(self._scope_id, WalkState.BLOCKED)
+            self._store.put_gate(
+                self._scope_id,
+                gate_name,
+                {
+                    "model": model,
+                    "input_schema": dict(input_schema or {}),
+                    "tools": [dict(entry) for entry in tools],
+                    "payload": None,
+                    "blocked_at": blocked_at,
+                },
+            )
 
     def gate_payload(self, gate_name: str) -> Any:
         """Deposited input for a gate, or None while still blocked."""

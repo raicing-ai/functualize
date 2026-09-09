@@ -10,8 +10,13 @@ That branch used to drop `--scope-id` and `--prompt-gates`, which
 `_handle_job` defaults to `None`/`False`. The result was a workflow that
 honoured the caller's scope id on every warm run and silently minted a
 generated one on the first, cold-cache run — so the id the caller chose
-addressed nothing, and `workflow resume <id>` could not reach the scope that
-had just blocked.
+addressed nothing, and the scope that had just blocked could not be reached.
+
+`--scope-id` is gone; the post-command `--wf-run-id` and `--wf-resume` replace
+it, and they are click options on the job command rather than pre-command
+globals, so they cannot be dropped by a dispatch branch at all. The **rule**
+outlives the flag, which is why these tests do: anything Mode.JOB forwards,
+Mode.UNKNOWN must forward too, and `--prompt-gates` still travels that way.
 
 These tests run in a subprocess against an isolated `XDG_CACHE_HOME`, because
 a cold cache is the whole point: with a warm one the job resolves to
@@ -94,8 +99,10 @@ def _run_func(
     )
 
 
-class TestScopeIdSurvivesUnknownDispatch:
-    """`--scope-id` must reach the executor on the cold, UNKNOWN-mode run."""
+class TestRunIdSurvivesUnknownDispatch:
+    """A caller-chosen scope id must reach the executor on the cold,
+    UNKNOWN-mode run — the mode where the cheap enumeration has not yet
+    learned the job's name."""
 
     def test_cold_run_blocks_under_the_caller_s_scope_id(self, tmp_path: Path) -> None:
         """The very first invocation records the id the caller passed.
@@ -107,9 +114,9 @@ class TestScopeIdSurvivesUnknownDispatch:
         cache = tmp_path / "cache"
 
         run = _run_func(
-            "--scope-id",
-            "chosen-scope-id",
             "trip-planner",
+            "--wf-run-id",
+            "chosen-scope-id",
             "--city",
             "Tokyo",
             cwd=project,
@@ -138,22 +145,23 @@ class TestScopeIdSurvivesUnknownDispatch:
     ) -> None:
         """Resuming by the caller's id walks past the gate.
 
-        The end-to-end consequence of the fix: an id minted before the first
-        run stays usable for `resume`, which is how a caller (or an agent over
-        MCP) is expected to drive a gated workflow.
+        The end-to-end consequence: an id chosen before the first run stays
+        usable for `--wf-resume`, which is how a caller (or an agent over MCP)
+        drives a gated workflow. Note the split — `--wf-run-id` may mint the
+        scope, `--wf-resume` requires it to exist.
         """
         project = _write_project(tmp_path / "proj")
         cache = tmp_path / "cache"
 
         blocked = _run_func(
-            "--scope-id", "resume-me", "trip-planner", cwd=project, cache_home=cache
+            "trip-planner", "--wf-run-id", "resume-me", cwd=project, cache_home=cache
         )
         assert blocked.returncode == 5, f"stderr: {blocked.stderr}"
 
         resumed = _run_func(
             "builtin",
             "workflow",
-            "resume",
+            "answer",
             "resume-me",
             "preferences",
             "--input",
@@ -164,7 +172,7 @@ class TestScopeIdSurvivesUnknownDispatch:
         assert resumed.returncode == 0, f"stderr: {resumed.stderr}"
 
         completed = _run_func(
-            "--scope-id", "resume-me", "trip-planner", cwd=project, cache_home=cache
+            "trip-planner", "--wf-resume", "resume-me", cwd=project, cache_home=cache
         )
         assert completed.returncode == 0, (
             f"stdout: {completed.stdout}\nstderr: {completed.stderr}"

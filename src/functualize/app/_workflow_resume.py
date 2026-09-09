@@ -77,7 +77,7 @@ def deposit_gate_input(
         return error
 
     try:
-        model(**payload)
+        validated = model(**payload)
     except Exception as exc:
         return {
             "error": "validation_error",
@@ -85,19 +85,36 @@ def deposit_gate_input(
             "gate": gate,
         }
 
-    store.deposit_gate_payload(scope_id, gate, payload)
+    # Store the **dump**, not the raw input.
+    #
+    # This path validated with `model(**payload)` and then stored `payload`,
+    # discarding every Pydantic default and coercion the validation had just
+    # applied. The walker's own strategy path stores `model.model_dump()`
+    # (`workflow_walker.py`), and the walker feeds whichever it finds straight
+    # to the node — so one gate produced two different objects depending on who
+    # answered it, and a model with a defaulted field had that field *missing*
+    # when a human deposited the answer.
+    #
+    # One invariant, stated once: `payload` is only ever the output of a
+    # complete, successful validation, dumped. Nothing downstream has to know
+    # which path wrote it.
+    store.deposit_gate_payload(scope_id, gate, validated.model_dump())
     # Name the command, not the concept. "Run the workflow job with scope_id
     # 'X'" named neither the flag nor its position, and the audit that found
     # this got both wrong twice before reading `dispatch.py`. The job address
     # is dotted (`audit.audit-run`) and the command path is not
     # (`audit audit-run`), so the dotted form would print something that
     # answers `No such command`.
+    #
+    # `--wf-resume` replaces `--scope-id`, and it does more than rename: this
+    # hint is now a command that *finishes the run*, where the old one only
+    # started another attempt at it.
     workflow_name = str(scope.get("workflow") or "")
     resume_hint = (
         f" Continue with: <your entry point> {workflow_name.replace('.', ' ')} "
-        f"--scope-id {scope_id}"
+        f"--wf-resume {scope_id}"
         if workflow_name
-        else f" Re-run the workflow job with --scope-id {scope_id}."
+        else f" Re-run the workflow job with --wf-resume {scope_id}."
     )
     return {
         "status": "input_accepted",
