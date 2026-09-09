@@ -36,8 +36,8 @@ from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
 from functualize._primitives.config_class_detection import detect_config_class
 from functualize._types.enums import RunStatus
 from functualize._types.exit_codes import ExitCode, exit_code_for_status
-from functualize._types.naming import negative_flag_for
 from functualize._types.outcome import Family, is_failure, report_line
+from functualize.types import negative_flag_for
 
 if TYPE_CHECKING:
     from functualize._types.run_request import RunSurface

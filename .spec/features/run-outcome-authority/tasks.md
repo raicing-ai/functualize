@@ -176,7 +176,7 @@ now: `≥1` · after: `≥1` **plus** a comment in `flag_grammar.py` naming the 
 
 ## Wave 5 — four grammar consumers
 
-### [ ] T9 · The click builders read the grammar
+### [x] T9 · The click builders read the grammar
 
 **Files:** `src/functualize/app/adapters/click_params.py`
 
@@ -217,13 +217,24 @@ The fourth consumer group. It computes flag partitions independently today.
 Spec AC-10, AC-11. The count test **asserts the count and prints the list**, so adding a
 legitimate consumer is one obvious line and the diff shows a reviewer what changed (risk R-e).
 
-**Gate — the consumer set as it stands**
+**Gate — the consumer set as it stands** *(corrected during execution)*
 ```bash
-rg -l 'negative_flag_for' src/functualize/ | grep -v '_types/' | grep -v 'app/utils.py' | sort
+rg -l 'GLOBAL_OPTIONS_ALWAYS_VALUE|GLOBAL_OPTIONS_OPTIONAL_VALUE|OPTIONAL_VALUE_VALID_SET' \
+   -e 'GLOBAL_OPTIONS_WITH_VALUE|GLOBAL_BOOL_FLAGS|flag_aliases|negative_aliases' \
+   -e 'match_group_flag|negative_flag_for' src/functualize/ \
+  | grep -vE '_types/flag_grammar.py|_types/naming.py|app/utils.py|types/__init__.py' | sort
 ```
-now: `_cli/dispatch.py`, `_cli/tui/bar.py`, `_cli/tui/sync.py`,
-`app/adapters/click_params.py` *(4 files, 7 call sites)* · after: same 4 files, pinned by the
-test
+now: `_cli/dispatch.py`, `_cli/main.py`, `_cli/tui/bar.py`, `_cli/tui/sync.py`,
+`app/adapters/click_params.py` *(5 files)* · after: the same 5, pinned by the test
+
+*(The gate as authored counted only the name `negative_flag_for`, and after T8 that
+under-counts in both directions. `_cli/dispatch.py` no longer says `negative_flag_for` — its
+call moved **into** `flag_grammar.negative_aliases`, which dispatch now calls, so it is still
+a consumer under a different spelling. `_cli/main.py` **became** one, reading
+`GLOBAL_OPTIONS_ALWAYS_VALUE` directly once T11 removed the `_`-prefixed aliases T8 had left
+in `dispatch.py`. And `types/__init__.py` would have matched the original pattern despite
+being a re-export, because the exclusion said `_types/`, not `types/`. A consumer count that
+tracks one function name measures a spelling, not a dependency.)*
 
 **Sabotage:** diverge one alias in the click builder only; the round-trip test must fail.
 
