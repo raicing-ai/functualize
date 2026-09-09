@@ -135,7 +135,7 @@ now: `click_params.py:0`, `lazy_command.py:0` · after: `click_params.py:1`, `la
 
 **Test:** for one argv, the eager and lazy paths produce **equal** requests (risk R-b).
 
-### [ ] T6 · An app's own CLI builds requests
+### [x] T6 · An app's own CLI builds requests
 
 **Files:** `src/functualize/app/adapters/cli.py`, `src/functualize/app/commands.py`
 
@@ -239,9 +239,13 @@ now: `6` *(`_app/impl.py:861`, `invoke.py:401`, `invoke.py:598`, `click_params.p
 
 **Gate — T4's transitional bridges are gone** *(added during execution)*
 ```bash
-rg -c '_run_request|_builtin_delivery_inputs' src/functualize/_cli/main.py
+rg -n '\bapp\._run_request|_builtin_delivery_inputs' src/functualize/ | wc -l
 ```
-now: `11` · after: `0`
+now: `12` · after: `0`
+
+*(Widened during execution: T6 mirrored T4's deposit into `app/adapters/cli.py` and
+`app/commands.py`, so a gate scoped to `_cli/main.py` would have missed two thirds of it.
+The `\bapp\.` anchor keeps `run_request.py`'s own docstring out of the count.)*
 
 > **Why this gate exists.** T4 could not call the facade directly: the four `func` paths
 > execute *through* click commands, and the callback that runs the job belongs to T5/T11.

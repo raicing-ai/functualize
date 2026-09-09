@@ -692,6 +692,22 @@ def _try_discovered_job(cmd: str, remaining_args: list[str], app: object) -> int
 
     descriptor = matching[0]
 
+    # run-request-entry (T6): the app's own CLI door names its run. This
+    # fallback is one of the app-CLI job paths (a job registered after the
+    # click tree was built); it deposits the request the way func's handlers
+    # do (`_cli/main.py`), carrying the app.cli surface and the force flag
+    # the app-side root callback deposits.
+    # TRANSITIONAL(run-request/T11): the request carries the surface and
+    # delivery inputs the deposits currently also carry. T11 wires the
+    # callback to read the request; T12 removes the deposit writes.
+    from functualize._types.run_request import RunRequest
+
+    app._run_request = RunRequest(  # type: ignore[attr-defined]
+        job_name=descriptor.name,
+        surface="app.cli",
+        force=bool(getattr(app, "_force", False)),
+    )
+
     try:
         # Materializes lazy entries (imports only this job's module) and
         # returns the live function + detected config_class.
