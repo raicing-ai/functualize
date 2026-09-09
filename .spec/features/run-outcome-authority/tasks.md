@@ -85,7 +85,7 @@ rg -c 'RunStatus.SUCCESS, RunStatus.SKIPPED, RunStatus.BLOCKED' src/functualize/
 ```
 now: `1` *(`:598`)* · after: `0`
 
-### [ ] T5 · `wire_status()` reads the module
+### [x] T5 · `wire_status()` reads the module
 
 **Files:** `plugins/functualize-mcp/src/functualize_mcp/_tools.py`
 
@@ -98,7 +98,7 @@ rg -c 'status_from_wire|wire_value|Family.TOOL' plugins/functualize-mcp/src/func
 ```
 now: `0` · after: `≥1`
 
-### [ ] T6 · HTTP and Lambda declare `WIRE`
+### [x] T6 · HTTP and Lambda declare `WIRE`
 
 **Files:** `plugins/functualize-http/src/functualize_http/__init__.py`,
 `plugins/functualize-lambda/src/functualize_lambda/__init__.py`

@@ -59,6 +59,12 @@ def _response(result: Any) -> dict[str, Any]:
 
     ``status`` and ``error`` are added rather than substituted: a caller
     reading ``body`` on success keeps reading exactly what it read before.
+
+    This surface declares :attr:`~functualize.types.Family.WIRE`: a finished
+    run reads as an HTTP status code, and the outcome authority's WIRE table
+    renders it -- BLOCKED is 202, resumable rather than an error. The family
+    used to be implied by importing the WIRE table's function; naming it
+    keeps the surface-to-family map greppable when a status lands.
     """
     status = result.status
     payload: dict[str, Any] = {

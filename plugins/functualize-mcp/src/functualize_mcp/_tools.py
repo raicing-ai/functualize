@@ -21,8 +21,9 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from functualize._types.enums import RunStatus
 from functualize._types.errors import ScopeCancelledError
-from functualize.types import RunRequest
+from functualize.types import RunRequest, wire_value
 from functualize_mcp._translator import JobToolTranslator
 
 if TYPE_CHECKING:
@@ -42,11 +43,22 @@ def wire_status(status: Any) -> str:
     where every document describing the protocol says ``"blocked"``
     (``docs/guides/mcp.md``).
 
+    That disagreement is settled in ``functualize._types.outcome`` — the single
+    authority for how a :class:`~functualize.types.RunStatus` reads at a
+    boundary. This surface declares :attr:`~functualize.types.Family.TOOL`: a
+    tool response carries a status string, and the caller branches on the
+    string. :func:`~functualize.types.wire_value` is the authoritative spelling;
+    the string fallback below is only for fakes that hand in a plain ``str``
+    (e.g. test doubles), preserving the old defensive behaviour for anything
+    that is not yet a ``RunStatus``.
+
     ``RunStatus`` stays a plain ``Enum`` — it is the shared internal vocabulary
     and its capitalized values reach the CLI's own output. This is a *boundary*
     normalization, which is where a wire format belongs.
     """
-    return getattr(status, "value", str(status)).lower()
+    if isinstance(status, RunStatus):
+        return wire_value(status)
+    return str(status).lower()
 
 
 def wire_metadata(result: Any) -> dict[str, Any]:

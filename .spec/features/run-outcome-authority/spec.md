@@ -172,7 +172,10 @@ in a comment, so the exclusion is a decision rather than an omission.
   renders the run as done.
 - **AC-7** A panel ≡ table parity test derives its expectations **from the module**, never
   from a second list.
-- **AC-8** The three plugin `test_status_codes.py` suites pass unchanged.
+- **AC-8** The plugin `test_status_codes.py` suites pass unchanged. *(Corrected during
+  execution: there are **two**, not three — `functualize-http` and `functualize-lambda`.
+  `functualize-mcp` carries `test_terminal_affinity.py` instead, which is a different
+  question. Both parametrized suites are green.)*
 - **AC-9** `_types/flag_grammar.py` holds the value/optional-value/bool tables, the negative
   spelling, and the alias matchers; `_cli/dispatch.py` holds none of them.
 - **AC-10** Every `negative_flag_for` consumer reads it through the grammar module, and a test

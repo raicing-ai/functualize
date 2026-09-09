@@ -190,6 +190,13 @@ class HttpServerCore:
             # a load balancer, a retry policy, `curl -f` -- saw success on a
             # failed run. One table (`functualize.types`) answers this for
             # every delivery surface.
+            #
+            # This surface declares :attr:`~functualize.types.Family.WIRE`:
+            # an HTTP status code is what the caller reads, so the outcome
+            # authority's WIRE table renders the code -- BLOCKED is 202,
+            # resumable rather than an error. The family used to be implied
+            # by importing the WIRE table's function; naming it keeps the
+            # surface-to-family map greppable when a status lands.
             return http_status_for_status(result.status), response_body
         except Exception as e:
             logger.exception(f"Error executing job '{job_name}'")
