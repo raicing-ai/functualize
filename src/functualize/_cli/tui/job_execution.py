@@ -275,23 +275,42 @@ def execute_job_sync(
     # exception — so a panel that only caught exceptions printed "✓ Done" for a
     # run the engine recorded as a failure. That is precisely the split a user
     # sees between this panel and `func builtin history`, which reads the same
-    # status. SKIPPED/BLOCKED are not failures (a blocked workflow did what it
-    # was asked and is resumable), matching `func builtin parallel`'s rule.
-    from functualize.app.utils import RunStatus, exit_code_for_status
+    # status.
+    #
+    # **This surface asks two questions, and they have different answers** (D3).
+    # The panel is PANEL: a paused run is rendered as done, because it did what
+    # it was asked and stays addressable right here — painting it red is how
+    # BLOCKED came to look like a failure to a user who could see it had not.
+    # The process exit is PROCESS: a shell reads it, and a script resuming in a
+    # loop needs to know whether it finished, so a pause exits 5.
+    #
+    # Those two used to be one branch with one answer, and the comment that
+    # justified it cited `func builtin parallel` — another hand-written site,
+    # not an authority. Both now read the same module, and the parity test
+    # derives its expectations from that module rather than from a second list.
+    from functualize.app.utils import Family, exit_code_for_status, is_failure
 
     status = getattr(result, "status", None)
-    if status in (RunStatus.SUCCESS, RunStatus.SKIPPED, RunStatus.BLOCKED):
+    if status is None:
+        rendered_failure, return_code = True, 1
+    else:
+        rendered_failure = is_failure(status, family=Family.PANEL)
+        return_code = (
+            int(exit_code_for_status(status))
+            if is_failure(status, family=Family.PROCESS)
+            else 0
+        )
+
+    if not rendered_failure:
         _write("[bold green]✓ Done[/bold green]")
         _write("─" * 40)
         outcome = "success"
-        return_code = 0
     else:
         exc = getattr(result, "exception", None)
         detail = _translate_error(exc) if exc is not None else str(status)
         _write(f"[bold red]✗ Failed: {detail}[/bold red]")
         _write("─" * 40)
         outcome = "failure"
-        return_code = int(exit_code_for_status(status)) if status is not None else 1
 
     effective_values = extract_effective_values(app._pending, job_name, kwargs)
     app._snapshot_store.record(job_name, effective_values, outcome)

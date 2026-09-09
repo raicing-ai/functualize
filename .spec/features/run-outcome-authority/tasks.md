@@ -119,7 +119,7 @@ terminal `RunStatus` — pass unchanged. Spec AC-8.
 
 ## Wave 3 — the TUI's two families, and the only behaviour change
 
-### [ ] T7 · The inline TUI renders `PANEL` and exits `PROCESS` — **D3**
+### [x] T7 · The inline TUI renders `PANEL` and exits `PROCESS` — **D3**
 
 **Files:** `src/functualize/_cli/tui/job_execution.py`,
 `tests/tui_audit/test_panel_agrees_with_table.py`
@@ -130,10 +130,15 @@ becomes 5, matching every other surface and matching the decision 0.3.0 already 
 
 **Gate — no surface owns a success set any more**
 ```bash
-rg -c 'RunStatus.SUCCESS, RunStatus.SKIPPED, RunStatus.BLOCKED' src/functualize/
+rg -c 'RunStatus.SUCCESS, RunStatus.SKIPPED, RunStatus.BLOCKED' src/functualize/ --glob '!**/outcome.py'
 ```
 now: `_cli/tui/job_execution.py:1`, `_cli/builtins.py:1` *(builtins cleared at T4)* ·
-after: `0` tree-wide
+after: `0` outside the authority
+
+*(Narrowed during execution: `_types/outcome.py` holds this set three times — it is the
+`_NOT_A_FAILURE` table for PANEL, TOOL and WIRE, i.e. the one place the set is **supposed**
+to live. A tree-wide `after: 0` would have been unreachable without deleting the authority
+the task exists to create.)*
 
 **Test:** the parity test derives expectations **from `outcome.py`**, never from a second
 list — the `TestReadinessAgreesWithClick` pattern. One test body asserts both families for the
