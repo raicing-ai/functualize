@@ -81,6 +81,11 @@ from functualize._types.redaction import (
     is_secret_field,
     reveal,
 )
+from functualize._types.run_request import (
+    RUN_SURFACES,
+    RunRequest,
+    RunSurface,
+)
 from functualize.app._workflow_answer import answer_gate, gate_draft, resolve_gate
 from functualize.app._workflow_control import (
     GateToolPolicy,
@@ -135,6 +140,9 @@ def job_config_fields(app: Any, job_name: str) -> list[Any]:
 
 
 __all__ = [
+    "RUN_SURFACES",
+    "RunRequest",
+    "RunSurface",
     "auto_discover",
     "classify_group",
     "PluginKind",

@@ -24,8 +24,12 @@ from functualize._types.enums import (
     RunType,
 )
 from functualize._types.http_status import http_status_for_status
+from functualize._types.run_request import RUN_SURFACES, RunRequest, RunSurface
 
 __all__ = [
+    "RUN_SURFACES",
+    "RunRequest",
+    "RunSurface",
     "JobResult",
     "JobDescriptor",
     "FieldDescriptor",

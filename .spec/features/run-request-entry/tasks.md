@@ -17,7 +17,7 @@ here rather than silently fixed, per the acceptance-gate rule:
 
 ## Wave 0 — the value object
 
-### [ ] T1 · `RunRequest` exists, and nothing depends on it yet
+### [x] T1 · `RunRequest` exists, and nothing depends on it yet
 
 **Files:** `src/functualize/_types/run_request.py`, `src/functualize/_types/__init__.py`,
 `src/functualize/app/utils.py`, `tests/types/test_run_request.py`

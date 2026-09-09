@@ -65,6 +65,11 @@ from functualize._types.protocols import (
     Source,
 )
 from functualize._types.redaction import Secret
+from functualize._types.run_request import (
+    RUN_SURFACES,
+    RunRequest,
+    RunSurface,
+)
 from functualize._types.shell import (
     FailingResponder,
     Responder,
@@ -132,4 +137,8 @@ __all__ = [
     "Stdout",
     "Source",
     "Surface",
+    # The request
+    "RUN_SURFACES",
+    "RunRequest",
+    "RunSurface",
 ]
