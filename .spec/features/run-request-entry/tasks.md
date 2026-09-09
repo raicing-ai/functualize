@@ -119,7 +119,7 @@ rg -c 'RunRequest\(' src/functualize/_cli/main.py
 ```
 now: `0` · after: `4`
 
-### [ ] T5 · Both click constructors build requests through one helper
+### [x] T5 · Both click constructors build requests through one helper
 
 **Files:** `src/functualize/app/adapters/click_params.py`,
 `src/functualize/app/adapters/lazy_command.py`,

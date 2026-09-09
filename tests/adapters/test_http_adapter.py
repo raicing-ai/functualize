@@ -20,6 +20,15 @@ from functualize_http import HttpAdapter, HttpServerCore, HttpServerPlugin
 from functualize.app.adapters import AdapterPlugin
 from functualize.types import RunStatus
 
+
+def _sole_request(app):
+    """The single RunRequest the door handed to the facade."""
+    app.execute.assert_called_once()
+    (request,), kwargs = app.execute.call_args
+    assert not kwargs, f"a door must pass only the request, got {kwargs}"
+    return request
+
+
 # =============================================================================
 # Helpers / Fixtures
 # =============================================================================
@@ -244,7 +253,12 @@ class TestHttpServerCoreRequestHandling:
         assert response["status"] == "Success"
         assert response["duration_ms"] == 123.4
         assert response["return_value"] == {"deployed": True}
-        app.execute.assert_called_once_with("deploy", env="prod")
+        # The door now hands over one RunRequest (run-request-entry T7); the
+        # body's keys are its kwargs, and the surface names the door.
+        request = _sole_request(app)
+        assert request.job_name == "deploy"
+        assert request.surface == "http"
+        assert dict(request.kwargs) == {"env": "prod"}
 
     def test_execute_job_with_empty_body(self):
         """POST /jobs/{name}/execute with empty body passes no kwargs."""
@@ -257,7 +271,10 @@ class TestHttpServerCoreRequestHandling:
         )
 
         assert status == 200
-        app.execute.assert_called_once_with("test")
+        request = _sole_request(app)
+        assert request.job_name == "test"
+        assert request.surface == "http"
+        assert dict(request.kwargs) == {}
 
     def test_execute_job_not_found(self):
         """POST /jobs/{name}/execute for unknown job returns 404."""
@@ -455,7 +472,9 @@ class TestAsyncToSyncBridging:
         assert status == 200
         assert response["return_value"] == "done"
         # Verify app.execute was called (proving async-to-sync bridge worked)
-        app.execute.assert_called_once_with("sync-job", x=1)
+        request = _sole_request(app)
+        assert request.job_name == "sync-job"
+        assert dict(request.kwargs) == {"x": 1}
 
 
 # =============================================================================

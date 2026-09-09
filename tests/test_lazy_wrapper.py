@@ -312,10 +312,9 @@ class TestMakeLazyCommand:
         app = MagicMock()
         entry = MagicMock()
         app.execution_engine.materialize_job.return_value = entry
-        # The normal path now builds a RunRequest and hands it to the facade
-        # (app.execute) instead of calling engine.execute directly. The
-        # facade resolves by name via engine.run, which calls get_job.
-        app.execute.return_value = _ok_result("my_func")
+        # The normal path builds a RunRequest, then unpacks it into
+        # engine.execute (transitional — T11 switches to engine.run).
+        app.execution_engine.execute.return_value = _ok_result("my_func")
 
         with patch(
             "functualize._discovery.lazy_wrapper.importlib.import_module",
@@ -325,11 +324,11 @@ class TestMakeLazyCommand:
             cmd.callback(key="value")  # type: ignore[misc]
 
         app.execution_engine.materialize_job.assert_called_once_with("my_func")
-        # The request carries the job name and kwargs; the facade resolves.
-        request = app.execute.call_args.args[0]
-        assert request.job_name == "my_func"
-        assert request.kwargs == {"key": "value"}
-        assert request.surface == "app.cli"
+        call_kwargs = app.execution_engine.execute.call_args
+        assert call_kwargs.kwargs["job_name"] == "my_func"
+        assert call_kwargs.kwargs["function"] is entry.function
+        assert call_kwargs.kwargs["config_class"] is entry.config_class
+        assert call_kwargs.kwargs["kwargs"] == {"key": "value"}
 
     def test_import_failure_prints_error_and_exits(self, capsys):
         desc = _make_descriptor(module_path="bad.module.path")

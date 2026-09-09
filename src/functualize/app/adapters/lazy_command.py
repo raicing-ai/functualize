@@ -118,14 +118,13 @@ def make_lazy_command(
 
         engine = app.execution_engine
         try:
-            engine.materialize_job(descriptor.name)
+            entry = engine.materialize_job(descriptor.name)
         except KeyError:
             # TRANSITIONAL(run-request/T11): Descriptor not registered with
             # this app's engine — legacy direct-import path (adapter used
-            # standalone). The normal path builds a RunRequest and goes through
-            # the facade; this fallback still calls engine.execute because
-            # run() resolves by name and this job is not registered. T11 moves
-            # resolution into run().
+            # standalone). The normal path builds a RunRequest; this fallback
+            # still calls engine.execute because run() resolves by name and
+            # this job is not registered. T11 moves resolution into run().
             from functualize._discovery.lazy_wrapper import _detect_config_class
 
             try:
@@ -157,9 +156,12 @@ def make_lazy_command(
             print(f"Error: {exc}", file=sys.stderr)
             sys.exit(1)
 
-        # Normal path: the job is registered. Build a RunRequest and hand it to
-        # the facade — the same builder the eager path in click_params uses
-        # (pitfalls.md §23: two dispatch paths, one contract).
+        # Normal path: the job is registered. Build a RunRequest — the same
+        # contract the eager path in click_params builds (pitfalls.md §23:
+        # two dispatch paths, one contract).
+        # TRANSITIONAL(run-request/T11): the request is the contract, but
+        # engine.run() resolves by name and this path holds a live function.
+        # T11 moves resolution into run() and this becomes engine.run(request).
         from functualize.app.adapters._request_builder import build_request
 
         with live_ctx, scope_store_refusal():
@@ -172,13 +174,23 @@ def make_lazy_command(
                 workflow_scope_id=scope_id,
                 force=_force_requested(app),
             )
-            result = app.execute(request)
+            result = engine.execute(
+                job_name=request.job_name,
+                function=entry.function,
+                config_class=entry.config_class,
+                kwargs=dict(request.kwargs),
+                group_option_values=(
+                    dict(request.group_option_values)
+                    if request.group_option_values is not None
+                    else None
+                ),
+                workflow_scope_id=request.workflow_scope_id,
+                force=request.force,
+            )
 
         return deliver_job_result(result, descriptor.name, app)
 
     params = build_click_params_from_descriptor(descriptor)
-    # The cached descriptor already records the `@workflow` topology (v10), so
-    # the warm path can tell which jobs need the option without importing the
     # module — which is the whole point of the descriptor.
     if getattr(descriptor, "workflow", None) is not None:
         from functualize.app.adapters.workflow_flags import workflow_flag_params

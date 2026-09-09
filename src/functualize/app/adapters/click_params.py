@@ -1154,7 +1154,23 @@ def build_job_engine_callback(
                 workflow_scope_id=scope_id,
                 force=_force_requested(app_ref),
             )
-            result = app_ref.execute(request)  # type: ignore[union-attr]
+            # TRANSITIONAL(run-request/T11): the request is the contract both
+            # paths agree on, but engine.run() resolves by name and the click
+            # path holds a live function. T11 moves resolution into run() and
+            # this becomes engine.run(request).
+            result = app_ref.execution_engine.execute(  # type: ignore[union-attr]
+                job_name=request.job_name,
+                function=function,
+                config_class=job_config_class,
+                kwargs=dict(request.kwargs),
+                group_option_values=(
+                    dict(request.group_option_values)
+                    if request.group_option_values is not None
+                    else None
+                ),
+                workflow_scope_id=request.workflow_scope_id,
+                force=request.force,
+            )
         return deliver_job_result(result, name, app_ref)
 
     return wrapper

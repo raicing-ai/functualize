@@ -49,19 +49,26 @@ class FakeApp:
     def __init__(self, jobs: dict[str, Any] | None = None):
         self._jobs = jobs or {}
 
-    def execute(self, job_name: str, **kwargs: Any) -> FakeJobResult:
+    def execute(self, request: Any) -> FakeJobResult:
+        """The facade signature as of run-request-entry T3.
+
+        The door hands over one RunRequest naming its surface, so the fake
+        records it and tests can assert the door identified itself.
+        """
+        self.last_request = request
+        job_name = request.job_name
         if job_name not in self._jobs:
             raise KeyError(f"Job '{job_name}' not found")
         handler = self._jobs[job_name]
-        result = handler(**kwargs)
+        result = handler(**dict(request.kwargs))
         return FakeJobResult(return_value=result, job_name=job_name)
 
 
 class FailingApp:
     """App that raises on execute for error path testing."""
 
-    def execute(self, job_name: str, **kwargs: Any) -> Any:
-        raise RuntimeError(f"Execution failed for '{job_name}'")
+    def execute(self, request: Any) -> Any:
+        raise RuntimeError(f"Execution failed for '{request.job_name}'")
 
 
 # =============================================================================
