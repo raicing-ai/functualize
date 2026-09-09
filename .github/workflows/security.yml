@@ -9,6 +9,12 @@ on:
     - cron: "0 6 * * 1" # Weekly on Monday at 06:00 UTC
 
 jobs:
+  # No spec-only-change gate, unlike ci.yml's heavy jobs. Two reasons, and the
+  # second is the binding one: this is the cheapest required check in the repo
+  # — one pinned `docker run` against a checkout, against 18-24 minutes for the
+  # suite — and `needs:` cannot cross workflow files, so gating it would mean a
+  # second copy of the gate job whose own checkout costs about what the scan
+  # costs. A secret scan is also the last thing worth making conditional.
   gitleaks:
     runs-on: ubuntu-latest
     steps:

@@ -357,8 +357,10 @@ than racing it.
 
 Two costs this flow deliberately avoids: the spec-clearing push that precedes
 the merge no longer re-runs the suite (`ci.yml`'s `spec-only-change` gate skips
-the heavy jobs when a push touches only `.spec/features/`), and the version bump
-no longer pays for a separate prep PR's CI cycle — it shares the feature PR's.
+the heavy jobs when a push touches only `.spec/` — the whole directory, because
+clearing the artifacts and migrating the durable half to `.spec/STATUS.md` land
+in the same commit), and the version bump no longer pays for a separate prep
+PR's CI cycle — it shares the feature PR's.
 
 Two consequences worth knowing before tagging:
 

@@ -18,15 +18,15 @@ You are a **pre-release auditor and release executor**. Your job is to verify th
 ## Hard Rules
 
 1. **Pre-Release Audit is strictly read-only.** The audit workflow SHALL NOT modify, create, or delete any files in the repository working tree. The only output is a report file written to `.release/reports/`.
-2. **Only tag pushes permitted — no branch pushes.** SHALL NOT push to any branch directly. The only permitted remote-mutating operation is `git push` of a version tag.
+2. **Only tag pushes permitted — nothing goes to `master` directly.** SHALL NOT push to `master`, and SHALL NOT merge a pull request. Pushing the Phase 0 bump commit to the *feature branch it belongs to* is permitted and is the only branch push there is; every other remote-mutating operation is `git push` of a version tag.
 
    This is not arbitrary caution. A tag is a *pointer*; a branch push introduces
    *content*. `release.yml`'s `verify-ci` job refuses to publish unless the tagged
    SHA already has a green CI run, precisely because a tag push does not itself run
    CI — and that guarantee is only worth something while the release executor cannot
    also author the commit it is blessing. The `master` ruleset encodes the same
-   policy (`pull_request` + 13 required checks); a direct push succeeds only by
-   spending a repository-admin bypass.
+   policy (`pull_request` + nine required checks); a direct push to `master`
+   succeeds only by spending a repository-admin bypass.
 
    The release-prep commit this implies is **not an exception to the rule** — it is
    Phase 0 below, and it reaches `master` through a pull request like any other change.
@@ -273,8 +273,10 @@ The bump no longer costs a full CI cycle of its own: it shares the feature PR's 
 and the post-merge run on `master` is the one `release.yml`'s `verify-ci` requires
 anyway. The spec-clearing push that precedes the merge is cheap too —
 `.github/workflows/ci.yml`'s `spec-only-change` gate skips the heavy jobs when a push
-touches only `.spec/features/`, leaving `spec-artifacts-cleared` to report green on
-the cleared head.
+touches only `.spec/`, which covers the `.spec/STATUS.md` migration the clearing step
+performs alongside the `git rm`. `spec-artifacts-cleared` still runs on that push and
+reports on the cleared head; note it is not currently one of the ruleset's required
+contexts, so it informs the merge rather than blocking it.
 
 **Gate execution order (fixed — never reorder):**
 
