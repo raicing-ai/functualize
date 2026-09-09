@@ -531,7 +531,7 @@ class TestInvokeAlwaysReturnsJobResult:
             exception=None,
             metadata={},
         )
-        engine.execute.return_value = expected_result
+        engine.run.return_value = expected_result
 
         result = invoke_cap(job_name)
 
@@ -574,7 +574,7 @@ class TestInvokeAlwaysReturnsJobResult:
             exception=err,
             metadata={},
         )
-        engine.execute.return_value = expected_result
+        engine.run.return_value = expected_result
 
         result = invoke_cap(job_name)
 
@@ -635,16 +635,16 @@ class TestParallelExecutionPreservesInputOrder:
 
         engine.get_job.side_effect = get_job_side_effect
 
-        def execute_side_effect(**kwargs):
+        def run_side_effect(request):
             return JobResult(
                 status=RunStatus.SUCCESS,
                 duration_ms=1.0,
-                return_value=f"result-{kwargs['job_name']}",
+                return_value=f"result-{request.job_name}",
                 exception=None,
-                job_name=kwargs["job_name"],
+                job_name=request.job_name,
             )
 
-        engine.execute.side_effect = execute_side_effect
+        engine.run.side_effect = run_side_effect
         engine._hook_registry._global_hooks = {}
 
         invoke_cap = WiredInvoke(
@@ -693,16 +693,16 @@ class TestParallelExecutionPreservesInputOrder:
 
         engine.get_job.side_effect = get_job_side_effect
 
-        def execute_side_effect(**kwargs):
+        def run_side_effect(request):
             return JobResult(
                 status=RunStatus.SUCCESS,
                 duration_ms=1.0,
-                return_value=f"result-{kwargs['job_name']}",
+                return_value=f"result-{request.job_name}",
                 exception=None,
-                job_name=kwargs["job_name"],
+                job_name=request.job_name,
             )
 
-        engine.execute.side_effect = execute_side_effect
+        engine.run.side_effect = run_side_effect
         engine._hook_registry._global_hooks = {}
 
         invoke_cap = WiredInvoke(

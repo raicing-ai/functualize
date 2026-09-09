@@ -151,9 +151,7 @@ class TestInvokeParallel:
             module_path="test",
             job_directory=None,
         )
-        engine.execute.side_effect = lambda **kwargs: results_by_name[
-            kwargs["job_name"]
-        ]
+        engine.run.side_effect = lambda request: results_by_name[request.job_name]
 
         rc, _ = make_run_context(execution_engine=engine)
         jobs = [("slow", {}), ("fast", {}), ("medium", {})]
@@ -184,7 +182,7 @@ class TestInvokeParallel:
             module_path="test",
             job_directory=None,
         )
-        engine.execute.return_value = expected
+        engine.run.return_value = expected
 
         rc, _ = make_run_context(execution_engine=engine)
         results = rc.invoke_parallel([("my-job", {"x": 1})])
@@ -226,9 +224,9 @@ class TestInvokeParallel:
 
         call_count = [0]
 
-        def mock_execute(**kwargs):
+        def mock_execute(request):
             call_count[0] += 1
-            if kwargs["job_name"] == "bad":
+            if request.job_name == "bad":
                 raise RuntimeError("boom")
             return JobResult(
                 status=RunStatus.SUCCESS,
@@ -246,7 +244,7 @@ class TestInvokeParallel:
             module_path="test",
             job_directory=None,
         )
-        engine.execute.side_effect = mock_execute
+        engine.run.side_effect = mock_execute
 
         rc, _ = make_run_context(execution_engine=engine)
         results = rc.invoke_parallel([("good1", {}), ("bad", {}), ("good2", {})])
@@ -270,7 +268,7 @@ class TestInvokeParallel:
             module_path="test",
             job_directory=None,
         )
-        engine.execute.return_value = JobResult(
+        engine.run.return_value = JobResult(
             status=RunStatus.SUCCESS,
             duration_ms=1.0,
             return_value=None,

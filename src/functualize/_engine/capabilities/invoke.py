@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from functualize._engine.capabilities.spec import CapabilitySpec
+from functualize._types import RunRequest
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -398,15 +399,18 @@ class WiredInvoke(Invoke):
         parent_scope = self._workflow_scope
 
         def _do_execute() -> JobResult:
-            return self._engine.execute(
-                job_name=job_name,
-                function=registered_job.function,
-                config_class=registered_job.config_class,
-                kwargs=kwargs,
-                parent_scope=parent_scope,
-                invoke_depth=child_depth,
-                cwd=self._cwd,
-                job_directory=registered_job.job_directory,
+            # Surface `invoke` (contracts §5). parent_scope is carried
+            # unchanged: a child joins the parent's workflow scope.
+            return self._engine.run(
+                RunRequest(
+                    job_name=job_name,
+                    surface="invoke",
+                    kwargs=kwargs,
+                    parent_scope=parent_scope,
+                    invoke_depth=child_depth,
+                    cwd=self._cwd,
+                    job_directory=registered_job.job_directory,
+                )
             )
 
         if timeout is not None:
@@ -595,15 +599,19 @@ class WiredInvoke(Invoke):
                 )
 
             try:
-                result = self._engine.execute(
-                    job_name=job_name,
-                    function=registered_job.function,
-                    config_class=registered_job.config_class,
-                    kwargs=kwargs,
-                    parent_scope=None,  # Independent — no shared scope
-                    invoke_depth=child_depth,
-                    cwd=self._cwd,
-                    job_directory=registered_job.job_directory,
+                # Surface `invoke.parallel` (contracts §5). The explicit
+                # `None` scope below is the deliberate behaviour spec AC-17
+                # pins: parallel jobs are independent — no shared scope.
+                result = self._engine.run(
+                    RunRequest(
+                        job_name=job_name,
+                        surface="invoke.parallel",
+                        kwargs=kwargs,
+                        parent_scope=None,  # Independent — no shared scope
+                        invoke_depth=child_depth,
+                        cwd=self._cwd,
+                        job_directory=registered_job.job_directory,
+                    )
                 )
                 return (index, result)
             except Exception as e:

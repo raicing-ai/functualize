@@ -210,12 +210,12 @@ class TestInvokeParallelInputOrder:
         )
 
         # Simulate variable completion times to exercise ordering
-        def mock_execute(**kwargs):
+        def mock_execute(request):
             # Small random sleep to vary completion order
             time.sleep(random.uniform(0.001, 0.01))
-            return results_by_name[kwargs["job_name"]]
+            return results_by_name[request.job_name]
 
-        engine.execute.side_effect = mock_execute
+        engine.run.side_effect = mock_execute
 
         rc, _ = make_run_context(execution_engine=engine)
         jobs = [(name, {}) for name in job_names]

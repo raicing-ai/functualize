@@ -195,7 +195,7 @@ rg -c 'RunRequest\(|build_request\(' src/functualize/_cli/tui/job_execution.py s
 ```
 now: `0`, `0` · after: `≥1`, `≥1`
 
-### [ ] T10 · `rc.invoke` and `invoke_parallel` build requests
+### [x] T10 · `rc.invoke` and `invoke_parallel` build requests
 
 **Files:** `src/functualize/_engine/capabilities/invoke.py`
 
