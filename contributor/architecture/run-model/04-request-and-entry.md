@@ -128,13 +128,60 @@ app.execution_engine.execute(
 Four arguments. No `parent_scope`. No `workflow_scope_id`. Scope creation lives in
 `app/core.py:606-628` — inside `FunctualizeApp.execute`, which this call bypasses.
 
-**Consequence:** a `@workflow` started through the `interactivity.job.submit` event runs with
-no `WorkflowScope`. If it blocks on a gate, there is no scope id, so there is nothing to
-answer and nothing to resume. The run is unreachable for the rest of its life.
+**Consequence — stated precisely, because the audit's wording is imprecise and this set
+inherited the imprecision once.** There are *two* scope objects and they are minted in
+different places:
 
-This is the only door of the nine with that property, and it is a *workflow* defect found by
-an *entrypoint* audit — the clearest single piece of evidence that these two bodies of work
-are one ([03 §D](03-the-run-model.md)).
+| | Minted by | Where |
+|---|---|---|
+| The in-memory `WorkflowScope` trace | `FunctualizeApp.execute` | `app/core.py:606-628` — **skipped by this door** |
+| The **persisted** scope record | the engine, for every `@workflow` | `_engine/workflow_runner.py:97` — `self._scope_id = scope_id or new_scope_id()`, reached from the prelude at `executor.py:869-877` |
+
+So a workflow submitted through the event **does** get a persisted scope. What it does not get
+is a way for anyone to learn the id: the event handler returns nothing, creates no in-memory
+scope, and passes no `workflow_scope_id` in. The scope exists and is **unaddressable**.
+
+The practical outcome is the same — the run cannot be answered or resumed, and is unreachable
+for the rest of its life — but the fix is different. It is not "create a scope here"; it is
+"route through the facade so the id comes back", which is exactly §D.3.
+
+This is the only door with that property, and it is a *workflow* defect found by an
+*entrypoint* audit — the clearest single piece of evidence that these two bodies of work are
+one ([03 §D](03-the-run-model.md)).
+
+### C.1 The opposite defect: three doors have a channel nobody designed
+
+`FunctualizeApp.execute` declares two control parameters as keywords
+(`app/core.py:573-580`):
+
+```python
+def execute(self, job_name: str, *, scope_id=None, group_option_values=None, **kwargs): ...
+```
+
+and three doors splat a **caller-controlled dictionary** into it. HTTP
+(`functualize_http/__init__.py:177`):
+
+```python
+result = await asyncio.to_thread(self._app.execute, job_name, **kwargs)
+```
+
+where `kwargs` is the decoded request body. Lambda (`:159`, `:197`) and MCP's `run_job`
+(`_tools.py:287`) and async worker (`_tools.py:450`) do the same with their event and
+argument dicts.
+
+**So a request body carrying `scope_id` binds to the control parameter, not to the job.** A
+remote caller can address an existing workflow scope on a door whose documented contract has
+no resume channel at all — D-6 says these doors *cannot* resume; in fact they can, by
+accident, without validation, and without appearing in any schema.
+
+`force` cannot leak this way: it is not an `app.execute` parameter, so it lands in job kwargs,
+and a `@workflow` refuses unexpected launch arguments (`executor.py:851-863`). Per-job MCP
+tools are schema-driven and do not leak either.
+
+This is the same root cause as D-1/D-2 seen from the other side. Where the deposit protocol
+made a control input **unreachable** on some doors, `**kwargs` splatting makes it
+**reachable by anyone** on others. A typed `RunRequest` closes both: control inputs are
+fields, job arguments are `kwargs`, and no dictionary crosses between them.
 
 > `rc.invoke` was reported as having the same defect. It does not:
 > `_engine/capabilities/invoke.py:398,406` propagates `parent_scope=self._workflow_scope`.

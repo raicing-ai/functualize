@@ -104,11 +104,38 @@ app.execution_engine.execute(
 )
 ```
 
-Four arguments. No `parent_scope`, no `workflow_scope_id`. Scope creation lives at
-`app/core.py:606-628`, inside the facade this call bypasses. **This is the only door of the
-nine that runs a job with no `WorkflowScope`.** A `@workflow` reached through
-`interactivity.job.submit` that blocks on a gate has no scope id, so there is nothing to
-answer and nothing to resume.
+Four arguments. No `parent_scope`, no `workflow_scope_id`. Two scope objects exist and are
+minted in different places — the in-memory `WorkflowScope` trace by `FunctualizeApp.execute`
+(`app/core.py:606-628`, skipped by this door), and the **persisted** scope record by the
+engine for every `@workflow` (`_engine/workflow_runner.py:97` —
+`self._scope_id = scope_id or new_scope_id()`, reached at `executor.py:869-877`).
+
+So the workflow **does** get a persisted scope. What nobody gets is its id: the event handler
+returns nothing, creates no in-memory scope, and passes no `workflow_scope_id` in. The scope
+exists and is **unaddressable** — it cannot be listed against the run that made it, answered,
+or resumed. This is the only door with that property.
+
+### 1.6a Three doors have a resume channel nobody designed
+
+`FunctualizeApp.execute` declares its control inputs as keyword parameters
+(`app/core.py:573-580`):
+
+```python
+def execute(self, job_name: str, *, scope_id=None, group_option_values=None, **kwargs): ...
+```
+
+and three doors splat a **caller-controlled dictionary** into it — HTTP
+(`functualize_http/__init__.py:177`, the decoded request body), Lambda (`:159`, `:197`), and
+MCP's `run_job` (`_tools.py:287`) and async worker (`_tools.py:450`).
+
+A payload carrying `scope_id` therefore binds to the control parameter rather than to the
+job's arguments. These doors are documented as having **no** resume channel; in fact they have
+an unvalidated one that appears in no schema. `force` does not leak the same way — it is not
+an `app.execute` parameter, so it lands in job kwargs and a `@workflow` refuses unexpected
+launch arguments (`executor.py:851-863`).
+
+Same root cause as §1.2 seen from the other side: where deposits made a control input
+unreachable on some doors, `**kwargs` splatting makes one reachable by anyone on others.
 
 ### 1.7 Parallel batch items never reach history (#5)
 
@@ -242,6 +269,11 @@ are a closed set, so a new door must declare itself.
   A request built with an unknown surface is rejected.
 - **AC-17** `rc.invoke` still propagates `parent_scope`, and `parallel` still passes `None` —
   neither changes.
+- **AC-17a** A job argument named `scope_id` or `group_option_values` no longer binds to a
+  control parameter. An HTTP body, a Lambda event and an MCP `run_job` argument dict carrying
+  those keys reach the job as job arguments; addressing a scope requires the request field.
+- **AC-17b** A workflow submitted through `interactivity.job.submit` reports its scope id to
+  the caller — the scope is addressable, not merely created.
 
 **History and dead weight (#5, the `config_class` seam)**
 
