@@ -7,9 +7,11 @@ boot: ``async def probe.echo(...)`` raises ``SyntaxError`` during tool
 registration and the server never serves anything (probe-verified,
 `f1-grouped-crash.log`).
 
-Also covers B3 (no banner/update check on boot) indirectly via the unit
-assertions in test_server.py — the SDK client cannot capture the child
-process's stderr, and the settings mechanism is the deterministic seam.
+Also the AC3 guard: the child process's stderr is captured via
+``mcp.stdio_client(..., errlog=...)``, and the boot is asserted quiet — no
+PyPI update check (no ``pypi.org`` request) and no FastMCP ASCII banner.
+Functualize's own registration log line is asserted present so the capture
+cannot pass vacuously.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ import asyncio
 import json
 import os
 import shutil
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -80,25 +83,43 @@ def _tool_property(tool: object, snake: str, camel: str) -> object:
     return None
 
 
-def _run_exercise(project: Path, func_bin: str) -> tuple[list[str], dict]:
-    async def exercise() -> tuple[list[str], dict]:
-        params = StdioServerParameters(
-            command=func_bin,
-            args=["--discovery-depth", "1", "mcp", "serve"],
-            env=_server_env(project),
-            cwd=str(project),
-        )
-        async with (
-            stdio_client(params) as (read, write),
-            ClientSession(read, write, read_timeout_seconds=60) as session,
-        ):
-            await session.initialize()
-            tools = (await session.list_tools()).tools
-            result = await session.call_tool("probe.echo", {"text": "hello"})
-            text = result.content[0].text
-            return [t.name for t in tools], json.loads(text)
+def _exercise(
+    project: Path, func_bin: str, tool: str, arguments: dict[str, str]
+) -> tuple[list[str], dict | None, str]:
+    """One full session: spawn the server, list tools, call one tool.
 
-    return asyncio.run(exercise())
+    The child's stderr is captured through ``stdio_client(errlog=...)`` and
+    returned so the boot-quiet assertions (AC3) have real evidence.
+    """
+
+    async def run() -> tuple[list[str], dict | None, str]:
+        with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as errlog:
+            params = StdioServerParameters(
+                command=func_bin,
+                args=["--discovery-depth", "1", "mcp", "serve"],
+                env=_server_env(project),
+                cwd=str(project),
+            )
+            async with (
+                stdio_client(params, errlog=errlog) as (read, write),
+                ClientSession(read, write, read_timeout_seconds=60) as session,
+            ):
+                await session.initialize()
+                tools = (await session.list_tools()).tools
+                result = await session.call_tool(tool, arguments)
+                errlog.flush()
+                errlog.seek(0)
+                stderr = errlog.read()
+                if result.content:
+                    try:
+                        envelope = json.loads(result.content[0].text)
+                    except (json.JSONDecodeError, AttributeError):
+                        envelope = None
+                else:
+                    envelope = None
+                return [t.name for t in tools], envelope, stderr
+
+    return asyncio.run(run())
 
 
 @pytest.fixture
@@ -120,7 +141,9 @@ def grouped_project(tmp_path: Path) -> Path:
 def test_grouped_project_serves_dotted_tools_and_executes(
     func_bin: str, grouped_project: Path
 ) -> None:
-    names, envelope = _run_exercise(grouped_project, func_bin)
+    names, envelope, stderr = _exercise(
+        grouped_project, func_bin, "probe.echo", {"text": "hello"}
+    )
 
     # B1.1/B1.2: grouped external jobs present under their dotted names.
     assert "probe.ping" in names
@@ -129,60 +152,65 @@ def test_grouped_project_serves_dotted_tools_and_executes(
     # B1.5: internal stays hidden.
     assert "probe.secret" not in names
 
-    # B1.4: envelope round-trip.
+    # B1.4: envelope round-trip (status + return_value on the served surface).
+    assert envelope is not None
     assert envelope["status"] == "Success"
     assert envelope["return_value"] == "hello"
+
+    # AC3: quiet boot — no PyPI update check, no FastMCP ASCII banner.
+    assert "pypi.org" not in stderr, f"update check leaked: {stderr[:500]}"
+    assert "FastMCP" not in stderr, f"banner leaked: {stderr[:500]}"
+    # Capture sanity: functualize's own registration line must be present,
+    # or the quiet assertions above would be vacuous.
+    assert "Registered" in stderr, f"functualize logs missing: {stderr[:500]}"
 
 
 def test_grouped_typed_schema_survives_to_client(
     func_bin: str, grouped_project: Path
 ) -> None:
-    async def exercise() -> None:
-        params = StdioServerParameters(
-            command=func_bin,
-            args=["--discovery-depth", "1", "mcp", "serve"],
-            env=_server_env(grouped_project),
-            cwd=str(grouped_project),
-        )
-        async with (
-            stdio_client(params) as (read, write),
-            ClientSession(read, write, read_timeout_seconds=60) as session,
-        ):
-            await session.initialize()
-            tools = (await session.list_tools()).tools
-            echo = next(t for t in tools if t.name == "probe.echo")
-            schema = _tool_property(echo, "input_schema", "inputSchema")
-            assert schema is not None
-            props = schema.get("properties", {})
-            # B1.3: typed argument survives as a string property.
-            assert props.get("text") == {"type": "string"}
-            assert "text" in schema.get("required", [])
-            quote = next(t for t in tools if t.name == "probe.quote")
-            assert quote.description.startswith("Say: ''' hostile")
+    names, _, stderr = _exercise(
+        grouped_project, func_bin, "probe.echo", {"text": "schema"}
+    )
+    assert "probe.echo" in names
 
-    asyncio.run(exercise())
+    async def inspect() -> None:
+        # Reuse a fresh session to read the raw schema.
+        with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as errlog:
+            params = StdioServerParameters(
+                command=func_bin,
+                args=["--discovery-depth", "1", "mcp", "serve"],
+                env=_server_env(grouped_project),
+                cwd=str(grouped_project),
+            )
+            async with (
+                stdio_client(params, errlog=errlog) as (read, write),
+                ClientSession(read, write, read_timeout_seconds=60) as session,
+            ):
+                await session.initialize()
+                tools = (await session.list_tools()).tools
+                echo = next(t for t in tools if t.name == "probe.echo")
+                schema = _tool_property(echo, "input_schema", "inputSchema")
+                assert schema is not None
+                props = schema.get("properties", {})
+                # B1.3: typed argument survives as a string property.
+                assert props.get("text") == {"type": "string"}
+                assert "text" in schema.get("required", [])
+                quote = next(t for t in tools if t.name == "probe.quote")
+                assert quote.description.startswith("Say: ''' hostile")
+
+    asyncio.run(inspect())
+    assert "Registered" in stderr
 
 
 def test_hostile_description_job_calls_end_to_end(
     func_bin: str, grouped_project: Path
 ) -> None:
     """F1b: the hostile-docstring job registers AND executes."""
-
-    async def exercise() -> None:
-        params = StdioServerParameters(
-            command=func_bin,
-            args=["--discovery-depth", "1", "mcp", "serve"],
-            env=_server_env(grouped_project),
-            cwd=str(grouped_project),
-        )
-        async with (
-            stdio_client(params) as (read, write),
-            ClientSession(read, write, read_timeout_seconds=60) as session,
-        ):
-            await session.initialize()
-            result = await session.call_tool("probe.quote", {"text": "hi"})
-            envelope = json.loads(result.content[0].text)
-            assert envelope["status"] == "Success"
-            assert envelope["return_value"] == "'hi'"
-
-    asyncio.run(exercise())
+    names, envelope, stderr = _exercise(
+        grouped_project, func_bin, "probe.quote", {"text": "hi"}
+    )
+    assert "probe.quote" in names
+    assert envelope is not None
+    assert envelope["status"] == "Success"
+    assert envelope["return_value"] == "'hi'"
+    assert "pypi.org" not in stderr

@@ -195,9 +195,10 @@ def test_constructor_sets_fastmcp_defaults_when_env_absent(monkeypatch) -> None:
 
     monkeypatch.delenv("FASTMCP_CHECK_FOR_UPDATES", raising=False)
     monkeypatch.delenv("FASTMCP_SHOW_SERVER_BANNER", raising=False)
-    # Force a non-default baseline so the constructor's set is observable.
-    fastmcp.settings.check_for_updates = "stable"
-    fastmcp.settings.show_server_banner = True
+    # Force a non-default baseline so the constructor's set is observable;
+    # monkeypatch restores the process-global after the test.
+    monkeypatch.setattr(fastmcp.settings, "check_for_updates", "stable")
+    monkeypatch.setattr(fastmcp.settings, "show_server_banner", True)
 
     MCPServer(app=FakeApp(), config=MCPConfig())
 
