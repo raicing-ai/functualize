@@ -234,13 +234,22 @@ def _run_handoff(app: FunctualizeApp, tokens: list[str]) -> None:
     # token parser's `dict[str, str]` is widened where it stops being tokens.
     job_kwargs: dict[str, Any] = dict(kwargs)
 
+    # This is the terminal-released handoff door: the shell has stepped aside
+    # and the run owns the terminal, so the request names the tui.shell surface
+    # (run-request-entry T9). The in-panel worker (tui.job_execution
+    # execute_job_sync) is the tui.inline door.
+    from functualize.app.utils import RunRequest
+
+    request = RunRequest(
+        job_name=job_name,
+        surface="tui.shell",
+        kwargs=job_kwargs,
+        group_option_values=group_option_values or None,
+    )
+
     try:
         with live_ctx:
-            app.execute(
-                job_name,
-                group_option_values=group_option_values or None,
-                **job_kwargs,
-            )
+            app.execute(request)
     except Exception as exc:  # pragma: no cover - defensive; job errors surface
         print(f"Error running '{job_name}': {exc}", file=sys.stderr)
     finally:

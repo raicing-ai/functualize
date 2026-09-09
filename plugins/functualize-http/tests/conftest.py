@@ -50,7 +50,14 @@ class FakeApp:
                 return d
         return None
 
-    def execute(self, job_name: str, **kwargs: Any) -> FakeJobResult:
+    def execute(self, request: Any) -> FakeJobResult:
+        """The facade signature as of run-request-entry T3.
+
+        The door hands over one `RunRequest`; the fake records it so tests can
+        assert on the surface the request names, not only on the job that ran.
+        """
+        self.last_request = request
+        job_name = request.job_name
         if self._execute_error:
             raise self._execute_error
         if job_name in self._execute_results:

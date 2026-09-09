@@ -36,7 +36,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from functualize.types import http_status_for_status
+from functualize.types import RunRequest, http_status_for_status
 
 if TYPE_CHECKING:
     from functualize.app.core import FunctualizeApp
@@ -156,7 +156,10 @@ class LambdaAdapter:
             """Thin Lambda handler for job '{job_name}'."""
             job_kwargs = event.get("kwargs", {})
             try:
-                return _response(app.execute(job_name, **job_kwargs))
+                request = RunRequest(
+                    job_name=job_name, surface="lambda", kwargs=job_kwargs
+                )
+                return _response(app.execute(request))
             except Exception as exc:
                 return {"statusCode": 500, "body": str(exc)}
 
@@ -194,7 +197,8 @@ class LambdaAdapter:
         job_kwargs = event.get("kwargs", {})
 
         try:
-            return _response(self._app.execute(job_name, **job_kwargs))
+            request = RunRequest(job_name=job_name, surface="lambda", kwargs=job_kwargs)
+            return _response(self._app.execute(request))
         except Exception as exc:
             return {"statusCode": 500, "body": str(exc)}
 

@@ -94,13 +94,38 @@ def make_lazy_command(
                     file=sys.stderr,
                 )
                 sys.exit(1)
+        # A job that declares `live: Live` renders into a rich stdout surface
+        # for direct `func <job>` runs: push a StdoutSurface for the duration so
+        # live.add(construct) binds to its live zone (and it supersedes a stray
+        # self-rendering surface). Falls back to a no-op when the [cli] extra
+        # (rich) is absent — the job then runs with Live degraded, never broken.
+        # Shared with create_job_click_command via adapters/surface_gate.py.
+        from functualize.app.adapters.surface_gate import wants_stdout_surface
+
+        live_ctx: Any = contextlib.nullcontext()
+        if wants_stdout_surface(
+            app, descriptor, uses_live=getattr(descriptor, "uses_live", False)
+        ):
+            with contextlib.suppress(ImportError):
+                from functualize.ui import stdout_live_session
+
+                live_ctx = stdout_live_session(app, descriptor)
+
+        from functualize.app.adapters.click_params import (
+            deliver_job_result,
+            scope_store_refusal,
+        )
 
         engine = app.execution_engine
         try:
-            entry = engine.materialize_job(descriptor.name)
+            engine.materialize_job(descriptor.name)
         except KeyError:
-            # Descriptor not registered with this app's engine — legacy
-            # direct-import path (adapter used standalone).
+            # TRANSITIONAL(run-request/T11): Descriptor not registered with
+            # this app's engine — legacy direct-import path (adapter used
+            # standalone). The normal path builds a RunRequest and goes through
+            # the facade; this fallback still calls engine.execute because
+            # run() resolves by name and this job is not registered. T11 moves
+            # resolution into run().
             from functualize._discovery.lazy_wrapper import _detect_config_class
 
             try:
@@ -113,47 +138,33 @@ def make_lazy_command(
                 sys.exit(1)
             func = getattr(module, descriptor.func_name)
             config_class = _detect_config_class(func)
+
+            with live_ctx, scope_store_refusal():
+                result = engine.execute(
+                    job_name=descriptor.name,
+                    function=func,
+                    config_class=config_class,
+                    kwargs=kwargs,
+                    group_option_values=dict(group_option_values)
+                    if group_option_values
+                    else None,
+                    workflow_scope_id=scope_id,
+                    force=_force_requested(app),
+                )
+
+            return deliver_job_result(result, descriptor.name, app)
         except JobMaterializationError as exc:
             print(f"Error: {exc}", file=sys.stderr)
             sys.exit(1)
-        else:
-            func = entry.function
-            config_class = entry.config_class
 
-        # A job that declares `live: Live` renders into a rich stdout surface
-        # for direct `func <job>` runs: push a StdoutSurface for the duration so
-        # live.add(construct) binds to its live zone (and it supersedes a stray
-        # self-rendering surface). Falls back to a no-op when the [cli] extra
-        # (rich) is absent — the job then runs with Live degraded, never broken.
-        #
-        # A job that declares no `live: Live` still needs the surface when a
-        # plugin registered an ambient construct eligible for it (otherwise the
-        # construct has nothing to render into), or when an explicit STDOUT
-        # preference (@surface_hint / the tui.default_surface setting) asks for
-        # the rich stdout branch. With none of those this is exactly the old
-        # `uses_live` gate, so plain `func <job>` output is unchanged. Shared
-        # with create_job_click_command via adapters/surface_gate.py.
-        from functualize.app.adapters.surface_gate import wants_stdout_surface
-
-        live_ctx: Any = contextlib.nullcontext()
-        if wants_stdout_surface(
-            app, descriptor, uses_live=getattr(descriptor, "uses_live", False)
-        ):
-            with contextlib.suppress(ImportError):
-                from functualize.ui import stdout_live_session
-
-                live_ctx = stdout_live_session(app, descriptor)
-
-        # Both dispatch paths, one contract (pitfalls.md §23). The eager path
-        # in click_params wraps its execute the same way; handling this in only
-        # one of them is how cold boot and warm boot came to disagree before.
-        from functualize.app.adapters.click_params import scope_store_refusal
+        # Normal path: the job is registered. Build a RunRequest and hand it to
+        # the facade — the same builder the eager path in click_params uses
+        # (pitfalls.md §23: two dispatch paths, one contract).
+        from functualize.app.adapters._request_builder import build_request
 
         with live_ctx, scope_store_refusal():
-            result = engine.execute(
+            request = build_request(
                 job_name=descriptor.name,
-                function=func,
-                config_class=config_class,
                 kwargs=kwargs,
                 group_option_values=dict(group_option_values)
                 if group_option_values
@@ -161,14 +172,7 @@ def make_lazy_command(
                 workflow_scope_id=scope_id,
                 force=_force_requested(app),
             )
-
-        # Through the same boundary the eager path uses. This wrapper used to
-        # return the JobResult and inspect nothing, so on warm boot — which is
-        # every invocation after the first — a job that raised exited 0 in
-        # silence, a gate pause exited 0 instead of 5, and a refusal exited 0
-        # instead of 3. The exit-code table is a contract with scripts; it held
-        # only on a project's very first run.
-        from functualize.app.adapters.click_params import deliver_job_result
+            result = app.execute(request)
 
         return deliver_job_result(result, descriptor.name, app)
 

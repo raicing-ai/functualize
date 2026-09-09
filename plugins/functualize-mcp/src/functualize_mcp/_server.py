@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 from fastmcp import FastMCP
 
 from functualize._types.errors import ScopeCancelledError
+from functualize.types import RunRequest
 from functualize_mcp._history_tools import MCPHistoryToolRegistry
 from functualize_mcp._management_tools import MCPManagementToolRegistry
 from functualize_mcp._task_tools import MCPTaskToolRegistry
@@ -175,7 +176,7 @@ def _build_tool_function(
 
     if not properties:
         # No parameters — simple wrapper
-        async def _no_params_handler() -> dict:
+        async def _no_params_handler() -> dict[str, Any]:
             return _execute_job(app, job_name, {}, policy)
 
         _no_params_handler.__name__ = job_name
@@ -275,7 +276,12 @@ def _execute_job(
 
     try:
         result = app.execute(
-            job_name, group_option_values=group_values or None, **job_kwargs
+            RunRequest(
+                job_name=job_name,
+                surface="mcp.tool",
+                kwargs=job_kwargs,
+                group_option_values=group_values or None,
+            )
         )
         return {
             "status": wire_status(result.status),

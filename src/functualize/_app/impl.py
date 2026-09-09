@@ -850,17 +850,27 @@ def on_job_submit_event(app: Any, event: Any) -> None:
         event: The structured event with job_name and kwargs payload.
     """
     from functualize._engine.errors import JobNotFoundError
+    from functualize._types.run_request import RunRequest
 
     job_name = event.payload.get("job_name", "")
     kwargs = event.payload.get("kwargs", {})
     try:
-        registered_job = app.job_registry.get_job(job_name)
+        app.job_registry.get_job(job_name)
     except JobNotFoundError:
         logger.warning(f"interactivity.job.submit: job '{job_name}' not registered")
         return
-    app.execution_engine.execute(
-        job_name,
-        registered_job.function,
-        config_class=registered_job.config_class,
-        kwargs=kwargs,
-    )
+
+    # D-13. This door used to reach past the facade straight into the engine,
+    # resolving the function itself. The engine still minted a *persisted* scope
+    # for a `@workflow` (`_engine/workflow_runner.py:97`), so the run was not
+    # scope-less -- it was **unaddressable**: nothing here ever learned the id,
+    # so a blocked workflow submitted this way could never be answered or
+    # resumed. Going through the facade is what makes the scope reachable,
+    # because the facade creates it and the result carries it.
+    request = RunRequest(job_name=job_name, surface="event.job-submit", kwargs=kwargs)
+    result = app.execute(request)
+    scope_id = (result.metadata or {}).get("workflow_scope")
+    if scope_id:
+        logger.info(
+            "interactivity.job.submit: job '%s' ran in scope '%s'", job_name, scope_id
+        )

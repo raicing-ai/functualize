@@ -27,7 +27,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from functualize.types import http_status_for_status
+from functualize.types import RunRequest, http_status_for_status
 
 if TYPE_CHECKING:
     from asyncio import AbstractEventLoop
@@ -171,11 +171,11 @@ class HttpServerCore:
         job = self._app.get_job(job_name)
         if job is None:
             return 404, {"error": f"Job '{job_name}' not found"}
-
         # Execute via asyncio.to_thread (async-to-sync bridge)
         try:
-            result = await asyncio.to_thread(self._app.execute, job_name, **kwargs)
-            body: dict[str, Any] = {
+            request = RunRequest(job_name=job_name, surface="http", kwargs=kwargs)
+            result = await asyncio.to_thread(self._app.execute, request)
+            response_body: dict[str, Any] = {
                 "status": result.status.value
                 if hasattr(result.status, "value")
                 else str(result.status),
@@ -184,13 +184,13 @@ class HttpServerCore:
             }
             exception = getattr(result, "exception", None)
             if exception is not None:
-                body["error"] = str(exception)
+                response_body["error"] = str(exception)
             # The body already carried the status name; the *code* still said
             # 200 for every outcome, so anything reading the status line --
             # a load balancer, a retry policy, `curl -f` -- saw success on a
             # failed run. One table (`functualize.types`) answers this for
             # every delivery surface.
-            return http_status_for_status(result.status), body
+            return http_status_for_status(result.status), response_body
         except Exception as e:
             logger.exception(f"Error executing job '{job_name}'")
             return 500, {"error": str(e)}

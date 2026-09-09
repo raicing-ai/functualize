@@ -237,13 +237,22 @@ def execute_job_sync(
     # produced, not what `execute` receives.
     job_kwargs: dict[str, Any] = dict(kwargs)
 
+    # This door is the shell's in-panel worker: the job runs *inside* the
+    # inline TUI, so the request names the tui.inline surface
+    # (run-request-entry T9). The terminal-released handoff
+    # (inline_tui._run_handoff) is the tui.shell door.
+    from functualize.app.utils import RunRequest
+
+    request = RunRequest(
+        job_name=job_name,
+        surface="tui.inline",
+        kwargs=job_kwargs,
+        group_option_values=group_option_values or None,
+    )
+
     try:
         with _panel_live_zone(app, job_name):
-            result = app._func_app.execute(
-                job_name,
-                group_option_values=group_option_values or None,
-                **job_kwargs,
-            )
+            result = app._func_app.execute(request)
     except Exception as e:
         # `execute()` is not meant to raise — it reports a failed run by
         # *returning* a FAILURE result — but a genuine bug or a BaseException

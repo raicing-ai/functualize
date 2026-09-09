@@ -1145,16 +1145,16 @@ def build_job_engine_callback(
                 live_ctx = stdout_live_session(app_ref, _descriptor)
 
         with live_ctx, scope_store_refusal():
-            result = app_ref.execution_engine.execute(  # type: ignore[union-attr]
+            from functualize.app.adapters._request_builder import build_request
+
+            request = build_request(
                 job_name=name,
-                function=function,
-                config_class=job_config_class,
                 kwargs={**direct_kwargs, **cli_values},
                 group_option_values=group_option_values,
                 workflow_scope_id=scope_id,
                 force=_force_requested(app_ref),
             )
-
+            result = app_ref.execute(request)  # type: ignore[union-attr]
         return deliver_job_result(result, name, app_ref)
 
     return wrapper

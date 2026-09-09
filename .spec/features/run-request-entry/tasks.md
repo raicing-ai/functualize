@@ -148,7 +148,7 @@ rg -c 'RunRequest\(|build_request\(' src/functualize/app/adapters/cli.py
 ```
 now: `0` · after: `≥1`
 
-### [ ] T7 · The three plugins build requests
+### [x] T7 · The three plugins build requests
 
 **Files:** `plugins/functualize-http/src/functualize_http/__init__.py`,
 `plugins/functualize-lambda/src/functualize_lambda/__init__.py`,
@@ -164,7 +164,7 @@ rg -c 'app\.execute\([a-z_]*name, \*\*' plugins/*/src/*/__init__.py plugins/func
 ```
 now: `functualize_http:1`, `functualize_lambda:2`, `_tools.py:2` · after: `0` in all four
 
-### [ ] T8 · The event door goes through the facade — **D-13**
+### [x] T8 · The event door goes through the facade — **D-13**
 
 **Files:** `src/functualize/_app/impl.py`, `tests/app/test_event_submit_scope.py`
 
@@ -182,7 +182,7 @@ now: `1` · after: `0`
 reported; `workflow answer` + `workflow resume` drive it to completion.
 **Sabotage:** restore the direct engine call; this test must fail.
 
-### [ ] T9 · Both TUI doors build requests
+### [x] T9 · Both TUI doors build requests
 
 **Files:** `src/functualize/_cli/tui/job_execution.py`, `src/functualize/_cli/inline_tui.py`
 

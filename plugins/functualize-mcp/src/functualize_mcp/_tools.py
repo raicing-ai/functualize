@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from functualize._types.errors import ScopeCancelledError
+from functualize.types import RunRequest
 from functualize_mcp._translator import JobToolTranslator
 
 if TYPE_CHECKING:
@@ -284,7 +285,9 @@ class MCPToolRegistry:
         # Execute
         kwargs = config or {}
         try:
-            result = self._app.execute(name, **kwargs)
+            result = self._app.execute(
+                RunRequest(job_name=name, surface="mcp.run-job", kwargs=kwargs)
+            )
             return {
                 "status": wire_status(result.status),
                 "return_value": result.return_value,
@@ -447,7 +450,9 @@ class MCPToolRegistry:
         """
         start_time = time.time()
         try:
-            result = self._app.execute(job_name, **kwargs)
+            result = self._app.execute(
+                RunRequest(job_name=job_name, surface="mcp.async", kwargs=kwargs)
+            )
             end_time = time.time()
             duration_ms = (end_time - start_time) * 1000
 
