@@ -1,6 +1,6 @@
 # Standalone Examples
 
-Jobs run with the `func` CLI, no project scaffolding required. Seven
+Jobs run with the `func` CLI, no project scaffolding required. Eight
 directories cover everything — each is self-contained, and each README is a
 step-by-step verification checklist you can walk top to bottom.
 
@@ -12,6 +12,7 @@ step-by-step verification checklist you can walk top to bottom.
 | [`secrets_lab/`](secrets_lab/) | Declaring a credential with `Secret[str]`, discovering what a job needs with `func builtin env`, and the set / unset / empty / required-missing distinction across every surface that renders config | Credentials need a decoy field beside them (`sort_key`, which every name-based heuristic masks and which is not a secret) — that only reads clearly in a project built around the point |
 | [`group_options_lab/`](group_options_lab/) | **Flags that belong to a group, not a job.** `class DeployOptions(GroupOptions, group="deploy")` declares `--env` once and every job beneath it inherits it, typed *mid-path*: `deploy --env prod web --region eu-west-1 run v1.2`. Two levels of inheritance, an ungrouped control job, a required positional, and a `Secret[str]` group option | Mid-path flags need a group tree at least two deep with a job under *both* levels — `deploy_tool` is the settings-identity demo and only one deep, so it cannot show inheritance or the deeper group's own flags at all |
 | [`composition_lab/`](composition_lab/) | **Capabilities used *together*.** One job per combination — `Fingerprint`×`Sources`, `Deps`×`Guards(status)`, `FromJob` with a config parameter and a pydantic return in one signature, `Invoke.parallel`×`State`, `GroupOptions`, a glob `generates`, a second group, and a `@workflow` with a `Gate` that pauses and resumes. Ships **both** entry points (`func` and `main.py`), and `demo.sh` walks the lot | Every other directory demonstrates one feature. The defects this lab exists for lived *between* features, where no single-feature test looks — and the two command builders (`func`'s live signature, an app's cached descriptors) only disagree when you run both |
+| [`freshness_lab/`](freshness_lab/) | **A job that caches its own artifact.** `Fingerprint(decides=True)` means "when I am fresh, run my body anyway and let me decide", and a `Freshness` parameter carries the verdict the pre-flight reached — so the job returns the file it already built instead of being skipped into silence. `lab baseline` is the same job without the opt-in, and the artifact is hand-edited in one test to show the framework checks that a declared output *exists* and never reads it | A job that owns its artifact only becomes expressible once the body is entered on a fresh verdict, and the inverse — the framework skipping it — has to sit beside it for the declaration to mean anything. Every other lab demonstrates one feature; this one is the boundary between the framework's decision and the job's storage |
 | [`deploy_tool/`](deploy_tool/) | **An app that is not `func`.** Its own command name, pyproject table, config file and `DEPLOY_TOOL_*` env prefix; a root flag generated from a setting's `cli_flag`; a `phase="early"` flag read pre-boot; and a bare invocation that opens the interactive shell (`inline_tui = false` to opt out) | The other three configure functualize itself — this one is a *different tool built on it*, which is the only way to show the settings identity and generated flags |
 
 ## How `func` works for standalone code
@@ -50,6 +51,7 @@ Then follow each README's checklist:
 4. [`secrets_lab/README.md`](secrets_lab/README.md) — declare, discover, verify a credential
 5. [`group_options_lab/README.md`](group_options_lab/README.md) — every mid-path invocation, and the two it must refuse
 6. [`composition_lab/README.md`](composition_lab/README.md) — the seams between features, on both surfaces (`./demo.sh`)
+7. [`freshness_lab/README.md`](freshness_lab/README.md) — a job that caches its own artifact and decides its own freshness
 
 ## Tests
 

@@ -45,19 +45,20 @@ What the framework owes the job is the **verdict**, not the storage:
 
 That is a sharper boundary than "defer the cache", and it costs nothing to hold.
 
-### What it costs today: the job never sees the verdict
+### What it cost, and what F9 did about it
 
-The engine decides freshness and **returns before the body runs** (`_engine/executor.py:1026`):
+The engine decides freshness and **returns before the body runs**
+(`_engine/executor.py`):
 
 ```python
 if preflight_decision is not None and not preflight_decision.should_run:
     return self._preflight_result(job_name, context, preflight_decision, start_time)
 ```
 
-So "let the job decide whether to skip" is not currently expressible. The verdict already
-exists on `PreflightDecision` (`_engine/preflight.py:49-64`, alongside `key`,
+So "let the job decide whether to skip" was not expressible. The verdict already exists on
+`PreflightDecision` (`_engine/preflight.py:49-64`, alongside `key`,
 `recorded_value`, `source_map`, `declared_sources`, `declared_generates`) — it simply never
-reaches a body that has been skipped.
+reached a body that had been skipped.
 
 **ADR-012 is the precedent, and it is exact.** `Sources` solved the identical shape: the
 pre-flight computed `{path: {mtime, size, sha256}}`, used it, *"and then threw it away. The
@@ -65,9 +66,19 @@ body, about to read exactly those files, had no way to reach it, so every job re
 glob its own declaration had just run."* The fix was not a file service; it was to stop
 discarding what the pre-flight already had.
 
-Feature **F9** applies that precedent: expose the verdict, and let a job declare that it
-handles its own freshness so the body is entered. Two small things, one of them a
-declaration-surface change. Not a caching engine.
+Feature **F9** applied that precedent, and it has landed. `Freshness` reaches the body the
+way `Sources` does — injected empty, bound with the decision after the pre-flight and before
+the body — and `Fingerprint(decides=True)` makes the early return above conditional for a job
+that declares it handles its own freshness. Nothing else moved: the return is unchanged for
+every job that does not opt in, `decides` carries `force_fresh`'s scope (`SKIP_FRESH` only),
+and the framework still owns no artifact — it knows a declared `generates` path exists and
+never reads it. The worked example is
+[`examples/standalone/freshness_lab/`](../../../examples/standalone/freshness_lab/), the
+guide is `docs/guides/task-runner.md` § *Deciding your own freshness*, and the sabotage
+discipline it inherited from `Sources` is in `contributor/guides/wiring-discipline.md`.
+
+The refusal in this section is unchanged. Handing over the verdict is what makes "the job
+owns its artifact" usable; it is not the first step toward a cache.
 
 ## C. Out of scope, with reasons
 
