@@ -298,7 +298,7 @@ recorded as an accident rather than an answer.
 
 ## Wave 7 — checkpoint
 
-### [ ] T8 · Feature gate
+### [x] T8 · Feature gate
 
 - `uv run ruff check src/ tests/ plugins/`, `ruff format --check`
 - `uv run mypy src/`
@@ -309,6 +309,42 @@ recorded as an accident rather than an answer.
 - AC-1…AC-12 each named to a test, or to a recorded finding (AC-10 only)
 - orphan scan over every symbol newly made public in `functualize.types`
 - T6's sabotage, **committing before it**
+
+**Run 2026-09-11.**
+
+| check | result |
+|---|---|
+| `ruff check src/ tests/ plugins/` + `format --check` | clean |
+| `mypy` | no issues in 356 source files |
+| `lint-imports` | **7 kept, 0 broken** |
+| `HYPOTHESIS_PROFILE=ci pytest --run-slow -n auto` | **11,655 passed, 155 skipped** |
+| `pytest examples/` | **201 passed** |
+| **all thirteen** plugin suites | all green |
+
+**Structural ACs, re-derived:**
+
+| AC | command | answer |
+|---|---|---|
+| AC-1 | `rg 'from functualize\._engine' src/functualize/app/adapters/ \| wc -l` | **`0`** |
+| AC-3 | `lint-imports` | **7 kept** — the contract T5 added |
+| AC-7, AC-8 | `tests/execution/test_invoke_group_options.py` | 5 passed |
+| AC-9 | `-k 'wire_contract or OneWireContract or envelope'` | 19 passed |
+| AC-10 | `tests/integration/test_surface_feature_matrix.py` | 40 passed, 3 skipped — 14 rows identical on both doors, 2 divergent rows each with both halves asserted |
+| AC-11 | `rg -c 'invoke' docs/guides/group-options.md` | `12`, describing the move |
+
+**Orphan scan** over the symbols this feature made public in `functualize.types`:
+`RunRequest` 347 refs · `SURFACE_POLICY` 27 · `SurfacePolicy` 21 · `request_from_envelope` 19 ·
+`RUN_SURFACES` 19 · `nested_request` 16 · `CONSOLE_SURFACES` 15. No orphans, and four are
+re-exported through the corridor.
+
+**The gate found something the other 11,655 tests could not.** `tests/` and `plugins/` cannot
+be collected together (conftest clash), so plugin suites run one package at a time and are not
+part of the main run. `engine-sealed-construction`/T9 moved `register_plugin_command` and
+`register_ambient_construct` onto `app.extensions` and rewrote every production plugin — but
+**two plugin test doubles** (`functualize-http`'s `FakeApp`, `functualize-flow-viz`'s
+`_FakeApp`) still offered the flat methods, and both suites failed at the call. This gate is
+the first thing on the branch that runs all thirteen. A rename verified against `pytest tests/`
+is not verified against the plugins.
 
 ---
 
