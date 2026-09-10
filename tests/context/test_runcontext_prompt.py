@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from functualize._config.job_config import JobConfigView
+from functualize._engine.surface_routing import active_collector
 from functualize._types.interactivity import (
     InputNotAvailable,
     PromptChoice,
@@ -49,16 +50,22 @@ def _make_rc(
     config.set_prefix = MagicMock()
     logger = MagicMock()
 
-    # Build a mock app with _surfaces
+    # Build a mock app that answers the port's collector the way the real app
+    # does — the engine asks its host which surface should answer a prompt now,
+    # rather than reaching back out through a back-reference to read
+    # `_surfaces`. Delegating to `active_collector` keeps the stack-scoped
+    # ordering (pushed surface, then registered, then the kernel's TTY-gated
+    # stdin fallback) under test here rather than re-stated in the stub.
     app = MagicMock()
     plugins: list = []
     if input_provider is not None:
         plugins.append(input_provider)
     app._surfaces = plugins
+    app.collector.side_effect = lambda: active_collector(app)
 
-    # Build a mock execution engine referencing the app
+    # Build a mock execution engine whose host is that app
     engine = MagicMock()
-    engine._app = app
+    engine.host = app
 
     rc = RunContext(
         name=name,

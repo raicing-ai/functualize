@@ -737,10 +737,12 @@ class WiredInvoke(Invoke):
     def schema(self, job_or_fn: str | Callable[..., Any]) -> JobDescriptor:
         """Retrieve the JobDescriptor for a job by name or function reference."""
         job_name = self._resolve_job_name(job_or_fn)
-        # Look up descriptor via the engine's app reference if available
-        app = getattr(self._engine, "_app", None)
-        if app is not None:
-            return cast("JobDescriptor", app.job_registry.get_descriptor(job_name))
+        # The descriptor belongs to the host: asked for, not reached through.
+        host = self._engine.host
+        if host is not None:
+            descriptor = host.get_descriptor(job_name)
+            if descriptor is not None:
+                return descriptor
         # Fallback: construct a minimal descriptor from RegisteredJob
         registered_job = self._engine.get_job(job_name)
         from functualize._types.descriptors import JobDescriptor as _JobDescriptor
@@ -849,7 +851,7 @@ def _make_invoke(ctx: Any) -> WiredInvoke:
         execution_engine=ctx.engine,
         gate_registry=ctx.engine._gate_registry,
         invoke_depth=ctx.context.invoke_depth,
-        max_invoke_depth=ctx.engine._max_invoke_depth,
+        max_invoke_depth=ctx.engine.max_invoke_depth,
         workflow_scope=ctx.context.parent_scope,
         cwd=ctx.context.cwd,
     )

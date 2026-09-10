@@ -292,7 +292,7 @@ class TestGetJobSchema:
         descriptor = make_descriptor("my-job")
 
         engine = MagicMock()
-        engine._app.job_registry.get_descriptor.return_value = descriptor
+        engine.host.get_descriptor.return_value = descriptor
 
         rc, _ = make_run_context(execution_engine=engine)
         result = rc.get_job_schema("my-job")
@@ -303,7 +303,9 @@ class TestGetJobSchema:
     def test_raises_job_not_found_error(self) -> None:
         """Raises JobNotFoundError if job is not registered."""
         engine = MagicMock()
-        engine._app.job_registry.get_descriptor.side_effect = KeyError("No descriptor")
+        # The port answers None for "not registered"; the message chain used to
+        # let the registry's KeyError travel back out through the engine.
+        engine.host.get_descriptor.return_value = None
 
         rc, _ = make_run_context(execution_engine=engine)
         with pytest.raises(JobNotFoundError):

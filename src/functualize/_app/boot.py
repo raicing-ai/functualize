@@ -32,6 +32,9 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Collection
 
+    from functualize._engine.executor import JobExecutionEngine
+    from functualize._types.protocols import EngineHost
+
 from functualize._app.environment import detect_environment
 from functualize._app.impl import build_resource_locator
 from functualize._app.state import AppState
@@ -161,6 +164,51 @@ def wire_entry_point_jobs(app: Any) -> None:
     app._resolution_pipeline.add_provider(EntryPointProvider())
 
 
+def build_engine(host: EngineHost) -> JobExecutionEngine:
+    """Construct the engine, complete, for the host that owns it.
+
+    The **one** construction site. ``boot_static`` and ``boot_standard`` each
+    carried a near-identical twenty-line block — the same arguments, the same
+    twenty-line comment, and the only difference the local alias of two
+    imports — so an engine argument added to one and missed in the other
+    survived every gate there is. This module is the composition root, so it
+    may read the app's own fields; the engine only ever receives the
+    :class:`~functualize._types.protocols.EngineHost` port of them.
+
+    Args:
+        host: The app the engine belongs to, as the engine's port.
+
+    Returns:
+        The engine, ready to execute.
+    """
+    from functualize._config.chain import ResolutionChain
+    from functualize._config.job_config import JobConfigView, resolve_job_config
+    from functualize._engine.executor import JobExecutionEngine
+
+    app: Any = host
+
+    def _config_view_factory(*, section_prefix: str) -> Any:
+        chain = getattr(app, "_resolution_chain", None) or ResolutionChain([])
+        return JobConfigView(
+            resolution_chain=chain,
+            default_section_prefix=section_prefix,
+        )
+
+    engine = JobExecutionEngine(
+        di_registry=app._di_registry,
+        hook_registry=app._hook_registry,
+        middleware_chain=app._execution_middleware_chain,
+        event_bus=app._event_bus,
+        max_invoke_depth=app._execution_config.max_invoke_depth,
+        plugin_config_registry=app.plugin_config_registry,
+        host=host,
+        gate_registry=app._gate_registry,
+        config_view_factory=_config_view_factory,
+        config_resolver=resolve_job_config,
+    )
+    return engine
+
+
 def boot_static(app: Any, perf_timeline: Any) -> None:
     """Static wiring fast path — zero filesystem I/O.
 
@@ -181,7 +229,6 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
     """
     from functualize._config.registry import ProviderRegistry
     from functualize._discovery.registry import JobRegistry
-    from functualize._engine.executor import JobExecutionEngine
     from functualize._engine.job_middleware import MiddlewareRegistry
     from functualize._events import HookRegistry
     from functualize._plugins.loader import PluginLoader
@@ -252,41 +299,8 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
     # Initialize observability early so EventBus is available for the engine
     init_observability(app)
 
-    # Execution engine
-    from functualize._config.chain import ResolutionChain as _ResolutionChain
-    from functualize._config.job_config import (
-        JobConfigView as _JobConfigView,
-    )
-    from functualize._config.job_config import (
-        resolve_job_config as _resolve_job_config,
-    )
-
-    def _config_view_factory(*, section_prefix: str) -> Any:
-        chain = getattr(app, "_resolution_chain", None) or _ResolutionChain([])
-        return _JobConfigView(
-            resolution_chain=chain,
-            default_section_prefix=section_prefix,
-        )
-
-    app._execution_engine = JobExecutionEngine(
-        di_registry=app._di_registry,
-        hook_registry=app._hook_registry,
-        middleware_chain=app._execution_middleware_chain,
-        event_bus=app._event_bus,
-        max_invoke_depth=app._execution_config.max_invoke_depth,
-        plugin_config_registry=app.plugin_config_registry,
-        gate_registry=app._gate_registry,
-        config_view_factory=_config_view_factory,
-        config_resolver=_resolve_job_config,
-    )
-    # Back-reference to the owning app so the engine can resolve the active
-    # surface stack (Live binding via active_live_zone), the active prompt
-    # collector, and job descriptors at execution time. Without this, `Live`
-    # capabilities no-op even when a StdoutSurface is pushed (see
-    # _engine/surface_routing.active_live_zone and runcontext `_app` reads).
-    app._execution_engine._app = app
-    # Keep the JobRegistry consistent when the engine materializes lazy entries
-    app._execution_engine.add_registry_mirror(app.job_registry._registered_jobs)
+    # Execution engine — one construction site, shared with boot_standard
+    app._execution_engine = build_engine(app)
 
     # Resolution pipeline with StaticProvider (zero I/O)
     app._resolution_pipeline = ResolutionPipeline()
@@ -392,7 +406,6 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     from functualize._config.providers.toml import TomlFormatProvider
     from functualize._config.registry import ProviderRegistry
     from functualize._discovery.registry import JobRegistry
-    from functualize._engine.executor import JobExecutionEngine
     from functualize._engine.job_middleware import MiddlewareRegistry
     from functualize._events import HookRegistry
     from functualize._events.hooks import ConfigHookEvent
@@ -464,41 +477,8 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     init_observability(app)
     app.event_bus.subscribe("interactivity.job.submit", app._on_job_submit_event)
 
-    # Execution engine (single path for all adapters)
-    from functualize._config.chain import ResolutionChain as _ResolutionChain2
-    from functualize._config.job_config import (
-        JobConfigView as _JobConfigView2,
-    )
-    from functualize._config.job_config import (
-        resolve_job_config as _resolve_job_config2,
-    )
-
-    def _config_view_factory2(*, section_prefix: str) -> Any:
-        chain = getattr(app, "_resolution_chain", None) or _ResolutionChain2([])
-        return _JobConfigView2(
-            resolution_chain=chain,
-            default_section_prefix=section_prefix,
-        )
-
-    app._execution_engine = JobExecutionEngine(
-        di_registry=app._di_registry,
-        hook_registry=app._hook_registry,
-        middleware_chain=app._execution_middleware_chain,
-        event_bus=app._event_bus,
-        max_invoke_depth=app._execution_config.max_invoke_depth,
-        plugin_config_registry=app.plugin_config_registry,
-        gate_registry=app._gate_registry,
-        config_view_factory=_config_view_factory2,
-        config_resolver=_resolve_job_config2,
-    )
-    # Back-reference to the owning app so the engine can resolve the active
-    # surface stack (Live binding via active_live_zone), the active prompt
-    # collector, and job descriptors at execution time. Without this, `Live`
-    # capabilities no-op even when a StdoutSurface is pushed (see
-    # _engine/surface_routing.active_live_zone and runcontext `_app` reads).
-    app._execution_engine._app = app
-    # Keep the JobRegistry consistent when the engine materializes lazy entries
-    app._execution_engine.add_registry_mirror(app.job_registry._registered_jobs)
+    # Execution engine — one construction site, shared with boot_static
+    app._execution_engine = build_engine(app)
 
     # Resolution pipeline for Provider/Transform architecture
     app._resolution_pipeline = ResolutionPipeline()
@@ -698,8 +678,10 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
         ConfigHookEvent.AFTER_CONFIG_INIT, app._resolution_chain
     )
 
-    # 7a. Wire resolution chain to execution engine
-    app._execution_engine._resolution_chain = app._resolution_chain
+    # 7a. Nothing is wired into the engine here. Its config dependency and its
+    #     invoke-depth limit are read *through* the host, so a refresh that
+    #     rebuilds the chain in place is visible to it without anyone reaching
+    #     in — which is what this step used to do, at runtime, mid-flight.
 
     # 7b. Resolve max_invoke_depth from config
     _resolve_max_invoke_depth(app)
@@ -1630,7 +1612,11 @@ def validate_plugin_ext_metadata(app: Any) -> None:
 
 
 def _resolve_max_invoke_depth(app: Any) -> None:
-    """Resolve max_invoke_depth from config and update the engine.
+    """Resolve max_invoke_depth from config and record it on the app.
+
+    Recorded on the *app* rather than written into the engine: the engine reads
+    the limit from its host, so the resolved value has one home and no writer
+    has to know the engine exists.
 
     Args:
         app: The FunctualizeApp instance.
@@ -1639,7 +1625,7 @@ def _resolve_max_invoke_depth(app: Any) -> None:
         resolved = app._resolution_chain.resolve("max_invoke_depth", "general")
         depth = int(resolved.value)
         if depth > 0:
-            app._execution_engine._max_invoke_depth = depth
+            app._resolved_max_invoke_depth = depth
     except (ValueError, TypeError, KeyError, AttributeError):
         pass
     except Exception as exc:

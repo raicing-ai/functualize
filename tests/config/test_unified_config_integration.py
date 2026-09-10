@@ -90,12 +90,16 @@ class TestCreateJobCommandConstructsJobConfigView:
             )
 
         # Add a real execution engine so the registry dispatch passes isinstance check
+        # The engine reads the chain *through its host* now, and the app is the
+        # host (`_types.protocols.EngineHost`) — one dependency, read live,
+        # instead of a constructor value written into the engine afterwards.
+        mock_app.resolution_chain.return_value = chain
         engine = JobExecutionEngine(
             di_registry=mock_app._di_registry,
             event_bus=MagicMock(),
             hook_registry=HookRegistry(),
             middleware_chain=ExecutionMiddlewareChain(),
-            resolution_chain=chain,
+            host=mock_app,
             config_view_factory=_config_view_factory,
         )
         mock_app._execution_engine = engine
@@ -220,12 +224,16 @@ class TestResolutionChainSharedInstance:
                 resolution_chain=chain, default_section_prefix=section_prefix
             )
 
+        # The engine reads the chain *through its host* now, and the app is the
+        # host (`_types.protocols.EngineHost`) — one dependency, read live,
+        # instead of a constructor value written into the engine afterwards.
+        mock_app.resolution_chain.return_value = chain
         engine = JobExecutionEngine(
             di_registry=mock_app._di_registry,
             event_bus=MagicMock(),
             hook_registry=HookRegistry(),
             middleware_chain=ExecutionMiddlewareChain(),
-            resolution_chain=chain,
+            host=mock_app,
             config_view_factory=_config_view_factory,
         )
         mock_app._execution_engine = engine
@@ -305,12 +313,16 @@ class TestEndToEndJobExecution:
                 resolution_chain=chain, default_section_prefix=section_prefix
             )
 
+        # The engine reads the chain *through its host* now, and the app is the
+        # host (`_types.protocols.EngineHost`) — one dependency, read live,
+        # instead of a constructor value written into the engine afterwards.
+        mock_app.resolution_chain.return_value = chain
         engine = JobExecutionEngine(
             di_registry=mock_app._di_registry,
             event_bus=MagicMock(),
             hook_registry=HookRegistry(),
             middleware_chain=ExecutionMiddlewareChain(),
-            resolution_chain=chain,
+            host=mock_app,
             config_view_factory=_config_view_factory,
         )
         mock_app._execution_engine = engine

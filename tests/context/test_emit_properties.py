@@ -119,8 +119,10 @@ def _make_rc(
         app.event_bus = MagicMock()
         app._event_bus = None
 
+    # The engine's host is the app, and the event bus is read off it — the
+    # engine used to reach back out through a back-reference to find one.
     engine = MagicMock()
-    engine._app = app
+    engine.host = app
 
     rc = RunContext(
         name=name,
