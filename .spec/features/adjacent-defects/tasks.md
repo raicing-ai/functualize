@@ -11,7 +11,7 @@ One citation was corrected while authoring: the audit places
 
 ## Wave 0 — false comments and dead names
 
-### [ ] T1 · Delete the stale perf recommendation
+### [x] T1 · Delete the stale perf recommendation
 
 **Files:** `tests/perf/test_startup_budget.py`
 
@@ -25,7 +25,7 @@ rg -c 'seven times \(measured\)' tests/perf/test_startup_budget.py
 ```
 now: `1` · after: `0`
 
-### [ ] T2 · Correct the `guarded_execute` docstring
+### [x] T2 · Correct the `guarded_execute` docstring
 
 **Files:** `src/functualize/app/_workflow_control.py`
 
@@ -39,7 +39,7 @@ rg -n 'guarded_execute' src/functualize/app/_workflow_control.py | wc -l
 now: `4` *(docstring `:18`, `__all__` `:50`, def `:154`, comment `:324`)* · after: `3`
 *(the docstring claim gone; the comment at `:324` is true and stays)*
 
-### [ ] T3 · Remove `JobContext.deadline`
+### [x] T3 · Remove `JobContext.deadline`
 
 **Files:** `src/functualize/_engine/capabilities/job_context.py`,
 `src/functualize/testing/builder.py`
@@ -53,7 +53,7 @@ rg -c 'deadline' src/functualize/_engine/capabilities/job_context.py
 ```
 now: `2` *(`:27` field, `:38` docstring)* · after: `0`
 
-### [ ] T4 · Remove the orphaned `_deposit`
+### [x] T4 · Remove the orphaned `_deposit`
 
 **Files:** `plugins/functualize-mcp/src/functualize_mcp/_workflow_tools.py`
 
@@ -65,7 +65,7 @@ rg -c '_deposit' plugins/functualize-mcp/src/functualize_mcp/_workflow_tools.py
 ```
 now: `1` *(def at `:423`)* · after: `0`
 
-### [ ] T5 · `get_missing_required_args` and `omit_defaults` — delete or wire
+### [x] T5 · `get_missing_required_args` and `omit_defaults` — delete or wire
 
 **Files:** `src/functualize/_cli/tui/__init__.py`, `src/functualize/app/utils.py`, and the
 defining modules
@@ -80,7 +80,7 @@ rg -c 'get_missing_required_args' src/ ; rg -c 'omit_defaults' src/
 now: `3` and `3` · after: `0` and `0` *(if deleted)*, or unchanged **plus** a named call path
 recorded in the task
 
-### [ ] T6 · Three catalog events get a producer or leave the catalog
+### [x] T6 · Three catalog events get a producer or leave the catalog
 
 **Files:** `src/functualize/_events/_catalog_entries.py`, and emit sites if wired
 
@@ -101,7 +101,7 @@ now: each `catalog=1 emit=0` · after: each `catalog=0 emit=0` **or** `catalog=1
 
 ## Wave 1 — one entry-point API
 
-### [ ] T7 · Three callers use the cached helper, and the count is pinned
+### [x] T7 · Three callers use the cached helper, and the count is pinned
 
 **Files:** `src/functualize/_cli/skills.py`,
 `src/functualize/_cli/tui/display_provider_discovery.py`,
@@ -126,7 +126,7 @@ now: `3` · after: `0`, **or** unchanged with each remaining site carrying a com
 
 ## Wave 2 — the measurement
 
-### [ ] T8 · Record the layer-contract blind spot
+### [x] T8 · Record the layer-contract blind spot
 
 **Files:** `contributor/architecture/layer-contract-blind-spot.md` (new),
 `pyproject.toml` (comment only)
@@ -157,7 +157,7 @@ now: `1` · after: `1`
 
 ## Wave 3 — the rendered conflict
 
-### [ ] T9 · A group-options conflict is rendered, not raised
+### [x] T9 · A group-options conflict is rendered, not raised
 
 **Files:** `src/functualize/_discovery/cached_provider.py`, `src/functualize/_app/boot.py`,
 `tests/group_options/test_conflict_is_reported.py`
@@ -178,7 +178,7 @@ discovery-failure exit code, not a traceback.
 
 ## Wave 4 — the cache fingerprint
 
-### [ ] T10 · The group-options cache section takes a fingerprint
+### [x] T10 · The group-options cache section takes a fingerprint
 
 **Files:** `src/functualize/app/utils.py`, `src/functualize/_app/boot.py`,
 `tests/discovery/test_group_options_fingerprint.py`

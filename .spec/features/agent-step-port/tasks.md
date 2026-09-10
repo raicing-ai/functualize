@@ -7,7 +7,7 @@ Run gates from the worktree root.
 
 ## Wave 0 — the port
 
-### [ ] T1 · `AgentStepExecutor`, `AgentCapability`, and two errors
+### [x] T1 · `AgentStepExecutor`, `AgentCapability`, and two errors
 
 **Files:** `src/functualize/_types/protocols.py`, `src/functualize/_types/errors.py`,
 `src/functualize/plugin/__init__.py`
@@ -33,7 +33,7 @@ now: `n/a` · after: `1`
 
 ## Wave 1 — the table, and one test for every table
 
-### [ ] T2 · `EXECUTOR_PROVIDERS`, `CORE_EXECUTORS`, and a shared provider-table test
+### [x] T2 · `EXECUTOR_PROVIDERS`, `CORE_EXECUTORS`, and a shared provider-table test
 
 **Files:** `src/functualize/_engine/agent_providers.py`, `tests/gate/test_provider_tables.py`
 
