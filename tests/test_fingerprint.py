@@ -503,7 +503,7 @@ class TestWhyIsActuallyWired:
     def test_func_why_reports_an_unusable_return_value(self, tmp_path) -> None:
         import threading
 
-        from functualize.app.core import FunctualizeApp
+        from functualize.app.core import FunctualizeApp, request_for
         from functualize.job import Fingerprint, job
 
         (tmp_path / "a.csv").write_text("x")
@@ -517,7 +517,7 @@ class TestWhyIsActuallyWired:
 
             app = FunctualizeApp(name="why-wired")
             app.register_dynamic_job("make_handle", make_handle)
-            app.execute("make-handle")
+            app.execute(request_for("make-handle"))
 
             assert "not reusable" in app.explain("make-handle")
         finally:
@@ -525,7 +525,7 @@ class TestWhyIsActuallyWired:
 
     def test_it_stays_quiet_for_an_ordinary_return(self, tmp_path) -> None:
         """A note that always fires is a note nobody reads."""
-        from functualize.app.core import FunctualizeApp
+        from functualize.app.core import FunctualizeApp, request_for
         from functualize.job import Fingerprint, job
 
         (tmp_path / "a.csv").write_text("x")
@@ -539,7 +539,7 @@ class TestWhyIsActuallyWired:
 
             app = FunctualizeApp(name="why-quiet")
             app.register_dynamic_job("make_rows", make_rows)
-            app.execute("make-rows")
+            app.execute(request_for("make-rows"))
 
             assert "not reusable" not in app.explain("make-rows")
         finally:

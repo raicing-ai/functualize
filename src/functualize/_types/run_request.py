@@ -37,6 +37,7 @@ RunSurface = Literal[
     "lambda",
     "invoke",
     "invoke.parallel",
+    "app.parallel",
     "event.job-submit",
     "engine.step",
     "engine.dependency",

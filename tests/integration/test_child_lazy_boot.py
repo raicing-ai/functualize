@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from functualize.app.config import JobSources
-from functualize.app.core import FunctualizeApp
+from functualize.app.core import FunctualizeApp, request_for
 
 
 def _create_job_module(directory: Path, name: str) -> None:
@@ -103,7 +103,7 @@ def test_child_dispatch_materializes_the_job(tmp_path: Path) -> None:
     )
 
     # Invoking the namespaced child job materializes + runs the real function.
-    result = app.execute("svc.deploy")
+    result = app.execute(request_for("svc.deploy"))
     assert result.status.name in {"SUCCESS", "COMPLETED"}
 
 

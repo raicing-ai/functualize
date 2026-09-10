@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from functualize._gate._registry import GateRegistry
     from functualize._gate._strategy import GateStrategy
     from functualize._types.descriptors import JobDescriptor, JobResult
+    from functualize._types.run_request import RunSurface
     from functualize.job._workflow_scope import WorkflowScope
 
 logger = logging.getLogger(__name__)
@@ -270,6 +271,7 @@ class WiredInvoke(Invoke):
         gate_registry: GateRegistry | None = None,
         invoke_depth: int = 0,
         max_invoke_depth: int = 10,
+        parallel_item_surface: RunSurface = "invoke.parallel",
         workflow_scope: WorkflowScope | None = None,
         cwd: Path | None = None,
         run_context: Any | None = None,
@@ -278,6 +280,17 @@ class WiredInvoke(Invoke):
         self._gate_registry = gate_registry
         self._invoke_depth = invoke_depth
         self._max_invoke_depth = max_invoke_depth
+        # Which door the *items* of a `parallel()` batch came through. A job
+        # calling `rc.invoke_parallel` fans out from inside a run, so its items
+        # are `invoke.parallel`; `app.execute_parallel` — the seam for callers
+        # that are not themselves jobs, `func builtin parallel` above all — is
+        # the user launching those jobs, so its items are `app.parallel`.
+        #
+        # Depth cannot tell the two apart: a top-level job's RunContext and a
+        # standalone `WiredInvoke` both sit at depth 0, so both put their items
+        # at depth 1. That is what made `func builtin parallel a b` invisible to
+        # `func builtin history` (STATUS #5) with no depth rule able to fix it.
+        self._parallel_item_surface: RunSurface = parallel_item_surface
         self._workflow_scope = workflow_scope
         self._cwd = cwd
         self._rc = run_context
@@ -605,7 +618,7 @@ class WiredInvoke(Invoke):
                 result = self._engine.run(
                     RunRequest(
                         job_name=job_name,
-                        surface="invoke.parallel",
+                        surface=self._parallel_item_surface,
                         kwargs=kwargs,
                         parent_scope=None,  # Independent — no shared scope
                         invoke_depth=child_depth,

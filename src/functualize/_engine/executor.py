@@ -682,12 +682,18 @@ class JobExecutionEngine:
         points by hand is how one of them ends up forgotten and a whole class
         of run silently stops being recorded.
 
-        Only **top-level** runs are recorded (``invoke_depth == 0``). A
-        workflow's steps, a job's dependencies, and ``rc.invoke`` children all
-        run at ``invoke_depth + 1``; recording them would bury the handful of
-        things the user actually launched under the internals of one of them,
-        and a 200-record ring would evict real history within a single deep
-        workflow.
+        Only **top-level** runs are recorded, plus one exception. A workflow's
+        steps, a job's dependencies, and ``rc.invoke`` children all run at
+        ``invoke_depth + 1``; recording them would bury the handful of things
+        the user actually launched under the internals of one of them, and a
+        200-record ring would evict real history within a single deep workflow.
+
+        The exception is a **parallel batch's items** (spec AC-18, STATUS #5).
+        ``func builtin parallel a b`` is the user launching `a` and `b`, and
+        neither appeared in ``func builtin history`` because
+        ``Invoke.parallel`` runs each item one level down — mechanically nested,
+        but not nested *work*. Depth alone cannot tell the two apart, so the
+        surface is what distinguishes them: see :meth:`_records_history`.
         """
         job = self.get_job(request.job_name)
         kwargs = self._request_kwargs(request, job)
@@ -711,9 +717,40 @@ class JobExecutionEngine:
                 else None
             ),
         )
-        if request.invoke_depth == 0:
+        if self._records_history(request):
             self._record_history(request.job_name, kwargs, result)
         return result
+
+    @staticmethod
+    def _records_history(request: RunRequest) -> bool:
+        """Is this run one of the things the user launched? (spec AC-18)
+
+        ``invoke_depth == 0`` is the ordinary answer. The one exception is an
+        item of a **top-level parallel batch**: ``func builtin parallel a b``
+        reaches ``Invoke.parallel``, which runs each item at ``depth + 1``, so
+        the plain depth rule recorded neither `a` nor `b` and
+        ``func builtin history`` came back empty for a command the user had
+        just run (STATUS #5).
+
+        The distinction is **the door, not the depth**. Depth cannot make it:
+        a top-level job's ``RunContext`` and the standalone ``WiredInvoke`` that
+        ``app.execute_parallel`` builds both sit at depth 0, so both put their
+        items at depth 1. A first attempt at this rule used
+        ``surface == "invoke.parallel" and invoke_depth == 1`` and recorded
+        *every* fan-out, including ``rc.invoke_parallel`` from inside a job —
+        precisely the eviction the depth rule exists to prevent. The test that
+        caught it had to be fixed first: it passed bare job names where
+        ``invoke_parallel`` takes ``(job, kwargs)`` pairs, so the items never
+        ran and "no history records" meant "nothing happened".
+
+        So the two callers name themselves. ``app.execute_parallel`` — the seam
+        for callers that are not jobs — stamps its items ``app.parallel``;
+        ``rc.invoke_parallel`` stamps ``invoke.parallel`` and stays out of the
+        ring, because its parent is already in it.
+        """
+        if request.invoke_depth == 0:
+            return True
+        return request.surface == "app.parallel"
 
     def _request_kwargs(
         self, request: RunRequest, job: RegisteredJob

@@ -364,7 +364,7 @@ same way its premise was.
 *(`contributor/architecture/run-model/01-current-state.md:151` and
 `appendix-a-audit-synthesis.md:82` still assert "read by nothing"; corrected with this task.)*
 
-### [ ] T15 · Control inputs cannot arrive as job arguments
+### [x] T15 · Control inputs cannot arrive as job arguments
 
 **Files:** `src/functualize/app/core.py`,
 `tests/app/test_control_inputs_are_not_kwargs.py`
@@ -373,11 +373,33 @@ Closes the accidental channel (spec §1.6a, AC-17a). After T7 no door splats; th
 it *unrepresentable* — `request_for(**kwargs)` treats `scope_id` and `group_option_values` as
 job arguments, never as control inputs.
 
-**Gate**
+**Gate — the signature, read by introspection rather than by regex**
 ```bash
-rg -n 'def execute\(self, job_name.*scope_id' src/functualize/app/core.py | wc -l
+uv run python -c "import inspect; from functualize.app.core import FunctualizeApp as A; \
+p = inspect.signature(A.execute).parameters; \
+print(sorted(p), any(x.kind is inspect.Parameter.VAR_KEYWORD for x in p.values()))"
 ```
-now: `1` · after: `0`
+now: `['group_option_values', 'kwargs', 'request', 'scope_id', 'self'] True` ·
+after: `['request', 'self'] False`
+
+*(The authored gate was `rg -n 'def execute\(self, job_name.*scope_id' …` and it read `0`
+**before the task ran** — `ruff format` wraps a five-parameter signature across lines, so a
+single-line pattern matches nothing whether or not the parameters exist. It is the fourth gate
+on this branch that could not fail. Introspection cannot be fooled by formatting, and
+`tests/app/test_control_inputs_are_not_kwargs.py` asserts the same thing so it cannot rot.)*
+
+**Also closed, and not named by the spec:** `request_for`'s `surface` was keyword-only, which
+left one square inch of the same channel open — a caller splatting a payload
+(`request_for(name, **body)`) whose body had a key literally called `surface` would have
+**relabelled the door the run came through**, and a door's identity is not the caller's to
+choose. Both parameters are positional-only now; no caller used the keyword form.
+
+**Blast radius:** 336 failures and 64 errors across 38 test files, none of which the `Files:`
+line named. Migrated by two agents; `app/_workflow_control.py:180` — `guarded_execute`, the
+ninth execution door — was the one `src/` caller still on the legacy form and is migrated here.
+Verified afterwards that no control input degraded into a job argument:
+`rg -n 'request_for\([^)]*scope_id' tests/` and `rg -n 'kwargs=\{[^}]*"scope_id"' tests/` are
+both empty, which is the failure mode that would have left a green suite testing nothing.
 
 **Test:** an HTTP body `{"scope_id": "x"}` reaches the job as an argument named `scope_id`,
 and does **not** address scope `x`.
@@ -386,7 +408,7 @@ and does **not** address scope `x`.
 
 ## Wave 6 — history
 
-### [ ] T16 · Parallel batch items reach history — **#5**
+### [x] T16 · Parallel batch items reach history — **#5**
 
 **Files:** `src/functualize/_engine/executor.py`,
 `src/functualize/_engine/capabilities/invoke.py`
@@ -400,15 +422,43 @@ ring. Parallel *items* are top-level work a user asked for, and are the exceptio
 rg -n 'invoke_depth == 0' src/functualize/_engine/executor.py | wc -l
 ```
 now: `4` *(`:683` docstring, `:705` the history gate, `:1042` and `:1059` perf marks)* ·
-after: `4`, with `:705`'s condition widened — **the count is not the gate here**; the test is.
+after: `4` — **the count is not the gate here**; the test is.
 
-**Test:** `func builtin parallel a b` then `func builtin history` lists `a` and `b`.
+**Test:** `func builtin parallel a b` then `func builtin history` lists `a` and `b`. Verified
+end to end:
+
+```
+$ func builtin parallel alpha beta   -> Success alpha / Success beta
+$ func builtin history               -> job success beta … / job success alpha …
+```
+
+**The rule turned out to be about the door, not the depth**, and the spec's framing ("parallel
+*items* are top-level work… and are the exception") does not by itself say how to detect one.
+Two wrong attempts, both instructive:
+
+1. `surface == "invoke.parallel" and invoke_depth == 1` — recorded **every** fan-out,
+   including `rc.invoke_parallel` from inside a job, which is exactly the eviction the depth
+   rule exists to prevent. Depth cannot make this distinction: a top-level job's `RunContext`
+   and the standalone `WiredInvoke` that `app.execute_parallel` builds **both sit at depth 0**,
+   so both put their items at depth 1.
+2. The counter-case test that should have caught (1) **passed vacuously** — it called
+   `rc.invoke_parallel(["ok", "ok"])` where the API takes `(job, kwargs)` pairs, so the items
+   never ran and "no history records" meant "nothing happened". It now asserts the items
+   returned `Success` before asserting what history holds.
+
+The landed rule: `app.execute_parallel` — documented as the seam for callers that are *not
+themselves jobs* — stamps its items with a new surface **`app.parallel`**, and
+`rc.invoke_parallel` keeps `invoke.parallel`. Each door names itself, which is the field's
+whole purpose. `RunSurface` gains one value (20, was 19).
+
+**Sabotage, both directions:** widen to `("app.parallel", "invoke.parallel")` and the nested
+counter-case fails; narrow to `False` and the top-level case fails.
 
 ---
 
 ## Wave 7 — the dead argument
 
-### [ ] T17 · `config_class` leaves the step and dependency seams
+### [x] T17 · `config_class` leaves the step and dependency seams
 
 **Files:** `src/functualize/_engine/executor.py`
 
@@ -422,11 +472,21 @@ rg -n 'config_class=entry\.config_class' src/functualize/_engine/executor.py | w
 now: `3` *(`:390` the derivation, `:1221` step seam, `:1800` dependency seam)* · after: `1`
 *(`:390` only)*
 
+**Outcome: satisfied by T11, not by separate work.** Converting the engine's two internal
+recursions to `self.run(RunRequest(...))` removed both seam passes as a side effect — a request
+carries no `config_class`, so `run()` derives it from `get_job` like every other caller.
+
+Verified as *consolidation* rather than a lost derivation: the one surviving site (`:391`) is
+inside `_ensure_materialized`, which `get_job` calls, and it applies
+`entry.config_class or detected_config` — so the step and dependency seams now inherit exactly
+the same answer instead of being handed a second copy of it. That is what AC-19 asked for.
+`tests/workflow/`, `tests/engine/` and `tests/integration/` all green (510 passed).
+
 ---
 
 ## Wave 8 — measurement and documentation
 
-### [ ] T18 · A warm-cache `func <job>` phase in the budget suite — **T8**
+### [x] T18 · A warm-cache `func <job>` phase in the budget suite — **T8**
 
 **Files:** `tests/perf/test_startup_budget.py`
 
@@ -437,11 +497,36 @@ the budget from the measurement (risk R-g).
 ```bash
 rg -c 'warm' tests/perf/test_startup_budget.py
 ```
-now: `0` · after: `≥1`
+now: `0` · after: `13`
 
-**Sabotage:** insert a 200 ms sleep on the warm path; the phase must fail.
+**Authored by measuring**, nine warm runs after one cold priming run, on this machine
+2026-09-10:
 
-### [ ] T19 · Docs follow the surface
+| | |
+|---|---|
+| cold | 825 ms |
+| warm | min 739 · median 751 · max 850 |
+
+Budget set to **1800 ms** — ~2x the observed max, the same headroom
+`BUDGET_CONFIG_RESOLUTION_MS` takes against its own measurement (300 against a 158 max). CI is
+slower and noisier, and a perf test that flakes gets muted, which is worse than one that is
+loose.
+
+**The finding worth more than the budget: the warm/cold gap is ~9%.** A `func <job>`
+invocation does not spend its time on the discovery cache — interpreter start plus imports are
+the cost, and they run to roughly what `boot.total`'s entire 500 ms budget allows *before*
+`FunctualizeApp.__init__` is called. Anyone optimising the cache again should know that first.
+Recorded in the constant's comment, where the next person to touch it will read it.
+
+Every other test in this file times a phase inside one process; this is the only one that can
+see the part of startup that happens before the app exists. It asserts `returncode == 0` on
+every run, because a command that exits non-zero is fast for the wrong reason.
+
+**Sabotage:** a 1.2 s sleep in `main()` → median 1966 ms, phase fails; removed → 12 passed.
+(The task suggested 200 ms, which would not have crossed a budget set from a real measurement —
+the sleep has to exceed the headroom, not merely be noticeable.)
+
+### [x] T19 · Docs follow the surface
 
 **Files:** `docs/guides/`, `contributor/architecture/surface-boundary.md`
 
@@ -453,6 +538,29 @@ changes from aspiration to description.
 uv run python -m functualize._cli.main builtin doc-verify --list >/dev/null && echo ok
 ```
 now: `ok` · after: `ok` *(doc-verify stays green)*
+
+**What actually needed changing was not the §4 table.** `--prompt-gates` and `--output` were
+never listed as `func`-only, so that table was not the lie. The lie was **item 3 of "How to add
+a feature that must align"**, which instructed future authors to do the thing this feature
+exists to remove:
+
+> ~~Deposit-and-read for anything genuinely pre-command … a global must land on the app
+> (`app._force`, `app._workflow_scope_id`) and be read at call time.~~
+
+Rewritten to the two honest routes, in preference order: pass it to the builder when the
+parsing happens first (`func`'s handlers), else put it in the per-invocation `ctx.obj` (an
+app's root callback, which parses after its subcommands are built). With the reason stated —
+ambient *scope* is sometimes unavoidable, ambient *lifetime* is what breaks — and
+`app._workflow_scope_id` explicitly kept as the programmatic seam with no CLI spelling.
+
+The three delivery inputs are added to "must work on both surfaces" as **description**, citing
+the two dual-surface test files, so the next reader can check the claim rather than trust it.
+
+Also corrected `run-model/04-request-and-entry.md` §B: it enumerated "all ten, all in
+`_cli/main.py`" and there were **eleven**, one of them in `app/adapters/cli.py` — which is why
+an app had `--force` but not the other two. Its conclusion held; its premise did not, and the
+premise is the half worth getting right. A census scoped to the file you suspect will confirm
+whatever you suspected.
 
 ---
 

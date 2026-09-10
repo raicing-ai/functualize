@@ -25,6 +25,7 @@ from pydantic import BaseModel
 from functualize._app.state import AppState
 from functualize.app.core import FunctualizeApp
 from functualize.app.utils import StateStore, deposit_gate_input
+from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, workflow
 
 
@@ -74,7 +75,9 @@ def app(project: Path) -> FunctualizeApp:
 
 
 def _blocked(app: FunctualizeApp, project: Path) -> StateStore:
-    app.execute("release", scope_id="rel-1")
+    app.execute(
+        RunRequest(job_name="release", surface="app.execute", workflow_scope_id="rel-1")
+    )
     return StateStore.for_project(project)
 
 

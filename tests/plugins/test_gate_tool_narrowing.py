@@ -28,6 +28,7 @@ from pydantic import BaseModel
 from functualize._app.state import AppState
 from functualize.app.core import FunctualizeApp
 from functualize.app.utils import StateStore
+from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, Tool, workflow
 
 
@@ -102,7 +103,11 @@ def _app(tools: list) -> FunctualizeApp:
 
 def _blocked(tools: list) -> tuple[FunctualizeApp, WorkflowToolProvider]:
     app = _app(tools)
-    app.execute("refund_request", scope_id="run-1")
+    app.execute(
+        RunRequest(
+            job_name="refund_request", surface="app.execute", workflow_scope_id="run-1"
+        )
+    )
     app.calls.clear()  # type: ignore[attr-defined]
     return app, WorkflowToolProvider(app, store=_store())
 
@@ -222,7 +227,13 @@ class TestPublishedSchema:
 
     def test_a_bound_argument_is_absent_from_the_agents_schema(self) -> None:
         app = _discovered_app()
-        app.execute("refund_request", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="refund_request",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
         tools = WorkflowToolProvider(app, store=_store())
 
         entry = asyncio.run(tools._get_workflow_state("run-1"))["pending_gates"][0][
@@ -241,7 +252,13 @@ class TestPublishedSchema:
     def test_the_unpinned_arguments_survive(self) -> None:
         """Stripping too much would make the tool uncallable."""
         app = _discovered_app()
-        app.execute("refund_request", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="refund_request",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
         tools = WorkflowToolProvider(app, store=_store())
 
         entry = asyncio.run(tools._get_workflow_state("run-1"))["pending_gates"][0][
@@ -458,7 +475,13 @@ class TestPublishedResults:
         """Not just what a step returned — what it was given. Otherwise a
         surprising result is unexplainable from the record alone."""
         app = _discovered_app()
-        app.execute("refund_request", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="refund_request",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
         tools = WorkflowToolProvider(app, store=_store())
 
         results = asyncio.run(tools._get_workflow_state("run-1"))["results"]
@@ -530,7 +553,11 @@ class TestPublishedResults:
             ("vfs_session", vfs_session),
         ]:
             app.register_dynamic_job(name, fn)
-        app.execute("vfs_session", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="vfs_session", surface="app.execute", workflow_scope_id="run-1"
+            )
+        )
 
         tools = WorkflowToolProvider(app, store=_store())
         results = asyncio.run(tools._get_workflow_state("run-1"))["results"]
@@ -584,7 +611,11 @@ class TestBoundFromStep:
             ("vfs_session", vfs_session),
         ]:
             app.register_dynamic_job(name, fn)
-        app.execute("vfs_session", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="vfs_session", surface="app.execute", workflow_scope_id="run-1"
+            )
+        )
         return app, WorkflowToolProvider(app, store=_store())
 
     def test_from_job_is_refused_with_the_spelling_that_works(self) -> None:

@@ -20,6 +20,8 @@ import pytest
 
 from functualize._primitives.state_store import StateStore
 from functualize._types.enums import RunStatus
+from functualize.app.core import request_for
+from functualize.types import RunRequest
 
 _JOBS = '''
 from pydantic import BaseModel, Field
@@ -99,7 +101,14 @@ class TestTheGraphDoesNotRun:
     ) -> None:
         app, root = project
 
-        result = app.execute("walk", scope_id="a1", zzz_nonsense=1)  # type: ignore[attr-defined]
+        result = app.execute(
+            RunRequest(
+                job_name="walk",
+                surface="app.execute",
+                kwargs={"zzz_nonsense": 1},
+                workflow_scope_id="a1",
+            )
+        )  # type: ignore[attr-defined]
 
         assert result.status is RunStatus.FAILURE
 
@@ -118,7 +127,11 @@ class TestTheGraphDoesNotRun:
         """
         app, root = project
 
-        result = app.execute("walk", scope_id="control")  # type: ignore[attr-defined]
+        result = app.execute(
+            RunRequest(
+                job_name="walk", surface="app.execute", workflow_scope_id="control"
+            )
+        )  # type: ignore[attr-defined]
 
         assert result.status is RunStatus.BLOCKED
         scope = _scope(root, "control")
@@ -141,8 +154,15 @@ class TestParityWithAPlainJob:
         """
         app, _ = project
 
-        from_workflow = app.execute("walk", scope_id="a2", zzz_nonsense=1)  # type: ignore[attr-defined]
-        from_plain = app.execute("alpha", zzz_nonsense=1)  # type: ignore[attr-defined]
+        from_workflow = app.execute(
+            RunRequest(
+                job_name="walk",
+                surface="app.execute",
+                kwargs={"zzz_nonsense": 1},
+                workflow_scope_id="a2",
+            )
+        )  # type: ignore[attr-defined]
+        from_plain = app.execute(request_for("alpha", zzz_nonsense=1))  # type: ignore[attr-defined]
 
         assert from_workflow.status is from_plain.status is RunStatus.FAILURE
         assert type(from_workflow.exception) is type(from_plain.exception) is TypeError
@@ -166,10 +186,10 @@ class TestParityWithAPlainJob:
         from functualize.app import FunctualizeApp, JobSources
 
         cold = FunctualizeApp("w", job_sources=JobSources(directories=["jobs"]))
-        cold_error = cold.execute("walk", zzz_nonsense=1).exception
+        cold_error = cold.execute(request_for("walk", zzz_nonsense=1)).exception
 
         warm = FunctualizeApp("w", job_sources=JobSources(directories=["jobs"]))
-        warm_error = warm.execute("walk", zzz_nonsense=1).exception
+        warm_error = warm.execute(request_for("walk", zzz_nonsense=1)).exception
 
         assert str(cold_error) == str(warm_error)
         assert "walk()" in str(warm_error)
@@ -185,7 +205,7 @@ class TestParityWithAPlainJob:
         app, _ = project
 
         for job_name in ("walk", "alpha"):
-            result = app.execute(job_name, zzz_nonsense=1)  # type: ignore[attr-defined]
+            result = app.execute(request_for(job_name, zzz_nonsense=1))  # type: ignore[attr-defined]
             assert result.exception is not None
 
 
@@ -198,11 +218,25 @@ class TestARefusedResumeDisturbsNothing:
         app, root = project
         store = StateStore.for_project(root)
 
-        assert app.execute("walk", scope_id="a4").status is RunStatus.BLOCKED  # type: ignore[attr-defined]
+        assert (
+            app.execute(
+                RunRequest(
+                    job_name="walk", surface="app.execute", workflow_scope_id="a4"
+                )
+            ).status
+            is RunStatus.BLOCKED
+        )  # type: ignore[attr-defined]
         assert store.deposit_gate_payload("a4", "pause", {"note": "approved"})
 
         before = _scope(root, "a4")
-        result = app.execute("walk", scope_id="a4", zzz_nonsense=1)  # type: ignore[attr-defined]
+        result = app.execute(
+            RunRequest(
+                job_name="walk",
+                surface="app.execute",
+                kwargs={"zzz_nonsense": 1},
+                workflow_scope_id="a4",
+            )
+        )  # type: ignore[attr-defined]
         after = _scope(root, "a4")
 
         assert result.status is RunStatus.FAILURE
@@ -215,11 +249,22 @@ class TestARefusedResumeDisturbsNothing:
         app, root = project
         store = StateStore.for_project(root)
 
-        app.execute("walk", scope_id="a4b")  # type: ignore[attr-defined]
+        app.execute(
+            RunRequest(job_name="walk", surface="app.execute", workflow_scope_id="a4b")
+        )  # type: ignore[attr-defined]
         store.deposit_gate_payload("a4b", "pause", {"note": "approved"})
-        app.execute("walk", scope_id="a4b", zzz_nonsense=1)  # type: ignore[attr-defined]
+        app.execute(
+            RunRequest(
+                job_name="walk",
+                surface="app.execute",
+                kwargs={"zzz_nonsense": 1},
+                workflow_scope_id="a4b",
+            )
+        )  # type: ignore[attr-defined]
 
-        resumed = app.execute("walk", scope_id="a4b")  # type: ignore[attr-defined]
+        resumed = app.execute(
+            RunRequest(job_name="walk", surface="app.execute", workflow_scope_id="a4b")
+        )  # type: ignore[attr-defined]
 
         assert resumed.status is RunStatus.SUCCESS
         assert resumed.return_value == "done"
@@ -241,7 +286,14 @@ class TestVarKeywordIsHonoured:
         from functualize.app import FunctualizeApp, JobSources
 
         app = FunctualizeApp("w", job_sources=JobSources(directories=["jobs"]))
-        result = app.execute("walk", scope_id="a5", anything_at_all=1)
+        result = app.execute(
+            RunRequest(
+                job_name="walk",
+                surface="app.execute",
+                kwargs={"anything_at_all": 1},
+                workflow_scope_id="a5",
+            )
+        )
 
         assert result.status is RunStatus.BLOCKED
         assert _scope(tmp_path, "a5").get("position") == "pause"
@@ -290,7 +342,14 @@ class TestANestedWorkflowIsUnaffected:
     ) -> None:
         app, root = nested
 
-        result = app.execute("outer", scope_id="rk4", zzz_nonsense=1)  # type: ignore[attr-defined]
+        result = app.execute(
+            RunRequest(
+                job_name="outer",
+                surface="app.execute",
+                kwargs={"zzz_nonsense": 1},
+                workflow_scope_id="rk4",
+            )
+        )  # type: ignore[attr-defined]
 
         assert result.status is RunStatus.FAILURE
         assert not _scope(root, "rk4").get("steps")
@@ -301,13 +360,24 @@ class TestANestedWorkflowIsUnaffected:
         app, root = nested
         store = StateStore.for_project(root)
 
-        assert app.execute("outer", scope_id="rk4b").status is RunStatus.BLOCKED  # type: ignore[attr-defined]
+        assert (
+            app.execute(
+                RunRequest(
+                    job_name="outer", surface="app.execute", workflow_scope_id="rk4b"
+                )
+            ).status
+            is RunStatus.BLOCKED
+        )  # type: ignore[attr-defined]
 
         # The inner workflow owns a derived scope, not the parent's (§A.7).
         inner = "rk4b::walk"
         assert store.deposit_gate_payload(inner, "pause", {"note": "ok"})
 
-        resumed = app.execute("outer", scope_id="rk4b")  # type: ignore[attr-defined]
+        resumed = app.execute(
+            RunRequest(
+                job_name="outer", surface="app.execute", workflow_scope_id="rk4b"
+            )
+        )  # type: ignore[attr-defined]
 
         assert resumed.status is RunStatus.SUCCESS
         assert resumed.return_value == "outer done"
@@ -328,7 +398,14 @@ class TestTheInMemoryScopeRegistry:
     ) -> None:
         app, root = project
 
-        app.execute("walk", scope_id="rk5", zzz_nonsense=1)  # type: ignore[attr-defined]
+        app.execute(
+            RunRequest(
+                job_name="walk",
+                surface="app.execute",
+                kwargs={"zzz_nonsense": 1},
+                workflow_scope_id="rk5",
+            )
+        )  # type: ignore[attr-defined]
 
         registry = app._scope_registry  # type: ignore[attr-defined]
         assert "rk5" in registry, (
@@ -402,7 +479,14 @@ class TestConfigModelFieldsAreLegitimate:
     ) -> None:
         app, root = configured
 
-        result = app.execute("trip", scope_id="cfg", city="Kyoto")  # type: ignore[attr-defined]
+        result = app.execute(
+            RunRequest(
+                job_name="trip",
+                surface="app.execute",
+                kwargs={"city": "Kyoto"},
+                workflow_scope_id="cfg",
+            )
+        )  # type: ignore[attr-defined]
 
         assert result.status is RunStatus.BLOCKED, (
             "a config field was refused as an unknown launch argument"
@@ -415,7 +499,14 @@ class TestConfigModelFieldsAreLegitimate:
         """The control: accepting config fields must not accept everything."""
         app, root = configured
 
-        result = app.execute("trip", scope_id="cfg2", nonsense=1)  # type: ignore[attr-defined]
+        result = app.execute(
+            RunRequest(
+                job_name="trip",
+                surface="app.execute",
+                kwargs={"nonsense": 1},
+                workflow_scope_id="cfg2",
+            )
+        )  # type: ignore[attr-defined]
 
         assert result.status is RunStatus.FAILURE
         assert "nonsense" in str(result.exception)
@@ -431,8 +522,13 @@ class TestConfigModelFieldsAreLegitimate:
         """
         app, _ = configured
 
-        assert app.execute("forecast", city="Osaka").status is RunStatus.SUCCESS  # type: ignore[attr-defined]
-        assert app.execute("forecast", nonsense=1).status is RunStatus.FAILURE  # type: ignore[attr-defined]
+        assert (
+            app.execute(request_for("forecast", city="Osaka")).status
+            is RunStatus.SUCCESS
+        )  # type: ignore[attr-defined]
+        assert (
+            app.execute(request_for("forecast", nonsense=1)).status is RunStatus.FAILURE
+        )  # type: ignore[attr-defined]
 
 
 class TestTheOtherDeclaredEntryPoints:
@@ -460,7 +556,11 @@ class TestTheOtherDeclaredEntryPoints:
         app, root = project
 
         result = app.execute(  # type: ignore[attr-defined]
-            "caller", scope_id="invoke-probe"
+            RunRequest(
+                job_name="caller",
+                surface="app.execute",
+                workflow_scope_id="invoke-probe",
+            )
         )
 
         assert result.status is RunStatus.SUCCESS, result.exception

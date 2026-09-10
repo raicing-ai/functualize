@@ -21,6 +21,7 @@ from functualize._app.state import AppState
 from functualize.app._workflow_view import _topology
 from functualize.app.core import FunctualizeApp
 from functualize.app.utils import StateStore
+from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, workflow
 
 pytestmark = pytest.mark.anyio
@@ -108,7 +109,13 @@ class TestGetWorkflowState:
 
     async def test_a_blocked_scope_reports_its_graph_and_progress(self) -> None:
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
 
         state = await _provider(app)._get_workflow_state("run-1")
 
@@ -124,7 +131,13 @@ class TestGetWorkflowState:
         """Topology is reported without importing the declaring module — the
         same projection discovery caches."""
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
 
         state = await _provider(app)._get_workflow_state("run-1")
 
@@ -137,7 +150,13 @@ class TestGetWorkflowState:
 
     async def test_a_pending_gate_carries_what_an_agent_needs(self) -> None:
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
 
         state = await _provider(app)._get_workflow_state("run-1")
 
@@ -155,7 +174,13 @@ class TestGetWorkflowState:
 
     async def test_an_answered_gate_is_no_longer_pending(self) -> None:
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
         _store().deposit_gate_payload("run-1", "preferences", {"budget": "high"})
 
         state = await _provider(app)._get_workflow_state("run-1")
@@ -163,9 +188,21 @@ class TestGetWorkflowState:
 
     async def test_a_completed_scope_reports_completed(self) -> None:
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
         _store().deposit_gate_payload("run-1", "preferences", {"budget": "high"})
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
 
         state = await _provider(app)._get_workflow_state("run-1")
 
@@ -183,8 +220,20 @@ class TestListWorkflows:
 
     async def test_blocked_scopes_are_listed(self) -> None:
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
-        app.execute("trip_planner", scope_id="run-2")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-2",
+            )
+        )
 
         result = await _provider(app)._list_workflows()
 
@@ -194,10 +243,24 @@ class TestListWorkflows:
         """The point of the tool is finding work that needs a human or an
         agent — a completed scope is noise."""
         app = _gated_app()
-        app.execute("trip_planner", scope_id="done")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner", surface="app.execute", workflow_scope_id="done"
+            )
+        )
         _store().deposit_gate_payload("done", "preferences", {"budget": "high"})
-        app.execute("trip_planner", scope_id="done")
-        app.execute("trip_planner", scope_id="still-blocked")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner", surface="app.execute", workflow_scope_id="done"
+            )
+        )
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="still-blocked",
+            )
+        )
 
         result = await _provider(app)._list_workflows()
 
@@ -211,7 +274,13 @@ class TestAnswerGate:
 
     async def test_valid_input_is_accepted_and_recorded(self) -> None:
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
 
         result = await _provider(app)._answer_gate(
             {"budget": "high"}, gate="preferences"
@@ -233,7 +302,13 @@ class TestAnswerGate:
         inside one MCP call."""
         calls: list[str] = []
         app = _gated_app(calls)
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
         calls.clear()
 
         await _provider(app)._answer_gate({"budget": "high"}, gate="preferences")
@@ -243,10 +318,22 @@ class TestAnswerGate:
     async def test_the_answer_is_what_actually_unblocks_the_run(self) -> None:
         calls: list[str] = []
         app = _gated_app(calls)
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
         await _provider(app)._answer_gate({"budget": "high"}, gate="preferences")
 
-        result = app.execute("trip_planner", scope_id="run-1")
+        result = app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
 
         assert result.return_value == "itinerary"
         assert calls == ["forecast", "travel_plan", "body"]
@@ -255,7 +342,13 @@ class TestAnswerGate:
         """The behaviour change from `resume_gate`, which rejected outright.
         A missing required field is now a *draft*, not an error."""
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
 
         result = await _provider(app)._answer_gate({"nights": 3}, gate="preferences")
 
@@ -269,15 +362,33 @@ class TestAnswerGate:
         """Not merely "payload stays None" — the walk must still block. This is
         the invariant that makes drafts safe."""
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
         await _provider(app)._answer_gate({"nights": 3}, gate="preferences")
 
-        again = app.execute("trip_planner", scope_id="run-1")
+        again = app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
         assert again.status.resumable
 
     async def test_a_draft_can_be_completed_by_a_second_call(self) -> None:
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
         await _provider(app)._answer_gate({"nights": 3}, gate="preferences")
 
         result = await _provider(app)._answer_gate(
@@ -291,7 +402,13 @@ class TestAnswerGate:
         """Validation is the real model, not a required-keys check — a schema
         walk would accept this."""
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
 
         result = await _provider(app)._answer_gate(
             {"budget": "high", "nights": "not-a-number"}, gate="preferences"
@@ -302,7 +419,13 @@ class TestAnswerGate:
 
     async def test_an_unknown_gate_names_the_survey_verb(self) -> None:
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
 
         result = await _provider(app)._answer_gate({"budget": "high"}, gate="typo")
 
@@ -311,8 +434,20 @@ class TestAnswerGate:
 
     async def test_the_same_gate_in_two_scopes_is_ambiguous(self) -> None:
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
-        app.execute("trip_planner", scope_id="run-2")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-2",
+            )
+        )
 
         result = await _provider(app)._answer_gate(
             {"budget": "high"}, gate="preferences"
@@ -329,8 +464,20 @@ class TestAnswerGate:
         referred the caller to the other, and a caller holding both had no tool
         that would accept them."""
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
-        app.execute("trip_planner", scope_id="run-2")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-2",
+            )
+        )
 
         result = await _provider(app)._answer_gate(
             {"budget": "high"}, workflow_id="run-2", gate="preferences"
@@ -345,7 +492,13 @@ class TestAnswerGate:
         """It used to answer `gate_not_found`, which is misleading: the gate
         exists, it is answered."""
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
         await _provider(app)._answer_gate({"budget": "high"}, gate="preferences")
 
         result = await _provider(app)._answer_gate(
@@ -355,7 +508,13 @@ class TestAnswerGate:
 
     async def test_reopen_corrects_a_recorded_answer(self) -> None:
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
         await _provider(app)._answer_gate({"budget": "high"}, gate="preferences")
 
         result = await _provider(app)._answer_gate(
@@ -369,7 +528,13 @@ class TestAnswerGate:
 class TestGetGateDraft:
     async def test_it_reports_what_is_missing(self) -> None:
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
         await _provider(app)._answer_gate({"nights": 3}, gate="preferences")
 
         report = await _provider(app)._get_gate_draft(gate="preferences")
@@ -380,7 +545,13 @@ class TestGetGateDraft:
 
     async def test_it_changes_nothing(self) -> None:
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
 
         await _provider(app)._get_gate_draft(gate="preferences")
 
@@ -394,7 +565,13 @@ class TestResumeWorkflow:
 
     async def test_it_answers_and_advances_in_one_call(self) -> None:
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
 
         result = await _provider(app)._resume_workflow("run-1", {"budget": "high"})
 
@@ -405,7 +582,13 @@ class TestResumeWorkflow:
         """The claim that separates advancing from depositing."""
         calls: list[str] = []
         app = _gated_app(calls)
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
         calls.clear()
 
         await _provider(app)._resume_workflow("run-1", {"budget": "high"})
@@ -416,7 +599,13 @@ class TestResumeWorkflow:
         self,
     ) -> None:
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
 
         result = await _provider(app)._resume_workflow(input={"budget": "high"})
         assert result["status"] == "success"
@@ -424,16 +613,40 @@ class TestResumeWorkflow:
     async def test_several_advanceable_scopes_are_ambiguous(self) -> None:
         """Never "newest wins" — `blocked_at` resets on every re-block."""
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
-        app.execute("trip_planner", scope_id="run-2")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-2",
+            )
+        )
 
         result = await _provider(app)._resume_workflow(input={"budget": "high"})
         assert result["error"] == "ambiguous_scope"
 
     async def test_naming_the_scope_advances_only_that_one(self) -> None:
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
-        app.execute("trip_planner", scope_id="run-2")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-2",
+            )
+        )
 
         result = await _provider(app)._resume_workflow("run-2", {"budget": "high"})
 
@@ -454,9 +667,21 @@ class TestResumeWorkflow:
         self,
     ) -> None:
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
         _store().deposit_gate_payload("run-1", "preferences", {"budget": "high"})
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
 
         result = await _provider(app)._resume_workflow("run-1", {"budget": "low"})
         assert result["error"] in {"gate_not_found", "workflow_not_found"}
@@ -466,7 +691,13 @@ class TestResumeWorkflow:
         they started, with no explanation."""
         calls: list[str] = []
         app = _gated_app(calls)
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
         calls.clear()
 
         result = await _provider(app)._resume_workflow("run-1", {"nights": 1})
@@ -479,7 +710,13 @@ class TestResumeWorkflow:
         """A fan-out can leave two gates unanswered at once; the scope id is
         then not a unique address and the caller must name the gate."""
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
 
         _store().put_gate(
             "run-1",
@@ -502,7 +739,13 @@ class TestResumeWorkflow:
 class TestCancelWorkflow:
     async def test_a_blocked_scope_can_be_cancelled(self) -> None:
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
 
         result = await _provider(app)._cancel_workflow("run-1")
 
@@ -513,7 +756,13 @@ class TestCancelWorkflow:
 
     async def test_a_cancelled_scope_drops_out_of_the_active_list(self) -> None:
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
         await _provider(app)._cancel_workflow("run-1")
 
         result = await _provider(app)._list_workflows()
@@ -521,7 +770,13 @@ class TestCancelWorkflow:
 
     async def test_cancelling_twice_is_an_error(self) -> None:
         app = _gated_app()
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
         provider = _provider(app)
         await provider._cancel_workflow("run-1")
 

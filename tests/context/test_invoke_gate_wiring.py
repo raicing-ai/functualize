@@ -21,7 +21,7 @@ import pytest
 from pydantic import BaseModel
 
 from functualize._app.state import AppState
-from functualize.app.core import FunctualizeApp
+from functualize.app.core import FunctualizeApp, request_for
 from functualize.job import RunContext, job
 
 
@@ -80,14 +80,20 @@ class TestTheGateIsWired:
 
     def test_a_resolved_gate_value_reaches_the_job(self) -> None:
         """The discarded-return-value bug: the job used to see its defaults."""
-        assert _app().execute("caller").return_value == "ok=True note=from-gate"
+        assert (
+            _app().execute(request_for("caller")).return_value
+            == "ok=True note=from-gate"
+        )
 
     def test_an_explicitly_passed_argument_still_wins(self) -> None:
         """A caller naming a value is not overridden by a gate filling the
         same field — only the fields it did not name are filled."""
-        result = _app().execute("caller-explicit").return_value
+        result = _app().execute(request_for("caller-explicit")).return_value
         assert result == "ok=False note=from-gate"
 
     def test_invoking_without_a_gate_is_unaffected(self) -> None:
         """The common path pays nothing: no gate parameters, no gate."""
-        assert _app().execute("caller-no-gate").return_value == "ok=False note=default"
+        assert (
+            _app().execute(request_for("caller-no-gate")).return_value
+            == "ok=False note=default"
+        )

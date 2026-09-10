@@ -27,6 +27,7 @@ from functualize.app.utils import (
     describe_scope,
     list_scopes,
 )
+from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, workflow
 
 
@@ -115,7 +116,11 @@ class TestDescribeScope:
     def test_it_carries_the_graph_and_the_progress(
         self, app: FunctualizeApp, project: Path
     ) -> None:
-        app.execute("release", scope_id="rel-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-1"
+            )
+        )
         store = StateStore.for_project(project)
 
         view = describe_scope(app, store, "rel-1")
@@ -143,7 +148,11 @@ class TestDescribeScope:
 
     def test_the_epilogue_is_carried(self, app: FunctualizeApp, project: Path) -> None:
         """A projection that omitted it could not explain its own `state`."""
-        app.execute("release", scope_id="rel-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-1"
+            )
+        )
         store = StateStore.for_project(project)
         assert "epilogue" in describe_scope(app, store, "rel-1")
 
@@ -152,7 +161,11 @@ class TestListScopes:
     def test_it_lists_live_scopes_by_default(
         self, app: FunctualizeApp, project: Path
     ) -> None:
-        app.execute("release", scope_id="rel-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-1"
+            )
+        )
         store = StateStore.for_project(project)
         store.ensure_scope("old", "release")
         store.set_scope_status("old", "completed")
@@ -173,7 +186,11 @@ class TestListScopes:
         assert [r["workflow_id"] for r in rows] == ["old"]
 
     def test_it_filters_by_workflow(self, app: FunctualizeApp, project: Path) -> None:
-        app.execute("release", scope_id="rel-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-1"
+            )
+        )
         store = StateStore.for_project(project)
         store.ensure_scope("other", "something-else")
 
@@ -183,7 +200,11 @@ class TestListScopes:
     def test_it_filters_by_pending_gate(
         self, app: FunctualizeApp, project: Path
     ) -> None:
-        app.execute("release", scope_id="rel-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-1"
+            )
+        )
         store = StateStore.for_project(project)
 
         assert list_scopes(app, store, blocked_on="approve")
@@ -199,7 +220,11 @@ class TestListScopes:
         two surfaces could return "the same rows" however carefully each was
         written. One key, two shapes, is the drift this module ends.
         """
-        app.execute("release", scope_id="rel-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-1"
+            )
+        )
         store = StateStore.for_project(project)
 
         assert list_scopes(app, store)[0] == describe_scope(app, store, "rel-1")

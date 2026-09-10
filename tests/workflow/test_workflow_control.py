@@ -32,6 +32,7 @@ from functualize.app.utils import (
     resolve_advanceable,
     resume_scope,
 )
+from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, workflow
 
 
@@ -91,7 +92,9 @@ def app(project: Path, calls: list[str]) -> FunctualizeApp:
 
 @pytest.fixture
 def store(app: FunctualizeApp, project: Path, calls: list[str]) -> StateStore:
-    app.execute("release", scope_id="rel-1")
+    app.execute(
+        RunRequest(job_name="release", surface="app.execute", workflow_scope_id="rel-1")
+    )
     calls.clear()
     return StateStore.for_project(project)
 
@@ -199,7 +202,11 @@ class TestAmbiguityNeverGuesses:
     ) -> None:
         """Never "newest wins" — `blocked_at` resets on every re-block, so
         recency is not computable even if it were wanted."""
-        app.execute("release", scope_id="rel-2")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-2"
+            )
+        )
 
         result = resolve_advanceable(store, None, "release")
 
@@ -292,7 +299,9 @@ class TestTheFunnelCannotBeBypassed:
         instance.register_dynamic_job("deploy", deploy)
         instance.register_dynamic_job("gated", gated)
 
-        instance.execute("gated", scope_id="g-1")
+        instance.execute(
+            RunRequest(job_name="gated", surface="app.execute", workflow_scope_id="g-1")
+        )
         gated_store = StateStore.for_project(project)
         calls.clear()
 
@@ -381,7 +390,11 @@ class TestPurge:
 
     def test_it_filters_by_state(self, app: FunctualizeApp, store: StateStore) -> None:
         resume_scope(app, store, "rel-1", input={"approved": True})
-        app.execute("release", scope_id="rel-2")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-2"
+            )
+        )
         cancel_scope(store, "rel-2")
 
         assert purge_scopes(store, state="cancelled")["removed"] == ["rel-2"]

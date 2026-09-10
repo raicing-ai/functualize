@@ -74,11 +74,23 @@ def test_explicit_scope_id_on_the_request_is_honoured(app: FunctualizeApp) -> No
 
 
 def test_request_and_extra_arguments_is_a_type_error(app: FunctualizeApp) -> None:
-    """Two answers to 'what scope is this run in?' is not a supported call."""
-    with pytest.raises(TypeError, match="takes no other arguments"):
+    """Two answers to 'what scope is this run in?' is not a supported call.
+
+    `execute` takes the request and nothing else, so the second answer is
+    refused by the call itself rather than silently winning or silently
+    becoming a job argument.
+    """
+    with pytest.raises(TypeError, match="scope_id"):
         app.execute(RunRequest(job_name="greet", surface="app.execute"), scope_id="x")
 
 
-def test_legacy_form_still_works_until_t15(app: FunctualizeApp) -> None:
-    """TRANSITIONAL(run-request/T15): wave 3 migrates the doors one at a time."""
-    assert app.execute("greet", name="d").return_value == "hello d"
+def test_the_legacy_job_name_form_is_gone(app: FunctualizeApp) -> None:
+    """T15 removed `execute(job_name, **kwargs)`.
+
+    The guard is inverted rather than deleted: the old spelling is the
+    accidental channel spec 1.6a closed, so what is pinned now is that it
+    **cannot come back**. Every keyword after the name is refused by the call
+    instead of being splatted into the payload half.
+    """
+    with pytest.raises(TypeError, match="name"):
+        app.execute("greet", name="d")  # type: ignore[arg-type]

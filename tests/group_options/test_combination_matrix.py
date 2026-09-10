@@ -16,13 +16,12 @@ Four axes:
 
 Not every cell is reachable, and the unreachable ones are marked rather than
 faked — but **fewer are unreachable than the sibling module says**.
-`test_group_options_injection.py:123-126` states that "`app.execute` deliberately
-has no `group_option_values` parameter". It has one, keyword-only, and
-`app/core.py:592-598` documents it: the CLI fills it from the flags it consumed
-mid-path, and MCP fills it from the group fields in a tool's input schema. So the
-facade reaches all four layers, and this module asserts that rather than the
-docstring. The sibling module is not edited here; none of its own assertions
-depend on the stale sentence.
+`test_group_options_injection.py` used to state that "`app.execute` deliberately
+has no `group_option_values` parameter". The facade takes a `RunRequest`, and
+`RunRequest.group_option_values` is how a caller hands the group-CLI layer over:
+the CLI fills it from the flags it consumed mid-path, and MCP fills it from the
+group fields in a tool's input schema. So the facade reaches all four layers, and
+this module asserts that rather than the docstring.
 
 The group-CLI layer is genuinely out of reach for the entry points that are
 handed no such dict — `rc.invoke` and a `@workflow` step — and those two axes
@@ -53,7 +52,7 @@ import pytest
 from functualize._app.state import AppState
 from functualize._cli.dispatch import walk_group_path
 from functualize._types.descriptors import FieldDescriptor, GroupOptionsSpec
-from functualize.app.core import FunctualizeApp
+from functualize.app.core import FunctualizeApp, request_for
 from functualize.app.utils import build_group_trie
 from functualize.job import RunStatus
 from functualize.types import RunRequest
@@ -329,7 +328,13 @@ def test_app_execute_resolves_every_reachable_layer(
     group_options = _arm(layer, monkeypatch)
     app = _app(_job_module())
 
-    result = app.execute("deploy.web.run", group_option_values=group_options or None)
+    result = app.execute(
+        RunRequest(
+            job_name="deploy.web.run",
+            surface="app.execute",
+            group_option_values=group_options or None,
+        )
+    )
 
     assert result.status is RunStatus.SUCCESS, repr(result.exception)
     assert result.return_value[f"{depth}/{kind}"] == _expected(layer, depth, kind)
@@ -356,21 +361,24 @@ def test_cli_dispatch_resolves_every_layer(
 def test_the_facade_accepts_a_group_cli_layer() -> None:
     """Observed, against a claim to the contrary.
 
-    `test_group_options_injection.py:123-126` says `app.execute` "deliberately
-    has no `group_option_values` parameter". It has one, keyword-only, and
-    `app/core.py:592-598` documents two callers that fill it — the CLI from the
-    flags it consumed mid-path, MCP from a tool's input schema. Pinned here so
-    the matrix cannot quietly go back to treating those cells as impossible.
+    `test_group_options_injection.py` used to say `app.execute` "deliberately
+    has no `group_option_values` parameter". The facade takes a `RunRequest`,
+    and `RunRequest.group_option_values` is the field that carries the layer:
+    the CLI fills it from the flags it consumed mid-path, MCP from a tool's
+    input schema. Pinned here so the matrix cannot quietly go back to treating
+    those cells as impossible.
     """
-    import inspect
-
-    parameter = inspect.signature(FunctualizeApp.execute).parameters.get(
-        "group_option_values"
+    request = RunRequest(
+        job_name="deploy.web.run",
+        surface="app.execute",
+        group_option_values={"env": "cli-env"},
     )
 
-    assert parameter is not None
-    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
-    assert parameter.default is None, (
+    assert request.group_option_values == {"env": "cli-env"}
+    assert (
+        RunRequest(job_name="deploy.web.run", surface="app.execute").group_option_values
+        is None
+    ), (
         "omitting it must stay equivalent to passing nothing, so that a plain "
         "execute() still resolves the file/env/default layers"
     )
@@ -379,11 +387,11 @@ def test_the_facade_accepts_a_group_cli_layer() -> None:
 def test_omitting_the_facades_group_cli_layer_still_resolves_the_others(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`app/core.py:597-598`: a plain `execute("deploy.web.run")` is complete."""
+    """`app/core.py:597-598`: a plain `request_for("deploy.web.run")` is complete."""
     _arm("env", monkeypatch)
     app = _app(_job_module())
 
-    result = app.execute("deploy.web.run")
+    result = app.execute(request_for("deploy.web.run"))
 
     assert result.status is RunStatus.SUCCESS, repr(result.exception)
     assert result.return_value["deploy/plain"] == _value("env", "deploy", "plain")
@@ -429,7 +437,7 @@ def test_a_workflow_step_resolves_every_non_cli_layer(
     module = _job_module()
     app = _app(module)
 
-    result = app.execute("orchestrate")
+    result = app.execute(request_for("orchestrate"))
 
     assert result.status is RunStatus.SUCCESS, repr(result.exception)
     assert module.SEEN, (
@@ -453,8 +461,11 @@ def test_a_workflow_step_does_not_inherit_the_group_cli_layer(
     app = _app(module)
 
     result = app.execute(
-        "orchestrate",
-        group_option_values={"env": "cli-env", "region": "cli-region"},
+        RunRequest(
+            job_name="orchestrate",
+            surface="app.execute",
+            group_option_values={"env": "cli-env", "region": "cli-region"},
+        )
     )
 
     assert result.status is RunStatus.SUCCESS, repr(result.exception)
@@ -486,7 +497,7 @@ def test_rc_invoke_resolves_every_non_cli_layer(
     _arm(layer, monkeypatch)
     app = _app(_job_module())
 
-    result = app.execute("caller")
+    result = app.execute(request_for("caller"))
 
     assert result.status is RunStatus.SUCCESS, repr(result.exception)
     assert result.return_value[f"{depth}/{kind}"] == _expected(layer, depth, kind)
@@ -505,8 +516,11 @@ def test_the_group_cli_layer_does_not_cross_an_invoke_boundary(
     app = _app(_job_module())
 
     parent = app.execute(
-        "caller",
-        group_option_values={"env": "cli-env", "region": "cli-region"},
+        RunRequest(
+            job_name="caller",
+            surface="app.execute",
+            group_option_values={"env": "cli-env", "region": "cli-region"},
+        )
     )
 
     assert parent.status is RunStatus.SUCCESS, repr(parent.exception)
@@ -523,7 +537,7 @@ def test_the_direct_run_and_the_invoked_run_agree_on_every_source_layer(
     _arm("env", monkeypatch)
     app = _app(_job_module())
 
-    direct = app.execute("deploy.web.run")
-    invoked = app.execute("caller")
+    direct = app.execute(request_for("deploy.web.run"))
+    invoked = app.execute(request_for("caller"))
 
     assert direct.return_value == invoked.return_value

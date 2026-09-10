@@ -25,6 +25,7 @@ from functualize.app.utils import (
     gate_draft,
     resolve_gate,
 )
+from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, workflow
 
 
@@ -78,7 +79,9 @@ def app(project: Path) -> FunctualizeApp:
 
 @pytest.fixture
 def store(app: FunctualizeApp, project: Path) -> StateStore:
-    app.execute("release", scope_id="rel-1")
+    app.execute(
+        RunRequest(job_name="release", surface="app.execute", workflow_scope_id="rel-1")
+    )
     return StateStore.for_project(project)
 
 
@@ -224,7 +227,11 @@ class TestReopen:
         """The walker records the gate as replayed and advances past it, so the
         answer already produced the results recorded after it."""
         answer_gate(app, store, "rel-1", "approve", {"approved": True, "reason": "ok"})
-        app.execute("release", scope_id="rel-1")  # walk past the gate
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-1"
+            )
+        )  # walk past the gate
 
         result = answer_gate(
             app, store, "rel-1", "approve", {"reason": "x"}, reopen=True
@@ -237,7 +244,11 @@ class TestReopen:
     ) -> None:
         """So the refusal is checkable rather than merely asserted."""
         answer_gate(app, store, "rel-1", "approve", {"approved": True, "reason": "ok"})
-        app.execute("release", scope_id="rel-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-1"
+            )
+        )
 
         result = answer_gate(app, store, "rel-1", "approve", reopen=True)
         assert "position" in result
@@ -316,7 +327,11 @@ class TestJointAddressing:
     ) -> None:
         """Never "newest wins" — `blocked_at` resets on every re-block, so it
         is not computable anyway."""
-        app.execute("release", scope_id="rel-2")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-2"
+            )
+        )
 
         result = resolve_gate(store, None, "approve")
 

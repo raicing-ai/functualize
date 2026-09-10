@@ -576,71 +576,41 @@ class FunctualizeApp:
             return descriptor.name
         return job_name
 
-    def execute(
-        self,
-        request: RunRequest | str,
-        *,
-        scope_id: str | None = None,
-        group_option_values: dict[str, Any] | None = None,
-        **kwargs: Any,
-    ) -> JobResult:
+    def execute(self, request: RunRequest) -> JobResult:
         """Execute a job — the single surface-facing entry.
 
-        Takes a :class:`RunRequest`. Every door builds one; the request names
-        the surface it came from, so a run's origin is carried rather than
-        reconstructed.
+        Takes a :class:`RunRequest` and nothing else. Every door builds one, so
+        a run's origin is carried rather than reconstructed, and the delivery
+        inputs travel with the run instead of being read off this object.
 
-        # TRANSITIONAL(run-request/T15): the legacy ``(job_name, *, scope_id,
-        # group_option_values, **kwargs)`` form is still accepted so wave 3 can
-        # migrate the seven doors one at a time with the suite green. T15
-        # deletes it, which is also what makes the accidental control channel
-        # (spec 1.6a) unrepresentable: `scope_id` in a splatted body becomes a
-        # job argument, not a control input.
+        **Why there is no ``(job_name, **kwargs)`` form.** There was one until
+        run-request/T15, and it was the *accidental control channel* of spec
+        §1.6a: a wire surface splatting a caller's payload into
+        ``execute(name, **body)`` meant a JSON body of ``{"scope_id": "abc"}``
+        did not arrive as an argument called ``scope_id`` — it chose **the scope
+        the run joined**. ``group_option_values`` leaked the same way. Wave 3
+        stopped every door from splatting; deleting the parameters is what makes
+        it unrepresentable rather than merely unpractised.
 
-        Automatically creates a WorkflowScope for each top-level execution.
-        The scope groups related invocations under a single traceable context.
+        For the short programmatic spelling use
+        :func:`request_for`: ``app.execute(request_for("build", target="x"))``.
+        It puts every keyword in ``kwargs``, where a job argument belongs. A
+        caller who genuinely means a control input constructs the request and
+        names the field, so the intent is visible in their source instead of
+        hiding in a dict key.
 
-        Automatically creates a WorkflowScope for each top-level execution.
-        The scope groups related invocations under a single traceable context.
+        A ``WorkflowScope`` is created for each top-level execution, grouping
+        related invocations under one traceable context: the request's
+        ``workflow_scope_id`` when it names one (reused if it already exists),
+        otherwise a generated ``<job>-<hex>``.
 
         Args:
-            job_name: Name of the registered job to execute.
-            scope_id: Optional explicit scope ID. If provided and a scope with
-                that ID already exists, it will be reused. If not provided,
-                a scope is auto-generated as ``f"{job_name}-{uuid4().hex[:8]}"``.
-                For a ``@workflow`` job this is also the *persisted* scope, so
-                passing the id of a blocked run is what resumes it (§A.7) —
-                one identity for a run, in memory and in the state store.
-            group_option_values: Values for the job's declared ``GroupOptions``
-                fields (S6a), kept out of ``kwargs`` because they are not the
-                job function's parameters — they belong to a *group* the job
-                sits under. The CLI fills this from the flags it consumed
-                mid-path; MCP fills it from the group fields in a tool's input
-                schema. Omitted, the group's file/env/default layers still
-                resolve, so a plain ``execute("deploy.web.run")`` is complete.
-            **kwargs: Arguments passed to the job function.
+            request: The run to perform.
 
         Returns:
             JobResult with status, duration, return value, and metadata.
         """
         from uuid import uuid4
-
-        if isinstance(request, RunRequest):
-            if scope_id is not None or group_option_values is not None or kwargs:
-                # A request already carries these. Accepting both spellings at
-                # once would leave two answers to "what is this run's scope?".
-                raise TypeError(
-                    "execute(request) takes no other arguments; "
-                    "put them on the RunRequest"
-                )
-        else:
-            request = RunRequest(
-                job_name=request,
-                surface="app.execute",
-                kwargs=kwargs,
-                workflow_scope_id=scope_id,
-                group_option_values=group_option_values,
-            )
 
         job_name = request.job_name
         scope_id = request.workflow_scope_id
@@ -717,6 +687,12 @@ class FunctualizeApp:
             execution_engine=self.execution_engine,
             gate_registry=getattr(self, "_gate_registry", None),
             invoke_depth=0,
+            # This door is a caller who is *not* a job — `func builtin
+            # parallel`, or an embedder. Its items are top-level work the user
+            # asked for, so they say `app.parallel` and reach history; a job's
+            # own `rc.invoke_parallel` says `invoke.parallel` and does not
+            # (run-request/T16).
+            parallel_item_surface="app.parallel",
             cwd=Path.cwd(),
         )
         return invoke.parallel(
@@ -1373,7 +1349,7 @@ class FunctualizeApp:
 
 
 def request_for(
-    job_name: str, *, surface: RunSurface = "app.execute", **kwargs: Any
+    job_name: str, surface: RunSurface = "app.execute", /, **kwargs: Any
 ) -> RunRequest:
     """Build a request for the common programmatic case.
 
@@ -1385,5 +1361,14 @@ def request_for(
     ``group_option_values`` passed as keywords become job arguments, which is
     the point. A caller that means them as control inputs constructs a
     :class:`RunRequest` and says so (spec 1.6a).
+
+    Both parameters are **positional-only**, and that is the same rule applied
+    to this function's own signature. ``surface`` was keyword-only until
+    run-request/T15, which left one square inch of the accidental control
+    channel open: a caller splatting a payload — ``request_for(name, **body)``
+    — with a body key literally called ``surface`` would have **relabelled the
+    door the run came through**, and a door's identity is not something a
+    caller may choose. Positional-only sends every keyword to ``kwargs``
+    without exception. No caller passed it by keyword, so this costs nothing.
     """
     return RunRequest(job_name=job_name, surface=surface, kwargs=kwargs)

@@ -26,6 +26,7 @@ from functualize._primitives.scope_format import SCOPES_FILENAME
 from functualize._primitives.state_format import STATE_FILENAME
 from functualize._primitives.state_store import StateStore
 from functualize.app.core import FunctualizeApp
+from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, workflow
 
 
@@ -174,6 +175,22 @@ def _gated_workflow_app(calls: list[str] | None = None) -> FunctualizeApp:
     return app
 
 
+def _resume_release(app: FunctualizeApp, scope_id: str = "rel-1"):
+    """Resume `release` in an existing scope.
+
+    The scope is a **control input**, not a job argument, so it is named on the
+    request. The old `app.execute("release", scope_id=...)` keyword was the
+    accidental channel spec 1.6a closed (T15): a payload key spelled
+    `scope_id` chose the scope the run joined. `request_for` would put it back
+    in `kwargs`, where it would arrive as an argument the job does not take.
+    """
+    return app.execute(
+        RunRequest(
+            job_name="release", surface="app.execute", workflow_scope_id=scope_id
+        )
+    )
+
+
 class TestBlockedRunResumesAcrossTheSplit:
     """AC-12, AC-13. The end-to-end version: a real walk, blocked, resumed."""
 
@@ -195,7 +212,7 @@ class TestBlockedRunResumesAcrossTheSplit:
         return _gated_workflow_app()
 
     def test_a_gate_blocks_and_records_its_scope(self, app, project) -> None:
-        result = app.execute("release", scope_id="rel-1")
+        result = _resume_release(app)
         assert result.metadata.get("workflow_status") == "blocked"
 
         store = StateStore.for_project(project)
@@ -204,7 +221,7 @@ class TestBlockedRunResumesAcrossTheSplit:
         assert scope["status"] == "blocked"
 
     def test_the_blocked_scope_lives_in_the_scope_file(self, app, project) -> None:
-        app.execute("release", scope_id="rel-1")
+        _resume_release(app)
         raw = json.loads((project / ".functualize" / SCOPES_FILENAME).read_text())
         assert "rel-1" in raw["scopes"]
 
@@ -216,10 +233,10 @@ class TestBlockedRunResumesAcrossTheSplit:
         calls: list[str] = []
         app = _gated_workflow_app(calls)
 
-        app.execute("release", scope_id="rel-1")
+        _resume_release(app)
         assert calls == ["build"]
 
-        app.execute("release", scope_id="rel-1")
+        _resume_release(app)
         assert calls == ["build"], "the completed step re-executed on resume"
 
         store = StateStore.for_project(project)
@@ -232,7 +249,7 @@ class TestBlockedRunResumesAcrossTheSplit:
         self, app, project
     ) -> None:
         """The operator story: clear stale fingerprints, keep the run."""
-        app.execute("release", scope_id="rel-1")
+        _resume_release(app)
         store = StateStore.for_project(project)
 
         store.clear()

@@ -177,7 +177,23 @@ def guarded_execute(
     """
     if policy is not None and not policy.permitted(job_name):
         raise PermissionError(policy.refusal(job_name))
-    return app.execute(_canonical(job_name), scope_id=scope_id, **kwargs)
+    from functualize.types import RunRequest
+
+    # A request, not a name plus keywords. `scope_id` is a **control input** and
+    # says so by landing on `workflow_scope_id`; `**kwargs` are the job's own
+    # arguments and stay in `kwargs`. Before run-request/T15 the facade took
+    # both through one `**kwargs`, so a caller who splatted a payload could
+    # choose the scope the run joined (spec 1.6a). This door is the chokepoint
+    # for starting a job while a gate waits, which makes it exactly the one that
+    # must not be able to confuse the two.
+    return app.execute(
+        RunRequest(
+            job_name=_canonical(job_name),
+            surface="app.execute",
+            kwargs=kwargs,
+            workflow_scope_id=scope_id,
+        )
+    )
 
 
 def advanceable_scopes(store: Any, workflow_name: str | None = None) -> list[str]:
