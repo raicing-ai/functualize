@@ -1146,7 +1146,7 @@ class JobExecutionEngine:
         # first would compare against sources the dep is about to change. Same
         # ordering make uses — build prerequisites, then compare timestamps.
         if run_dependencies:
-            dep_failure = self._run_dependencies(
+            dep_failure = self._dependency_runner.run_for(
                 job_name, function, context, invoke_depth, workflow_scope_id
             )
             if dep_failure is not None:
@@ -1754,23 +1754,6 @@ class JobExecutionEngine:
         """Direct dependencies of ``job_name`` — `Deps` and `FromJob` alike."""
         names: list[str] = self.job_graph.deps_of(job_name)
         return names
-
-    def _run_dependencies(
-        self,
-        job_name: str,
-        function: Any,
-        context: Any,
-        invoke_depth: int,
-        workflow_scope_id: str | None = None,
-    ) -> JobResult | None:
-        """Delegates to :class:`DependencyRunner` (T7, step 1 of 2).
-
-        Kept for one commit so the move is verified against a green lifecycle
-        before the call site changes. Step 2 deletes it.
-        """
-        return self._dependency_runner.run_for(
-            job_name, function, context, invoke_depth, workflow_scope_id
-        )
 
     def _exec_policy(self) -> Any:
         """The `Exec` policy (timeout/retry/run), built once per engine.

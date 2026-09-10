@@ -217,18 +217,44 @@ before its upstream ran. Reverted; `6 passed`.
 
 ## Wave 6 — dependency scheduling leaves the engine
 
-### [ ] T7 · `DependencyRunner`
+### [x] T7 · `DependencyRunner`
 
 **Files:** `src/functualize/_engine/dependency_runner.py`,
-`src/functualize/_engine/executor.py`
+`src/functualize/_engine/executor.py`, `tests/engine/test_lifecycle_order.py`,
+`contributor/reference/execution-lifecycle.md`
 
-`_run_dependencies` (`executor.py:1741`, ~112 LOC) plus its scheduler glue.
+`_run_dependencies` (`executor.py:1803` at execution time, 114 LOC — the brief said `:1741`,
+~112) plus its scheduler glue: `_unreusable_upstreams` and `_scope_step_succeeded`, the two
+helpers nothing else calls.
+
+**`_declared_dep_names` stayed on the engine.** It is the third helper and it looks like glue,
+but `app/core.py:980` calls it as well, so moving it would mean editing an unrelated public
+class inside a refactoring commit. **T9** is the task that puts that class on a diet; this one
+does not pre-empt it. The runner reaches it through the engine and the module docstring says
+why.
+
+**Two commits**, as in T6: `0bac413` moves the bodies and leaves a delegate; the second
+deletes the delegate and points `_execute_lifecycle` at `self._dependency_runner.run_for`.
 
 **Gate**
 ```bash
 rg -c 'def _run_dependencies' src/functualize/_engine/executor.py
 ```
-now: `1` · after: `0`
+now: `1` · after: `0` *(`rg` exits 1 with no matches)*
+
+**Gate — the lifecycle is untouched** (T6's, re-run here because both waves edit the same
+method)
+```bash
+uv run pytest tests/engine/test_lifecycle_order.py -q
+```
+now: `passing` · after: `6 passed` — after **both** commits.
+
+Same one edit to `_DOCUMENTED_ORDER` as T6, for the same reason: the AST scan matches call
+names, so `_run_dependencies` became `run_for`. `execution-lifecycle.md` step 9 updated in the
+same commit.
+
+**Executable size:** `executor.py` 2622 → **2463** LOC; `dependency_runner.py` 199. Across
+T6+T7 the file has lost **308 lines**, from 2771.
 
 Separate wave from T6 **only** because both edit `executor.py`. Neither depends on the other.
 

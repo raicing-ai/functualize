@@ -50,7 +50,9 @@ _DOCUMENTED_ORDER = [
     "_resolve_config_model",  # 6  config      -> context.injected
     "_resolve_group_options",  # 7  group opts  -> context.injected
     "redacted_snapshot",  # 8  resolved_inputs snapshot
-    "_run_dependencies",  # 9  Deps
+    "run_for",  # 9  Deps — `DependencyRunner.run_for`, which was
+    #                            `_execute_lifecycle`'s own `_run_dependencies`
+    #                            until T7 moved it out
     "_inject_from_job",  # 10 FromJob     -> context.injected
     "_run_mode_skip",  # 11 Exec.run session skip
     "_preflight_check",  # 12 pre-flight
