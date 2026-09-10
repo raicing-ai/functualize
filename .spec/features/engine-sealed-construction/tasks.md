@@ -146,11 +146,19 @@ Three real call sites: `executor.py:1096`, `preflight.py:116`, `runcontext.py:29
 
 Spec AC-6.
 
-**Gate (narrowed — see header; excludes the `:784` docstring)**
+**Gate**
 ```bash
-rg -n 'Path\.cwd\(\)' src/functualize/_engine/ | grep -v '^\S*:[0-9]*: *#' | grep -v 'defaults to'
+rg -n 'Path\.cwd\(\)' src/functualize/_engine/ | wc -l
 ```
 now: `3` *(`executor.py:1096`, `preflight.py:116`, `runcontext.py:291`)* · after: `0`
+
+> **The narrowing is gone, 2026-09-11 (T11).** This gate was written as
+> `… | grep -v '^\S*:[0-9]*: *#' | grep -v 'defaults to'`, excluding a docstring that still
+> said *"cwd: Working directory (defaults to `Path.cwd()`)"* — prose describing the exact
+> behaviour the task had just removed. Excluding it from the gate was honest and it left the
+> lie in the file, where a reader finds it. The docstring now says what happens (`None` means
+> the run named none, and `RunContext.cwd` answers with the host's project root), so the gate
+> needs no exclusions and reads `0` on its own terms. Same shape as `rre F11`.
 
 **Test:** a run with an explicit root writes its state **there** — the property that makes
 F5's durable layer possible, because it needs one answer to "where does run state live".
@@ -476,7 +484,7 @@ tight fit, and only `FunctualizeApp` is near its own.)
 
 ## Wave 9 — checkpoint
 
-### [ ] T11 · Feature gate
+### [x] T11 · Feature gate
 
 - `uv run ruff check src/ tests/ plugins/`, `ruff format --check`
 - `uv run mypy src/`
@@ -489,6 +497,56 @@ tight fit, and only `FunctualizeApp` is near its own.)
 - AC-1…AC-14 each named to a test
 - orphan scan over every added symbol
 - the four sabotages above, **committing before each**
+
+**Run 2026-09-11.**
+
+| check | result |
+|---|---|
+| `ruff check src/ tests/ plugins/` | All checks passed |
+| `ruff format --check` | 1154 files already formatted |
+| `mypy` | no issues in **356** source files |
+| `lint-imports` | **6 kept, 0 broken** |
+| `HYPOTHESIS_PROFILE=ci pytest --run-slow -n auto` | **11,613 passed, 152 skipped** |
+| `pytest examples/` (risk R-d) | **201 passed** |
+| `tests/perf/` (AC-14) | 39 passed, 17 skipped |
+| `tests/tui_audit/` (AC-12) | **33 passed** |
+| `-k 'why or explain'` (AC-13) | **54 passed** |
+| `tests/core/test_static_wiring_fast_path.py` (AC-14) | 21 passed |
+
+**Structural ACs, re-derived rather than recalled:**
+
+| AC | command | answer |
+|---|---|---|
+| AC-1 | `rg -c 'class EngineHost' _types/protocols.py` | `1` |
+| AC-2 | `rg -c 'def build_engine' _app/boot.py` | `1` |
+| AC-3 | `rg 'engine\._[a-z_]+ *=\|execution_engine\._[a-z_]+ *=' src/ plugins/ \| wc -l` | **`0`** |
+| AC-6 | `rg 'Path\.cwd\(\)' _engine/ \| wc -l` | **`0`** — see T5's un-narrowing |
+| AC-8 | `rg -c 'def _run_workflow_prelude\|def _run_dependencies' _engine/executor.py` | **`0`**, both collaborators present |
+| AC-10 | `tests/test_facade_loc_limits.py` | `RunContext` **256**/500, `FunctualizeApp` **298**/300 |
+
+**Orphan scan.** Every symbol T6–T10 added, with its reference count across `src/`, `tests/`
+and `plugins/`: `WorkflowOrchestrator` 6 · `DependencyRunner` 6 · `DiscoveryFacade` 7 ·
+`WiringFacade` 7 · `ObservabilityFacade` 10 · `PromptFacade` 7 · `HooksFacade` 7 ·
+`GatesFacade` 7 · `DependencyFacade` 7 · `WorkflowScopeFacade` 7 · `ExtensionsFacade` 10 ·
+`ConfigurationFacade` 15. No orphans.
+
+That scan was weaker than it looked, though: most facades were referenced only by the module
+that defines them and the accessor that builds them, so "referenced" did not mean "named by
+anything that would fail". `tests/app/test_facade_accessors.py` closes it — every accessor is
+reachable, typed and built once, every moved member is asserted **gone** from its old owner,
+and a facade module added without a row there fails the last test in the file.
+
+**Two failures the final run surfaced, both pre-existing and neither caused by this feature:**
+
+1. `tests/cli/test_global_options_properties.py` — a hypothesis strategy excluded builtin
+   names from its generated positionals using a **hand-written set**, and that set had
+   drifted both ways: it still listed `show-info` and `tui`, which are not builtins, and
+   never contained `builtin` itself. Hypothesis eventually drew the string `"builtin"` and
+   the property failed on a premise it contradicted. Now derived from `BUILTIN_ROOT` and
+   `BUILTIN_COMMANDS`. This branch's signature defect, in a test.
+2. `test_a_healthy_project_is_unaffected` (D-4's suite, written this session) asserted
+   `stderr == ""`. Under `-n auto` a neighbour's warning can land there. Narrowed to the
+   absence of the conflict message — the thing actually under test.
 
 ---
 

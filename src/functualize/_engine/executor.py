@@ -962,7 +962,11 @@ class JobExecutionEngine:
             function: The job callable.
             kwargs: Arguments passed (Python values, no string coercion).
             invoke_depth: Current recursion depth.
-            cwd: Working directory (defaults to Path.cwd()).
+            cwd: Working directory. `None` means "the run named none", and
+                `RunContext.cwd` then answers with the **project root the
+                host knows** — not the process's working directory, which is
+                what it used to return and is a different directory whenever
+                the two disagree (T5).
             job_directory: Directory containing the job source file.
             config_class: Optional Pydantic model for config validation.
             parent_scope: WorkflowScope to propagate to child context.
