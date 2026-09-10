@@ -7,8 +7,11 @@ Supports both stdio and HTTP+SSE transports.
 from __future__ import annotations
 
 import logging
+import os
+import re
 from typing import TYPE_CHECKING, Any
 
+import fastmcp
 from fastmcp import FastMCP
 
 from functualize._types.errors import ScopeCancelledError
@@ -54,6 +57,16 @@ class MCPServer:
     """
 
     def __init__(self, app: Any, *, config: MCPConfig) -> None:
+        # functualize owns this server process: every boot is a tool-serving
+        # automation event, and FastMCP's default update check would fire a
+        # PyPI request (egress) plus an ASCII banner on each one. Default to
+        # both off, but never override an explicit operator setting — the
+        # documented FASTMCP_* env vars win when present.
+        if "FASTMCP_CHECK_FOR_UPDATES" not in os.environ:
+            fastmcp.settings.check_for_updates = "off"
+        if "FASTMCP_SHOW_SERVER_BANNER" not in os.environ:
+            fastmcp.settings.show_server_banner = False
+
         self._app = app
         self._config = config
         self._translator = JobToolTranslator(read_cached_group_options())
@@ -198,11 +211,25 @@ def _build_tool_function(
 
     params_str = ", ".join(param_parts)
 
-    # Build the function source
-    # We use exec to create a function with the exact signature FastMCP expects
+    # The exec'd function needs a *Python identifier*, but the MCP tool name
+    # is the full functualize job name — dotted for grouped jobs
+    # ("probe.echo"). Compiling `async def probe.echo(...)` is a SyntaxError
+    # that killed the whole server on any grouped job with parameters. Compile
+    # under a sanitized identifier and restore the dotted name on the function
+    # object afterwards — the same shape the no-parameters branch uses above —
+    # because FastMCP derives the registered tool name from ``fn.__name__``
+    # and the MCP spec (SEP-986) permits dots in tool names. Each call owns
+    # its own ``exec_ns``, so two job names mapping to one sanitized
+    # identifier cannot collide.
+    safe_name = re.sub(r"[^0-9A-Za-z_]", "_", job_name)
+    if not safe_name or safe_name[0].isdigit():
+        safe_name = f"_{safe_name}"
+
+    # Build the function source. The docstring is deliberately NOT
+    # interpolated here: a description containing ''' would break compilation.
+    # It is attached as ``__doc__`` after exec, like the no-parameters branch.
     fn_source = (
-        f"async def {job_name}({params_str}) -> dict:\n"
-        f"    '''{tool_def.description or f'Execute the {job_name} job.'}'''\n"
+        f"async def {safe_name}({params_str}) -> dict:\n"
         f"    import inspect as _inspect\n"
         f"    _frame = _inspect.currentframe()\n"
         f"    _kwargs = {{k: v for k, v in _frame.f_locals.items() if not k.startswith('_')}}\n"
@@ -226,7 +253,11 @@ def _build_tool_function(
     }
 
     exec(fn_source, exec_ns)  # noqa: S102
-    return exec_ns[job_name]
+    fn = exec_ns[safe_name]
+    fn.__name__ = job_name
+    fn.__qualname__ = job_name
+    fn.__doc__ = tool_def.description or f"Execute the {job_name} job."
+    return fn
 
 
 def _execute_job(

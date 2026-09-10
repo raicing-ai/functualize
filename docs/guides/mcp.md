@@ -101,6 +101,11 @@ Jobs are automatically translated to MCP tools:
 - **Annotations** → from `@job` tags
 - **Examples** → from `@job` examples
 
+A job under a `JOB_GROUP` is served under its full dotted name — `probe.echo`,
+not `echo` — matching `func mcp schema` and `func mcp tools`. Dotted names
+are legal MCP tool names (SEP-986 allows `[A-Za-z0-9._-]`), so an agent calls
+the job by the same name functualize uses everywhere else.
+
 ### Controlling Visibility
 
 ```python

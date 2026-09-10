@@ -18,7 +18,7 @@ classifiers = [
 ]
 dependencies = [
     "functualize>=0.1.0,<1.0.0",
-    "fastmcp>=0.1.0",
+    "fastmcp>=3.4.0,<5.0.0",
 ]
 
 [project.entry-points."functualize.plugins"]

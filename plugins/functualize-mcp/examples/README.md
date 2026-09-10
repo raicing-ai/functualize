@@ -5,6 +5,23 @@ The full MCP reference example: exposing jobs as MCP tools that AI agents (Claud
 | Directory | Demonstrates |
 |-----------|--------------|
 | [`weather_tools/`](weather_tools/) | Visibility control, rich `@job_metadata`, and the served tool surface |
+| [`grouped_tools/`](grouped_tools/) | Grouped jobs (`JOB_GROUP`) served as dotted MCP tools, incl. typed args, internal visibility, and docstrings that resist source injection |
+
+## Serving grouped jobs
+
+A `JOB_GROUP` module exposes each external job under its full dotted name —
+`probe.echo`, not `echo` — matching `func mcp schema` and `func mcp tools`.
+Dotted names are legal MCP tool names; an agent calls the job by the same
+name functualize uses everywhere else:
+
+```bash
+cd plugins/functualize-mcp/examples/grouped_tools
+func mcp serve
+```
+
+The server performs no FastMCP update check and prints no banner on boot
+(no network egress); set `FASTMCP_CHECK_FOR_UPDATES` /
+`FASTMCP_SHOW_SERVER_BANNER` to opt back into FastMCP's defaults.
 
 ## Serving
 
