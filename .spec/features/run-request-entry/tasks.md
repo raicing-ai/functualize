@@ -566,9 +566,64 @@ whatever you suspected.
 
 ## Wave 9 — checkpoint
 
-### [ ] T20 · Feature gate
+### [x] T20 · Feature gate
 
 Checkpoints get their own wave — they depend on all prior work.
+
+## AC → test, all twenty
+
+Every criterion named to the thing that would catch its regression. A criterion
+with no test is a criterion nobody is keeping.
+
+| AC | Kept by |
+|---|---|
+| AC-1 `RunRequest` frozen, stdlib-only | `tests/types/test_run_request.py` — including an AST scan for internal imports |
+| AC-2 `engine.run(request)` resolves by name | `tests/engine/test_engine_run_entry.py::test_run_resolves_the_name_the_caller_did_not` |
+| AC-3 `execute` is gone | `rg -c 'def execute\(' src/functualize/_engine/executor.py` → 0; and `tests/app/test_facade_request.py::test_the_legacy_job_name_form_is_gone` for the facade half |
+| AC-4 nothing outside `_engine/` passes a function | `rg -n 'engine\.execute\(\|execution_engine\.execute\(' src/ plugins/*/src/` → 0 |
+| AC-5 lifecycle order unchanged | `tests/engine/test_lifecycle_order.py` |
+| AC-6 warm/cold parity | `tests/integration/test_lazy_true_engine_materialization.py` — the pair that fails when `run()` skips materialization |
+| AC-7 split + stdin inside `run()` | `tests/engine/test_run_request_stdin.py` (8 tests) — **written for T10 because nothing covered the wiring**: all 27 existing `test_stdin_*` stayed green with `stdin_markers_for` disabled |
+| AC-8 no deposit writes | `rg -c 'app\._(prompt_gates\|output_format\|force) *=' src/functualize/` → 0 |
+| AC-9 kernel reads none of them | `rg -c '_prompt_gates\|_output_format' src/functualize/_engine/executor.py src/functualize/_engine/capabilities/stdout.py` → 0, 0 |
+| AC-10 `--prompt-gates` on an app | `tests/cli/test_app_surface_prompt_gates.py` — runs on both `cli_run` surfaces |
+| AC-11 `--output` on an app | `tests/cli/test_app_surface_output_format.py` — parametrized over whatever the grammar declares |
+| AC-12 every door can force | `tests/cli/test_app_surface_output_format.py` + `_request_builder`'s `force` path; the app door's value now travels in `ctx.obj` |
+| AC-13 `FUNCTUALIZE_CLI_OUTPUT` read or removed | `tests/cli/test_info_subcommands.py` — read at `_cli/info.py:63`, verified by behaviour |
+| AC-14 gated `job.submit` is resumable | `tests/app/test_event_submit_scope.py` |
+| AC-15 `_app/impl.py` builds a request | `tests/app/test_event_submit_scope.py`, same pair |
+| AC-16 every door names a closed-set surface | `RunRequest.__post_init__` raises on an unknown surface; `tests/types/test_run_request.py::test_unknown_surface_is_rejected` |
+| AC-17 `invoke` propagates scope, `parallel` does not | `tests/context/test_parallel_and_log_properties.py` |
+| AC-17a control inputs are not job arguments | `tests/app/test_control_inputs_are_not_kwargs.py` (20 tests) — including `inspect`-based signature checks, because the authored gate could not fail |
+| AC-17b submitted workflow reports its scope | `tests/app/test_event_submit_scope.py` |
+| AC-18 parallel items reach history | `tests/pipeline/test_history_producer.py` — both the top-level case and the nested counter-case |
+| AC-19 `config_class` left the seams | `rg -c 'config_class=entry\.config_class' src/functualize/_engine/executor.py` → 1 (the derivation only) |
+| AC-20 warm-cache budget | `tests/perf/test_startup_budget.py::TestWarmCommandBudget` |
+
+## What the gate caught that no task's `Files:` line named
+
+The point of a checkpoint is to run the commands nobody ran during the waves.
+These were all found here, and all of them were invisible to a normal
+`pytest tests/`:
+
+- **`examples/` was outside every migration scope.** T15's blast radius reached
+  `examples/quickstart/step7_workflow` (7 tests) and `step3_invoke` (2), which
+  are neither `tests/` nor `plugins/`, so neither migration agent could see them.
+- **Four test files are `--run-slow`-gated**, so the migration agents (running
+  the normal suite) never saw them fail: `tests/test_auto_scope.py` (6),
+  `tests/adapters/test_property_lambda_adapter.py` (4, a stale `FakeApp`),
+  `tests/plugins/test_mcp_visibility_properties.py` (2 stale fakes),
+  `tests/discovery/test_registry_properties.py` (a job never registered).
+- **An agent's edit dropped a Hypothesis strategy** and I committed it:
+  `test_dispatch_preservation.py`'s two `--output` `@given`s lost
+  `job_name=_job_name` while the neighbouring `--perf-report` ones kept theirs.
+  Under a normal run all 22 tests in that file **skip**, so my verification saw
+  `22 skipped` and read it as fine. It errors only under `--run-slow`.
+
+**Orphan scan:** `RunSurface` and `RUN_SURFACES` were re-exported from the
+`app/utils.py` corridor with zero `_cli` consumers. Removed — the corridor is
+what `11-boundaries.md` names as the problem, and a re-export nobody imports only
+makes it bigger. Both stay public via `functualize.types`.
 
 - `uv run ruff check src/ tests/ plugins/` and `ruff format --check`
 - `uv run mypy src/`

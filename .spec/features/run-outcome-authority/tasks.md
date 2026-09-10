@@ -288,7 +288,33 @@ tracks one function name measures a spelling, not a dependency.)*
 
 ## Wave 7 — checkpoint
 
-### [ ] T13 · Feature gate
+### [x] T13 · Feature gate
+
+## AC → test, all twelve
+
+| AC | Kept by |
+|---|---|
+| AC-1 one `_types` module holds both tables and the rules | `_types/outcome.py` exports exactly `ExitCode`, `Family`, `RunStatus`, `exit_code_for_status`, `http_status_for_status`, `is_failure`, `report_line`, `status_from_wire`, `wire_value`; `tests/types/test_outcome_families.py` |
+| AC-2 no surface defines its own success set | Verified across `_cli/`, `app/adapters/` and every plugin: **zero** hits outside the module. Five `(SUCCESS, SKIPPED)` sets remain in `_engine/` (`executor.py:1358`, `:1933`, `capabilities/workflow.py:166`, `:199`, `invoke.py:455`) and are **adjudicated as not violations** — they answer *did this step satisfy the graph edge*, not *how does this run deliver*. The engine has no delivery surface, and `is_failure(family=…)` is a delivery question. Recorded here rather than waved through, because a strict reading of AC-2 would have flagged them |
+| AC-3 each surface names its family, greppably | `rg -n 'family=Family\.[A-Z]+'` → 4 declarations in 3 files: `_cli/builtins.py` (PROCESS), `_cli/tui/job_execution.py` (PANEL **and** PROCESS — the one surface with two), `app/adapters/click_params.py` (PROCESS) |
+| AC-4 `_resume_exit`'s hand-rolled fallback is gone | `_cli/builtins.py:1386` now maps the gate-state vocabulary explicitly (`"drafted" → BLOCKED`) and defers to `status_from_wire`; `tests/integration/test_cli_workflow_parity.py` |
+| AC-5 `wire_status()` reads the module | `plugins/functualize-mcp/_tools.py:60` returns `wire_value(status)`; its own docstring names the module authoritative |
+| AC-6 TUI process exits 5, panel still says done | `tests/_cli/tui/` + `tests/tui_audit/`; the D3 decision |
+| AC-7 panel ≡ table parity derived from the module | `tests/types/test_outcome_families.py` |
+| AC-8 plugin `test_status_codes.py` unchanged | http 33 passed · lambda 32 passed · mcp deselected (no such suite) |
+| AC-9 `flag_grammar` holds the tables and the negative rule | `_types/flag_grammar.py`; `tests/types/test_flag_grammar_roundtrip.py` (84 assertions, all derived from the tables) |
+| AC-10 every consumer reads it through the module | `tests/types/test_flag_grammar_consumer_count.py` — pins the 7-file consumer set and prints it on failure |
+| AC-11 `emit(resolve(text)) == text` round-trips | `tests/types/test_flag_grammar_roundtrip.py` |
+| AC-12 `--perf-report`'s lookahead stays `func`-only | `flag_grammar.py` carries the exclusion comment; `_cli/dispatch.py` keeps the lookahead |
+
+**Orphan scan:** every symbol the feature added has a consumer. `negative_flag_for` reaches
+all four import paths as *the same object* — checked by identity, not by import text, because
+a re-export and a wrapper are indistinguishable to `rg` and T8's first execution shipped a
+wrapper.
+
+**Both sabotage checks** were run during their own tasks, each after committing: the flag-table
+sabotage (T8) and the `secondary_opts` sabotage (T11). Re-running them here would re-prove what
+their reports already record with real failure output.
 
 - `uv run ruff check src/ tests/ plugins/`, `ruff format --check`
 - `uv run mypy src/`

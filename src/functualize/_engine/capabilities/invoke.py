@@ -10,7 +10,7 @@ from __future__ import annotations
 import concurrent.futures
 import logging
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
@@ -95,6 +95,7 @@ class Invoke:
         force_gate: bool = False,
         gate_strategy: GateStrategy | str | list[GateStrategy | str] | None = None,
         timeout: float | None = None,
+        group_option_values: Mapping[str, Any] | None = None,
         **kwargs: Any,
     ) -> JobResult:
         """Invoke a job by name or function reference.
@@ -305,6 +306,7 @@ class WiredInvoke(Invoke):
         force_gate: bool = False,
         gate_strategy: GateStrategy | str | list[GateStrategy | str] | None = None,
         timeout: float | None = None,
+        group_option_values: Mapping[str, Any] | None = None,
         **kwargs: Any,
     ) -> JobResult:
         """Invoke a job by name or function reference (engine-wired).
@@ -419,6 +421,14 @@ class WiredInvoke(Invoke):
                     job_name=job_name,
                     surface="invoke",
                     kwargs=kwargs,
+                    # `None` means **inherit** — the behaviour every call had
+                    # before this parameter existed, and what a call that says
+                    # nothing still gets. A mapping overrides for this one call
+                    # (AC-7, AC-8; STATUS #17). It is a *control input*, so it
+                    # rides its own field rather than `kwargs`, where it would
+                    # arrive at the child as a job argument literally named
+                    # `group_option_values`.
+                    group_option_values=group_option_values,
                     parent_scope=parent_scope,
                     invoke_depth=child_depth,
                     cwd=self._cwd,

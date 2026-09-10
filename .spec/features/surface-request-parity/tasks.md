@@ -7,7 +7,7 @@ Run gates from the worktree root.
 
 ## Wave 0 — the nested call gets a channel
 
-### [ ] T1 · `Invoke` gains `group_option_values`
+### [x] T1 · `Invoke` gains `group_option_values`
 
 **Files:** `src/functualize/_engine/capabilities/invoke.py`,
 `tests/execution/test_invoke_group_options.py`
@@ -25,10 +25,30 @@ now: `0` · after: `≥1`
 ```bash
 rg -c 'parent_scope=None' src/functualize/_engine/capabilities/invoke.py
 ```
-now: `1` · after: `1`
+now: `1` · after: `1` ✓ (gate 1: `0` → `4`)
 
 **Test:** write the inheritance test **first** — a bare `rc.invoke(job)` behaves identically
 before and after (risk R-f) — then the override test.
+
+**Done that way, and the inheritance test earned its place.** Written first, it showed the
+override test failing for the *interesting* reason: without the new parameter,
+`rc.invoke("child", group_option_values={...})` did not error — `**kwargs` swallowed it and the
+child received a job argument literally named `group_option_values`. Silently wrong, which is
+what the parameter now prevents. The field is a **control input** and rides its own slot on the
+request, never `kwargs`.
+
+`tests/execution/test_invoke_group_options.py` (5 tests) also pins that saying nothing and
+saying `None` are the *same call*, not two states, and that `Invoke.parallel` gained nothing —
+asserted by `inspect`, since a batch's items are independent by design and one shared override
+would re-couple them.
+
+**Sabotage:** drop `group_option_values=` from the `RunRequest`; the override test fails.
+**Neighbours:** 880 passed across `tests/execution`, `tests/context`, `tests/group_options`.
+
+> **Started before `engine-sealed-construction` (F3), deliberately.** This feature's
+> `Depends on:` line names F3, but that dependency is the **seal** — deleting the last
+> `app/adapters/* → _engine` imports, a late task. T1 and T2 are request plumbing and belong to
+> F1's world, which is complete. Recorded here rather than done quietly.
 
 ---
 

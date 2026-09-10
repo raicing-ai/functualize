@@ -63,7 +63,13 @@ class TrackingApp:
         self._registered_jobs = registered_jobs
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
-    def execute(self, job_name: str, **kwargs: Any) -> FakeJobResult:
+    def execute(self, request: Any) -> FakeJobResult:
+        # One positional `RunRequest`, matching the facade since
+        # run-request-entry/T15. The old `(job_name, **kwargs)` signature was
+        # the accidental control channel: a Lambda event body splatted into it
+        # let a caller's payload key choose the run's scope.
+        job_name = request.job_name
+        kwargs = dict(request.kwargs)
         if job_name not in self._registered_jobs:
             raise KeyError(f"Job '{job_name}' not found")
         self.calls.append((job_name, kwargs))

@@ -371,6 +371,7 @@ class TestPreservationEqualsStyleSyntax:
 
     @given(
         format_value=st.sampled_from(sorted(OPTIONAL_VALUE_VALID_SET["--output"][0])),
+        job_name=_job_name,
     )
     def test_output_equals_syntax_routes_job(
         self, format_value: str, job_name: str
@@ -389,6 +390,7 @@ class TestPreservationEqualsStyleSyntax:
 
     @given(
         format_value=st.sampled_from(sorted(OPTIONAL_VALUE_VALID_SET["--output"][0])),
+        job_name=_job_name,
     )
     def test_output_equals_syntax_parses_value(
         self, format_value: str, job_name: str
