@@ -60,6 +60,7 @@ from functualize._types.discovery_report import (
     DiscoveryFailure,
     collecting_discovery_failures,
     record_discovery_failure,
+    record_discovery_finding,
 )
 from functualize._types.errors import GroupOptionsConflictError
 
@@ -822,6 +823,16 @@ class CachedDirectoryScanProvider:
         Checks the pre-filter decision cache before running the actual pre-filter.
         Persists negative decisions to avoid repeated AST parses across restarts.
 
+        **A negative the filter could not decide is not persisted.** The
+        AST-based filters answer ``False`` both when the file genuinely holds
+        nothing to import and when they could not *read* it — a ``SyntaxError``
+        lands in the same return. Caching the second kind made a parse failure a
+        first-run-only event: the module was skipped by the decision cache on
+        every later boot, so the parse that produces the report never happened
+        and `builtin info` showed a short job list with no explanation (#27),
+        while a ``ModuleNotFoundError`` from the *import* stage — nothing caches
+        that — repeated every run.
+
         Returns True if the module should be imported.
         """
         if self._pre_filter is None:
@@ -847,12 +858,25 @@ class CachedDirectoryScanProvider:
                 del self._pre_filter_decisions[source_file]
                 self._dirty = True
 
-        # Run the actual pre-filter
+        # Run the actual pre-filter. The scope is nested inside the scan's own,
+        # so anything recorded here is invisible to the report until it is
+        # re-recorded below — which is what makes "did this call reach a
+        # decision?" answerable at all.
         try:
-            result = self._pre_filter.should_import(Path(source_file))
+            with collecting_discovery_failures() as undecided:
+                result = self._pre_filter.should_import(Path(source_file))
         except Exception as e:
             logger.warning("Pre-filter raised exception for '%s': %s", source_file, e)
             return False
+
+        if undecided:
+            # Cannot read the file ≠ the file has nothing in it. Forward the
+            # record to the scan's collector and cache nothing: a decision this
+            # run could not make is not a decision the next run may reuse, and
+            # the failure is the one thing the user came to see.
+            for failure in undecided:
+                record_discovery_finding(failure)
+            return result
 
         # Persist negative decisions only (Requirement 19.2)
         if not result:
