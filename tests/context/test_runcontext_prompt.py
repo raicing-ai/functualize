@@ -1,6 +1,6 @@
 """Unit tests for RunContext prompt methods.
 
-Tests rc.prompt(), rc.prompt_confirm(), rc.prompt_choice(), rc.prompt_text()
+Tests rc.prompts.ask(), rc.prompts.confirm(), rc.prompts.choice(), rc.prompts.text()
 including no-InputProvider handling, source_job auto-fill, and convenience method behavior.
 
 Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.7, 4.8, 4.9
@@ -76,7 +76,7 @@ def _make_rc(
     return rc
 
 
-# --- Tests for rc.prompt() ---
+# --- Tests for rc.prompts.ask() ---
 
 
 class TestPrompt:
@@ -88,7 +88,7 @@ class TestPrompt:
         rc = _make_rc(name="my-job", input_provider=provider)
 
         request = PromptRequest(question="Hello?", source_job="other-job")
-        rc.prompt(request)
+        rc.prompts.ask(request)
 
         # Provider should receive the request with source_job overridden
         assert provider.last_request is not None
@@ -101,7 +101,7 @@ class TestPrompt:
         rc = _make_rc(input_provider=provider)
 
         request = PromptRequest(question="Continue?")
-        result = rc.prompt(request)
+        result = rc.prompts.ask(request)
 
         assert result == expected
 
@@ -111,14 +111,14 @@ class TestPrompt:
 
         request = PromptRequest(question="Input needed?", required=True, default=None)
         with pytest.raises(InputNotAvailable):
-            rc.prompt(request)
+            rc.prompts.ask(request)
 
     def test_no_provider_has_default_returns_default(self):
         """No InputProvider + has default → PromptResponse(value=default, source='default')."""
         rc = _make_rc(input_provider=None)
 
         request = PromptRequest(question="Input?", required=True, default="fallback")
-        result = rc.prompt(request)
+        result = rc.prompts.ask(request)
 
         assert result.value == "fallback"
         assert result.source == "default"
@@ -128,7 +128,7 @@ class TestPrompt:
         rc = _make_rc(input_provider=None)
 
         request = PromptRequest(question="Optional?", required=False, default=None)
-        result = rc.prompt(request)
+        result = rc.prompts.ask(request)
 
         assert result.value is None
         assert result.source == "default"
@@ -148,7 +148,7 @@ class TestPrompt:
 
         request = PromptRequest(question="Input?", required=True, default=None)
         with pytest.raises(InputNotAvailable):
-            rc.prompt(request)
+            rc.prompts.ask(request)
 
     def test_no_engine_has_default_returns_default(self):
         """No execution engine + has default → returns default response."""
@@ -164,7 +164,7 @@ class TestPrompt:
         )
 
         request = PromptRequest(question="Input?", default="safe-fallback")
-        result = rc.prompt(request)
+        result = rc.prompts.ask(request)
 
         assert result.value == "safe-fallback"
         assert result.source == "default"
@@ -194,7 +194,9 @@ class TestStdinFallback:
         rc = _make_rc(input_provider=None)
 
         # required + no default would have raised before the fallback existed.
-        result = rc.prompt(PromptRequest(question="Name?", required=True, default=None))
+        result = rc.prompts.ask(
+            PromptRequest(question="Name?", required=True, default=None)
+        )
 
         assert result.value == "typed"
         assert result.source == "user"
@@ -207,10 +209,10 @@ class TestStdinFallback:
         rc = _make_rc(input_provider=None)
 
         with pytest.raises(InputNotAvailable):
-            rc.prompt(PromptRequest(question="Name?", required=True, default=None))
+            rc.prompts.ask(PromptRequest(question="Name?", required=True, default=None))
 
 
-# --- Tests for rc.prompt_confirm() ---
+# --- Tests for rc.prompts.confirm() ---
 
 
 class TestPromptConfirm:
@@ -221,7 +223,7 @@ class TestPromptConfirm:
         provider = FakeInputProvider(PromptResponse(value=True, source="user"))
         rc = _make_rc(input_provider=provider)
 
-        result = rc.prompt_confirm("Proceed?")
+        result = rc.prompts.confirm("Proceed?")
 
         assert result is True
         assert provider.last_request is not None
@@ -233,7 +235,7 @@ class TestPromptConfirm:
         provider = FakeInputProvider(PromptResponse(value=True, source="user"))
         rc = _make_rc(input_provider=provider)
 
-        result = rc.prompt_confirm("Delete all?", destructive=True)
+        result = rc.prompts.confirm("Delete all?", destructive=True)
 
         assert result is True
         assert provider.last_request is not None
@@ -245,7 +247,7 @@ class TestPromptConfirm:
         provider = FakeInputProvider(PromptResponse(value=None, source="cancelled"))
         rc = _make_rc(input_provider=provider)
 
-        result = rc.prompt_confirm("Continue?")
+        result = rc.prompts.confirm("Continue?")
 
         assert result is False
 
@@ -254,7 +256,7 @@ class TestPromptConfirm:
         provider = FakeInputProvider(PromptResponse(value=False, source="user"))
         rc = _make_rc(input_provider=provider)
 
-        result = rc.prompt_confirm("Continue?")
+        result = rc.prompts.confirm("Continue?")
 
         assert result is False
 
@@ -263,7 +265,7 @@ class TestPromptConfirm:
         provider = FakeInputProvider(PromptResponse(value="yes", source="user"))
         rc = _make_rc(input_provider=provider)
 
-        result = rc.prompt_confirm("Continue?")
+        result = rc.prompts.confirm("Continue?")
 
         assert result is True
 
@@ -272,7 +274,7 @@ class TestPromptConfirm:
         provider = FakeInputProvider(PromptResponse(value="no", source="user"))
         rc = _make_rc(input_provider=provider)
 
-        result = rc.prompt_confirm("Continue?")
+        result = rc.prompts.confirm("Continue?")
 
         assert result is False
 
@@ -281,7 +283,7 @@ class TestPromptConfirm:
         provider = FakeInputProvider(PromptResponse(value=True, source="user"))
         rc = _make_rc(input_provider=provider)
 
-        rc.prompt_confirm(
+        rc.prompts.confirm(
             "Continue?",
             context_message="This is context",
             context_data={"key": "value"},
@@ -295,13 +297,13 @@ class TestPromptConfirm:
         """Default value is passed to PromptRequest and used in no-provider fallback."""
         rc = _make_rc(input_provider=None)
 
-        result = rc.prompt_confirm("Continue?", default=True)
+        result = rc.prompts.confirm("Continue?", default=True)
 
         # With no provider and a default, should return the default interpreted as bool
         assert result is True
 
 
-# --- Tests for rc.prompt_choice() ---
+# --- Tests for rc.prompts.choice() ---
 
 
 class TestPromptChoice:
@@ -312,7 +314,7 @@ class TestPromptChoice:
         provider = FakeInputProvider(PromptResponse(value="option-b", source="user"))
         rc = _make_rc(input_provider=provider)
 
-        result = rc.prompt_choice("Pick one:", ["option-a", "option-b", "option-c"])
+        result = rc.prompts.choice("Pick one:", ["option-a", "option-b", "option-c"])
 
         assert result == "option-b"
         assert provider.last_request is not None
@@ -330,7 +332,7 @@ class TestPromptChoice:
         provider = FakeInputProvider(PromptResponse(value="a", source="user"))
         rc = _make_rc(input_provider=provider)
 
-        result = rc.prompt_choice("Pick one:", choices)
+        result = rc.prompts.choice("Pick one:", choices)
 
         assert result == "a"
         assert provider.last_request is not None
@@ -341,7 +343,7 @@ class TestPromptChoice:
         provider = FakeInputProvider(PromptResponse(value=None, source="cancelled"))
         rc = _make_rc(input_provider=provider)
 
-        result = rc.prompt_choice("Pick one:", ["a", "b"])
+        result = rc.prompts.choice("Pick one:", ["a", "b"])
 
         assert result == ""
 
@@ -350,7 +352,7 @@ class TestPromptChoice:
         provider = FakeInputProvider(PromptResponse(value="b", source="default"))
         rc = _make_rc(input_provider=provider)
 
-        result = rc.prompt_choice(
+        result = rc.prompts.choice(
             "Pick one:", ["a", "b"], default="b", context_message="Choose wisely"
         )
 
@@ -360,7 +362,7 @@ class TestPromptChoice:
         assert provider.last_request.context_message == "Choose wisely"
 
 
-# --- Tests for rc.prompt_text() ---
+# --- Tests for rc.prompts.text() ---
 
 
 class TestPromptText:
@@ -371,7 +373,7 @@ class TestPromptText:
         provider = FakeInputProvider(PromptResponse(value="hello", source="user"))
         rc = _make_rc(input_provider=provider)
 
-        result = rc.prompt_text("Enter name:")
+        result = rc.prompts.text("Enter name:")
 
         assert result == "hello"
         assert provider.last_request is not None
@@ -382,7 +384,7 @@ class TestPromptText:
         provider = FakeInputProvider(PromptResponse(value="s3cret", source="user"))
         rc = _make_rc(input_provider=provider)
 
-        result = rc.prompt_text("Enter password:", secret=True)
+        result = rc.prompts.text("Enter password:", secret=True)
 
         assert result == "s3cret"
         assert provider.last_request is not None
@@ -395,7 +397,7 @@ class TestPromptText:
         )
         rc = _make_rc(input_provider=provider)
 
-        rc.prompt_text(
+        rc.prompts.text(
             "Email:", placeholder="you@example.com", validator=r"[^@]+@[^@]+\.[^@]+"
         )
 
@@ -408,7 +410,7 @@ class TestPromptText:
         provider = FakeInputProvider(PromptResponse(value=None, source="cancelled"))
         rc = _make_rc(input_provider=provider)
 
-        result = rc.prompt_text("Name:")
+        result = rc.prompts.text("Name:")
 
         assert result == ""
 
@@ -419,7 +421,7 @@ class TestPromptText:
         )
         rc = _make_rc(input_provider=provider)
 
-        result = rc.prompt_text(
+        result = rc.prompts.text(
             "Name:", default="default-val", context_message="Provide a name"
         )
 
@@ -432,6 +434,6 @@ class TestPromptText:
         """No InputProvider + has default → returns default string."""
         rc = _make_rc(input_provider=None)
 
-        result = rc.prompt_text("Name:", default="fallback")
+        result = rc.prompts.text("Name:", default="fallback")
 
         assert result == "fallback"

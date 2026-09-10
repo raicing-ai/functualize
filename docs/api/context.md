@@ -140,14 +140,14 @@ rc.events.emit("etl.extract.complete", resource="customers", record_count=1500)
 
 ### Prompting
 
-#### `rc.prompt(request)`
+#### `rc.prompts.ask(request)`
 
 Present a structured prompt to the user via the active `PromptCollector`.
 
 ```python
 from functualize.plugin import PromptRequest
 
-response = rc.prompt(PromptRequest(
+response = rc.prompts.ask(PromptRequest(
     question="Select environment",
     choices=[...],
 ))
@@ -155,9 +155,9 @@ response = rc.prompt(PromptRequest(
 
 #### Convenience Methods
 
-- `rc.prompt_confirm(question, *, destructive=False, default=None)` — Yes/no confirmation
-- `rc.prompt_choice(question, choices, *, default=None)` — Single selection
-- `rc.prompt_text(question, *, default=None, secret=False)` — Text input
+- `rc.prompts.confirm(question, *, destructive=False, default=None)` — Yes/no confirmation
+- `rc.prompts.choice(question, choices, *, default=None)` — Single selection
+- `rc.prompts.text(question, *, default=None, secret=False)` — Text input
 
 ---
 

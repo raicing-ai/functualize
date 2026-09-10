@@ -1,9 +1,9 @@
 """Job module: interactive — demonstrates interactive prompts.
 
 Shows how to use RunContext's prompt methods for user interaction:
-- rc.prompt_confirm() — yes/no confirmation
-- rc.prompt_choice() — select from a list of options
-- rc.prompt_text() — free-form text input
+- rc.prompts.confirm() — yes/no confirmation
+- rc.prompts.choice() — select from a list of options
+- rc.prompts.text() — free-form text input
 """
 
 from pydantic import BaseModel, Field
@@ -35,19 +35,19 @@ def run(config: InteractiveConfig, rc: RunContext) -> None:
         rc.events.track_run_status(RunStatus.SUCCESS)
         return
 
-    # Demonstrate rc.prompt_text() — free-form text input
-    name = rc.prompt_text("What is your name?", default="World")
+    # Demonstrate rc.prompts.text() — free-form text input
+    name = rc.prompts.text("What is your name?", default="World")
     rc.log(f"{config.greeting}, {name}!")
 
-    # Demonstrate rc.prompt_choice() — select from options
-    color = rc.prompt_choice(
+    # Demonstrate rc.prompts.choice() — select from options
+    color = rc.prompts.choice(
         "Pick your favorite color:",
         ["red", "green", "blue", "yellow"],
     )
     rc.log(f"You chose: {color}")
 
-    # Demonstrate rc.prompt_confirm() — yes/no confirmation
-    proceed = rc.prompt_confirm("Would you like to continue?")
+    # Demonstrate rc.prompts.confirm() — yes/no confirmation
+    proceed = rc.prompts.confirm("Would you like to continue?")
 
     rc.events.track_phase("setup", "Setup complete", RunStatus.SUCCESS)
 

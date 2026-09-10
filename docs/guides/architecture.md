@@ -430,7 +430,7 @@ When a job calls `rc.prompt_*()`, the framework routes to exactly one active
 collector:
 
 ```
-[Job Function] → rc.prompt_confirm(...) → [RunContext]
+[Job Function] → rc.prompts.confirm(...) → [RunContext]
       → active PromptCollector.collect(request) → PromptResponse
         (inline TUI, a job app's modal, stdin fallback, MCP gate)
 ```

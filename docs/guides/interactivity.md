@@ -38,9 +38,9 @@ modal, or an MCP gate depending on the active collector:
 
 ```python
 def deploy(config: DeployConfig, rc: RunContext) -> str:
-    if not rc.prompt_confirm("Deploy to production?", default=False):
+    if not rc.prompts.confirm("Deploy to production?", default=False):
         return "cancelled"
-    region = rc.prompt_choice("Region", ["us-east-1", "eu-west-1"])
+    region = rc.prompts.choice("Region", ["us-east-1", "eu-west-1"])
     return f"deploying to {region}"
 ```
 

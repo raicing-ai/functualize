@@ -145,7 +145,7 @@ class PromptRequest:
         validator: Regex pattern string or object with .validate_python() method.
         validation_message: Custom message shown on validation failure.
         source_job: Name of the job that initiated this prompt (auto-filled by
-            rc.prompt).
+            rc.prompts.ask).
         source_step: Name of the workflow step that initiated this prompt.
     """
 

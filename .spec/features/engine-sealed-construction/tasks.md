@@ -275,7 +275,7 @@ the directory it edits.
 
 ## Wave 7 — the facades lose weight
 
-### [ ] T8 · `RunContext` diet
+### [x] T8 · `RunContext` diet
 
 **Files:** `src/functualize/_engine/capabilities/runcontext.py`,
 `src/functualize/_engine/capabilities/observability_facade.py`,
@@ -318,11 +318,34 @@ now: `800` *(the brief recorded `788`; the class starts at `:128`, and `:52` is
 > `metadata`, `log`, `invoke`, `state`, `cwd`, `job_directory`, `workflow_scope`,
 > `__getitem__`.
 >
-> **Progress:** `rc.discovery` done (`cc7631a`, 800 → **758**). Remaining: `rc.wiring`
-> (plugin config + resources), `rc.events` (events, perf, phases, run status), `rc.prompts`.
-> ~490 call sites across `src/`, `tests/`, `docs/`, `examples/`, `skills/` and `plugins/`;
-> each rename is anchored on a `rc.`/`context.`/`ctx.` prefix rather than done as a substring
-> replace, because `JobProvider.list_jobs` already proved that a bare name collides.
+> **Done — `374`, against a `≤500` gate.** Four facades, four commits:
+>
+> | facade | holds | sites | class after |
+> |---|---|---|---|
+> | `rc.discovery` | `get_job_schema`, `list_jobs` | 8 | 758 |
+> | `rc.wiring` | plugin config, resources | 91 | 713 |
+> | `rc.events` | events, phases, run status, perf | 475 | 510 |
+> | `rc.prompts` | `ask`, `confirm`, `choice`, `text` | 81 | **374** |
+>
+> **655 call sites.** `rc.log` stayed: it is the one line every job writes, and a diet that
+> makes the most-used call longer has optimised the wrong number.
+>
+> `rc.prompts` also dropped the `prompt_` prefix — it existed to disambiguate four methods on
+> a flat object, and on a facade named `prompts` it says the same word twice.
+>
+> **How the renames were done, because the first one was wrong.** Enumerate the receivers from
+> the tree *first*
+> (`rg -o '\b[a-z_]+\.(member)\b' … | sed … | sort | uniq -c`), then rewrite only those. The
+> `rc.wiring` pass anchored on three guessed spellings (`rc`, `context`, `ctx`), rewrote 56 of
+> 91 sites and left the suite red — the tests also use `run_ctx`, `run_context`, `new_rc` and
+> `rc_with_configs`. The survey is also what showed which receivers must **not** be touched:
+> `importlib.resources`, `EventBus.emit`, `Stdout.emit`, `FunctualizeApp.on_event`,
+> `JobProvider.list_jobs`. Thirteen of the 23 spellings in the `rc.events` survey were not a
+> `RunContext` at all.
+>
+> One test asserted the bare string `"prompt_confirm"` appeared in a scaffold template. It now
+> asserts `"rc.prompts.confirm("` — the call, not the name, which is what the template is
+> supposed to demonstrate.
 
 ### [ ] T9 · `FunctualizeApp` diet
 

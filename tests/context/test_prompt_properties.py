@@ -1,7 +1,7 @@
 """Property-based tests for the prompt system (Properties 8, 9, 10, 11).
 
 Tests that:
-- Property 8: rc.prompt() auto-fills source_job from current job name
+- Property 8: rc.prompts.ask() auto-fills source_job from current job name
 - Property 9: Prompt validation with regex uses re.fullmatch and enforces 3-retry limit
 - Property 10: Prompt validation with TypeAdapter uses validate_python and enforces 3-retry limit
 - Property 11: PromptResponse convenience properties derive correctly from source field
@@ -175,13 +175,13 @@ def _make_rc(
     )
 
 
-# --- Property 8: rc.prompt auto-fills source_job and delegates to InputProvider ---
+# --- Property 8: rc.prompts.ask auto-fills source_job and delegates to InputProvider ---
 
 
 class TestProperty8PromptAutoFillsSourceJob:
-    """Property 8: rc.prompt auto-fills source_job and delegates to InputProvider.
+    """Property 8: rc.prompts.ask auto-fills source_job and delegates to InputProvider.
 
-    For any job name, rc.prompt() auto-fills source_job from the current job's name,
+    For any job name, rc.prompts.ask() auto-fills source_job from the current job's name,
     regardless of the original source_job value in the request.
 
     **Validates: Requirements 4.1**
@@ -199,7 +199,7 @@ class TestProperty8PromptAutoFillsSourceJob:
         original_source_job: str | None,
     ):
         """For any job name, the InputProvider receives source_job set to rc.name."""
-        # Feature: functualize, Property 8: rc.prompt auto-fills source_job
+        # Feature: functualize, Property 8: rc.prompts.ask auto-fills source_job
         # **Validates: Requirements 4.1**
         provider = RecordingInputProvider()
         rc = _make_rc(name=job_name, input_provider=provider)
@@ -208,7 +208,7 @@ class TestProperty8PromptAutoFillsSourceJob:
             question=question,
             source_job=original_source_job,
         )
-        rc.prompt(request)
+        rc.prompts.ask(request)
 
         # The provider must have received the request with source_job == rc.name
         assert len(provider.received_requests) == 1
@@ -225,7 +225,7 @@ class TestProperty8PromptAutoFillsSourceJob:
         question: str,
     ):
         """source_job is always overridden to rc.name, even if already set."""
-        # Feature: functualize, Property 8: rc.prompt auto-fills source_job
+        # Feature: functualize, Property 8: rc.prompts.ask auto-fills source_job
         # **Validates: Requirements 4.1**
         provider = RecordingInputProvider()
         rc = _make_rc(name=job_name, input_provider=provider)
@@ -235,7 +235,7 @@ class TestProperty8PromptAutoFillsSourceJob:
             question=question,
             source_job="some-other-job",
         )
-        rc.prompt(request)
+        rc.prompts.ask(request)
 
         received = provider.received_requests[0]
         assert received.source_job == job_name
@@ -252,15 +252,15 @@ class TestProperty8PromptAutoFillsSourceJob:
         question: str,
         value: str | int | None | bool,
     ):
-        """rc.prompt() delegates to InputProvider and returns its response."""
-        # Feature: functualize, Property 8: rc.prompt auto-fills source_job
+        """rc.prompts.ask() delegates to InputProvider and returns its response."""
+        # Feature: functualize, Property 8: rc.prompts.ask auto-fills source_job
         # **Validates: Requirements 4.1**
         expected_response = PromptResponse(value=value, source="user")
         provider = RecordingInputProvider(response=expected_response)
         rc = _make_rc(name=job_name, input_provider=provider)
 
         request = PromptRequest(question=question)
-        result = rc.prompt(request)
+        result = rc.prompts.ask(request)
 
         assert result == expected_response
 

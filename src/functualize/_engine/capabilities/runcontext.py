@@ -8,7 +8,6 @@ Delegates heavy logic to capability classes:
 
 from __future__ import annotations
 
-import dataclasses
 import logging
 from datetime import UTC, datetime
 from logging import Logger
@@ -29,6 +28,7 @@ if TYPE_CHECKING:
     from functualize._engine.capabilities.observability_facade import (
         ObservabilityFacade,
     )
+    from functualize._engine.capabilities.prompt_facade import PromptFacade
     from functualize._engine.capabilities.state_store import StateStore
     from functualize._engine.capabilities.wiring_facade import WiringFacade
     from functualize._engine.capabilities.workflow import WorkflowTracker
@@ -36,11 +36,6 @@ if TYPE_CHECKING:
     from functualize._engine.result import JobResult
     from functualize._events.perf import PerfTimeline
     from functualize._primitives.di import DIRegistry
-    from functualize._types.interactivity import (
-        PromptChoice,
-        PromptRequest,
-        PromptResponse,
-    )
 
 T = TypeVar("T")
 
@@ -205,6 +200,16 @@ class RunContext:
         self._discovery: DiscoveryFacade | None = None
         self._wiring: WiringFacade | None = None
         self._events: ObservabilityFacade | None = None
+        self._prompts: PromptFacade | None = None
+
+    @property
+    def prompts(self) -> PromptFacade:
+        """`rc.prompts` — ask the person on the other end, if there is one."""
+        if self._prompts is None:
+            from functualize._engine.capabilities.prompt_facade import PromptFacade
+
+            self._prompts = PromptFacade(self)
+        return self._prompts
 
     @property
     def events(self) -> ObservabilityFacade:
@@ -484,152 +489,6 @@ class RunContext:
         return self._state_store
 
     # --- Job Schema ---
-
-    def _get_input_provider(self) -> Any | None:
-        """Return the collector that should answer this job's prompts.
-
-        Only surfaces that actually implement ``collect`` are eligible — a
-        render-only surface (flow-viz) must never be handed a prompt it
-        cannot answer.
-
-        Stack-scoped: top-of-stack wins, so the phase that owns the terminal
-        collects; see ``_engine/surface_routing.active_collector`` and
-        contributor/adr/001-surface-architecture-collapse.md.
-        """
-        if self._execution_engine is None:
-            return None
-        host = self._execution_engine.host
-        if host is None:
-            return None
-
-        # Stack-scoped resolution: the topmost pushed surface that can collect
-        # (the phase that owns the terminal), else the first registered
-        # collector, else the kernel's TTY-gated stdin fallback (None off a
-        # terminal — preserving default / InputNotAvailable behavior there).
-        return host.collector()
-
-    def prompt(self, request: PromptRequest) -> PromptResponse:
-        from functualize._types.interactivity import InputNotAvailable
-        from functualize._types.interactivity import PromptResponse as _PromptResponse
-
-        filled = dataclasses.replace(request, source_job=self._name)
-        provider = self._get_input_provider()
-        if provider is None:
-            if filled.required and filled.default is None:
-                raise InputNotAvailable(
-                    f"No InputProvider registered and prompt requires input "
-                    f"(job='{self._name}', question='{filled.question}')"
-                )
-            return _PromptResponse(value=filled.default, source="default")
-        return cast("PromptResponse", provider.collect(filled))
-
-    def prompt_confirm(
-        self,
-        question: str,
-        *,
-        destructive: bool = False,
-        default: bool | None = None,
-        context_message: str | None = None,
-        context_data: dict[str, Any] | None = None,
-    ) -> bool:
-        from functualize._types.interactivity import (
-            PromptIntent,
-            severity_for_intent,
-        )
-        from functualize._types.interactivity import (
-            PromptRequest as _PromptRequest,
-        )
-
-        intent = (
-            PromptIntent.CONFIRM_DESTRUCTIVE
-            if destructive
-            else PromptIntent.CONFIRM_NEUTRAL
-        )
-        # Derived, not hand-mapped — one source of truth for the styling.
-        severity = severity_for_intent(intent)
-        response = self.prompt(
-            _PromptRequest(
-                question=question,
-                intent=intent,
-                severity=severity,
-                default=default,
-                context_message=context_message,
-                context_data=context_data,
-                required=default is None,
-            )
-        )
-        if response.was_cancelled:
-            return False
-        value = response.value
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, str):
-            return value.lower() in ("yes", "y", "true", "1")
-        return bool(value) if value is not None else False
-
-    def prompt_choice(
-        self,
-        question: str,
-        choices: list[str] | list[PromptChoice],
-        *,
-        default: str | None = None,
-        context_message: str | None = None,
-    ) -> str:
-        from functualize._types.interactivity import (
-            PromptChoice as _PromptChoice,
-        )
-        from functualize._types.interactivity import (
-            PromptIntent,
-        )
-        from functualize._types.interactivity import (
-            PromptRequest as _PromptRequest,
-        )
-
-        normalized = [
-            _PromptChoice(value=c) if isinstance(c, str) else c for c in choices
-        ]
-        response = self.prompt(
-            _PromptRequest(
-                question=question,
-                intent=PromptIntent.SELECT,
-                choices=normalized,
-                default=default,
-                context_message=context_message,
-                required=default is None,
-            )
-        )
-        return str(response.value) if response.value is not None else ""
-
-    def prompt_text(
-        self,
-        question: str,
-        *,
-        default: str | None = None,
-        secret: bool = False,
-        placeholder: str | None = None,
-        validator: str | Any | None = None,
-        context_message: str | None = None,
-    ) -> str:
-        from functualize._types.interactivity import (
-            PromptIntent,
-        )
-        from functualize._types.interactivity import (
-            PromptRequest as _PromptRequest,
-        )
-
-        intent = PromptIntent.SECRET_INPUT if secret else PromptIntent.TEXT_INPUT
-        response = self.prompt(
-            _PromptRequest(
-                question=question,
-                intent=intent,
-                default=default,
-                placeholder=placeholder,
-                validator=validator,
-                context_message=context_message,
-                required=default is None,
-            )
-        )
-        return str(response.value) if response.value is not None else ""
 
 
 def inject_resource(rc: RunContext, name: str, resource: Any) -> None:

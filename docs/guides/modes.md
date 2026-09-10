@@ -369,7 +369,7 @@ Or launch the inline TUI by running the app bare — `my-tool` with no arguments
 - HTTP and Lambda adapters are separate packages (`functualize-http`, `functualize-lambda`)
 - Lambda adapter has cold-start considerations (keep dependencies lean)
 - TUI requires `[cli]` extras installed (`click`, `rich`, `textual`)
-- HTTP/Lambda adapters don't support interactive prompts (`rc.prompt()`)
+- HTTP/Lambda adapters don't support interactive prompts (`rc.prompts.ask()`)
 
 ---
 

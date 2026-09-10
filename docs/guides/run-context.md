@@ -342,7 +342,7 @@ If `sync` raises an exception:
 
 The `RunContext` provides methods for collecting user input during job execution via the interactivity system's `PromptCollector` protocol. See the [Interactivity Guide](interactivity.md) for the full architecture.
 
-### `rc.prompt(request)`
+### `rc.prompts.ask(request)`
 
 The low-level method that accepts a `PromptRequest` and returns a `PromptResponse`:
 
@@ -359,7 +359,7 @@ def my_job(rc: RunContext) -> None:
         ],
         default="staging",
     )
-    response = rc.prompt(request)
+    response = rc.prompts.ask(request)
     rc.log(f"Deploying to {response.value}")
 ```
 
@@ -369,11 +369,11 @@ If no `PromptCollector` is available and `required=True` with no default, raises
 
 Three convenience methods handle common prompting patterns:
 
-#### `rc.prompt_confirm(question, *, destructive=False, default=None)`
+#### `rc.prompts.confirm(question, *, destructive=False, default=None)`
 
 ```python
 def deploy_job(rc: RunContext) -> None:
-    if not rc.prompt_confirm("Deploy to production?", destructive=True):
+    if not rc.prompts.confirm("Deploy to production?", destructive=True):
         rc.log("Deployment cancelled")
         return
     # proceed with deployment...
@@ -381,11 +381,11 @@ def deploy_job(rc: RunContext) -> None:
 
 Returns `True` if confirmed, `False` if denied or cancelled.
 
-#### `rc.prompt_choice(question, choices, *, default=None)`
+#### `rc.prompts.choice(question, choices, *, default=None)`
 
 ```python
 def my_job(rc: RunContext) -> None:
-    env = rc.prompt_choice(
+    env = rc.prompts.choice(
         "Select environment",
         ["development", "staging", "production"],
         default="staging",
@@ -395,11 +395,11 @@ def my_job(rc: RunContext) -> None:
 
 Returns the selected value as a string.
 
-#### `rc.prompt_text(question, *, default=None, secret=False, placeholder=None, validator=None)`
+#### `rc.prompts.text(question, *, default=None, secret=False, placeholder=None, validator=None)`
 
 ```python
 def auth_job(rc: RunContext) -> None:
-    token = rc.prompt_text(
+    token = rc.prompts.text(
         "Enter API token",
         secret=True,
         placeholder="sk-...",
