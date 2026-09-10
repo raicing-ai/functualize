@@ -165,7 +165,7 @@ def _has_config_declaration(plugin: Any) -> bool:
 def _resolve_plugin_config(plugin: Any, app: Any) -> Any:
     """Resolve a plugin's config model through the app's Resolution_Chain.
 
-    Uses the same `app.resolve_model()` mechanism used by the framework
+    Uses the same `app.configuration.resolve_model()` mechanism used by the framework
     for job configs, ensuring identical resolution semantics.
 
     Args:
@@ -177,7 +177,7 @@ def _resolve_plugin_config(plugin: Any, app: Any) -> Any:
     """
     section: str = plugin.config_section
     model_cls: type[Any] = plugin.config_model
-    return app.resolve_model(section, model_cls)
+    return app.configuration.resolve_model(section, model_cls)
 
 
 # --- Topological Sort ---

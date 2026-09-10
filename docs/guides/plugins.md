@@ -87,7 +87,7 @@ class MyPlugin:
         def greet(name: str = "World"):
             """Say hello."""
             print(f"Hello, {name}!")
-        app.register_plugin_command("greet", greet, help_text="Say hello")
+        app.extensions.register_plugin_command("greet", greet, help_text="Say hello")
 ```
 
 1. The `app` parameter is the application instance. Use `app.cli_command` (a Click `Group`) to register commands, add callbacks, or access any Click API.
@@ -165,7 +165,7 @@ While `FunctualizeApp` handles plugin loading automatically, you can inspect loa
 
 ```python
 # Inspect what was loaded
-for plugin_name in app.get_plugin_commands():
+for plugin_name in app.extensions.get_plugin_commands():
     print(f"Plugin command: {plugin_name}")
 ```
 
@@ -173,7 +173,7 @@ for plugin_name in app.get_plugin_commands():
 
 ## Plugin CLI Command Registration
 
-Plugins can register their own CLI commands on the host application using `app.register_plugin_command()`:
+Plugins can register their own CLI commands on the host application using `app.extensions.register_plugin_command()`:
 
 ```python
 class MCPPlugin:
@@ -191,8 +191,8 @@ class MCPPlugin:
             print("Stopping MCP server")
 
         # Register under an "mcp" namespace
-        app.register_plugin_command("serve", serve, namespace="mcp", help_text="Start the MCP server")
-        app.register_plugin_command("stop", stop, namespace="mcp", help_text="Stop the MCP server")
+        app.extensions.register_plugin_command("serve", serve, namespace="mcp", help_text="Start the MCP server")
+        app.extensions.register_plugin_command("stop", stop, namespace="mcp", help_text="Stop the MCP server")
 ```
 
 This creates `my-app mcp serve` and `my-app mcp stop` commands.
@@ -216,7 +216,7 @@ This creates `my-app mcp serve` and `my-app mcp stop` commands.
 
 ## Plugin Instance Registry
 
-Plugins can look up other loaded plugins by name using `app.get_plugin(name)`:
+Plugins can look up other loaded plugins by name using `app.extensions.get_plugin(name)`:
 
 ```python
 class DashboardPlugin:
@@ -227,7 +227,7 @@ class DashboardPlugin:
     def __call__(self, app) -> None:
         # Get a reference to the execution-state plugin
         try:
-            state_plugin = app.get_plugin("execution-state")
+            state_plugin = app.extensions.get_plugin("execution-state")
             self._db = state_plugin.get_connection()
         except KeyError:
             # Plugin not installed — use fallback
@@ -339,7 +339,7 @@ resolvable after the code behind it is gone.
 
 ## Interactivity Plugin Registration
 
-Plugins providing rendering or input capabilities should register using `app.register_surface()`:
+Plugins providing rendering or input capabilities should register using `app.extensions.register_surface()`:
 
 ```python
 from functualize.plugin import PromptRequest, PromptResponse, StructuredEvent
@@ -351,7 +351,7 @@ class MyRendererPlugin:
     description = "Custom output renderer"
 
     def __call__(self, app) -> None:
-        app.register_surface(self)
+        app.extensions.register_surface(self)
 
     # Surface protocol — receives the event fan-out:
     def handle_event(self, event: StructuredEvent) -> None:
@@ -487,7 +487,7 @@ cancelled, returning a `PromptResponse(value, source)` where `source` is one of
 
 ### Registering a surface
 
-Register in your plugin's `__call__(app)` with `app.register_surface(obj)`. The
+Register in your plugin's `__call__(app)` with `app.extensions.register_surface(obj)`. The
 object must satisfy `Surface`, `PromptCollector`, or both — registering
 something that satisfies neither raises `TypeError`. Registration is explicit;
 there is no auto-detection.
@@ -507,7 +507,7 @@ class ConsoleMonitor:
     needs_terminal = False
 
     def __call__(self, app) -> None:
-        app.register_surface(self)
+        app.extensions.register_surface(self)
 
     def handle_event(self, event: StructuredEvent) -> None:
         print(f"[{event.event_name}] {event.resource} {event.payload}")

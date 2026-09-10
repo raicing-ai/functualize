@@ -336,7 +336,7 @@ class FlowVizPlugin:
         if not _enabled(app):
             return
         with contextlib.suppress(Exception):
-            app.register_ambient_construct(
+            app.extensions.register_ambient_construct(
                 FlowVizConstruct,
                 name="flow-viz",
                 predicate=_renders_for,

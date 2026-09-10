@@ -244,8 +244,8 @@ def main():
     )
 
     # Register services for DI injection into jobs
-    app.provide(DatabasePool, DatabasePool(url=os.getenv("DB_URL")))
-    app.provide(MetricsClient, MetricsClient())
+    app.di.provide(DatabasePool, DatabasePool(url=os.getenv("DB_URL")))
+    app.di.provide(MetricsClient, MetricsClient())
 
     adapter = CliAdapter(app)
     adapter.run()

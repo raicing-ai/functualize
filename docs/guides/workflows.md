@@ -78,7 +78,7 @@ def release() -> str:
 ### Executors are registered, never discovered
 
 ```python
-app.register_agent_step_executor(MyExecutor())
+app.extensions.register_agent_step_executor(MyExecutor())
 ```
 
 There is no auto-discovery, on purpose: a surface that acquires behaviour nobody declared is

@@ -77,14 +77,14 @@ def launch_inline_tui(app: FunctualizeApp) -> int:
 
 
 def _capture_session_state(app: FunctualizeApp, tui: object) -> None:
-    """Save shell state into ``app.extension_state["orchestrator"]``.
+    """Save shell state into ``app.extensions.extension_state["orchestrator"]``.
 
     Kept small and entirely optional: a handoff that fails to capture state
     must still run the job. Anything already persisted by a store belongs
     there, not here.
     """
     try:
-        state = app.extension_state.setdefault("orchestrator", {})
+        state = app.extensions.extension_state.setdefault("orchestrator", {})
         bar = getattr(tui, "_smart_bar", None)
         state["last_command"] = getattr(bar, "value", "") or ""
         panel_host = getattr(tui, "_panel_host", None)
@@ -102,7 +102,7 @@ def _restore_session_state(app: FunctualizeApp, tui: object) -> None:
     nothing is mounted at this point.
     """
     try:
-        state = app.extension_state.get("orchestrator")
+        state = app.extensions.extension_state.get("orchestrator")
         if not state:
             return
         last_command = state.get("last_command") or ""

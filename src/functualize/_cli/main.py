@@ -562,7 +562,7 @@ def _handle_bare(
 
     # Non-TTY: print parseable job list
     jobs = app.get_jobs()
-    plugin_commands = list(app.get_plugin_commands())
+    plugin_commands = list(app.extensions.get_plugin_commands())
     if not jobs and not plugin_commands:
         click.echo("No jobs discovered.")
         return
@@ -749,7 +749,7 @@ def _plugin_namespace_names(plugin_commands: list[Any]) -> set[str]:
     like ``a.b.c`` also registers ``a`` and ``a.b`` as navigable prefixes.
 
     Args:
-        plugin_commands: Result of ``app.get_plugin_commands()`` (duck-typed;
+        plugin_commands: Result of ``app.extensions.get_plugin_commands()`` (duck-typed;
             each item exposes a ``namespace`` attribute).
 
     Returns:
@@ -876,7 +876,7 @@ def _dispatch_group(
     Post-boot half of GROUP handling, also reused by the UNKNOWN fallback in
     ``_handle_job``. Because the app is already booted, this sees both job
     groups (from ``JOB_GROUP``) and plugin-registered command groups (from
-    ``app.get_plugin_commands()``), so ``func mcp serve`` resolves here.
+    ``app.extensions.get_plugin_commands()``), so ``func mcp serve`` resolves here.
 
     Navigation is a single walk of the group trie (A4), which replaced a greedy
     dotted-prefix loop over a merged name set. The trie carries job groups,

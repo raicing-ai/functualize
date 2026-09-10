@@ -74,7 +74,7 @@ class JobSources:
     honoured on both paths by ``_app.boot.wire_declared_job_providers``, and the
     annotation says what the docstring always promised.
 
-    ``app.add_job_provider()`` remains the imperative equivalent -- the path a
+    ``app.extensions.add_job_provider()`` remains the imperative equivalent -- the path a
     plugin uses from inside its ``__call__(app)``, where there is no
     ``JobSources`` left to declare into.
     """

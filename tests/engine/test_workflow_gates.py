@@ -70,7 +70,7 @@ def _app(strategy: str | None, *, register_boom: str | None = None) -> Functuali
     app.register_dynamic_job("prepare", prepare)
     app.register_dynamic_job("review", review)
     if register_boom is not None:
-        app.register_gate_strategy(register_boom, _Boom())
+        app.gates.register_gate_strategy(register_boom, _Boom())
     return app
 
 

@@ -144,7 +144,7 @@ class TestChainPopulation:
 
         fields = [_make_field_descriptor("port", default=8080)]
         tui = _build_tui_with_job("serve", fields, "serve")
-        tui._func_app.config_files.return_value = [
+        tui._func_app.configuration.config_files.return_value = [
             ConfigFileInfo(
                 path="/proj/config.base.toml",
                 environment_slot="base",
@@ -259,7 +259,7 @@ class TestChainPopulation:
             },
         )
         tui = _build_tui_with_job("serve", fields, "serve", pending=pending)
-        tui._func_app.config_files.return_value = [
+        tui._func_app.configuration.config_files.return_value = [
             ConfigFileInfo(
                 path="/proj/config.base.toml",
                 environment_slot="base",
@@ -291,7 +291,7 @@ class TestChainPopulation:
         from functualize.types import ConfigFileInfo, ConfigFileRole
 
         tui = _build_tui_with_job("serve", fields, "serve", pending=pending)
-        tui._func_app.config_files.return_value = [
+        tui._func_app.configuration.config_files.return_value = [
             ConfigFileInfo(
                 path="/proj/config.base.toml",
                 environment_slot="base",

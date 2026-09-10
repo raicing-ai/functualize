@@ -201,7 +201,7 @@ def resolve_ai_provider(
     if config is None:
         if app is not None and hasattr(app, "resolve_model"):
             try:
-                config = app.resolve_model("ai", AIConfig)
+                config = app.configuration.resolve_model("ai", AIConfig)
             except Exception:
                 # Config section may not exist; use defaults
                 config = AIConfig()

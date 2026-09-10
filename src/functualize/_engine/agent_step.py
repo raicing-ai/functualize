@@ -1,7 +1,7 @@
 """The agent-step port's registry, and the two refusals that guard it.
 
 An `AgentStep` is serviced by an executor that is **registered** on the app —
-``app.register_agent_step_executor`` — and never auto-discovered.
+``app.extensions.register_agent_step_executor`` — and never auto-discovered.
 Auto-discovery is how a surface acquires behaviour nobody declared, and this is
 the one node kind whose behaviour lives outside the process. `GateResolver` is
 the template, down to the registration door.
@@ -262,7 +262,7 @@ class CliPromptExecutor:
     that names none resolves to this one.
 
     It is registered by `_app.boot` through the same
-    ``app.register_agent_step_executor`` door a plugin uses. Nothing
+    ``app.extensions.register_agent_step_executor`` door a plugin uses. Nothing
     auto-discovers it, because nothing auto-discovers an executor.
 
     The question is the step's own ``instructions``, asked through the active

@@ -127,7 +127,7 @@ class ExecutionStatePlugin:
             db_path = None
             # Try to resolve config if available
             try:
-                config = app.resolve_model(self.config_section, self.config_model)
+                config = app.configuration.resolve_model(self.config_section, self.config_model)
                 if config.db_path:
                     db_path = config.db_path
                 session_ttl = config.session_ttl

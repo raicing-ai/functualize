@@ -182,7 +182,7 @@ class TestAppExecuteAutoScope:
         app.register_dynamic_job("greet", my_job)
 
         # Pre-create scope
-        original_scope = app.create_workflow_scope("my-custom-scope")
+        original_scope = app.workflows.create_workflow_scope("my-custom-scope")
 
         # Execute with the same scope_id
         app.execute(
@@ -271,9 +271,9 @@ class TestGateResolutionEndToEnd:
         **Validates: Requirements 7.9**
         """
         resolver = AlwaysSucceedResolver({"region": "us-west-2", "replicas": 5})
-        app.register_gate_strategy("auto_resolver", resolver)
+        app.gates.register_gate_strategy("auto_resolver", resolver)
 
-        result = app.resolve_gate(
+        result = app.gates.resolve_gate(
             DeployConfig,
             force_gate=True,
             gate_strategy="auto_resolver",
@@ -306,11 +306,11 @@ class TestGateResolutionEndToEnd:
                 call_order.append(self._name)
                 return ctx.model_class(region="fallback", replicas=1)
 
-        app.register_gate_strategy("fail1", TrackingFailResolver("fail1"))
-        app.register_gate_strategy("fail2", TrackingFailResolver("fail2"))
-        app.register_gate_strategy("succeed", TrackingSucceedResolver("succeed"))
+        app.gates.register_gate_strategy("fail1", TrackingFailResolver("fail1"))
+        app.gates.register_gate_strategy("fail2", TrackingFailResolver("fail2"))
+        app.gates.register_gate_strategy("succeed", TrackingSucceedResolver("succeed"))
 
-        result = app.resolve_gate(
+        result = app.gates.resolve_gate(
             DeployConfig,
             force_gate=True,
             gate_strategy=["fail1", "fail2", "succeed"],
@@ -327,11 +327,11 @@ class TestGateResolutionEndToEnd:
 
         **Validates: Requirements 7.9**
         """
-        app.register_gate_strategy("bad1", AlwaysFailResolver("error1"))
-        app.register_gate_strategy("bad2", AlwaysFailResolver("error2"))
+        app.gates.register_gate_strategy("bad1", AlwaysFailResolver("error1"))
+        app.gates.register_gate_strategy("bad2", AlwaysFailResolver("error2"))
 
         with pytest.raises(GateResolutionError) as exc_info:
-            app.resolve_gate(
+            app.gates.resolve_gate(
                 DeployConfig,
                 force_gate=True,
                 gate_strategy=["bad1", "bad2"],
@@ -345,13 +345,13 @@ class TestGateResolutionEndToEnd:
 
         **Validates: Requirements 7.9**
         """
-        app.register_gate_strategy("primary", AlwaysFailResolver("primary_fail"))
-        app.register_gate_strategy(
+        app.gates.register_gate_strategy("primary", AlwaysFailResolver("primary_fail"))
+        app.gates.register_gate_strategy(
             "secondary", AlwaysSucceedResolver({"region": "eu-west-1"})
         )
-        app.register_gate_preset("my_preset", ["primary", "secondary"])
+        app.gates.register_gate_preset("my_preset", ["primary", "secondary"])
 
-        result = app.resolve_gate(
+        result = app.gates.resolve_gate(
             DeployConfig,
             force_gate=True,
             gate_strategy="my_preset",
@@ -374,9 +374,9 @@ class TestGateResolutionEndToEnd:
                 strategy_called.append(True)
                 return ctx.model_class(region="override", replicas=10)
 
-        app.register_gate_strategy("recorder", RecordingResolver())
+        app.gates.register_gate_strategy("recorder", RecordingResolver())
 
-        result = app.resolve_gate(
+        result = app.gates.resolve_gate(
             DeployConfig,
             force_gate=True,
             gate_strategy="recorder",
@@ -398,9 +398,9 @@ class TestGateResolutionEndToEnd:
                 strategy_called.append(True)
                 return ctx.model_class(region="override", replicas=10)
 
-        app.register_gate_strategy("recorder", RecordingResolver())
+        app.gates.register_gate_strategy("recorder", RecordingResolver())
 
-        result = app.resolve_gate(
+        result = app.gates.resolve_gate(
             DeployConfig,
             force_gate=False,
             gate_strategy="recorder",
@@ -725,18 +725,20 @@ class TestEndToEndFlow:
         **Validates: Requirements 7.9**
         """
         # Register strategies
-        app.register_gate_strategy(
+        app.gates.register_gate_strategy(
             "env_resolver",
             AlwaysFailResolver("no env"),
         )
-        app.register_gate_strategy(
+        app.gates.register_gate_strategy(
             "default_resolver",
             AlwaysSucceedResolver({"target": "production"}),
         )
-        app.register_gate_preset("deploy_preset", ["env_resolver", "default_resolver"])
+        app.gates.register_gate_preset(
+            "deploy_preset", ["env_resolver", "default_resolver"]
+        )
 
         # Resolve through the preset
-        result = app.resolve_gate(
+        result = app.gates.resolve_gate(
             PartialConfig,
             force_gate=True,
             gate_strategy="deploy_preset",

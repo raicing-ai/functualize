@@ -347,22 +347,74 @@ now: `800` *(the brief recorded `788`; the class starts at `:128`, and `:52` is
 > asserts `"rc.prompts.confirm("` — the call, not the name, which is what the template is
 > supposed to demonstrate.
 
-### [ ] T9 · `FunctualizeApp` diet
+### [x] T9 · `FunctualizeApp` diet
 
-**Files:** `src/functualize/app/core.py`, `src/functualize/_app/impl.py`
+**Files:** `src/functualize/app/core.py`, `src/functualize/_app/impl.py`, and six new
+facades under `src/functualize/_app/` (`hooks_facade`, `gates_facade`, `di_facade`,
+`workflow_facade`, `extensions_facade`, `configuration_facade`)
 
 Explain, `execute_parallel` and scope plumbing move to `_app/impl.py`, which exists for this.
-`func builtin why`'s second verdict path (`core.py:725-823`) moves **with its tests**
-(risk R-c, AC-13).
+`func builtin why`'s second verdict path moves **with its tests** (risk R-c, AC-13).
 
 **Gate**
 ```bash
 python3 -c "
-s=open('src/functualize/app/core.py').read().splitlines()
-st=[i for i,l in enumerate(s,1) if l.startswith('class FunctualizeApp')][0]
-print(len(s)-st+1)"
+import ast, pathlib
+src = pathlib.Path('src/functualize/app/core.py').read_text(); lines = src.splitlines()
+cls = next(n for n in ast.parse(src).body
+           if isinstance(n, ast.ClassDef) and n.name == 'FunctualizeApp')
+doc = set()
+for sub in ast.walk(cls):
+    if isinstance(sub, ast.Expr) and isinstance(sub.value, ast.Constant) \
+       and isinstance(sub.value.value, str):
+        doc.update(range(sub.lineno, sub.end_lineno + 1))
+print(sum(1 for i in range(cls.lineno, cls.end_lineno + 1)
+          if lines[i-1].strip() and not lines[i-1].strip().startswith('#') and i not in doc))"
 ```
-now: `1265` · after: `≤300`
+now: `632` · after: **`298`** (gate `≤300`)
+
+> **The gate counted the wrong lines, and the task's own plan said so.** It was
+> `len(source) - class_start`, which is **total** lines. `FunctualizeApp` was 1450 total and
+> **632 executable** — 792 lines were docstrings on the framework's main public class, so a
+> total-line gate is satisfied by deleting documentation. `13-roadmap.md` describes this
+> feature as *"facade diets + **executable** LOC tripwires"*; `tasks.md` lost the word. The
+> gate now parses the class and excludes docstring and comment lines, and T10's tripwire is
+> written against the same measure.
+>
+> **`RunContext` passes either way** — 365 total, 256 executable, against ≤500.
+>
+> **What the arithmetic showed, and the decision it forced.** After moving every heavy body
+> to `_app/impl.py` — which is all T9 asks for — the class sat at **452 executable**, and the
+> remaining 152 could not come from moving code:
+>
+> | | executable |
+> |---|---|
+> | `__init__` + `execute` (composition, and the thesis entry) | 66 |
+> | 64 members already ≤ 6 lines each — pure delegates and accessors | 218 |
+> | class attributes | 24 |
+> | **floor, with every movable body already gone** | **308** |
+>
+> A 71-member flat class cannot be shrunk by moving bodies, only by grouping names. The
+> maintainer chose facades (2026-09-11), the same answer as T8 one level up.
+>
+> | facade | holds | members |
+> |---|---|---|
+> | `app.hooks` | every hook and middleware registration point | 15 |
+> | `app.extensions` | what a plugin registers: commands, providers, surfaces, constructs | 11 |
+> | `app.configuration` | read what configuration resolved to | 6 |
+> | `app.gates` | who answers a gate, and in what order | 3 |
+> | `app.di` | register what jobs can ask for | 3 |
+> | `app.workflows` | create or fetch a workflow scope | 2 |
+>
+> **71 → 37 public members, 1450 → 680 total, 632 → 298 executable.** ~450 call sites.
+>
+> **The `EngineHost` port is the real floor, and it is one this feature built.** Eleven
+> members — `get_descriptor`, `registered_jobs`, `replace_job`, `resolution_chain`,
+> `state_root`, `max_invoke_depth`, `event_bus`, `live_zone`, `collector`, `push_surface`,
+> `pop_surface` — are the protocol T1 sealed and T2 wired. `push_surface` and `collector`
+> read like `app.extensions` members and are not: the engine reaches them *through the port,
+> by those names*, so grouping them would unseal what three tasks of this feature built. The
+> two facade docstrings say so where someone would otherwise try.
 
 ---
 

@@ -29,16 +29,34 @@ class MockApp:
         self.hook_registry = MockHookRegistry()
         self._provided: dict[type, object] = {}
         self._db_path = db_path
+        # The double mirrors the real app's shape, facades included: a plugin
+        # registers through `app.di` and reads config through
+        # `app.configuration` since `engine-sealed-construction`/T9. A double
+        # that keeps the old flat shape tests an app that no longer exists.
+        self.di = _MockDI(self)
+        self.configuration = _MockConfiguration(self)
+
+
+class _MockDI:
+    def __init__(self, app: MockApp) -> None:
+        self._app = app
 
     def provide(self, type_: type, instance: object, qualifier=None) -> None:
-        self._provided[type_] = instance
+        self._app._provided[type_] = instance
+
+
+class _MockConfiguration:
+    def __init__(self, app: MockApp) -> None:
+        self._app = app
 
     def resolve_model(self, section: str, model_class: type):
         """Return a config model with our test db_path."""
+        db_path = self._app._db_path
 
         class FakeConfig:
-            db_path = self._db_path
+            pass
 
+        FakeConfig.db_path = db_path
         return FakeConfig()
 
 
@@ -107,7 +125,7 @@ class TestPluginRegistration:
 
 
 class TestDIRegistration:
-    """Test that APP_READY registers StateBackend and ExecutionStore via app.provide()."""
+    """Test that APP_READY registers StateBackend and ExecutionStore via app.di.provide()."""
 
     def test_provides_state_backend(
         self, booted_plugin: SQLiteStatePlugin, mock_app: MockApp

@@ -277,7 +277,7 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
 
     # Agent step executors (the agent-step port). Registered, never discovered:
     # built here so it exists before the engine is constructed, and populated
-    # through the same `app.register_agent_step_executor` door a plugin uses.
+    # through the same `app.extensions.register_agent_step_executor` door a plugin uses.
     from functualize._engine.agent_step import AgentStepRegistry as _AgentStepRegistry
 
     app._agent_step_registry = _AgentStepRegistry()
@@ -486,7 +486,7 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
 
     # Agent step executors (the agent-step port). Registered, never discovered:
     # built here so it exists before the engine is constructed, and populated
-    # through the same `app.register_agent_step_executor` door a plugin uses.
+    # through the same `app.extensions.register_agent_step_executor` door a plugin uses.
     from functualize._engine.agent_step import AgentStepRegistry as _AgentStepRegistry
 
     app._agent_step_registry = _AgentStepRegistry()
@@ -1058,7 +1058,7 @@ def wire_declared_job_sources(app: Any) -> None:
     ``job_providers`` accepts either a bare provider or a
     ``(provider, [transforms])`` pair -- the form its docstring has always
     promised. Both reach ``ResolutionPipeline.add_provider``, which is also
-    what ``app.add_job_provider()`` calls, so a declared provider and an
+    what ``app.extensions.add_job_provider()`` calls, so a declared provider and an
     imperative one are indistinguishable downstream.
 
     Malformed entries raise here rather than being skipped: silence is what

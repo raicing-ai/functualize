@@ -553,7 +553,7 @@ class AgentStepResult:
 class AgentStepExecutor(Protocol):
     """Protocol for running a workflow step by delegating it to an agent.
 
-    Registered by an app method — ``app.register_agent_step_executor`` — and
+    Registered by an app method — ``app.extensions.register_agent_step_executor`` — and
     **never auto-discovered**: auto-discovery is how a surface acquires
     behaviour nobody declared. ``GateResolver`` is the template, down to the
     registration door.

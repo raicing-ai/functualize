@@ -25,10 +25,10 @@ def register(app: FunctualizeApp) -> None:
         app: The FunctualizeApp instance to extend.
     """
     # Example: register a DI capability
-    # app.provide(MyService, MyServiceImpl())
+    # app.di.provide(MyService, MyServiceImpl())
 
     # Example: register a plugin command
-    # app.register_plugin_command("my-cmd", my_handler, "Description")
+    # app.extensions.register_plugin_command("my-cmd", my_handler, "Description")
 
     # Example: register a lifecycle hook
     # app.hook_registry.register_global("before_job", my_before_hook)

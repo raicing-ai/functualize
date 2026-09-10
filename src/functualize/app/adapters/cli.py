@@ -248,7 +248,7 @@ def _config_source_hint(app: Any, job_name: str) -> str:
     and the fallback to the user config directory is silent.
     """
     try:
-        files = app.config_files(job_name)
+        files = app.configuration.config_files(job_name)
     except Exception:  # introspection must never mask the real error
         return ""
 
@@ -577,7 +577,7 @@ def register_plugin_commands(
     """Register all plugin-contributed commands on a click.Group.
 
     **Reads the shadow resolver rather than every registered command.** This
-    used to iterate ``app.get_plugin_commands()`` and hand each one to
+    used to iterate ``app.extensions.get_plugin_commands()`` and hand each one to
     ``add_command``, which overwrites by name — and because ``__call__``
     registers jobs *before* plugins, a top-level plugin command sharing a job's
     name silently replaced the job. The same collision gave the job the win on
@@ -625,7 +625,7 @@ def shadowed_plugin_commands(app: FunctualizeApp) -> list[tuple[str, str]]:
     occupied = {job_trie_path(job) for job in app.get_jobs()}
     return [
         (path, cmd.name)
-        for cmd in app.get_plugin_commands()
+        for cmd in app.extensions.get_plugin_commands()
         if (path := plugin_command_path(cmd)) in occupied
     ]
 
@@ -1262,8 +1262,8 @@ def _show_info_impl(
     console = Console()
 
     log_level = logging.getLevelName(logging.getLogger().getEffectiveLevel())
-    environment = app.active_environment()
-    env_source = app.environment_source()
+    environment = app.configuration.active_environment()
+    env_source = app.configuration.environment_source()
     config_dir = AppState.get("config_directory") or app._config_path
 
     # Say where it came from: "DEV (default)" and "DEV (ENVIRONMENT)" mean
@@ -1593,7 +1593,7 @@ def _print_config_files(app: Any, console: Console) -> None:
     mention the file at all.
     """
     try:
-        infos = app.config_files()
+        infos = app.configuration.config_files()
     except Exception:
         infos = []
 

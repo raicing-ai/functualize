@@ -48,27 +48,29 @@ class TestExtensionState:
     def test_starts_empty_and_is_mutable(self) -> None:
         app = FunctualizeApp(name="testapp", job_sources=JobSources(directories=[]))
 
-        assert app.extension_state == {}
+        assert app.extensions.extension_state == {}
 
-        app.extension_state["mcp"] = {"checkpoints": {}}
-        assert app.extension_state["mcp"] == {"checkpoints": {}}
+        app.extensions.extension_state["mcp"] = {"checkpoints": {}}
+        assert app.extensions.extension_state["mcp"] == {"checkpoints": {}}
 
     def test_same_dict_across_accesses(self) -> None:
         """Consumers must be able to stash state and find it again."""
         app = FunctualizeApp(name="testapp", job_sources=JobSources(directories=[]))
 
-        app.extension_state.setdefault("orchestrator", {})["surface"] = "panel"
+        app.extensions.extension_state.setdefault("orchestrator", {})["surface"] = (
+            "panel"
+        )
 
-        assert app.extension_state["orchestrator"]["surface"] == "panel"
+        assert app.extensions.extension_state["orchestrator"]["surface"] == "panel"
 
     def test_isolated_between_apps(self) -> None:
         """State must not leak via a shared class-level default."""
         first = FunctualizeApp(name="first", job_sources=JobSources(directories=[]))
         second = FunctualizeApp(name="second", job_sources=JobSources(directories=[]))
 
-        first.extension_state["mcp"] = {"a": 1}
+        first.extensions.extension_state["mcp"] = {"a": 1}
 
-        assert second.extension_state == {}
+        assert second.extensions.extension_state == {}
 
 
 class TestResolutionChain:
@@ -238,7 +240,7 @@ class TestRefreshConfig:
             job_sources=JobSources(directories=[]),
             config_sources=ConfigSources(dotenv=False),
         )
-        assert app.active_environment().casefold() == "dev"
+        assert app.configuration.active_environment().casefold() == "dev"
         app._config_path = str(tmp_path)
         app.refresh()
 

@@ -239,11 +239,13 @@ class TestResolveAiProvider:
         mock_discover.return_value = {"pydantic": ep}
 
         mock_app = MagicMock()
-        mock_app.resolve_model.return_value = AIConfig(provider="pydantic")
+        mock_app.configuration.resolve_model.return_value = AIConfig(
+            provider="pydantic"
+        )
 
         result = resolve_ai_provider(mock_app)
 
-        mock_app.resolve_model.assert_called_once_with("ai", AIConfig)
+        mock_app.configuration.resolve_model.assert_called_once_with("ai", AIConfig)
         assert result is plugin_obj
 
     @patch("functualize_ai._provider_discovery.discover_ai_providers")
@@ -256,7 +258,7 @@ class TestResolveAiProvider:
         mock_discover.return_value = {"pydantic": ep}
 
         mock_app = MagicMock()
-        mock_app.resolve_model.side_effect = Exception("no config")
+        mock_app.configuration.resolve_model.side_effect = Exception("no config")
 
         # Default config has provider="pydantic", so it should try explicit selection
         result = resolve_ai_provider(mock_app)

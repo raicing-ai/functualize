@@ -28,7 +28,7 @@ def _app_with(*, jobs=(), commands=()) -> FunctualizeApp:
     """An app carrying exactly the jobs and plugin commands a test declares."""
     app = FunctualizeApp(name="t", job_sources=JobSources(functions=list(jobs) or None))
     for kwargs in commands:
-        app.register_plugin_command(**kwargs)
+        app.extensions.register_plugin_command(**kwargs)
     return app
 
 

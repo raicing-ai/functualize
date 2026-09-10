@@ -52,7 +52,7 @@ def app() -> FunctualizeApp:
         plugin_sources=PluginSources(entry_point_group="functualize.plugins.__none__"),
     )
     for name in PLUGIN_COMMANDS:
-        instance.register_plugin_command(
+        instance.extensions.register_plugin_command(
             name, lambda: None, help_text=f"Does {name}", namespace=NAMESPACE
         )
     return instance

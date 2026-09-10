@@ -1579,7 +1579,7 @@ def read_routing_rows_from_cache(
         Plugin commands are **not** here and cannot be: they are registered at
         APP_READY, in memory, and never reach the cache. A trie built from
         these rows describes job space only; plugin namespaces are added
-        post-boot from ``app.get_plugin_commands()``.
+        post-boot from ``app.extensions.get_plugin_commands()``.
     """
     from functualize._primitives.cache_format import CACHE_VERSION
 

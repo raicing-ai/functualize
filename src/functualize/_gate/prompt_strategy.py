@@ -150,7 +150,7 @@ def register_prompt_gate_strategy(
     "no surface available" path as an unanswerable prompt.
     """
     resolver = PromptGateResolver(app=app, collector_factory=collector_factory)
-    app.register_gate_strategy(PROMPT_STRATEGY_NAME, resolver)
+    app.gates.register_gate_strategy(PROMPT_STRATEGY_NAME, resolver)
 
 
 def _build_question(field_name: str, description: str) -> str:

@@ -33,7 +33,7 @@ class MyPlugin:
 
     def __call__(self, app):
         backend = MyBackend()
-        app.provide(StateBackend, backend)
+        app.di.provide(StateBackend, backend)
 ```
 
 ## Entry Point Registration
@@ -47,7 +47,7 @@ my-backend = "my_package:MyPlugin"
 
 - **Protocol compliance** — `isinstance(backend, StateBackend)` validates at import time
 - **`StateNamespace`** — Works with any backend for prefix-scoped key isolation
-- **DI registration** — `app.provide(StateBackend, instance)` makes it available to all jobs
+- **DI registration** — `app.di.provide(StateBackend, instance)` makes it available to all jobs
 - **Entry points** — Auto-discovery without manual configuration
 
 ## Related

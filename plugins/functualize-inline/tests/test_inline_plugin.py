@@ -73,7 +73,7 @@ class TestProtocolCompliance:
         """__call__ registers the plugin as a surface."""
         mock_app = MagicMock()
         plugin(mock_app)
-        mock_app.register_surface.assert_called_once_with(plugin)
+        mock_app.extensions.register_surface.assert_called_once_with(plugin)
 
 
 # ─── CLI Fallback: CONFIRM_DESTRUCTIVE ────────────────────────────────

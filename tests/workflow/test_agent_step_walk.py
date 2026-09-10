@@ -83,7 +83,7 @@ def _single_agent_step_app(surface: _Surface) -> FunctualizeApp:
     """
     app = FunctualizeApp(name="testapp")
     app.push_surface(surface)
-    app.register_agent_step_executor(_CliPromptExecutor(app))
+    app.extensions.register_agent_step_executor(_CliPromptExecutor(app))
 
     @workflow(
         steps=[AgentStep(name="draft", instructions="Write the migration")],
@@ -196,7 +196,7 @@ class TestAnAgentStepInsideAGraph:
         app = FunctualizeApp(name="testapp")
         app.push_surface(surface)
         # Registered explicitly: core no longer ships a default executor.
-        app.register_agent_step_executor(_CliPromptExecutor(app))
+        app.extensions.register_agent_step_executor(_CliPromptExecutor(app))
         ran: list[str] = []
 
         def prepare() -> str:

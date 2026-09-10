@@ -37,7 +37,11 @@ if TYPE_CHECKING:
 
     from functualize._config.chain import ResolutionChain
     from functualize._engine.result import JobResult
-    from functualize._types.descriptors import CacheInfo, ConfigFileInfo
+    from functualize._types.descriptors import (
+        CacheInfo,
+        ConfigFileInfo,
+        JobDescriptor,
+    )
     from functualize.app.config import ConfigSources, JobSources, PluginSources
 
 logger = logging.getLogger(__name__)
@@ -1179,7 +1183,7 @@ def config_files(app: Any, job_name: str | None = None) -> list[ConfigFileInfo]:
     if job_name is None:
         return infos
 
-    section = app.get_job_config_section(job_name)
+    section = app.configuration.get_job_config_section(job_name)
     narrowed: list[ConfigFileInfo] = []
     for info in infos:
         section_data = info.values.get(section)
@@ -1475,3 +1479,33 @@ def register_ambient_construct(
     app._ambient_constructs.append(
         AmbientEntry(factory=construct_factory, name=resolved, predicate=predicate)
     )
+
+
+def update_run_context_configs(app: Any, run_contexts: list[Any]) -> None:
+    """Re-resolve config for RunContext instances after config path changes.
+
+    Called by JobRegistry.update_config_paths() to avoid the registry
+    importing from _config directly (peer-layer independence).
+
+    Args:
+        run_contexts: List of RunContext instances to update.
+    """
+    from functualize._config.job_config import JobConfigView
+
+    for rc in run_contexts:
+        rc._config = JobConfigView(
+            resolution_chain=app._resolution_chain,
+            default_section_prefix=rc.name,
+        )
+
+
+def get_job(app: Any, name: str) -> JobDescriptor | None:
+    """Retrieve a single job descriptor by name."""
+    result: JobDescriptor | None = app._resolution_pipeline.resolve_one(name)
+    if result is not None:
+        return result
+    try:
+        descriptor: JobDescriptor = app.job_registry.get_descriptor(name)
+    except KeyError:
+        return None
+    return descriptor

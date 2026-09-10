@@ -72,7 +72,7 @@ def _app(collector: object | None = None) -> FunctualizeApp:
 
     app.register_dynamic_job("run", run)
     if collector is not None:
-        app.register_surface(collector)
+        app.extensions.register_surface(collector)
     return app
 
 

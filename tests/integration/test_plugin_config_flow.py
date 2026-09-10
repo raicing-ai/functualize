@@ -20,6 +20,7 @@ import pytest
 from click.testing import CliRunner
 from pydantic import BaseModel, Field
 
+from functualize._app.configuration_facade import ConfigurationFacade
 from functualize._app.state import AppState
 from functualize.app.config import JobSources
 from functualize.app.core import FunctualizeApp
@@ -121,7 +122,7 @@ class TestFullPluginConfigFlow:
 
     @patch("functualize._plugins.loader.entry_points")
     @patch.object(
-        FunctualizeApp, "resolve_model", side_effect=_resolve_model_from_defaults
+        ConfigurationFacade, "resolve_model", side_effect=_resolve_model_from_defaults
     )
     def test_plugin_config_declared_resolved_and_accessible_in_job(
         self, _mock_resolve: Any, mock_entry_points: Any, tmp_path: Path
@@ -230,7 +231,7 @@ class TestFullPluginConfigFlow:
         )
 
         with patch.object(
-            FunctualizeApp, "resolve_model", side_effect=_resolve_with_env
+            ConfigurationFacade, "resolve_model", side_effect=_resolve_with_env
         ):
             app = FunctualizeApp(
                 name="testapp", job_sources=JobSources(directories=[str(jobs_dir)])
@@ -244,7 +245,7 @@ class TestFullPluginConfigFlow:
 
     @patch("functualize._plugins.loader.entry_points")
     @patch.object(
-        FunctualizeApp, "resolve_model", side_effect=_resolve_model_from_defaults
+        ConfigurationFacade, "resolve_model", side_effect=_resolve_model_from_defaults
     )
     def test_multiple_plugins_configs_all_accessible(
         self, _mock_resolve: Any, mock_entry_points: Any, tmp_path: Path
@@ -297,7 +298,7 @@ class TestFullPluginConfigFlow:
 
     @patch("functualize._plugins.loader.entry_points")
     @patch.object(
-        FunctualizeApp, "resolve_model", side_effect=_resolve_model_from_defaults
+        ConfigurationFacade, "resolve_model", side_effect=_resolve_model_from_defaults
     )
     def test_plugin_config_immutable_from_job(
         self, _mock_resolve: Any, mock_entry_points: Any, tmp_path: Path
@@ -377,7 +378,7 @@ class TestMiddlewareChainIntegration:
             inject_resource(rc, "db_client", "postgres://injected")
             yield
 
-        app.register_run_middleware(resource_middleware)
+        app.hooks.register_run_middleware(resource_middleware)
 
         result = runner.invoke(app.cli_command, ["resource_user"])
         assert result.exit_code == 0
@@ -413,7 +414,7 @@ class TestMiddlewareChainIntegration:
             rc.state.set("middleware_key", "from_middleware")
             yield
 
-        app.register_run_middleware(state_middleware)
+        app.hooks.register_run_middleware(state_middleware)
 
         result = runner.invoke(app.cli_command, ["state_reader"])
         assert result.exit_code == 0
@@ -453,8 +454,8 @@ class TestMiddlewareChainIntegration:
             execution_order.append("mw_low_post")
 
         # Register in reverse priority order to confirm sorting
-        app.register_run_middleware(mw_high, priority=10)
-        app.register_run_middleware(mw_low, priority=1)
+        app.hooks.register_run_middleware(mw_high, priority=10)
+        app.hooks.register_run_middleware(mw_low, priority=1)
 
         result = runner.invoke(app.cli_command, ["ordered_job"])
         assert result.exit_code == 0
@@ -493,7 +494,7 @@ class TestMiddlewareChainIntegration:
             yield
             post_yield_called.append(True)
 
-        app.register_run_middleware(cleanup_middleware)
+        app.hooks.register_run_middleware(cleanup_middleware)
 
         result = runner.invoke(app.cli_command, ["success_mw"])
         assert result.exit_code == 0
@@ -501,7 +502,7 @@ class TestMiddlewareChainIntegration:
 
     @patch("functualize._plugins.loader.entry_points")
     @patch.object(
-        FunctualizeApp, "resolve_model", side_effect=_resolve_model_from_defaults
+        ConfigurationFacade, "resolve_model", side_effect=_resolve_model_from_defaults
     )
     def test_middleware_with_plugin_config_access(
         self, _mock_resolve: Any, mock_entry_points: Any, tmp_path: Path
@@ -539,7 +540,7 @@ class TestMiddlewareChainIntegration:
             captured_urls.append(config.webhook_url)
             yield
 
-        app.register_run_middleware(config_reading_middleware)
+        app.hooks.register_run_middleware(config_reading_middleware)
 
         result = runner.invoke(app.cli_command, ["mw_cfg_job"])
         assert result.exit_code == 0
@@ -595,7 +596,9 @@ class TestWorkflowScopeSharedState:
         )
 
         # Create a workflow scope
-        scope = app.create_workflow_scope("my-workflow", metadata={"run": "test"})
+        scope = app.workflows.create_workflow_scope(
+            "my-workflow", metadata={"run": "test"}
+        )
 
         # Register middleware that injects the workflow scope's state store
         def scope_middleware(rc: Any) -> Generator[None]:
@@ -603,7 +606,7 @@ class TestWorkflowScopeSharedState:
             rc._state_store = scope.state_store
             yield
 
-        app.register_run_middleware(scope_middleware)
+        app.hooks.register_run_middleware(scope_middleware)
 
         # Execute job_a - writes state
         result_a = runner.invoke(app.cli_command, ["job_a"])
@@ -644,7 +647,7 @@ class TestWorkflowScopeSharedState:
         )
 
         # Create and close a workflow scope
-        scope = app.create_workflow_scope("closed-workflow")
+        scope = app.workflows.create_workflow_scope("closed-workflow")
         scope.state_store.set("pre_close", "data")
         scope.close()
 
@@ -653,7 +656,7 @@ class TestWorkflowScopeSharedState:
             rc._state_store = scope.state_store
             yield
 
-        app.register_run_middleware(closed_scope_middleware)
+        app.hooks.register_run_middleware(closed_scope_middleware)
 
         result = runner.invoke(app.cli_command, ["write_closed"])
         assert result.exit_code == 0
@@ -669,7 +672,7 @@ class TestWorkflowScopeSharedState:
         app = FunctualizeApp(name="testapp")
 
         # Create scope with metadata
-        scope = app.create_workflow_scope(
+        scope = app.workflows.create_workflow_scope(
             "metadata-flow",
             metadata={"provider": "restate", "run_url": "https://restate.dev/run/1"},
         )
@@ -705,7 +708,7 @@ class TestCombinedPluginMiddlewareScopeFlow:
 
     @patch("functualize._plugins.loader.entry_points")
     @patch.object(
-        FunctualizeApp, "resolve_model", side_effect=_resolve_model_from_defaults
+        ConfigurationFacade, "resolve_model", side_effect=_resolve_model_from_defaults
     )
     def test_full_orchestration_flow(
         self, _mock_resolve: Any, mock_entry_points: Any, tmp_path: Path
@@ -751,7 +754,7 @@ class TestCombinedPluginMiddlewareScopeFlow:
         )
 
         # Create a workflow scope for shared state
-        scope = app.create_workflow_scope("orchestration-flow")
+        scope = app.workflows.create_workflow_scope("orchestration-flow")
 
         # Register middleware: inject resource + attach scope state store
         def orchestration_middleware(rc: Any) -> Generator[None]:
@@ -759,7 +762,7 @@ class TestCombinedPluginMiddlewareScopeFlow:
             rc._state_store = scope.state_store
             yield
 
-        app.register_run_middleware(orchestration_middleware)
+        app.hooks.register_run_middleware(orchestration_middleware)
 
         # First invocation
         result1 = runner.invoke(app.cli_command, ["full_flow"])
@@ -815,7 +818,7 @@ class TestCombinedPluginMiddlewareScopeFlow:
 
     @patch("functualize._plugins.loader.entry_points")
     @patch.object(
-        FunctualizeApp, "resolve_model", side_effect=_resolve_model_from_defaults
+        ConfigurationFacade, "resolve_model", side_effect=_resolve_model_from_defaults
     )
     def test_dependency_ordered_plugins_config_resolution(
         self, _mock_resolve: Any, mock_entry_points: Any, tmp_path: Path

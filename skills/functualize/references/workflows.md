@@ -73,7 +73,7 @@ time_budget_s=None)` hands a node to a registered **executor** instead of runnin
 local function.
 
 Executors are registered, never discovered:
-`app.register_agent_step_executor(MyExecutor())`. An executor is anything with a
+`app.extensions.register_agent_step_executor(MyExecutor())`. An executor is anything with a
 `name`, a `capabilities` collection and `execute(ctx) -> AgentStepResult`. Core
 ships one, `cli-prompt`, which asks a person. `executor=None` means *the single
 registered executor* — with two registered, a step naming none is refused rather
@@ -107,7 +107,7 @@ Gate resolution lives in `_gate/`. A paused workflow persists as a scope.
 valid — `"resolve"` (config chain), `"prompt"` (interactive surface),
 `"ai_inbound"` (an LLM fills the model), `"ai_outbound"` (an external agent
 deposits it). Preset names are **not** accepted here; presets are reachable
-only through `rc.invoke(..., gate_strategy=...)` and `app.resolve_gate`.
+only through `rc.invoke(..., gate_strategy=...)` and `app.gates.resolve_gate`.
 
 Two are only registered when a plugin is installed: `ai_inbound` by
 `functualize-ai`, `ai_outbound` by `functualize-mcp`.

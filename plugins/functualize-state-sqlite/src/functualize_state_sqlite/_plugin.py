@@ -1,7 +1,7 @@
 """SQLite State Plugin — DI registration and scope lifecycle integration.
 
 Registers SQLiteStateBackend as StateBackend and SQLiteExecutionStore as
-ExecutionStore with the DI registry via app.provide(). Hooks into
+ExecutionStore with the DI registry via app.di.provide(). Hooks into
 ON_SCOPE_CREATED to replace the scope's in-memory state with persistent
 SQLite-backed storage.
 
@@ -30,7 +30,7 @@ class SQLiteStatePlugin:
 
     At boot time (APP_READY), creates SQLiteStateBackend and SQLiteExecutionStore
     instances sharing the same database path, and registers them with the DI
-    registry via app.provide().
+    registry via app.di.provide().
 
     When a WorkflowScope is created, replaces its in-memory state store with
     a persistent SQLiteStateStore backed by the shared SQLiteBackend.
@@ -145,9 +145,9 @@ class SQLiteStatePlugin:
 
             migrate(self._scope_backend.connection)
 
-            # Register with DI registry via app.provide()
-            app.provide(StateBackend, self._backend)
-            app.provide(ExecutionStore, self._execution_store)
+            # Register with DI registry via app.di.provide()
+            app.di.provide(StateBackend, self._backend)
+            app.di.provide(ExecutionStore, self._execution_store)
 
             logger.debug(
                 "SQLiteStatePlugin: Registered StateBackend and ExecutionStore (db=%s)",
@@ -198,7 +198,7 @@ class SQLiteStatePlugin:
                     description="Path to the SQLite database file.",
                 )
 
-            config = app.resolve_model("plugin.sqlite-state", _SqliteConfig)
+            config = app.configuration.resolve_model("plugin.sqlite-state", _SqliteConfig)
             return config.db_path
         except Exception:
             # No config available — use default path

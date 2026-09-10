@@ -96,8 +96,8 @@ def make_mock_app(
             return_value=None,
         )
 
-    app.register_plugin_command = MagicMock()
-    app.get_plugin_commands.return_value = []
+    app.extensions.register_plugin_command = MagicMock()
+    app.extensions.get_plugin_commands.return_value = []
 
     return app
 
@@ -413,8 +413,8 @@ class TestHttpServerPlugin:
         plugin = HttpServerPlugin()
         plugin(app)
 
-        app.register_plugin_command.assert_called_once()
-        call_args = app.register_plugin_command.call_args
+        app.extensions.register_plugin_command.assert_called_once()
+        call_args = app.extensions.register_plugin_command.call_args
         assert call_args.kwargs.get("name") or call_args[0][0] == "serve"
 
     def test_plugin_stores_app_reference(self):

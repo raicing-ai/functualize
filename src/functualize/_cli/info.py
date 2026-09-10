@@ -373,8 +373,8 @@ def full_report(app: FunctualizeApp, cli_config: Any = None) -> dict[str, Any]:
     report: dict[str, Any] = {
         "functualize": __version__,
         "environment": {
-            "name": app.active_environment(),
-            "source": getattr(app.environment_source(), "value", None),
+            "name": app.configuration.active_environment(),
+            "source": getattr(app.configuration.environment_source(), "value", None),
         },
         "jobs": [job_detail(app, entry["name"]) for entry in job_catalog(app)],
     }

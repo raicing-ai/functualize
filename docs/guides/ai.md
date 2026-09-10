@@ -185,7 +185,7 @@ The AI capability emits structured events:
 Subscribe via the event bus:
 
 ```python
-@app.on_event("ai.call.completed")
+@app.hooks.on_event("ai.call.completed")
 def log_usage(event):
     print(f"Tokens used: {event.payload['token_usage'].total_tokens}")
 ```
@@ -244,7 +244,7 @@ expands it: `Gate(strategy="ai_inbound")` is walked as
 result = rc.invoke(review, awaits_input=Approval, force_gate=True, gate_strategy="ai")
 
 # Directly on the app
-approval = app.resolve_gate(Approval, gate_strategy="ai", gate_name="triage")
+approval = app.gates.resolve_gate(Approval, gate_strategy="ai", gate_name="triage")
 ```
 
 Both accept a strategy name, a preset name, or an explicit list of strategy

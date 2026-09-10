@@ -35,4 +35,4 @@ class MemoryTTLPlugin:
         default_ttl = 3600.0  # Could read from app config
 
         backend = MemoryTTLBackend(default_ttl=default_ttl)
-        app.provide(StateBackend, backend)
+        app.di.provide(StateBackend, backend)

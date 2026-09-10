@@ -14,7 +14,7 @@ Facade methods:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Generator, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
@@ -31,7 +31,13 @@ from functualize.app.config import (
 )
 
 if TYPE_CHECKING:
+    from functualize._app.configuration_facade import ConfigurationFacade
+    from functualize._app.di_facade import DependencyFacade
+    from functualize._app.extensions_facade import ExtensionsFacade
+    from functualize._app.gates_facade import GatesFacade
+    from functualize._app.hooks_facade import HooksFacade
     from functualize._app.models import PluginCommand
+    from functualize._app.workflow_facade import WorkflowScopeFacade
     from functualize._config import ResolutionChain
     from functualize._config.registry import ProviderRegistry
     from functualize._discovery.pipeline import ResolutionPipeline
@@ -53,11 +59,6 @@ if TYPE_CHECKING:
         ConfigFileInfo,
         JobDescriptor,
         RegisteredJob,
-    )
-    from functualize._types.protocols import (
-        AgentStepExecutor,
-        JobProvider,
-        JobTransform,
     )
     from functualize.job._workflow_scope import WorkflowScope
 
@@ -200,6 +201,16 @@ class FunctualizeApp:
 
         # Detect static wiring fast path: all sources are explicit, zero I/O
         self._static_wiring = self._is_fully_explicit()
+        #: Facades. This class is the composition root's public face, and a
+        #: 71-member flat surface cannot be shrunk by moving bodies — only by
+        #: grouping names (T9). Each is built on first use, so an app that
+        #: registers no hooks never constructs one.
+        self._hooks_facade: HooksFacade | None = None
+        self._configuration_facade: ConfigurationFacade | None = None
+        self._extensions_facade: ExtensionsFacade | None = None
+        self._workflows_facade: WorkflowScopeFacade | None = None
+        self._di_facade: DependencyFacade | None = None
+        self._gates_facade: GatesFacade | None = None
 
         perf_timeline.mark("boot.app_init.end")
 
@@ -376,72 +387,9 @@ class FunctualizeApp:
 
     # ─── DI Registry Facade ──────────────────────────────────────────────
 
-    def provide(self, type_: type, instance: Any, qualifier: str | None = None) -> None:
-        """Register a singleton instance in the DI registry."""
-        self._di_registry.provide(type_, instance, qualifier)
-
-    def provide_factory(
-        self,
-        type_: type,
-        factory: Callable[..., Any],
-        scope: str,
-        qualifier: str | None = None,
-    ) -> None:
-        """Register a factory in the DI registry."""
-        self._di_registry.provide_factory(type_, factory, scope, qualifier)
-
-    def provide_named(self, name: str, instance: Any) -> None:
-        """Register a string-keyed value in the DI registry."""
-        self._di_registry.provide_named(name, instance)
-
     # ─── Gate Strategy Registry Facade ───────────────────────────────────
 
-    def register_gate_strategy(self, name: str, resolver: GateResolver) -> None:
-        """Register a gate resolution strategy by name.
-
-        Args:
-            name: Strategy identifier (1-64 characters).
-            resolver: A GateResolver implementation instance.
-
-        Raises:
-            ValueError: If name length is outside [1, 64].
-        """
-        self._gate_registry.register_strategy(name, resolver)
-
-    def register_gate_preset(self, name: str, strategies: list[str]) -> None:
-        """Register an ordered fallback list of strategies under a preset name.
-
-        Args:
-            name: Preset identifier.
-            strategies: Ordered list of strategy names (1-10 entries).
-
-        Raises:
-            ValueError: If strategies list length is outside [1, 10].
-        """
-        self._gate_registry.register_preset(name, strategies)
-
     # ─── Agent Step Executor Registry Facade ─────────────────────────────
-
-    def register_agent_step_executor(self, executor: AgentStepExecutor) -> None:
-        """Register an executor that services ``AgentStep`` nodes.
-
-        Registered, never auto-discovered: a workflow that declares an agent
-        step reaches an executor because a package registered one, not because
-        a discovery scan found it.
-
-        Args:
-            executor: An implementation of `AgentStepExecutor` — a ``name``, a
-                ``capabilities`` set, and ``execute(ctx)``.
-
-        Raises:
-            TypeError: ``executor`` does not satisfy `AgentStepExecutor`, so a
-                forgotten capability declaration fails here rather than
-                mid-walk.
-            ValueError: Its name is empty or already registered.
-        """
-        from functualize._app.impl import register_agent_step_executor
-
-        register_agent_step_executor(self, executor)
 
     @property
     def _gate_strategies(self) -> dict[str, GateResolver]:
@@ -452,29 +400,6 @@ class FunctualizeApp:
     def _gate_presets(self) -> dict[str, list[str]]:
         """Access the registered gate presets dict."""
         return self._gate_registry._presets
-
-    def resolve_gate(
-        self,
-        model_class: type,
-        *,
-        force_gate: bool = False,
-        gate_strategy: Any = None,
-        resolved_fields: dict[str, Any] | None = None,
-        workflow_context: dict[str, Any] | None = None,
-        gate_name: str = "unnamed",
-    ) -> Any:
-        """Resolve a gate by applying the resolution algorithm."""
-        from functualize._app.impl import resolve_gate
-
-        return resolve_gate(
-            self,
-            model_class,
-            force_gate=force_gate,
-            gate_strategy=gate_strategy,
-            resolved_fields=resolved_fields,
-            workflow_context=workflow_context,
-            gate_name=gate_name,
-        )
 
     # ─── Job Facade ──────────────────────────────────────────────────────
 
@@ -488,19 +413,9 @@ class FunctualizeApp:
 
     def get_job(self, name: str) -> JobDescriptor | None:
         """Retrieve a single job descriptor by name."""
-        result = self._resolution_pipeline.resolve_one(name)
-        if result is not None:
-            return result
-        try:
-            return self.job_registry.get_descriptor(name)
-        except KeyError:
-            return None
+        from functualize._app.impl import get_job
 
-    def config_files(self, job_name: str | None = None) -> list[ConfigFileInfo]:
-        """Return every config file the kernel discovered, and its role."""
-        from functualize._app.impl import config_files
-
-        return config_files(self, job_name)
+        return get_job(self, name)
 
     def resolution_chain(self) -> ResolutionChain:
         """Return the config resolution chain [CLI → Env → Files → Defaults].
@@ -515,84 +430,17 @@ class FunctualizeApp:
         """
         return self._resolution_chain
 
-    @property
-    def extension_state(self) -> dict[str, Any]:
-        """Mutable namespace for consumer-owned state keyed by consumer name.
-
-        A sanctioned place for long-lived consumers (MCP server, TUI
-        orchestrator) to hang state that belongs to them, not to the kernel —
-        instead of monkey-patching private attributes onto the app instance.
-
-        Keys should be namespaced by consumer (e.g. ``"mcp"``,
-        ``"orchestrator"``). The kernel never reads or interprets the
-        contents; it only guarantees the dict exists and survives for the
-        app's lifetime.
-
-        Example:
-            state = app.extension_state.setdefault("mcp", {})
-            state["gate_checkpoints"] = {...}
-        """
-        # Lazily created: both boot paths and partially-constructed test
-        # doubles get a working namespace without an __init__ contract.
-        state = getattr(self, "_extension_state", None)
-        if state is None:
-            state = {}
-            self._extension_state = state
-        return state
-
     def refresh(self) -> None:
         """Re-read the project from disk: discovery and config resolution."""
         from functualize._app.impl import refresh
 
         return refresh(self)
 
-    def active_environment(self) -> str:
-        """Return the active environment name (e.g. ``"prod"``).
-
-        Selects which ``config.<slot>.*`` overlay is merged on top of
-        ``config.base.*``. See :meth:`environment_source` for whether it was
-        chosen explicitly or defaulted.
-        """
-        return self._environment
-
-    def environment_source(self) -> EnvironmentSource:
-        """Return where the active environment name came from.
-
-        ``EnvironmentSource.DEFAULT`` means nothing selected it — a
-        meaningfully different state to show a user than an explicit choice,
-        since it is the usual reason an overlay file "isn't working".
-        """
-        return self._environment_source
-
     def _file_source_infos(self) -> list[ConfigFileInfo]:
         """Return the FileSource's per-file info, or [] if there is none."""
         from functualize._app.impl import _file_source_infos
 
         return _file_source_infos(self)
-
-    def get_job_config_section(self, job_name: str) -> str:
-        """Return the TOML config section name used by the kernel for a job.
-
-        Mirrors the kernel's config_prefix logic: grouped jobs use the group
-        path as their section (shared by all jobs in the group); ungrouped
-        jobs use the job's own name. This accounts for custom config_prefix
-        on grouped jobs where the group may differ from the job name prefix.
-
-        Args:
-            job_name: Qualified job name (e.g., "infra.deploy" or "serve").
-
-        Returns:
-            The TOML section name (e.g., "infra" for a grouped job, "serve"
-            for an ungrouped job).
-        """
-        descriptor = self.get_job(job_name)
-        if descriptor is not None and descriptor.group is not None:
-            return descriptor.group
-        # Ungrouped job or not found — use the job name itself.
-        # For qualified names not found in the registry, extract bare name.
-        if descriptor is not None:
-            return descriptor.name
-        return job_name
 
     def execute(self, request: RunRequest) -> JobResult:
         """Execute a job — the single surface-facing entry.
@@ -645,11 +493,11 @@ class FunctualizeApp:
             if scope_id in self._scope_registry:
                 scope = self._scope_registry[scope_id]
             else:
-                scope = self.create_workflow_scope(scope_id)
+                scope = self.workflows.create_workflow_scope(scope_id)
         else:
             # Auto-generate scope ID
             auto_id = f"{job_name}-{uuid4().hex[:8]}"
-            scope = self.create_workflow_scope(auto_id)
+            scope = self.workflows.create_workflow_scope(auto_id)
 
         return self._execution_engine.run(
             request.replace(
@@ -671,21 +519,6 @@ class FunctualizeApp:
         from functualize._app.impl import execute_parallel
 
         return execute_parallel(self, job_names, timeout=timeout, observer=observer)
-
-    def resolved_job_config(self, job_name: str) -> Any | None:
-        """A job's config model, resolved through the full ladder but not run (T43).
-
-        The public seam for ``func builtin env`` and ``func builtin info --job``:
-        both need "what config would this job see?" without executing it, and
-        both must agree with each other and with a real run — so they resolve
-        through the one path the engine uses, not a re-implementation.
-
-        Returns ``None`` when the job declares no config model. May raise
-        ``ValidationError`` if a required field is unresolved (a caller asking
-        for the config is better told it is incomplete than given a partial).
-        """
-        self.get_jobs()  # lazy boot: nothing is materialized until asked
-        return self.execution_engine.resolve_config_model(job_name)
 
     # ─── Cache Stats ─────────────────────────────────────────────────────
 
@@ -734,88 +567,7 @@ class FunctualizeApp:
 
     # ─── Provider/Transform Public API ───────────────────────────────────
 
-    def add_job_provider(
-        self,
-        provider: JobProvider,
-        transforms: list[JobTransform] | None = None,
-    ) -> None:
-        """Register a job provider with optional provider-scoped transforms."""
-        self._resolution_pipeline.add_provider(provider, transforms)
-        self._jobs_memo = None
-
-    def add_job_transform(self, transform: JobTransform) -> None:
-        """Register an app-level transform (applies to ALL providers)."""
-        self._resolution_pipeline.add_transform(transform)
-        self._jobs_memo = None
-
     # ─── Plugin Commands ─────────────────────────────────────────────────
-
-    def register_plugin_command(
-        self,
-        name: str,
-        callback: Callable[..., Any],
-        help_text: str = "",
-        namespace: str | None = None,
-        needs_terminal: bool = False,
-    ) -> None:
-        """Register a command from a plugin.
-
-        Args:
-            name: Command name (lowercase alphanumeric + hyphens).
-            callback: Callable to invoke when the command is executed.
-            help_text: Help text (max 256 chars).
-            namespace: Optional flat CLI namespace to mount the command under
-                (``namespace="mcp"`` + ``name="serve"`` → ``func mcp serve``).
-                None mounts the command at the top level.
-            needs_terminal: True when running the command takes over the
-                controlling terminal — a server speaking a protocol on stdio, a
-                spawned editor. A TUI front-end reads this to step aside rather
-                than capture the command's output on a worker thread, which for
-                a stdio server would corrupt the protocol it speaks.
-        """
-        from functualize._app.impl import register_plugin_command
-
-        register_plugin_command(
-            self, name, callback, help_text, namespace, needs_terminal
-        )
-
-    def register_surface(self, surface: Any) -> None:
-        """Register something that renders a job's events, answers its prompts, or both."""
-        from functualize._app.impl import register_surface
-
-        return register_surface(self, surface)
-
-    def register_ambient_construct(
-        self,
-        construct_factory: Any,
-        *,
-        name: str | None = None,
-        predicate: Any = None,
-    ) -> None:
-        """Register a live construct that renders by default for eligible jobs."""
-        from functualize._app.impl import register_ambient_construct
-
-        return register_ambient_construct(
-            self, construct_factory, name=name, predicate=predicate
-        )
-
-    def resolve_ambient_constructs(self, descriptor: Any = None) -> list[Any]:
-        """Instantiate the ambient constructs eligible for ``descriptor``.
-
-        The public entry point for live zones that need to pre-mount ambient
-        constructs. Delivery-layer surfaces (``_cli``) must come through here
-        rather than reaching into ``_engine`` directly — see the "_cli uses
-        public API only" import contract.
-
-        Args:
-            descriptor: The job about to run. None resolves none.
-
-        Returns:
-            Fresh construct instances, in registration order.
-        """
-        from functualize._engine.ambient import resolve_ambient_constructs
-
-        return resolve_ambient_constructs(self, descriptor)
 
     def push_surface(self, surface: Any) -> None:
         """Push a phase-scoped surface onto the surface stack.
@@ -845,144 +597,68 @@ class FunctualizeApp:
         elif surface in stack:
             stack.remove(surface)
 
-    def get_plugin_commands(self) -> list[PluginCommand]:
-        """Return all registered plugin commands."""
-        return list(self._plugin_commands_list)
-
     # ─── Decorator Shortcuts ─────────────────────────────────────────────
 
     @property
-    def on_job_failure(self) -> Callable[..., Any]:
-        """Decorator: register AFTER_FAILURE hook (global or job-scoped)."""
-        from functualize._app.impl import make_on_job_failure_decorator
+    def gates(self) -> GatesFacade:
+        """`app.gates` — who answers a gate, and in what order."""
+        if self._gates_facade is None:
+            from functualize._app.gates_facade import GatesFacade
 
-        return make_on_job_failure_decorator(self)
-
-    @property
-    def on_job_success(self) -> Callable[..., Any]:
-        """Decorator: register AFTER_SUCCESS hook (global or job-scoped)."""
-        from functualize._app.impl import make_on_job_success_decorator
-
-        return make_on_job_success_decorator(self)
+            self._gates_facade = GatesFacade(self)
+        return self._gates_facade
 
     @property
-    def on_job_teardown(self) -> Callable[..., Any]:
-        """Decorator: register ON_TEARDOWN hook (global or job-scoped)."""
-        from functualize._app.impl import make_on_job_teardown_decorator
+    def di(self) -> DependencyFacade:
+        """`app.di` — register what jobs can ask for by type or name."""
+        if self._di_facade is None:
+            from functualize._app.di_facade import DependencyFacade
 
-        return make_on_job_teardown_decorator(self)
-
-    @property
-    def before_job(self) -> Callable[..., Any]:
-        """Decorator: register BEFORE_JOB hook (global or job-scoped)."""
-        from functualize._app.impl import make_before_job_decorator
-
-        return make_before_job_decorator(self)
+            self._di_facade = DependencyFacade(self)
+        return self._di_facade
 
     @property
-    def pre_execute(self) -> Callable[..., Any]:
-        """Decorator: register PRE_EXECUTE hook (global or job-scoped)."""
-        from functualize._app.impl import make_pre_execute_decorator
+    def workflows(self) -> WorkflowScopeFacade:
+        """`app.workflows` — create or fetch a workflow scope."""
+        if self._workflows_facade is None:
+            from functualize._app.workflow_facade import WorkflowScopeFacade
 
-        return make_pre_execute_decorator(self)
-
-    @property
-    def on_phase_failure(self) -> Callable[..., Any]:
-        """Decorator: register ON_PHASE_FAILURE hook (global only)."""
-        from functualize._app.impl import make_on_phase_failure_decorator
-
-        return make_on_phase_failure_decorator(self)
+            self._workflows_facade = WorkflowScopeFacade(self)
+        return self._workflows_facade
 
     @property
-    def on_phase_complete(self) -> Callable[..., Any]:
-        """Decorator: register ON_PHASE_COMPLETE hook (global only)."""
-        from functualize._app.impl import make_on_phase_complete_decorator
+    def extensions(self) -> ExtensionsFacade:
+        """`app.extensions` — what a plugin registers: commands, providers, surfaces, constructs."""
+        if self._extensions_facade is None:
+            from functualize._app.extensions_facade import ExtensionsFacade
 
-        return make_on_phase_complete_decorator(self)
-
-    @property
-    def on_phase_start(self) -> Callable[..., Any]:
-        """Decorator: register ON_PHASE_START hook (global only)."""
-        from functualize._app.impl import make_on_phase_start_decorator
-
-        return make_on_phase_start_decorator(self)
+            self._extensions_facade = ExtensionsFacade(self)
+        return self._extensions_facade
 
     @property
-    def on_invoke_failure(self) -> Callable[..., Any]:
-        """Decorator: register INVOKE_FAILURE hook (global only)."""
-        from functualize._app.impl import make_on_invoke_failure_decorator
+    def configuration(self) -> ConfigurationFacade:
+        """`app.configuration` — read what configuration resolved to."""
+        if self._configuration_facade is None:
+            from functualize._app.configuration_facade import ConfigurationFacade
 
-        return make_on_invoke_failure_decorator(self)
-
-    @property
-    def on_invoke_start(self) -> Callable[..., Any]:
-        """Decorator: register INVOKE_START hook (global only)."""
-        from functualize._app.impl import make_on_invoke_start_decorator
-
-        return make_on_invoke_start_decorator(self)
+            self._configuration_facade = ConfigurationFacade(self)
+        return self._configuration_facade
 
     @property
-    def on_invoke_end(self) -> Callable[..., Any]:
-        """Decorator: register INVOKE_END hook (global only)."""
-        from functualize._app.impl import make_on_invoke_end_decorator
+    def hooks(self) -> HooksFacade:
+        """`app.hooks` — every hook and middleware registration point.
 
-        return make_on_invoke_end_decorator(self)
+        Fifteen members that were fifteen four-line properties on this class.
+        Grouping them is what let it come off a 71-member flat surface (T9);
+        the names underneath are unchanged.
+        """
+        if self._hooks_facade is None:
+            from functualize._app.hooks_facade import HooksFacade
 
-    @property
-    def on_ready(self) -> Callable[..., Any]:
-        """Decorator: register APP_READY hook (global only)."""
-        from functualize._app.impl import make_on_ready_decorator
-
-        return make_on_ready_decorator(self)
-
-    def on_event(self, pattern: str) -> Callable[..., Any]:
-        """Decorator: subscribe to custom events matching pattern."""
-        from functualize._app.impl import make_on_event_decorator
-
-        return make_on_event_decorator(self, pattern)
-
-    @property
-    def run_middleware(self) -> Callable[..., Any]:
-        """Decorator: register generator-based RunContext middleware."""
-        from functualize._app.impl import make_run_middleware_decorator
-
-        return make_run_middleware_decorator(self)
+            self._hooks_facade = HooksFacade(self)
+        return self._hooks_facade
 
     # ─── Public Utilities ────────────────────────────────────────────────
-
-    def register_run_middleware(
-        self,
-        middleware: Callable[[Any], Generator[None]],
-        priority: int = 0,
-    ) -> None:
-        """Register RunContext middleware for job execution wrapping."""
-        from functualize._app.impl import register_run_middleware
-
-        register_run_middleware(self, middleware, priority)
-
-    def create_workflow_scope(
-        self,
-        scope_id: str,
-        metadata: dict[str, Any] | None = None,
-    ) -> WorkflowScope:
-        """Create a new WorkflowScope with the given identifier."""
-        from functualize._app.impl import create_workflow_scope
-
-        scope: WorkflowScope = create_workflow_scope(self, scope_id, metadata)
-        return scope
-
-    def get_workflow_scope(self, scope_id: str) -> WorkflowScope:
-        """Retrieve an existing WorkflowScope by identifier."""
-        from functualize._app.impl import get_workflow_scope
-
-        scope: WorkflowScope = get_workflow_scope(self, scope_id)
-        return scope
-
-    def get_plugin(self, name: str) -> Any:
-        """Look up a registered plugin instance by name."""
-        from functualize._app.impl import get_plugin
-
-        return get_plugin(self, name)
 
     def register_dynamic_job(
         self,
@@ -1002,18 +678,6 @@ class FunctualizeApp:
         import functualize._events.tracing as ctx_module
 
         return ctx_module
-
-    def instrument(self, operation_point: str, priority: int = 0) -> Callable[..., Any]:
-        """Decorator to register a function as middleware for an operation point."""
-        from functualize._app.impl import make_instrument_decorator
-
-        return make_instrument_decorator(self, operation_point, priority)
-
-    def resolve_model(self, section: str, model_class: type[object]) -> object:
-        """Resolve a configuration model through the Resolution_Chain."""
-        from functualize._app.impl import resolve_model
-
-        return resolve_model(self, section, model_class)
 
     def run(self) -> None:
         """Entry point — delegates to the active adapter."""
@@ -1067,19 +731,12 @@ class FunctualizeApp:
     def _update_run_context_configs(self, run_contexts: list[Any]) -> None:
         """Re-resolve config for RunContext instances after config path changes.
 
-        Called by JobRegistry.update_config_paths() to avoid the registry
-        importing from _config directly (peer-layer independence).
-
-        Args:
-            run_contexts: List of RunContext instances to update.
+        Called by `JobRegistry.update_config_paths()` so the registry does not
+        import from `_config` directly (peer-layer independence).
         """
-        from functualize._config.job_config import JobConfigView
+        from functualize._app.impl import update_run_context_configs
 
-        for rc in run_contexts:
-            rc._config = JobConfigView(
-                resolution_chain=self._resolution_chain,
-                default_section_prefix=rc.name,
-            )
+        update_run_context_configs(self, run_contexts)
 
 
 def request_for(

@@ -227,7 +227,7 @@ def build_command_panels(app: FunctualizeInlineTUI) -> list[tuple[str, Any]]:
     # file behind a value instead of one lossy merged "File" bucket.
     kernel_files: list[ConfigFileInfo] | None = None
     try:
-        discovered = app._func_app.config_files(job_name)
+        discovered = app._func_app.configuration.config_files(job_name)
         if discovered:
             kernel_files = discovered
     except Exception as exc:
@@ -413,7 +413,7 @@ def build_command_panels(app: FunctualizeInlineTUI) -> list[tuple[str, Any]]:
     # Use kernel-consistent section resolution via public API
     config_section: str | None = None
     try:
-        config_section = app._func_app.get_job_config_section(job_name)
+        config_section = app._func_app.configuration.get_job_config_section(job_name)
     except Exception as exc:
         # Domain call, not a widget lookup — log and fall back to no
         # section (discover_config_files() tolerates None).

@@ -448,7 +448,7 @@ def unshadowed_plugin_commands(app: FunctualizeApp) -> list[Any]:
     occupied = {job_trie_path(job) for job in app.get_jobs()}
     seen: set[str] = set()
     kept: list[Any] = []
-    for cmd in app.get_plugin_commands():
+    for cmd in app.extensions.get_plugin_commands():
         path = plugin_command_path(cmd)
         if path in occupied or path in seen:
             continue

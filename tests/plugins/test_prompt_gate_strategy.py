@@ -297,8 +297,8 @@ class TestPromptGateStrategyRegistration:
 
         register_prompt_gate_strategy(app)
 
-        app.register_gate_strategy.assert_called_once()
-        call_args = app.register_gate_strategy.call_args
+        app.gates.register_gate_strategy.assert_called_once()
+        call_args = app.gates.register_gate_strategy.call_args
         assert call_args[0][0] == "prompt"
         assert isinstance(call_args[0][1], PromptGateResolver)
 

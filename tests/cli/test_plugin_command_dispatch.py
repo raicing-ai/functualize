@@ -239,7 +239,7 @@ class _UngroupedPlugin:
         app.hook_registry.register_global(HookEvent.APP_READY, self._on_ready)
 
     def _on_ready(self, app: Any) -> None:
-        app.register_plugin_command(
+        app.extensions.register_plugin_command(
             "standalone", self._standalone, help_text="Top-level command"
         )
 
@@ -279,7 +279,9 @@ class TestHandleJobFallbackUngrouped:
         # carrying an ungrouped plugin command. _handle_job does
         # `from functualize.app import FunctualizeApp`, so patch it there.
         booted = _boot_static([_UngroupedPlugin()])
-        assert any(c.name == "standalone" for c in booted.get_plugin_commands())
+        assert any(
+            c.name == "standalone" for c in booted.extensions.get_plugin_commands()
+        )
         monkeypatch.setattr(
             "functualize.app.FunctualizeApp",
             lambda *a, **k: booted,

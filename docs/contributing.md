@@ -625,7 +625,7 @@ plugins/functualize-{domain}/
 1. **Depend on the Domain SDK** — Not on functualize core internals
 2. **Register via the domain's entry point group** — e.g., `functualize.state_providers`
 3. **Implement the provider protocol** from the Domain SDK
-4. **Register with DI** via `app.provide()` in the plugin boot class
+4. **Register with DI** via `app.di.provide()` in the plugin boot class
 
 ---
 

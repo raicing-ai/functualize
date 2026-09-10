@@ -863,7 +863,7 @@ class FunctualizeInlineTUI(App[int]):
         environment's overlay.
         """
         try:
-            environment = self._func_app.active_environment().lower()
+            environment = self._func_app.configuration.active_environment().lower()
         except AttributeError:
             environment = "dev"
 
@@ -940,7 +940,7 @@ class FunctualizeInlineTUI(App[int]):
         section = ""
         try:
             if job_name:
-                section = self._func_app.get_job_config_section(job_name)
+                section = self._func_app.configuration.get_job_config_section(job_name)
         except Exception as exc:
             self.log.warning(
                 f"_open_new_job_config_detail: get_job_config_section failed "
@@ -2497,8 +2497,8 @@ class FunctualizeInlineTUI(App[int]):
         an explicit choice.
         """
         try:
-            name = self._func_app.active_environment()
-            source = self._func_app.environment_source()
+            name = self._func_app.configuration.active_environment()
+            source = self._func_app.configuration.environment_source()
         except AttributeError:
             return ""
         if source is EnvironmentSource.DEFAULT:

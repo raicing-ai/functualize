@@ -51,7 +51,7 @@ def mock_app(hook_registry: HookRegistry, tmp_db_path: Path) -> MagicMock:
         db_path=str(tmp_db_path / ".functualize" / "execution.db"),
         session_ttl=1800.0,
     )
-    app.resolve_model.return_value = config
+    app.configuration.resolve_model.return_value = config
     return app
 
 

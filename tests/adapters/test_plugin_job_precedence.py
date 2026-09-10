@@ -35,7 +35,7 @@ def _app(*, jobs=(), commands=()):
         plugin_sources=PluginSources(entry_point_group="functualize.plugins.__none__"),
     )
     for kwargs in commands:
-        app.register_plugin_command(**kwargs)
+        app.extensions.register_plugin_command(**kwargs)
     return app
 
 
@@ -144,7 +144,7 @@ class TestTheShadowIsVisible:
             description = "Registers a command that collides with a job"
 
             def __call__(self, app) -> None:
-                app.register_plugin_command(
+                app.extensions.register_plugin_command(
                     "collide", lambda: None, help_text="The plugin"
                 )
 

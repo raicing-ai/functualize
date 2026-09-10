@@ -164,7 +164,7 @@ at zero extra cost — the unknown-command path already boots the full app befor
 erroring:
 
 - The group listing/execution path (`func <group> [sub]`) and the
-  unknown-command fallback both merge `app.get_plugin_commands()` with the
+  unknown-command fallback both merge `app.extensions.get_plugin_commands()` with the
   discovered job groups.
 - **Precedence:** a real `.py` file, a built-in, a job group, a job name, and an
   alias all still win first. Within a group, a **job wins** over a plugin

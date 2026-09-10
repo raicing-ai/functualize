@@ -119,7 +119,7 @@ def _app(config_class: type = NeedsCity, collector: object | None = None):
 
     app.register_dynamic_job("report", report, config_class=config_class)
     if collector is not None:
-        app.register_surface(collector)
+        app.extensions.register_surface(collector)
     return app
 
 

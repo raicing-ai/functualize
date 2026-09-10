@@ -1,7 +1,7 @@
 """Local Tasks Plugin — DI registration.
 
 Registers LocalTaskProvider as TaskProvider with the DI registry via
-app.provide(). Uses the active StateBackend for task storage with
+app.di.provide(). Uses the active StateBackend for task storage with
 keys prefixed ``tasks:``.
 
 Registered via entry point ``functualize.tasks_providers`` with name "local".
@@ -27,7 +27,7 @@ class LocalTasksPlugin:
 
     At boot time (APP_READY), resolves the active StateBackend from the DI
     registry, creates a LocalTaskProvider wrapping it, and registers the
-    provider as the TaskProvider implementation via app.provide().
+    provider as the TaskProvider implementation via app.di.provide().
 
     Implements the plugin callable protocol expected by functualize's plugin
     discovery system.
@@ -59,7 +59,7 @@ class LocalTasksPlugin:
 
         Resolves the StateBackend from the DI registry and creates a
         LocalTaskProvider backed by it. Registers the provider as
-        TaskProvider via app.provide().
+        TaskProvider via app.di.provide().
         """
         try:
             # Resolve the active StateBackend from DI
@@ -69,7 +69,7 @@ class LocalTasksPlugin:
             self._provider = LocalTaskProvider(backend=backend)
 
             # Register as TaskProvider
-            app.provide(TaskProvider, self._provider)
+            app.di.provide(TaskProvider, self._provider)
 
             logger.debug(
                 "LocalTasksPlugin: Registered TaskProvider (state-backed, "

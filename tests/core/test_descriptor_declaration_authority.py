@@ -81,7 +81,7 @@ class ProviderPlugin:
         self._descriptor = descriptor
 
     def __call__(self, app: Any) -> None:
-        app.add_job_provider(HandBuiltProvider(self._descriptor))
+        app.extensions.add_job_provider(HandBuiltProvider(self._descriptor))
 
 
 def _app(tmp_path: Path, descriptor: JobDescriptor) -> FunctualizeApp:

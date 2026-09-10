@@ -163,7 +163,7 @@ class TestExplicitScopeIdReuse:
         app.register_dynamic_job(job_name, dummy_job)
 
         # Pre-create a scope with the explicit ID
-        original_scope = app.create_workflow_scope(scope_id)
+        original_scope = app.workflows.create_workflow_scope(scope_id)
 
         # Execute with that explicit scope_id
         app.execute(
@@ -194,7 +194,7 @@ class TestExplicitScopeIdReuse:
         app.register_dynamic_job(job_name, dummy_job)
 
         # Pre-create a scope
-        app.create_workflow_scope(scope_id)
+        app.workflows.create_workflow_scope(scope_id)
         assert len(app._scope_registry) == 1
 
         # Execute with same scope_id — should not create another scope

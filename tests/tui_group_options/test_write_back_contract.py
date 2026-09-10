@@ -380,7 +380,9 @@ class TestTheConfigFilesPanelSeesEveryDeclaringGroup:
         self, glab_tui
     ) -> None:
         from functualize._cli.tui.chain_resolution import build_command_panels
-        from functualize._cli.tui.panels.config_files import ConfigFilesPanel
+        from functualize._cli.tui.panels.config_files import (
+            ConfigFilesPanel,
+        )
 
         async with glab_tui.run_test(size=(140, 40)) as pilot:
             glab_tui._smart_bar.value = "deploy web run v1.2"

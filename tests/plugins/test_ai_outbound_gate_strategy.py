@@ -31,12 +31,17 @@ from functualize._gate._context import GateContext
 def _app_double() -> MagicMock:
     """An app double exposing the kernel's ``extension_state`` slot.
 
-    ``spec=["extension_state"]`` keeps the double honest: MCP must reach its
-    state through the sanctioned namespace, so a reversion to monkey-patched
-    private ``_mcp_*`` attributes fails here instead of passing silently.
+    The spec keeps the double honest: MCP must reach its state through the
+    sanctioned namespace, so a reversion to monkey-patched private ``_mcp_*``
+    attributes fails here instead of passing silently.
+
+    The namespace moved with `engine-sealed-construction`/T9 —
+    ``app.extension_state`` is ``app.extensions.extension_state`` now — so the
+    spec is a two-level one: `extensions` on the app, `extension_state` on it.
     """
-    app = MagicMock(spec=["extension_state"])
-    app.extension_state = {}
+    app = MagicMock(spec=["extensions"])
+    app.extensions = MagicMock(spec=["extension_state"])
+    app.extensions.extension_state = {}
     return app
 
 
@@ -348,14 +353,14 @@ class TestAIOutboundRegistration:
         register_ai_outbound_gate_strategy(app)
 
         # Should register the strategy
-        app.register_gate_strategy.assert_called_once()
-        call_args = app.register_gate_strategy.call_args
+        app.gates.register_gate_strategy.assert_called_once()
+        call_args = app.gates.register_gate_strategy.call_args
         assert call_args[0][0] == "ai_outbound"
         assert isinstance(call_args[0][1], AIOutboundGateResolver)
 
         # Should register the preset
-        app.register_gate_preset.assert_called_once()
-        preset_args = app.register_gate_preset.call_args
+        app.gates.register_gate_preset.assert_called_once()
+        preset_args = app.gates.register_gate_preset.call_args
         assert preset_args[0][0] == "ai_outbound"
         assert preset_args[0][1] == ["ai_outbound", "prompt", "resolve"]
 

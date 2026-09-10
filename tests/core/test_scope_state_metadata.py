@@ -95,7 +95,7 @@ class TestOnScopeCreatedHook:
             received_scopes.append(scope)
 
         app._hook_registry.register_global(HookEvent.ON_SCOPE_CREATED, hook)
-        scope = app.create_workflow_scope("test-scope")
+        scope = app.workflows.create_workflow_scope("test-scope")
 
         assert len(received_scopes) == 1
         assert received_scopes[0] is scope
@@ -108,7 +108,7 @@ class TestOnScopeCreatedHook:
             scope.replace_state_store(custom_store)
 
         app._hook_registry.register_global(HookEvent.ON_SCOPE_CREATED, hook)
-        scope = app.create_workflow_scope("test-scope")
+        scope = app.workflows.create_workflow_scope("test-scope")
 
         assert scope.state_store is custom_store
 
@@ -121,7 +121,7 @@ class TestOnScopeCreatedHook:
         app._hook_registry.register_global(HookEvent.ON_SCOPE_CREATED, bad_hook)
 
         with caplog.at_level(logging.WARNING):
-            scope = app.create_workflow_scope("test-scope")
+            scope = app.workflows.create_workflow_scope("test-scope")
 
         # Scope was still created successfully
         assert scope is not None
@@ -147,7 +147,7 @@ class TestOnScopeCreatedHook:
         app._hook_registry.register_global(HookEvent.ON_SCOPE_CREATED, hook_b)
         app._hook_registry.register_global(HookEvent.ON_SCOPE_CREATED, hook_c)
 
-        scope = app.create_workflow_scope("test-scope")
+        scope = app.workflows.create_workflow_scope("test-scope")
 
         assert call_order == ["a", "c"]
         assert scope is not None

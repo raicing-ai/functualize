@@ -13,7 +13,7 @@ class PluginCommand:
 
     Represents a CLI (or adapter) command contributed by a plugin during
     the boot phase. The active adapter retrieves these via
-    ``app.get_plugin_commands()`` to include them in its command tree.
+    ``app.extensions.get_plugin_commands()`` to include them in its command tree.
 
     Attributes:
         name: Command name (1-64 chars, lowercase alphanumeric + hyphens).

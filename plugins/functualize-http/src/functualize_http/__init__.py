@@ -419,7 +419,7 @@ class HttpServerPlugin:
     """Capability plugin that registers a 'serve' CLI command.
 
     This plugin registers a `serve` command via
-    `app.register_plugin_command()`. When invoked, the serve command
+    `app.extensions.register_plugin_command()`. When invoked, the serve command
     starts an HTTP server using the shared HttpServerCore.
 
     Usage:
@@ -449,7 +449,7 @@ class HttpServerPlugin:
         self._app = app
         self._core = HttpServerCore(app)
 
-        app.register_plugin_command(
+        app.extensions.register_plugin_command(
             name="serve",
             callback=self._serve_command,
             help_text="Start an HTTP server exposing all jobs as endpoints",

@@ -31,7 +31,7 @@ def _app(*, jobs=(), commands=()):
         plugin_sources=PluginSources(entry_point_group="functualize.plugins.__none__"),
     )
     for kwargs in commands:
-        app.register_plugin_command(**kwargs)
+        app.extensions.register_plugin_command(**kwargs)
     return app
 
 
