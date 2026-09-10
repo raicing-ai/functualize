@@ -197,7 +197,7 @@ answers `0`, so T4's removal holds and the contract landed green as intended.
 
 ## Wave 5 — the matrix becomes a suite
 
-### [ ] T6 · Every coverage §B feature row, on both surfaces
+### [x] T6 · Every coverage §B feature row, on both surfaces
 
 **Files:** `tests/integration/test_surface_feature_matrix.py`
 
@@ -216,10 +216,37 @@ unknown-command explanation.
 ```bash
 uv run pytest tests/integration/test_surface_feature_matrix.py -q --co 2>/dev/null | tail -1
 ```
-now: `no tests ran` · after: ≥ 16 rows × 2 surfaces collected
+now: `no tests ran` · after: **`43 tests collected`** — 16 rows, most parameterised over both
+surfaces, plus the two-sided treatment of the rows that diverge.
+
+Result: **40 passed, 3 skipped**. The three skips are the two `func`-only rows on the `app`
+surface (14 and 15), each with the `app` half asserted separately.
+
+**Fourteen rows hold identically on both doors** on the first run of the file, which is the
+finding worth stating: `Deps` · fingerprint freshness · `Guards` refusal · `Exec` retry ·
+`GroupOptions` · `@workflow` + `Gate` · gate resume · `--prompt-gates` · capability injection
+· config precedence · `--force` · `--emit-format` · the exit-code contract · unknown-command
+explanation. F1's consolidation is what makes that true, and this file is the first thing that
+would notice it stopping.
+
+**Two rows do not, and neither is dropped.**
+
+| row | `func` | `app` | verdict |
+|---|---|---|---|
+| 15 discovery filters | honours `[discovery]` / `--exclude` | honours the `DiscoveryConfig` it was constructed with | **boundary** — reading a project file behind an app author's back would override what they wrote in code. `test_cache_filter_awareness.py` already records the scoping; both halves are asserted here. |
+| 14 aliases | resolves `[aliases]` pre-boot | unknown command, with a suggestion | **finding**, recorded as `.spec/STATUS.md` #40. Nothing states this scoping and there is no argument for it — it reads as an accident of *where* resolution happens (`_cli/dispatch.detect_mode`, which an embedded app never runs). |
 
 **Sabotage:** drop `group_option_values` from one door's request builder; the matrix must go
 red for that door only — which is the whole point of a matrix over a convention.
+
+Demonstrated, and the **first attempt failed in an informative way**. Dropping it from
+`app/adapters/_request_builder.py` turned the row red on **both** doors — because after F1
+there is one request builder and both doors use it. That is the consolidation working, not the
+matrix failing, and it means the sabotage as written can no longer be performed at that site.
+
+Re-run against a genuinely per-door path — `_cli/main.py:977`, where the bare CLI's group-trie
+walk collects the mid-path flags — and the matrix went red for **`[func]` only**, `[app]`
+green. Reverted; 40 passed.
 
 ---
 

@@ -582,6 +582,47 @@ Full specifications and atomized task lists for these features exist in the main
 
 Specified work that is not being picked up yet, and what it is waiting on.
 
+### #40 · Aliases resolve on `func` and not on an app's own entry point
+
+Found by `surface-request-parity`/T6, whose brief says a row of the surface
+matrix that resists being expressed as a test is **recorded, not dropped**. This
+is the one row that resisted and was not already declared deliberate somewhere.
+
+```
+# .functualize.toml
+[aliases]
+g = "greet"
+
+$ func g                 # GREETED
+$ python main.py g       # Error: Unknown command 'g'.  Did you mean: greet
+```
+
+**Why.** Aliases are resolved in `_cli/dispatch.detect_mode`, the bare CLI's
+*pre-boot* routing: it reads `[aliases]` from the merged config and rewrites the
+first positional before anything is built. An embedded `main.py` never runs that
+routing — click resolves its own command tree — so the alias is an unknown
+command with a suggestion.
+
+**Why this is a finding rather than a boundary.** The neighbouring divergence
+(row 15, `--exclude` and `[discovery]`) *is* deliberate and says so in two
+places: `test_cache_filter_awareness.py` records it, and reading a project file
+behind an app author's back would override what they wrote in code. Aliases have
+no such argument — a short name for a job is a convenience the app author
+configured in the same file, and nothing in the code or in
+`docs/cli/aliases.md` states that it stops at `func`. It reads as an accident of
+where the resolution happens.
+
+**Not fixed here.** Closing it means either teaching `CliAdapter` to read
+`[aliases]` and register the fallbacks, or moving alias resolution to something
+both doors run — the second is the `RunRequest`-shaped answer and is bigger than
+this feature. Either way it is a behaviour change on the app surface that nobody
+has asked for, and `surface-request-parity` is scoped to *request* parity.
+
+Today's behaviour is pinned by
+`test_surface_feature_matrix.py::TestRowsThatNeededTheirOwnDoor::test_an_alias_is_not_resolved_on_an_apps_own_entry_point`,
+so closing the gap fails that test and points back here — which is how a
+recorded gap should be retired.
+
 | Item | Waiting on | Notes |
 |------|-----------|-------|
 | **`func watch`** | The daemon feature | Deferred by decision. Two things about this are worth knowing before it is picked up again, because both cut against the deferral as written. |
