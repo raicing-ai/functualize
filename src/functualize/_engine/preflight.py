@@ -57,6 +57,7 @@ class PreflightDecision:
     __slots__ = (
         "declared_generates",
         "declared_sources",
+        "has_fingerprint",
         "key",
         "recorded_value",
         "source_map",
@@ -69,6 +70,7 @@ class PreflightDecision:
         key: str,
         recorded_value: Any = None,
         *,
+        has_fingerprint: bool = False,
         source_map: Mapping[str, Any] | None = None,
         declared_sources: Sequence[str] = (),
         declared_generates: Sequence[str] = (),
@@ -76,6 +78,14 @@ class PreflightDecision:
         self.verdict = verdict
         self.key = key
         self.recorded_value = recorded_value
+        #: Did this job declare a ``Fingerprint`` at all? Carried because a
+        #: decision exists for *any* declaration with guards or platforms, and
+        #: "asked nothing about freshness, answered RUN" is not the same claim
+        #: as "asked, and the answer is RUN". The ``Freshness`` capability is
+        #: the consumer: without this flag it handed a guards-only job a verdict
+        #: whose state came from the guard pipeline, contradicting the contract
+        #: its own docstring states (jof S4).
+        self.has_fingerprint = has_fingerprint
         #: What the declared patterns resolved to — the record
         #: `build_source_map` already builds on every run and this class used
         #: to discard. The `Sources` capability reads it; nothing is
@@ -213,6 +223,7 @@ class Preflight:
             verdict,
             key,
             recorded,
+            has_fingerprint=cache is not None,
             source_map=source_map,
             declared_sources=sources,
             declared_generates=generates,

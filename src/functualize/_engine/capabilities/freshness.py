@@ -86,12 +86,19 @@ class Freshness:
 
     Declared as a job parameter, like every other capability::
 
-        @job(cache=Fingerprint(sources=["src/**/*.py"]))
+        @job(cache=Fingerprint(sources=["src/**/*.py"], decides=True))
         def build(fresh: Freshness) -> str:
             verdict = fresh.verdict()
             if verdict is not None and verdict.is_fresh:
                 return "artifact already current"
             return rebuild()
+
+    ``decides=True`` is what makes the branch above reachable, and it is not
+    decoration. Without it the engine skips the job *for* you and returns before
+    the body runs, so `is_fresh` is the one value that branch can never see —
+    which is the misconception this capability exists to remove, reproduced in
+    its own documentation until a review ran the snippet (jof S1). The rule:
+    ask for the verdict only where you have taken the decision back.
 
     :meth:`verdict` returns ``None`` when this job declares no ``Fingerprint`` —
     there was no decision, and a fabricated one would be a lie. A job that
@@ -116,7 +123,14 @@ class Freshness:
         without this call every job sees no verdict and no error anywhere — the
         silent failure this capability's tests are built around.
         """
-        if decision is None:
+        if decision is None or not getattr(decision, "has_fingerprint", False):
+            # Two ways to have nothing to report, and they are the same answer.
+            # The second is the one that was wrong: a pre-flight decision exists
+            # for *any* declaration carrying guards or platforms, so a job with
+            # `Guards` and no `cache` was handed a verdict whose `state` came
+            # from the guard pipeline — "asked nothing about freshness, answered
+            # RUN". `_bind_from_preflight` below has always said that is a
+            # different answer from a verdict of RUN; now it is (jof S4).
             self._verdict = None
             return
         self._verdict = FreshnessVerdict(

@@ -16,6 +16,7 @@ that breaks the completion on purpose.
 from __future__ import annotations
 
 import hashlib
+import textwrap
 from collections.abc import Generator
 from pathlib import Path
 
@@ -28,7 +29,9 @@ from functualize.job import (
     Fingerprint,
     Freshness,
     FreshnessVerdict,
+    Guards,
     Log,
+    Precondition,
     RunStatus,
     job,
 )
@@ -214,6 +217,10 @@ def test_the_source_map_is_the_decisions_own_object() -> None:
         GuardVerdict(GuardState.SKIP_FRESH, "up to date"),
         "build::hash::checksum",
         "recorded",
+        # This decision stands for a job that declared a `Fingerprint`; a
+        # hand-built one has to say so, because the flag is what tells a real
+        # freshness verdict from a guard pipeline's answer (jof S4).
+        has_fingerprint=True,
         source_map={"input.txt": {"mtime": 1.0, "size": 6, "sha256": "abc"}},
         declared_sources=["input.txt"],
         declared_generates=["out.txt"],
@@ -254,3 +261,153 @@ def test_is_fresh_is_only_the_fresh_state() -> None:
             ).is_fresh
             is expected
         )
+
+
+class TestTheDocstringExampleRuns:
+    """The snippet on `functualize.job.Freshness` is executed, not just read.
+
+    It was wrong: it omitted `decides=True`, so the engine skipped the job
+    before the body ran and the `is_fresh` branch it demonstrates was dead
+    code. A user copying it got a silent skip — the exact misconception this
+    capability was built to remove, reproduced in its own API documentation,
+    with nothing to catch it (jof S1).
+
+    So the docstring is now the fixture: the snippet is lifted out of it and
+    run. Rewriting the example into something that does not work fails here,
+    which is the only durable way an example stays true.
+    """
+
+    @staticmethod
+    def _snippet() -> str:
+        """The indented code block from `Freshness.__doc__`."""
+        doc = Freshness.__doc__ or ""
+        _, _, after = doc.partition("like every other capability::")
+        block, _, _ = after.partition("\n\n``decides=True``")
+        return textwrap.dedent(block).strip()
+
+    def test_the_snippet_is_findable(self) -> None:
+        """The falsifier for the two tests below.
+
+        If the docstring is reworded so the extractor finds nothing, both of
+        them would pass over an empty string and assert about nothing.
+        """
+        snippet = self._snippet()
+
+        assert snippet.startswith("@job(")
+        assert "def build(fresh: Freshness)" in snippet
+
+    def test_the_snippet_takes_the_decision_back(self) -> None:
+        """Without `decides=True` the branch below cannot be reached at all."""
+        assert "decides=True" in self._snippet()
+
+    def test_the_branch_the_snippet_demonstrates_is_reachable(self) -> None:
+        """Run it. Two runs: the first rebuilds, the second takes the branch.
+
+        This is the assertion the review's repro made and got `is_fresh=False`
+        on the only verdict the body ever saw, because the body ran once.
+        """
+        Path("src").mkdir()
+        Path("src/a.py").write_text("x")
+
+        namespace: dict[str, object] = {
+            "job": job,
+            "Fingerprint": Fingerprint,
+            "Freshness": Freshness,
+            "rebuild": lambda: "rebuilt",
+        }
+        exec(self._snippet(), namespace)  # noqa: S102 - the docstring is the fixture
+        app = _app(build=namespace["build"])
+
+        first = app.execute(request_for("build"))
+        second = app.execute(request_for("build"))
+
+        assert first.status is RunStatus.SUCCESS, first.exception
+        assert first.return_value == "rebuilt", (
+            "the first run should reach `rebuild()` — nothing has been built yet"
+        )
+        assert second.status is RunStatus.SUCCESS, second.exception
+        assert second.return_value == "artifact already current", (
+            f"the second run returned {second.return_value!r} with status "
+            f"{second.status.value}; the snippet's `is_fresh` branch is still "
+            f"unreachable, which is the defect jof S1 found"
+        )
+
+
+class TestAskingNothingIsNotAnswerRun:
+    """`verdict()` returns None when the job declared no `Fingerprint` — the
+    contract the module's own docstring, `docs/guides/task-runner.md` and the
+    capabilities skill reference all state.
+
+    It was false for a job declaring `Guards` and no `cache`. A pre-flight
+    decision exists for *any* declaration carrying guards or platforms, and
+    `_bind` copied `decision.verdict.state` unconditionally, so such a job was
+    handed a verdict reading "state=RUN, sources=()" — "asked nothing about
+    freshness, answered RUN". `_bind_from_preflight`'s docstring had always
+    forbidden exactly that conflation; nothing enforced it (jof S4).
+
+    The impact was bounded — `is_fresh` needs `SKIP_FRESH`, which needs a
+    fingerprint, so it was always `False` — but a job branching on
+    `verdict is None`, or on `state is RUN`, was told something untrue.
+    """
+
+    def test_a_guarded_job_with_no_fingerprint_gets_no_verdict(self) -> None:
+        seen: list[FreshnessVerdict | None] = []
+
+        @job(guards=Guards(preconditions=[Precondition("exit 0")]))
+        def guarded(fresh: Freshness) -> str:
+            seen.append(fresh.verdict())
+            return "ran"
+
+        app = _app(guarded=guarded)
+
+        result = app.execute(request_for("guarded"))
+
+        assert result.status is RunStatus.SUCCESS, result.exception
+        assert seen == [None], (
+            f"a job that declared no Fingerprint was handed {seen[0]!r}; the "
+            f"state on it comes from the guard pipeline, not from a freshness "
+            f"decision"
+        )
+
+    def test_a_fingerprinted_job_still_gets_one(self) -> None:
+        """The falsifier. Returning None unconditionally would pass the test
+        above and delete the capability."""
+        Path("src").mkdir()
+        Path("src/a.py").write_text("x")
+        seen: list[FreshnessVerdict | None] = []
+
+        @job(cache=Fingerprint(sources=["src/**/*.py"], decides=True))
+        def build(fresh: Freshness) -> str:
+            seen.append(fresh.verdict())
+            return "built"
+
+        app = _app(build=build)
+
+        result = app.execute(request_for("build"))
+
+        assert result.status is RunStatus.SUCCESS, result.exception
+        assert seen[0] is not None
+        assert seen[0].declared_sources == ("src/**/*.py",)
+
+    def test_both_guards_and_a_fingerprint_still_reports(self) -> None:
+        """Declaring guards does not take the verdict away from a job that also
+        declared a `Fingerprint` — the flag is about the declaration, not about
+        which pipeline produced the state."""
+        Path("src").mkdir()
+        Path("src/a.py").write_text("x")
+        seen: list[FreshnessVerdict | None] = []
+
+        @job(
+            cache=Fingerprint(sources=["src/**/*.py"], decides=True),
+            guards=Guards(preconditions=[Precondition("exit 0")]),
+        )
+        def both(fresh: Freshness) -> str:
+            seen.append(fresh.verdict())
+            return "built"
+
+        app = _app(both=both)
+
+        result = app.execute(request_for("both"))
+
+        assert result.status is RunStatus.SUCCESS, result.exception
+        assert seen[0] is not None

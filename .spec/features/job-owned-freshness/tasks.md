@@ -10,7 +10,7 @@ Run gates from the worktree root.
 ### [x] T1 · `Freshness` exists, is injected, and always reports `None`
 
 **Files:** `src/functualize/_engine/capabilities/freshness.py`,
-`src/functualize/_primitives/di.py`, `src/functualize/job/__init__.py`,
+`src/functualize/_primitives/capability_names.py`, `src/functualize/job/__init__.py`,
 `tests/execution/test_freshness_capability.py`
 
 `FreshnessVerdict` and `Freshness` per `contracts.md` §1, with a `CapabilitySpec` whose
@@ -30,9 +30,19 @@ now: `file absent` · after: `1`
 
 **Gate — the ADR-014 invariant is satisfied**
 ```bash
-rg -c 'Freshness' src/functualize/_primitives/di.py
+rg -c 'Freshness' src/functualize/_primitives/capability_names.py
 ```
-now: `0` · after: `≥1`
+now: `0` · after: `1`
+
+> Corrected 2026-09-10 (jof S2). Both the gate path and the `Files:` line above
+> said `_primitives/di.py`, which holds nothing capability-related — the registry
+> is `_primitives/capability_names.py:49`
+> (`INJECTED_PARAM_TYPE_NAMES`), and `Freshness` is at line 60. The invariant
+> itself was always satisfied; what was wrong was the artifact an auditor is told
+> to run, so a reader re-running T1 got a red gate on a task ticked `[x]` and no
+> way to tell the code was right. `W012-REPORT.md`'s *Scope note* had already
+> recorded the discrepancy and run the real gate — the residue was that the
+> record was never carried back here, which is the only place anyone re-runs.
 
 **Test:** a job declaring `rc`-injected `Freshness` runs, receives the instance, and gets
 `None` from `verdict()`. **The point of this wave is that the wiring is proven before it
@@ -92,9 +102,17 @@ Spec AC-4, AC-5.
 
 **Gate — the field exists**
 ```bash
-rg -c 'decides' src/functualize/_types/job_declaration.py
+rg -c '^\s+decides: bool = ' src/functualize/_types/job_declaration.py
 ```
-now: `0` · after: `≥1`
+now: `0` · after: `1`
+
+> Corrected 2026-09-10 (jof S5). The gate was `rg -c 'decides' <file>`, which
+> answers `8` — and **five** of those are code while three are the class
+> docstring and a comment *describing* the field. So the smallest edit that
+> should turn it red, deleting `decides: bool = False`, leaves three matches and
+> the gate stays green. That is hazard #1 on this branch — a gate matching its
+> own explanation — in a new place. Anchoring on the declaration line answers
+> `1`, and deleting the field answers `0`.
 
 **Gate — the override lives beside its siblings**
 ```bash
@@ -127,8 +145,18 @@ now: `1026` · after: `1026` *(unchanged — the decision is made above it, not 
 
 ### [x] T4 · The worked example, and the guide
 
-**Files:** `examples/quickstart/…/self_caching_job.py`, `docs/guides/`,
+**Files:** `examples/standalone/freshness_lab/jobs/self_caching_job.py`, `docs/guides/`,
 `contributor/architecture/run-model/11-boundaries.md` (cross-reference)
+
+> Corrected 2026-09-10 (jof S7). Planned as `examples/quickstart/…`; delivered
+> under `examples/standalone/freshness_lab/`. **The move is right** —
+> `quickstart/` is the README's Quick Start walked step by step, and every
+> feature lab lives in `standalone/` — and every index already agrees with
+> reality (`examples/README.md`, `examples/standalone/README.md`,
+> `docs/examples/index.md`, the guide, and the boundaries cross-reference). Only
+> this line and `plan.md`'s deliverable line were stale, which is the shape of
+> defect that survives longest: everything a *reader* consults was updated, and
+> only the two artifacts a *re-runner* consults were not.
 
 Spec AC-8. The example is a job that caches its own artifact **into a path it chose, which the
 framework never reads** — that is the boundary this whole feature exists to make usable
@@ -146,12 +174,26 @@ now: `no tests ran` · after: passing
 
 **Gate — the vocabulary agrees with `why` (risk R-c)**
 ```bash
-rg -c 'GuardState' src/functualize/_engine/capabilities/freshness.py src/functualize/_engine/explain.py
+rg -c 'GuardState.SKIP_FRESH' src/functualize/_engine/capabilities/freshness.py src/functualize/_engine/explain.py
 ```
-now: `freshness.py: n/a`, `explain.py:≥1` · after: both `≥1`
+now: `freshness.py: n/a`, `explain.py:2` · after: `freshness.py:1`, `explain.py:2`
+
+> Corrected 2026-09-10 (jof S6). The gate matched the bare name `GuardState`,
+> which only asserts that both files *mention the enum* — it would stay green if
+> `FreshnessVerdict` spoke an entirely private vocabulary beside an unused
+> import. `GuardState.SKIP_FRESH` is the one member the job actually
+> distinguishes (`is_fresh` is true for that state and no other), so matching it
+> is matching the shared word rather than the shared module.
+>
+> The gate is still the weaker instrument. What genuinely checks R-c is the
+> **test** named below, which compares the two renderings of one run:
+> `examples/standalone/freshness_lab/tests/test_self_caching_job.py::TestTheVerdictAndWhyAgree::test_they_describe_the_same_run`
+> — `state=skip_fresh` in the job's own output against `SKIP (up to date)` from
+> `func builtin why`. A gate is a tripwire; that test is the claim.
 
 **Test:** `func builtin why <job>` and the job's own `verdict().state` describe the same run
-identically.
+identically —
+`examples/standalone/freshness_lab/tests/test_self_caching_job.py::TestTheVerdictAndWhyAgree::test_they_describe_the_same_run`.
 
 ---
 
@@ -163,14 +205,47 @@ identically.
 
 | AC | Kept by |
 |---|---|
-| AC-1 a job can read its own verdict | `tests/execution/test_freshness_capability.py`; `Freshness` is injected and carries the `GuardState`, key and reason |
+| AC-1 a job can read its own verdict | `tests/execution/test_freshness_capability.py`; `Freshness` is injected and carries the `GuardState`, the key, the recorded value, the declared patterns and the source map |
 | AC-2 bound **after** the pre-flight, **before** the body | `CapabilitySpec.preflight_bind=_bind_from_preflight` — DI resolves before the pre-flight runs, so a capability carrying pre-flight data cannot be complete at creation. Same suite |
 | AC-3 a job that does not opt in is still skipped when fresh | the `baseline` control job in `examples/standalone/freshness_lab/` runs beside `report` for exactly this |
 | AC-4 opting in **enters the body** on `SKIP_FRESH` | `test_a_fresh_run_enters_the_body_and_returns_the_artifact` |
 | AC-5 opting in does not bypass a precondition or a gate | `tests/execution/test_fingerprint_decides.py` |
-| AC-6 the verdict read is the object the engine decided with | `TestTheVerdictAndWhyAgree::test_they_describe_the_same_run` — not a reconstruction |
+| AC-6 the verdict read is the object the engine decided with | `tests/execution/test_freshness_capability.py::test_the_source_map_is_the_decisions_own_object` — `verdict.source_map is decision.source_map`, asserted against a `PreflightDecision` handed straight to `_bind_from_preflight`. Supported by `test_a_fresh_run_enters_the_body_and_returns_the_artifact` (`recorded_value` is a value only the decision holds) |
 | AC-7 sabotage fails on **both** cold and warm paths | run below |
 | AC-8 documented with a worked example | `uv run pytest examples/ -q -k self_caching` → **7 passed, 194 deselected** (was `no tests ran`) |
+
+> **AC-1 row corrected 2026-09-10 (jof S3).** It said `Freshness` carries "the
+> `GuardState`, key **and reason**". It does not carry a reason:
+> `FreshnessVerdict` holds `state`, `key`, `recorded_value`, `declared_sources`,
+> `declared_generates`, `source_map` and the `is_fresh` property. The *reason*
+> belonging to the same decision is computed one layer up and reaches only
+> `func builtin why` and the run record (`executor.py`, `"reason":
+> decision.verdict.reason`).
+>
+> **Corrected rather than implemented, deliberately.** AC-1 never asked for it,
+> and §6's concern is that the *vocabulary* agree — which it does, on
+> `GuardState`, and which the R-c test checks. Adding `reason` and `checks` to
+> the verdict would be cheap (both are already on `decision.verdict`) and is a
+> reasonable future request, but nobody made it, and inventing a public field
+> while fixing a sentence is how scope grows silently. Recorded here so the
+> option is not lost.
+
+> **AC-6 row corrected 2026-09-10 (jof S8).** It named
+> `TestTheVerdictAndWhyAgree::test_they_describe_the_same_run`, which compares
+> two *renderings* of one run — a by-value check standing in for a criterion
+> about **identity**. The identity assertion existed and was not cited.
+>
+> One precision the AC itself owes: what the job reads is not literally the same
+> object. `_bind` builds a `FreshnessVerdict` from five fields of the
+> `PreflightDecision`, so "the same object" holds for `source_map` (bound by
+> reference, deliberately) and for the `GuardState` member, but not for the
+> wrapper. The substance AC-6 is after — *not recomputed* — is what the cited
+> test proves.
+>
+> Also worth recording: `test_the_reading_changes_when_the_decision_changes`
+> changes the **input file**, not the decision, so a capability that recomputed
+> the map from the file itself would pass it identically. Its docstring claims
+> more than it discriminates. The identity test is the one that separates them.
 
 **Orphan scan** — every added symbol has real consumers, in `src` and in tests:
 `Freshness` 19/30 · `FreshnessVerdict` 11/8 · `decides` 42/63.

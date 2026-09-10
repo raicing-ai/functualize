@@ -25,7 +25,7 @@ What is genuinely new is one `if` in the engine and one field on `Fingerprint`.
 src/functualize/_engine/capabilities/freshness.py
 tests/execution/test_freshness_capability.py
 tests/execution/test_fingerprint_decides.py
-examples/quickstart/…/self_caching_job.py         # AC-8, runs in pytest examples/
+examples/standalone/freshness_lab/jobs/self_caching_job.py   # AC-8, runs in pytest examples/
 ```
 
 ### Modified
