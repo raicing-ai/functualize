@@ -1698,8 +1698,26 @@ def _handle_single_file(
     # depends on the CWD scan.
     single_file_sources = discovery_result.job_sources
     cwd_str = str(cwd.resolve())
+
+    # **Declared or implicit, not "is it the cwd".** The paragraph above states
+    # the rule correctly and the first implementation did not follow it: it
+    # dropped the working directory by path equality, and `auto_discover`
+    # resolves a config-declared `jobs_directories = ["."]` to exactly that
+    # path. So a project that names its own root lost it, and
+    # `func caller.py caller` died with
+    # `KeyError: "Job 'project_peer' not found in engine registry"` and a
+    # traceback, while `func project_peer` in the same directory ran fine.
+    # Found by adversarial review; a working project stopped working.
+    declared = {
+        str((cwd / d).resolve())
+        for d in (discovery_result.merged_config or {}).get("jobs_directories", []) or []
+    }
     if single_file_sources.directories:
-        kept = [d for d in single_file_sources.directories if d != cwd_str]
+        kept = [
+            d
+            for d in single_file_sources.directories
+            if d != cwd_str or d in declared
+        ]
         single_file_sources = JobSources(
             directories=kept or None,
             functions=single_file_sources.functions,

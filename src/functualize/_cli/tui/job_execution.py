@@ -635,8 +635,25 @@ def run_job(app: FunctualizeInlineTUI, tokens: list[str]) -> None:
     output_log.write(f"[bold green]▶ Running:[/bold green] func {' '.join(tokens)}")
     output_log.write("─" * 40)
 
+    def _run_and_record() -> int:
+        # `execute_job_sync` computes the **process** exit code — the D3
+        # decision: a gate that blocks exits 5, the same number `func <workflow>`
+        # returns outside the TUI, so a wrapper script can tell "waiting on a
+        # human" from "finished". It was being discarded here: `run_worker`
+        # ignores its callable's return, `run_job` is `-> None`, and nothing
+        # ever assigned `app.return_code` — which `inline_tui.launch_inline_tui`
+        # reads to decide what the process exits with. So the panel said
+        # BLOCKED and the process said 0.
+        #
+        # Found by review, not by the suite: AC-6 was asserted about the value
+        # `execute_job_sync` returns, which was correct, and never about what
+        # the process did with it.
+        code = execute_job_sync(app, job_name, job_kwargs, group_values)
+        app.return_code = code
+        return code
+
     app.run_worker(
-        lambda: execute_job_sync(app, job_name, job_kwargs, group_values),
+        _run_and_record,
         name=_JOB_WORKER_NAME,
         exclusive=True,
         thread=True,

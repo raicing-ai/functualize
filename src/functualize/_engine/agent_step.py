@@ -29,7 +29,7 @@ going to run.
 from __future__ import annotations
 
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from functualize._engine.agent_providers import missing_executor_hint
 from functualize._engine.surface_routing import active_collector
@@ -232,11 +232,32 @@ class CliPromptExecutor:
     name: str = "cli-prompt"
     capabilities: frozenset[AgentCapability] = frozenset()
 
-    def __init__(self, app: Any = None) -> None:
-        self._app = app
+    def __init__(self, host: Any = None) -> None:
+        # The **host**, not the owning application object.
+        # `engine-sealed-construction/T4` replaced every such reach-through in
+        # `_engine/` with a host call and its gate records `after: 0`. This
+        # executor was written on a parallel branch that predated the seal, so
+        # it arrived carrying two fresh ones and put the count back to 2 — a
+        # semantic conflict `git` merged cleanly, because the two branches never
+        # touched the same line. (Worded without naming the attribute: T4's gate
+        # counts it in this directory, and a comment quoting it would hold the
+        # count at 1 forever — that has happened six times on this branch.)
+        #
+        # Found by the test that re-runs every finished task's gate, which is
+        # the only thing that could have found it: `ruff`, `mypy` and all six
+        # import-linter contracts were green with the reach-throughs in place.
+        self._host = host
 
     def _collector(self) -> PromptCollector | None:
-        return active_collector(self._app)
+        host = self._host
+        if host is None:
+            return None
+        collector = getattr(host, "collector", None)
+        if callable(collector):
+            return cast("PromptCollector | None", collector())
+        # An owner that is not a host (a direct construction in a test) still
+        # answers the same question through the surface router.
+        return active_collector(host)
 
     def execute(self, ctx: AgentStepContext) -> AgentStepResult:
         """Ask the active surface to perform ``ctx``'s step.

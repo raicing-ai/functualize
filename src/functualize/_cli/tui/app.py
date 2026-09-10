@@ -121,6 +121,20 @@ _ZONE_NAMES: dict[FocusZone, str] = {
 class FunctualizeInlineTUI(App[int]):
     """V3 TUI composition root — thin orchestrator delegating to v3 modules."""
 
+    #: The exit code the *process* should carry when the shell ends.
+    #:
+    #: Set by the job worker from `job_execution.execute_job_sync`, read by
+    #: `inline_tui.launch_inline_tui`. The two are different questions and the
+    #: TUI is the one surface that answers both: its **panel** says a blocked
+    #: gate is not a failure (it renders as waiting), while its **process**
+    #: exits 5 — the same number `func <workflow>` returns outside the TUI, so a
+    #: wrapper script can tell "waiting on a human" from "finished" without
+    #: knowing which entry point ran (decision D3).
+    #:
+    #: It defaults to 0 and was never assigned, so the process exited 0 for
+    #: every run whatever the panel showed.
+    return_code: int = 0
+
     DEFAULT_CSS = """
     Screen {
         height: auto;

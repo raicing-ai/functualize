@@ -139,3 +139,63 @@ def test_the_discovery_the_app_was_given_still_runs(cli_run, project_tree) -> No
     combined = result.stdout + result.stderr
     assert result.exit_code == 0, combined
     assert "PEER RAN" in combined
+
+
+class TestAConfigDeclaredCwdSurvives:
+    """The other half of the rule, and the half the first fix broke.
+
+    T14 stops single-file mode scanning the working directory, because
+    `func weather.py trip_planner` run beside an unrelated app was answered by
+    *that* app and the requested file never ran. The rule the change-site
+    comment states is **declared or implicit**, not "is it the cwd":
+
+        Config-declared directories stay ... The working directory is the one
+        that is implicit — `auto_discover` adds it and no setting can remove it
+        — so it is the one this drops.
+
+    The first implementation compared paths, and `auto_discover` resolves a
+    declared `jobs_directories = ["."]` to exactly the cwd. So a project that
+    named its own root lost it: `func caller.py caller` died with
+    `KeyError: "Job 'project_peer' not found in engine registry"` and a
+    traceback, while `func project_peer` in the same directory ran fine. A
+    working project stopped working, found by adversarial review rather than by
+    this suite.
+    """
+
+    @surfaces("func")
+    def test_a_peer_declared_by_config_is_still_reachable(
+        self, tmp_path: Path, cli_run
+    ) -> None:
+        """`func`-only, and deliberately so.
+
+        `func <file>.py` is `Mode.SINGLE_FILE` — it reads a path as the thing to
+        run. An app **is** the program and has no such mode, which
+        `contributor/architecture/surface-boundary.md` §4 lists as one of the
+        features that may be `func`-only. Restricting with a reason rather than
+        letting the parameterisation fail is what `tests/conftest.py` asks for.
+        """
+        (tmp_path / ".functualize.toml").write_text('jobs_directories = ["."]\n')
+        (tmp_path / "project_peer.py").write_text(
+            "from functualize.job import job\n"
+            "\n"
+            "\n"
+            "@job()\n"
+            "def project_peer() -> str:\n"
+            '    """A peer the project declares."""\n'
+            '    print("PEER RAN")\n'
+            '    return "ok"\n'
+        )
+        (tmp_path / "caller.py").write_text(
+            "from functualize.job import Invoke, job\n"
+            "\n"
+            "\n"
+            "@job()\n"
+            "def caller(invoke: Invoke) -> str:\n"
+            '    """Invoke the config-declared peer."""\n'
+            "    return f\"peer said {invoke('project_peer').status}\"\n"
+        )
+
+        result = cli_run(["caller.py", "caller"], cwd=tmp_path)
+
+        assert "not found in engine registry" not in (result.stdout + result.stderr)
+        assert result.exit_code == 0, result.stderr
