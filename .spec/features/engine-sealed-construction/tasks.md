@@ -420,7 +420,7 @@ now: `632` · after: **`298`** (gate `≤300`)
 
 ## Wave 8 — the constraint acquires a failure mode
 
-### [ ] T10 · The LOC test, and the stale description
+### [x] T10 · The LOC test, and the stale description
 
 **Files:** `tests/test_facade_loc_limits.py`,
 `contributor/reference/code-map.md`
@@ -435,15 +435,42 @@ module. Corrected in this commit.
 ```bash
 test -f tests/test_facade_loc_limits.py && uv run pytest tests/test_facade_loc_limits.py -q
 ```
-now: `file absent` · after: `passing`
+now: `file absent` · after: **`5 passed`**
 
 **Gate — the description is true**
 ```bash
 rg -n '500' contributor/reference/code-map.md | rg -c 'job/context.py'
 ```
-now: `1` · after: `0`
+now: `1` · after: `0` *(`rg` exits 1 with no matches)*
+
+`code-map.md:31` said `RunContext` was "a thin facade over the DI registry (~500 LOC)" in
+`job/context.py` — wrong size, wrong module, and by then wrong in a third way: it is not a
+facade over the DI registry. The row now names the real module, the real number (**256
+executable**), the budget that holds it there, and the four facades T8 split off.
+
+**Executable lines, not total** — the same correction T9's gate needed, for the same reason:
+`FunctualizeApp` carries ~750 lines of docstring, and a total-line budget on a public class is
+met by deleting documentation. `test_docstrings_are_excluded_from_the_count` asserts the
+exclusion is real rather than assumed, because the whole file turns on it.
+
+**Current state, with headroom recorded** so a future reader can tell a breach from drift:
+
+| class | executable | budget |
+|---|---|---|
+| `RunContext` | 256 | 500 |
+| `FunctualizeApp` | 298 | 300 |
+
+`FunctualizeApp` is tight on purpose: 308 was the measured floor with every movable body
+already gone, so the budget can only be met by *grouping members*, which is the property
+worth defending. The failure message says that, and prints the eight largest members — a
+breach should read as information, not as an accusation.
 
 **Sabotage:** append 10 lines to `RunContext`; the LOC test must fail.
+
+Demonstrated: 130 empty methods appended to `RunContext` → **`assert 516 <= 500`**, with the
+largest members listed. Reverted; `5 passed`. (Ten lines is under the 244 lines of headroom
+`RunContext` currently has, which is itself worth knowing — the tripwire is a ceiling, not a
+tight fit, and only `FunctualizeApp` is near its own.)
 
 ---
 

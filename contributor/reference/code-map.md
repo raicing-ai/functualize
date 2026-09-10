@@ -28,7 +28,7 @@
 
 | Symbol | File | Purpose |
 |--------|------|---------|
-| `RunContext` | `job/context.py` | Thin facade over DI registry (~500 LOC) |
+| `RunContext` | `_engine/capabilities/runcontext.py` | The job-author core: `config`, `log`, `invoke`, `state`, `cwd`. ~256 executable lines, budgeted at 500 by `tests/test_facade_loc_limits.py`. Rarer capabilities are grouped behind `rc.events`, `rc.prompts`, `rc.discovery` and `rc.wiring` (`engine-sealed-construction`/T8) |
 | `Log` | `job/capabilities.py` | Logging capability (info, warning, error, debug) |
 | `Invoke` | `job/capabilities.py` | Job invocation (call, parallel, schema) |
 | `Prompt` | `job/capabilities.py` | User input collection (ask, confirm, choice, text) |
