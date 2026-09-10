@@ -25,6 +25,7 @@ import glob as glob_module
 import logging
 import os
 import re
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -713,6 +714,9 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     resolve_and_register_jobs(app)
     perf_timeline.mark("boot.job_registration.end")
 
+    # 8a. Two modules claiming one group's flags stop the run, rendered.
+    report_group_options_conflicts(app)
+
     # 8b. Validate plugin extension metadata against loaded plugins (§A.6)
     validate_plugin_ext_metadata(app)
 
@@ -1294,6 +1298,58 @@ def report_unsatisfiable_jobs(app: Any) -> None:
         logger.warning("%s", message)
 
     app._unsatisfiable_jobs = reported
+
+
+#: The ``DiscoveryFailure.error_type`` a contested group path arrives under —
+#: ``record_discovery_failure`` names that field after the exception's class.
+_GROUP_OPTIONS_CONFLICT = "GroupOptionsConflictError"
+
+
+def report_group_options_conflicts(app: Any) -> None:
+    """Render a contested group path and stop the run. Do not serve either one.
+
+    Two modules binding ``GroupOptions`` to one group is not a broken module:
+    every job in the project is fine, and what cannot be answered is which
+    *flags* the group's path carries — ``func deploy --env prod …`` means one
+    thing per declaration, and the scan order that would pick between them is
+    set-iteration order. The provider reports the conflict through
+    ``discovery_failures``, the same list that answers "why is my job missing?"
+    (ADR-018's surface). Boot is where that becomes a rendered error instead of
+    a traceback, because boot is the one seam both entry points share: ``func``
+    builds an app inside ``_handle_job``, and a project's own script builds one
+    under ``CliAdapter``.
+
+    Fatal by decision, not by accident. A discovery failure that costs one job
+    is reported and the run continues (ADR-018); this one is a project-wide
+    contradiction between two files, and the only two resolutions are "serve the
+    wrong flags silently" and "stop". It exits with ``ExitCode.USAGE`` — the
+    table's config-error code, which is also what a Pydantic ``ValidationError``
+    at invocation takes (``app/adapters/cli.py:_print_validation_error``).
+
+    Args:
+        app: The app whose providers ran discovery. Providers that do not scan
+            (``StaticProvider``, a plugin's own) contribute nothing, the same
+            attribute-read rule `_cli/info.py:discovery_failures` follows.
+    """
+    from functualize._types.exit_codes import ExitCode
+
+    pipeline = getattr(app, "_resolution_pipeline", None)
+    conflicts: list[Any] = [
+        failure
+        for entry in getattr(pipeline, "_providers", ()) or ()
+        for failure in (
+            getattr(getattr(entry, "provider", entry), "discovery_failures", ()) or ()
+        )
+        if getattr(failure, "error_type", None) == _GROUP_OPTIONS_CONFLICT
+    ]
+    if not conflicts:
+        return
+
+    for failure in conflicts:
+        # The provider's own message is the one that names the group and both
+        # declaring files, and it already carries the remedy.
+        print(f"Error: {failure.message}", file=sys.stderr)
+    raise SystemExit(int(ExitCode.USAGE))
 
 
 def _register_jobs_eager(app: Any) -> None:

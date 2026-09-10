@@ -209,6 +209,7 @@ __all__ = [
     "pending_gates",
     "read_display_modules_from_cache",
     "read_group_options_from_cache",
+    "discovery_hash_for",
     "read_routing_names_from_cache",
     "read_routing_rows_from_cache",
     "resolve_cache_path",
@@ -1667,8 +1668,39 @@ def build_group_trie(
     )
 
 
+def discovery_hash_for(app: Any = None) -> str | None:
+    """The caller's own discovery fingerprint, for the cache reader to check.
+
+    A cache file's ``group_options`` section describes the tree that a
+    *particular* discovery configuration scanned. A caller running with
+    different filters — a different ``--exclude``, a narrower
+    ``--discovery-depth`` — is looking at a different tree, and serving it that
+    section is serving it someone else's answer (adjacent-defects/T10).
+
+    Pass the result to :func:`read_group_options_from_cache` as
+    ``discovery_hash``. ``None`` means *cannot know* and skips the check, which
+    is the pre-existing behaviour and stays available for callers that have no
+    app in hand.
+
+    The corridor exists because ``_cli`` may import public folders only, and
+    ``discovery_hash_from_config`` lives in ``_discovery``.
+    """
+    from functualize._discovery.filter_factory import discovery_hash_from_config
+
+    config = getattr(app, "_discovery_config", None) if app is not None else None
+    if config is None:
+        config = getattr(app, "discovery_config", None) if app is not None else None
+    if config is None:
+        return None
+    try:
+        return discovery_hash_from_config(config)
+    except Exception:  # pragma: no cover - a fingerprint is never worth a crash
+        return None
+
+
 def read_group_options_from_cache(
     cache_path: Path,
+    discovery_hash: str | None = None,
 ) -> dict[str, GroupOptionsSpec] | None:
     """Read the declared per-group flags from an existing cache file.
 
@@ -1677,11 +1709,24 @@ def read_group_options_from_cache(
     answered without importing the declaring module. The declaring class is
     imported only when a value must be validated.
 
+    Args:
+        cache_path: Path to the discovery cache file.
+        discovery_hash: Fingerprint of the discovery config the caller is
+            running under, from ``discovery_hash_from_config``. A cache whose
+            header records a different one was written by a scan the caller is
+            not repeating, so its ``group_options`` section describes a
+            filtered tree the caller does not have — it is refused, exactly as
+            a format-version mismatch is. ``None`` means "cannot know" and
+            skips the check, which is this function's behaviour without the
+            argument (an out-of-tree reader keeps its old semantics; every
+            in-tree caller has the config in scope).
+
     Returns:
         A ``{group_path: GroupOptionsSpec}`` mapping if the cache exists and
         is valid (possibly empty when no group declares options). Returns
-        None if the cache is missing, unreadable, malformed, or a different
-        format version — callers should fall back to scanning.
+        None if the cache is missing, unreadable, malformed, a different
+        format version, or written under a different discovery filter set —
+        callers should fall back to scanning.
     """
     from functualize._primitives.cache_format import CACHE_VERSION
 
@@ -1694,6 +1739,14 @@ def read_group_options_from_cache(
         return None
 
     if not isinstance(data, dict) or data.get("version") != CACHE_VERSION:
+        return None
+
+    # The header is the same fingerprint the boot path checks before replaying
+    # any of this file (`CachedDirectoryScanProvider._is_globally_invalidated`).
+    # This section carries none of its own, so a reader that does not check the
+    # header serves the flags of a scan that was run under other filters —
+    # which is how an excluded declaration kept answering for one invocation.
+    if discovery_hash is not None and data.get("discovery_hash") != discovery_hash:
         return None
 
     section = data.get("group_options")

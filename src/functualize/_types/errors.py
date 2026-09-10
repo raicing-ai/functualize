@@ -6,9 +6,12 @@ public contract for job authors and platform developers.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from functualize._types.protocols import AgentCapability
 
 
 class RecursionLimitError(Exception):
@@ -303,4 +306,103 @@ class ScopeCancelledError(Exception):
         )
         super().__init__(
             f"Workflow scope '{scope_id}' was cancelled and cannot be resumed. {start}."
+        )
+
+
+class AgentExecutorUnavailableError(Exception):
+    """Raised at validation when an agent step has no executor to run it.
+
+    A refusal, not a degradation. The walk never starts, and the step is
+    **not** handed to a human instead: swapping who answers changes the
+    program, and a step declared as an agent's work was declared that way for a
+    reason. It is also not substituted with another executor — an executor the
+    step did not name cannot honour what the step declared.
+
+    Raised before the walk rather than at the node, so that nothing has
+    happened yet when it fires.
+
+    Attributes:
+        step_name: The agent step that could not be serviced.
+        executor: The executor the step named, or None when it named none and
+            no executor is registered at all.
+        registered: The executor names that *are* registered, sorted.
+        hint: How to make it available, as the install clause from
+            ``_engine.agent_providers.EXECUTOR_PROVIDERS``. Empty for a core
+            name — a core executor that is missing is a registry built by hand,
+            not a package waiting to be installed.
+    """
+
+    def __init__(
+        self,
+        step_name: str,
+        executor: str | None = None,
+        *,
+        registered: Sequence[str] = (),
+        hint: str = "",
+    ) -> None:
+        self.step_name = step_name
+        self.executor = executor
+        self.registered = tuple(registered)
+        self.hint = hint
+        super().__init__(self._message())
+
+    def _message(self) -> str:
+        wanted = (
+            "has no executor registered for it"
+            if self.executor is None
+            else f"names executor {self.executor!r}, which is not registered"
+        )
+        known = (
+            f" (registered: {', '.join(self.registered)})"
+            if self.registered
+            else " (no executor is registered at all)"
+        )
+        remedy = f" {self.hint.capitalize()}." if self.hint else ""
+        return (
+            f"Agent step {self.step_name!r} {wanted}{known}.{remedy} "
+            "The step is refused — it is never answered by prompting a human "
+            "instead."
+        )
+
+
+class AgentCapabilityRefusedError(Exception):
+    """Raised at validation when an executor cannot honour what a step requires.
+
+    The engine refuses rather than running with the constraint unenforced:
+    running anyway is the silent degradation an agent step exists to avoid —
+    the workflow would appear to have restricted something it left wide open.
+
+    Raised before the walk starts, so no step has run and no step record
+    exists to reconcile.
+
+    Attributes:
+        step_name: The agent step whose requirement cannot be honoured.
+        executor: The registered executor that was chosen for it.
+        capability: The required capability that executor does not declare.
+        declared: The capabilities the executor does declare, sorted.
+    """
+
+    def __init__(
+        self,
+        step_name: str,
+        *,
+        executor: str,
+        capability: AgentCapability,
+        declared: Sequence[AgentCapability] = (),
+    ) -> None:
+        self.step_name = step_name
+        self.executor = executor
+        self.capability = capability
+        self.declared = tuple(declared)
+        super().__init__(self._message())
+
+    def _message(self) -> str:
+        declared = (
+            ", ".join(sorted(str(cap) for cap in self.declared)) or "no capabilities"
+        )
+        return (
+            f"Agent step {self.step_name!r} requires "
+            f"{str(self.capability)!r}, which executor {self.executor!r} does "
+            f"not declare (it declares: {declared}). The step is refused — "
+            "running it would leave the constraint unenforced."
         )

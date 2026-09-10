@@ -35,6 +35,7 @@ forfeit that.
 
 from __future__ import annotations
 
+from functualize._engine.capabilities.freshness import CAPABILITY as _FRESHNESS
 from functualize._engine.capabilities.invoke import CAPABILITY as _INVOKE
 from functualize._engine.capabilities.job_context import CAPABILITY as _JOB_CONTEXT
 from functualize._engine.capabilities.live import CAPABILITY as _LIVE
@@ -78,6 +79,7 @@ CAPABILITY_SPECS: tuple[CapabilitySpec, ...] = (
     _STDOUT,
     _STATE,
     _SOURCES,
+    _FRESHNESS,
     _JOB_CONTEXT,
     _TTY,
     _LIVE,

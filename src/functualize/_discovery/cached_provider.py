@@ -874,6 +874,10 @@ class CachedDirectoryScanProvider:
 
         Also records the module's display-provider classes into the display
         section as a side effect of the same import pass.
+
+        A group path this module claims a second time is recorded as a
+        discovery failure and the file's entries are dropped — see the
+        ``except`` below. Nothing here raises for it.
         """
         try:
             from functualize._discovery.sync import extract_module
@@ -889,8 +893,49 @@ class CachedDirectoryScanProvider:
             return []
 
         self._record_display_entry(source_file, extraction)
-        self._record_group_options_entries(source_file, extraction)
+        try:
+            self._record_group_options_entries(source_file, extraction)
+        except GroupOptionsConflictError as exc:
+            # Two modules bind one group path. Reported, not raised, so a scan
+            # stays a reader and the conflict joins the list that answers "why
+            # is my job missing?" (ADR-018's vocabulary). `_app/boot.py` is
+            # where the ambiguity becomes a rendered error and an exit code —
+            # the provider has no delivery surface and must not pretend to one.
+            #
+            # The warning is for the scans that never boot: `func builtin cache
+            # rebuild` builds a provider directly, and a cache written without
+            # the contested path should not be silent.
+            logger.warning("⚠ %s", exc)
+            record_discovery_failure(source_file, exc)
+            self._forget_source_file(source_file, contested=exc.group)
+            return []
         return extraction.jobs
+
+    def _forget_source_file(self, source_file: str, *, contested: str) -> None:
+        """Drop both claimants and the contested path from the cache.
+
+        Called when a module binds a group path another module already owns.
+        The whole of both files goes — their jobs, their display entries, their
+        declarations — along with the path they both bound.
+
+        **Nothing may be retained for either claimant**, and that is the point
+        rather than tidiness: a retained job or display entry puts the file in
+        :meth:`_known_source_files`, the next boot validates it by mtime,
+        matches, and never re-imports it — so the conflict is reported once and
+        then invisible, as a group whose flags are simply absent. *Reported
+        once, then silently different* is the failure shape this cache has
+        produced before (`pitfalls.md` §5 and its neighbours).
+
+        Both, not just the loser: which file the scan reaches first is
+        set-iteration order, so dropping one would leave a different half of the
+        project missing per process hash seed. The contradiction has two halves
+        and the message names both; the cache holds neither until they are one.
+        """
+        self._remove_entries_for_file(source_file)
+        incumbent = self._group_options_entries.pop(contested, None)
+        if incumbent is not None:
+            self._dirty = True
+            self._remove_entries_for_file(incumbent.source_file)
 
     def _record_group_options_entries(self, source_file: str, extraction: Any) -> None:
         """Sync the group-options section with what an import pass just found.

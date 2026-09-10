@@ -26,13 +26,14 @@ from __future__ import annotations
 import asyncio
 import threading
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from functualize_mcp._config import MCPConfig
 from functualize_mcp._tools import MCPToolRegistry
 
-from functualize.types import RunRequest
+if TYPE_CHECKING:
+    from functualize.types import RunRequest
 
 
 @dataclass(frozen=True)

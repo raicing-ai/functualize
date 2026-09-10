@@ -1096,7 +1096,7 @@ class JobExecutionEngine:
         # source map on exactly the runs a `FromJob` dependent triggers.
         self._bind_preflight_capabilities(context, preflight_decision)
 
-        # Two overrides, and they are not the same claim.
+        # Three overrides, and they are not the same claim.
         #
         # `force_fresh` comes from the workflow walker, for a `FromJob`
         # dependent that needs this job's *value* when the recorded one cannot
@@ -1115,10 +1115,28 @@ class JobExecutionEngine:
         # what is true about the world. Neither touches the `Exec.run` skip
         # above, which is intra-run de-duplication rather than a freshness
         # claim.
+        #
+        # `decides` is the third, and the only one a job declares about itself:
+        # `Fingerprint(decides=True)` says "when I am fresh, enter my body and
+        # let me decide" — a job that caches its own artifact wants to hand it
+        # back rather than have the framework skip it into silence. It is the
+        # same claim as `force_fresh` with a different trigger, so it is read
+        # here rather than at the early return below, and it carries the same
+        # scope: SKIP_FRESH only. A platform mismatch, a satisfied `status`
+        # guard, a failing `Precondition` and a gate all still stand.
         if preflight_decision is not None:
             _state = preflight_decision.verdict.state
-            if (force_fresh and _state is GuardState.SKIP_FRESH) or (
-                force and _state in (GuardState.SKIP_FRESH, GuardState.SKIP_SATISFIED)
+            _cache = getattr(
+                getattr(function, "__functualize_job__", None), "cache", None
+            )
+            _decides = bool(getattr(_cache, "decides", False))
+            if (
+                (force_fresh and _state is GuardState.SKIP_FRESH)
+                or (
+                    force
+                    and _state in (GuardState.SKIP_FRESH, GuardState.SKIP_SATISFIED)
+                )
+                or (_decides and _state is GuardState.SKIP_FRESH)
             ):
                 preflight_decision = None
         if preflight_decision is not None and not preflight_decision.should_run:

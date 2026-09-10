@@ -66,6 +66,10 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         # reads what the freshness check already resolved instead of restating
         # the glob (ADR-012).
         "Sources",
+        # The verdict that same check produced, so a job can act on its own
+        # freshness instead of restating its own staleness check (F9).
+        "Freshness",
+        "FreshnessVerdict",
         "JobContext",
         "JobConfigView",
         "TTY",
@@ -150,6 +154,13 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "FormatProvider",
         "ThemeProvider",
         "VaultKeyProvider",
+        # The agent step port (agent-step-port F6): one Protocol a plugin
+        # implements, plus the capability flags it declares and the payload
+        # types it is handed and returns.
+        "AgentStepExecutor",
+        "AgentCapability",
+        "AgentStepContext",
+        "AgentStepResult",
         "discover_domains",
         "scan_domain_providers",
         "validate_extension_id",

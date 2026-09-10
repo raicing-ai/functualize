@@ -31,6 +31,7 @@ All are exported from `functualize.job`.
 | `TTY` | Direct terminal control | `.run(app)`, `.ctx()` |
 | `Sources` | The files this job's own `Fingerprint(sources=...)` resolved to | mapping of project-relative path → `{mtime, size, sha256}`: `.keys()`, `.items()`, `.get(path)`, `in`, `len()`; plus `.declared`, `.generates` |
 | `JobContext` | Metadata about this invocation | `.name`, `.trace_id`, `.deadline`, `.cwd`, `.job_directory`, `.invoke_depth`, `.scope_id`, `.metadata` |
+| `Freshness` | The verdict this job's own `Fingerprint` produced | `.verdict()` → the state, key, recorded value, declared sources and generates, and the resolved source map; no verdict at all when the job declares no `Fingerprint`. Reading it does not oblige a skip |
 | `JobConfigView` | Raw resolved config | key access with source tracking |
 
 Confirm against the installed version rather than this table:

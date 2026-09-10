@@ -125,7 +125,12 @@ class TestFingerprint:
 
     def test_to_dict_serializable(self) -> None:
         out = Fingerprint(sources=["a"], generates=["b"]).to_dict()
-        assert out == {"sources": ["a"], "generates": ["b"], "method": "checksum"}
+        assert out == {
+            "sources": ["a"],
+            "generates": ["b"],
+            "method": "checksum",
+            "decides": False,
+        }
         json.dumps(out)
 
 

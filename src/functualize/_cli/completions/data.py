@@ -132,12 +132,19 @@ def extract_completion_data(func_app: Any) -> CompletionData:
     from functualize.app.commands import unshadowed_plugin_commands
     from functualize.app.utils import (
         build_group_trie,
+        discovery_hash_for,
         read_group_options_from_cache,
         resolve_cache_path,
     )
 
     jobs = func_app.get_jobs()
-    specs = read_group_options_from_cache(resolve_cache_path(Path.cwd())) or None
+    specs = (
+        read_group_options_from_cache(
+            resolve_cache_path(Path.cwd()),
+            discovery_hash=discovery_hash_for(func_app),
+        )
+        or None
+    )
     # Plugin rows go in as `build_group_trie`'s second positional, the same one
     # `_dispatch_group` fills. Leaving it defaulted is why `func mc<TAB>`
     # completed nothing while `func mcp serve` ran perfectly well: this is a

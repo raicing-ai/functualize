@@ -526,6 +526,7 @@ def register_discovered_jobs(
 
     from functualize.app.utils import (
         build_group_trie,
+        discovery_hash_for,
         read_group_options_from_cache,
         resolve_cache_path,
     )
@@ -542,7 +543,8 @@ def register_discovered_jobs(
     # this cache section, so reading it here is warm and import-free.
     try:
         group_option_specs = read_group_options_from_cache(
-            resolve_cache_path(Path.cwd())
+            resolve_cache_path(Path.cwd()),
+            discovery_hash=discovery_hash_for(app),
         )
     except Exception as exc:  # pragma: no cover - defensive
         logger.debug("register_discovered_jobs: no group options (%s)", exc)

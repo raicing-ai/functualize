@@ -12,6 +12,15 @@ Protocols defined here:
 - FormatProvider: Configuration file format plugins
 - JobTransform: Job descriptor interceptors/modifiers
 - ModulePreFilter: Pre-import discovery predicates
+- VaultKeyProvider: Where the local secrets vault's key comes from
+- AgentStepExecutor: Runs a workflow step by delegating it to an agent
+
+The agent step port carries its own payload vocabulary — ``AgentCapability``
+(what an executor promises it can enforce), ``AgentStepContext`` (what it is
+given) and ``AgentStepResult`` (what it returns). Those three live here rather
+than in a module of their own because the port is their only consumer, and an
+implementation that imports the Protocol needs the other three names at the
+same moment.
 
 Re-exported from functualize._types.interactivity:
 - Surface: renders a job's events
@@ -20,7 +29,9 @@ Re-exported from functualize._types.interactivity:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from functualize._types.interactivity import (
@@ -38,6 +49,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from functualize._types.descriptors import JobDescriptor
+    from functualize._types.run_request import RunRequest
 
 
 @runtime_checkable
@@ -308,9 +320,123 @@ class VaultKeyProvider(Protocol):
         ...
 
 
+class AgentCapability(StrEnum):
+    """A constraint an executor promises it can enforce on a step's behalf.
+
+    Declared by the executor, required by the step, and compared **before the
+    walk starts**. A step whose requirement the executor cannot honour is
+    refused rather than run, because running it would leave the constraint
+    silently unenforced — a workflow that appears to have restricted tools it
+    left wide open.
+
+    A ``StrEnum`` rather than ``(str, Enum)`` for the same reason
+    :class:`~functualize._types.outcome.Family` is one: the contracts spell it
+    ``(str, Enum)``, and on this interpreter that is the same type with a
+    ``UP042`` warning attached.
+    """
+
+    ENFORCES_TOOL_ALLOWLIST = "enforces_tool_allowlist"
+    PRESERVES_ACTIVE_TIME_BUDGET = "preserves_active_time_budget"
+    SUPPORTS_VISIBLE_OUTPUT = "supports_visible_output"
+
+
+@dataclass(frozen=True)
+class AgentStepContext:
+    """Everything an executor is given to perform one agent step.
+
+    It **carries** the run's :class:`~functualize._types.run_request.RunRequest`
+    rather than restating its fields: the request already holds where the run
+    came from and what it was asked for, and a second shape for those would be
+    a second answer to where a run came from.
+
+    Attributes:
+        request: The request the run reaching this step was built from.
+        step_name: The declaring node's name — the step being executed.
+        instructions: What the step asks the agent to do.
+        tools: The tool allowlist the step declared, normalized to a tuple. An
+            empty tuple means the step declared no constraint, which is not the
+            same statement as "this step may use no tools".
+        inputs: The values the step binds into the agent's work.
+        time_budget_s: The step's active-time budget in seconds, when it
+            declared one.
+    """
+
+    request: RunRequest
+    step_name: str
+    instructions: str
+    tools: tuple[str, ...]
+    inputs: Mapping[str, Any]
+    time_budget_s: float | None
+
+
+@dataclass(frozen=True)
+class AgentStepResult:
+    """What an executor returns for one agent step.
+
+    Attributes:
+        value: The step's result, recorded as the step's outcome.
+        tool_calls: The tool invocations the agent reported, in order. Empty
+            for an executor that does not surface them — an audit trail, not a
+            contract, so nothing may require a non-empty tuple.
+    """
+
+    value: Any
+    tool_calls: tuple[Mapping[str, Any], ...] = ()
+
+
+@runtime_checkable
+class AgentStepExecutor(Protocol):
+    """Protocol for running a workflow step by delegating it to an agent.
+
+    Registered by an app method — ``app.register_agent_step_executor`` — and
+    **never auto-discovered**: auto-discovery is how a surface acquires
+    behaviour nobody declared. ``GateResolver`` is the template, down to the
+    registration door.
+
+    The engine asks an executor only for steps that named it, or for every
+    agent step when exactly one executor is registered. Nothing falls back to a
+    different executor, and nothing falls back to a human.
+
+    ``capabilities`` is a promise, and a missing flag is a **refusal**, not a
+    default: a step requiring
+    :attr:`AgentCapability.ENFORCES_TOOL_ALLOWLIST` from an executor that does
+    not declare it fails validation, because running anyway would grant every
+    tool the step meant to leave out.
+
+    Implementations are checked with ``isinstance``; ``issubclass`` raises
+    ``TypeError`` on this Protocol, because ``name`` and ``capabilities`` are
+    data members — a fact no type checker will point out at the call site.
+    """
+
+    #: The name a step refers to this executor by, and the key it is looked up
+    #: under in ``_engine.agent_providers.EXECUTOR_PROVIDERS``.
+    name: str
+
+    #: What this executor can enforce. Every flag absent from this set is a
+    #: capability a step requiring it will be refused for.
+    capabilities: frozenset[AgentCapability]
+
+    def execute(self, ctx: AgentStepContext) -> AgentStepResult:
+        """Perform one agent step.
+
+        Args:
+            ctx: The step, its inputs, and the request that reached it.
+
+        Returns:
+            The step's result.
+
+        Raises:
+            Any exception to fail the step. How a failure is routed around a
+            step is not this port's business, and no exception here is
+            answered by asking a human instead.
+        """
+        ...
+
+
 __all__ = [
     # Protocols
     "AdapterPlugin",
+    "AgentStepExecutor",
     "FormatProvider",
     "JobProvider",
     "JobTransform",
@@ -318,6 +444,10 @@ __all__ = [
     "PluginWithShutdown",
     "Source",
     "VaultKeyProvider",
+    # Agent step port payload vocabulary
+    "AgentCapability",
+    "AgentStepContext",
+    "AgentStepResult",
     # Re-exports from functualize._types.interactivity
     "InputNotAvailable",
     "PromptChoice",

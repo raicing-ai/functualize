@@ -106,18 +106,22 @@ def test_an_unregistered_type_raises_rather_than_being_constructed() -> None:
 
 
 def test_the_two_phase_bind_is_declared_not_remembered() -> None:
-    """`Sources` is the only capability completed after the pre-flight — today.
+    """The capabilities completed after the pre-flight are declared, not called.
 
     The point is not the membership but that it is *readable*: the executor
     loops over the specs that declare a `preflight_bind` instead of calling one
-    hard-coded function at one line. A second capability of this shape declares
-    it and is found.
+    hard-coded function at one line. `Sources` was alone when this was written
+    and the docstring said a second capability of this shape would declare it
+    and be found; `Freshness` is that second one, and it arrived with no call
+    added to the lifecycle.
     """
+    from functualize._engine.capabilities.freshness import Freshness
     from functualize._engine.capabilities.sources import Sources
 
     declaring = {spec.name for spec in CAPABILITY_SPECS if spec.needs_preflight_bind}
-    assert declaring == {"Sources"}
+    assert declaring == {"Freshness", "Sources"}
     assert SPEC_BY_TYPE[Sources].preflight_bind is not None
+    assert SPEC_BY_TYPE[Freshness].preflight_bind is not None
 
 
 def test_a_declared_bind_is_invoked_with_the_preflight_decision() -> None:

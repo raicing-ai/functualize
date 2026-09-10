@@ -974,9 +974,12 @@ def _dispatch_group(
     # Per-group declared flags (S6a). Read from the cache — the section is
     # written by the same scan that produced the jobs above, and reading it
     # here costs no import.
-    from functualize.app.utils import resolve_cache_path
+    from functualize.app.utils import discovery_hash_for, resolve_cache_path
 
-    group_option_specs = read_group_options_from_cache(resolve_cache_path(Path.cwd()))
+    group_option_specs = read_group_options_from_cache(
+        resolve_cache_path(Path.cwd()),
+        discovery_hash=discovery_hash_for(app),
+    )
 
     trie = build_group_trie(
         [(job.group, job.name, "job") for job in all_jobs],

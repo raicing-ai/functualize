@@ -24,6 +24,7 @@ from functualize._types.interactivity import (
     PromptRequest,
     PromptResponse,
 )
+from functualize.job._freshness import Freshness, FreshnessVerdict
 from functualize.job._invoke import Invoke, InvokeResult
 from functualize.job._job_context import JobContext
 from functualize.job._log import Log
@@ -41,6 +42,8 @@ from functualize.job._stdout import Stdout
 
 __all__ = [
     # Core capabilities for DI injection
+    "Freshness",
+    "FreshnessVerdict",
     "Invoke",
     "JobContext",
     "JobConfigView",

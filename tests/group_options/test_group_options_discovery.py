@@ -21,7 +21,6 @@ import pytest
 from functualize._discovery.cached_provider import CachedDirectoryScanProvider
 from functualize._primitives.cache_format import CACHE_FILENAME, CACHE_VERSION
 from functualize._primitives.locator import ResourceLocator
-from functualize._types.errors import GroupOptionsConflictError
 from functualize.app.utils import build_group_trie, read_group_options_from_cache
 
 _GROUP_MODULE = '''
@@ -164,15 +163,23 @@ def test_importing_a_declaration_elsewhere_is_not_a_duplicate(
 def test_duplicate_binding_for_one_group_is_a_discovery_error(
     tmp_path: Path,
 ) -> None:
+    """Reported through ``discovery_failures``, not raised out of the scan.
+
+    It used to raise, which reachable only as a traceback: the message named
+    both files and the calling code had nowhere to render it. The record is the
+    same one `_app/boot.py` turns into a rendered error, and the provider's own
+    contract is a scan that always returns.
+    """
     other = _GROUP_MODULE.replace("DeployOptions", "OtherDeployOptions")
     jobs = _make_project(tmp_path, {"_group.py": _GROUP_MODULE, "_dup.py": other})
     provider = _make_provider(tmp_path, jobs)
 
-    with pytest.raises(GroupOptionsConflictError) as exc:
-        provider.list_jobs()
+    provider.list_jobs()  # must not raise
 
-    assert exc.value.group == "deploy"
-    assert "declared exactly once" in str(exc.value)
+    failures = provider.discovery_failures
+    assert [f.error_type for f in failures] == ["GroupOptionsConflictError"]
+    assert "Group 'deploy'" in failures[0].message
+    assert "declared exactly once" in failures[0].message
 
 
 def test_rescanning_the_same_file_is_not_a_conflict(tmp_path: Path) -> None:
