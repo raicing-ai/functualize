@@ -28,6 +28,7 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "workflow",
         "Step",
         "Gate",
+        "AgentStep",
         "Edge",
         "ConditionalEdge",
         "END",
@@ -400,6 +401,35 @@ class TestCrossPackageConsistency:
         assert top.Edge is wf_mod.Edge
         assert top.ConditionalEdge is wf_mod.ConditionalEdge
         assert top.END is wf_mod.END
+
+    def test_every_node_kind_reaches_the_root_facade(self) -> None:
+        """The three node kinds travel together, or the facade teaches a
+        vocabulary the framework does not have.
+
+        `AgentStep` reached `functualize.workflow` and stopped there, so
+        `from functualize import Gate` worked and `from functualize import
+        AgentStep` raised — for a node kind the same `@workflow` graph
+        declares beside the other two (asp M-5). Derived from
+        `functualize.workflow`'s own list rather than restated, so a fourth
+        node kind fails here until it is exported too.
+        """
+        top = _import_module("functualize")
+        wf_mod = _import_module("functualize.workflow")
+
+        node_kinds = {
+            name for name in wf_mod.__all__ if name in {"Step", "Gate", "AgentStep"}
+        }
+        assert node_kinds == {"Step", "Gate", "AgentStep"}, (
+            f"functualize.workflow's node kinds changed: {sorted(node_kinds)}. "
+            f"Update this set and the root facade together."
+        )
+        missing = [name for name in node_kinds if not hasattr(top, name)]
+        assert not missing, (
+            f"node kinds declared in functualize.workflow but not importable "
+            f"from functualize: {missing}"
+        )
+        for name in node_kinds:
+            assert getattr(top, name) is getattr(wf_mod, name)
 
     def test_functualize_gate_symbols_match(self) -> None:
         """GateStrategy, GateResolver, GateContext identity with functualize._gate."""

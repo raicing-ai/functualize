@@ -573,9 +573,17 @@ _NodeHandler = Callable[[WorkflowWalker, Any, str, _Ledger], _NodeRun | WalkRepo
 #: This table replaced the type test that used to sit inside the walk loop,
 #: asking whether each node was a gate and treating everything else as a step
 #: (AC-10). The loop now looks a node's class up here and never asks what kind
-#: it is holding, so a fourth node kind is a handler plus a row — not an edit to
-#: the walk's mechanics, which are load-bearing for diamond joins and for
-#: resume. A class absent from the table is refused by name.
+#: it is holding, so a fourth node kind is a handler plus a row **here** — not
+#: an edit to the walk's mechanics, which are load-bearing for diamond joins and
+#: for resume. A class absent from the table is refused by name.
+#:
+#: "Here", not everywhere: two other places also enumerate the node kinds —
+#: `workflow/_validation.py::_NODE_TYPES` and `_types/workflow.py::_node_kind`.
+#: The claim above was written as though this table were the only one, which it
+#: is not (asp A-1). What keeps the three from drifting is
+#: `tests/workflow/test_node_kind_registries_agree.py`, which asserts they name
+#: the same set in both directions, so a fourth kind added to one of them fails
+#: until it reaches the other two.
 _NODE_HANDLERS: dict[type, _NodeHandler] = {
     Gate: WorkflowWalker._service_gate,
     Step: WorkflowWalker._service_step,

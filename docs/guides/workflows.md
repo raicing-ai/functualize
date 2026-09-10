@@ -31,15 +31,112 @@ Steps execute in the order defined by edges. Each step references a registered j
 
 ## Vocabulary
 
-Five names. No overlap with `@job`:
+Six names. No overlap with `@job`:
 
 | Name | Purpose |
 |------|---------|
 | `Step(job)` | References a registered job — by name or by the decorated function. A step takes nothing else: DI, config, `Deps`, `Guards`, `Fingerprint`, `Exec` all come from the referenced job. Its node name is the job's canonical name (`Step(fetch_data)` → `"fetch-data"`). |
 | `Gate(name, awaits=Model, tools=[], strategy=None)` | First-class pause point. Waits for input matching a Pydantic model. `strategy` is one of `"resolve"`, `"prompt"`, `"ai_inbound"`, `"ai_outbound"`, or a registered preset. |
+| `AgentStep(name, instructions, executor=None, tools=(), requires=frozenset(), time_budget_s=None)` | A node performed by an **agent**, not by a registered job. See [Agent steps](#agent-steps). |
 | `Edge(source, target)` | Unconditional transition. `END` is the sentinel for the walk's terminal node. |
 | `ConditionalEdge(source, condition, targets)` | Runtime routing. `condition` is called with the source step's return value; `targets` maps its return value to node names or `END`. |
 | `END` | Terminal node. Reaching `END` triggers the epilogue body. |
+
+---
+
+## Agent Steps
+
+`Step` and `Gate` both end in a local function call. `AgentStep` does not: it hands the
+work to a registered **executor**, which may talk to a model, an MCP client, or a person at
+a terminal. That difference is why it has its own node kind rather than being a job that
+happens to call an API.
+
+```python
+from functualize import AgentStep, Edge, END, Step, workflow
+
+@workflow(
+    steps=[
+        Step(fetch_context),
+        AgentStep(
+            "draft",
+            instructions="Draft the release notes from the fetched changelog.",
+            tools=["read_file"],
+            time_budget_s=120,
+        ),
+        Step(publish),
+    ],
+    edges=[
+        Edge("fetch-context", "draft"),
+        Edge("draft", "publish"),
+        Edge("publish", END),
+    ],
+)
+def release() -> str:
+    return "released"
+```
+
+### Executors are registered, never discovered
+
+```python
+app.register_agent_step_executor(MyExecutor())
+```
+
+There is no auto-discovery, on purpose: a surface that acquires behaviour nobody declared is
+how a workflow silently changes what it does. Functualize ships one executor, `cli-prompt`,
+which asks a person to perform the step.
+
+`executor=None` means *the single registered executor*. That is a unique answer only when
+exactly one is registered — with two, a step naming none is **refused**, because handing it
+to either would be substituting an executor for the one the step meant.
+
+### Capabilities: what an executor promises it can enforce
+
+| Capability | Means |
+|------------|-------|
+| `enforces_tool_allowlist` | The executor restricts the agent to the declared `tools`. |
+| `preserves_active_time_budget` | The executor honours `time_budget_s`. |
+| `supports_visible_output` | The executor can surface the agent's output to the user. |
+
+Two of these are **implied by what the step declares**: `tools=[...]` implies
+`enforces_tool_allowlist`, and `time_budget_s=...` implies
+`preserves_active_time_budget`. `requires={...}` widens that set; nothing narrows it.
+
+An executor that cannot honour a required capability makes the step **refuse before the
+walk starts** — not run with the constraint dropped:
+
+```
+Agent step 'draft' requires 'enforces_tool_allowlist', which executor 'plain' does not
+declare (it declares: no capabilities). The step is refused — running it would leave the
+constraint unenforced.
+```
+
+Refusing before the first node matters: by the time a walk is halfway through, the earlier
+steps' side effects have already happened for a step that was never going to run.
+
+### Writing an executor
+
+An executor is anything with a `name`, a `capabilities` collection, and `execute(ctx)`:
+
+```python
+from functualize.plugin import AgentStepContext, AgentStepResult
+
+class MyExecutor:
+    name = "my-agent"
+    capabilities = frozenset({"enforces_tool_allowlist"})
+
+    def execute(self, ctx: AgentStepContext) -> AgentStepResult:
+        return AgentStepResult(value=run_the_agent(ctx.instructions, ctx.tools))
+```
+
+`capabilities` may hold `AgentCapability` members or the bare strings above; they are
+compared by value. A name functualize does not define is refused at registration — a
+capability nothing requires can never be matched, so it is a typo rather than an extension
+point.
+
+`ctx.inputs` and `AgentStepResult.tool_calls` are declared but not yet wired: `inputs` is
+always empty until typed step outcomes land, and the walker records `result.value` and
+drops `tool_calls` until there is a run event stream to write it to. Both are marked
+`TRANSITIONAL` in the source with the feature that completes them.
 
 ---
 

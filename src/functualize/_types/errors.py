@@ -347,16 +347,30 @@ class AgentExecutorUnavailableError(Exception):
         super().__init__(self._message())
 
     def _message(self) -> str:
-        wanted = (
-            "has no executor registered for it"
-            if self.executor is None
-            else f"names executor {self.executor!r}, which is not registered"
-        )
-        known = (
-            f" (registered: {', '.join(self.registered)})"
-            if self.registered
-            else " (no executor is registered at all)"
-        )
+        # Three situations, not two. Naming an executor that is not registered
+        # is one; naming none is the other two, and they need different
+        # sentences. One sentence covered both and produced "has no executor
+        # registered for it (registered: ai, cli-prompt)" — a contradiction in
+        # eleven words, on the case a user is most likely to hit (asp M-1).
+        if self.executor is not None:
+            wanted = f"names executor {self.executor!r}, which is not registered"
+            known = (
+                f" (registered: {', '.join(self.registered)})"
+                if self.registered
+                else " (no executor is registered at all)"
+            )
+        elif self.registered:
+            # `resolve` returns the sole executor when exactly one is
+            # registered, so reaching here with a non-empty list means two or
+            # more — and picking between them is what nothing may do.
+            wanted = (
+                f"names no executor and {len(self.registered)} are registered, "
+                "so which one should service it cannot be identified"
+            )
+            known = f" (registered: {', '.join(self.registered)})"
+        else:
+            wanted = "has no executor registered for it"
+            known = " (no executor is registered at all)"
         remedy = f" {self.hint.capitalize()}." if self.hint else ""
         return (
             f"Agent step {self.step_name!r} {wanted}{known}.{remedy} "

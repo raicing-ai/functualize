@@ -28,6 +28,7 @@ going to run.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, cast
 
@@ -47,8 +48,13 @@ from functualize._types.protocols import (
     AgentStepContext,
     AgentStepExecutor,
     AgentStepResult,
+    capability_value,
 )
 from functualize._types.workflow import AgentStep
+
+#: The capability names functualize defines, as the wire strings a plugin may
+#: legitimately spell them with. Derived from the enum so the two cannot drift.
+_CAPABILITY_VALUES = frozenset(cap.value for cap in AgentCapability)
 
 if TYPE_CHECKING:
     from functualize._types.interactivity import PromptCollector
@@ -106,6 +112,35 @@ class AgentStepRegistry:
                 f"Got {type(executor).__name__}, which does not. Refused here "
                 "because the alternative is a missing declaration surfacing "
                 "mid-walk."
+            )
+        # `isinstance` against a runtime Protocol checks that the attributes
+        # are *present*, not what they hold — so an executor whose
+        # `capabilities` is a tuple, a string or None passed this door and blew
+        # up mid-walk with a `TypeError` from set arithmetic, which is exactly
+        # what the docstring above promises will not happen (asp M-2).
+        declared = executor.capabilities
+        if isinstance(declared, str) or not isinstance(declared, Iterable):
+            raise TypeError(
+                "An agent step executor's `capabilities` must be a collection of "
+                "capability names — a frozenset of AgentCapability, or of the "
+                f"strings they spell. Executor {executor.name!r} declares "
+                f"{type(declared).__name__}. Refused here because the "
+                "alternative is a TypeError from the middle of a walk."
+            )
+        unknown = sorted(
+            {
+                capability_value(cap)
+                for cap in declared
+                if capability_value(cap) not in _CAPABILITY_VALUES
+            }
+        )
+        if unknown:
+            raise ValueError(
+                f"Executor {executor.name!r} declares capabilities functualize "
+                f"does not define: {', '.join(unknown)}. Known capabilities: "
+                f"{', '.join(sorted(_CAPABILITY_VALUES))}. A capability nothing "
+                "requires can never be matched, so declaring it is a typo, not "
+                "an extension point."
             )
         name = executor.name
         if not name.strip():
@@ -169,13 +204,21 @@ class AgentStepRegistry:
             if not isinstance(node, AgentStep):
                 continue
             executor = self.resolve(node)
-            missing = node.requires - executor.capabilities
+            # By value, not by member. `node.requires - executor.capabilities`
+            # only works when both sides are `AgentCapability`; a plugin
+            # declaring the bare strings the docs publish is a legitimate
+            # executor, and under a plain `Enum` the set difference would report
+            # a capability the executor *did* declare as missing (asp M-4).
+            declared = {capability_value(cap) for cap in executor.capabilities}
+            missing = [
+                cap for cap in node.requires if capability_value(cap) not in declared
+            ]
             if missing:
                 raise AgentCapabilityRefusedError(
                     node.name,
                     executor=executor.name,
-                    capability=min(missing, key=str),
-                    declared=sorted(executor.capabilities, key=str),
+                    capability=min(missing, key=capability_value),
+                    declared=sorted(executor.capabilities, key=capability_value),
                 )
 
     def execute(

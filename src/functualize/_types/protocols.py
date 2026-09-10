@@ -467,6 +467,27 @@ class AgentCapability(StrEnum):
     SUPPORTS_VISIBLE_OUTPUT = "supports_visible_output"
 
 
+def capability_value(capability: object) -> str:
+    """The wire name of a capability, whatever spelling it arrived in.
+
+    **Compare capabilities by value, never by member.** A plugin's executor is
+    duck-typed — the registry accepts anything satisfying `AgentStepExecutor` —
+    and the docs publish the bare strings, so a plugin declaring
+    ``frozenset({"enforces_tool_allowlist"})`` is a legitimate executor. Set
+    arithmetic between members and strings happens to work today only because
+    :class:`AgentCapability` is a ``StrEnum`` and the ``str`` mixin's ``__eq__``
+    and ``__hash__`` win the MRO. Under a plain ``Enum`` the same comparison
+    reports a **false refusal** for a capability the executor did declare, and
+    every test double in the suite uses the enum, so nothing would catch it
+    (asp M-4).
+
+    So the base stops being load-bearing: this function says what is meant, and
+    a change to how the enum is spelled cannot silently invert a refusal.
+    """
+    value = getattr(capability, "value", capability)
+    return value if isinstance(value, str) else str(value)
+
+
 @dataclass(frozen=True)
 class AgentStepContext:
     """Everything an executor is given to perform one agent step.
@@ -484,6 +505,13 @@ class AgentStepContext:
             empty tuple means the step declared no constraint, which is not the
             same statement as "this step may use no tools".
         inputs: The values the step binds into the agent's work.
+            **TRANSITIONAL(workflow-graph-semantics)** — always empty today.
+            The port's single construction site passes an empty mapping,
+            because binding an upstream node's output into a downstream step is
+            the typed-outcome plumbing that feature builds; there is no other
+            source for it. An executor may read it and will get nothing (asp
+            M-3). Declared now rather than added later so the payload shape a
+            plugin compiles against does not change under it.
         time_budget_s: The step's active-time budget in seconds, when it
             declared one.
     """
@@ -492,6 +520,8 @@ class AgentStepContext:
     step_name: str
     instructions: str
     tools: tuple[str, ...]
+    # TRANSITIONAL(workflow-graph-semantics): populated by nothing yet — see the
+    # attribute note above.
     inputs: Mapping[str, Any]
     time_budget_s: float | None
 
@@ -505,9 +535,17 @@ class AgentStepResult:
         tool_calls: The tool invocations the agent reported, in order. Empty
             for an executor that does not surface them — an audit trail, not a
             contract, so nothing may require a non-empty tuple.
+            **TRANSITIONAL(durable-run-layer)** — the walker takes
+            ``result.value`` and drops this, so an executor that fills it is
+            writing the audit trail into nowhere. It lands when there is a run
+            event stream to write it to; recording it in the step record first
+            would put an unbounded, agent-controlled payload in the scope store
+            (asp M-3).
     """
 
     value: Any
+    # TRANSITIONAL(durable-run-layer): read by nothing yet — see the attribute
+    # note above.
     tool_calls: tuple[Mapping[str, Any], ...] = ()
 
 
@@ -576,6 +614,7 @@ __all__ = [
     "AgentCapability",
     "AgentStepContext",
     "AgentStepResult",
+    "capability_value",
     # Re-exports from functualize._types.interactivity
     "InputNotAvailable",
     "PromptChoice",

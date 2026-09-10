@@ -389,6 +389,14 @@ class TestAStepWithNoExecutorIsRefused:
             )
 
         assert caught.value.registered == ("ai", "cli-prompt")
+        # The message, not only the payload. This assertion was missing, and
+        # the sentence underneath it read "has no executor registered for it
+        # (registered: ai, cli-prompt)" — a contradiction in eleven words, on
+        # the case a user is most likely to hit (asp M-1). One `_message()`
+        # branch was covering two situations that need different sentences.
+        message = str(caught.value)
+        assert "names no executor and 2 are registered" in message, message
+        assert "has no executor registered for it" not in message, message
 
     def test_the_only_registered_executor_is_what_none_resolves_to(self) -> None:
         """The single-executor case is the *only* thing `None` is allowed to mean."""
