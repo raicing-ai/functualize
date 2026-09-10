@@ -118,7 +118,44 @@ def _timing_instrumentation(config: pytest.Config) -> list[str]:
         active.append("xdist")
     if getattr(config.option, "cov_source", None):
         active.append("coverage")
+    load = _oversubscription()
+    if load is not None:
+        active.append(f"a machine loaded {load:.1f}x its core count")
     return active
+
+
+#: Above this many runnable processes per core, a wall-clock budget measures
+#: the queue rather than the code. Chosen from a real observation: a review of
+#: this branch ran `tests/perf/` on a 12-core machine at load 41.6 (3.5x) and
+#: got a warm-command median of 5430ms against an 1800ms budget — 3x over, on a
+#: commit that touched none of the boot path. Re-run alone at load 4.0 (0.3x),
+#: the same file passed 12/12 in 5.3s.
+#:
+#: 2.0 rather than something tighter because the budgets already carry ~2x
+#: headroom, so anything under a 2x-oversubscribed machine still fits inside
+#: them; a serial pytest run on a 2-core CI box sits near 1x and keeps
+#: asserting. The failure this prevents is the one that gets a perf test muted.
+_MAX_LOAD_PER_CORE = 2.0
+
+
+def _oversubscription() -> float | None:
+    """Runnable processes per core, when that is high enough to matter.
+
+    ``getloadavg`` is POSIX-only and ``cpu_count`` can return ``None``; either
+    absence means "no reason to think the machine is busy", which leaves the
+    budgets enforced. Erring that way keeps the guard from silently disabling
+    the whole file on a platform where it cannot measure.
+    """
+    getloadavg = getattr(os, "getloadavg", None)
+    cores = os.cpu_count()
+    if getloadavg is None or not cores:
+        return None
+    try:
+        one_minute = getloadavg()[0]
+    except OSError:  # pragma: no cover - documented on some platforms
+        return None
+    ratio = one_minute / cores
+    return ratio if ratio > _MAX_LOAD_PER_CORE else None
 
 
 def pytest_collection_modifyitems(
@@ -137,12 +174,19 @@ def pytest_collection_modifyitems(
     # is the only one that carries coverage and xdist — guarding after it would
     # skip nothing where it matters.
     #
+    # The third source is not the harness at all: a machine already running
+    # several jobs per core. The premise of every budget below is that the
+    # process gets a core when it asks for one, and that premise was assumed
+    # rather than checked until a review measured 3x the budget on an
+    # oversubscribed box (rre F5). Same principle as the two above — do not
+    # assert a number that describes the machine.
+    #
     # Nothing is lost: `test-fast` runs the same tests with plain `pytest`, so
     # every budget is still enforced on each PR.
     active = _timing_instrumentation(config)
     if active:
         skip_perf = pytest.mark.skip(
-            reason=f"wall-clock budget is not measurable under {'+'.join(active)}"
+            reason=f"wall-clock budget is not measurable under {', '.join(active)}"
         )
         for item in items:
             if "perf_budget" in item.keywords:

@@ -17,6 +17,7 @@ from typing import Annotated
 from unittest.mock import patch
 
 import pytest
+from pydantic import BaseModel
 from tests._support.engine_run import register
 
 from functualize._engine.executor import JobExecutionEngine
@@ -203,3 +204,98 @@ class TestANonConsoleSurfaceDoesNot:
                 f"{surface} declares owns_stdin={policy.owns_stdin}; only a "
                 "door where the user typed a job invocation has a pipe"
             )
+
+
+class _CollidingConfig(BaseModel):
+    """A config model whose field name is also a `Stdin`-marked parameter."""
+
+    data: str = "from the config file"
+
+
+def _colliding(
+    data: Annotated[str, Stdin()] = "the parameter default",
+    config: _CollidingConfig = None,  # type: ignore[assignment]
+) -> str:
+    return f"param={data!r} config={config.data!r}"
+
+
+class TestAMarkerThatSharesAConfigFieldsName:
+    """`_request_kwargs` no longer splits config fields out of the resolution.
+
+    It used to, defended by a claim in its own docstring — "a `Stdin` marker
+    never sits on a config model's field" — that nothing asserted. The claim is
+    false: the job below declares both, and the framework accepts it. These
+    tests are what the split was measured against before it was deleted (rre
+    F7), so reinstating it turns the last one red.
+    """
+
+    def _run(self, engine: JobExecutionEngine, **kwargs: object):
+        register(engine, "collides", _colliding, config_class=_CollidingConfig)
+        with (
+            patch(
+                "functualize._engine.stdin_reader.sys.stdin.isatty",
+                return_value=False,
+            ),
+            patch(
+                "functualize._engine.stdin_reader.sys.stdin.read",
+                return_value="from the pipe",
+            ),
+        ):
+            return engine.run(
+                RunRequest(job_name="collides", surface="func.job", kwargs=kwargs)  # type: ignore[arg-type]
+            )
+
+    def test_the_collision_is_constructible_at_all(self) -> None:
+        """The premise, asserted rather than assumed.
+
+        If a future change makes this overlap impossible — refused at
+        registration, say — this test fails and the rest of the class becomes
+        moot, which is the right way to find that out.
+        """
+        from functualize._engine.stdin_reader import stdin_markers_for
+
+        assert set(stdin_markers_for(_colliding)) & set(_CollidingConfig.model_fields)
+
+    def test_the_pipe_reaches_the_colliding_name(
+        self, engine: JobExecutionEngine
+    ) -> None:
+        """The name is a config field, so the pipe's value lands there.
+
+        Not on the parameter: `_resolve_config_model` pops a config field's
+        name out of the call kwargs, which is ordinary name shadowing between a
+        config model and a parameter and has nothing to do with stdin.
+        """
+        result = self._run(engine)
+
+        assert result.status is RunStatus.SUCCESS, result.exception
+        assert result.return_value == (
+            "param='the parameter default' config='from the pipe'"
+        )
+
+    def test_an_explicit_value_still_beats_the_pipe(
+        self, engine: JobExecutionEngine
+    ) -> None:
+        result = self._run(engine, data="explicit")
+
+        assert result.status is RunStatus.SUCCESS, result.exception
+        assert result.return_value == (
+            "param='the parameter default' config='explicit'"
+        )
+
+    def test_an_explicit_none_is_dropped_so_the_pipe_can_supply_it(
+        self, engine: JobExecutionEngine
+    ) -> None:
+        """The one case the deleted split actually changed — and it broke it.
+
+        The rule three lines above the split said an explicit `None` on a
+        marked parameter is dropped so the pipe (or the default) can win. The
+        split exempted config-field names from that rule, so `None` survived
+        into the config model and failed its `str` validation. A run that
+        should have read the pipe returned FAILURE instead.
+        """
+        result = self._run(engine, data=None)
+
+        assert result.status is RunStatus.SUCCESS, result.exception
+        assert result.return_value == (
+            "param='the parameter default' config='from the pipe'"
+        )

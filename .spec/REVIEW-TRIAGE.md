@@ -395,6 +395,26 @@ itself partly unfalsifiable, and a count of what it found could not reveal that.
 When a check filters, assert on **what it filtered out**, not only on what it kept.
 
 
+## Batch 12 — `run-request-entry` F5 and F7, the feature's last two
+
+| Finding | Verdict | Why the implementer missed it | Why the reviewer found it | What catches it now |
+|---|---|---|---|---|
+| `rre F7` — `_request_kwargs`' config-model split is a no-op defended by an unasserted claim | **FIXED — and the finding was stronger than the report** | The split came over from the click adapter along with stdin resolution, as one move. In the adapter it had a job: click built config options and job options separately, so the two halves were already distinct there. Moving both to the engine put the halves back into one dict on the way in and merged them on the way out, and nobody re-asked whether the round trip still did anything. The docstring answered the question with a claim — *"a `Stdin` marker never sits on a config model's field"* — that read like a design rule and was in fact a guess. | They noticed the union of the two halves is the input mapping, then went looking for what the split could possibly distinguish, and found only a case the docstring declared impossible. |  The claim is false: a job **can** declare `data: Annotated[str, Stdin()]` beside a config model with a `data` field, and nothing refuses it. Measured on the three cases the split can distinguish, it changed the answer **exactly once, and in the wrong direction** — an explicit `None` on a colliding name reached the config model and failed `str` validation instead of being dropped so the pipe could supply it. So it was inert where it was defended and wrong where it was not, and it is deleted rather than asserted. `TestAMarkerThatSharesAConfigFieldsName` — four tests, the first of which asserts the collision is constructible at all, so the class fails loudly if a future change makes the premise moot. Reinstating the split turns exactly one of them red, which is how the "wrong direction" claim above was measured rather than argued. |
+| `rre F5` — AC-20 cannot be assessed under machine load | **CONFIRMED contention, and the residue fixed** | The budget's own comment already anticipated half of it — *"CI is slower and noisier than this machine, and a perf test that flakes gets muted, which is worse than one that is loose"* — and answered it with headroom (1800ms against an 850ms max). Headroom is the wrong instrument: a 3.5×-oversubscribed machine does not add a constant, it multiplies. The conftest already skipped these tests under coverage and xdist for precisely this reason; it just never considered the load the harness cannot see. | They read `/proc/loadavg` before believing the failure — 41.55 on 12 cores — and noticed two budgets this feature never touched blew out by the same factor. | Re-run alone at load 4.0/12 cores: **12 passed in 5.27s**, so the finding's own discriminator holds. The residue is now closed at the source: `_oversubscription()` in `tests/conftest.py` reads the 1-minute load average per core, and above **2.0** every `perf_budget` test skips with a reason naming the measured load — the same rule already applied to coverage and xdist, extended to the third distortion. `tests/perf/test_budget_guard.py` pins both directions, including the reviewer's exact 41.55/12 reading, and pins that an *unmeasurable* machine keeps asserting: failing to skip is a flake you re-run, failing to assert is a regression that ships. |
+
+### Why 2.0, and not tighter
+
+The budgets already carry ~2× headroom over their authored maxima, so anything
+below a 2×-oversubscribed machine still fits inside them and keeps asserting. A
+serial `pytest` on a 2-core CI box sits near 1×. The reviewer's box sat at 3.5×
+and produced 3× the budget. 2.0 is the line between "the number describes the
+code" and "the number describes the queue" — and it is a constant with a comment
+citing the two real measurements, not a tuned threshold.
+
+`run-request-entry`'s thirteen findings are now closed: F1–F4 and F6–F13 fixed,
+F5 confirmed as contention with its residue fixed.
+
+
 ## Builtins and the delivery inputs — a question `rre F11` raised and did not answer
 
 `F11` was filed as prose drift, and fixing it left a vaguer claim than it should

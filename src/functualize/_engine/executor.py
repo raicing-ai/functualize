@@ -833,6 +833,19 @@ class JobExecutionEngine:
         server process's stdin is usually ``/dev/null`` — not a tty, so
         ``resolve_stdin_params``' own guard would read it and hand the job an
         empty string instead.
+
+        This used to hold a job's **config-model fields** out of the resolution
+        and merge them back afterwards, justified by a claim in this docstring
+        that a ``Stdin`` marker never sits on a config model's field. The claim
+        was never asserted, and it is false: a job can declare
+        ``data: Annotated[str, Stdin()]`` beside a config model carrying a
+        ``data`` field, and nothing refuses it. Measured on the three cases the
+        split could possibly distinguish — no value, an explicit value, an
+        explicit ``None`` — it changed the answer exactly once, and in the wrong
+        direction: an explicit ``None`` on a colliding name reached the config
+        model and failed validation, instead of being dropped so the pipe could
+        supply it. Inert where it was defended, wrong where it was not, so it is
+        deleted rather than asserted (rre F7).
         """
         kwargs = dict(request.kwargs)
         # A subscript, not a membership test. `not in CONSOLE_SURFACES`
@@ -852,28 +865,19 @@ class JobExecutionEngine:
         if not markers:
             return kwargs
 
-        # `config_class` is typed `type | None` on the entry, not
-        # `type[BaseModel]`: the engine deliberately does not import pydantic
-        # to name it. Read the field map defensively for the same reason.
-        config_fields: set[str] = set(
-            getattr(job.config_class, "model_fields", None) or ()
-        )
-        cli_values = {k: v for k, v in kwargs.items() if k in config_fields}
-        direct = {k: v for k, v in kwargs.items() if k not in config_fields}
-
         resolved = resolve_stdin_params(
             markers,
-            {pname: direct.get(pname) for pname in markers},
+            {pname: kwargs.get(pname) for pname in markers},
             streaming_stdin_params(job.function, markers),
         )
-        direct.update(resolved)
+        kwargs.update(resolved)
         for pname in markers:
             # A marked parameter that stdin did not supply and the caller left
             # as None is dropped, not passed: the job's own default has to win,
             # and an explicit ``None`` would override it.
-            if pname not in resolved and direct.get(pname) is None:
-                direct.pop(pname, None)
-        return {**direct, **cli_values}
+            if pname not in resolved and kwargs.get(pname) is None:
+                kwargs.pop(pname, None)
+        return kwargs
 
     def _record_history(
         self, job_name: str, kwargs: dict[str, Any], result: JobResult
