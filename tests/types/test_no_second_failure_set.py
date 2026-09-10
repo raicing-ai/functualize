@@ -34,6 +34,13 @@ _SRC = Path(__file__).resolve().parents[2] / "src" / "functualize"
 #: code, a panel, a status code, a CI annotation. Those belong to `outcome.py`.
 #: A **graph** decision answers *did this step satisfy the edge that depends on
 #: it*, which is the scheduler's business and has no boundary in it at all.
+#:
+#: `_engine/capabilities/runcontext.py` was listed here and is not any more:
+#: its `_TERMINAL_STATES` literal became a comprehension over
+#: `RunStatus.terminal` when the two disagreeing copies were collapsed (roa A2).
+#: `test_every_allowlisted_module_still_has_one` is what noticed, which is what
+#: that test is for — an exemption outliving the code it was argued about is a
+#: hole nobody can see.
 _ALLOWED: dict[str, str] = {
     "_types/outcome.py": "the authority itself",
     "_engine/executor.py": (
@@ -43,9 +50,12 @@ _ALLOWED: dict[str, str] = {
     "_engine/capabilities/workflow.py": (
         "graph edges: which step statuses stop a walk"
     ),
-    "_engine/capabilities/runcontext.py": (
-        "not a failure question at all: `_TERMINAL_STATES` is the lifecycle "
-        "state machine's 'can this transition?', which has no boundary in it"
+    "_types/enums.py": (
+        "`RunStatus.terminal` — the lifecycle state machine's 'may a phase "
+        "transition out of here?', which has no boundary in it and is not a "
+        "failure question. It is the *authority* for that question, the way "
+        "`outcome.py` is for the delivery one: `_engine/capabilities/` had two "
+        "copies of it that disagreed about REFUSED (roa A2)"
     ),
     "_engine/capabilities/invoke.py": (
         "graph edges: whether an invoked dependency counts as satisfied. The "

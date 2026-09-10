@@ -71,10 +71,21 @@ class JobPhase(TypedDict):
     duration: float | None
 
 
-# Terminal states that cannot be transitioned from
-_TERMINAL_STATES = frozenset(
-    {RunStatus.SUCCESS, RunStatus.FAILURE, RunStatus.CANCELLED, RunStatus.TIMEOUT}
-)
+#: Terminal states that cannot be transitioned from.
+#:
+#: **Derived from `RunStatus.terminal`, not written out again.** This set and
+#: the one in `_engine/capabilities/workflow.py` were two literals, one module
+#: apart, and they disagreed: that one included REFUSED and this one did not.
+#: Its comment even explained what the omission costs — *"a refused step simply
+#: never gets `end_time` or `duration`, so it reads as still running in every
+#: consumer of this record"* — and this copy had precisely that defect.
+#:
+#: `tests/context/test_runcontext_status.py` mirrored the omission and asserted
+#: agreement with it, so the two could never converge by failing. Found by
+#: adversarial review.
+#:
+#: The name survives because `functualize.job._runcontext` re-exports it.
+_TERMINAL_STATES = frozenset(status for status in RunStatus if status.terminal)
 
 
 def _dispatch_to_surfaces(

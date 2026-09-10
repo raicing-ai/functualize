@@ -130,3 +130,77 @@ def test_module_imports_no_upper_layer() -> None:
         )
     ]
     assert not bad, bad
+
+
+class TestEachFamilyAgreesWithTheTableItNames:
+    """The link between a family and its numbers, which was in nobody's head.
+
+    `TestTheTwoTablesStayAligned` above checks the two number tables against
+    *each other*. Nothing checked either against the **family** that names it,
+    and that is the gap review finding `roa A1` names: `is_failure(status,
+    family=Family.WIRE)` followed by `exit_code_for_status(status)`
+    type-checks, runs, and answers 5 for BLOCKED while claiming the wire
+    family. No surface does that today — every `is_failure` call site pairs
+    PROCESS with the exit table and PANEL with the panel — so this is a latent
+    hazard rather than a live bug, and these assertions are what keep it that
+    way.
+
+    Written as equalities over every terminal status, so editing
+    `_NOT_A_FAILURE[WIRE]` without touching the HTTP table (or the reverse)
+    fails here rather than shipping a surface that contradicts its own
+    declaration.
+    """
+
+    #: The two families that name a number table, and how to read it. PANEL and
+    #: TOOL are deliberately absent: a panel renders and a tool returns a
+    #: string, so there is no number to disagree with. Listing them here would
+    #: be inventing a pairing to test.
+    _NUMBERED = {
+        Family.PROCESS: lambda status: exit_code_for_status(status) != 0,
+        Family.WIRE: lambda status: http_status_for_status(status) >= 400,
+    }
+
+    @pytest.mark.parametrize("family", list(_NUMBERED), ids=lambda f: f.name)
+    def test_the_family_and_its_table_answer_alike(self, family: Family) -> None:
+        reads_as_error = self._NUMBERED[family]
+        for status in RunStatus:
+            if status is RunStatus.RUNNING:
+                continue
+            assert is_failure(status, family=family) == reads_as_error(status), (
+                f"{status.name}: family {family.name} says "
+                f"{'failure' if is_failure(status, family=family) else 'not a failure'}, "
+                f"but its own table renders it as "
+                f"{'an error' if reads_as_error(status) else 'not an error'}"
+            )
+
+    def test_the_two_numbered_families_are_not_the_same_family(self) -> None:
+        """The falsifier.
+
+        If PROCESS and WIRE agreed about every status, the parametrized test
+        above would be one assertion written twice and would pass for a
+        `Family` that had collapsed to a single answer.
+        """
+        differing = {
+            status
+            for status in RunStatus
+            if status is not RunStatus.RUNNING
+            if is_failure(status, family=Family.PROCESS)
+            != is_failure(status, family=Family.WIRE)
+        }
+        assert differing == {RunStatus.BLOCKED}, (
+            "PROCESS and WIRE are supposed to differ about BLOCKED and nothing "
+            f"else; they differ about {sorted(s.name for s in differing)}"
+        )
+
+    def test_every_family_is_either_numbered_or_knowingly_not(self) -> None:
+        """A fifth family must not arrive with no decision about its table.
+
+        `Family.WIRE` and `Family.TOOL` reached this branch with no code
+        consumer at all (`roa S2`); this is the analogous omission one level
+        up — a family that names no table and nobody noticed.
+        """
+        unnumbered = {Family.PANEL, Family.TOOL}
+        assert set(self._NUMBERED) | unnumbered == set(Family), (
+            "a Family member is neither in `_NUMBERED` nor knowingly without a "
+            f"table: {set(Family) - set(self._NUMBERED) - unnumbered}"
+        )

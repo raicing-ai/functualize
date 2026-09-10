@@ -266,3 +266,26 @@ Two with code substance, four record corrections. All six are now closed.
 | `roa S3` — the feature contradicts itself about what changed | **FIXED (record)** | `tasks.md` says W3 is "the only behaviour change in the feature"; `spec.md` §1.5 says the TUI is "the only surface calling a blocked run a success"; §1.1 of the same document lists `func builtin parallel` as a deciding site, and wave 2 changed its answer. The wave-audit table already knew two answers changed. A reviewer bisecting for the parallel exit-code change lands on W3 and finds nothing. | They read the graph's rationale against the audit table in the same file. | Both sentences corrected in place, with the correction quoted rather than the original silently replaced. |
 | `roa S6` — "three plugin `test_status_codes.py` suites" | **FIXED (record)** | `spec.md` was corrected to two during execution; `tasks.md` T6 and the feature checklist were not. `find plugins -name 'test_status_codes.py'` returns two. | They ran the `find`. | Both places corrected. |
 
+
+## Batch 8 — `run-outcome-authority` A1–A3, the architecture findings
+
+| Finding | Verdict | Why the implementer missed it | Why the reviewer found it | What catches it now |
+|---|---|---|---|---|
+| `roa A2` — a second place answers "is this phase terminal?", and the two disagree about REFUSED | **FIXED** | Two literal sets, one module apart, in sibling files under `_engine/capabilities/`. `workflow.py`'s carried a comment explaining exactly what omitting REFUSED costs — *"a refused step simply never gets `end_time` or `duration`, so it reads as still running in every consumer of this record"* — and `runcontext.py` had precisely that defect. Nobody read the two side by side, because nothing made them adjacent. Worse, `tests/context/test_runcontext_status.py` **wrote out its own terminal list to state the contract independently**, mirrored the copy *without* REFUSED, and then asserted agreement with it — so the guard certified the defect and the two could never converge by failing. | They asked "what else answers a question something else already answers?" — the brief's own question — and looked one module over from the file the feature edited. | One definition: `RunStatus.terminal`, beside `resumable` and `ran`. `runcontext.py` derives its re-exported `_TERMINAL_STATES` from it; `workflow.py` asks the status directly. The test's independent list gains REFUSED and now compares against the **property**, not against one module's copy. Plus `test_only_one_module_defines_which_states_are_terminal`, an AST scan over `_engine/` that flags a written-out set while allowing a comprehension. Dropping REFUSED fails 19; reintroducing a literal fails the scan. |
+| `roa A1` — `Family` has one live dimension, and nothing ties a family to its table | **FIXED (the mechanical half)** · redesign **not taken**, reason below | `_NOT_A_FAILURE` has four entries and **three are the same frozenset** — only PROCESS differs, and only about BLOCKED. And `is_failure(status, family=WIRE)` followed by `exit_code_for_status(status)` type-checks, runs, and answers 5 for BLOCKED while claiming the wire family. The pairing lived in the author's head. | They compared the four table entries and noticed three were identical, then asked what stops a caller pairing a family with the wrong number. | `TestEachFamilyAgreesWithTheTableItNames` — for every terminal status, each *numbered* family's answer must equal what its own table renders. PANEL and TOOL are named as knowingly unnumbered rather than assumed, and a fifth family that names no table fails. Editing `_NOT_A_FAILURE[WIRE]` without the HTTP table now fails 3. **The two members that were unreachable were fixed in batch 7** (`OUTCOME_FAMILY`). |
+| `roa A3` — `_types` is documented as behaviour-free; `flag_grammar.py` is 210 lines of behaviour | **FIXED (the doc was wrong)** | The line said *"only dataclasses, enums, protocols"* and had been false for a long time — well before this feature. | They read a doc line against the code it describes. | The reviewer offered a dichotomy — the doc is stale, or the module is in the wrong layer — and the evidence settles it decisively: `flag_grammar.py` defines **4** functions, while `workflow.py` defines 36, `job_declaration.py` 27, `naming.py` 25, `redaction.py` 18. `flag_grammar` is among the *least* behavioural modules in the package. `contributor/architecture/overview.md` now says what `_types` actually holds and what still does not belong there (anything reaching a subsystem — enforced by contract). |
+
+### A judgement I did not make
+
+`roa A1` offered two refactorings, preferring *"make the family own the number"*
+— `Family.PROCESS` carrying the exit code, `Family.WIRE` the HTTP status. That
+is a real improvement and it **contradicts a recorded design decision**:
+`contributor/architecture/run-model/06-outcome-authority.md` §D chose a function
+over the object deliberately. Prior art outranks a fresh argument, and
+contradicting it silently is the one thing the retrieval rules forbid.
+
+No surface commits the mismatch today — every `is_failure` call site pairs
+PROCESS with the exit table and PANEL with the panel — so the hazard is latent,
+and it is now mechanically checked. Redesigning the authority is a maintainer's
+call, not a triage fix, and it is not blocking anything.
+
