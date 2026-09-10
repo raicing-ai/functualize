@@ -126,6 +126,24 @@ class TestTheRenderedError:
         assert "'deploy'" in result.stderr, result.stderr
         assert "declared exactly once" in result.stderr, result.stderr
 
+    def test_the_user_is_told_once(self, project_tree, cli_run) -> None:
+        """One conflict, one sentence (adj M4).
+
+        The provider logged `⚠ <message>` and boot printed `Error: <message>`,
+        so every command in a conflicting project said the same thing twice.
+        The warning defended itself as being "for the scans that never boot",
+        naming `func builtin cache rebuild` — which boots, and dies at boot's
+        rendered error before its own scan runs. It is `debug` now; the record a
+        non-booting caller actually needs is `discovery_failures`, asserted
+        below.
+        """
+        root = _conflicting_project(project_tree)
+
+        result = cli_run(["hello"], cwd=root)
+
+        combined = result.stderr + result.stdout
+        assert combined.count("declared exactly once") == 1, combined
+
     def test_it_is_not_a_traceback(self, project_tree, cli_run) -> None:
         """The two spellings an escape takes on the two surfaces.
 

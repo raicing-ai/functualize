@@ -926,10 +926,16 @@ class CachedDirectoryScanProvider:
             # where the ambiguity becomes a rendered error and an exit code —
             # the provider has no delivery surface and must not pretend to one.
             #
-            # The warning is for the scans that never boot: `func builtin cache
-            # rebuild` builds a provider directly, and a cache written without
-            # the contested path should not be silent.
-            logger.warning("⚠ %s", exc)
+            # `debug`, not `warning`. This was a warning "for the scans that
+            # never boot", naming `func builtin cache rebuild` as the case — and
+            # that command *does* boot, and dies at boot's rendered error before
+            # its own scan is reached. So on every `func` path the line was a
+            # duplicate, and the user read the same sentence twice, once with a
+            # `⚠` and once with an `Error:` (adj M4). The record a non-booting
+            # caller needs is `discovery_failures`, which is written either way
+            # two lines below; a log line is the redundant half, not the
+            # load-bearing one.
+            logger.debug("group options conflict: %s", exc)
             record_discovery_failure(source_file, exc)
             self._forget_source_file(source_file, contested=exc.group)
             return []

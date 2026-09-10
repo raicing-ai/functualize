@@ -231,6 +231,16 @@ ignore_missing_imports = true
 
 [tool.importlinter]
 root_package = "functualize"
+# Unchanged deliberately, and measured rather than assumed: an import inside
+# `if TYPE_CHECKING:` is not an edge in import-linter's graph, so it can cross a
+# boundary the six contracts below refuse while CI stays green. The hole is
+# 155 statements wide, of which **8 would be refused as direct edges** — five
+# package pairs, named one by one in
+# `contributor/architecture/layer-contract-blind-spot.md` along with why each is
+# tolerable and what would make it stop being so. Turning the flag off would
+# refuse the 147 that are legitimate along with the 8; the document is the
+# cheaper instrument. Re-measure it before trusting the number (the file carries
+# the AST walk that produced it).
 exclude_type_checking_imports = true
 
 [[tool.importlinter.contracts]]

@@ -147,6 +147,64 @@ user-visible *surprise* (a value accepted on Monday and refused on Tuesday).
 What remains is a type mismatch that a job body sees as `str` consistently on
 that surface.
 
+### D-4 · `adjacent-defects` M4 — should the diagnostic builtins survive a group-options conflict?
+
+**Status: open. It is a one-sentence behaviour decision, and both answers are
+defensible, so it is yours.**
+
+Two files declaring `GroupOptions` for the same group is fatal: boot renders the
+conflict and exits `2`. That is right for a command that would *run* something —
+the framework cannot know which declaration's flags `func deploy --env prod`
+means, and the only alternative is to pick one silently.
+
+It is also fatal for the commands whose entire job is to explain a broken
+project. Measured on a project with two `deploy` declarations:
+
+```
+$ func builtin why hello
+Error: Group 'deploy' has more than one GroupOptions declaration: … exit=2
+                                                    ← stdout: empty
+
+$ func builtin info jobs
+Error: Group 'deploy' has more than one GroupOptions declaration: … exit=2
+                                                    ← stdout: empty
+
+$ func builtin cache rebuild
+Error: Group 'deploy' has more than one GroupOptions declaration: … exit=2
+                                                    ← stdout: empty
+```
+
+`func builtin why` exists to answer *"why is my job missing?"*. When the answer
+is a group conflict, it cannot answer — it repeats the message boot already
+printed and exits. `builtin cache rebuild` is the documented way to clear a bad
+cache and it dies before its own scan runs.
+
+**The two options.**
+
+1. **Leave it fatal everywhere.** One rule, no half-served project, and the
+   error does name both files and the remedy — so the user is not stuck, just
+   not helped by the tools. Costs nothing.
+2. **Exempt the diagnostic builtins** — `builtin why`, `builtin info`,
+   `builtin self doctor`, `builtin cache` — so they report the conflict through
+   `discovery_failures` (already populated) and still print. Anything that runs
+   a job stays fatal. Cost: boot has to learn which kind of command it is
+   booting for, which today it does not know; `report_group_options_conflicts`
+   is called from one place in `_app/boot.py` with no notion of the invocation.
+   That is a new parameter threaded from `_cli/main.py`, which is a real seam
+   and not a one-liner.
+
+**My recommendation: (2), but not urgently.** The argument that persuades me is
+narrow: `builtin why` is not a general-purpose command that happens to be
+convenient here, it is *the* command for this question, and a diagnostic that
+dies of the condition it diagnoses is a hole in the ADR-018 story rather than a
+missing nicety. But it is a behaviour change nobody asked for, it needs a seam
+that does not exist, and `func builtin self doctor` already reports the conflict
+and exits `0` — so one diagnostic does work today.
+
+**Not blocking, and one half of M4 is already fixed:** the message was printed
+**twice** on every command (a `⚠` from the provider's logger, then boot's
+`Error:`). It is printed once now.
+
 ## Batch 3 — Class E, the `adjacent-defects` behaviour defects
 
 Every one reproduced first, against a real invocation, before anything was
@@ -414,6 +472,29 @@ citing the two real measurements, not a tuned threshold.
 `run-request-entry`'s thirteen findings are now closed: F1–F4 and F6–F13 fixed,
 F5 confirmed as contention with its residue fixed.
 
+
+## Batch 13 — `adjacent-defects` B1, S6, M4, N1
+
+| Finding | Verdict | Why the implementer missed it | Why the reviewer found it | What catches it now |
+|---|---|---|---|---|
+| `adj B1` — AC-3's deliverable does not exist in this tree | **HALF ALREADY TRUE, HALF REAL — now both closed** | The document *was* written and *was* committed — 17 minutes after the reviewer's snapshot, arriving on `feat/run-model` through the `agent/f3-engine-seal` merge (`62475ea`), and their HEAD (`a4af648`) is an ancestor of it. Their diagnosis of the mechanism was exactly right: written in a scratch worktree, not yet in the lineage they had. The second half was a genuine miss — AC-3 asks for two things and only one had been done. The annotation was the smaller half of the task, and the task's own gate only checked the file. | They ran the gate rather than reading the `[x]`, got `exit=1`, then went looking for the file across every worktree on the machine and found the one copy. | The file is tracked and its gate answers `4` (≥2). `pyproject.toml`'s `exclude_type_checking_imports = true` now carries the annotation AC-3 asked for: **155** hidden statements, **8** that would be refused as direct edges, the five package pairs named in the document, why turning the flag off would refuse the 147 legitimate ones with them, and an instruction to re-measure before trusting the number. |
+| `adj S6` — T7's pin is scoped and spelling-bound | **FIXED (the test), RECORDED (the scope)** | The test was written from the gate, and the gate was a `rg` alternation of the two spellings the three real sites happen to use. A pattern derived from the current code can only ever see the current code's habits. The docstring then generalised from it — *"a fourth direct caller cannot appear silently"* — which is a claim about **all** spellings that a two-spelling matcher cannot support. | They ran candidate re-spellings through the test's own compiled pattern and printed MATCH/MISS, and separately called `_python_files()` to see what the scan actually covers. | The test resolves imports through the **AST**: `from importlib import metadata`, `import importlib.metadata as ilm`, an aliased function, a function-local import, and a bare reference that never calls are all found. `TestTheScannerSeesEverySpelling` runs each one, plus two falsifiers (the cached helper is not a bypass; an unrelated `metadata` module is not either), so the docstring's claim is tested rather than asserted. The `tests/` scope stays deliberate and now says so: the invariant is about the **boot path**, and `tests/test_packaging.py` asking the installed environment a question is not a boot-path bypass. |
+| `adj M4` — AC-1 is met, but the spec's own §3.1 is not | **PART FIXED, PART OPEN (D-4)** | §3.1's sentence contained its own contradiction — *"joins ADR-018's reported-not-fatal surface"* **and** *"exits with the discovery-failure code"* — and nobody noticed because each half describes a different decision: the **record** is shared with ADR-018, the **disposition** is not. The double print had the same shape: the provider's `⚠` defended itself as being "for the scans that never boot" and named `func builtin cache rebuild`, which boots and dies before its own scan. Both are claims that were never run. | They ran the conflicting project through four commands and read what came out, including the two commands the spec never mentions. | §3.1 now separates record from disposition and says which one is borrowed. The provider's line is `debug`: **one sentence per conflict**, pinned by `test_the_user_is_told_once` on both surfaces — restoring the `warning` turns exactly that test red. The remaining half — whether `builtin why` / `builtin info` / `builtin cache` should survive a conflict and report it instead of exiting 2 with empty stdout — is **D-4**, above, because it needs a seam boot does not have and it is a behaviour change nobody asked for. |
+| `adj N1` — AC-5's second sentence is over-broad | **FIXED** | AC-5's first sentence names three events and is exact; the second was a flourish added to generalise it, and generalising is where an acceptance criterion stops being checkable. Nothing tested it, so nothing objected. Counting is the only way to notice, and 24 of 25 is the kind of number that reads as "all" to whoever wrote it. | They counted, then checked the one exception against the docs and found it is emitted by *consumers* on purpose. | AC-5 states the rule that is true: every entry is emitted in `src/`, **or** named with a reason. `tests/observability/test_catalog_entries_have_producers.py` makes the exception cost something — an AST walk finds every `*emit*` call's first string literal, and three guards keep the exemption list honest: a second unexplained orphan fails, an exemption that *acquires* a producer fails (a stale excuse is the same lie reversed), and an exemption naming a non-catalog event fails. The falsifier pins that the scan finds `job.execute.start` and does not find `interactivity.job.submit`, so a scanner returning everything or nothing cannot pass. |
+
+### What B1 says about reviewing a moving branch
+
+B1 is the only finding in five reviews that was **already false when written**,
+and it was not the reviewer's error — they measured their tree correctly and
+said so, twice, including that they could not confirm the mechanism because the
+review rules forbid git. The document landed by merge a quarter of an hour later.
+
+Worth keeping as a fact about the process rather than about the code: a review
+taken against a snapshot of a branch that several agents are merging into will
+occasionally describe a state that no longer exists. The reviewer's own
+discipline is what makes that recoverable — they named the exact file, the exact
+worktree they found it in, and the mechanism they suspected, so re-checking cost
+one `git merge-base --is-ancestor`.
 
 ## Builtins and the delivery inputs — a question `rre F11` raised and did not answer
 

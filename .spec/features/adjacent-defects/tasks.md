@@ -130,6 +130,19 @@ now: `3` · after: `3` — **invariant**, and it is the record's *second* branch
 **Test:** a test asserts the bypass count, so a fourth cannot appear silently
 (`pitfalls.md` §6).
 
+> Annotated 2026-09-10 (adj S6): the gate above and the test both matched two
+> literal spellings, and a review found three more that mean the same thing —
+> `from importlib import metadata`, `import importlib.metadata as ilm`, and
+> binding the function without calling it. The **gate** keeps its regex (it is a
+> record of what was true when the task ran, and re-running it must still
+> answer `3`); the **test** now resolves imports through the AST, so the
+> "a fourth cannot appear silently" claim is true of every spelling rather than
+> of two. `TestTheScannerSeesEverySpelling` runs each re-spelling through the
+> scanner. The same review noted `tests/` is outside the scan and holds a live
+> direct caller — deliberate, and now said out loud in the module docstring: the
+> invariant is about the **boot path**, and a test asking the installed
+> environment a question is not a boot-path bypass.
+
 ---
 
 ## Wave 2 — the measurement

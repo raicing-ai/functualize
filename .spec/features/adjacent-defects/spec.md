@@ -140,8 +140,20 @@ consistency gap: three callers of a superseded API, with no test pinning the cou
 
 ### 3.1 Failures are rendered, not raised
 
-`GroupOptionsConflictError` joins ADR-018's reported-not-fatal surface: the conflict is
-rendered, names both files, and exits with the discovery-failure code — not a traceback.
+`GroupOptionsConflictError` is **rendered rather than raised**: it names the group and both
+declaring files, and exits with `ExitCode.USAGE` — not a traceback. It borrows ADR-018's
+*record* (the conflict is written to `discovery_failures`, the list that answers "why is my
+job missing?") but **not** ADR-018's *disposition*: a module read that fails costs one job
+and the run continues, while two files claiming one group's flags is a project-wide
+contradiction whose only other resolution is to serve one declaration's flags silently.
+
+> Corrected 2026-09-10 (adj M4). The original sentence said the error "joins ADR-018's
+> reported-not-fatal surface" while the same sentence gave it an exit code — it cannot be
+> both, and the implementation is fatal. The record and the disposition are two decisions,
+> and only the first is shared. What the correction does **not** settle is whether the
+> *diagnostic* builtins should be exempt from the fatal half; that is recorded as an open
+> decision in `.spec/REVIEW-TRIAGE.md` (D-4), because `func builtin why` currently cannot
+> answer the question it exists to answer when the answer is a group conflict.
 
 ### 3.2 One boot per invocation
 
@@ -198,7 +210,17 @@ it, it might be useful" is not an outcome — `CONSTITUTION.md` → *Reachabilit
 - **AC-4** `get_missing_required_args` and `omit_defaults` are each deleted, or have a named
   production call path proven by breaking it and watching a test fail.
 - **AC-5** `job.execute.error`, `cli.parse.start` and `tui.session.*` are each emitted, or
-  removed from the catalog. No catalog entry lacks a producer.
+  removed from the catalog. Every catalog entry is emitted in `src/`, **or** is named in
+  `tests/observability/test_catalog_entries_have_producers.py::_CONSUMED_NOT_EMITTED` with
+  the reason it is not.
+
+  > Corrected 2026-09-10 (adj N1). The original second sentence read *"No catalog entry
+  > lacks a producer"*, and 24 of 25 do. The exception is `interactivity.job.submit`: the
+  > framework **subscribes** to it (`_app/boot.py`) and the guides tell an interactivity
+  > backend to emit it, so a producer in `src/` would be the framework talking to itself.
+  > Deleting the entry would delete the seam. The criterion now states the rule that is
+  > actually true and puts a cost on the exception — a second exemption without a reason
+  > fails, and so does an exemption that later acquires a producer.
 - **AC-6** `JobContext.deadline` is gone.
 - **AC-7** `_deposit` (`_workflow_tools.py:423`) is gone.
 - **AC-8** `tests/perf/test_startup_budget.py` no longer claims seven uncached
