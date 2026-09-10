@@ -22,7 +22,10 @@ import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from contextlib import AbstractContextManager
 
 try:
     import click
@@ -676,6 +679,33 @@ def _extract_aliases(merged_config: dict[str, Any]) -> dict[str, str]:
     if isinstance(aliases, dict):
         result.update(aliases)
     return result
+
+
+def _diagnostic_scope(effective_args: list[str]) -> AbstractContextManager[None]:
+    """`diagnostic_boot()` when these args name a diagnostic builtin, else nothing.
+
+    The family name is the token after ``builtin`` — `func builtin why hello`
+    names `why`. Read positionally rather than through click, because the
+    decision has to be made *before* `cli_app()` runs: the app boots inside
+    `FunctualizeApp.__init__`, so by the time any callback could ask, the boot
+    that would have exited has already happened.
+
+    Global flags are already gone by here — `detect_mode` returns
+    `effective_args` with the pre-boot globals stripped — so the token after
+    `builtin` is the family and not an option's value.
+    """
+    import contextlib
+
+    from functualize._cli.builtins import BUILTIN_ROOT, DIAGNOSTIC_BUILTINS
+    from functualize.app.utils import diagnostic_boot
+
+    family = ""
+    if BUILTIN_ROOT in effective_args:
+        after = effective_args[effective_args.index(BUILTIN_ROOT) + 1 :]
+        family = next((token for token in after if not token.startswith("-")), "")
+    if family in DIAGNOSTIC_BUILTINS:
+        return diagnostic_boot()
+    return contextlib.nullcontext()
 
 
 # ─── Unknown command handling ────────────────────────────────────────────
@@ -1969,6 +1999,7 @@ def _run_cli() -> None:
     from functualize.app.utils import (
         DiscoveryOverrides,
         auto_discover,
+        diagnostic_boot,
         enumerate_group_names,
         enumerate_job_names,
         read_routing_names_from_cache,
@@ -2059,7 +2090,15 @@ def _run_cli() -> None:
         and mode is not Mode.GROUP
     ):
         register_builtin_commands(cli_app)
-        cli_app()
+        # `--help` prints and stops. It never runs a job, so a project-wide
+        # contradiction — two files contesting one group's flags — has nothing
+        # to make ambiguous here, and killing a help request over it left a
+        # user with a broken project unable to read the manual for the command
+        # that would explain it (`func builtin why --help` exited 2 with an
+        # empty stdout). Unconditional, not `_diagnostic_scope`: the rule is
+        # about *running*, and this path runs nothing (decision D-4).
+        with diagnostic_boot():
+            cli_app()
         return
 
     # Resolve output format from global options. Unset → "auto": the emitter
@@ -2210,4 +2249,23 @@ def _run_cli() -> None:
     # flags is a behaviour change nobody has asked for, and inventing one while
     # correcting a comment is how scope grows silently (rre F11).
     register_builtin_commands(cli_app)
-    cli_app()
+
+    # A **diagnostic** builtin runs inside `diagnostic_boot()`, which turns a
+    # project-wide contradiction — two files declaring `GroupOptions` for one
+    # group — from an exit into a record on `discovery_failures`. `func builtin
+    # why` exists to answer "why is my job missing?", and that rule stopped it
+    # before it could answer: exit 2, nothing on stdout. `builtin cache
+    # rebuild`, the documented way to clear a bad cache, died before reaching
+    # its own scan (adj M4, decision D-4).
+    #
+    # Everything else stays fatal, **`builtin parallel` included**: it runs
+    # jobs, and the rule is about not running under an ambiguity rather than
+    # about which door was used.
+    #
+    # Decided here rather than inside `cli_app`, because `cli_app`'s only child
+    # is `builtin` — `ctx.invoked_subcommand` is always `"builtin"` and the
+    # family name is one level deeper, which a group callback cannot see. Here
+    # the effective args are in hand, and the block wraps the whole invocation,
+    # so it is still in force when `FunctualizeApp.__init__` boots inside it.
+    with _diagnostic_scope(effective_args):
+        cli_app()

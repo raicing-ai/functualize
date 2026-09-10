@@ -150,10 +150,16 @@ contradiction whose only other resolution is to serve one declaration's flags si
 > Corrected 2026-09-10 (adj M4). The original sentence said the error "joins ADR-018's
 > reported-not-fatal surface" while the same sentence gave it an exit code — it cannot be
 > both, and the implementation is fatal. The record and the disposition are two decisions,
-> and only the first is shared. What the correction does **not** settle is whether the
-> *diagnostic* builtins should be exempt from the fatal half; that is recorded as an open
-> decision in `.spec/REVIEW-TRIAGE.md` (D-4), because `func builtin why` currently cannot
-> answer the question it exists to answer when the answer is a group conflict.
+> and only the first is shared.
+>
+> Extended 2026-09-11 (decision D-4). **The diagnostics are exempt from the fatal half.**
+> `func builtin cache`, `info`, `self` and `why` boot inside `diagnostic_boot()`, where the
+> conflict is recorded and the command runs: a rule that stops `func builtin why` stops the
+> answer to the question the conflict raises, and `builtin cache rebuild` — the documented
+> way to clear a bad cache — was dying before it reached its own scan. The exemption is by
+> **command, not by door**: `builtin parallel` runs jobs and stays fatal, because the rule is
+> about not running under an ambiguity rather than about which entry point was used. See
+> `.spec/REVIEW-TRIAGE.md` D-4 for what was measured.
 
 ### 3.2 One boot per invocation
 

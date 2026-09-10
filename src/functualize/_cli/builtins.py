@@ -257,6 +257,21 @@ BUILTIN_ROOT_COMMAND: BuiltinCommand = BuiltinCommand(
 )
 
 
+#: The builtins whose job is to explain or repair a project that is broken.
+#:
+#: They boot the project like everything else, so a project-wide contradiction
+#: — two files declaring ``GroupOptions`` for one group — used to stop them the
+#: way it stops a run: exit 2, nothing on stdout. That made ``func builtin why``
+#: unable to answer *"why is my job missing?"* in the one case where the answer
+#: was the contradiction, and made ``builtin cache rebuild`` — the documented
+#: way to clear a bad cache — die before its own scan (adj M4, decision D-4).
+#:
+#: Everything absent from this set stays fatal, ``builtin parallel`` included:
+#: it runs jobs, and the rule is about not *running* under an ambiguity, not
+#: about which door was used.
+DIAGNOSTIC_BUILTINS: frozenset[str] = frozenset({"cache", "info", "self", "why"})
+
+
 # Derived lookups — import these instead of re-listing builtin names.
 BUILTIN_NAMES: frozenset[str] = frozenset({BUILTIN_ROOT})
 

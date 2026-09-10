@@ -26,11 +26,13 @@ import logging
 import os
 import re
 import sys
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Collection
+    from collections.abc import Collection, Iterator
 
     from functualize._engine.executor import JobExecutionEngine
     from functualize._types.protocols import EngineHost
@@ -1354,6 +1356,43 @@ def report_unsatisfiable_jobs(app: Any) -> None:
 #: ``record_discovery_failure`` names that field after the exception's class.
 _GROUP_OPTIONS_CONFLICT = "GroupOptionsConflictError"
 
+#: Is this boot serving a command whose job is to *explain* a broken project?
+#:
+#: A ``ContextVar`` rather than a constructor argument, because the app boots
+#: inside ``FunctualizeApp.__init__`` — there is no moment between construction
+#: and boot in which a caller could set an attribute — and because this is a
+#: property of the **invocation**, not of the app. A ``FunctualizeApp`` built
+#: twice in one process, once for a diagnostic and once for a run, must get two
+#: answers; a class attribute would give it one.
+_DIAGNOSTIC_BOOT: ContextVar[bool] = ContextVar(
+    "functualize_diagnostic_boot", default=False
+)
+
+
+@contextmanager
+def diagnostic_boot() -> Iterator[None]:
+    """Boot inside this block reports project-wide contradictions, not exits.
+
+    ``func builtin why`` exists to answer *"why is my job missing?"*. When the
+    answer is that two files declare ``GroupOptions`` for one group, it could
+    not answer: the contradiction stopped the boot before the command ran, with
+    exit 2 and an empty stdout. Same for ``builtin info`` and for
+    ``builtin cache rebuild``, which is the documented way to clear a bad cache
+    and died before reaching its own scan (adj M4, decision D-4).
+
+    **Only the diagnostics.** Anything that would *run* a job stays fatal: the
+    framework cannot know which declaration's flags ``func deploy --env prod``
+    means, and the only alternative to stopping is serving one of them
+    silently. The set is
+    :data:`~functualize._cli.builtins.DIAGNOSTIC_BUILTINS`, and the caller —
+    which knows what was typed — is what enters this block.
+    """
+    token = _DIAGNOSTIC_BOOT.set(True)
+    try:
+        yield
+    finally:
+        _DIAGNOSTIC_BOOT.reset(token)
+
 
 def report_group_options_conflicts(app: Any) -> None:
     """Render a contested group path and stop the run. Do not serve either one.
@@ -1376,6 +1415,11 @@ def report_group_options_conflicts(app: Any) -> None:
     table's config-error code, which is also what a Pydantic ``ValidationError``
     at invocation takes (``app/adapters/cli.py:_print_validation_error``).
 
+    **Except for the commands that exist to explain a broken project.** Inside
+    :func:`diagnostic_boot`, this reports and returns instead: a rule that stops
+    ``func builtin why`` is a rule that stops the answer to the question the
+    conflict raises. See that function for what is and is not exempt.
+
     Args:
         app: The app whose providers ran discovery. Providers that do not scan
             (``StaticProvider``, a plugin's own) contribute nothing, the same
@@ -1393,6 +1437,14 @@ def report_group_options_conflicts(app: Any) -> None:
         if getattr(failure, "error_type", None) == _GROUP_OPTIONS_CONFLICT
     ]
     if not conflicts:
+        return
+
+    if _DIAGNOSTIC_BOOT.get():
+        # A diagnostic reports and keeps going. The conflict is already in
+        # `discovery_failures`, which is what `builtin info` renders and what
+        # `builtin why` reads — so saying it here as well would print it twice
+        # for the commands whose whole output is that list. Nothing is
+        # swallowed: the record is the channel.
         return
 
     for failure in conflicts:

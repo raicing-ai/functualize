@@ -904,7 +904,23 @@ class FunctualizeApp:
         try:
             entry = self.execution_engine.materialize_job(job_name)
         except Exception as exc:
-            return None, [], "", f"{job_name} → UNKNOWN\n  {type(exc).__name__}: {exc}"
+            # `KeyError: "Job 'x' not found in engine registry"` is what this
+            # said, which is the exception's repr rather than an answer.
+            # `func builtin why` exists to answer "why is my job missing?", and
+            # when discovery already knows — a module that failed to load, two
+            # files contesting one group's flags — that is the answer, in the
+            # same words the unknown-command reporters use. One implementation,
+            # so the two doors cannot say different things about one project
+            # (adj M4, decision D-4).
+            import contextlib
+
+            from functualize._cli.info import explain_missing_job
+
+            reason = None
+            with contextlib.suppress(Exception):
+                reason = explain_missing_job(job_name, self)
+            detail = reason or f"{type(exc).__name__}: {exc}"
+            return None, [], "", f"{job_name} → UNKNOWN\n  {detail}"
 
         declaration = getattr(entry.function, "__functualize_job__", None)
         if declaration is None:

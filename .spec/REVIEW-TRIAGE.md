@@ -29,13 +29,13 @@ deferred and why. Nothing is dropped silently.
 the unlabelled paragraphs in the reviews' architecture, design-pattern and
 code-smell sections.
 
-Not fixed, and why:
+Not fixed, and why (D-4 has since been decided and implemented — kept in the table so the trail is readable):
 
 | | Finding | Why |
 |---|---|---|
 | **D-2** | `adj S1` (second half) — where `str` → enum coercion should live | Needs a decision. Three options, my recommendation is coercion at the job-invocation boundary, but that puts type coercion in the kernel — your call. |
 | **D-3** | `builtin parallel --output` → `--layout`, and wiring `--force` into `builtin parallel` / `builtin why` | Needs a decision. Behaviour changes nobody asked for. |
-| **D-4** | `adj M4` (second half) — should the diagnostic builtins survive a group-options conflict? | Needs a decision. `func builtin why` cannot answer the question it exists for when the answer is a group conflict; the fix needs a seam boot does not have. |
+| ~~**D-4**~~ | `adj M4` (second half) — should the diagnostic builtins survive a group-options conflict? | **Decided 2026-09-11 and implemented**: exempt `cache`, `info`, `self` and `why`; everything that runs a job, `builtin parallel` included, stays fatal. |
 | — | `asp S-1` (second half) — a refusal writes no history record and fires no `AFTER_FAILURE` hook | Deferred to `durable-run-layer` (F5), which builds the run-event machinery it needs. |
 | — | `rre F9` (second half) — collapsing `ExecutionContext`'s duplicated fields | Deferred to `engine-sealed-construction` (F3), which rewrites exactly that code. Divergence is a failing test in the meantime, not a possibility. |
 | — | `jof S3` — adding `reason` and `checks` to `FreshnessVerdict` | Corrected rather than implemented. Two lines, both already on `decision.verdict`, and a reasonable future request — but AC-1 never asked for it. |
@@ -95,6 +95,14 @@ trade-offs rather than errors, and some want the maintainer's call.
 | *(not reported by any reviewer)* — the engine seal undone | **FIXED** | `agent_step.py` came from a branch predating the seal and re-added two reach-throughs. `git` merged cleanly, and ruff, mypy and all six contracts stayed green. **Five reviewers did not find this either** — it did not exist in any single branch. | The same gate re-run test, on its first run |
 
 ## Needs a decision from the maintainer
+
+> **These `D-n` are this file's own numbering** and have nothing to do with the
+> audit's `D-1`…`D-13`, which the feature specs cite. Both sequences reach at
+> least four, and they name different things: the audit's **D-4** is
+> *"`rc.invoke` cannot pass group options"* (`surface-request-parity` §1.1);
+> this file's **D-4** is *"should the diagnostic builtins survive a
+> group-options conflict?"*. When citing one, say which — `audit D-4` or
+> `triage D-4`.
 
 ### D-1 · `agent-step-port` S-3 — the spec forbids a default executor; the code ships one
 
@@ -171,8 +179,120 @@ that surface.
 
 ### D-4 · `adjacent-defects` M4 — should the diagnostic builtins survive a group-options conflict?
 
-**Status: open. It is a one-sentence behaviour decision, and both answers are
-defensible, so it is yours.**
+**Status: DECIDED 2026-09-11 — exempt the diagnostics. Implemented.**
+
+The maintainer took option (2) below. What ships:
+
+`DIAGNOSTIC_BUILTINS = {"cache", "info", "self", "why"}` in `_cli/builtins.py`,
+and `diagnostic_boot()` — a `ContextVar` scope in `_app/boot.py`, reached from
+`_cli` through the `app.utils` corridor — inside which
+`report_group_options_conflicts` **records and returns** instead of exiting.
+Measured on the conflicting project:
+
+```
+func builtin info           exit 0   Discovery Failures (1) …
+func builtin info --json    exit 0   discovery_failures[0].error_type = GroupOptionsConflictError
+func builtin cache rebuild  exit 0   Cache rebuilt with 1 entries.
+func builtin why web        exit 2   _group.py was dropped because it contests a
+                                     group's flags with another file, so the job
+                                     it defines is missing: …
+func hello                  exit 2   Error: Group 'deploy' has more than one …
+func builtin parallel hello exit 2   Error: Group 'deploy' has more than one …
+func builtin history        exit 2   Error: Group 'deploy' has more than one …
+```
+
+**Three decisions inside the decision**, each of which could have gone the other
+way:
+
+1. **By command, not by door.** `builtin parallel` reaches the same door as the
+   diagnostics and it *runs jobs*, so it stays fatal. The rule is about not
+   running under an ambiguity, not about which entry point was used.
+2. **Where the decision is made.** Not in `cli_app`: its only child is
+   `builtin`, so `ctx.invoked_subcommand` is always `"builtin"` and the family
+   name is one level deeper, which a group callback cannot see. And not as a
+   constructor argument: the app boots inside `FunctualizeApp.__init__`, so
+   there is no moment between construction and boot in which anyone could set an
+   attribute. It is decided at the dispatch site, where `effective_args` is in
+   hand, and the scope wraps the whole invocation — still in force when
+   `__init__` boots inside it. A `ContextVar` rather than a module global
+   because it is a property of the *invocation*: one process building two apps,
+   one for a diagnostic and one for a run, must get two answers.
+3. **The diagnostic does not print the error twice.** The conflict is already in
+   `discovery_failures`, which is what `builtin info` renders; saying it again
+   on stderr would double the output of the commands whose whole job is that
+   list.
+
+**Two further defects surfaced by making the commands run**, both fixed:
+
+- **`func builtin why <missing>` answered with an exception repr** —
+  `KeyError: "Job 'web' not found in engine registry"` — for *any* unknown job,
+  conflict or not. It calls `explain_missing_job` now, the same implementation
+  both unknown-command reporters use, so the two doors cannot say different
+  things about one project. A plain typo in a healthy project is unchanged:
+  that function returns `None` when nothing failed.
+- **The attributed note said "failed to load"** for a file that had imported
+  perfectly and was dropped for contesting a group. The *generic* note was
+  already careful about this ("three kinds share this list and only one is a
+  load failure"); the attributed one — the one a reader acts on — was not.
+  `_WHAT_HAPPENED` maps the error type to what actually happened, defaulting to
+  "failed to load" because the unlisted types genuinely are import failures.
+
+`tests/group_options/test_diagnostics_survive_a_conflict.py` — eleven tests
+through the **real console script**, because this is about process exit codes:
+each diagnostic runs and reports, each of a job / `builtin parallel` / a
+non-diagnostic builtin still exits 2 with the rendered error, `parallel`'s
+exclusion is asserted as its own statement, and the exempt set is checked
+against `BUILTIN_COMMANDS` so it cannot name something that does not exist.
+
+**`--help` is exempt unconditionally**, not by command. It prints and stops, so
+there is nothing for an ambiguity to make wrong — and `func builtin why --help`
+exited 2 with an empty stdout, leaving a user with a broken project unable to
+read the manual for the command that would explain it. `builtin history --help`
+is exempt on the same reasoning: the rule is about not *running* under an
+ambiguity, and that path runs nothing.
+
+**Known and left alone (1): scan order.** Which of the two contesting files gets
+recorded as *the* failure depends on scan order, so `why`'s answer is sometimes
+the attributed note and sometimes the generic one. Both are true and both point
+at `builtin info`, which now works. Making it deterministic is a question about
+the provider, not about this decision.
+
+**Known and left alone (2): the app surface is still fatal everywhere.**
+Measured on a project's own `main.py` under the same conflict:
+
+```
+python main.py builtin info       exit 2   (empty stdout)
+python main.py builtin why hello  exit 2   (empty stdout)
+python main.py --help             exit 2   (empty stdout)
+```
+
+The reason is structural rather than an oversight: `FunctualizeApp(...)` runs on
+line 4 of the author's own file, so **boot has already happened before
+functualize sees an argument**. The two fixes available are both worse than the
+asymmetry:
+
+- Have the constructor read `sys.argv`. That is ambient-input reading inside a
+  library constructor — precisely what `rre F9`/`F10` removed from this branch,
+  and reintroducing it to fix a message would be trading a real property for a
+  cosmetic one.
+- Have boot only *record*, and let each delivery surface decide. That is the
+  better architecture and it is **`surface-request-parity` (F4)'s subject** —
+  every door answers alike — but it touches HTTP, Lambda, MCP and embedders,
+  each of which would need its own answer. Doing it here would be that feature's
+  work done badly and out of order.
+
+So it is recorded rather than fixed, and it is **not a regression**: the app
+surface was fatal for every command before this change too. What changed is that
+`func` is now right and the app surface is visibly behind it — which is the
+right way round, and is exactly the kind of row F4's parity matrix exists to
+carry.
+
+---
+
+<details>
+<summary>The question as it was put, and the options</summary>
+
+**It was a one-sentence behaviour decision, and both answers were defensible.**
 
 Two files declaring `GroupOptions` for the same group is fatal: boot renders the
 conflict and exits `2`. That is right for a command that would *run* something —
@@ -226,6 +346,8 @@ and exits `0` — so one diagnostic does work today.
 **Not blocking, and one half of M4 is already fixed:** the message was printed
 **twice** on every command (a `⚠` from the provider's logger, then boot's
 `Error:`). It is printed once now.
+
+</details>
 
 ## Batch 3 — Class E, the `adjacent-defects` behaviour defects
 

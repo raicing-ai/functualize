@@ -13,7 +13,8 @@ import json
 import os
 import sys
 import tomllib
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -211,6 +212,7 @@ __all__ = [
     "read_group_options_from_cache",
     "suggest_similar_commands",
     "discovery_hash_for",
+    "diagnostic_boot",
     "has_eligible_ambient",
     "is_execution_engine",
     "terminal_available",
@@ -1715,6 +1717,20 @@ def has_eligible_ambient(app: Any, descriptor: Any) -> bool:
     from functualize._engine.ambient import has_eligible_ambient as _probe
 
     return _probe(app, descriptor)
+
+
+@contextmanager
+def diagnostic_boot() -> Iterator[None]:
+    """Boot inside this block reports a project-wide contradiction, not exits.
+
+    The corridor for `_cli`, which may import public folders only. See
+    ``functualize._app.boot.diagnostic_boot`` for what it does and, more
+    importantly, what stays fatal.
+    """
+    from functualize._app.boot import diagnostic_boot as _diagnostic_boot
+
+    with _diagnostic_boot():
+        yield
 
 
 def discovery_hash_for(app: Any = None) -> str | None:
