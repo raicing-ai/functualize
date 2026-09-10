@@ -23,6 +23,28 @@ deferred and why. Nothing is dropped silently.
 
 ---
 
+## Where this stands — 2026-09-10
+
+**Every finding in all five reviews has been triaged.** Batches 1–16 below, plus
+the unlabelled paragraphs in the reviews' architecture, design-pattern and
+code-smell sections.
+
+Not fixed, and why:
+
+| | Finding | Why |
+|---|---|---|
+| **D-2** | `adj S1` (second half) — where `str` → enum coercion should live | Needs a decision. Three options, my recommendation is coercion at the job-invocation boundary, but that puts type coercion in the kernel — your call. |
+| **D-3** | `builtin parallel --output` → `--layout`, and wiring `--force` into `builtin parallel` / `builtin why` | Needs a decision. Behaviour changes nobody asked for. |
+| **D-4** | `adj M4` (second half) — should the diagnostic builtins survive a group-options conflict? | Needs a decision. `func builtin why` cannot answer the question it exists for when the answer is a group conflict; the fix needs a seam boot does not have. |
+| — | `asp S-1` (second half) — a refusal writes no history record and fires no `AFTER_FAILURE` hook | Deferred to `durable-run-layer` (F5), which builds the run-event machinery it needs. |
+| — | `rre F9` (second half) — collapsing `ExecutionContext`'s duplicated fields | Deferred to `engine-sealed-construction` (F3), which rewrites exactly that code. Divergence is a failing test in the meantime, not a possibility. |
+| — | `jof S3` — adding `reason` and `checks` to `FreshnessVerdict` | Corrected rather than implemented. Two lines, both already on `decision.verdict`, and a reasonable future request — but AC-1 never asked for it. |
+| — | `asp A-2` — two verbatim hint functions | The reviewer's own recommendation. Below the rule of three; revisit at the third copy. |
+| — | `asp A-1` — deriving node kind from a `ClassVar` | Offered and not taken: it trades three enumerations for two and does not make the claim true. A parity test does. |
+| — | `app/adapters/cli.py` — `Run 'func --help'` on a surface that is not `func` | Noticed while fixing, in no review. Needs the invoked program name, which this function does not have. |
+
+---
+
 ## Findings that are the same defect wearing different clothes
 
 Several findings are one class. Fixing the class settles them together, and the
