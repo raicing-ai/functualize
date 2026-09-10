@@ -24,8 +24,6 @@ RunSurface = Literal[
     "func.job",
     "func.group",
     "func.single-file",
-    "func.bare",
-    "func.builtin",
     "app.cli",
     "app.execute",
     "tui.inline",
@@ -55,12 +53,19 @@ CONSOLE_SURFACES: Final[frozenset[str]] = frozenset(
         "func.job",
         "func.group",
         "func.single-file",
-        "func.bare",
-        "func.builtin",
         "app.cli",
     }
 )
 """The surfaces whose caller owns the process's stdin.
+
+Four doors, not six. ``func.builtin`` and ``func.bare`` were declared here and in
+``RunSurface`` and **produced by nothing** — `func builtin parallel` runs its jobs
+through `app.execute_parallel`, which names them `app.parallel`, and bare `func`
+opens the inline TUI, which names its runs `tui.inline`. Both were removed
+(maintainer's decision, 2026-09-10): a label nothing can produce is decoration,
+and this feature exists to remove exactly that. If a later door needs one, it
+comes back together with the code that produces it.
+
 
 ``Stdin``-marked parameters are resolved by ``engine.run()`` (run-request/T11),
 which every surface reaches — so the engine has to know which callers actually

@@ -84,30 +84,53 @@ class TestAConsoleSurfaceReadsThePipe:
 
         assert result.return_value == "explicit"
 
-    def test_a_terminal_with_no_value_refuses_rather_than_blocking(
+    def test_a_terminal_with_no_value_leaves_the_default(
         self, engine: JobExecutionEngine
     ) -> None:
-        """Pinned as it behaves, not as it arguably should.
+        """No pipe, no flag, a parameter with a default: the default wins.
 
-        `resolve_stdin_params` exits 1 when stdin is a terminal and a marked
-        parameter is unresolved — **even though this one has a default**. Its
-        own comment says "the caller is responsible for determining whether the
-        param has a default … signal this so the caller can decide", and then it
-        raises `SystemExit` instead of signalling, so no caller ever could.
+        This test previously pinned the **opposite** behaviour, and said so:
+        `resolve_stdin_params` exited 1 here even though the parameter declared
+        a default, under a comment claiming it was signalling to a caller that
+        could decide. It was not signalling; it was exiting, and no caller could.
 
-        That contradiction predates T11 — the click adapter reached the same
-        line with the same arguments — so this test records the behaviour rather
-        than changing it. See OPEN-QUESTIONS 13.
+        The maintainer's decision (2026-09-10): a default means optional here as
+        it does everywhere else in the framework. So the assertion is inverted
+        rather than deleted — what was recorded as a defect is now recorded as
+        the rule, in the same place, so a reader sees which way it went.
         """
-        with (
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
-            ),
-            pytest.raises(SystemExit) as exc,
+        with patch(
+            "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
         ):
-            _run(engine, "func.job")
+            result = _run(engine, "func.job")
 
-        assert exc.value.code == 1
+        assert result.status is RunStatus.SUCCESS, result.exception
+        assert result.return_value == "the default"
+
+    def test_a_parameter_with_no_default_still_fails(
+        self, engine: JobExecutionEngine
+    ) -> None:
+        """One rule, not two.
+
+        Dropping the exit does not make a *required* stdin parameter optional —
+        it makes it fail the way every other unsatisfied parameter fails, as a
+        missing-argument error, rather than through a bespoke exit inside the
+        stdin reader.
+        """
+
+        def _required(data: Annotated[str, Stdin()]) -> str:
+            return data
+
+        register(engine, "required-shout", _required)
+        with patch(
+            "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
+        ):
+            result = engine.run(
+                RunRequest(job_name="required-shout", surface="func.job")
+            )
+
+        assert result.status is not RunStatus.SUCCESS
+        assert result.exception is not None
 
 
 class TestANonConsoleSurfaceDoesNot:
@@ -145,8 +168,6 @@ class TestANonConsoleSurfaceDoesNot:
                     "func.job",
                     "func.group",
                     "func.single-file",
-                    "func.bare",
-                    "func.builtin",
                     "app.cli",
                 }
             )

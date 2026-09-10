@@ -167,15 +167,26 @@ def resolve_stdin_params(
         content = read_stdin(encoding=target_marker.encoding)
         return {target_name: content}
 
-    # Rule 4: stdin is TTY → cannot read without blocking
-    # The caller is responsible for determining whether the param has a default.
-    # If we reach here, stdin is TTY and there's an unresolved param.
-    # Signal this so the caller can decide based on default availability.
-    sys.stderr.write(
-        f"Error: Parameter '{target_name}' requires piped input or an explicit "
-        f"flag value. Stdin is a terminal — refusing to block for input.\n"
-    )
-    raise SystemExit(1)
+    # Rule 4: stdin is a terminal and nothing supplied the parameter — resolve
+    # nothing, and let the job's own default win.
+    #
+    # This used to `raise SystemExit(1)` here, under a comment reading "the
+    # caller is responsible for determining whether the param has a default …
+    # signal this so the caller can decide". It exited instead of signalling, so
+    # no caller ever could, and a parameter written as
+    #
+    #     data: Annotated[str, Stdin()] = "nothing was piped"
+    #
+    # could not use the default it declared: `func shout` with no pipe and no
+    # flag failed outright. A default means optional everywhere else in the
+    # framework, and it means optional here (maintainer's decision, 2026-09-10).
+    #
+    # Returning an empty mapping is what "resolve nothing" has to look like:
+    # `engine.run` drops a marked parameter it could not resolve rather than
+    # passing `None`, so the signature default is what the job receives. A
+    # parameter with **no** default still fails, but as the ordinary
+    # missing-argument error every other parameter raises — one rule, not two.
+    return {}
 
 
 def stdin_markers_for(function: Callable[..., Any]) -> dict[str, Stdin]:

@@ -38,18 +38,48 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
+import pytest
+
 from functualize._cli.tui.shortcut_save_modal import ShortcutSaveModal
 from tests._cli._tui_fixtures import make_tui_app
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    import pytest
     from textual.pilot import Pilot
 
     from functualize._cli.tui.app import FunctualizeInlineTUI
 
 _TERMINAL_SIZE = (120, 40)
+
+
+@pytest.fixture(autouse=True)
+def _colour_is_pinned(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These baselines record colour, so the colour mode cannot come from the shell.
+
+    Textual drops into a ``nocolor`` pseudo-class when ``NO_COLOR`` is set or
+    ``TERM`` is dumb, and every colour in the render changes with it
+    (``#0178d4`` becomes ``#656565``). The four baselines below are full-screen
+    captures, so *all four* then fail — for a reason that has nothing to do with
+    the UI.
+
+    That is not hypothetical. Every AI agent shell working on this repository
+    exports both variables and an interactive one exports neither, so the same
+    command gave `4 passed` for a human and `4 failed` for an agent. It cost one
+    agent an investigation, produced one confidently wrong diagnosis from the
+    orchestrator (blamed on concurrent edits, committed, later corrected), and —
+    worse — taught every agent running the full suite that four red tests are
+    normal.
+
+    Pinning it here means these tests measure the UI rather than the terminal
+    that launched them. The no-colour rendering is a real code path, but nothing
+    has asked for it to be guaranteed; if that changes, the answer is a second
+    set of baselines, not an unpinned first set.
+    """
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLORTERM", "truecolor")
+    monkeypatch.setenv("FORCE_COLOR", "1")
 
 
 def _build_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FunctualizeInlineTUI:

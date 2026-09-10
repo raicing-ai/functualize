@@ -152,121 +152,73 @@ class TestExplicitFlagWins:
 # =============================================================================
 
 
-class TestTtyRequiredNoDefault:
-    """When stdin is TTY and param is unresolved, SystemExit(1) is raised.
+class TestATerminalResolvesNothing:
+    """Stdin is a terminal and nothing supplied the parameter → resolve nothing.
 
-    The system must never block waiting for terminal input.
+    **This class and the one that followed it used to assert the opposite**, and
+    what they asserted was a defect worth reading about. `resolve_stdin_params`
+    raised `SystemExit(1)` here, under a comment saying "the caller is
+    responsible for determining whether the param has a default … signal this so
+    the caller can decide". It exited rather than signalling, so no caller ever
+    could — and the class documenting that fact was called
+    `TestTtyWithDefault`, its docstring explaining that the CLI adapter
+    compensated by "removing None values from kwargs". That compensation stopped
+    existing when the kwargs split moved into the engine (run-request/T11), and
+    the class kept passing anyway, because all it asserted was the exit.
 
-    **Validates: Requirement 5.3**
+    The maintainer's decision (2026-09-10): a parameter with a default is
+    optional here as it is everywhere else in the framework. So this function
+    resolves nothing and lets the job's own default win.
+
+    A parameter with **no** default is not made optional by this — it fails as
+    the ordinary missing-argument error every other parameter raises, one level
+    up. That is asserted where it now happens, in
+    `tests/engine/test_run_request_stdin.py`, rather than here: this function no
+    longer knows what a default is, which is the point.
+
+    **Validates: Requirements 5.3, 5.4**
     """
 
-    def test_tty_unresolved_raises_system_exit(self) -> None:
-        """TTY stdin + no CLI value → SystemExit(1)."""
+    def test_no_cli_value_resolves_nothing(self) -> None:
         stdin_markers = {"data": Stdin()}
         cli_values: dict[str, Any] = {}
-
-        with (
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
-            ),
-            pytest.raises(SystemExit) as exc_info,
-        ):
-            resolve_stdin_params(stdin_markers, cli_values)
-
-        assert exc_info.value.code == 1
-
-    def test_tty_none_cli_value_raises_system_exit(self) -> None:
-        """TTY stdin + None CLI value → SystemExit(1)."""
-        stdin_markers = {"content": Stdin()}
-        cli_values: dict[str, Any] = {"content": None}
-
-        with (
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
-            ),
-            pytest.raises(SystemExit) as exc_info,
-        ):
-            resolve_stdin_params(stdin_markers, cli_values)
-
-        assert exc_info.value.code == 1
-
-    def test_error_message_names_the_parameter(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """The error message identifies the parameter that needs input."""
-        stdin_markers = {"payload": Stdin()}
-        cli_values: dict[str, Any] = {}
-
-        with (
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
-            ),
-            patch("functualize._engine.stdin_reader.sys.stderr") as mock_stderr,
-            pytest.raises(SystemExit),
-        ):
-            resolve_stdin_params(stdin_markers, cli_values)
-
-        # Verify stderr.write was called with a message naming the param
-        written = mock_stderr.write.call_args[0][0]
-        assert "payload" in written
-
-
-# =============================================================================
-# Test: TTY + has default → uses default silently
-# =============================================================================
-
-
-class TestTtyWithDefault:
-    """When stdin is TTY and a Stdin-marked param has a default, the caller handles it.
-
-    `resolve_stdin_params` raises SystemExit because it doesn't know about defaults.
-    The caller (`_engine_path`) handles this boundary: it removes None values from
-    kwargs so the engine uses the function's default. This test documents that
-    `resolve_stdin_params` itself raises — the integration handles the default.
-
-    **Validates: Requirement 5.4** (boundary documentation)
-    """
-
-    def test_resolve_stdin_params_raises_for_tty_regardless_of_defaults(self) -> None:
-        """resolve_stdin_params raises SystemExit for TTY even if a default exists.
-
-        The caller is responsible for catching or preventing this scenario
-        by not passing params that already have defaults into the resolution.
-        """
-        # This demonstrates that the function itself doesn't know about defaults.
-        # The CLI adapter's _engine_path handles this by removing None kwargs
-        # before passing to the engine, letting the engine use the function default.
-        stdin_markers = {"data": Stdin()}
-        cli_values: dict[str, Any] = {}
-
-        with (
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
-            ),
-            pytest.raises(SystemExit) as exc_info,
-        ):
-            resolve_stdin_params(stdin_markers, cli_values)
-
-        assert exc_info.value.code == 1
-
-    def test_all_params_resolved_via_cli_skips_stdin_check(self) -> None:
-        """When all Stdin params have CLI values, no stdin check occurs.
-
-        This is how 'TTY + has default' works in practice: the CLI adapter
-        only passes params that actually need resolution to resolve_stdin_params.
-        If a param has a default and no CLI value, the adapter lets the engine
-        handle the default rather than asking resolve_stdin_params about it.
-        """
-        stdin_markers = {"data": Stdin()}
-        cli_values: dict[str, Any] = {"data": "some value"}
 
         with patch(
             "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
         ):
-            result = resolve_stdin_params(stdin_markers, cli_values)
+            resolved = resolve_stdin_params(stdin_markers, cli_values)
 
-        # No stdin check needed — CLI value resolves the param
-        assert result == {}
+        assert resolved == {}
+
+    def test_an_explicit_none_also_resolves_nothing(self) -> None:
+        """`None` means "the flag was not given", not "the value is None"."""
+        stdin_markers = {"content": Stdin()}
+        cli_values: dict[str, Any] = {"content": None}
+
+        with patch(
+            "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
+        ):
+            resolved = resolve_stdin_params(stdin_markers, cli_values)
+
+        assert resolved == {}
+
+    def test_it_does_not_exit_and_does_not_write_to_stderr(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The two halves of the old behaviour, pinned as gone.
+
+        Not exiting is the decision; staying silent is what makes it usable —
+        a job quietly taking its default should not print an error first.
+        """
+        stdin_markers = {"payload": Stdin()}
+
+        with patch(
+            "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
+        ):
+            resolved = resolve_stdin_params(stdin_markers, {})
+
+        assert resolved == {}
+        assert capsys.readouterr().err == ""
 
 
 # =============================================================================
