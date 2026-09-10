@@ -36,7 +36,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from functualize.types import Family, RunRequest, http_status_for_status
+from functualize.types import (
+    Family,
+    RunRequest,
+    http_status_for_status,
+    request_from_envelope,
+)
 
 if TYPE_CHECKING:
     from functualize.app.core import FunctualizeApp
@@ -58,47 +63,16 @@ OUTCOME_FAMILY = Family.WIRE
 
 
 def _envelope(payload: dict[str, Any], job_name: str) -> RunRequest:
-    """Build the request from a wire payload.
+    """This surface's wire payload, parsed by the one shared contract.
 
-    The shape is an **envelope**: the job's own parameters live in a nested
-    ``arguments`` object and the control inputs sit beside it, never inside::
-
-        {"arguments": {"target": "prod"},
-         "group_option_values": {"env": "staging"},
-         "scope_id": "run-42",
-         "force": true}
-
-    The nesting is the fix, not decoration. A flat body meant a caller's key
-    could bind to a control parameter — send ``{"scope_id": "x"}`` and you were
-    choosing the workflow scope the run joined rather than passing an argument
-    (risk R-a, spec AC-9). Nested, a job parameter literally named ``scope_id``
-    arrives as an argument and the scope stays a separate, deliberate choice.
-
-    ``scope_id`` is also what makes a gated workflow **resumable over the wire**:
-    start it, read the scope id back from the result metadata, answer the gate,
-    send the same id again. The audit recorded that as impossible (D-6) because
-    there was no field to put it in.
-
-    **Breaking, deliberately.** Job parameters used to be the whole body; they
-    are now under ``arguments``.
+    The envelope's shape, why job arguments are nested, and what breaks if they
+    are not, are documented once — on
+    :func:`functualize.types.request_from_envelope`. This function existed as a
+    byte-identical copy of the Lambda one differing only in the ``surface``
+    literal, with the contract's breaking change documented separately in each
+    (rre F12). The literal is now the argument.
     """
-    arguments = payload.get("arguments") or {}
-    if not isinstance(arguments, dict):
-        raise ValueError("'arguments' must be a JSON object")
-    group_options = payload.get("group_option_values") or None
-    if group_options is not None and not isinstance(group_options, dict):
-        raise ValueError("'group_option_values' must be a JSON object")
-    scope_id = payload.get("scope_id")
-    if scope_id is not None and not isinstance(scope_id, str):
-        raise ValueError("'scope_id' must be a string")
-    return RunRequest(
-        job_name=job_name,
-        surface="lambda",
-        kwargs=arguments,
-        group_option_values=group_options,
-        workflow_scope_id=scope_id,
-        force=bool(payload.get("force", False)),
-    )
+    return request_from_envelope(payload, job_name=job_name, surface="lambda")
 
 
 def _response(result: Any) -> dict[str, Any]:

@@ -252,6 +252,77 @@ class RunRequest:
         return _dc_replace(self, **changes)
 
 
+def request_from_envelope(
+    payload: Mapping[str, Any],
+    *,
+    job_name: str,
+    surface: RunSurface,
+) -> RunRequest:
+    """Parse a wire payload into a request — the one copy of that contract.
+
+    The shape is an **envelope**: the job's own parameters live in a nested
+    ``arguments`` object and the control inputs sit beside it, never inside::
+
+        {"arguments": {"target": "prod"},
+         "group_option_values": {"env": "staging"},
+         "scope_id": "run-42",
+         "force": true}
+
+    The nesting is the fix, not decoration. A flat body meant a caller's key
+    could bind to a control parameter — send ``{"scope_id": "x"}`` and you were
+    choosing the workflow scope the run joined rather than passing an argument
+    (**spec AC-17a**). Nested, a job parameter literally named ``scope_id``
+    arrives as an argument and the scope stays a separate, deliberate choice.
+
+    ``scope_id`` is also what makes a gated workflow **resumable over the wire**:
+    start it, read the scope id back from the result metadata, answer the gate,
+    send the same id again. The audit recorded that as impossible (D-6) because
+    there was no field to put it in.
+
+    **Breaking, deliberately.** Job parameters used to be the whole body; they
+    are now under ``arguments``.
+
+    **Why it lives here.** It was written twice — HTTP and Lambda held
+    byte-identical copies differing only in the ``surface`` literal — and
+    restated in prose twice more at MCP's two doors. One wire contract
+    maintained in four places, with the breaking change documented four times
+    and *three of the four citations wrong* (two said "risk R-a, spec AC-9",
+    one said "spec AC-4, AC-9"; the criterion is AC-17a). A reader auditing
+    AC-17a through its keeper would conclude the wire doors were uncovered.
+    This module is stdlib-only and every one of those doors already imports
+    ``RunRequest`` from it, so there is no layering reason for the copies to
+    exist (rre F12).
+
+    Args:
+        payload: The decoded wire body.
+        job_name: The job the door resolved.
+        surface: The calling door — the only thing that differed between the
+            two copies, and now a parameter rather than a reason to fork.
+
+    Raises:
+        ValueError: A field is present with the wrong JSON type. Each is
+            reported by name, because "invalid payload" sends the caller
+            hunting through a body they thought was correct.
+    """
+    arguments = payload.get("arguments") or {}
+    if not isinstance(arguments, dict):
+        raise ValueError("'arguments' must be a JSON object")
+    group_options = payload.get("group_option_values") or None
+    if group_options is not None and not isinstance(group_options, dict):
+        raise ValueError("'group_option_values' must be a JSON object")
+    scope_id = payload.get("scope_id")
+    if scope_id is not None and not isinstance(scope_id, str):
+        raise ValueError("'scope_id' must be a string")
+    return RunRequest(
+        job_name=job_name,
+        surface=surface,
+        kwargs=arguments,
+        group_option_values=group_options,
+        workflow_scope_id=scope_id,
+        force=bool(payload.get("force", False)),
+    )
+
+
 def nested_request(parent: RunRequest | None, **changes: Any) -> RunRequest:
     """A request for a run made *by* another run.
 

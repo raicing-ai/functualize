@@ -177,6 +177,12 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         # The request a run is made from (run-request-entry F1 T1).
         "RunRequest",
         "RunSurface",
+        # The wire envelope's one parser. HTTP and Lambda held byte-identical
+        # copies differing only in the `surface` literal, and MCP restated the
+        # shape in prose at both its doors — one contract in four places, its
+        # breaking change documented four times, three citations wrong (rre
+        # F12). Public because all four callers live outside core.
+        "request_from_envelope",
         "MissingValueError",
         "RUN_SURFACES",
         "JobResult",

@@ -316,7 +316,8 @@ class MCPToolRegistry:
         # Execute. Job arguments stay in their own nested object and the two
         # control inputs sit beside it, never inside it — so a job with a
         # parameter literally named `scope_id` gets it as an argument and the
-        # scope is still the caller's to choose separately (spec AC-4, AC-9).
+        # scope is still the caller's to choose separately (spec AC-17a; the contract itself is
+        # `functualize.types.request_from_envelope`).
         kwargs = arguments or {}
         try:
             result = self._app.execute(

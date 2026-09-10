@@ -48,7 +48,12 @@ from functualize._types.outcome import (
     status_from_wire,
     wire_value,
 )
-from functualize._types.run_request import RUN_SURFACES, RunRequest, RunSurface
+from functualize._types.run_request import (
+    RUN_SURFACES,
+    RunRequest,
+    RunSurface,
+    request_from_envelope,
+)
 
 __all__ = [
     "ExitCode",
@@ -61,6 +66,7 @@ __all__ = [
     "MissingValueError",
     "RUN_SURFACES",
     "RunRequest",
+    "request_from_envelope",
     "RunSurface",
     "JobResult",
     "JobDescriptor",

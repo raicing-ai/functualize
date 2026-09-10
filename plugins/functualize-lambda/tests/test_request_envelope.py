@@ -2,7 +2,9 @@
 
 Spec AC-5, AC-6, AC-9. The flat body this replaces is what let a caller's key
 bind to a control parameter — send `{"scope_id": "x"}` and you were choosing the
-workflow scope the run joined, not passing an argument (risk R-a).
+workflow scope the run joined, not passing an argument (**spec AC-17a** —
+corrected from "risk R-a", which is T11's risk; three of the four copies of
+this note cited the wrong criterion, rre F12).
 
 **Breaking, deliberately.** Job parameters used to be the whole body (HTTP) or
 the `kwargs` key (Lambda); they are now under `arguments`.

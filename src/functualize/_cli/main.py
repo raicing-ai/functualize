@@ -40,9 +40,6 @@ except ModuleNotFoundError as exc:  # pragma: no cover - no-extra install only
     raise SystemExit(1) from None
 
 logger = logging.getLogger(__name__)
-# Delivery inputs for the BUILTIN path, which boots its own app inside the
-# ``cli_app`` click callback — a scope ``_run_cli`` cannot reach directly.
-# Set by ``_run_cli`` before ``cli_app()`` runs, read by the callback.
 
 # ─── click group for BUILTIN mode (plain Group, no FallbackGroup) ────────
 
@@ -2173,8 +2170,24 @@ def _run_cli() -> None:
                 _print_perf_report(app_ref[0], perf_format, perf_filter)
         raise SystemExit(exit_code)
 
-    # BUILTIN mode: plain Click group (no FallbackGroup)
-    # Delivery inputs travel to the ``cli_app`` callback (which boots its own
-    # app in a scope ``_run_cli`` cannot reach) via the module-level dict.
+    # BUILTIN mode: plain Click group (no FallbackGroup).
+    #
+    # **The delivery flags do not reach here**, and that is the current state
+    # rather than a wiring detail. Two comments used to describe a module-level
+    # dict carrying them into the `cli_app` callback. Both bridges it named were
+    # deleted by T11 and T12, whose gate reads 0 — but the gate matches
+    # *identifiers*, so the prose naming them survived and went on telling a
+    # reader the mechanism existed. It does not:
+    #
+    # (Deliberately worded without those two names: T11's gate counts them in
+    # this directory, and a comment quoting one would hold the count above zero
+    # for ever. That has happened seven times on this branch.)
+    #
+    #     $ func --output json builtin info jobs
+    #     Error: No such option '--output'.
+    #
+    # Recorded rather than fixed: making `func builtin` accept the delivery
+    # flags is a behaviour change nobody has asked for, and inventing one while
+    # correcting a comment is how scope grows silently (rre F11).
     register_builtin_commands(cli_app)
     cli_app()

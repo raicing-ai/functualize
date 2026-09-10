@@ -432,7 +432,15 @@ ring. Parallel *items* are top-level work a user asked for, and are the exceptio
 rg -n 'invoke_depth == 0' src/functualize/_engine/executor.py | wc -l
 ```
 now: `4` *(`:683` docstring, `:705` the history gate, `:1042` and `:1059` perf marks)* ·
-after: `4` — **the count is not the gate here**; the test is.
+after: `4` — **invariant**: the count is not the gate here, the test is. Three of the four
+hits are a docstring and two perf marks, and the fourth is the rule; the number is a
+standing property of the file rather than a diff, so `now == after` is correct and not
+a defect.
+
+> Marked `invariant` on 2026-09-10 so the gate re-run test recognises it. The line
+> already said the count was not the gate — in words the parser does not read. An
+> honest disclosure the machinery cannot see is disclosure to a human who is not
+> looking.
 
 **Test:** `func builtin parallel a b` then `func builtin history` lists `a` and `b`. Verified
 end to end:

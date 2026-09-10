@@ -26,9 +26,41 @@ def test_unknown_surface_is_rejected() -> None:
         RunRequest(job_name="build", surface="func.jobb")  # type: ignore[arg-type]
 
 
-def test_every_declared_surface_is_constructible() -> None:
-    for surface in RUN_SURFACES:
-        assert RunRequest(job_name="build", surface=surface).surface == surface  # type: ignore[arg-type]
+def test_every_declared_surface_is_one_a_door_actually_produces() -> None:
+    """Replaces a tautology (rre F13).
+
+    This used to iterate `RUN_SURFACES` and assert each value constructs. But
+    `RUN_SURFACES` **is** `get_args(RunSurface)` and `__post_init__` rejects
+    exactly its complement — so it asserted that the set derived from the
+    closed set is inside the closed set. It could not fail, which is the
+    signature defect of this branch, sitting in the file that pins the type.
+
+    The falsifiable property underneath is the one the vocabulary is *for*: a
+    label nothing can produce is decoration, which is why `func.builtin` and
+    `func.bare` were deleted (and why `func.builtin` came back only when a door
+    needed it). So every declared surface must appear as a literal somewhere
+    that builds or routes a request — not merely be constructible.
+    """
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    haystack = "\n".join(
+        path.read_text(encoding="utf-8")
+        for folder in ("src", "plugins")
+        for path in sorted((root / folder).rglob("*.py"))
+        # The declaration itself is not a producer.
+        if path.name != "run_request.py"
+    )
+    unproduced = [
+        surface
+        for surface in sorted(RUN_SURFACES)
+        if not re.search(rf'["\']{re.escape(surface)}["\']', haystack)
+    ]
+    assert not unproduced, (
+        "these surfaces are declared and nothing names them, so no door can "
+        f"produce them: {unproduced}"
+    )
 
 
 def test_instance_is_immutable() -> None:
@@ -157,3 +189,86 @@ class TestEveryDoorIsClassified:
             if policy.records_batch_items
         }
         assert recording == {"app.parallel"}
+
+
+class TestOneWireContract:
+    """`request_from_envelope` is the only copy — rre F12.
+
+    HTTP and Lambda held **byte-identical** `_envelope` functions differing
+    only in the `surface` literal, and MCP's two doors restated the same shape
+    in prose. One wire contract maintained in four places, with its breaking
+    change documented four times — and three of the four citations pointing at
+    the wrong criterion (`risk R-a` is T11's risk; `AC-4` is "no file outside
+    `_engine/` passes a job function"; the criterion is **AC-17a**). A reader
+    auditing AC-17a through its named keeper, which only exercises
+    `request_for`, would have concluded the wire doors were uncovered.
+
+    Nothing about layering required the fork: this module is stdlib-only and
+    every one of those doors already imports `RunRequest` from it.
+    """
+
+    @staticmethod
+    def _parse(**payload: object):
+        from functualize._types.run_request import request_from_envelope
+
+        return request_from_envelope(payload, job_name="deploy", surface="http")
+
+    def test_job_arguments_stay_under_arguments(self) -> None:
+        request = self._parse(arguments={"target": "prod"})
+        assert request.kwargs == {"target": "prod"}
+
+    def test_a_control_input_beside_arguments_is_not_a_job_argument(self) -> None:
+        """AC-17a itself: the nesting is what stops a payload key binding to a
+        control parameter."""
+        request = self._parse(arguments={"target": "prod"}, scope_id="run-42")
+
+        assert request.workflow_scope_id == "run-42"
+        assert "scope_id" not in request.kwargs
+
+    def test_a_job_parameter_named_scope_id_is_still_an_argument(self) -> None:
+        """The other direction, and the reason the envelope exists: a flat body
+        made these two indistinguishable."""
+        request = self._parse(arguments={"scope_id": "a value the job wants"})
+
+        assert request.kwargs == {"scope_id": "a value the job wants"}
+        assert request.workflow_scope_id is None
+
+    def test_the_surface_is_the_callers_to_state(self) -> None:
+        """The literal that used to be the whole reason for two copies."""
+        from functualize._types.run_request import request_from_envelope
+
+        for door in ("http", "lambda"):
+            request = request_from_envelope({}, job_name="d", surface=door)  # type: ignore[arg-type]
+            assert request.surface == door
+
+    def test_a_wrong_type_is_reported_by_field_name(self) -> None:
+        """ "Invalid payload" sends a caller hunting through a body they believe
+        is correct."""
+        for field, value in (
+            ("arguments", "not an object"),
+            ("group_option_values", 7),
+            ("scope_id", 42),
+        ):
+            with pytest.raises(ValueError, match=field):
+                self._parse(**{field: value})
+
+    def test_both_wire_doors_route_through_it(self) -> None:
+        """The structural half: a fifth copy is what this finding was about.
+
+        Asserted over the plugin sources rather than by calling them, because
+        what must not come back is the *duplication*, and duplication is a
+        property of the text.
+        """
+        import re
+        from pathlib import Path
+
+        plugins = Path(__file__).resolve().parents[2] / "plugins"
+        for rel in (
+            "functualize-http/src/functualize_http/__init__.py",
+            "functualize-lambda/src/functualize_lambda/__init__.py",
+        ):
+            text = (plugins / rel).read_text(encoding="utf-8")
+            assert "request_from_envelope(" in text, f"{rel} does not use the contract"
+            assert not re.search(r"payload\.get\(['\"]scope_id['\"]\)", text), (
+                f"{rel} parses the envelope itself again"
+            )

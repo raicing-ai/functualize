@@ -347,3 +347,50 @@ assertion ran over an empty list — passing. `test_the_recorder_actually_saw_so
 is what caught it, and it is the falsifier I nearly did not write. Patch where a
 name is *used*, not where it is defined.
 
+
+## Batch 11 — `run-request-entry` F11, F12, F13 — and a hole in my own gate test
+
+| Finding | Verdict | Why the implementer missed it | Why the reviewer found it | What catches it now |
+|---|---|---|---|---|
+| `rre F12` — one wire contract, four copies, three wrong citations | **FIXED** | HTTP and Lambda's `_envelope` were **byte-identical** but for the `surface` literal, and MCP restated the shape in prose at both its doors. Nothing about layering forced the fork — `_types/run_request.py` is stdlib-only and all four already import `RunRequest` from it — it was simply written where it was needed, twice. The citations drifted because each copy was written at a different moment: two said "risk R-a, spec AC-9", one said "spec AC-4, AC-9"; the criterion is **AC-17a**. | They diffed the two copies and then checked what each docstring cited. | `functualize.types.request_from_envelope` — one parser, `surface` as a parameter, the contract documented once. `TestOneWireContract` covers AC-17a's actual property (a payload key named `scope_id` arrives as an argument; the control input beside it does not) and a structural test refuses a door that parses the envelope itself again. |
+| `rre F11` — two comments describe machinery this feature deleted | **FIXED** | T11 and T12 deleted both bridges and their gates read 0 — but the gates match **identifiers**, so prose naming them survived and went on telling a reader the mechanism existed. It does not: `func --output json builtin info jobs` answers `Error: No such option '--output'`. | They read the comment and ran the command it implied. | Both comments corrected to state what is true, including that the delivery flags do not reach BUILTIN mode. Making them reach it is a behaviour change nobody asked for; inventing one while fixing a comment is how scope grows silently, so it is recorded rather than done. |
+| `rre F13` — a test that cannot fail | **FIXED** | `test_every_declared_surface_is_constructible` iterated `RUN_SURFACES` and asserted each constructs — but `RUN_SURFACES` **is** `get_args(RunSurface)` and `__post_init__` rejects exactly its complement. It asserted that the set derived from the closed set is inside the closed set. | They checked what each test in the file would fail on, and this one had no answer. | Replaced by the falsifiable property underneath: every declared surface must be **named somewhere that produces one**. A label nothing can produce is decoration — which is why two were deleted and why `func.builtin` came back only when a door needed it. Re-declaring `func.bare` now fails. |
+
+### The one that matters most: my own aggregate test had the branch's signature defect
+
+While correcting F11's comment I wrote the deleted identifier into the replacement
+prose — which pushed `run-request-entry`'s bridge gate from **0 to 2**, and
+`tests/spec` **stayed green**. Two bugs in the parser I wrote in batch 2:
+
+1. **Wrapped commands were skipped silently.** The skip test was `"\n" in cmd`,
+   and a gate typed across two lines with a trailing `\` is one command. Every
+   such gate never ran.
+2. **Worse: one gate swallowed the next.** `run-request-entry/T11` writes its
+   record on two lines (`now at wave 4 entry: … ·` / `after: 0`). The pattern
+   required the values on the single line after the closing fence, so the
+   non-greedy `cmd` expanded **past its own fence** looking for one that
+   matched — consuming the gate in between, then running one gate's command
+   against another gate's recorded value.
+
+The parser is now fence-aware and joins continuations. That immediately surfaced
+three records nobody had checked:
+
+- `adjacent-defects/T7` — reads 3 against `after: 0`. **Not a regression**: the
+  record's own second branch is *"unchanged with each remaining site carrying a
+  comment naming why"*, and all three do. Annotated, because a line offering two
+  outcomes and naming neither reads as a failure on re-run.
+- `run-request-entry/T16` — `now == after == 4`, a gate that cannot fail. The
+  author **disclosed it** — *"the count is not the gate here; the test is"* — in
+  words the parser does not read. Marked `invariant` so the machinery can see
+  what the prose already said.
+- The bridge gate itself, once un-swallowed.
+
+`test_every_fenced_gate_is_accounted_for` is the new guard: every fenced gate is
+either checked or skipped **for a reason the test can name**. A count could never
+have caught a whole *category* going missing — it stayed comfortably above its
+floor of 12 the entire time.
+
+**The lesson, stated plainly:** the test written to catch unfalsifiable gates was
+itself partly unfalsifiable, and a count of what it found could not reveal that.
+When a check filters, assert on **what it filtered out**, not only on what it kept.
+

@@ -122,7 +122,10 @@ is a deliberate exception and says so. Spec AC-10.
 rg -n 'importlib\.metadata\.entry_points\(|from importlib.metadata import entry_points' \
   src/ plugins/*/src/ | grep -v '_primitives/entry_points.py' | wc -l
 ```
-now: `3` · after: `0`, **or** unchanged with each remaining site carrying a comment naming why
+now: `3` · after: `3` — **invariant**, and it is the record's *second* branch that holds:
+*"unchanged with each remaining site carrying a comment naming why"*. All three do (`functualize_ai/_provider_discovery.py` is published standalone and cannot import functualize internals; the two `_cli` sites may not import internal packages under the import-linter contract, and no public seam re-exports the cached helper). The real guard is `tests/primitives/test_entry_point_cache.py`, which pins the three sites by path so a fourth cannot appear silently.
+
+> Annotated 2026-09-10: the original line offered two outcomes and named neither as the > one that happened, so a re-run reads `3 != 0` as a regression. It is not.
 
 **Test:** a test asserts the bypass count, so a fourth cannot appear silently
 (`pitfalls.md` §6).
