@@ -1108,7 +1108,7 @@ def build_job_engine_callback(
 
                 live_ctx = stdout_live_session(app_ref, _descriptor)
 
-        with live_ctx, scope_store_refusal():
+        with live_ctx, prelude_refusal():
             from functualize.app.adapters._request_builder import build_request
 
             request = build_request(
@@ -1128,16 +1128,31 @@ def build_job_engine_callback(
 
 
 @contextlib.contextmanager
-def scope_store_refusal() -> Iterator[None]:
-    """Turn a refused walk into a usage error, not a traceback.
+def prelude_refusal() -> Iterator[None]:
+    """Turn a walk refused before it started into a clean line, not a traceback.
 
-    Two conditions, one exit code, because they are the same kind of answer:
-    *this run cannot start, and no job ran.* An unreadable scope store, and a
-    scope that was cancelled.
+    Everything caught here is the same kind of answer — *this run cannot start,
+    and no job ran* — raised from `WorkflowRunner.prelude`, which runs **before
+    DI resolution and before any hook**. That is early enough that the refusal
+    cannot travel on the event bus and never becomes a ``JobResult``: it
+    arrives as an exception out of ``engine.run``.
 
-    The workflow prelude reads scopes **before DI resolution and before any
-    hook**, so this cannot travel on the event bus and never becomes a
-    ``JobResult`` — it arrives as an exception out of ``engine.execute``.
+    Two exit codes, because the *reasons* are two kinds:
+
+    - **Usage (2)** — the operator's environment or arguments are wrong: an
+      unreadable scope store, a scope that was cancelled.
+    - **Refused (3)** — a *declared precondition for running the job* was not
+      met: an agent step naming an executor nobody registered, or one whose
+      executor cannot honour a capability the step requires. That is the
+      distinction `_types/exit_codes.py` draws in its own words, and the reason
+      `REFUSED` exists rather than falling back to `JOB_RAISED`, where it would
+      be "indistinguishable from a job that ran and threw".
+
+    The agent-step pair was missing until an adversarial review ran the CLI
+    path: both errors derive from `Exception` and escaped to the process
+    boundary as a full traceback with exit 1 — the exact code the table says a
+    refusal must not use. `contracts.md` §5 had promised they "map to an exit
+    code through F2's outcome module"; nothing mapped them.
 
     **Both execute call sites wrap themselves in this, or neither.** They are
     the cold and warm dispatch paths, and `deliver_job_result`'s own docstring
@@ -1145,10 +1160,11 @@ def scope_store_refusal() -> Iterator[None]:
     boot exited 1, warm boot exited 0, for the same job and the same failure."
     That is `contributor/reference/pitfalls.md` §23 — two dispatch paths, one
     result-handling contract.
-
-    Exit 2, usage/config: the run never started and no job raised. Not 1, and
-    never 0 with an empty scope list.
     """
+    from functualize._types.errors import (
+        AgentCapabilityRefusedError,
+        AgentExecutorUnavailableError,
+    )
     from functualize.app.utils import ScopeCancelledError, ScopeStoreUnreadableError
 
     try:
@@ -1156,6 +1172,9 @@ def scope_store_refusal() -> Iterator[None]:
     except (ScopeStoreUnreadableError, ScopeCancelledError) as exc:
         click.echo(f"Error: {exc}", err=True)
         raise SystemExit(ExitCode.USAGE) from exc
+    except (AgentExecutorUnavailableError, AgentCapabilityRefusedError) as exc:
+        click.echo(f"Error: {exc}", err=True)
+        raise SystemExit(ExitCode.REFUSED) from exc
 
 
 def deliver_job_result(result: Any, name: str, app_ref: Any = None) -> Any:

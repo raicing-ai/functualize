@@ -209,6 +209,7 @@ __all__ = [
     "pending_gates",
     "read_display_modules_from_cache",
     "read_group_options_from_cache",
+    "suggest_similar_commands",
     "discovery_hash_for",
     "has_eligible_ambient",
     "is_execution_engine",
@@ -1746,9 +1747,92 @@ def discovery_hash_for(app: Any = None) -> str | None:
         return None
 
 
+def _levenshtein(s: str, t: str) -> int:
+    """Edit distance between two strings — insertions, deletions,
+    substitutions. Standard dynamic programming, O(min(m, n)) space."""
+    if len(s) < len(t):
+        return _levenshtein(t, s)
+    if not t:
+        return len(s)
+
+    previous_row = list(range(len(t) + 1))
+    for i, sc in enumerate(s):
+        current_row = [i + 1]
+        for j, tc in enumerate(t):
+            cost = 0 if sc == tc else 1
+            current_row.append(
+                min(
+                    current_row[j] + 1,  # insertion
+                    previous_row[j + 1] + 1,  # deletion
+                    previous_row[j] + cost,  # substitution
+                )
+            )
+        previous_row = current_row
+    return previous_row[-1]
+
+
+def suggest_similar_commands(
+    target: str,
+    candidates: Iterable[str],
+    max_results: int = 5,
+) -> list[str]:
+    """What the user probably meant by ``target``, best first.
+
+    **One implementation, because "did you mean?" is one question.** There were
+    two: ``func`` scored prefix / substring / Levenshtein ≤ 2, and the app entry
+    point scored prefix / substring only — not fuzzy at all, so the commonest
+    case (a real typo) produced *no* suggestion on an app while producing one on
+    ``func``. `adjacent-defects/AC-12` promises the app "produces the same
+    explanation ``func`` produces"; T12 made the app *reach* the weaker one for
+    the first time, and the test it added asserted only the explanation text,
+    which the two really did share.
+
+    The union of both, so neither door lost a behaviour:
+
+    1. **Prefix, either direction** (score 3) — ``dep`` → ``deploy``, and
+       ``deployy`` → ``deploy``.
+    2. **Substring, either direction** (score 2) — ``ploy`` → ``deploy``.
+    3. **Levenshtein ≤ 2** (score 1) — ``deply`` → ``deploy``. This is the rule
+       the app entry point did not have.
+
+    Matching is case-insensitive (the app entry point's behaviour; ``func`` was
+    case-sensitive). Ties break alphabetically so the list is stable — a
+    suggestion order that moves between runs reads as a different answer.
+
+    An empty ``target`` suggests nothing: every candidate has it as a prefix,
+    so the "helpful" answer is the entire command list.
+
+    Args:
+        target: What the user typed and no command matched.
+        candidates: The valid names to search. Any iterable; order does not
+            matter, since the result is scored and then sorted.
+        max_results: Cap on the returned list.
+
+    Returns:
+        Up to ``max_results`` names, best score first, then alphabetical.
+    """
+    if not target:
+        return []
+
+    lowered = target.lower()
+    scored: list[tuple[int, str]] = []
+    for name in candidates:
+        low = name.lower()
+        if low.startswith(lowered) or lowered.startswith(low):
+            scored.append((3, name))
+        elif lowered in low or low in lowered:
+            scored.append((2, name))
+        elif _levenshtein(lowered, low) <= 2:
+            scored.append((1, name))
+
+    scored.sort(key=lambda pair: (-pair[0], pair[1]))
+    return [name for _, name in scored[:max_results]]
+
+
 def read_group_options_from_cache(
     cache_path: Path,
-    discovery_hash: str | None = None,
+    *,
+    discovery_hash: str | None,
 ) -> dict[str, GroupOptionsSpec] | None:
     """Read the declared per-group flags from an existing cache file.
 
@@ -1760,14 +1844,24 @@ def read_group_options_from_cache(
     Args:
         cache_path: Path to the discovery cache file.
         discovery_hash: Fingerprint of the discovery config the caller is
-            running under, from ``discovery_hash_from_config``. A cache whose
+            running under, from :func:`discovery_hash_for`. A cache whose
             header records a different one was written by a scan the caller is
             not repeating, so its ``group_options`` section describes a
             filtered tree the caller does not have — it is refused, exactly as
             a format-version mismatch is. ``None`` means "cannot know" and
-            skips the check, which is this function's behaviour without the
-            argument (an out-of-tree reader keeps its old semantics; every
-            in-tree caller has the config in scope).
+            skips the check.
+
+            **Required, keyword-only, and deliberately without a default.**
+            It had one, and a fifth caller — the MCP plugin, the surface whose
+            entire job is publishing a job's schema to an agent — took it and
+            served the stale section for a release. ``adjacent-defects/T10``
+            named a sabotage for that ("drop the fingerprint argument at the
+            call site; this test must fail"), and nothing could observe it: a
+            test can assert what this function returns, never what a caller
+            passed. Removing the default moves the check from a test that does
+            not exist to the type checker and the interpreter, which cannot
+            forget to run. A caller that truly cannot know says ``None`` and
+            says it out loud.
 
     Returns:
         A ``{group_path: GroupOptionsSpec}`` mapping if the cache exists and

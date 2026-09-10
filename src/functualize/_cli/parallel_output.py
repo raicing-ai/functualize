@@ -114,8 +114,21 @@ class ParallelOutput:
             self._sinks[ident] = io.StringIO()
             self._names[ident] = job_name
 
-    def release(self, job_name: str, *, failed: bool) -> None:
-        """Emit what the calling thread buffered, and unbind it."""
+    def release(self, job_name: str, *, status: Any) -> None:
+        """Emit what the calling thread buffered, and unbind it.
+
+        Takes the run's **status** and decides here whether that counts as a
+        failure, because "counts as a failure" is a delivery question and this
+        is the delivery surface. The engine used to decide, with its own copy of
+        the not-a-failure set, and the copy disagreed with the exit code the
+        very same command computes: a batch in which a job paused at a gate
+        exited 5 and logged no `::error::` for the job that paused.
+
+        `Family.PROCESS` is the right boundary and not an arbitrary pick — the
+        annotation's whole job is to point a reader at the thing that made the
+        run fail, so it has to agree with the exit code, which is what PROCESS
+        means. `is_failure(BLOCKED, family=PROCESS)` is `True`.
+        """
         if self._mode == "interleaved":
             return
         ident = threading.get_ident()
@@ -125,6 +138,9 @@ class ParallelOutput:
         if buffer is None:
             return
         text = buffer.getvalue()
+        from functualize.types import Family, is_failure
+
+        failed = is_failure(status, family=Family.PROCESS)
         # The whole block is written under the lock so two jobs finishing at
         # once cannot interleave — which would defeat the point of buffering.
         with self._lock:

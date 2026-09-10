@@ -240,3 +240,71 @@ def test_the_executor_table_names_the_plugin_that_registers_each_executor() -> N
 
     assert table.hint_for("ai") == "install functualize-ai to register it"
     assert table.hint_for("mcp-elicitation") == "install functualize-mcp to register it"
+
+
+class TestTheCoreSetIsTiedToSomething:
+    """`CORE_*` is checked by iterating it — so an empty one checks nothing.
+
+    Every parametrized `CORE_*` case in this file is a `for name in
+    table.core_names` loop, and the one check that runs per *provider*
+    (`test_a_plugin_name_names_its_package`) derives its expectation from the
+    hint function itself. So the single edit the mechanism exists to catch —
+    emptying the set — passed all four, and `missing_executor_hint("cli-prompt")`
+    started answering `"install functualize to register it"`: the operator told
+    to install core itself, suite green.
+
+    A vacuous check is the branch's signature defect, and this is that defect
+    inside the file written to prevent it. Two assertions close it: the set is
+    non-empty, and its contents come from somewhere rather than being a literal
+    that agrees with three other literals by luck.
+    """
+
+    @pytest.mark.parametrize("table", _TABLES, ids=_TABLE_IDS)
+    def test_the_core_set_is_not_empty(self, table: ProviderTable) -> None:
+        """The edit that used to pass everything."""
+        assert table.core_names, (
+            f"{table.core} is empty, which makes every `for name in core_names` "
+            "check in this file vacuous — including the ones above."
+        )
+
+    @pytest.mark.parametrize("table", _TABLES, ids=_TABLE_IDS)
+    def test_every_core_name_is_in_the_table(self, table: ProviderTable) -> None:
+        """The two are separate declarations and neither validates the other."""
+        assert table.core_names <= set(table.providers), (
+            f"{table.core} names something {table.table} does not: "
+            f"{sorted(table.core_names - set(table.providers))}"
+        )
+
+    def test_the_executor_core_set_is_the_class_that_supplies_it(self) -> None:
+        """`CORE_EXECUTORS` ← `CliPromptExecutor.name`, asserted rather than
+        imported: `agent_providers` cannot import `agent_step`, because
+        `agent_step` imports `missing_executor_hint` from it.
+
+        `_gate/_strategy.py` has no analogue to check — `CORE_STRATEGIES` is
+        *built* from `GateStrategy.*.value`, the same members boot passes to
+        `register_strategy`, so its coupling is in the code rather than here.
+        This table was copied from that one and lost exactly that property.
+        """
+        from functualize._engine.agent_providers import (
+            CORE_EXECUTORS,
+            EXECUTOR_PROVIDERS,
+        )
+        from functualize._engine.agent_step import CliPromptExecutor
+
+        assert {CliPromptExecutor.name} == CORE_EXECUTORS
+        assert EXECUTOR_PROVIDERS[CliPromptExecutor.name] == "functualize"
+
+    def test_renaming_the_executor_would_be_caught(self) -> None:
+        """States what the test above is *for*, so it is not read as trivia.
+
+        Three literals spell this name — the class attribute, the table key,
+        and the core set. Rename the class and the other two drift silently:
+        the registry would hold the new name, `AgentStep(executor=...)` naming
+        it would resolve, and the hint table would answer about a name nothing
+        registers any more.
+        """
+        from functualize._engine.agent_providers import missing_executor_hint
+        from functualize._engine.agent_step import CliPromptExecutor
+
+        assert missing_executor_hint(CliPromptExecutor.name) == ""
+        assert missing_executor_hint(CliPromptExecutor.name + "-renamed") == ""

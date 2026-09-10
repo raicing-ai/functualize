@@ -738,10 +738,15 @@ def _show_command_not_found(cmd: str, app: object) -> None:
         if isinstance(app, FunctualizeApp):
             jobs = app.get_jobs()
             job_names = [j.name for j in jobs]
-            suggestions = _find_similar(cmd, job_names)
+            from functualize.app.utils import suggest_similar_commands
+
+            suggestions = suggest_similar_commands(cmd, job_names)
             if suggestions:
+                # The list is capped by `suggest_similar_commands` itself, at
+                # the same number `func` shows. A second, smaller slice here
+                # is how the two doors answered one question differently.
                 print("\nDid you mean:", file=sys.stderr)
-                for s in suggestions[:3]:
+                for s in suggestions:
                     print(f"  {s}", file=sys.stderr)
     except Exception:
         pass
@@ -761,25 +766,6 @@ def _show_command_not_found(cmd: str, app: object) -> None:
         pass
 
     print("\nRun 'func --help' to see available commands.", file=sys.stderr)
-
-
-def _find_similar(target: str, candidates: list[str]) -> list[str]:
-    """Find candidates sharing prefix or substring with target."""
-    if not target:
-        return []
-
-    matches: list[tuple[int, str]] = []
-    target_lower = target.lower()
-
-    for name in candidates:
-        name_lower = name.lower()
-        if name_lower.startswith(target_lower) or target_lower.startswith(name_lower):
-            matches.append((0, name))
-        elif target_lower in name_lower or name_lower in target_lower:
-            matches.append((1, name))
-
-    matches.sort(key=lambda x: x[0])
-    return [m[1] for m in matches]
 
 
 # ─── CliAdapter class ────────────────────────────────────────────────────

@@ -346,7 +346,7 @@ class MCPAdapterPlugin:
             from functualize_mcp._schema_export import SchemaExporter
 
             descriptors = app.get_jobs()
-            exporter = SchemaExporter()
+            exporter = SchemaExporter(app=app)
 
             if format == "json":
                 print(exporter.export_json(descriptors))
@@ -387,7 +387,7 @@ class MCPAdapterPlugin:
             )
 
             descriptors = app.get_jobs()
-            translator = JobToolTranslator(read_cached_group_options())
+            translator = JobToolTranslator(read_cached_group_options(app))
             config = self.config
 
             tool_defs = translator.translate_all(descriptors, config)

@@ -423,7 +423,16 @@ def _extract_enum_choices(annotation: Any) -> list[str] | None:
 
     # Check if it's an Enum subclass
     if isinstance(annotation, type) and issubclass(annotation, enum.Enum):
-        return [member.name for member in annotation]
+        # Member **values**, which is what `FieldDescriptor.choices` is
+        # documented to hold, what `_discovery/schema_extractor.py` emits for a
+        # config model's fields, what `_cli/introspect.py` reads them as, and
+        # what `app/adapters/click_params._EnumChoice` renders on the cold
+        # path. This site emitted `member.name` instead, and it is the only one
+        # that did — so a plain-signature enum parameter was offered as
+        # `{RED|GREEN}` from a warm boot and `{red|green}` from a cold one, and
+        # the same program changed the spelling it accepted between its first
+        # run and its second (`adjacent-defects` review, S1).
+        return [str(member.value) for member in annotation]
 
     return None
 

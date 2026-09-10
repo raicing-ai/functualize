@@ -155,11 +155,27 @@ class PluginSources:
     - entry_point_group: entry point group name for plugin discovery
     - explicit_plugins: list of pre-instantiated plugin objects
     - disabled: list of plugin names to skip during discovery
+    - ambient_directory: whether the ``.functualize/plugins/`` convention
+      directory in the *working* directory is loaded
+
+    ``ambient_directory`` draws the same line ``adjacent-defects/T14`` drew for
+    job discovery: a directory the caller **declared** is read, and the one the
+    working directory supplies **implicitly** is not, when the caller asked for
+    one file rather than for a project. `[tool.functualize] plugins_directories`
+    is declared and is unaffected; only the convention fallback is refused.
+
+    It defaults to ``True``, because a project app in its own directory is
+    exactly who that convention is for. `func <file>.py <job>` sets it
+    ``False``: the cwd there is wherever the user's shell happened to be, and
+    a plugin module's top level runs during app construction — so a stray file
+    under ``./.functualize/plugins/`` could take over an invocation that named
+    a different program entirely.
     """
 
     entry_point_group: str = "functualize.plugins"
     explicit_plugins: list[Any] | None = None
     disabled: list[str] | None = None
+    ambient_directory: bool = True
 
 
 @dataclass(frozen=True)

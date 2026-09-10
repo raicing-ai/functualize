@@ -69,7 +69,7 @@ class MCPServer:
 
         self._app = app
         self._config = config
-        self._translator = JobToolTranslator(read_cached_group_options())
+        self._translator = JobToolTranslator(read_cached_group_options(app))
         self._gate_tool_policy = GateToolPolicy(app)
         self._tool_registry = MCPToolRegistry(
             app, config=config, gate_policy=self._gate_tool_policy

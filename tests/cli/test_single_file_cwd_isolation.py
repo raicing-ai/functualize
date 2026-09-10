@@ -199,3 +199,88 @@ class TestAConfigDeclaredCwdSurvives:
 
         assert "not found in engine registry" not in (result.stdout + result.stderr)
         assert result.exit_code == 0, result.stderr
+
+
+class TestTheOtherDoorIntoTheWorkingDirectory:
+    """The job scan is not the only thing that reads the cwd (review S5).
+
+    T14's filter reaches `job_sources.directories`. The **plugin loader** falls
+    back to `./.functualize/plugins/` by its own convention and execs every
+    module there during app construction — before the named file has run, and
+    outside the filter's reach entirely. So the reported symptom survived, at a
+    doorway the fix never came near:
+
+        $ func weather.py trip        # beside ./.functualize/plugins/killer.py
+        CWD PLUGIN-DIR MODULE TOP LEVEL RAN
+        exit 13                       # the target never ran
+
+    The implementer missed it because the fix was written against the
+    *mechanism* they had just read (discovery's directory list), and the AC was
+    written against the *outcome* ("not hijacked by an unrelated module in the
+    working directory"). The reviewer went at the outcome and looked for other
+    ways to reach it. Both were right about their own half.
+
+    `PluginSources.ambient_directory` is the switch, and it keeps T14's line:
+    a **declared** `plugins_directories` still loads — see the second test.
+    """
+
+    _KILLER = textwrap.dedent(
+        """\
+        import sys
+
+        print("PLUGIN DIR MODULE RAN", file=sys.stderr)
+        """
+    )
+
+    @surfaces("func")
+    def test_a_cwd_plugin_directory_is_not_executed(
+        self, cli_run, tmp_path: Path
+    ) -> None:
+        """`func` only, and that is the point rather than a limitation.
+
+        An app's own entry point **is** the project, so its
+        `./.functualize/plugins/` is its own and loads exactly as before —
+        `ambient_directory` defaults to `True`. Only `func <file>.py <job>`
+        declines it, because there the cwd is wherever the shell happened to
+        be.
+        """
+        (tmp_path / "weather.py").write_text(_WEATHER)
+        plugins = tmp_path / ".functualize" / "plugins"
+        plugins.mkdir(parents=True)
+        (plugins / "killer.py").write_text(self._KILLER)
+
+        result = cli_run(["weather.py", "trip_planner"], cwd=tmp_path)
+
+        combined = result.stdout + result.stderr
+        assert result.exit_code == 0, combined
+        assert "PLANNED" in result.stdout
+        assert "PLUGIN DIR MODULE RAN" not in combined
+
+    def test_a_declared_plugins_directory_still_loads(self, tmp_path: Path) -> None:
+        """The falsifier, and the line T14 drew: *declared* survives.
+
+        Asserted against the resolver rather than an end-to-end run, because
+        what is being distinguished is which of two directory sources answered
+        — and only one of them is reachable from a config file.
+        """
+        from functualize._plugins.loader import PluginLoader
+        from functualize.app.config import PluginSources
+
+        declared = tmp_path / "myplugins"
+        declared.mkdir()
+        convention = tmp_path / ".functualize" / "plugins"
+        convention.mkdir(parents=True)
+
+        class _Resolved:
+            value = [str(declared)]
+
+        class _Chain:
+            def resolve(self, key: str, section: str) -> object:
+                return _Resolved()
+
+        class _App:
+            _resolution_chain = _Chain()
+            _plugin_sources = PluginSources(ambient_directory=False)
+
+        loader = PluginLoader()
+        assert loader._resolve_plugin_directories(_App()) == [str(declared)]

@@ -97,3 +97,36 @@ def test_a_clean_project_grows_no_paragraph(cli_run, project_tree) -> None:
     assert "typoo" in combined
     assert "discovery problem" not in combined
     assert "failed to load" not in combined
+
+
+def test_a_typo_suggests_the_same_names_on_both_doors(cli_run, project_tree) -> None:
+    """AC-12's other half: the *suggestion*, not just the explanation.
+
+    T12 made the app reach the shared reporter, and the reporter reached a
+    second, private matcher — prefix and substring only, not fuzzy at all. So
+    the commonest case there is, a real typo, produced `Did you mean: hello` on
+    `func` and nothing on an app. Both now call
+    `app.utils.suggest_similar_commands`.
+
+    The asserted thing is the *name*, not the line: `func` prints `func hello`
+    and an app prints `hello`, which is right — the two have different program
+    names, and that is presentation. What must not differ is which names are
+    offered.
+    """
+    result = cli_run(["helo"], cwd=_broken(project_tree))
+
+    combined = result.stdout + result.stderr
+    assert "Did you mean" in combined
+    assert "hello" in combined
+
+
+def test_neither_door_suggests_anything_for_a_far_miss(cli_run, project_tree) -> None:
+    """The falsifier for the test above.
+
+    Without it, `hello` appearing in the output could come from the failed
+    module's own explanation rather than from the suggester. `helo` is one
+    edit from `hello` and `zzzzzzzzzz` is ten, so only the first may match.
+    """
+    result = cli_run(["zzzzzzzzzz"], cwd=_broken(project_tree))
+
+    assert "Did you mean" not in result.stdout + result.stderr

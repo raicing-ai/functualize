@@ -33,9 +33,21 @@ EXECUTOR_PROVIDERS: dict[str, str] = {
     "ai": "functualize-ai",
 }
 
-#: The one core registers itself, at boot. Naming a package for it would be
-#: actively misleading: if ``cli-prompt`` is unregistered the answer is not
-#: "install something", it is that the registry was built by hand.
+#: The one core **ships**. Naming a package for it would be actively
+#: misleading: if ``cli-prompt`` is unregistered the answer is not "install
+#: something", it is that nobody registered it — which is a legitimate state,
+#: since `_app.boot` deliberately registers no executor by default (D-1: the
+#: engine refuses rather than degrading, and a default registration makes the
+#: refusal unreachable).
+#:
+#: This is a **fourth literal spelling** of a name that also lives on
+#: :attr:`~functualize._engine.agent_step.CliPromptExecutor.name` and as this
+#: module's own table key. It cannot import that class — `agent_step` imports
+#: :func:`missing_executor_hint` from here, so the dependency runs the other
+#: way — which is why `tests/gate/test_provider_tables.py` asserts the three
+#: agree instead. Before it did, emptying this set left every check in the file
+#: written to check it green, and the hint told the operator to
+#: "install functualize".
 CORE_EXECUTORS: frozenset[str] = frozenset({"cli-prompt"})
 
 

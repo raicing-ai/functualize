@@ -115,7 +115,7 @@ def make_lazy_command(
 
         from functualize.app.adapters.click_params import (
             deliver_job_result,
-            scope_store_refusal,
+            prelude_refusal,
         )
 
         engine = app.execution_engine
@@ -162,7 +162,7 @@ def make_lazy_command(
         # contract). Neither path holds a job function any more.
         from functualize.app.adapters._request_builder import build_request
 
-        with live_ctx, scope_store_refusal():
+        with live_ctx, prelude_refusal():
             request = build_request(
                 job_name=descriptor.name,
                 kwargs=kwargs,

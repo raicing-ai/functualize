@@ -95,3 +95,91 @@ def test_the_cli_and_the_programmatic_path_agree(cli_run: Any, tmp_path: Path) -
 
     assert cli.exit_code == 0, cli.stderr
     assert cli.stdout.strip() == programmatic.strip() == MEMBER
+
+
+class TestTheWarmPathOffersTheSameSpellings:
+    """The half `@surfaces("func")` could not see (review finding S1).
+
+    Both tests above run the **single-file eager** door, which builds click
+    parameters from the live signature. An app's own entry point uses the
+    *cached descriptor* renderer from its second run onward, and that one read
+    `FieldDescriptor.choices` — which `_discovery/providers.py` populated with
+    member **names** while every other producer and consumer used member
+    values. So one program offered `{red|green}` on its first run and
+    `{RED|GREEN}` on every run after, and the value the user typed on Monday
+    was refused on Tuesday.
+
+    Nothing caught it because both surfaces in the parameterisation were the
+    same code path. These assert the two *renderers*, which is where the
+    disagreement lived — cheaply, and without needing a warm boot.
+    """
+
+    @staticmethod
+    def _cold_choices(enum_cls: type) -> list[str]:
+        from functualize.app.adapters.click_params import _click_type_for
+
+        click_type, _, _ = _click_type_for(enum_cls)
+        return list(click_type.choices)
+
+    @staticmethod
+    def _cached_choices(enum_cls: type) -> list[str]:
+        """What discovery would persist for a plain-signature parameter."""
+        import inspect
+
+        from functualize._discovery.providers import _extract_enum_choices
+
+        sig = inspect.Signature(
+            [
+                inspect.Parameter(
+                    "color",
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                    annotation=enum_cls,
+                )
+            ]
+        )
+        return list(_extract_enum_choices(sig.parameters["color"].annotation) or [])
+
+    def test_a_string_valued_enum_reads_the_same_both_ways(self) -> None:
+        import enum
+
+        class Color(enum.Enum):
+            RED = "red"
+            GREEN = "green"
+
+        assert self._cold_choices(Color) == ["red", "green"]
+        assert self._cached_choices(Color) == self._cold_choices(Color)
+
+    def test_an_int_valued_enum_too(self) -> None:
+        """The case that makes "values" a rendering rather than a lookup:
+        `Level(1)` works, but the *spelling* on the command line is `"1"`."""
+        import enum
+
+        class Level(enum.Enum):
+            LOW = 1
+            HIGH = 2
+
+        assert self._cold_choices(Level) == ["1", "2"]
+        assert self._cached_choices(Level) == self._cold_choices(Level)
+
+    def test_the_rendered_choice_is_what_the_warm_renderer_offers(self) -> None:
+        """Closes the loop: the cached spellings are the ones the descriptor
+        renderer hands to click, so agreement above is agreement on screen."""
+        import enum
+
+        from functualize._types.descriptors import FieldDescriptor
+        from functualize.app.adapters.click_params import _field_click_type
+
+        class Color(enum.Enum):
+            RED = "red"
+            GREEN = "green"
+
+        field = FieldDescriptor(
+            name="color",
+            type_annotation="Color",
+            default=None,
+            description="",
+            required=True,
+            choices=self._cached_choices(Color),
+        )
+        click_type, _, _ = _field_click_type(field)
+        assert list(click_type.choices) == self._cold_choices(Color)

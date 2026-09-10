@@ -210,7 +210,7 @@ class TestTheProviderRecord:
         provider.list_jobs()
 
         specs = read_group_options_from_cache(
-            tmp_path / ".functualize" / CACHE_FILENAME
+            tmp_path / ".functualize" / CACHE_FILENAME, discovery_hash=None
         )
 
         assert specs is not None
@@ -230,6 +230,6 @@ class TestTheProviderRecord:
         provider.list_jobs()
 
         specs = read_group_options_from_cache(
-            tmp_path / ".functualize" / CACHE_FILENAME
+            tmp_path / ".functualize" / CACHE_FILENAME, discovery_hash=None
         )
         assert specs is not None and list(specs) == ["deploy"]

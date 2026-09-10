@@ -684,72 +684,6 @@ def _extract_aliases(merged_config: dict[str, Any]) -> dict[str, str]:
 # ─── Unknown command handling ────────────────────────────────────────────
 
 
-def _levenshtein(s: str, t: str) -> int:
-    """Compute Levenshtein distance between two strings.
-
-    Uses the standard dynamic programming approach with O(min(m, n)) space.
-
-    Args:
-        s: First string.
-        t: Second string.
-
-    Returns:
-        Edit distance (insertions + deletions + substitutions).
-    """
-    if len(s) < len(t):
-        return _levenshtein(t, s)
-
-    if not t:
-        return len(s)
-
-    previous_row = list(range(len(t) + 1))
-    for i, sc in enumerate(s):
-        current_row = [i + 1]
-        for j, tc in enumerate(t):
-            # Cost is 0 if characters match, 1 otherwise
-            cost = 0 if sc == tc else 1
-            current_row.append(
-                min(
-                    current_row[j] + 1,  # insertion
-                    previous_row[j + 1] + 1,  # deletion
-                    previous_row[j] + cost,  # substitution
-                )
-            )
-        previous_row = current_row
-
-    return previous_row[-1]
-
-
-def _fuzzy_suggest(cmd: str, job_names: set[str], max_results: int = 5) -> list[str]:
-    """Compute fuzzy suggestions for an unknown command.
-
-    Strategy (scored, highest first):
-    1. Exact prefix match (score=3): job starts with cmd
-    2. Substring match (score=2): cmd is contained within job name
-    3. Levenshtein distance ≤ 2 (score=1): handles transpositions/typos
-
-    Args:
-        cmd: The unrecognized command string.
-        job_names: Set of valid job names to search.
-        max_results: Maximum number of suggestions to return.
-
-    Returns:
-        Up to *max_results* suggestions sorted by score descending,
-        then alphabetically for ties.
-    """
-    scored: list[tuple[int, str]] = []
-    for name in job_names:
-        if name.startswith(cmd):
-            scored.append((3, name))
-        elif cmd in name:
-            scored.append((2, name))
-        elif _levenshtein(cmd, name) <= 2:
-            scored.append((1, name))
-
-    scored.sort(key=lambda x: (-x[0], x[1]))
-    return [name for _, name in scored[:max_results]]
-
-
 def _handle_unknown(args: list[str], job_names: set[str]) -> None:
     """Print 'command not found' with fuzzy suggestions.
 
@@ -763,7 +697,9 @@ def _handle_unknown(args: list[str], job_names: set[str]) -> None:
 
     print(f"Error: Unknown command '{cmd}'.", file=sys.stderr)
 
-    suggestions = _fuzzy_suggest(cmd, job_names)
+    from functualize.app.utils import suggest_similar_commands
+
+    suggestions = suggest_similar_commands(cmd, job_names)
     if suggestions:
         print("\nDid you mean:", file=sys.stderr)
         for suggestion in suggestions:
@@ -1477,7 +1413,9 @@ def _handle_job(
             c.name for c in plugin_commands if getattr(c, "namespace", None) is None
         }
         discovered_names |= group_first_segments
-        suggestions = _fuzzy_suggest(job_name, discovered_names)
+        from functualize.app.utils import suggest_similar_commands
+
+        suggestions = suggest_similar_commands(job_name, discovered_names)
         if suggestions:
             print("\nDid you mean:", file=sys.stderr)
             for suggestion in suggestions:
@@ -1673,7 +1611,7 @@ def _handle_single_file(
 
     # Construct FunctualizeApp for execution context
     from functualize.app import FunctualizeApp
-    from functualize.app.config import ConfigSources, JobSources
+    from functualize.app.config import ConfigSources, JobSources, PluginSources
     from functualize.app.utils import auto_discover
 
     cwd = Path.cwd()
@@ -1710,13 +1648,12 @@ def _handle_single_file(
     # Found by adversarial review; a working project stopped working.
     declared = {
         str((cwd / d).resolve())
-        for d in (discovery_result.merged_config or {}).get("jobs_directories", []) or []
+        for d in (discovery_result.merged_config or {}).get("jobs_directories", [])
+        or []
     }
     if single_file_sources.directories:
         kept = [
-            d
-            for d in single_file_sources.directories
-            if d != cwd_str or d in declared
+            d for d in single_file_sources.directories if d != cwd_str or d in declared
         ]
         single_file_sources = JobSources(
             directories=kept or None,
@@ -1735,6 +1672,15 @@ def _handle_single_file(
             dotenv=cli_config.dotenv,
             dotenv_path=cli_config.dotenv_path,
         ),
+        # The same rule as the directory filter above, applied to the other
+        # door into the working directory. The job scan is not the only thing
+        # that reaches it: the plugin loader falls back to
+        # `./.functualize/plugins/` by convention and execs every module there
+        # during app construction — before the named file has run, and
+        # unreachable from `job_sources` entirely. So `func weather.py trip`
+        # could still be consumed by a neighbour, just via a different
+        # doorway. A **declared** `plugins_directories` is untouched.
+        plugin_sources=PluginSources(ambient_directory=False),
     )
 
     # Deposit app reference for perf reporting by caller

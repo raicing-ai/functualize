@@ -114,18 +114,80 @@ def test_changing_a_discovery_filter_invalidates_the_section(project_tree) -> No
     assert read_group_options_from_cache(cache, discovery_hash=changed) is None
 
 
-def test_no_fingerprint_skips_the_check(project_tree) -> None:
-    """The documented default: a caller that cannot know is not refused.
+def test_an_explicit_none_skips_the_check(project_tree) -> None:
+    """A caller that cannot know is not refused — but it has to say so.
 
-    This is the pre-existing behaviour, kept on purpose (`contracts.md` §1) —
-    it is the one shim this change accepts, for readers outside the tree whose
-    signature we cannot update.
+    `None` still means "cannot know", and still skips. What changed is that it
+    is no longer reachable by *omission*: see the test below.
     """
     cache = _write_cache(project_tree, _FILTERED)
 
-    specs = read_group_options_from_cache(cache)
+    specs = read_group_options_from_cache(cache, discovery_hash=None)
 
     assert specs is not None and list(specs) == ["deploy"]
+
+
+def test_omitting_the_fingerprint_is_not_possible(project_tree) -> None:
+    """The pin that replaces a sabotage nothing could observe.
+
+    `adjacent-defects/T10` wrote one — *"drop the fingerprint argument at the
+    call site; this test must fail"* — and dropping it left the suite green,
+    because no test can see what a caller passed. It stayed green for a real
+    reason: a fifth in-tree caller (the MCP plugin) had never passed it at all,
+    and the parameter's default quietly turned that into "skip the check".
+
+    So the default is gone. Forgetting is now a `TypeError` at the call site
+    and a `mypy` error before that — neither of which can be forgotten to run —
+    and `None` has to be stated. This test is what keeps the default from being
+    added back as a convenience.
+    """
+    cache = _write_cache(project_tree, _FILTERED)
+
+    with pytest.raises(TypeError, match="discovery_hash"):
+        read_group_options_from_cache(cache)  # type: ignore[call-arg]
+
+
+def test_every_in_tree_reader_passes_one(project_tree) -> None:
+    """Both halves of B2 at once: no reader omits it, and no reader hard-codes
+    `None` to make the requirement go away.
+
+    A signature can only refuse an *omission*. A caller that writes
+    `discovery_hash=None` to quiet the type checker is back where it started,
+    and that is a source-level fact no runtime assertion reaches — so it is
+    checked here, over the whole tree, rather than per call site.
+    """
+    import subprocess
+
+    roots = ["src/functualize", "plugins"]
+    out = subprocess.run(
+        [
+            "rg",
+            "-U",
+            "--no-heading",
+            "-n",
+            r"read_group_options_from_cache\(\s*[^)]*?discovery_hash=None",
+            *roots,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert out.stdout == "", (
+        "An in-tree reader states `discovery_hash=None`, which skips the "
+        "fingerprint check as surely as omitting it used to:\n" + out.stdout
+    )
+
+    calls = subprocess.run(
+        ["rg", "--no-heading", "-n", r"read_group_options_from_cache\(", *roots],
+        capture_output=True,
+        text=True,
+    )
+    # The definition lives in the same tree it is searched over.
+    sites = [ln for ln in calls.stdout.splitlines() if "def read_group" not in ln]
+    # Five readers: four in core, one in the MCP plugin. The count is asserted
+    # so a sixth arrives with this test in hand rather than silently.
+    assert len(sites) == 5, (
+        f"expected 5 in-tree readers, found {len(sites)}:\n" + "\n".join(sites)
+    )
 
 
 def test_the_section_is_still_refused_for_an_unreadable_cache(tmp_path: Path) -> None:

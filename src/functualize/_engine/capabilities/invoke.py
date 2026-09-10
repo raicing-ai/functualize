@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from functualize._gate._registry import GateRegistry
     from functualize._gate._strategy import GateStrategy
     from functualize._types.descriptors import JobDescriptor, JobResult
+    from functualize._types.enums import RunStatus
     from functualize._types.run_request import RunSurface
     from functualize.job._workflow_scope import WorkflowScope
 
@@ -44,8 +45,15 @@ class ParallelObserver(Protocol):
         """Called on the worker thread before the job runs."""
         ...
 
-    def release(self, job_name: str, *, failed: bool) -> None:
-        """Called on the same thread once it has, however it ended."""
+    def release(self, job_name: str, *, status: RunStatus) -> None:
+        """Called on the same thread once it has, however it ended.
+
+        The **status**, not a verdict on it. Whether a given status counts as a
+        failure is a question about the boundary being crossed, and the observer
+        is the one that knows which boundary it is rendering for — so it asks
+        `functualize.types.is_failure` with its own family rather than being
+        told an answer computed under someone else's.
+        """
         ...
 
 
@@ -568,26 +576,31 @@ class WiredInvoke(Invoke):
                 return outcome
             finally:
                 if observer is not None:
-                    observer.release(job_name, failed=_is_failure(outcome))
-
-        def _is_failure(outcome: tuple[int, JobResult] | None) -> bool:
-            """Whether a finished job counts as failed, for the *reader*.
-
-            `None` means `_run` raised, which nothing below is supposed to do —
-            treated as failure so an unexpected escape is still surfaced rather
-            than quietly logged as a clean run. BLOCKED and SKIPPED are not
-            failures: the job did what it was asked to (`RunStatus.resumable`
-            exists for exactly this distinction) and marking them `::error::`
-            in a CI log would cry wolf.
-            """
-            if outcome is None:
-                return True
-            status = outcome[1].status
-            return status not in (
-                RunStatus.SUCCESS,
-                RunStatus.SKIPPED,
-                RunStatus.BLOCKED,
-            )
+                    # The **status**, not a verdict on it. Deciding here would
+                    # be the engine making a delivery decision: this callback is
+                    # reached only through an observer, the only observer is
+                    # `_cli/parallel_output.py`, and the thing it controls is a
+                    # `::error::` annotation in a CI log. An engine function
+                    # whose sole purpose is to answer a CLI question.
+                    #
+                    # It had its own copy of the not-a-failure set, and the copy
+                    # disagreed with the one `func builtin parallel` uses for
+                    # its exit code — so a batch where a job paused at a gate
+                    # exited 5 *and* logged no `::error::` for the job that
+                    # paused. Two answers about BLOCKED inside one command,
+                    # which is the divergence this feature exists to end.
+                    #
+                    # `None` means `_run` raised, which nothing below is
+                    # supposed to do. It is reported as UNKNOWN rather than
+                    # swallowed, and every family reads UNKNOWN as a failure.
+                    observer.release(
+                        job_name,
+                        status=(
+                            outcome[1].status
+                            if outcome is not None
+                            else RunStatus.UNKNOWN
+                        ),
+                    )
 
         def _run(
             index: int,

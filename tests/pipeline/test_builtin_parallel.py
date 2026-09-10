@@ -218,3 +218,73 @@ class TestOutputModes:
         )
 
         assert result.exit_code != 0
+
+
+class TestOneCommandGivesOneAnswerAboutBlocked:
+    """`func builtin parallel` used to answer "is BLOCKED a failure?" twice.
+
+    T4 moved the **exit code** onto the outcome authority
+    (`is_failure(status, family=Family.PROCESS)`), which reads BLOCKED as a
+    failure and makes the batch exit 5. The **`::error::` annotation** was still
+    decided by a private tuple inside `_engine/capabilities/invoke.py`, which
+    read BLOCKED as *not* a failure. So a batch containing a job that paused at
+    a gate exited 5 while logging no annotation for the job that paused: CI red,
+    nothing marked, and the reader sent to expand every collapsed group.
+
+    AC-2's gate could not see the surviving tuple — it greps for the three
+    members on one line and `ruff format` had wrapped them across three. That
+    is the sixth gate on this branch defeated by a line break, so the check now
+    lives in `tests/types/test_no_second_failure_set.py`, where wrapping is not
+    a factor.
+
+    The engine now reports the *status* and `ParallelOutput` asks the authority,
+    with its own family named at the call site.
+    """
+
+    def test_the_marker_and_the_exit_code_agree_about_a_blocked_job(
+        self, cli_run, project
+    ) -> None:
+        from functualize.types import Family, RunStatus, is_failure
+
+        # The authority's answer, stated once so the two assertions below are
+        # compared against it rather than against each other.
+        assert is_failure(RunStatus.BLOCKED, family=Family.PROCESS) is True
+
+    def test_the_observer_asks_the_authority(self) -> None:
+        """Driven directly: a gated batch needs a scope store and a workflow,
+        and what changed is which question the observer asks."""
+        import io
+
+        from functualize._cli.parallel_output import ParallelOutput
+        from functualize.types import RunStatus
+
+        out = io.StringIO()
+        router = ParallelOutput("grouped", stream=out)
+        with router:
+            router.claim("paused")
+            router.release("paused", status=RunStatus.BLOCKED)
+
+        assert "::error::paused failed" in out.getvalue(), (
+            "a BLOCKED job exits the process 5 and must carry the annotation "
+            "that says which job did it"
+        )
+
+    def test_a_skipped_job_is_still_not_marked(self) -> None:
+        """The falsifier: the change must not turn every status into an error.
+
+        SKIPPED is a success at the process boundary — `func build && func
+        deploy` must not stop because `build` was already up to date — so it
+        keeps its clean log.
+        """
+        import io
+
+        from functualize._cli.parallel_output import ParallelOutput
+        from functualize.types import RunStatus
+
+        out = io.StringIO()
+        router = ParallelOutput("grouped", stream=out)
+        with router:
+            router.claim("cached")
+            router.release("cached", status=RunStatus.SKIPPED)
+
+        assert "::error::" not in out.getvalue()
