@@ -27,7 +27,6 @@ if TYPE_CHECKING:
     from functualize._types.descriptors import FieldDescriptor, GroupOptionsSpec
 
 __all__ = [
-    "RENAMED_FLAGS",
     "GLOBAL_OPTIONS_ALWAYS_VALUE",
     "GLOBAL_OPTIONS_OPTIONAL_VALUE",
     "OPTIONAL_VALUE_VALID_SET",
@@ -90,32 +89,11 @@ OPTIONAL_VALUE_VALID_SET: dict[str, tuple[frozenset[str], str]] = {
     # informed guesses at what it meant (`--line-format`, `--return-value-format`)
     # both described something the flag provably does not do. `--output` is left
     # unclaimed rather than repurposed as a destination, so the confusion ends
-    # rather than moving.
+    # rather than moving — and there is deliberately **no alias and no hint**:
+    # pre-alpha, the constitution says delete rather than shim, and a migration
+    # aid is how one thing acquires two names.
     "--emit-format": (frozenset({"auto", "json", "ndjson", "raw", "none"}), "auto"),
 }
-
-#: Flags that used to exist, and what replaced them.
-#:
-#: A renamed global flag produces a **actively misleading** error without this.
-#: `detect_mode` skips known flags when hunting for the first positional, so an
-#: unknown one is read as the command name — a failure mode this file already
-#: documents for `--force` — and `func --output json build` answers::
-#:
-#:     Error: Unknown command 'output'.
-#:
-#: which names no flag, suggests nothing, and is wrong about what the user
-#: typed. One entry here turns that into the sentence they need.
-#:
-#: Entries are cheap to keep and cost nothing at runtime (one dict lookup on a
-#: path that is already failing), so a rename should add one rather than
-#: assuming everybody reads the changelog.
-RENAMED_FLAGS: dict[str, str] = {
-    # 2026-09-10. It governs `out.emit()` and nothing else — a job's return
-    # value is never rendered at any format, and `print()` ignores it — so the
-    # old name promised to control "the command's output" and did not.
-    "--output": "--emit-format",
-}
-
 
 # Union set for backward compatibility (used for --option=value detection).
 GLOBAL_OPTIONS_WITH_VALUE = GLOBAL_OPTIONS_ALWAYS_VALUE | GLOBAL_OPTIONS_OPTIONAL_VALUE

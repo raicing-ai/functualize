@@ -681,28 +681,6 @@ def _extract_aliases(merged_config: dict[str, Any]) -> dict[str, str]:
 # ─── Unknown command handling ────────────────────────────────────────────
 
 
-def _renamed_flag_hint(cmd: str) -> str | None:
-    """The sentence a user with muscle memory needs, or ``None``.
-
-    `detect_mode` skips *known* flags when hunting for the first positional, so
-    a flag that no longer exists is read as the command name and reported as
-    one — `func --output json build` answers ``Unknown command 'output'``,
-    which names no flag and is wrong about what was typed. The dashes are gone
-    by the time we get here, so both spellings are tried.
-    """
-    from functualize.app.utils import RENAMED_FLAGS
-
-    for spelling in (cmd, f"--{cmd}"):
-        replacement = RENAMED_FLAGS.get(spelling)
-        if replacement is not None:
-            return (
-                f"'--{cmd.lstrip('-')}' was renamed to '{replacement}'."
-                if not cmd.startswith("-")
-                else f"'{cmd}' was renamed to '{replacement}'."
-            )
-    return None
-
-
 def _handle_unknown(args: list[str], job_names: set[str]) -> None:
     """Print 'command not found' with fuzzy suggestions.
 
@@ -713,12 +691,6 @@ def _handle_unknown(args: list[str], job_names: set[str]) -> None:
         job_names: Set of valid job names for suggestion matching.
     """
     cmd = args[0] if args else ""
-
-    renamed = _renamed_flag_hint(cmd)
-    if renamed is not None:
-        print(f"Error: {renamed}", file=sys.stderr)
-        print("Run 'func --help' to see the global options.", file=sys.stderr)
-        return
 
     print(f"Error: Unknown command '{cmd}'.", file=sys.stderr)
 
@@ -1422,17 +1394,6 @@ def _handle_job(
                 file=sys.stderr,
             )
         else:
-            # A renamed global flag lands here, not in `_handle_unknown`: it is
-            # unknown to `detect_mode`, so it becomes the first positional and
-            # this door treats it as a job name.
-            renamed = _renamed_flag_hint(job_name)
-            if renamed is not None:
-                print(f"Error: {renamed}", file=sys.stderr)
-                print(
-                    "Run 'func --help' to see the global options.",
-                    file=sys.stderr,
-                )
-                return 1
             print(
                 f"Error: Unknown command '{job_name}'.",
                 file=sys.stderr,

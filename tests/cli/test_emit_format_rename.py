@@ -97,43 +97,33 @@ class TestTheFlagRendersWhatEmitWasGiven:
         assert "emit" in result.stdout
 
 
-class TestTheOldNameSaysWhereItWent:
-    """A renamed global flag produces an actively misleading error otherwise.
+class TestTheOldNameIsSimplyGone:
+    """No migration aid. The project is pre-alpha and the constitution says
+    delete rather than shim, so `--output` is not recognised and gets whatever
+    an unknown token gets.
 
-    `detect_mode` skips *known* flags when hunting for the first positional, so
-    one that no longer exists is read as the command name — a failure mode
-    `_cli/dispatch.py` already documents for `--force`. Without the hint,
-    `func --output json build` answers `Unknown command 'output'`: it names no
-    flag, suggests nothing, and is wrong about what the user typed.
+    Kept as a test because "there is no second spelling" is the property worth
+    guarding — a helpful alias is exactly how two names for one thing come
+    back.
     """
 
     @surfaces("func")
-    def test_the_old_name_names_the_new_one(self, cli_run, project_tree) -> None:
+    def test_the_old_name_is_not_accepted(self, cli_run, project_tree) -> None:
         result = cli_run(["--output", "json", "emits"], cwd=_tree(project_tree))
 
-        combined = result.stdout + result.stderr
-        assert "--emit-format" in combined, combined
-        assert "Unknown command 'output'" not in combined
-
-    @surfaces("func")
-    def test_an_ordinary_typo_is_still_a_typo(self, cli_run, project_tree) -> None:
-        """The falsifier: the hint must not swallow every unknown command."""
-        result = cli_run(["emitz"], cwd=_tree(project_tree))
-
-        combined = result.stdout + result.stderr
-        assert "was renamed" not in combined
-        assert "Unknown command" in combined
+        assert result.exit_code != 0
+        assert '"from":"emit"' not in result.stdout.replace(" ", "")
 
 
-def test_the_table_only_holds_flags_that_are_really_gone() -> None:
-    """An entry for a flag that still exists would be a lie in a help message."""
+def test_the_flag_has_exactly_one_spelling() -> None:
+    """`--output` is in no grammar table — not as a flag, not as an alias."""
     from functualize._types.flag_grammar import (
         GLOBAL_BOOL_FLAGS,
         GLOBAL_OPTIONS_WITH_VALUE,
-        RENAMED_FLAGS,
+        OPTIONAL_VALUE_VALID_SET,
     )
 
-    live = GLOBAL_OPTIONS_WITH_VALUE | GLOBAL_BOOL_FLAGS
-    for old, new in RENAMED_FLAGS.items():
-        assert old not in live, f"{old} is still a real flag; it was not renamed"
-        assert new in live, f"{old} points at {new}, which is not a flag"
+    every_flag = GLOBAL_OPTIONS_WITH_VALUE | GLOBAL_BOOL_FLAGS
+    assert "--emit-format" in every_flag
+    assert "--output" not in every_flag
+    assert "--output" not in OPTIONAL_VALUE_VALID_SET

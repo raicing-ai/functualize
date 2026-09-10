@@ -480,19 +480,20 @@ The return value is never rendered at any format, and `print()` is ignored too.
 is gone now that the global has a different name. Whether it should become
 `--layout` for accuracy is a separate, smaller question.
 
-Two things the rename turned up that were worth having:
+**No migration aid, deliberately.** I first added a `RENAMED_FLAGS` table so the
+old spelling would answer *"'--output' was renamed to '--emit-format'"*, on the
+grounds that `Unknown command 'output'` is a poor error. The maintainer removed
+it: the project is pre-alpha, `.spec/CONSTITUTION.md` says **delete rather than
+shim**, and a migration aid is precisely how one thing acquires two names. The
+old flag now gets whatever any unknown token gets. What survives is a test that
+`--output` appears in **no** grammar table — the property worth guarding is that
+there is only one spelling, not that the dead one is polite.
 
-- **`RENAMED_FLAGS`.** Without it the old name produced `Unknown command
-  'output'` — it names no flag, suggests nothing, and is wrong about what was
-  typed. `detect_mode` skips *known* flags when hunting the first positional, so
-  a flag that no longer exists becomes the command name; `_cli/dispatch.py`
-  already documented that failure mode for `--force`. One table entry turns it
-  into *"'--output' was renamed to '--emit-format'."*
-- **A real bug the dual-surface test caught.** Click derives a callback's
-  parameter name from the flag, so renaming only the flag string left the app
-  adapter reading a variable that no longer existed — `--emit-format none`
-  silently stopped suppressing on the app surface while `func` kept working. The
-  `[app]`/`[func]` parameterisation is what made it visible.
+**A real bug the dual-surface test caught.** Click derives a callback's
+parameter name from the flag, so renaming only the flag string left the app
+adapter reading a variable that no longer existed — `--emit-format none`
+silently stopped suppressing on the app surface while `func` kept working. The
+`[app]`/`[func]` parameterisation is what made it visible.
 
 ### Still open (D-3, narrowed)
 
