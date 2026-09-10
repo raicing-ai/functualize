@@ -131,3 +131,25 @@ too, and repeatably.
 path except `_cli/tui/job_execution.py`'s verdict branch (which does not run in
 this test). If it starts failing *in isolation*, that is a different bug and
 this entry no longer applies.
+
+## 9 · `tests/test_packaging.py::TestBuildArtifacts` — flaky under `-n auto`
+
+**Seen:** 2026-09-10, two failures in a `--run-slow -n auto` run
+(11,451 passed, 2 failed): `test_build_produces_sdist_and_wheel` and
+`test_wheel_contains_entry_points`.
+
+**Discriminator.** Run the file alone:
+
+```
+uv run pytest tests/test_packaging.py -q -p no:randomly --run-slow
+```
+
+Passed 14/14 on two consecutive isolated runs. These shell out to a real build
+and write into the repository's `dist/`, which is **one directory shared by
+every xdist worker** — so two workers building at once see each other's
+half-written artifacts. It is the same category as the 25 artifact failures
+this branch measured under four-way worktree concurrency, and the reason
+worktree isolation was adopted.
+
+**Not a defect on this branch.** If it fails *in isolation*, that is a real
+packaging break and this entry does not apply.

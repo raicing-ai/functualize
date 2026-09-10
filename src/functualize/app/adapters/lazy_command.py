@@ -35,7 +35,7 @@ def make_lazy_command(
     *,
     command_name: str | None = None,
     group_option_values: dict[str, Any] | None = None,
-    surface: RunSurface = "app.cli",
+    surface: RunSurface,
     prompt_gates: bool | None = None,
     output_format: str | None = None,
     force: bool | None = None,

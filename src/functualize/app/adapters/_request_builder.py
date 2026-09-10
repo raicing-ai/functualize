@@ -78,7 +78,7 @@ def build_request(
     prompt_gates: bool | None = None,
     output_format: str | None = None,
     force: bool | None = None,
-    surface: RunSurface = _DEFAULT_SURFACE,
+    surface: RunSurface,
 ) -> RunRequest:
     """Build the :class:`RunRequest` a click callback hands to the engine.
 

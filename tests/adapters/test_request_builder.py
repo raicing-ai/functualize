@@ -105,11 +105,11 @@ class TestBothConstructorsAgree:
         app, captured = _app_with_spy()
 
         eager_command = create_job_click_command(
-            name="deploy", function=deploy, app=app
+            surface="app.cli", name="deploy", function=deploy, app=app
         )
         eager_command.callback(env="prod")  # type: ignore[misc]
 
-        lazy_command = make_lazy_command(_descriptor(), app)
+        lazy_command = make_lazy_command(_descriptor(), app, surface="app.cli")
         lazy_command.callback(env="prod")  # type: ignore[misc]
 
         assert len(captured) == 2, (
@@ -145,11 +145,96 @@ class TestBothConstructorsAgree:
         }
 
         create_job_click_command(
-            name="deploy", function=deploy, app=app, **delivery
+            surface="app.cli", name="deploy", function=deploy, app=app, **delivery
         ).callback(env="prod")  # type: ignore[misc]
-        make_lazy_command(_descriptor(), app, **delivery).callback(env="prod")  # type: ignore[misc]
+        make_lazy_command(_descriptor(), app, surface="app.cli", **delivery).callback(
+            env="prod"
+        )  # type: ignore[misc]
 
         for request in captured:
             assert request.prompt_gates is True
             assert request.output_format == "json"
             assert request.force is True
+
+
+class TestEveryDoorNamesItselfOrDoesNotCompile:
+    """`surface` has no default at any constructor — rre F8.
+
+    `RunRequest.surface` is required, which is the right shape and was already
+    true. But every *constructor* that builds one defaulted it to `app.cli`:
+    `build_request`, `create_job_click_command`, `build_job_engine_callback`,
+    `make_lazy_command`. So "every door names itself" held by convention, and
+    the one door that did not follow the convention was the seam farthest from
+    anyone's attention — `create_job_command`, the callable form for embedders
+    and the `_discovery` CLI-wiring path, reached from
+    `JobRegistry.create_job_command` with no surface argument.
+
+    That mislabel was not cosmetic. `app.cli` **owns the process's stdin**
+    (`SURFACE_POLICY`), so a run through the embedder seam also inherited stdin
+    resolution and the ambient click-context read — behaviour chosen for a door
+    it never came through.
+
+    The feature applied exactly this rule to `prompt_gates`, `output_format`
+    and `force`, and stopped one field short. These tests are what keep the
+    defaults from growing back; the real enforcement is `mypy`, which named all
+    four call sites the moment the defaults came off.
+    """
+
+    @staticmethod
+    def _surface_param(func: object) -> object:
+        import inspect
+
+        return inspect.signature(func).parameters["surface"]  # type: ignore[arg-type]
+
+    def test_no_constructor_defaults_the_surface(self) -> None:
+        import inspect
+
+        from functualize.app.adapters._request_builder import build_request
+        from functualize.app.adapters.click_params import (
+            build_job_engine_callback,
+            create_job_click_command,
+        )
+        from functualize.app.adapters.lazy_command import make_lazy_command
+
+        for func in (
+            build_request,
+            create_job_click_command,
+            build_job_engine_callback,
+            make_lazy_command,
+        ):
+            param = self._surface_param(func)
+            assert param.default is inspect.Parameter.empty, (  # type: ignore[attr-defined]
+                f"{func.__name__} defaults `surface` to "
+                f"{param.default!r}; a door that does not say which one it is "  # type: ignore[attr-defined]
+                "gets another door's stdin policy"
+            )
+
+    def test_the_embedder_seam_is_not_labelled_as_the_app_cli(self) -> None:
+        """The defect F8 actually found, asserted as behaviour.
+
+        `create_job_command` keeps a default because it is a public callable
+        whose callers cannot all be updated — but the default is now
+        `app.execute`, which is what an embedder holding a callable *is*, and
+        which does not own stdin.
+        """
+        import inspect
+
+        from functualize._types.run_request import CONSOLE_SURFACES
+        from functualize.app.adapters.click_params import create_job_command
+
+        default = inspect.signature(create_job_command).parameters["surface"].default
+        assert default == "app.execute"
+        assert default not in CONSOLE_SURFACES, (
+            "the embedder seam must not inherit a console door's stdin policy"
+        )
+
+    def test_a_run_through_the_embedder_seam_says_so(self) -> None:
+        """End to end: build the callable, invoke it, read the request."""
+        from functualize.app.adapters.click_params import create_job_command
+
+        app, captured = _app_with_spy()
+        callback = create_job_command("deploy", deploy, app=app)
+        callback(env="prod")
+
+        assert captured, "the seam reached no engine"
+        assert captured[0].surface == "app.execute"

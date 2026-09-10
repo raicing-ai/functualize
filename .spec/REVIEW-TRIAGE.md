@@ -289,3 +289,34 @@ PROCESS with the exit table and PANEL with the panel — so the hazard is latent
 and it is now mechanically checked. Redesigning the authority is a maintainer's
 call, not a triage fix, and it is not blocking anything.
 
+
+## Batch 9 — `run-request-entry` F6 and F8: surface policy stops being convention
+
+These are one finding wearing two hats: **what the engine decides from a
+surface** (F6) and **whether a door has to name itself** (F8). Both were held by
+convention, and both failed *silently* when the convention was not followed.
+
+| Finding | Verdict | Why the implementer missed it | Why the reviewer found it | What catches it now |
+|---|---|---|---|---|
+| `rre F6` — `CONSOLE_SURFACES` is engine policy living in `_types`, and a second hand-maintained taxonomy | **FIXED** | The set was written when stdin resolution moved into the kernel, and it was *correct*. What it could not be was **total**: adding a console door to the 18-value `Literal` and forgetting the set silently dropped stdin for it (the parameter's default wins, nothing said); adding a non-console door re-introduces the `/dev/null` read the docstring warns about. A third copy of the four names was re-typed in `tests/engine/test_run_request_stdin.py`. The second policy — `request.surface == "app.parallel"` for history — is the same shape, one method away, and nobody saw them as one thing. | They listed every consumer of the set and asked what happens to a door that is in the `Literal` and not in the set. | `SurfacePolicy` + `SURFACE_POLICY`, one entry per door, both decisions as fields. The lookup is a **subscript**, so an unclassified door raises `KeyError` rather than inheriting the majority answer — which is the whole difference from a `frozenset` membership test. `CONSOLE_SURFACES` survives as a *derived* name. `TestEveryDoorIsClassified` (5 tests) makes totality true rather than intended; adding a door to `RunSurface` and not to the policy now fails. |
+| `rre F8` — `surface` has a default, so "every door names itself" is honour-system | **FIXED** | `RunRequest.surface` is required, which *is* the right shape and was already done — the field even carries a docstring saying "a door must name itself". Then all four constructors that build one defaulted it to `app.cli`. The feature applied exactly this rule to `prompt_gates`, `output_format` and `force` and **stopped one field short**, so the check was a convention rather than a mechanism. | They followed the seam furthest from anyone's attention — `create_job_command`, the callable form for embedders, reached from `_discovery/registry.py` with no surface argument — and printed the request it produces. | No default at `build_request`, `create_job_click_command`, `build_job_engine_callback`, `make_lazy_command`. `mypy` then named all four call sites, which is the enforcement; `TestEveryDoorNamesItselfOrDoesNotCompile` keeps the defaults from growing back. |
+
+### What the mislabel actually cost
+
+`create_job_command` labelled every embedder run `app.cli` — a door it never
+came through. Not cosmetic, and this is exactly why F6 and F8 are one finding:
+`app.cli` **owns the process's stdin**, so the mislabel handed those runs stdin
+resolution and the ambient click-context read, chosen for a door they had not
+used. Its default is now `app.execute` — what an embedder holding a callable
+actually is — and `test_the_embedder_seam_is_not_labelled_as_the_app_cli`
+asserts the default is outside `CONSOLE_SURFACES` rather than merely that it
+changed.
+
+### A correction to my own reading
+
+Mid-triage I said `_dispatch_group` was mislabelled `app.cli`. It is not — it
+passes `surface="func.group"`, and my grep window was ten lines short of the
+argument. The reviewer's finding was about the *signatures* defaulting, and the
+one caller genuinely relying on the default in a way that mattered was the
+embedder seam.
+

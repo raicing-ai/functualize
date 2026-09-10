@@ -48,36 +48,113 @@ RUN_SURFACES: Final[frozenset[str]] = frozenset(get_args(RunSurface))
 Derived from the ``Literal`` rather than repeated, so the two cannot drift.
 """
 
-CONSOLE_SURFACES: Final[frozenset[str]] = frozenset(
+
+@dataclass(frozen=True, slots=True)
+class SurfacePolicy:
+    """What the engine needs to know about a door, other than its name.
+
+    Two questions, one per field, and both were **string comparisons scattered
+    in the kernel**: ``request.surface not in CONSOLE_SURFACES`` and
+    ``request.surface == "app.parallel"``. Conditional-on-type-code, two files
+    apart, and the first of them answered *silently* — a door added to
+    `RunSurface` and forgotten here simply stopped resolving stdin, with the
+    parameter's default winning and nothing said.
+
+    A policy object keyed by every surface makes the omission loud instead:
+    :data:`SURFACE_POLICY` is total, the lookup is a plain subscript, and a door
+    nobody classified raises `KeyError` at its first run rather than quietly
+    behaving like the majority.
+    """
+
+    owns_stdin: bool
+    """Whether this door's caller owns the process's stdin.
+
+    ``Stdin``-marked parameters are resolved by ``engine.run()``
+    (run-request/T11), which every surface reaches — so the engine has to know
+    which callers actually have a pipe. Only a console invocation does. An HTTP
+    or Lambda request that omits a ``Stdin`` parameter must get the parameter's
+    default, not a read of the server process's stdin, which is typically
+    ``/dev/null`` (non-tty, so the ``isatty`` guard does not save it) and would
+    silently substitute an empty string. The TUI surfaces are excluded for the
+    opposite reason: their stdin is a live terminal the UI owns, and reading it
+    would steal the user's keystrokes.
+
+    Before T11 this was implicit — stdin resolution lived in the click adapters,
+    so only click did it. Declaring it per door keeps that true now the code has
+    moved into the kernel.
+    """
+
+    records_batch_items: bool
+    """Whether a run at depth > 0 through this door still reaches history.
+
+    ``func builtin parallel a b`` is the user launching `a` and `b`, and neither
+    appeared in ``func builtin history`` because ``Invoke.parallel`` runs each
+    item one level down — mechanically nested, but not nested *work* (spec
+    AC-18, STATUS #5). Depth alone cannot tell that apart from
+    ``rc.invoke_parallel`` inside a job, which must stay out of the ring: both
+    parents sit at depth 0, so both put their items at depth 1.
+
+    So the door says which it is. ``app.execute_parallel`` — the seam for
+    callers that are not jobs — stamps its items ``app.parallel`` and they are
+    recorded; ``rc.invoke_parallel`` stamps ``invoke.parallel`` and they are
+    not.
+    """
+
+
+SURFACE_POLICY: Final[Mapping[RunSurface, SurfacePolicy]] = MappingProxyType(
     {
-        "func.job",
-        "func.group",
-        "func.single-file",
-        "app.cli",
+        # The four console doors: a person at a terminal, with a pipe.
+        "func.job": SurfacePolicy(owns_stdin=True, records_batch_items=False),
+        "func.group": SurfacePolicy(owns_stdin=True, records_batch_items=False),
+        "func.single-file": SurfacePolicy(owns_stdin=True, records_batch_items=False),
+        "app.cli": SurfacePolicy(owns_stdin=True, records_batch_items=False),
+        # Programmatic and embedded entry: no pipe of its own.
+        "app.execute": SurfacePolicy(owns_stdin=False, records_batch_items=False),
+        # The TUIs own a live terminal; reading it steals keystrokes.
+        "tui.inline": SurfacePolicy(owns_stdin=False, records_batch_items=False),
+        "tui.shell": SurfacePolicy(owns_stdin=False, records_batch_items=False),
+        # Out-of-process callers. Their stdin is the server's, usually /dev/null.
+        "mcp.tool": SurfacePolicy(owns_stdin=False, records_batch_items=False),
+        "mcp.run-job": SurfacePolicy(owns_stdin=False, records_batch_items=False),
+        "mcp.async": SurfacePolicy(owns_stdin=False, records_batch_items=False),
+        "http": SurfacePolicy(owns_stdin=False, records_batch_items=False),
+        "lambda": SurfacePolicy(owns_stdin=False, records_batch_items=False),
+        # Nested work, deliberately out of the history ring.
+        "invoke": SurfacePolicy(owns_stdin=False, records_batch_items=False),
+        "invoke.parallel": SurfacePolicy(owns_stdin=False, records_batch_items=False),
+        # The one door whose *items* are what the user launched.
+        "app.parallel": SurfacePolicy(owns_stdin=False, records_batch_items=True),
+        "event.job-submit": SurfacePolicy(owns_stdin=False, records_batch_items=False),
+        "engine.step": SurfacePolicy(owns_stdin=False, records_batch_items=False),
+        "engine.dependency": SurfacePolicy(owns_stdin=False, records_batch_items=False),
     }
 )
-"""The surfaces whose caller owns the process's stdin.
+"""Every door's policy, one entry per :data:`RunSurface` member.
 
-Four doors, not six. ``func.builtin`` and ``func.bare`` were declared here and in
-``RunSurface`` and **produced by nothing** — `func builtin parallel` runs its jobs
-through `app.execute_parallel`, which names them `app.parallel`, and bare `func`
-opens the inline TUI, which names its runs `tui.inline`. Both were removed
+Total by construction and by test (`tests/types/test_run_request.py`). Look a
+surface up with a plain subscript — a `KeyError` on an unclassified door is the
+whole point, and is what the `frozenset` membership test it replaces could not
+do.
+
+``func.builtin`` and ``func.bare`` were declared here and in ``RunSurface`` and
+**produced by nothing** — `func builtin parallel` runs its jobs through
+`app.execute_parallel`, which names them `app.parallel`, and bare `func` opens
+the inline TUI, which names its runs `tui.inline`. Both were removed
 (maintainer's decision, 2026-09-10): a label nothing can produce is decoration,
 and this feature exists to remove exactly that. If a later door needs one, it
 comes back together with the code that produces it.
+"""
 
+CONSOLE_SURFACES: Final[frozenset[str]] = frozenset(
+    surface for surface, policy in SURFACE_POLICY.items() if policy.owns_stdin
+)
+"""The surfaces whose caller owns the process's stdin.
 
-``Stdin``-marked parameters are resolved by ``engine.run()`` (run-request/T11),
-which every surface reaches — so the engine has to know which callers actually
-have a pipe. Only a console invocation does. An HTTP or Lambda request that
-omits a ``Stdin`` parameter must get the parameter's default, not a read of the
-server process's stdin, which is typically ``/dev/null`` (non-tty, so the
-``isatty`` guard does not save it) and would silently substitute an empty
-string. The TUI surfaces are excluded for the opposite reason: their stdin is a
-live terminal the UI owns, and reading it would steal the user's keystrokes.
-
-Before T11 this was implicit — stdin resolution lived in the click adapters, so
-only click did it. Naming the set keeps that true now that the code moved.
+**Derived, not written out.** It was a second hand-maintained taxonomy beside
+the 18-value ``Literal``, and a third copy was re-typed in
+`tests/engine/test_run_request_stdin.py`. Kept as a name because it reads well
+at a call site and because tests assert against it; it is no longer a place to
+forget a door.
 """
 
 _EMPTY: Final[Mapping[str, Any]] = MappingProxyType({})

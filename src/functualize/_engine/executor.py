@@ -42,7 +42,7 @@ from functualize._types import AmbiguousJobError, JobResult, RunStatus
 from functualize._types.annotations import resolved_hints
 from functualize._types.redaction import Secret, redacted_snapshot
 from functualize._types.run_request import (
-    CONSOLE_SURFACES,
+    SURFACE_POLICY,
     RunRequest,
     nested_request,
 )
@@ -743,7 +743,7 @@ class JobExecutionEngine:
           merged back afterwards. Both halves reach the lifecycle in one dict
           either way; the split exists only to scope the step below.
         * **Stdin resolution.** For console surfaces only
-          (:data:`~functualize._types.run_request.CONSOLE_SURFACES`), which is
+          (:data:`~functualize._types.run_request.SURFACE_POLICY`), which is
           what "it lived in the click adapters" used to mean implicitly.
 
         History is written here, on *every* way out of the lifecycle — the
@@ -820,7 +820,7 @@ class JobExecutionEngine:
         """
         if request.invoke_depth == 0:
             return True
-        return request.surface == "app.parallel"
+        return SURFACE_POLICY[request.surface].records_batch_items
 
     def _request_kwargs(
         self, request: RunRequest, job: RegisteredJob
@@ -835,7 +835,11 @@ class JobExecutionEngine:
         empty string instead.
         """
         kwargs = dict(request.kwargs)
-        if request.surface not in CONSOLE_SURFACES:
+        # A subscript, not a membership test. `not in CONSOLE_SURFACES`
+        # answered `False` for a door nobody had classified, which is the
+        # majority answer given silently; `SURFACE_POLICY[...]` raises instead
+        # (rre F6).
+        if not SURFACE_POLICY[request.surface].owns_stdin:
             return kwargs
 
         from functualize._engine.stdin_reader import (

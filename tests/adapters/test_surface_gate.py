@@ -259,7 +259,7 @@ class TestLazyCommandPath:
             _patch_settings(_NoSettingsStore),
             patch("functualize.ui.stdout_live_session", session),
         ):
-            command = make_lazy_command(descriptor, app)
+            command = make_lazy_command(descriptor, app, surface="app.cli")
             command.callback()
         return session
 

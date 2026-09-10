@@ -251,33 +251,40 @@ class TestBuildClickParamsFromDescriptor:
 
 class TestMakeLazyCommand:
     def test_returns_click_command(self):
-        cmd = make_lazy_command(_make_descriptor(), MagicMock())
+        cmd = make_lazy_command(_make_descriptor(), MagicMock(), surface="app.cli")
         assert isinstance(cmd, click.Command)
 
     def test_construction_does_not_import_module(self):
         desc = _make_descriptor(module_path="nonexistent_module_xyz_12345")
         with patch("functualize._discovery.lazy_wrapper.importlib") as mock_importlib:
-            make_lazy_command(desc, MagicMock())
+            make_lazy_command(desc, MagicMock(), surface="app.cli")
         mock_importlib.import_module.assert_not_called()
 
     def test_docstring_set_from_descriptor(self):
         cmd = make_lazy_command(
-            _make_descriptor(docstring="My custom docstring"), MagicMock()
+            _make_descriptor(docstring="My custom docstring"),
+            MagicMock(),
+            surface="app.cli",
         )
         assert cmd.help == "My custom docstring"
 
     def test_none_docstring_becomes_none_help(self):
-        cmd = make_lazy_command(_make_descriptor(docstring=None), MagicMock())
+        cmd = make_lazy_command(
+            _make_descriptor(docstring=None), MagicMock(), surface="app.cli"
+        )
         assert cmd.help is None
 
     def test_params_reflect_config_fields(self):
         desc = _make_descriptor(config_fields=[_fd("arg1", "str", required=True)])
-        cmd = make_lazy_command(desc, MagicMock())
+        cmd = make_lazy_command(desc, MagicMock(), surface="app.cli")
         assert "arg1" in {p.name for p in cmd.params}
 
     def test_command_name_override(self):
         make_lazy_command(
-            _make_descriptor(name="deploy"), MagicMock(), command_name="ship"
+            _make_descriptor(name="deploy"),
+            MagicMock(),
+            command_name="ship",
+            surface="app.cli",
         )
 
     def test_invocation_imports_module_and_delegates(self):
@@ -298,7 +305,7 @@ class TestMakeLazyCommand:
             "functualize._discovery.lazy_wrapper.importlib.import_module",
             return_value=mock_module,
         ):
-            cmd = make_lazy_command(desc, app)
+            cmd = make_lazy_command(desc, app, surface="app.cli")
             cmd.callback(key="value")  # type: ignore[misc]
 
         app.execution_engine.run.assert_called_once()
@@ -319,7 +326,7 @@ class TestMakeLazyCommand:
             "functualize._discovery.lazy_wrapper.importlib.import_module",
             side_effect=AssertionError("direct import must not run"),
         ):
-            cmd = make_lazy_command(desc, app)
+            cmd = make_lazy_command(desc, app, surface="app.cli")
             cmd.callback(key="value")  # type: ignore[misc]
 
         app.execution_engine.materialize_job.assert_called_once_with("my_func")
@@ -333,7 +340,7 @@ class TestMakeLazyCommand:
         desc = _make_descriptor(module_path="bad.module.path")
         app = MagicMock()
         app.execution_engine.materialize_job.side_effect = KeyError("test_job")
-        cmd = make_lazy_command(desc, app)
+        cmd = make_lazy_command(desc, app, surface="app.cli")
 
         with (
             patch(
@@ -351,7 +358,7 @@ class TestMakeLazyCommand:
         desc = _make_descriptor(module_path="syntax.error.module")
         app = MagicMock()
         app.execution_engine.materialize_job.side_effect = KeyError("test_job")
-        cmd = make_lazy_command(desc, app)
+        cmd = make_lazy_command(desc, app, surface="app.cli")
 
         with (
             patch(
@@ -468,7 +475,7 @@ class TestMarkerFidelity:
                 _fd("dry_run", "bool", default=False, required=False, short_flag="-d"),
             ],
         )
-        cmd = make_lazy_command(desc, MagicMock())
+        cmd = make_lazy_command(desc, MagicMock(), surface="app.cli")
         result = CliRunner().invoke(cmd, ["--help"])
         assert result.exit_code == 0
         assert "TARGET" in result.output
@@ -507,7 +514,7 @@ class TestStdinFidelity:
                 _fd("payload", "str", required=True, is_stdin=True, stdin_flag="--data")
             ],
         )
-        cmd = make_lazy_command(desc, MagicMock())
+        cmd = make_lazy_command(desc, MagicMock(), surface="app.cli")
         result = CliRunner().invoke(cmd, ["--help"])
         assert result.exit_code == 0
         assert "--data" in result.output
@@ -579,7 +586,7 @@ class TestRichTypes:
             name="collect",
             config_fields=[_fd("ids", "list[int]", required=True, positional=True)],
         )
-        cmd = make_lazy_command(desc, MagicMock())
+        cmd = make_lazy_command(desc, MagicMock(), surface="app.cli")
         result = CliRunner().invoke(cmd, ["--help"])
         assert result.exit_code == 0
         assert "IDS..." in result.output.replace(" ", "")
@@ -594,7 +601,7 @@ class TestCapabilityFloorRefusal:
         return dataclasses.replace(_make_descriptor(name="editor"), requires_tty=True)
 
     def test_refuses_when_no_terminal(self, capsys) -> None:
-        cmd = make_lazy_command(self._tty_descriptor(), MagicMock())
+        cmd = make_lazy_command(self._tty_descriptor(), MagicMock(), surface="app.cli")
 
         with (
             patch(

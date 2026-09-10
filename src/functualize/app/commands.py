@@ -129,11 +129,13 @@ class JobNode:
             return 1
 
         # run-request-entry (T6/T11): the app's own command tree is the
-        # `app.cli` door, which is `create_job_click_command`'s default
-        # surface, so this node names nothing extra — the callback it builds
-        # constructs the request.
+        # `app.cli` door. It used to be left to `create_job_click_command`'s
+        # default — "this node names nothing extra" — which is the honour
+        # system the feature removed everywhere else (rre F8). The default is
+        # gone; a door that does not say which one it is no longer compiles.
         registered = self._app.execution_engine.materialize_job(descriptor.name)
         command = create_job_click_command(
+            surface="app.cli",
             name=descriptor.name,
             function=registered.function,
             job_config_class=registered.config_class,

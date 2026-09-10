@@ -39,7 +39,7 @@ def _command(name, fn, app=None):
         from tests._support.engine_run import register
 
         register(app._execution_engine, name, fn)
-    return create_job_click_command(name, fn, app=app)
+    return create_job_click_command(name, fn, app=app, surface="app.cli")
 
 
 def _params(name, fn):

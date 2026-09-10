@@ -40,7 +40,11 @@ def _build_cli(app_mock, registry: JobRegistry) -> click.Group:
         # Register the job with the engine so engine.run() can resolve by name
         register(app_mock._execution_engine, prefix, entry.function)
         command = create_job_click_command(
-            prefix, entry.function, entry.config_class, app=app_mock
+            prefix,
+            entry.function,
+            entry.config_class,
+            app=app_mock,
+            surface="app.cli",
         )
         group.add_command(command, name=prefix)
     return group

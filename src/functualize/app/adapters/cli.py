@@ -355,6 +355,7 @@ def _build_job_command(
 
     if func is not None and not getattr(func, "__functualize_lazy__", False):
         command: click.Command = create_job_click_command(
+            surface="app.cli",
             name=descriptor.name,
             function=func,
             job_config_class=config_class,
@@ -366,6 +367,7 @@ def _build_job_command(
         command = make_lazy_command(
             descriptor,
             app,
+            surface="app.cli",
             command_name=command_name,
             group_option_values=group_option_values,
         )
@@ -719,6 +721,7 @@ def _try_discovered_job(cmd: str, remaining_args: list[str], app: object) -> int
         return None
 
     command = create_job_click_command(
+        surface="app.cli",
         name=descriptor.name,
         function=func,
         job_config_class=config_class,

@@ -161,7 +161,17 @@ class TestANonConsoleSurfaceDoesNot:
         assert read.call_count == 0, "a non-console surface must not touch stdin"
 
     def test_the_set_names_only_console_doors(self) -> None:
-        """A door added to the set is a door that may read the user's pipe."""
+        """A door that owns stdin is a door that may read the user's pipe.
+
+        Written out here on purpose — this is the **claim**, and the policy
+        table is the implementation. Four doors, and each one is a person at a
+        terminal. Anything else reading the process's stdin is reading the
+        server's `/dev/null` (or stealing a TUI's keystrokes).
+
+        This used to be the *third* hand-typed copy of the same list, beside
+        `RunSurface` and `CONSOLE_SURFACES`; there is now one table and this
+        assertion checks it rather than agreeing with a sibling copy (rre F6).
+        """
         assert (
             frozenset(
                 {
@@ -173,3 +183,16 @@ class TestANonConsoleSurfaceDoesNot:
             )
             == CONSOLE_SURFACES
         )
+
+    def test_no_other_door_owns_stdin(self) -> None:
+        """The same claim from the table's side, so a door added to
+        `RunSurface` with `owns_stdin=True` fails here even if someone updates
+        the list above to match it."""
+        from functualize._types.run_request import SURFACE_POLICY
+
+        for surface, policy in SURFACE_POLICY.items():
+            expected = surface.split(".")[0] in {"func"} or surface == "app.cli"
+            assert policy.owns_stdin is expected, (
+                f"{surface} declares owns_stdin={policy.owns_stdin}; only the "
+                "console doors (`func.*`, `app.cli`) have a pipe of their own"
+            )

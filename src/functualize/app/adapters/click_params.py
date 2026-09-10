@@ -1020,7 +1020,7 @@ def build_job_engine_callback(
     requires_tty: bool,
     group_option_values: dict[str, Any] | None = None,
     workflow_scope_id: str | None = None,
-    surface: RunSurface = "app.cli",
+    surface: RunSurface,
     prompt_gates: bool | None = None,
     output_format: str | None = None,
     force: bool | None = None,
@@ -1300,7 +1300,7 @@ def create_job_click_command(
     command_name: str | None = None,
     group_option_values: dict[str, Any] | None = None,
     workflow_scope_id: str | None = None,
-    surface: RunSurface = "app.cli",
+    surface: RunSurface,
     prompt_gates: bool | None = None,
     output_format: str | None = None,
     force: bool | None = None,
@@ -1411,6 +1411,8 @@ def create_job_command(
     function: Callable[..., Any],
     job_config_class: type[BaseModel] | None = None,
     app: FunctualizeApp | None = None,
+    *,
+    surface: RunSurface = "app.execute",
 ) -> Callable[..., Any]:
     """Wrap a job function for direct invocation, DI/config-aware.
 
@@ -1420,6 +1422,18 @@ def create_job_command(
     capability params are excluded. This is the callable form of
     :func:`create_job_click_command` for embedders and the ``_discovery``
     CLI-wiring seam, which must not import ``click`` machinery directly.
+
+    Args:
+        surface: The door this callable represents. It defaults to
+            ``app.execute`` — programmatic entry — because that is what an
+            embedder holding a callable actually is, and because the previous
+            default was ``app.cli``: a run through here was labelled as having
+            come through the app's command tree, a door it never passed. That
+            was not cosmetic. ``app.cli`` owns the process's stdin
+            (:data:`~functualize._types.run_request.SURFACE_POLICY`), so the
+            mislabel also handed these runs stdin resolution and the ambient
+            click-context read (rre F8). A caller that really is wiring a CLI
+            passes its own door.
     """
     from functualize._discovery.providers import extract_capability_markers
 
@@ -1434,6 +1448,7 @@ def create_job_command(
         app,
         uses_live=markers["uses_live"],
         requires_tty=markers["requires_tty"],
+        surface=surface,
     )
 
     # Synthesize a signature exposing the CLI param names (DI already stripped),
