@@ -1048,7 +1048,7 @@ class JobExecutionEngine:
         # the job, and the job has not been reached yet.
         workflow_runner = None
         if declaration is not None:
-            workflow_runner, early = self._run_workflow_prelude(
+            workflow_runner, early = self._workflow_orchestrator.prelude(
                 job_name,
                 declaration,
                 scope_id=workflow_scope_id,
@@ -1382,31 +1382,6 @@ class JobExecutionEngine:
 
         validate_workflow_declarations(registry=self._registered_jobs)
         self._workflows_validated_token = token
-
-    def _run_workflow_prelude(
-        self,
-        job_name: str,
-        declaration: Any,
-        *,
-        scope_id: str | None,
-        invoke_depth: int,
-        start_time: float,
-        request: RunRequest | None = None,
-    ) -> tuple[Any, JobResult | None]:
-        """Delegates to :class:`WorkflowOrchestrator` (T6, step 1 of 2).
-
-        The body moved out unchanged; this wrapper exists for one commit so the
-        move can be verified against a green lifecycle before the call site
-        changes. Step 2 deletes it and calls the orchestrator directly.
-        """
-        return self._workflow_orchestrator.prelude(
-            job_name,
-            declaration,
-            scope_id=scope_id,
-            invoke_depth=invoke_depth,
-            start_time=start_time,
-            request=request,
-        )
 
     def _get_resolution_plan(self, function: Callable[..., Any]) -> ResolutionPlan:
         """Get or build a ResolutionPlan for a function (cached by id(function))."""

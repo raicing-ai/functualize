@@ -159,30 +159,59 @@ F5's durable layer possible, because it needs one answer to "where does run stat
 
 ## Wave 5 — workflow walking leaves the engine
 
-### [ ] T6 · `WorkflowOrchestrator`
+### [x] T6 · `WorkflowOrchestrator`
 
 **Files:** `src/functualize/_engine/workflow_orchestrator.py`,
-`src/functualize/_engine/executor.py`
+`src/functualize/_engine/executor.py`, `tests/engine/test_lifecycle_order.py`,
+`contributor/reference/execution-lifecycle.md`
 
-`_run_workflow_prelude` (`executor.py:1186`, ~140 LOC) plus its walker glue, as a sequence of
+`_run_workflow_prelude` (`executor.py:1381` at execution time, 154 LOC — the brief said
+`:1186`, ~140, which was true when it was written) plus its walker glue, as a sequence of
 **pure Move-Method commits** rather than one rewrite.
 
 Spec AC-8, AC-9.
+
+**Two commits, deliberately.** `64f4d9f` moves the body out and leaves
+`_run_workflow_prelude` as a delegate; the second deletes the delegate and points
+`_execute_lifecycle` at `self._workflow_orchestrator.prelude`. Splitting it means the *move*
+is verified against a green lifecycle before the *call site* changes — if something breaks,
+only one of the two things could have caused it.
 
 **Gate**
 ```bash
 rg -c 'def _run_workflow_prelude' src/functualize/_engine/executor.py
 ```
-now: `1` · after: `0`
+now: `1` · after: `0` *(`rg` exits 1 with no matches, which is the answer)*
 
 **Gate — the lifecycle is untouched, at every commit**
 ```bash
 uv run pytest tests/engine/test_lifecycle_order.py -q
 ```
-now: `passing` · after: `passing` *(run after **each** commit in this wave, not only at its end)*
+now: `passing` · after: `6 passed` — run after **both** commits, not only at the end.
+
+The order list needed one edit in commit 2 and it is not a weakening: the AST scan matches
+**call names** inside `_execute_lifecycle`, so `_run_workflow_prelude` became `prelude`.
+`contributor/reference/execution-lifecycle.md` step 3 was updated in the same commit, which
+the test's own failure message demands — *"update the page and this list together"*.
+
+**Executable size:** `executor.py` 2771 → **2622** LOC; `workflow_orchestrator.py` 209.
 
 **Sabotage:** reorder two lifecycle steps; `test_lifecycle_order.py` must fire. Already wired
 — demonstrate once, per `wiring-discipline.md`.
+
+**The eighth instance of hazard #1, in the commit that documents it.** The new module's
+docstring explained why its four private reaches are *not* the reach this feature exists to
+remove — and named that attribute, which pushed **T4's** gate from `0` to `1`.
+`tests/spec/test_task_gates_still_hold.py` caught it on the next run, in a paragraph written
+about exactly that failure mode. Reworded without the identifier; T4 reads `0` again.
+
+Demonstrated: `_inject_from_job` moved above `_run_dependencies` (step 10 before step 9).
+**4 failed, 2 passed** — the structural check plus three behavioural ones
+(`test_a_dep_runs_before_this_jobs_own_freshness_is_decided`,
+`test_sources_is_bound_by_the_time_the_body_runs`,
+`test_a_fromjob_value_arrives_before_the_body`), the last reporting
+`TypeError: downstream() missing 1 required positional argument: 'value'` — a `FromJob` read
+before its upstream ran. Reverted; `6 passed`.
 
 ---
 

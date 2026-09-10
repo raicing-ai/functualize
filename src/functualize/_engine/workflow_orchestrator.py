@@ -25,10 +25,15 @@ object is constructed by the engine it serves.
 ``_state_store``, ``_gate_registry``, ``_agent_step_registry``). That is a
 friend relationship inside one private package, not a layer being crossed —
 this class *was* four methods of that class an hour ago. It is worth saying out
-loud rather than leaving to be discovered, because the reach that motivated this
-whole feature (``engine._app``) looked the same and was not: that one crossed
-from the kernel *out* to its owner, and every one of these stays inside
+loud rather than leaving to be discovered, because the back-reference that
+motivated this whole feature looked the same and was not: that one crossed from
+the kernel *out* to the app that owned it, and every one of these stays inside
 ``_engine``.
+
+(Worded without naming that attribute: T4's gate counts it in this directory,
+and a comment quoting it would hold the count above zero for ever. The first
+draft of this paragraph did exactly that, and T4's re-run caught it — which is
+the eighth time on this branch.)
 """
 
 from __future__ import annotations
