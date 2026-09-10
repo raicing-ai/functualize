@@ -129,6 +129,32 @@ process to exit.
 
 ---
 
+## 3a. Branching **in** — one request, not six vocabularies
+
+The out-branch above is six translations of one result. The **in**-branch used to
+be six translations of one intent, and that half is now consolidated: every door
+builds a `RunRequest` and hands it to `engine.run()`.
+
+The practical test of that claim is
+`tests/integration/test_surface_feature_matrix.py` — sixteen features, most of
+them run twice, once through `func`'s dispatch and once through a project's own
+`main.py` under `CliAdapter`. Fourteen rows behave identically. Two do not, and
+the difference is *about the door*, which is exactly what section 4's question
+predicts:
+
+| feature | same on both? | why |
+|---|---|---|
+| `--exclude` / `[discovery]` | **no**, by design | about *reaching* the program: `func` resolves the project's filters and hands them to the app it builds; an embedded app is handed a `DiscoveryConfig` by its author. Reading the file behind that author's back would override what they wrote in code. |
+| `[aliases]` | **no**, and not by design | resolved in `_cli/dispatch.detect_mode`, the bare CLI's pre-boot routing — an accident of *where*, not a decision. Recorded as `.spec/STATUS.md` #40. |
+
+Everything else — `Deps`, fingerprint freshness, guards, retry, group options,
+gates and their resume, `--prompt-gates`, capability injection, config
+precedence, `--force`, `--emit-format`, the exit-code contract, the
+unknown-command explanation — is about **the program**, and reaches the run
+identically through either door.
+
+---
+
 ## 4. The rule: which features must align
 
 Ask one question about a feature: **is it about the program, or about how you

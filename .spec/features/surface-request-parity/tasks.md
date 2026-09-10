@@ -252,7 +252,7 @@ green. Reverted; 40 passed.
 
 ## Wave 6 — say what moved
 
-### [ ] T7 · Docs
+### [x] T7 · Docs
 
 **Files:** `docs/guides/group-options.md`,
 `plugins/functualize-http/README.md`, `plugins/functualize-lambda/README.md`,
@@ -268,7 +268,31 @@ Both plugin READMEs get a before/after envelope example (risk R-a).
 ```bash
 rg -c 'invoke' docs/guides/group-options.md
 ```
-now: `≥1` *(recording the boundary as deliberate)* · after: `≥1`, describing the move
+now: `≥1` *(recording the boundary as deliberate)* · after: **`12`**, describing the move
+
+**What the guide says now.** The **default did not change** — a bare `rc.invoke` still
+inherits nothing, and the test that pins it was written before the override existed. What
+changed is the *cost of the prohibition*: every door builds one `RunRequest` and
+`group_option_values` is a field on it, so withholding it from one caller stopped being free
+and became a **deliberate erasure** — a line of code whose only job is to drop something the
+caller had. A boundary that costs code needs a better reason than that it used to cost
+nothing, and *"the parent might mean a different path"* is a reason to make the caller **say**
+it, not a reason to make it impossible.
+
+Both plugin READMEs gained a **before/after envelope** (risk R-a), which is the breaking part
+a reader most needs: job parameters used to be the whole body (HTTP) or sit under `kwargs`
+(Lambda) and are now under `arguments`, with `group_option_values`, `scope_id` and `force`
+beside them. Each says *why* the nesting is the fix rather than decoration — flat, a caller's
+key could bind to a control parameter, so an argument named `scope_id` chose the workflow
+scope instead of reaching the job — and each names `scope_id` as what makes a gated workflow
+resumable over that wire, which the audit had recorded as impossible (D-6).
+
+`surface-boundary.md` gained **§3a**, the in-branch counterpart to its existing §3. §3 is six
+translations of one result; the in-branch used to be six translations of one intent and now is
+not. The section names the matrix as the practical test of that claim and tabulates the two
+rows that differ against §4's own question — *is it about the program, or about how you reach
+it?* — which both answer correctly: discovery filters are about reaching, and aliases are
+recorded as an accident rather than an answer.
 
 ---
 
