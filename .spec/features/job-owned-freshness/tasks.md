@@ -7,7 +7,7 @@ Run gates from the worktree root.
 
 ## Wave 0 — an inert capability, proven wired
 
-### [ ] T1 · `Freshness` exists, is injected, and always reports `None`
+### [x] T1 · `Freshness` exists, is injected, and always reports `None`
 
 **Files:** `src/functualize/_engine/capabilities/freshness.py`,
 `src/functualize/_primitives/di.py`, `src/functualize/job/__init__.py`,
@@ -42,7 +42,7 @@ carries meaning.**
 
 ## Wave 1 — the verdict arrives
 
-### [ ] T2 · Bind the verdict after the pre-flight, before the body
+### [x] T2 · Bind the verdict after the pre-flight, before the body
 
 **Files:** `src/functualize/_engine/capabilities/freshness.py`,
 `src/functualize/_engine/executor.py`,
@@ -78,7 +78,7 @@ what let a capability "resolve and do nothing" ship before
 
 ## Wave 2 — the one behaviour change
 
-### [ ] T3 · `Fingerprint.decides`, and the engine honours it
+### [x] T3 · `Fingerprint.decides`, and the engine honours it
 
 **Files:** `src/functualize/_types/job_declaration.py`,
 `src/functualize/_engine/executor.py`,
@@ -125,7 +125,7 @@ now: `1026` · after: `1026` *(unchanged — the decision is made above it, not 
 
 ## Wave 3 — say what it is for
 
-### [ ] T4 · The worked example, and the guide
+### [x] T4 · The worked example, and the guide
 
 **Files:** `examples/quickstart/…/self_caching_job.py`, `docs/guides/`,
 `contributor/architecture/run-model/11-boundaries.md` (cross-reference)
@@ -157,7 +157,38 @@ identically.
 
 ## Wave 4 — checkpoint
 
-### [ ] T5 · Feature gate
+### [x] T5 · Feature gate
+
+## AC → test, all eight
+
+| AC | Kept by |
+|---|---|
+| AC-1 a job can read its own verdict | `tests/execution/test_freshness_capability.py`; `Freshness` is injected and carries the `GuardState`, key and reason |
+| AC-2 bound **after** the pre-flight, **before** the body | `CapabilitySpec.preflight_bind=_bind_from_preflight` — DI resolves before the pre-flight runs, so a capability carrying pre-flight data cannot be complete at creation. Same suite |
+| AC-3 a job that does not opt in is still skipped when fresh | the `baseline` control job in `examples/standalone/freshness_lab/` runs beside `report` for exactly this |
+| AC-4 opting in **enters the body** on `SKIP_FRESH` | `test_a_fresh_run_enters_the_body_and_returns_the_artifact` |
+| AC-5 opting in does not bypass a precondition or a gate | `tests/execution/test_fingerprint_decides.py` |
+| AC-6 the verdict read is the object the engine decided with | `TestTheVerdictAndWhyAgree::test_they_describe_the_same_run` — not a reconstruction |
+| AC-7 sabotage fails on **both** cold and warm paths | run below |
+| AC-8 documented with a worked example | `uv run pytest examples/ -q -k self_caching` → **7 passed, 194 deselected** (was `no tests ran`) |
+
+**Orphan scan** — every added symbol has real consumers, in `src` and in tests:
+`Freshness` 19/30 · `FreshnessVerdict` 11/8 · `decides` 42/63.
+
+**Both sabotages, run and restored.**
+
+*T2 — disable `_bind_from_preflight`:* 10 failed, and AC-7's actual requirement is
+visible in **which** failed — `test_the_declaration_survives_a_warm_boot` (warm) alongside
+`test_a_cold_run_builds_and_writes_its_own_artifact` (cold). A binding that broke on only one
+path would leave the other silently unbound, which is the shape the AC exists to forbid.
+
+*T3 — force `_decides = False`:* 6 failed, including `test_the_framework_never_reads_the_artifact`
+— the boundary this whole feature is *for*. Restored: 14 passed.
+
+**Feature complete: 5/5.** The maintainer's decision it implements — the framework hands the
+run its freshness verdict and the job decides whether to skip and return, because storing an
+artifact is the job's business — is now a declaration a user can write, a verdict they can
+read, and a lab they can run.
 
 - `uv run ruff check src/ tests/`, `ruff format --check`
 - `uv run mypy src/`
