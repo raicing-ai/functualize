@@ -64,10 +64,28 @@ class FakeApp:
             return self._execute_results[job_name]
         return FakeJobResult(return_value=f"executed {job_name}")
 
+    @property
+    def extensions(self) -> FakeExtensions:
+        """`app.extensions` — the facade a plugin registers through.
+
+        `register_plugin_command` moved off the app onto this facade in
+        `engine-sealed-construction`/T9, with the ten other members a plugin
+        reaches for. The fake mirrors the real shape: a double that keeps the
+        old flat surface tests an app that no longer exists.
+        """
+        return FakeExtensions(self)
+
+
+class FakeExtensions:
+    """The `app.extensions` half of :class:`FakeApp`."""
+
+    def __init__(self, app: FakeApp) -> None:
+        self._app = app
+
     def register_plugin_command(
         self, name: str, callback: Any, help_text: str = ""
     ) -> None:
-        self._commands[name] = callback
+        self._app._commands[name] = callback
 
 
 @pytest.fixture
