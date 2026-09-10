@@ -320,3 +320,30 @@ argument. The reviewer's finding was about the *signatures* defaulting, and the
 one caller genuinely relying on the default in a way that mattered was the
 embedder seam.
 
+
+## Batch 10 — `run-request-entry` F9 and F10
+
+| Finding | Verdict | Why the implementer missed it | Why the reviewer found it | What catches it now |
+|---|---|---|---|---|
+| `rre F10` — `_click_obj()` reaches into a foreign program's `ctx.obj` | **FIXED** | The accessor's docstring defends the channel on **lifetime** — a click context is per-invocation, unlike the process-lifetime deposit it replaced — and that argument is correct and answers the wrong question. **Ownership** is the property that matters, and the walk-up returns *the nearest* dict. `CliAdapter.__call__` skips registering its own callback when the caller brings their own group, so in an embedded app the nearest dict is **the host's**. A host storing its own globals there — the plain click idiom — silently drove `force`, `prompt_gates` and `output_format`. | They read the defence, noticed it argued lifetime rather than ownership, then wrote a host program that owns its group and printed the request. | `_click_obj(app_ref)` trusts a dict only when `obj["app"] is app_ref`, which is what `adapters/cli.py` already puts there. `TestOnlyThisAppsAmbientDictIsTrusted` — four tests, including that the app's *own* dict is still read (refusing every ambient dict would pass the headline test and break `--force`) and that a **second app's** dict is refused, since "has an `app` key" is not identity. |
+| `rre F9` — `guarded_execute` hardcodes `surface="app.execute"` | **FIXED** | The constant was written when `guarded_execute` had one caller. It grew two more — `func builtin workflow resume` and the MCP workflow tools — and neither could say so, because the parameter did not exist. Same shape as F8: the field is required on `RunRequest` and optional everywhere that builds one. | They asked what the `surface` field is *for* and then checked whether the workflow verbs could answer it. | `surface` threads through `resume_scope` / `call_gate_tool` / `guarded_execute`, defaulting to `app.execute` — honest, because a caller with nothing to say about its door genuinely is programmatic. `func.builtin` returns to the vocabulary **on the terms its deletion named**: *"if a later door needs one, it comes back together with the code that produces it."* It does not own stdin — a control verb must not read the user's terminal on a resume. |
+| `rre F9` — `ExecutionContext.request` duplicates the fields beside it | **DOCUMENTED + PINNED**; collapse **deferred to F3**, reason below | `request` was added to carry the delivery inputs to capability factories, whose only route to it is `ctx.context`. That justifies carrying the object; nothing said what the *relationship* to the restated scalars is, so the field reads as a second source of truth — which `_types/protocols.py` explicitly forbids, in a sentence written about the other context. | They counted the fields both shapes hold and found the rule missing. | The field now states it: the scalars are **this execution's working copy**, `request` is **what the door asked for**; they start equal and a nested run's context legitimately differs. `tests/engine/test_context_request_agreement.py` asserts they do not drift for a top-level run, off a real run rather than a constructed context. |
+
+### Deferred, with its reason
+
+**Collapsing the duplication** — deleting `invoke_depth`, `cwd`, `job_directory`
+and `parent_scope` from `ExecutionContext` and taking a `.request.` hop at the
+**15** read sites — is `engine-sealed-construction`'s business. T6–T11 extract
+`WorkflowOrchestrator` and `DependencyRunner` from exactly this code and put
+`RunContext` on a diet. Doing it now is a churn that feature has to redo, and it
+would make its diff harder to read. The hazard the duplication creates is
+*divergence*, and divergence is now a failing test rather than a possibility.
+
+### A mistake worth recording
+
+The first version of that drift test patched `_engine.context.ExecutionContext`.
+`executor.py` binds the name at import, so **nothing was intercepted** and every
+assertion ran over an empty list — passing. `test_the_recorder_actually_saw_something`
+is what caught it, and it is the falsifier I nearly did not write. Patch where a
+name is *used*, not where it is defined.
+

@@ -184,6 +184,14 @@ class TestANonConsoleSurfaceDoesNot:
             == CONSOLE_SURFACES
         )
 
+    #: The doors where a user typed a **job invocation** and may have piped
+    #: data into it. Named one by one rather than matched on a prefix: my first
+    #: version of this test tested `surface.startswith("func")`, and
+    #: `func.builtin` — `func builtin workflow resume`, a *control verb* — would
+    #: then have been required to own stdin, which would make a resume read the
+    #: terminal. A prefix is not a property.
+    _OWNS_STDIN = frozenset({"func.job", "func.group", "func.single-file", "app.cli"})
+
     def test_no_other_door_owns_stdin(self) -> None:
         """The same claim from the table's side, so a door added to
         `RunSurface` with `owns_stdin=True` fails here even if someone updates
@@ -191,8 +199,7 @@ class TestANonConsoleSurfaceDoesNot:
         from functualize._types.run_request import SURFACE_POLICY
 
         for surface, policy in SURFACE_POLICY.items():
-            expected = surface.split(".")[0] in {"func"} or surface == "app.cli"
-            assert policy.owns_stdin is expected, (
-                f"{surface} declares owns_stdin={policy.owns_stdin}; only the "
-                "console doors (`func.*`, `app.cli`) have a pipe of their own"
+            assert policy.owns_stdin is (surface in self._OWNS_STDIN), (
+                f"{surface} declares owns_stdin={policy.owns_stdin}; only a "
+                "door where the user typed a job invocation has a pipe"
             )

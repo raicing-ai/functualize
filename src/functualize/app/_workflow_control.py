@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from functualize._types.errors import ScopeCancelledError
 from functualize.app._workflow_answer import answer_gate
@@ -55,6 +55,10 @@ __all__ = [
     "purge_scopes",
     "resume_scope",
 ]
+
+
+if TYPE_CHECKING:
+    from functualize._types.run_request import RunSurface
 
 
 def _canonical(name: str) -> str:
@@ -162,6 +166,7 @@ def guarded_execute(
     *,
     scope_id: str | None = None,
     policy: GateToolPolicy | None = None,
+    surface: RunSurface = "app.execute",
     **kwargs: Any,
 ) -> Any:
     """Run a job, subject to the waiting gate's tool policy.
@@ -189,7 +194,13 @@ def guarded_execute(
     return app.execute(
         RunRequest(
             job_name=_canonical(job_name),
-            surface="app.execute",
+            # The door that asked, not a constant. This was hardcoded
+            # `app.execute`, so `func builtin workflow resume`, an MCP workflow
+            # tool and a programmatic call were indistinguishable in the one
+            # field whose whole purpose is telling them apart (rre F9). The
+            # default stays `app.execute` because a caller with nothing to say
+            # about its door genuinely *is* a programmatic one.
+            surface=surface,
             kwargs=kwargs,
             workflow_scope_id=scope_id,
         )
@@ -264,6 +275,7 @@ def resume_scope(
     input: dict[str, Any] | None = None,
     gate: str | None = None,
     retry_epilogue: bool = False,
+    surface: RunSurface = "app.execute",
 ) -> dict[str, Any]:
     """Advance a workflow scope to its next durable boundary.
 
@@ -345,7 +357,12 @@ def resume_scope(
         # `app.execute` directly, so there is exactly one place a workflow verb
         # starts a job and a future verb cannot quietly grow a second.
         result = guarded_execute(
-            app, store, workflow_name, scope_id=scope_id, policy=None
+            app,
+            store,
+            workflow_name,
+            scope_id=scope_id,
+            policy=None,
+            surface=surface,
         )
     except ScopeCancelledError as exc:
         return _error("scope_cancelled", str(exc))
@@ -479,6 +496,7 @@ def call_gate_tool(
     args: dict[str, Any] | None = None,
     *,
     policy: GateToolPolicy | None = None,
+    surface: RunSurface = "app.execute",
 ) -> dict[str, Any]:
     """Run a tool a waiting gate offers, inside that gate's scope.
 
@@ -537,6 +555,7 @@ def call_gate_tool(
             tool,
             scope_id=scope_id,
             policy=policy,
+            surface=surface,
             **{**bound_values, **supplied},
         )
     except PermissionError as exc:

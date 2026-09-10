@@ -1120,6 +1120,7 @@ def build_job_engine_callback(
                 prompt_gates=prompt_gates,
                 output_format=output_format,
                 force=force,
+                app=app_ref,
             )
             result = app_ref.execution_engine.run(request)  # type: ignore[union-attr]
         return deliver_job_result(result, name, app_ref)

@@ -174,6 +174,7 @@ def make_lazy_command(
                 prompt_gates=prompt_gates,
                 output_format=output_format,
                 force=force,
+                app=app,
             )
             result = engine.run(request)
 

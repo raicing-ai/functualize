@@ -53,6 +53,33 @@ class ExecutionContext:
             behaviour travels *with the run* instead of sitting on a
             process-lifetime object that a second, concurrent run would share.
             ``None`` only for a context built outside ``run()``.
+
+            **Provenance, not the working copy — and the distinction is the
+            rule that was missing.** This context also carries ``job_name``,
+            ``invoke_depth``, ``cwd``, ``job_directory``, ``parent_scope`` and
+            ``config_class`` as its own fields, several of which the request
+            holds too, so an unqualified reading makes ``request`` look like a
+            second source of truth. It is not: the scalars are what *this
+            execution* is running with, and ``request`` is what the door
+            **asked for**. They start equal and a nested run's context
+            legitimately differs from the request that began it.
+
+            The two must never diverge for a *top-level* run, and that is
+            asserted rather than assumed —
+            ``tests/engine/test_context_request_agreement.py``.
+
+            Reading it is narrow by design: a capability factory receives a
+            ``CapabilityContext`` whose only route here is ``ctx.context``
+            (`_engine/capabilities/spec.py`), which is why the whole object is
+            carried rather than the one field ``_make_stdout`` needs.
+
+            Collapsing the duplication — deleting the restated scalars and
+            taking a ``.request.`` hop at the ~15 read sites — is
+            `engine-sealed-construction`'s business (T6–T11 extract
+            ``WorkflowOrchestrator`` and ``DependencyRunner`` from exactly this
+            code). Doing it here would be a churn that feature has to redo, and
+            would make its diff harder to read. Reviewed and deliberately
+            deferred (rre F9).
         injected: Names in ``call_kwargs`` the **executor** put there.
     """
 

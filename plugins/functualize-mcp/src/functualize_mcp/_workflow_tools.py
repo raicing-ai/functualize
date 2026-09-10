@@ -272,6 +272,9 @@ class WorkflowToolProvider:
             input=input,
             gate=gate,
             retry_epilogue=retry_epilogue,
+            # An MCP tool asked for this resume; `guarded_execute` used to
+            # stamp every one of them `app.execute` (rre F9).
+            surface="mcp.tool",
         )
 
     _resume_workflow.__name__ = "resume_workflow"

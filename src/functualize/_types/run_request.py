@@ -26,6 +26,7 @@ RunSurface = Literal[
     "func.single-file",
     "app.cli",
     "app.execute",
+    "func.builtin",
     "tui.inline",
     "tui.shell",
     "mcp.tool",
@@ -110,6 +111,20 @@ SURFACE_POLICY: Final[Mapping[RunSurface, SurfacePolicy]] = MappingProxyType(
         "app.cli": SurfacePolicy(owns_stdin=True, records_batch_items=False),
         # Programmatic and embedded entry: no pipe of its own.
         "app.execute": SurfacePolicy(owns_stdin=False, records_batch_items=False),
+        # `func builtin ...` — a control verb rather than a job invocation.
+        #
+        # Deleted on 2026-09-10 as "a label nothing can produce", with the
+        # condition for its return stated at the time: *"if a later door needs
+        # one, it comes back together with the code that produces it."* This is
+        # that. `func builtin workflow resume` reaches `guarded_execute` and was
+        # labelled `app.execute`, which made a CLI-driven resume, an MCP-driven
+        # one and a plain `request_for` call indistinguishable in the one field
+        # whose purpose is telling them apart (rre F9).
+        #
+        # It does **not** own stdin, unlike the three `func.*` job doors: the
+        # user is naming a control verb, not piping data into a job body, and
+        # resolving `Stdin` markers here would read the terminal on a resume.
+        "func.builtin": SurfacePolicy(owns_stdin=False, records_batch_items=False),
         # The TUIs own a live terminal; reading it steals keystrokes.
         "tui.inline": SurfacePolicy(owns_stdin=False, records_batch_items=False),
         "tui.shell": SurfacePolicy(owns_stdin=False, records_batch_items=False),

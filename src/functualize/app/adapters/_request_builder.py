@@ -37,8 +37,8 @@ from functualize._types.run_request import RunRequest, RunSurface
 _DEFAULT_SURFACE: RunSurface = "app.cli"
 
 
-def _click_obj() -> Mapping[str, Any]:
-    """The nearest ``ctx.obj`` dict on the live click context stack.
+def _click_obj(app_ref: object) -> Mapping[str, Any]:
+    """The delivery inputs **this app's own callback** left on the click stack.
 
     The one legitimate ambient channel for a delivery input, and only because
     of the shape of the app's own CLI: its **root callback** parses ``--force``
@@ -53,6 +53,25 @@ def _click_obj() -> Mapping[str, Any]:
     carries this dict (``adapters/cli.py`` fills it in). Ambient in scope but
     not in lifetime.
 
+    **``app_ref`` is required, and the identity check is the point.** This used
+    to walk up the context stack and return the nearest dict, on the argument
+    that a click context's *lifetime* is per-invocation. Lifetime was never the
+    property that mattered — **ownership** is. ``CliAdapter.__call__`` does not
+    register its own callback when the caller brings their own group
+    (``register_callback`` defaults to ``not caller_owns_group``), so in an
+    embedded app the walk-up finds **the host's** dict. A host storing its own
+    globals there — the click idiom — silently drove functualize's run::
+
+        host callback: ctx.obj = {"force": True, "output_format": "none", ...}
+        REQ job=ping surface=app.cli force=True output_format=none prompt_gates=True
+
+    The host never asked for any of that. ``force`` is a control input, and
+    *"a door's identity and inputs are not the caller's to choose"* is the rule
+    T15 invoked when it made ``request_for``'s parameters positional-only; it
+    applies here verbatim. So a dict is trusted only when it carries the very
+    app this run is for, which is what ``adapters/cli.py`` puts there under
+    ``"app"``. Found by adversarial review (rre F10).
+
     Silent and defensive: outside click there is no context, and a caller that
     put something other than a dict in ``obj`` is not an error here.
     """
@@ -63,7 +82,7 @@ def _click_obj() -> Mapping[str, Any]:
     except Exception:  # pragma: no cover - click absent or no active context
         return {}
     while ctx is not None:
-        if isinstance(ctx.obj, dict):
+        if isinstance(ctx.obj, dict) and ctx.obj.get("app") is app_ref:
             return ctx.obj
         ctx = ctx.parent
     return {}
@@ -79,6 +98,7 @@ def build_request(
     output_format: str | None = None,
     force: bool | None = None,
     surface: RunSurface,
+    app: object = None,
 ) -> RunRequest:
     """Build the :class:`RunRequest` a click callback hands to the engine.
 
@@ -93,9 +113,16 @@ def build_request(
     parsed the flags before building the command; the app's own root callback
     cannot, and puts them in ``ctx.obj`` instead. Until T12 both routes were
     one thing: an attribute written onto the app.
+
+    Args:
+        app: The app this run belongs to, so :func:`_click_obj` can refuse a
+            ``ctx.obj`` that is not this app's. An embedded app runs under the
+            **host's** click context, and a host's own globals were controlling
+            ``force`` (rre F10). ``None`` trusts no ambient dict at all, which
+            is the right answer for a caller with no app in hand.
     """
     ambient = (
-        _click_obj()
+        _click_obj(app)
         if prompt_gates is None or output_format is None or force is None
         else {}
     )

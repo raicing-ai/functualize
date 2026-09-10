@@ -1346,6 +1346,11 @@ def register_builtin_commands(cli_group: Any) -> None:
                 input=payload,
                 gate=gate,
                 retry_epilogue=retry_epilogue,
+                # This door is `func builtin workflow resume`. It was labelled
+                # `app.execute` by `guarded_execute`'s hardcoded constant, so a
+                # CLI resume and a programmatic one were the same run as far as
+                # the request could say (rre F9).
+                surface="func.builtin",
             )
 
         if fmt == "json":

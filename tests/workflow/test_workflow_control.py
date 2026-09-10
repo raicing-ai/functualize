@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Generator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import BaseModel
@@ -415,3 +416,76 @@ class TestPurge:
     ) -> None:
         resume_scope(app, store, "rel-1", input={"approved": True})
         assert purge_scopes(store, older_than_days=7)["removed"] == []
+
+
+class TestTheControlVerbsNameTheirDoor:
+    """`guarded_execute` stamped every run `app.execute` — rre F9.
+
+    `func builtin workflow resume`, an MCP workflow tool, and a plain
+    `request_for` call all reached `guarded_execute`, which hardcoded
+    `surface="app.execute"`. So the three were **indistinguishable in the one
+    field whose entire purpose is telling them apart**, and `RunRequest`'s own
+    docstring says a door must name itself.
+
+    `func.builtin` came back to the surface vocabulary to make this sayable. It
+    had been deleted on 2026-09-10 as "a label nothing can produce", and the
+    deletion recorded the condition for its return: *"if a later door needs
+    one, it comes back together with the code that produces it."* This is that
+    code.
+
+    The default stays `app.execute`, because a caller that says nothing about
+    its door genuinely **is** a programmatic one — which is also what every
+    test in this file is.
+    """
+
+    def test_the_cli_resume_says_it_came_from_func_builtin(
+        self, app: FunctualizeApp, store: StateStore, calls: list[str]
+    ) -> None:
+        captured: list[Any] = []
+        original = app.execute
+
+        def _spy(request: Any, **kw: Any) -> Any:
+            captured.append(request)
+            return original(request, **kw)
+
+        app.execute = _spy  # type: ignore[method-assign]
+        answer_gate(app, store, "rel-1", "approve", {"approved": True})
+
+        resume_scope(app, store, "rel-1", surface="func.builtin")
+
+        assert captured, "the resume never reached the engine"
+        assert captured[0].surface == "func.builtin"
+
+    def test_a_programmatic_resume_still_says_app_execute(
+        self, app: FunctualizeApp, store: StateStore, calls: list[str]
+    ) -> None:
+        """The falsifier: the default must not have become the CLI's door."""
+        captured: list[Any] = []
+        original = app.execute
+
+        def _spy(request: Any, **kw: Any) -> Any:
+            captured.append(request)
+            return original(request, **kw)
+
+        app.execute = _spy  # type: ignore[method-assign]
+        answer_gate(app, store, "rel-1", "approve", {"approved": True})
+
+        resume_scope(app, store, "rel-1")
+
+        assert captured and captured[0].surface == "app.execute"
+
+    def test_the_returned_door_is_a_declared_one(self) -> None:
+        """`func.builtin` is back in the vocabulary *and* in the policy table.
+
+        A surface added to the `Literal` and not to `SURFACE_POLICY` raises on
+        its first run; one added to neither is a `RunRequest` validation error.
+        Either way the door has to be declared before it can be used.
+        """
+        from functualize._types.run_request import RUN_SURFACES, SURFACE_POLICY
+
+        assert "func.builtin" in RUN_SURFACES
+        assert "func.builtin" in SURFACE_POLICY
+        assert SURFACE_POLICY["func.builtin"].owns_stdin is False, (
+            "a control verb must not resolve Stdin markers — `func builtin "
+            "workflow resume` would read the user's terminal"
+        )

@@ -238,3 +238,106 @@ class TestEveryDoorNamesItselfOrDoesNotCompile:
 
         assert captured, "the seam reached no engine"
         assert captured[0].surface == "app.execute"
+
+
+class TestOnlyThisAppsAmbientDictIsTrusted:
+    """A host's `ctx.obj` must not drive functualize's run — rre F10.
+
+    `build_request` reads `force`, `prompt_gates` and `output_format` from the
+    live click context when a door states none of its own, because the app's
+    **root callback** parses those flags after its subcommands were already
+    built and so cannot hand them to the builder the way `func`'s handlers do.
+    That is legitimate. What was not legitimate is *which* dict it read: the
+    accessor walked **up** the context stack and took the nearest one.
+
+    `CliAdapter.__call__` does not register its own callback when the caller
+    brings their own group (`register_callback` defaults to
+    `not caller_owns_group`), so for an embedded app the nearest dict is the
+    **host's**. A host storing its own globals there — the click idiom —
+    silently controlled functualize:
+
+        host callback: ctx.obj = {"force": True, ...}
+        REQ job=ping force=True output_format=none prompt_gates=True
+
+    The defence in the old docstring was *lifetime* — a click context is
+    per-invocation, unlike the process-lifetime deposit it replaced. True, and
+    not the property that matters. **Ownership** is: `force` is a control
+    input, and "a door's identity and inputs are not the caller's to choose" is
+    the rule T15 invoked when it made `request_for`'s parameters
+    positional-only.
+    """
+
+    @staticmethod
+    def _host_cli(app: object):
+        """A host program that owns its group and stores unrelated globals."""
+        import click
+
+        @click.group()
+        @click.pass_context
+        def host(ctx: click.Context) -> None:
+            ctx.obj = {"force": True, "output_format": "none", "prompt_gates": True}
+
+        return host
+
+    def test_a_hosts_globals_do_not_reach_the_request(self) -> None:
+        from functualize.app.adapters.cli import CliAdapter
+
+        app, captured = _app_with_spy()
+        host = self._host_cli(app)
+        CliAdapter()(app, cli_group=host, register_builtins=False)
+
+        import contextlib
+
+        # click may exit on completion; the request was already built by then.
+        with contextlib.suppress(SystemExit):
+            host(["deploy", "--env", "prod"], standalone_mode=False)
+
+        assert captured, "the host's group never reached the engine"
+        request = captured[0]
+        assert request.force is False, "a host's `force` drove functualize's run"
+        assert request.prompt_gates is False
+        assert request.output_format == "auto"
+
+    def test_the_apps_own_dict_is_still_read(self) -> None:
+        """The falsifier. Refusing *every* ambient dict would pass the test
+        above and break the app's own `--force`, which is the whole reason the
+        channel exists.
+        """
+        import click
+
+        from functualize.app.adapters._request_builder import _click_obj
+
+        app, _ = _app_with_spy()
+
+        @click.command()
+        @click.pass_context
+        def cmd(ctx: click.Context) -> None:
+            ctx.obj = {"app": app, "force": True}
+            assert _click_obj(app).get("force") is True
+
+        cmd([], standalone_mode=False)
+
+    def test_a_dict_belonging_to_another_app_is_refused(self) -> None:
+        """Identity, not merely "has an `app` key" — two apps in one process
+        is a real shape (a host embedding two functualize apps)."""
+        import click
+
+        from functualize.app.adapters._request_builder import _click_obj
+        from functualize.app.core import FunctualizeApp
+
+        mine, _ = _app_with_spy()
+        theirs = FunctualizeApp("someone-else")
+
+        @click.command()
+        @click.pass_context
+        def cmd(ctx: click.Context) -> None:
+            ctx.obj = {"app": theirs, "force": True}
+            assert _click_obj(mine) == {}
+
+        cmd([], standalone_mode=False)
+
+    def test_no_click_context_is_not_an_error(self) -> None:
+        from functualize.app.adapters._request_builder import _click_obj
+
+        app, _ = _app_with_spy()
+        assert _click_obj(app) == {}
