@@ -83,7 +83,7 @@ def test_no_public_method_takes_a_job_function() -> None:
 
     assert not survivors, (
         "a public engine method takes a job function. Resolution belongs "
-        f"inside the kernel, keyed by name:\n  " + "\n  ".join(survivors)
+        "inside the kernel, keyed by name:\n  " + "\n  ".join(survivors)
     )
 
 

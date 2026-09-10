@@ -223,3 +223,33 @@ which is the exact thing this feature exists to end.
 
 Both had passed every gate the feature wrote.
 
+
+## Batch 6 — `run-request-entry` F4: four criteria kept by nothing
+
+The feature's own AC→test table opens with *"A criterion with no test is a
+criterion nobody is keeping."* Four of its rows named a keeper that does not
+keep the criterion. None of the four was a **code** defect — the behaviour works
+in all four cases, and I drove each one before writing anything. They are
+**verification-record** defects, which is a distinct and quieter failure: the
+table reads as coverage, so nobody looks again.
+
+| AC | What the table named | What it actually kept | Now kept by |
+|---|---|---|---|
+| **AC-4** *"No file outside `_engine/` passes a job function for execution. **Asserted by a test, not by review.**"* | an `rg` command | review, with a shell in front of it — the criterion says in bold that this is what it does not want | `tests/spec/test_one_execution_entry.py` — the entry takes a request and nothing else, no public engine method accepts a job function, and an AST scan finds every out-of-kernel call that *runs* something. Resolution calls (`materialize_job`) are excluded by name, so the test is an invariant rather than a list of exceptions. Two sabotages, two failures. |
+| **AC-6** *"cold and warm produce the same result **and the same recorded history entry**"* | `TestWarmBootParity` + `test_lazy_true_engine_materialization` | a **file trace of execution order**, and *import counts* plus one warm result. Neither compares the two runs; nothing anywhere compared history. | `tests/integration/test_cold_warm_history_parity.py` — output, exit code, and the history record's identity fields (`args_hash` included, which is the one artefact that would notice the two wrappers **binding arguments differently** while the printed output stayed identical). Includes `_assert_warm`, so the file cannot quietly compare two cold runs. |
+| **AC-10** *"with `--prompt-gates` **prompts**"* | `test_app_surface_prompt_gates.py` | that the flag is accepted, and that a walk blocks without it. Its own docstring concedes the rest: *"Whether an interactive prompt actually renders is not testable without a tty."* True of a *terminal* prompt; the flag only adds `"prompt"` to the strategy list, and the resolver asks whatever `PromptCollector` the surface stack yields. | `tests/cli/test_prompt_gates_actually_prompts.py` — a pushed surface *is* the collector: asked, asked for the gate's field, walk completes; and without the flag, neither. |
+| **AC-14** *"a `@workflow` submitted through `interactivity.job.submit` that blocks on a gate reports a scope id, and that scope can be answered and resumed"* | `test_event_submit_scope.py` | four tests over a plain `def greet()` — no graph, no gate, nothing to resume. The two halves were guarded separately (the registry learns an id; the id is well-formed) and **the join was not**: a change that kept the façade call and dropped the id at the engine seam would pass both and leave the audit's defect intact — *the scope existed and was unaddressable*. | A new class in the same file: submit, read the id off the registry, answer *that* scope's gate, resume, require completion — plus an unanswered-scope falsifier. Restoring the direct engine call fails 4. |
+
+### Found while writing AC-10's test, and fixed
+
+`GateRegistry.resolve_gate` kept only the **last** rung's exception, so a broken
+earlier strategy left no trace and the operator was shown the *next* strategy's
+complaint. A `prompt` resolver raising `TypeError` reported *"Cannot resolve
+model Prefs from config chain: unresolved fields: ['budget']"* — a message
+naming the config chain, which was working perfectly, and never mentioning
+`prompt`. I lost time to it by being that broken resolver.
+
+Every rung's failure is now reported, each labelled with the strategy it came
+from. `TestEveryRungReportsItsOwnFailure` pins both that and the single-failure
+case, which must still read cleanly.
+
