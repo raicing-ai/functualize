@@ -133,12 +133,22 @@ class TestShellProgram:
                 assert (key, section) == ("program", "shell")
                 return type("R", (), {"value": "/bin/bash"})()
 
+        class _Host:
+            """The host surface this needs: a chain to resolve against.
+
+            The engine reads it through its host; it used to be handed one and
+            have it written into later (`run-model/05-engine-seal.md`).
+            """
+
+            def resolution_chain(self):
+                return _Chain()
+
         engine = JobExecutionEngine(
             di_registry=MagicMock(),
             hook_registry=HookRegistry(),
             middleware_chain=MagicMock(has_middleware=False),
             event_bus=EventBus(),
-            resolution_chain=_Chain(),
+            host=_Host(),
         )
         assert engine._resolve_shell_program() == "/bin/bash"
 

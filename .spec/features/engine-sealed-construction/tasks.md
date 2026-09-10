@@ -11,7 +11,7 @@ alone. The gate below counts calls, not mentions.
 
 ## Wave 0 — the port, unused
 
-### [ ] T1 · `EngineHost`
+### [x] T1 · `EngineHost`
 
 **Files:** `src/functualize/_types/protocols.py`
 
@@ -36,7 +36,7 @@ now: `n/a` · after: `1`
 
 ## Wave 1 — one construction site
 
-### [ ] T2 · `build_engine(host)`, called by both boot paths
+### [x] T2 · `build_engine(host)`, called by both boot paths
 
 **Files:** `src/functualize/_app/boot.py`, `tests/app/test_engine_construction.py`
 
@@ -62,7 +62,7 @@ now: `2` · after: `1`
 
 ## Wave 2 — the seal
 
-### [ ] T3 · Every post-hoc write and the shared dict die
+### [x] T3 · Every post-hoc write and the shared dict die
 
 **Files:** `src/functualize/_app/boot.py`, `src/functualize/app/core.py`,
 `src/functualize/_engine/executor.py`, `tests/engine/test_engine_is_sealed.py`
@@ -96,7 +96,7 @@ test, so a restored write fails the suite rather than being noticed in an audit.
 
 ## Wave 3 — the risk
 
-### [ ] T4 · Every `_app` reach-through becomes a host call — **one commit**
+### [x] T4 · Every `_app` reach-through becomes a host call — **one commit**
 
 **Files:** `src/functualize/_engine/capabilities/runcontext.py`,
 `src/functualize/_engine/capabilities/live.py`,
@@ -135,7 +135,7 @@ the full fast suite.
 
 ## Wave 4 — the kernel stops asking the OS
 
-### [ ] T5 · `Path.cwd()` leaves `_engine/`
+### [x] T5 · `Path.cwd()` leaves `_engine/`
 
 **Files:** `src/functualize/_engine/executor.py`, `src/functualize/_engine/preflight.py`,
 `src/functualize/_engine/capabilities/runcontext.py`,

@@ -102,6 +102,10 @@ class Preflight:
             only `Guards` behaves identically with or without a store.
         evaluator: Guard evaluator; a default one is built if omitted.
         root: Directory that ``Fingerprint.sources`` patterns are relative to.
+            **Required.** It is the host's answer to "where is this project",
+            and a default would be the kernel asking the operating system —
+            which is how a pre-flight could resolve `Fingerprint.sources`
+            against a directory the run never named.
     """
 
     def __init__(
@@ -109,11 +113,11 @@ class Preflight:
         store: StateStore | None = None,
         *,
         evaluator: GuardEvaluator | None = None,
-        root: Path | str | None = None,
+        root: Path | str,
     ) -> None:
         self._store = store
         self._evaluator = evaluator or GuardEvaluator(shell_runner=_run_shell_check)
-        self._root = Path(root) if root is not None else Path.cwd()
+        self._root = Path(root)
 
     def check(
         self,

@@ -48,6 +48,7 @@ NoneType = type(None)
 if TYPE_CHECKING:
     from functualize._engine.middleware import ExecutionMiddlewareChain
     from functualize._engine.result import RegisteredJob
+    from functualize._types.protocols import EngineHost
 
 logger = logging.getLogger(__name__)
 
@@ -173,7 +174,19 @@ class JobExecutionEngine:
         hook_registry: Hook registry for lifecycle event dispatch.
         middleware_chain: Middleware chain for job execution wrapping.
         event_bus: EventBus for structured event emission.
-        max_invoke_depth: Maximum recursion depth for nested invokes.
+        max_invoke_depth: Maximum recursion depth for nested invokes. Only
+            consulted when no host is given — a host answers for itself.
+        host: The app this engine belongs to, as the narrow port declared in
+            ``functualize._types.protocols.EngineHost``. Everything the engine
+            needs from outside comes through it, read live rather than copied
+            into a field a later boot step has to remember to update. None
+            means the engine was built without an app (embedding, unit tests);
+            every host-backed accessor then answers as absent — except
+            :attr:`state_root`, which has no honest absent answer and raises.
+        state_root: Where this project's derived state lives, for an engine
+            built with *no* host. Ignored when a host is given: the host
+            answers that question, and a second answer is how the kernel came
+            to ask the operating system three different ways.
     """
 
     def __init__(
@@ -184,7 +197,8 @@ class JobExecutionEngine:
         event_bus: EventBus,
         max_invoke_depth: int = 10,
         plugin_config_registry: Any = None,
-        resolution_chain: Any = None,
+        host: EngineHost | None = None,
+        state_root: Path | None = None,
         gate_registry: Any = None,
         agent_step_registry: Any = None,
         config_view_factory: Callable[..., Any] | None = None,
@@ -196,11 +210,11 @@ class JobExecutionEngine:
         self._event_bus = event_bus
         self._max_invoke_depth = max_invoke_depth
         self._plugin_config_registry = plugin_config_registry
-        self._resolution_chain = resolution_chain
+        self._host = host
+        self._explicit_state_root = state_root
         self._gate_registry = gate_registry
         self._agent_step_registry = agent_step_registry
         self._registered_jobs: dict[str, RegisteredJob] = {}
-        self._registry_mirrors: list[dict[str, RegisteredJob]] = []
         self._resolution_plan_cache: dict[int, ResolutionPlan] = {}
         # {id(function): ((param_name, GroupOptions subclass), ...)} — usually
         # empty, and the empty answer is what most executions look up (S6a).
@@ -224,6 +238,59 @@ class JobExecutionEngine:
             if _probe is not None:
                 self._config_view_type = type(_probe)
 
+    @property
+    def host(self) -> EngineHost | None:
+        """The app this engine was built for, or None when it had none.
+
+        Read-only and final: the host is a constructor argument, and there is
+        no supported way to change it after the engine exists. A caller that
+        finds None is looking at an engine built without an app — embedding, or
+        a unit test — and must ask its own question instead.
+        """
+        return self._host
+
+    @property
+    def state_root(self) -> Path:
+        """Where this project's derived run state (fingerprints, history,
+        workflow scopes) lives — the host's answer, or the explicit one.
+
+        One question with one answer. The kernel used to ask the operating
+        system in three places and one of them answered differently, which is
+        how a run's fingerprints could land outside the project they belonged
+        to; and it is why the durable run layer could not simply be added, since
+        it needs to know where a project's run state is.
+
+        Raises:
+            RuntimeError: when the engine has neither a host nor an explicit
+                root. Inventing the process working directory here is exactly
+                the defect this replaces, and a plausible-looking answer would
+                hide it.
+        """
+        host = self._host
+        if host is not None:
+            return host.state_root
+        if self._explicit_state_root is not None:
+            return self._explicit_state_root
+        raise RuntimeError(
+            "this engine was built without a host and without state_root, so "
+            "it does not know where this project's state lives; construct it "
+            "with _app.boot.build_engine(app), or pass state_root explicitly"
+        )
+
+    @property
+    def max_invoke_depth(self) -> int:
+        """The deepest chain of nested ``invoke()`` calls allowed.
+
+        The host's answer when there is one, because the limit is resolved from
+        configuration *after* the app exists — this used to be a private field
+        the boot path wrote into once it knew. Falls back to the constructor's
+        value when there is no host to ask.
+        """
+        host = self._host
+        if host is not None:
+            return host.max_invoke_depth
+        return self._max_invoke_depth
+
     def register_job(self, entry: RegisteredJob) -> None:
         """Register a job entry for programmatic lookup."""
         self._registered_jobs[entry.name] = entry
@@ -231,18 +298,6 @@ class JobExecutionEngine:
         # or resolve a previously unknown reference, so the built graph is
         # stale until it is rebuilt (and revalidated).
         self._job_graph = None
-
-    def add_registry_mirror(self, mirror: dict[str, RegisteredJob]) -> None:
-        """Register an external dict holding the same RegisteredJob entries.
-
-        When a lazily-registered entry is materialized (its module imported
-        and the frozen RegisteredJob replaced with one carrying the real
-        function), the replacement is propagated to every mirror that still
-        holds the old entry — keeping e.g. the app-level JobRegistry
-        consistent with the engine without the engine importing app types.
-        """
-        if mirror not in self._registry_mirrors:
-            self._registry_mirrors.append(mirror)
 
     def materialize_job(self, name: str) -> RegisteredJob:
         """Look up a job and guarantee its function is the real callable.
@@ -393,12 +448,15 @@ class JobExecutionEngine:
             config_class=entry.config_class or detected_config,
         )
 
-        # Swap in own registry + mirrors, only where the old entry still sits
+        # Swap in the engine's own registry, and tell the host to swap its
+        # copy, only where the old entry still sits. The host call is the
+        # contract that replaced a shared dict: the app registry and the engine
+        # used to be the same object handed across the boundary, so neither
+        # side owned the change and nothing could be asserted about it.
         if self._registered_jobs.get(entry.name) is entry:
             self._registered_jobs[entry.name] = new_entry
-        for mirror in self._registry_mirrors:
-            if mirror.get(entry.name) is entry:
-                mirror[entry.name] = new_entry
+        if self._host is not None:
+            self._host.replace_job(entry, new_entry)
 
         # Deferred DI validation (skipped at boot for lazy entries)
         errors = self._di_binding_errors(entry.name, real_fn)
@@ -428,11 +486,17 @@ class JobExecutionEngine:
         # Minimal stub for test scenarios without factory injection
         return _MinimalConfigView(section_prefix)
 
-    def _make_empty_chain(self) -> Any:
-        """Create an empty resolution chain using the injected factory or fallback."""
-        if self._config_view_factory is not None:
-            return self._resolution_chain
-        return None
+    def _live_resolution_chain(self) -> Any:
+        """The host's config resolution chain, or None when there is no host.
+
+        Asked every time rather than captured: ``refresh()`` rebuilds the chain
+        in place, and the engine used to be *written into* at that moment so it
+        would not keep resolving against a discarded one.
+        """
+        host = self._host
+        if host is None:
+            return None
+        return host.resolution_chain()
 
     def validate_di_bindings(self) -> dict[str, list[Any]]:
         """Which registered jobs have unsatisfiable DI bindings, and why.
@@ -1011,7 +1075,7 @@ class JobExecutionEngine:
                 cwd=cwd,
                 job_directory=job_directory,
                 _invoke_depth=invoke_depth,
-                _max_invoke_depth=self._max_invoke_depth,
+                _max_invoke_depth=self.max_invoke_depth,
                 _execution_engine=self,
                 _di_registry=self._di_registry,
                 _workflow_scope=parent_scope,
@@ -1211,7 +1275,7 @@ class JobExecutionEngine:
         if self._workflow_state_store is None:
             from functualize._primitives.state_store import StateStore
 
-            self._workflow_state_store = StateStore.for_project(Path.cwd())
+            self._workflow_state_store = StateStore.for_project(self.state_root)
         return self._workflow_state_store
 
     def _failure_before_execution(
@@ -1402,13 +1466,14 @@ class JobExecutionEngine:
             agent_step_registry=self._agent_step_registry,
             request=request,
             # From the request, not from the app. This used to reach two
-            # attributes deep into `engine._app` for a value the CLI boundary
-            # had deposited there before dispatch — so two concurrent runs
-            # shared one answer, and the kernel depended on an attribute the
-            # app is not obliged to have. run-request/T12 removed the deposits;
-            # the request carries this per run. (Worded without naming the
-            # removed attributes: T12's gate counts them in this file, and a
-            # comment quoting them would keep the count at 1 forever.)
+            # attributes deep into the engine's back-reference to the app for a
+            # value the CLI boundary had deposited there before dispatch — so
+            # two concurrent runs shared one answer, and the kernel depended on
+            # an attribute the app is not obliged to have. run-request/T12
+            # removed the deposits; the request carries this per run. (Worded
+            # without naming the removed attributes: the gates that count them
+            # in this file never matched a sentence that described them
+            # instead.)
             prompt_gates=(request.prompt_gates if request is not None else False),
         )
         run = runner.prelude(job_name, declaration)
@@ -1530,7 +1595,7 @@ class JobExecutionEngine:
                     cwd=context.cwd,
                     job_directory=context.job_directory,
                     _invoke_depth=context.invoke_depth,
-                    _max_invoke_depth=self._max_invoke_depth,
+                    _max_invoke_depth=self.max_invoke_depth,
                     _execution_engine=self,
                     _di_registry=self._di_registry,
                     _workflow_scope=context.parent_scope,
@@ -1674,9 +1739,9 @@ class JobExecutionEngine:
         call site (see ``_engine/missing_value``).
         """
         from functualize._engine.capabilities.prompt import Prompt as _Prompt
-        from functualize._engine.surface_routing import active_collector
 
-        collector = active_collector(getattr(self, "_app", None))
+        host = self._host
+        collector = host.collector() if host is not None else None
         if collector is None:
             return None
         return _Prompt(_provider=collector)
@@ -1699,8 +1764,10 @@ class JobExecutionEngine:
         is the plain/piped CLI, which is also the right answer for a job run
         under MCP or from a test.
         """
-        app = getattr(self, "_app", None)
-        writer = getattr(app, "shell_surface_writer", None) if app else None
+        # A plugin-provided hook on the host, not a kernel convention: nothing
+        # in `src/` defines it, and a surface that wants to own the shell's
+        # output installs it. Absent is the normal case.
+        writer = getattr(self._host, "shell_surface_writer", None)
         if callable(writer):
             sinks = writer()
             if isinstance(sinks, tuple) and len(sinks) == 2:
@@ -1797,10 +1864,11 @@ class JobExecutionEngine:
 
     def _resolve_shell_setting(self, key: str) -> str | None:
         """Resolve a non-empty string from the ``[shell]`` config section."""
-        if self._resolution_chain is None:
+        chain = self._live_resolution_chain()
+        if chain is None:
             return None
         try:
-            resolved = self._resolution_chain.resolve(key, "shell")
+            resolved = chain.resolve(key, "shell")
         except Exception:
             return None
         value = getattr(resolved, "value", None)
@@ -2118,7 +2186,9 @@ class JobExecutionEngine:
         if self._preflight_pipeline is None:
             from functualize._engine.preflight import Preflight
 
-            self._preflight_pipeline = Preflight(self._state_store())
+            self._preflight_pipeline = Preflight(
+                self._state_store(), root=self.state_root
+            )
         return self._preflight_pipeline
 
     def _preflight_check(

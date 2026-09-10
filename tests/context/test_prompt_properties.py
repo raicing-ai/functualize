@@ -18,6 +18,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._config.job_config import JobConfigView
+from functualize._engine.surface_routing import active_collector
 from functualize._types.interactivity import (
     PromptRequest,
     PromptResponse,
@@ -159,9 +160,12 @@ def _make_rc(
     if input_provider is not None:
         plugins.append(input_provider)
     app._surfaces = plugins
+    # The app answers the port the way the real one does, so the stack-scoped
+    # ordering stays under test here rather than being re-stated in the stub.
+    app.collector.side_effect = lambda: active_collector(app)
 
     engine = MagicMock()
-    engine._app = app
+    engine.host = app
 
     return RunContext(
         name=name,

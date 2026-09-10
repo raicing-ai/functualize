@@ -59,9 +59,11 @@ def _make_rc(
         app.event_bus = MagicMock()
         app._event_bus = None
 
-    # Build a mock execution engine referencing the app
+    # Build a mock execution engine whose host is that app — the engine reads
+    # the event bus off its host, rather than reaching back out through a
+    # back-reference to find one.
     engine = MagicMock()
-    engine._app = app
+    engine.host = app
 
     rc = RunContext(
         name=name,

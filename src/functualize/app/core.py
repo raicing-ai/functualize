@@ -14,8 +14,10 @@ Facade methods:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Generator, Sequence
+from collections.abc import Callable, Generator, Mapping, Sequence
 from dataclasses import replace
+from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 from functualize._app.environment import DEFAULT_ENVIRONMENT
@@ -47,7 +49,12 @@ if TYPE_CHECKING:
     from functualize._plugins.domain_registry import DomainRegistry
     from functualize._plugins.loader import PluginLoader
     from functualize._primitives.di import DIRegistry
-    from functualize._types.descriptors import CacheInfo, ConfigFileInfo, JobDescriptor
+    from functualize._types.descriptors import (
+        CacheInfo,
+        ConfigFileInfo,
+        JobDescriptor,
+        RegisteredJob,
+    )
     from functualize._types.protocols import (
         AgentStepExecutor,
         JobProvider,
@@ -180,6 +187,15 @@ class FunctualizeApp:
         )
         self._discovery_config = discovery_config
 
+        # Where this project's derived run state (fingerprints, history,
+        # workflow scopes) lives. Read here, once, at the delivery boundary —
+        # the kernel asks *this* object rather than the operating system, which
+        # is what stops three call sites from answering the same question
+        # differently (see `contributor/architecture/run-model/05-engine-seal.md` §C).
+        self._state_root = Path.cwd()
+        #: Set by boot_standard once `general.max_invoke_depth` resolves.
+        self._resolved_max_invoke_depth: int | None = None
+
         # Extract effective values from resolved configs
         self._jobs_directories = self._job_sources.directories or []
         self._children = self._job_sources.children
@@ -245,6 +261,95 @@ class FunctualizeApp:
     def execution_engine(self) -> JobExecutionEngine:
         """The job execution engine (read-only property)."""
         return self._execution_engine
+
+    # ─── Engine Host ─────────────────────────────────────────────────────
+    #
+    # The engine's port onto this object (``_types.protocols.EngineHost``).
+    # The engine is handed this app at construction and reads these live, so
+    # nothing is written into it afterwards and a value resolved later — a
+    # rebuilt config chain, a re-resolved invoke depth — is simply seen.
+    #
+    # They are declared for the port, not as a facade: delivery code should
+    # reach the job facade above. `_app/boot.build_engine` is the caller of
+    # record; `tests/engine/test_engine_is_sealed.py` is what holds the two
+    # ends together.
+
+    def get_descriptor(self, name: str) -> JobDescriptor | None:
+        """The descriptor for ``name``, or None when nothing is registered."""
+        try:
+            return self.job_registry.get_descriptor(name)
+        except KeyError:
+            return None
+
+    def registered_jobs(self) -> Mapping[str, RegisteredJob]:
+        """Every registered job, as a read-only mapping.
+
+        A view, not a copy. The engine reads this where it needs the whole set,
+        and what it used to be handed instead was the registry's *private* dict
+        by reference — two objects sharing mutable state with no contract
+        between them. Read-only is what makes the sharing unnecessary, and it
+        costs nothing: a proxy over a mapping already in memory.
+        """
+        return MappingProxyType(self.job_registry._registered_jobs)
+
+    def replace_job(self, current: RegisteredJob, replacement: RegisteredJob) -> None:
+        """Swap ``current`` for ``replacement`` in the job registry.
+
+        The engine calls this when it materializes a lazily-registered entry:
+        the placeholder that carries the deferred import is replaced by one
+        carrying the real function. The engine keeps its own copy for
+        resolution; this is what keeps the registry's from diverging from it.
+        """
+        jobs = self.job_registry._registered_jobs
+        if jobs.get(current.name) is current:
+            jobs[current.name] = replacement
+
+    @property
+    def state_root(self) -> Path:
+        """Where this project's derived run state lives.
+
+        One answer to a question three places in the kernel used to answer for
+        themselves by asking the operating system — and one of them answered it
+        differently, which is why a run's fingerprints could land somewhere
+        other than the run's own project. Recorded when the app is constructed,
+        so a later ``chdir`` cannot move a run's state out from under it.
+        """
+        return self._state_root
+
+    @property
+    def max_invoke_depth(self) -> int:
+        """The deepest chain of nested ``invoke()`` calls allowed.
+
+        The config-resolved value when boot found one, else the constructor's
+        ``ExecutionConfig``. The engine reads this rather than the value it was
+        built with, so the resolution order (`ExecutionConfig` at construction,
+        then `general.max_invoke_depth` from config) is this object's business
+        and no boot step has to know the engine exists to apply it.
+        """
+        resolved = self._resolved_max_invoke_depth
+        if resolved is not None:
+            return resolved
+        return self._execution_config.max_invoke_depth
+
+    def live_zone(self) -> Any | None:
+        """The surface that should host ``Live`` constructs, or None.
+
+        Top of the pushed stack wins, then the first registered live-capable
+        surface. None is the kernel's answer, where ``Live`` no-ops.
+        """
+        from functualize._engine.surface_routing import active_live_zone
+
+        return active_live_zone(self)
+
+    def collector(self) -> Any | None:
+        """The one surface that should answer a prompt, or None.
+
+        None is not an error: it is what turns a would-be hang into a typed
+        ``InputNotAvailable`` at the job's call site.
+        """
+        from functualize._engine.surface_routing import active_collector
+
+        return active_collector(self)
 
     @property
     def domain_registry(self) -> Any:
@@ -544,9 +649,12 @@ class FunctualizeApp:
         # rebuilding it would discard what they passed in.
         if self._config_sources.config_resolution_chain is None:
             self._resolution_chain = self._build_resolution_chain()
-            engine = getattr(self, "_execution_engine", None)
-            if engine is not None:
-                engine._resolution_chain = self._resolution_chain
+            # Nothing is pushed into the engine: it reads the chain through
+            # this object (``resolution_chain()``), so a rebuild is visible to
+            # it the moment it asks. This used to be a write into the engine's
+            # private field, at runtime, from a *refresh* — which is how the
+            # engine's config dependency became something that could change
+            # under a run.
 
         # Push the (possibly new) chain into live RunContext config views.
         self.job_registry.update_config_paths()
@@ -788,7 +896,6 @@ class FunctualizeApp:
         Lives on the app because `func why`, the JSON form and the TUI all need
         it, and none of them may import the engine directly.
         """
-        from pathlib import Path
 
         from functualize._engine.guards import GuardState, GuardVerdict
         from functualize._engine.preflight import Preflight
@@ -809,8 +916,8 @@ class FunctualizeApp:
                 "  no @job declaration — nothing guards or caches this job",
             )
 
-        store = StateStore.for_project(Path.cwd())
-        preflight = Preflight(store)
+        store = StateStore.for_project(self.state_root)
+        preflight = Preflight(store, root=self.state_root)
 
         def config_for(name: str) -> Any:
             """The config a run of ``name`` would resolve, or None.

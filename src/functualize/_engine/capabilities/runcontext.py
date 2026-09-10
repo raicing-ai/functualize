@@ -288,7 +288,21 @@ class RunContext:
 
     @property
     def cwd(self) -> Path:
-        return self._cwd if self._cwd is not None else Path.cwd()
+        """This run's working directory: the one it named, or the project's.
+
+        The run's own `cwd` wins when the request carried one. Otherwise the
+        answer is the project root the engine's host knows, not the *process's*
+        working directory — which is what this used to return, and which is a
+        different directory whenever the two disagree.
+        """
+        if self._cwd is not None:
+            return self._cwd
+        if self._execution_engine is None:
+            raise RuntimeError(
+                "this RunContext was not created by an engine, so it has no "
+                "working directory; pass cwd= when building it"
+            )
+        return cast("Path", self._execution_engine.state_root)
 
     @property
     def job_directory(self) -> Path | None:
@@ -419,13 +433,13 @@ class RunContext:
     # --- Delegation: Event Emission ---
 
     def _resolve_event_bus(self) -> Any | None:
-        """Resolve the EventBus from the execution engine's app."""
+        """Resolve the EventBus from the host the engine was built for."""
         if self._execution_engine is None:
             return None
-        app = getattr(self._execution_engine, "_app", None)
-        if app is None:
+        host = self._execution_engine.host
+        if host is None:
             return None
-        return getattr(app, "_event_bus", None) or getattr(app, "event_bus", None)
+        return host.event_bus
 
     def emit(self, event_name: str, resource: str = "", **payload: Any) -> None:
         """Emit a structured event. Delegates to EventBus.emit()."""
@@ -475,15 +489,11 @@ class RunContext:
         event_bus = self._resolve_event_bus()
         if event_bus is not None:
             event_bus.emit(event_name, resource=resource, **payload)
-        app = (
-            getattr(self._execution_engine, "_app", None)
-            if self._execution_engine
-            else None
-        )
-        if app is not None and not any(
+        host = self._execution_engine.host if self._execution_engine else None
+        if host is not None and not any(
             event_name.startswith(p) for p in self._FRAMEWORK_EVENT_PREFIXES
         ):
-            _dispatch_to_surfaces(app, event_name, resource, payload)
+            _dispatch_to_surfaces(host, event_name, resource, payload)
 
     # --- Logging ---
 
@@ -694,10 +704,11 @@ class RunContext:
             raise RuntimeError(
                 "Cannot get job schema: RunContext was not created by JobExecutionEngine"
             )
-        try:
-            return self._execution_engine._app.job_registry.get_descriptor(job_name)
-        except KeyError:
-            raise JobNotFoundError(job_name) from None
+        host = self._execution_engine.host
+        descriptor = host.get_descriptor(job_name) if host is not None else None
+        if descriptor is None:
+            raise JobNotFoundError(job_name)
+        return descriptor
 
     def list_jobs(self) -> list[dict[str, Any]]:
         """Return read-only summaries of every registered job.
@@ -716,23 +727,20 @@ class RunContext:
         """
         if self._execution_engine is None:
             return []
-        app = getattr(self._execution_engine, "_app", None)
-        if app is None:
+        host = self._execution_engine.host
+        if host is None:
             return []
 
-        getter = getattr(app, "get_jobs", None)
-        if not callable(getter):
-            return []
         try:
-            descriptors = getter()
+            names = list(host.registered_jobs())
         except Exception:
             return []
 
         summaries: list[dict[str, Any]] = []
-        for descriptor in descriptors or []:
-            name = str(getattr(descriptor, "name", "") or "")
+        for name in names:
             if not name:
                 continue
+            descriptor = host.get_descriptor(name)
             docstring = getattr(descriptor, "docstring", "") or ""
             summaries.append(
                 {
@@ -761,17 +769,15 @@ class RunContext:
         """
         if self._execution_engine is None:
             return None
-        app = getattr(self._execution_engine, "_app", None)
-        if app is None:
+        host = self._execution_engine.host
+        if host is None:
             return None
 
         # Stack-scoped resolution: the topmost pushed surface that can collect
         # (the phase that owns the terminal), else the first registered
         # collector, else the kernel's TTY-gated stdin fallback (None off a
         # terminal — preserving default / InputNotAvailable behavior there).
-        from functualize._engine.surface_routing import active_collector
-
-        return active_collector(app)
+        return host.collector()
 
     def prompt(self, request: PromptRequest) -> PromptResponse:
         from functualize._types.interactivity import InputNotAvailable

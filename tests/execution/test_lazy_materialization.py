@@ -5,7 +5,7 @@ Covers Phase 1 of the true-lazy registration refactor:
 2. materialize() is idempotent and thread-safe (single import)
 3. Import failure raises JobMaterializationError chaining the cause
 4. Engine _ensure_materialized swaps the frozen entry in the engine
-   registry AND registered mirrors; explicit config_class is preserved
+   registry AND in its host's copy; explicit config_class is preserved
 5. get_job()/execute() materialize transparently
 6. validate_di_bindings skips unmaterialized lazy entries
 7. invoke-by-callable resolves against an unmaterialized proxy via
@@ -38,12 +38,30 @@ from tests._support.engine_run import run_job
 # ---------------------------------------------------------------------------
 
 
-def _make_engine() -> JobExecutionEngine:
+class _RecordingHost:
+    """The smallest host the materialization path needs.
+
+    It stands in for the app registry, which the engine used to be handed by
+    reference — the registry's own private dict, mirrored into the engine so a
+    materialized entry could be written back into it. Now the engine *reports*
+    the swap instead, and this records what it was told.
+    """
+
+    def __init__(self) -> None:
+        self.jobs: dict[str, RegisteredJob] = {}
+
+    def replace_job(self, current: RegisteredJob, replacement: RegisteredJob) -> None:
+        if self.jobs.get(current.name) is current:
+            self.jobs[current.name] = replacement
+
+
+def _make_engine(host: object | None = None) -> JobExecutionEngine:
     return JobExecutionEngine(
         di_registry=MagicMock(spec=DIRegistry),
         event_bus=EventBus(),
         hook_registry=HookRegistry(),
         middleware_chain=ExecutionMiddlewareChain(),
+        host=host,
     )
 
 
@@ -210,15 +228,15 @@ class TestLazyJobFunction:
 
 
 class TestEngineMaterialization:
-    def test_get_job_materializes_and_swaps_engine_and_mirror(
+    def test_get_job_materializes_and_swaps_engine_and_host(
         self, tmp_path: Path
     ) -> None:
         descriptor, marker = _write_job_module(tmp_path, "myjob")
-        engine = _make_engine()
+        host = _RecordingHost()
+        engine = _make_engine(host=host)
         entry = _lazy_entry(descriptor)
         engine.register_job(entry)
-        mirror: dict[str, RegisteredJob] = {entry.name: entry}
-        engine.add_registry_mirror(mirror)
+        host.jobs[entry.name] = entry
 
         assert _import_count(marker) == 0
         resolved = engine.get_job("myjob")
@@ -226,9 +244,9 @@ class TestEngineMaterialization:
         assert _import_count(marker) == 1
         assert not isinstance(resolved.function, LazyJobFunction)
         assert resolved.function.__name__ == "myjob"
-        # Both dicts converge on the SAME new entry
+        # Both the engine and the host converge on the SAME new entry
         assert engine._registered_jobs["myjob"] is resolved
-        assert mirror["myjob"] is resolved
+        assert host.jobs["myjob"] is resolved
 
     def test_materialize_job_public_api(self, tmp_path: Path) -> None:
         descriptor, _ = _write_job_module(tmp_path, "myjob")

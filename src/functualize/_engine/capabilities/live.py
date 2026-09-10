@@ -130,9 +130,8 @@ def _make_live(ctx: Any) -> Live:
     The CLI's StdoutSurface, or a job app's own live zone. None → a degrading
     no-op Live.
     """
-    from functualize._engine.surface_routing import active_live_zone
-
-    return Live(_zone=active_live_zone(getattr(ctx.engine, "_app", None)))
+    host = ctx.engine.host
+    return Live(_zone=host.live_zone() if host is not None else None)
 
 
 CAPABILITY = CapabilitySpec(

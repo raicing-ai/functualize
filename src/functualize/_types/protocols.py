@@ -13,6 +13,7 @@ Protocols defined here:
 - JobTransform: Job descriptor interceptors/modifiers
 - ModulePreFilter: Pre-import discovery predicates
 - VaultKeyProvider: Where the local secrets vault's key comes from
+- EngineHost: What the execution engine needs from outside itself
 - AgentStepExecutor: Runs a workflow step by delegating it to an agent
 
 The agent step port carries its own payload vocabulary — ``AgentCapability``
@@ -48,7 +49,7 @@ from functualize._types.interactivity import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from functualize._types.descriptors import JobDescriptor
+    from functualize._types.descriptors import JobDescriptor, RegisteredJob
     from functualize._types.run_request import RunRequest
 
 
@@ -320,6 +321,132 @@ class VaultKeyProvider(Protocol):
         ...
 
 
+@runtime_checkable
+class EngineHost(Protocol):
+    """Everything the engine needs from outside itself, wired once.
+
+    The execution engine is **complete at construction**. It is handed a host
+    and reads it; it is no longer finished afterwards by owners that write
+    private fields into it and read back out through a back-reference. There is
+    no supported way to modify an engine once it is built — which is the point,
+    because "open for modification" then stops being a review note and becomes
+    structurally false for this axis.
+
+    :class:`~functualize.app.core.FunctualizeApp` is the host that ships, and
+    ``_app/boot.build_engine(host)`` is the one construction site both boot
+    paths call. An engine may also be built with no host at all (embedding,
+    unit tests); every member here then has a defined absent answer, which is
+    why the engine's own accessors are None-tolerant rather than reaching for
+    an attribute that may not be there.
+
+    **Members ask; none of them lends.** ``registered_jobs()`` returns a
+    read-only mapping: the app registry used to hand the engine its private
+    dict by reference, so two objects shared mutable state with no contract
+    between them, and only one of them knew it.
+
+    Deliberately absent: everything the engine takes as a constructor argument
+    already — the DI registry, the hook registry, the middleware chain, the
+    event bus, the gate registry, the config factories. A port lists what must
+    come *from outside*, not what it was handed at birth.
+    """
+
+    def get_descriptor(self, name: str) -> JobDescriptor | None:
+        """The descriptor for ``name``, or None when nothing is registered.
+
+        One call, replacing a walk from the kernel out through the app it was
+        handed and into that app's registry.
+        """
+        ...
+
+    def registered_jobs(self) -> Mapping[str, RegisteredJob]:
+        """Every registered job, as a read-only mapping.
+
+        Read-only on purpose: the engine asks, rather than being given the
+        registry's private dict to mutate.
+        """
+        ...
+
+    def replace_job(self, current: RegisteredJob, replacement: RegisteredJob) -> None:
+        """Swap ``current`` for ``replacement`` wherever the host holds it.
+
+        Materializing a lazily-registered job replaces the placeholder that
+        carries the deferred import with one carrying the real function. The
+        engine holds its own entry; the host holds the copy the rest of the app
+        reads. This call is what keeps the two from diverging — a contract,
+        where a shared dict was not.
+        """
+        ...
+
+    def resolution_chain(self) -> Any:
+        """The active config resolution chain.
+
+        A method rather than a property because the app's sanctioned accessor
+        has been one since the provenance panels began calling it, and a port
+        that does not fit its implementation is the wrong port.
+
+        Read live rather than captured: ``refresh()`` rebuilds the chain in
+        place, and a captured copy would leave the engine resolving against a
+        discarded one.
+        """
+        ...
+
+    @property
+    def state_root(self) -> Path:
+        """Where this project's derived run state (fingerprints, history,
+        workflow scopes) lives.
+
+        One answer to a question three places in the kernel used to answer for
+        themselves by asking the operating system — and answering it
+        differently, which is why the durable run layer could not simply be
+        added on top.
+        """
+        ...
+
+    @property
+    def max_invoke_depth(self) -> int:
+        """The deepest chain of nested ``invoke()`` calls allowed.
+
+        A property because it is resolved from configuration *after* the app
+        exists, and the engine must see the resolved value rather than the
+        constructor default it was built with.
+        """
+        ...
+
+    @property
+    def event_bus(self) -> Any:
+        """The app's structured event bus, for ``RunContext.emit``/``on_event``."""
+        ...
+
+    def live_zone(self) -> Surface | None:
+        """The surface that should host ``Live`` constructs, or None.
+
+        Top of the pushed stack wins, then the first registered live-capable
+        surface. None means ``Live`` no-ops, which is the correct answer in the
+        kernel and on any surface without a live region.
+        """
+        ...
+
+    def collector(self) -> PromptCollector | None:
+        """The one surface that should answer a prompt, or None.
+
+        None is not an error: it is what turns a would-be hang into a typed
+        ``InputNotAvailable`` at the call site.
+        """
+        ...
+
+    def push_surface(self, surface: Surface) -> None:
+        """Push a phase-scoped surface onto the stack, for a ``TTY`` window.
+
+        Paired with :meth:`pop_surface` so a crashing phase still unwinds
+        before the next one starts.
+        """
+        ...
+
+    def pop_surface(self, surface: Surface | None = None) -> None:
+        """Pop that surface again — tolerant of an already-empty stack."""
+        ...
+
+
 class AgentCapability(StrEnum):
     """A constraint an executor promises it can enforce on a step's behalf.
 
@@ -437,6 +564,7 @@ __all__ = [
     # Protocols
     "AdapterPlugin",
     "AgentStepExecutor",
+    "EngineHost",
     "FormatProvider",
     "JobProvider",
     "JobTransform",
