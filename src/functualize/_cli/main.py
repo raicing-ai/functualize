@@ -1673,15 +1673,45 @@ def _handle_single_file(
 
     # Construct FunctualizeApp for execution context
     from functualize.app import FunctualizeApp
-    from functualize.app.config import ConfigSources
+    from functualize.app.config import ConfigSources, JobSources
     from functualize.app.utils import auto_discover
 
     cwd = Path.cwd()
     discovery_result = auto_discover(cwd)
 
+    # The app scans everything discovery found **except the working directory
+    # itself**, which is the one directory the caller did not ask it to read.
+    #
+    # `auto_discover` adds CWD whenever it holds a qualifying `.py` file, and
+    # this app then imports every module that scan names — executing its top
+    # level. So a neighbour that ends with `app.cli_command()` consumed the
+    # invocation: `func weather.py trip_planner`, run beside such a script,
+    # was answered by *that* app ("no such command 'weather.py'") and the
+    # requested file never ran. Single-file mode was asked to run one file.
+    #
+    # Config-declared directories stay, and so do the ones a configured
+    # `[discovery] scan_depth` reaches: both are directories discovery was
+    # *told* to read, which is the line this draws. The working directory is
+    # the one that is implicit — `auto_discover` adds it and no setting can
+    # remove it — so it is the one this drops. The file's own functions are
+    # registered explicitly below, so nothing about the single-file target
+    # depends on the CWD scan.
+    single_file_sources = discovery_result.job_sources
+    cwd_str = str(cwd.resolve())
+    if single_file_sources.directories:
+        kept = [d for d in single_file_sources.directories if d != cwd_str]
+        single_file_sources = JobSources(
+            directories=kept or None,
+            functions=single_file_sources.functions,
+            job_providers=single_file_sources.job_providers,
+            children=single_file_sources.children,
+            children_glob=single_file_sources.children_glob,
+            lazy=single_file_sources.lazy,
+        )
+
     app = FunctualizeApp(
         name="functualize",
-        job_sources=discovery_result.job_sources,
+        job_sources=single_file_sources,
         discovery_config=cli_config.discovery,
         config_sources=ConfigSources(
             dotenv=cli_config.dotenv,

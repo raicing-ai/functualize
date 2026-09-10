@@ -288,9 +288,14 @@ class TestACleanTreeReportsNothing:
 
 
 class TestTheListIsPerScan:
-    """A cached or lazy boot that imported nothing reports no failures. Stated
-    as an assertion so a stale report cannot appear — and so the limitation is
-    visible rather than discovered in production."""
+    """What one pass reports, and what the next one reports.
+
+    The list is per-scan — a boot that reads nothing reports nothing — which is
+    stated as an assertion so a stale report cannot appear. A module that
+    *failed* is the other case, and both failure kinds repeat: an import
+    failure leaves no cache entry, and a parse failure leaves none the filter
+    can trust, so the second pass tries again and says so again
+    (adjacent-defects/T13)."""
 
     def test_the_cached_provider_records_on_a_cold_pass(self, tmp_path: Path) -> None:
         from functualize._primitives.locator import ResourceLocator
@@ -322,20 +327,22 @@ class TestTheListIsPerScan:
         provider.list_jobs()
         assert [f.module for f in provider.discovery_failures] == ["importer"]
 
-    def test_a_cached_pre_filter_decision_reports_nothing_on_the_second_pass(
+    def test_a_parse_failure_survives_the_cached_pre_filter_decision(
         self, tmp_path: Path
     ) -> None:
-        """The blind spot, stated rather than discovered in production.
+        """The blind spot this test used to pin, now closed (adjacent-defects/T13).
 
         `_should_import_with_cache` persists **negative** decisions keyed by
-        mtime, so a file rejected at the parse stage is judged once and skipped
-        thereafter — and a skipped file records nothing. The list answers "what
-        did *this* pass fail to read", and a pass that re-read nothing failed
-        at nothing.
+        mtime, and it used to persist one for a file the filter could not
+        *read* — the parse stage answers ``False`` for a `SyntaxError` exactly
+        as it does for "nothing to import here". The second pass then reused
+        that decision, never re-read the file, and reported nothing, while a
+        module that failed to *import* repeated every pass because no cache
+        entry exists for it.
 
-        A standing inventory of broken files would be a different feature: it
-        would have to survive the cache, which means writing the failure into
-        the cache entry. That is deliberately not what this is.
+        A decision the filter could not reach is no longer cached, so the file
+        is re-read and re-reported. The list still answers "what did *this*
+        pass fail to read" — a pass now fails to read it again.
         """
         from functualize._discovery.cached_provider import CachedDirectoryScanProvider
         from functualize._primitives.locator import ResourceLocator
@@ -352,7 +359,7 @@ class TestTheListIsPerScan:
         assert [f.error_type for f in provider.discovery_failures] == ["SyntaxError"]
 
         provider.list_jobs()
-        assert provider.discovery_failures == []
+        assert [f.error_type for f in provider.discovery_failures] == ["SyntaxError"]
 
     def test_a_repeat_scan_replaces_rather_than_appends(self, tmp_path: Path) -> None:
         """`DirectoryScanProvider` memoizes, so this asserts the list does not

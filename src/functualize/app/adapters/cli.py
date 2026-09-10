@@ -849,10 +849,21 @@ class CliAdapter:
         if caller_owns_group:
             self._cli_group = cli_group
         else:
+            # `FallbackGroup` unconditionally, empty fallback chain included.
+            #
             # NormalizingGroup is the floor, not an upgrade: name resolution
             # must not depend on whether a fallback chain happens to be wired.
-            group_cls = FallbackGroup if self._fallbacks else NormalizingGroup
-            self._cli_group = group_cls(name=app.name, invoke_without_command=True)
+            # But *routing an unrecognized name to a reporter* must not depend
+            # on it either. With a plain group, click raises `NoSuchCommand`
+            # before any of this module's reporting runs, so a project's own
+            # `main.py` answered a typo with `No such command` and exit 2 while
+            # `func` answered it with the discovery explanation and exit 1 —
+            # and the reporter both are supposed to share never ran on the
+            # second surface (#37). An empty chain is not a special case: it
+            # falls through to `_try_discovered_job` and then
+            # `_show_command_not_found`, which is exactly the path a wired
+            # chain reaches when nothing matches.
+            self._cli_group = FallbackGroup(name=app.name, invoke_without_command=True)
             # This is the root, so it is the one group that carries the agent
             # block. A caller who brings their own group keeps their own help
             # text — turning it on there would edit output they own.

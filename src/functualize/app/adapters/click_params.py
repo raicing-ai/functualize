@@ -109,12 +109,43 @@ def _get_list_inner_type(base_type: Any) -> Any:
     return str
 
 
+class _EnumChoice(click.Choice):  # type: ignore[type-arg]
+    """A ``Choice`` of an enum's member values that yields the enum member.
+
+    The inverse of the rendering in :func:`_click_type_for`. An ``Enum``
+    parameter is offered as a ``Choice`` of its member values, and until this
+    existed nothing converted the chosen value back: the job body received
+    ``str`` where its annotation said ``Color``, while the programmatic path
+    passed the member through unchanged — so the two surfaces disagreed about
+    the type of the same parameter (#38).
+
+    The member is found by the **rendered spelling**, not by ``Color(value)``:
+    an int-valued enum renders ``"1"``, which is no member's value. A value that
+    is already a member is returned untouched, so a signature default
+    (``color: Color = Color.RED``) survives click's own choice check instead of
+    failing it.
+    """
+
+    def __init__(self, enum_type: type[Enum]) -> None:
+        self._enum_type = enum_type
+        self._members = {str(member.value): member for member in enum_type}
+        super().__init__(list(self._members))
+
+    def convert(self, value: Any, param: Any, ctx: Any) -> Any:
+        if isinstance(value, self._enum_type):
+            return value
+        # ``Choice.convert`` returns the matched *original* choice — one of the
+        # rendered spellings, which are this mapping's keys.
+        return self._members[super().convert(value, param, ctx)]
+
+
 def _click_type_for(py_type: Any) -> tuple[Any, bool, bool]:
     """Map a Python type to ``(click_type, is_flag, multiple)``.
 
     Mirrors Click's conversion so parsing/metavars/choices match:
     - Optional ``X | None`` is unwrapped to ``X``.
-    - Enum → ``click.Choice`` of member values.
+    - Enum → a ``click.Choice`` of member values that converts back to the
+      member (:class:`_EnumChoice`).
     - ``list[X]`` → inner ``X`` type with ``multiple=True``.
     - ``bool`` → ``click.BOOL`` with ``is_flag=True``.
     - everything else → ``click.types.convert_type(X)``.
@@ -133,8 +164,7 @@ def _click_type_for(py_type: Any) -> tuple[Any, bool, bool]:
         return elem_type, False, True
 
     if _is_enum_subclass(inner):
-        choices = [str(member.value) for member in inner]
-        return click.Choice(choices), False, False
+        return _EnumChoice(inner), False, False
 
     if inner is bool:
         return click.BOOL, True, False
