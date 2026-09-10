@@ -160,7 +160,7 @@ class TestLambdaAdapterFatLambda:
         adapter = LambdaAdapter()
         adapter(app)
 
-        result = adapter.run({"job": "greet", "kwargs": {"name": "lambda"}}, None)
+        result = adapter.run({"job": "greet", "arguments": {"name": "lambda"}}, None)
 
         assert result["statusCode"] == 200
         assert result["body"] == "hello lambda"
@@ -182,7 +182,7 @@ class TestLambdaAdapterFatLambda:
         adapter = LambdaAdapter()
         adapter(app)
 
-        result = adapter.run({"kwargs": {}}, None)
+        result = adapter.run({"arguments": {}}, None)
 
         assert result["statusCode"] == 400
         assert "job" in result["body"].lower()
@@ -280,7 +280,7 @@ class TestLambdaAdapterThinLambda:
         adapter(app)
 
         handler = adapter.make_handler("greet")
-        result = handler({"kwargs": {"name": "thin"}}, None)
+        result = handler({"arguments": {"name": "thin"}}, None)
 
         assert result["statusCode"] == 200
         assert result["body"] == "hi thin"
@@ -339,7 +339,7 @@ class TestLambdaAdapterThinLambda:
 
         handler = adapter.make_handler("deploy")
         # Even if event has a different job name, thin handler uses bound name
-        result = handler({"job": "other", "kwargs": {}}, None)
+        result = handler({"job": "other", "arguments": {}}, None)
 
         assert result["body"] == "deployed"
 

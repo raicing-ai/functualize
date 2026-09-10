@@ -241,7 +241,7 @@ class TestHttpServerCoreRequestHandling:
         app = make_mock_app(jobs=jobs, execute_result=result)
         core = HttpServerCore(app)
 
-        body = json.dumps({"env": "prod"}).encode()
+        body = json.dumps({"arguments": {"env": "prod"}}).encode()
         status, response = asyncio.run(
             core.handle_request("POST", "/jobs/deploy/execute", body)
         )
@@ -464,7 +464,7 @@ class TestAsyncToSyncBridging:
         app = make_mock_app(jobs=jobs, execute_result=result)
         core = HttpServerCore(app)
 
-        body = json.dumps({"x": 1}).encode()
+        body = json.dumps({"arguments": {"x": 1}}).encode()
         status, response = asyncio.run(
             core.handle_request("POST", "/jobs/sync-job/execute", body)
         )

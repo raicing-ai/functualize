@@ -54,7 +54,7 @@ would re-couple them.
 
 ## Wave 1 — MCP's three doors stop disagreeing
 
-### [ ] T2 · `group_option_values` and `scope_id` on all three executing doors
+### [x] T2 · `group_option_values` and `scope_id` on all three executing doors
 
 **Files:** `plugins/functualize-mcp/src/functualize_mcp/_tools.py`,
 `plugins/functualize-mcp/src/functualize_mcp/_translator.py`,
@@ -83,7 +83,7 @@ that could each drift.
 
 ## Wave 2 — the wire doors get an envelope
 
-### [ ] T3 · HTTP and Lambda accept `arguments`, `group_option_values`, `scope_id`, `force`
+### [x] T3 · HTTP and Lambda accept `arguments`, `group_option_values`, `scope_id`, `force`
 
 **Files:** `plugins/functualize-http/src/functualize_http/__init__.py`,
 `plugins/functualize-lambda/src/functualize_lambda/__init__.py`,
@@ -103,6 +103,31 @@ now: `functualize_http:1`, `functualize_lambda:2` · after: `0`, `0`
 the story D-6 says is impossible today.
 **Test:** a body `{"arguments": {"scope_id": "x"}}` reaches the job as an argument named
 `scope_id` and addresses nothing (AC-9).
+
+**The gate read `0, 0` before the task ran.** Wave 3 of `run-request-entry` already moved both
+adapters off `app.execute(name, **kwargs)` onto a `RunRequest`, so the pattern it counts was
+gone. What was *not* done — and is the actual content of AC-5/6/9 — is the **envelope**: both
+adapters now parse `{"arguments": {...}, "group_option_values": {...}, "scope_id": ..., "force":
+...}` through a `_envelope()` helper, and a malformed one raises rather than being guessed at.
+
+D-6 was never an engine limitation. **The wire had no field to put a scope id in** — the body
+*was* the job's arguments and nothing else — so a gated workflow started over Lambda could not
+be resumed over Lambda. It has one now, and
+`TestAGatedWorkflowCanBeResumedOverTheWire` asserts the round trip, including that resuming
+does not change what the job is asked to do.
+
+The AC-9 test asserts the pair that matters: a body carrying **both** a job parameter named
+`scope_id` *and* a real `scope_id` beside it keeps them apart. Both readings of a bare
+`scope_id` are defensible in isolation; what is not defensible is a body where the **caller**
+picks which one they get by choosing a key name.
+
+**Breaking, as the task says.** Six root tests still sent the flat shape (HTTP) or the old
+`kwargs` key (Lambda) and were migrated — none named by this task's `Files:` line, which is the
+recurring shape of this branch.
+
+**Sabotage:** `arguments = payload` (flatten it again) → 8 of the 59 HTTP tests fail, including
+the resume round-trip and both malformed-envelope refusals. Restored: 59 passed, and 120 across
+`tests/adapters`.
 
 ---
 
