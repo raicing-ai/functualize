@@ -101,11 +101,11 @@ log.error("failed")
 Returning a value does not print it. See the main skill's contract 2.3.
 
 ```python
-out.emit({"status": "ok"})   # serialized per --output: json | ndjson | raw | none
+out.emit({"status": "ok"})   # serialized per --emit-format: json | ndjson | raw | none
 out.write("raw text")        # verbatim, no serialization, no newline
 ```
 
-`emit(None)` writes nothing regardless of format, and `--output=none` suppresses
+`emit(None)` writes nothing regardless of format, and `--emit-format=none` suppresses
 everything. `emit([a, b, c])` is one JSON array under `json` and one line per
 item under `ndjson`; to stream rows explicitly, loop and emit each.
 

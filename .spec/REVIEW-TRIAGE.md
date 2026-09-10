@@ -454,7 +454,47 @@ Same name, **disjoint value sets, different meanings** — plus two more spellin
 of the JSON question. This is the divergence class `run-outcome-authority` exists
 to end, in a corner the global grammar does not reach.
 
-### Status: NEEDS DECISION (D-3)
+### Status: the `--output` half is DONE; the rest is still open
+
+**Renamed 2026-09-10, on the maintainer's decision: the global `--output` is now
+`--emit-format`.** The reasoning is in `_types/flag_grammar.py` beside the table
+and in `tests/cli/test_emit_format_rename.py`; the short version is that two
+informed guesses at what the old name meant — `--line-format` and
+`--return-value-format` — both described something the flag provably does not
+do, and a name that reliably produces the wrong model is worth changing while
+the project is pre-release.
+
+The evidence that settled it, from one job that emits one value and returns
+another:
+
+```
+$ func --emit-format json j.py returns_only   ->  (nothing, exit 0)
+$ func --emit-format raw  j.py returns_only   ->  (nothing)
+$ func --emit-format json j.py emits          ->  {"from":"emit"}
+```
+
+The return value is never rendered at any format, and `print()` is ignored too.
+
+`func builtin parallel --output {interleaved,grouped,prefixed}` is deliberately
+**untouched** — a different flag with a disjoint vocabulary, and the collision
+is gone now that the global has a different name. Whether it should become
+`--layout` for accuracy is a separate, smaller question.
+
+Two things the rename turned up that were worth having:
+
+- **`RENAMED_FLAGS`.** Without it the old name produced `Unknown command
+  'output'` — it names no flag, suggests nothing, and is wrong about what was
+  typed. `detect_mode` skips *known* flags when hunting the first positional, so
+  a flag that no longer exists becomes the command name; `_cli/dispatch.py`
+  already documented that failure mode for `--force`. One table entry turns it
+  into *"'--output' was renamed to '--emit-format'."*
+- **A real bug the dual-surface test caught.** Click derives a callback's
+  parameter name from the flag, so renaming only the flag string left the app
+  adapter reading a variable that no longer existed — `--emit-format none`
+  silently stopped suppressing on the app surface while `func` kept working. The
+  `[app]`/`[func]` parameterisation is what made it visible.
+
+### Still open (D-3, narrowed)
 
 Nothing is being changed on the strength of this. Wiring `--force` into
 `builtin parallel` and `builtin why` is a small, well-understood addition; the

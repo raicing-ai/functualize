@@ -30,13 +30,13 @@ read in `contributor/`, `.spec/STATUS.md`, and the ADR catalogue.
    (`_app/impl.py:861`, direct `app.execution_engine.execute(...)` with no
    `parent_scope`, no `workflow_scope_id`). A `@workflow` reached this way
    cannot be resumed.
-3. **`--prompt-gates` and `--output` are `func`-only, but neither is "about
+3. **`--prompt-gates` and `--emit-format` are `func`-only, but neither is "about
    reaching the program".** `--prompt-gates` is never settable from a
    project's own entry point (no flag, nothing sets `app._prompt_gates`), so
    a gated walk on an app surface can never be interactively prompted — the
-   exact class of defect `--scope-id` was fixed for. `--output` is similarly
+   exact class of defect `--scope-id` was fixed for. `--emit-format` is similarly
    absent from the app-side click group (verified: `Error: No such option
-   '--output'`).
+   '--emit-format'`).
 4. **`Invoke`/`rc.invoke()` cannot pass group options; `app.execute` can**
    (STATUS #17 — still open). Verified signatures: `Invoke.__call__`,
    `RunContext.invoke` have no `group_option_values` parameter.
@@ -113,7 +113,7 @@ Notes:
   fix. This remains the second-order split most likely to regrow a divergence.
 - **The pre-boot layer belongs to surfaces 1–6 only.** Every other surface
   enters at `FunctualizeApp(...)`; anything parsed or expanded pre-boot
-  (aliases, `--exclude`, `--output`, `--prompt-gates`, `--scope-id` global
+  (aliases, `--exclude`, `--emit-format`, `--prompt-gates`, `--scope-id` global
   form) is absent there by construction.
 
 ---
@@ -138,7 +138,7 @@ call path end-to-end; everything else was run.
 | Capability injection (`Log`, `TTY`, `Sources`, `Live`…) | ✓ | ✓ | ✓ | ✓ (minus TTY, refused) | ✓ (minus TTY) | ✓ | ✓ | ✓ |
 | Config precedence ladder | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `--force` | ✓ (deposit `app._force`) | ✓ (root callback) | **✗ no channel** (D-3) | ✗ (D-3) | ✗ (D-3) | ✓ (`force` deposit) | ✗ | ✗ |
-| `--output` json/ndjson/raw | ✓ | **✗** (D-2) | ✗ | — | — | — | — | — |
+| `--emit-format` json/ndjson/raw | ✓ | **✗** (D-2) | ✗ | — | — | — | — | — |
 | Exit-code contract | ✓ (single table) | ✓ (single table) | — | ✗ string status (by design) | ✓ shared table | **~** (D-7: BLOCKED→success) | — raw JobResult | ✓ table, first failure (D-8) |
 | aliases | ✓ pre-boot | ✗ (func-only by design) | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
 | discovery filters (`--exclude`, `--require-*`) | ✓ pre-boot | ✗ (func-only by design) | ✗ (app declares `JobSources`) | ✗ | ✗ | ✗ | ✗ | ✗ |
@@ -157,11 +157,11 @@ call path end-to-end; everything else was run.
   `[CODE]`; contrast with `--scope-id`, which exists in all three forms
   (`cli.py:1067-1071`, `click_params.py:1095-1097`).
 
-- **D-2 `--output` is `func`-only.** The engine's `Stdout` capability reads
+- **D-2 `--emit-format` is `func`-only.** The engine's `Stdout` capability reads
   `getattr(app, "_output_format", "auto")` (`_engine/capabilities/stdout.py:156`),
-  but the app-side click group accepts no `--output` option and nothing sets
-  the attribute. Verified live: `python appfail.py boom --output json` →
-  `Error: No such option '--output'.` (probe in `/tmp/fz-audit-probe/proj`).
+  but the app-side click group accepts no `--emit-format` option and nothing sets
+  the attribute. Verified live: `python appfail.py boom --emit-format json` →
+  `Error: No such option '--emit-format'.` (probe in `/tmp/fz-audit-probe/proj`).
   An app author's only lever is `FUNCTUALIZE_CLI_OUTPUT`… which appears
   **only in help text** (`builtins.py:1961,2072,2166`) and is read by nothing
   — pitfall #1 ("resolves and displays but is wired to nothing"), instance
@@ -352,7 +352,7 @@ The ten most promising evidence trails, each with file:line and one sentence.
    leak the encapsulation redesign must own (D-13, C-5).
 2. **The deposit protocol** — `executor.py:1283` (`_prompt_gates`) and
    `_engine/capabilities/stdout.py:156` (`_output_format`) are the kernel
-   reading delivery attributes; `--prompt-gates`/`--output`/`--force` being
+   reading delivery attributes; `--prompt-gates`/`--emit-format`/`--force` being
    deposit-only is why app.execute/MCP/HTTP/Lambda cannot force, prompt, or
    serialize (D-1, D-2, D-3).
 3. **MCP's three app.execute call sites** — `_server.py:272`,

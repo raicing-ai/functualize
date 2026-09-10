@@ -36,7 +36,7 @@ from typing import IO, Any
 __all__ = ["OUTPUT_MODES", "ParallelOutput"]
 
 OUTPUT_MODES: tuple[str, ...] = ("interleaved", "grouped", "prefixed")
-"""The valid ``--output`` values, in the order they appear in help."""
+"""The valid ``--emit-format`` values, in the order they appear in help."""
 
 
 class _ThreadRouted(io.TextIOBase):

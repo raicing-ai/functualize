@@ -43,10 +43,10 @@ from functualize.app.adapters.click_params import (
 from functualize.app.adapters.lazy_command import make_lazy_command
 from functualize.types import OPTIONAL_VALUE_VALID_SET
 
-# `--output`'s vocabulary, read from the one flag grammar rather than repeated
+# `--emit-format`'s vocabulary, read from the one flag grammar rather than repeated
 # here. `func` reads the same table, which is what keeps the two surfaces from
 # drifting on what the flag accepts (run-outcome-authority/T8).
-_OUTPUT_VALUES, _OUTPUT_DEFAULT = OPTIONAL_VALUE_VALID_SET["--output"]
+_OUTPUT_VALUES, _OUTPUT_DEFAULT = OPTIONAL_VALUE_VALID_SET["--emit-format"]
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
@@ -927,7 +927,12 @@ class CliAdapter:
             perf_filter: str | None = None,
             force: bool = False,
             prompt_gates: bool = False,
-            output: str | None = None,
+            # Click derives this name from the flag, so it followed
+            # `--output` -> `--emit-format` (2026-09-10). It silently became
+            # `**generated` fodder when only the flag was renamed, and
+            # `--emit-format none` stopped suppressing on this surface while
+            # `func` kept working — the dual-surface test is what caught it.
+            emit_format: str | None = None,
             **generated: Any,
         ) -> None:
             """Global options processed before any sub-command.
@@ -1016,7 +1021,7 @@ class CliAdapter:
                 "fallbacks": fallbacks,
                 "force": force,
                 "prompt_gates": prompt_gates,
-                "output_format": output or "auto",
+                "output_format": emit_format or "auto",
             }
 
             # Bare invocation of a self-contained app (C3.3). `func` itself
@@ -1093,11 +1098,11 @@ class CliAdapter:
             ),
             # Choices and default come from the one flag grammar
             # (`_types/flag_grammar.py`), not a second copy: `func` reads the
-            # same table, so the two surfaces cannot drift on what `--output`
-            # accepts. A bare `--output` means the default, matching func's
-            # optional-value lookahead.
+            # same table, so the two surfaces cannot drift on what
+            # `--emit-format` accepts. A bare `--emit-format` means the default,
+            # matching func's optional-value lookahead.
             click.Option(
-                ["--output"],
+                ["--emit-format"],
                 type=click.Choice(sorted(_OUTPUT_VALUES)),
                 is_flag=False,
                 flag_value=_OUTPUT_DEFAULT,

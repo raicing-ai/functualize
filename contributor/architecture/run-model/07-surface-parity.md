@@ -21,7 +21,7 @@ directions — it under-reports real gaps and invents fake ones.
 ## B. What the gaps actually are, after F1
 
 F1 gives every door a `RunRequest`, which closes the *deposit-shaped* gaps: `--prompt-gates`,
-`--output` and `--force` become fields, so every door can carry them. What F1 does **not** do
+`--emit-format` and `--force` become fields, so every door can carry them. What F1 does **not** do
 is give a door the *syntax* to fill a field. That is this feature.
 
 Three gaps survive F1, and one of them is the opposite of a gap:
@@ -85,7 +85,7 @@ Parity is not uniformity. Three things remain per-door and should:
 
 | | Why |
 |---|---|
-| **Syntax** | `--output json` on a CLI, a JSON field over HTTP, a tool parameter over MCP. The vocabulary is shared ([06 §E](06-outcome-authority.md)); the spelling is not |
+| **Syntax** | `--emit-format json` on a CLI, a JSON field over HTTP, a tool parameter over MCP. The vocabulary is shared ([06 §E](06-outcome-authority.md)); the spelling is not |
 | **Family choice** | a panel is not a process is not a wire. One greppable word ([06 §D](06-outcome-authority.md)) |
 | **Pre-boot-only flags** | aliases, `--exclude`, and `--perf-report`'s optional-value lookahead are *about reaching the program*, not about the run. They stay `func`-only, and `flag_grammar` says so |
 

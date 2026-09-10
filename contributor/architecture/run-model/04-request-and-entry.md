@@ -82,8 +82,8 @@ main.py:1668  app._force         = force
 
 **Every write is in `_cli/main.py`.** That is the whole of D-1 and D-2 in one observation: a
 project's own entry point (`app.cli_command()`, `adapters/cli.py`) never executes any of these
-lines, so `--prompt-gates` and `--output` cannot exist there. Verified live by the coverage
-audit: `python appfail.py boom --output json` → `Error: No such option '--output'.`
+lines, so `--prompt-gates` and `--emit-format` cannot exist there. Verified live by the coverage
+audit: `python appfail.py boom --emit-format json` → `Error: No such option '--emit-format'.`
 
 > **Correction, found while executing T12 (2026-09-10): there were eleven writes, not ten, and
 > not all of them were in `_cli/main.py`.** `app/adapters/cli.py:1001` wrote `_force` — which
@@ -91,7 +91,7 @@ audit: `python appfail.py boom --output json` → `Error: No such option '--outp
 > above missed it because the counting gate was scoped to `_cli/main.py`, so it could not see
 > outside the file it was already looking at.
 >
-> The **conclusion** stands for `--prompt-gates` and `--output`: neither had a writer on the
+> The **conclusion** stands for `--prompt-gates` and `--emit-format`: neither had a writer on the
 > app side and neither existed there. The **premise** as stated ("every write is in main.py")
 > was false, and it is the more useful half to get right — a census that stops at the file you
 > suspect will confirm whatever you suspected.

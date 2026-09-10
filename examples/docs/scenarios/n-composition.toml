@@ -162,19 +162,19 @@ command = "cd examples/standalone/composition_lab && rm -f build/report.md && fu
 expected = { exit_code = 0, stdout_contains = "REPORT" }
 timeout = 60
 
-# ── §5.5: --output is a global flag; return values are programmatic ──────
+# ── §5.5: --emit-format is a global flag; return values are programmatic ──────
 
 [[steps]]
 engine = "shell"
-description = "`func --output json lab emit` prints the envelope as JSON (guide §5.5)"
-command = "cd examples/standalone/composition_lab && func --output json lab emit"
+description = "`func --emit-format json lab emit` prints the envelope as JSON (guide §5.5)"
+command = "cd examples/standalone/composition_lab && func --emit-format json lab emit"
 expected = { exit_code = 0, stdout_contains = "\"total\":8" }
 timeout = 60
 
 [[steps]]
 engine = "shell"
 description = "the flag AFTER the job name is an error — the guide's decoy, so this is not vacuous"
-command = "cd examples/standalone/composition_lab && func lab emit --output json"
+command = "cd examples/standalone/composition_lab && func lab emit --emit-format json"
 expected = { exit_code = 2, stderr_contains = "No such option" }
 timeout = 60
 

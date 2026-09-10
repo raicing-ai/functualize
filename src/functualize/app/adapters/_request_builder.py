@@ -42,7 +42,7 @@ def _click_obj(app_ref: object) -> Mapping[str, Any]:
 
     The one legitimate ambient channel for a delivery input, and only because
     of the shape of the app's own CLI: its **root callback** parses ``--force``
-    (and, after T13, ``--prompt-gates`` and ``--output``) *after* the
+    (and, after T13, ``--prompt-gates`` and ``--emit-format``) *after* the
     subcommands were already built, so it cannot hand them to the builder the
     way ``func``'s handlers do.
 

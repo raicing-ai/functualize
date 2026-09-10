@@ -144,7 +144,7 @@ Anything a *job author* declares, or that a job's own behaviour depends on:
 * `FromJob`, `Sources`, `GroupOptions`
 * `@workflow`, `Gate`, and **resuming a gate** ← the case that proved the rule
 * freshness, refusal, and the exit-code contract
-* `--force`, `--prompt-gates` and `--output` — the three delivery inputs. Listed
+* `--force`, `--prompt-gates` and `--emit-format` — the three delivery inputs. Listed
   here as *description*, not aspiration: `run-request-entry/T13` put the two
   missing ones on an app's own entry point, and the dual-surface tests
   (`tests/cli/test_app_surface_prompt_gates.py`,

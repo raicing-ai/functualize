@@ -262,7 +262,7 @@ class ParsedGlobalOptions:
     exclude: list[str] | None = field(default=None)
     perf_report: str | None = None
     perf_filter: str | None = None
-    output: str | None = None  # --output flag: json, text, or none
+    output: str | None = None  # --emit-format flag: json, text, or none
     prompt_gates: bool = False  # --prompt-gates: prompt for gate fields during walk
     force: bool = False  # --force: run even when up to date
     first_positional_index: int = -1  # index into argv[1:] of first positional
@@ -553,11 +553,11 @@ def _assign_option(
         state.perf_report = value
     elif flag == "--perf-filter":
         state.perf_filter = value
-    elif flag == "--output":
-        valid_values = OPTIONAL_VALUE_VALID_SET["--output"][0]
+    elif flag == "--emit-format":
+        valid_values = OPTIONAL_VALUE_VALID_SET["--emit-format"][0]
         if value not in valid_values:
             print(
-                f"Error: --output must be one of "
+                f"Error: --emit-format must be one of "
                 f"{{{', '.join(sorted(valid_values))}}}, got '{value}'.",
                 file=sys.stderr,
             )
@@ -743,7 +743,7 @@ def walk_group_path(trie: GroupTrie, args: Sequence[str]) -> GroupWalk:
 
 
 def is_known_global_flag(token: str) -> bool:
-    """Is ``token`` one of func's own global flags (`--log-level`, `--output`, …)?
+    """Is ``token`` one of func's own global flags (`--log-level`, `--emit-format`, …)?
 
     Accepts both ``--flag`` and ``--flag=value`` spellings. Used only to give a
     better error when a global is misplaced *after* the group name: global flags

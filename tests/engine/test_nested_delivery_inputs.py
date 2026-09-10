@@ -1,6 +1,6 @@
 """Delivery inputs travel to nested runs (found by review, not by the suite).
 
-`--output`, `--prompt-gates` and `--force` describe how *this invocation of the
+`--emit-format`, `--prompt-gates` and `--force` describe how *this invocation of the
 program* behaves, not how one job behaves. So a workflow step, a dependency and
 an `rc.invoke` child must answer them the way the run the user started does.
 
@@ -9,7 +9,7 @@ the app as process-globals (`app._output_format` and friends), so nesting
 inherited them by accident of storage. Making them per-request made the
 inheritance something the code has to *say* — and for a while it did not:
 
-    $ func --output none outer      # outer invokes child
+    $ func --emit-format none outer      # outer invokes child
     {"from":"child"}                # the flag stopped at the first hop
 
 Every one of the four nesting sites built its `RunRequest` from scratch, so all

@@ -45,7 +45,7 @@ every sequence against **each** surface.
 | `lab publish` | `Deps` × `Guards(status)` × `Fingerprint` — the R10a AND |
 | `lab gated` | a failing `Precondition` **refuses** (exit 3); the body never runs |
 | `lab verify` | declared sources resolving to **nothing** also refuse |
-| `lab emit` | `Stdout` × `--output json`; a return value is programmatic |
+| `lab emit` | `Stdout` × `--emit-format json`; a return value is programmatic |
 | `lab probe` | `Shell` × `Exec(retry=...)` |
 | `lab fanout` / `lab worker` | `Invoke.parallel` × `State` — each child's `State` is its own |
 | `lab counter` | `State` does **not** persist; a file you own does |
@@ -105,7 +105,7 @@ the framework underneath.
 - [ ] `func lab gated` exits **3**, prints no `GATED BODY RAN`
 - [ ] `func lab verify` exits **3** with `declared sources resolved to no files`
 - [ ] `rm build/report.md` makes `lab report` run again with inputs unchanged
-- [ ] `func --output json lab emit` prints JSON; `func lab emit --output json` errors
+- [ ] `func --emit-format json lab emit` prints JSON; `func lab emit --emit-format json` errors
 - [ ] `func lab fanout` reports `parent_state=None`
 - [ ] `func lab bundle` twice: the second is fresh, because `dist/*.tar.gz` matches
 - [ ] `func --force lab --strict bundle` re-runs and reports `strict=True`

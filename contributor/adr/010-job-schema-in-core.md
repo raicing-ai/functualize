@@ -283,6 +283,6 @@ growth was a decision someone took rather than one that landed by default.
 | New `builtin jobs` noun | Splits "what is here" across two commands with no rule for choosing |
 | `builtin info --json` only, no subcommands | Forces a JSON shape onto config resolution, dotenv and skills when callers want jobs |
 | `builtin schema` at top level | "Schema" alone does not say *of what*, and leaves nowhere for `list`/`show` |
-| Global `--output json` across all builtins | A fourth meaning of "output", and every builtin would need a JSON shape designed at once |
+| Global `--emit-format json` across all builtins | A fourth meaning of "output", and every builtin would need a JSON shape designed at once |
 | Core renders its own schema, test asserts parity with MCP | Two implementations can drift between runs; one renderer is the stronger guarantee |
 | Agent-mode env detection (pup's approach) | Requires tracking a list of agent vendors. `FUNCTUALIZE_CLI_OUTPUT=json` gets the same result with no vendor list. Revisit if it proves insufficient |

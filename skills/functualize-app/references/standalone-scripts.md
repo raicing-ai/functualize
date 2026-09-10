@@ -51,7 +51,7 @@ Each piece earns its place:
   job. Without it, `func fetch.py --url x` reads `--url` as a *function name*
   and fails with `Function '--url' not found`, and a bare `./fetch.py` prints a
   listing instead of running anything.
-- **`Stdout.emit`** — `--output json` makes the script parseable by whatever
+- **`Stdout.emit`** — `--emit-format json` makes the script parseable by whatever
   called it.
 - **`Secret[str]`** — credentials render as `•••` in logs, tracebacks and
   emitted payloads. Worth doing from the first commit for anything a script
@@ -92,13 +92,13 @@ else. Both read the same header, so the script itself does not change.
 
 ## Global flags come *before* the file
 
-This is the one that bites. `--output`, `--log-level` and the discovery flags
+This is the one that bites. `--emit-format`, `--log-level` and the discovery flags
 are global — they belong to `func`, not to your job — so they must precede the
 script path:
 
 ```bash
-func --output json fetch.py --url https://example.com    # ✓
-func fetch.py --url https://example.com --output json    # ✗ No such option '--output'
+func --emit-format json fetch.py --url https://example.com    # ✓
+func fetch.py --url https://example.com --emit-format json    # ✗ No such option '--emit-format'
 ```
 
 Everything after the script path belongs to the job, which is the whole point of

@@ -337,7 +337,7 @@ def nested_request(parent: RunRequest | None, **changes: Any) -> RunRequest:
     Before run-request-entry these lived on the app as process-globals, so
     nesting inherited them by accident of storage. Making them per-request made
     the inheritance something the code has to *say* — and for a while it did not,
-    so ``func --output none outer`` silently emitted from ``outer``'s child.
+    so ``func --emit-format none outer`` silently emitted from ``outer``'s child.
 
     It lives here rather than on the engine because it is a fact about what a
     request *is*, and because the engine is not the only thing that builds a

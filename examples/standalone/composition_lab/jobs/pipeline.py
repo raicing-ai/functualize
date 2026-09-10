@@ -164,15 +164,15 @@ def verify(log: Log) -> None:
     print("VERIFY BODY RAN")  # must never appear
 
 
-# ── 6. Stdout × --output ─────────────────────────────────────────────────
+# ── 6. Stdout × --emit-format ─────────────────────────────────────────────────
 #
 # A job's return value is programmatic (it feeds FromJob and rc.invoke).
-# Reaching stdout is explicit and honours --output.
+# Reaching stdout is explicit and honours --emit-format.
 
 
 @job(group=JOB_GROUP, deps=Deps("lab.parse"))
 def emit(out: Stdout, parsed: Annotated[Parsed, FromJob("lab.parse")]) -> None:
-    """`func lab emit --output json` prints the envelope as JSON."""
+    """`func lab emit --emit-format json` prints the envelope as JSON."""
     out.emit({"items": [i.model_dump() for i in parsed.items], "total": parsed.total})
 
 

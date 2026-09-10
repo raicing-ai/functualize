@@ -872,7 +872,7 @@ def _make_invoke(ctx: Any) -> WiredInvoke:
         # `ctx` is a CapabilityContext; the ExecutionContext — and the request
         # that asked for this run — is one hop in at `ctx.context`. Reading
         # `ctx.request` returns None and the children silently take defaults,
-        # which is how `--output none` stopped reaching an invoked child.
+        # which is how `--emit-format none` stopped reaching an invoked child.
         parent_request=getattr(ctx.context, "request", None),
         invoke_depth=ctx.context.invoke_depth,
         max_invoke_depth=ctx.engine.max_invoke_depth,

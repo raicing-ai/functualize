@@ -49,9 +49,9 @@ class TestEarlyParseFlagIntegration:
     def test_output_followed_by_job_name_routes_to_job(
         self, cli_run, project_tree
     ) -> None:
-        """Bug A fix: `func --output forecast` routes to JOB, not BARE.
+        """Bug A fix: `func --emit-format forecast` routes to JOB, not BARE.
 
-        Since "forecast" is not in {"json", "text", "none"}, --output defaults
+        Since "forecast" is not in {"json", "text", "none"}, --emit-format defaults
         to "none" and "forecast" remains a positional.
 
         Validates: Requirements 1.7, 2.9
@@ -59,7 +59,7 @@ class TestEarlyParseFlagIntegration:
         root = project_tree(
             jobs={"forecast.py": "def forecast():\n    print('rain-output')\n"}
         )
-        result = cli_run(["--output", "forecast"], cwd=root)
+        result = cli_run(["--emit-format", "forecast"], cwd=root)
         assert result.exit_code == 0, (
             f"Expected exit 0 (job ran), got {result.exit_code}.\n"
             f"stdout: {result.stdout!r}\nstderr: {result.stderr!r}"

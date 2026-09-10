@@ -7,7 +7,7 @@ implementation per invocation (``_engine/capabilities/stdout.py``).
 Design (ratified 2026-07-23): a job's
 **return value is programmatic-only** — it feeds ``rc.invoke()`` and
 ``FromJob``/``FromStep`` and is never auto-serialized to the pipe. Data reaches
-stdout **only** through this explicit capability. ``--output`` selects the wire
+stdout **only** through this explicit capability. ``--emit-format`` selects the wire
 format ``emit`` uses; it is *not* ``--format`` (which is MCP/command-owned).
 
 Placed in ``_types`` (stdlib-only Protocol) so every layer and the public
@@ -26,9 +26,9 @@ class Stdout(Protocol):
     Two methods, two intents:
 
     - **``emit(value)``** — serialize ``value`` to stdout per the resolved
-      ``--output`` format, one logical document per call, flushed per call.
+      ``--emit-format`` format, one logical document per call, flushed per call.
       ``value`` may be ``str``/``bytes``, ``dict``/``list``, a pydantic model,
-      a dataclass, or an iterable of those. ``--output`` decides list handling:
+      a dataclass, or an iterable of those. ``--emit-format`` decides list handling:
       ``emit([a, b, c])`` is one JSON array under ``json`` and one line per item
       under ``ndjson``. To stream rows explicitly, loop ``for r in rows:
       out.emit(r)``.
@@ -41,7 +41,7 @@ class Stdout(Protocol):
     """
 
     def emit(self, value: Any) -> None:
-        """Serialize ``value`` to stdout per the resolved ``--output`` format."""
+        """Serialize ``value`` to stdout per the resolved ``--emit-format`` format."""
         ...
 
     def write(self, data: str | bytes) -> None:

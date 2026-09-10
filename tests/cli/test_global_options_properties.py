@@ -88,7 +88,7 @@ _global_option_with_value = st.tuples(_value_options, _option_values)
 
 # Strategy for additional args after the positional (job-specific flags)
 _job_flag_name = st.sampled_from(
-    ["--env", "--dry-run", "--force", "--output", "--verbose"]
+    ["--env", "--dry-run", "--force", "--emit-format", "--verbose"]
 )
 _job_flag_value = st.text(
     st.sampled_from("abcdefghijklmnopqrstuvwxyz0123456789_/.-"),

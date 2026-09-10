@@ -95,7 +95,7 @@ Nothing from either source is silently dropped. An id is either in a feature or 
 | id | Lands in | id | Lands in |
 |---|---|---|---|
 | D-1 `--prompt-gates` func-only | **F1** | D-8 `parallel` 7th site / history | **F2** + **F1** |
-| D-2 `--output` func-only | **F1** | D-9 unknown-command (#37) | **F8** |
+| D-2 `--emit-format` func-only | **F1** | D-9 unknown-command (#37) | **F8** |
 | D-3 `--force` no channel | **F1** | D-10 enum arrives as `str` (#38) | **F8** |
 | D-4 `Invoke` group options (#17) | **F4** | D-11 single-file second boot | **F8** |
 | D-5 MCP split three ways | **F4** | D-12 conflict raw traceback | **F8** |

@@ -49,7 +49,7 @@ command is not a finding.
 
 | Fact | Location |
 |---|---|
-| All **ten** deposit writes are in `_cli/main.py` — which is why an app's own entry point never has `--prompt-gates` or `--output` | `_cli/main.py:945, 1246-1248, 1366-1368, 1666-1668` — `rg 'app\._(prompt_gates\|output_format\|force) *='` |
+| All **ten** deposit writes are in `_cli/main.py` — which is why an app's own entry point never has `--prompt-gates` or `--emit-format` | `_cli/main.py:945, 1246-1248, 1366-1368, 1666-1668` — `rg 'app\._(prompt_gates\|output_format\|force) *='` |
 | `_prompt_gates` is read by the kernel | `_engine/executor.py:1283` |
 | `_output_format` is read by the kernel | `_engine/capabilities/stdout.py:151, 156` |
 | `_force` is read by *delivery*, not the kernel | ⚠ `app/adapters/click_params.py:74` |

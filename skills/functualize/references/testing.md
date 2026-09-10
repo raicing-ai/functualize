@@ -64,7 +64,7 @@ pins the serialization a caller would receive.
 
 Prefer asserting on the **capability record** rather than on captured stdout.
 `FakeStdout` sees the structured value passed to `emit()`, so a test asserts on
-`{"status": "ok"}` rather than on serialized text that changes with `--output`.
+`{"status": "ok"}` rather than on serialized text that changes with `--emit-format`.
 
 `FakeShell` records rather than executes, which is what makes a job with side
 effects safe to unit test. Assert on the recorded `FakeShellCall`s.

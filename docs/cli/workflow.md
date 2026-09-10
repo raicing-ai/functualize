@@ -87,7 +87,7 @@ func builtin workflow list --format json          # the same rows MCP returns
 
 `--format` is **domain-aware**: the command knows its items are workflow scopes,
 so `json` emits structured scope objects rather than a serialized log line. This
-is distinct from the global `--output`, which only formats the dispatch layer's
+is distinct from the global `--emit-format`, which only formats the dispatch layer's
 return value.
 
 ## `func builtin workflow show`

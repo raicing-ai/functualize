@@ -681,6 +681,28 @@ def _extract_aliases(merged_config: dict[str, Any]) -> dict[str, str]:
 # ─── Unknown command handling ────────────────────────────────────────────
 
 
+def _renamed_flag_hint(cmd: str) -> str | None:
+    """The sentence a user with muscle memory needs, or ``None``.
+
+    `detect_mode` skips *known* flags when hunting for the first positional, so
+    a flag that no longer exists is read as the command name and reported as
+    one — `func --output json build` answers ``Unknown command 'output'``,
+    which names no flag and is wrong about what was typed. The dashes are gone
+    by the time we get here, so both spellings are tried.
+    """
+    from functualize.app.utils import RENAMED_FLAGS
+
+    for spelling in (cmd, f"--{cmd}"):
+        replacement = RENAMED_FLAGS.get(spelling)
+        if replacement is not None:
+            return (
+                f"'--{cmd.lstrip('-')}' was renamed to '{replacement}'."
+                if not cmd.startswith("-")
+                else f"'{cmd}' was renamed to '{replacement}'."
+            )
+    return None
+
+
 def _handle_unknown(args: list[str], job_names: set[str]) -> None:
     """Print 'command not found' with fuzzy suggestions.
 
@@ -691,6 +713,12 @@ def _handle_unknown(args: list[str], job_names: set[str]) -> None:
         job_names: Set of valid job names for suggestion matching.
     """
     cmd = args[0] if args else ""
+
+    renamed = _renamed_flag_hint(cmd)
+    if renamed is not None:
+        print(f"Error: {renamed}", file=sys.stderr)
+        print("Run 'func --help' to see the global options.", file=sys.stderr)
+        return
 
     print(f"Error: Unknown command '{cmd}'.", file=sys.stderr)
 
@@ -749,14 +777,14 @@ def _run_adhoc_command(
 
     Mirrors ``register_plugin_commands`` (``adapters/click_params.py``): builds
     a click command directly from the callback's signature and captures its
-    return value for ``--output`` parity. Jobs go through
+    return value for ``--emit-format`` parity. Jobs go through
     ``create_job_click_command`` at their call sites instead.
 
     Args:
         name: The command name to register the callback under.
         fn: The raw plugin callback (its signature drives option parsing).
         remaining_args: CLI args passed after the command name.
-        output_format: The ``--output`` flag value (json, text, or none).
+        output_format: The ``--emit-format`` flag value (json, text, or none).
         help_text: Optional help string.
         prog_name: How the command names itself in usage and error output.
             Defaults to ``name``, which is only right for a top-level command:
@@ -871,7 +899,7 @@ def _dispatch_group(
         app: The already-booted FunctualizeApp (duck-typed).
         args: ``[group_segment_1, ..., sub_command?, ...remaining_args]``.
         group_names: Known job group names (including ancestor prefixes).
-        output_format: The ``--output`` flag value (auto, json, ndjson, raw, none).
+        output_format: The ``--emit-format`` flag value (auto, json, ndjson, raw, none).
 
     Returns:
         Exit code (0 = success).
@@ -1139,7 +1167,7 @@ def _handle_group(
         effective: Resolved effective directories.
         cli_flags: Parsed global CLI flags for resolve_cli_config.
         group_names: Set of known group names (including ancestor prefixes).
-        output_format: The --output flag value (json, text, or none).
+        output_format: The --emit-format flag value (json, text, or none).
         _app_ref: Optional mutable container; if provided, the constructed
             FunctualizeApp is appended so callers can access it for perf reporting.
 
@@ -1239,7 +1267,7 @@ def _handle_job(
         merged_config: Merged project config dict.
         effective: Resolved effective directories.
         cli_flags: Parsed global CLI flags for resolve_cli_config.
-        output_format: The --output flag value (json, text, or none).
+        output_format: The --emit-format flag value (json, text, or none).
         _app_ref: Optional mutable container; if provided, the constructed
             FunctualizeApp is appended so callers can access it for perf reporting.
 
@@ -1394,6 +1422,17 @@ def _handle_job(
                 file=sys.stderr,
             )
         else:
+            # A renamed global flag lands here, not in `_handle_unknown`: it is
+            # unknown to `detect_mode`, so it becomes the first positional and
+            # this door treats it as a job name.
+            renamed = _renamed_flag_hint(job_name)
+            if renamed is not None:
+                print(f"Error: {renamed}", file=sys.stderr)
+                print(
+                    "Run 'func --help' to see the global options.",
+                    file=sys.stderr,
+                )
+                return 1
             print(
                 f"Error: Unknown command '{job_name}'.",
                 file=sys.stderr,
@@ -1433,7 +1472,7 @@ def _handle_job(
         return 1
 
     # Build a click.Command directly from the job's signature + config model
-    # and run it, capturing its return value for --output emission.
+    # and run it, capturing its return value for --emit-format emission.
     from functualize.app.adapters.click_params import (
         create_job_click_command,
         invoke_command_capturing,
@@ -1541,7 +1580,7 @@ def _handle_single_file(
     Args:
         file_args: argv slice starting from the .py file
             [file.py, function_name?, ...remaining_args]
-        output_format: The --output flag value (json, text, or none).
+        output_format: The --emit-format flag value (json, text, or none).
         _app_ref: Optional mutable container; if provided, the constructed
             FunctualizeApp is appended so callers can access it for perf reporting.
 
@@ -1888,7 +1927,7 @@ def _run_cli() -> None:
     # Position-aware: only recognize --version when it appears BEFORE the first
     # positional argument (the command name). `func --version` prints the
     # version; `func deploy --version v1` passes --version to the job. This is
-    # the same convention as other global flags (--log-level, --output, etc.)
+    # the same convention as other global flags (--log-level, --emit-format, etc.)
     # and unlike --help which Click handles per-command.
     # The one flag grammar (`_types/flag_grammar.py`), reached through the
     # public corridor because `_cli` may import public folders only.
@@ -2021,7 +2060,7 @@ def _run_cli() -> None:
     # Apply log level from global_opts before any app boot
     # Default to INFO (matches old behavior) so rc.log() output is visible
     log_level = global_opts.log_level if global_opts.log_level is not None else "INFO"
-    # When --output is json or text, explicitly route logging to stderr
+    # When --emit-format is json or text, explicitly route logging to stderr
     # to ensure log output does not contaminate stdout pipe data.
     # Python's logging.basicConfig() defaults to stderr, but we make it
     # explicit here for clarity and safety.
@@ -2179,7 +2218,7 @@ def _run_cli() -> None:
     #     func --log-level ERROR      builtin version  -> functualize 0.3.0
     #     func --config-directory /tmp builtin version -> functualize 0.3.0
     #     func --exclude nothing.py   builtin version  -> functualize 0.3.0
-    #     func --output json          builtin version  -> No such option
+    #     func --emit-format json          builtin version  -> No such option
     #     func --force                builtin version  -> No such option
     #     func --prompt-gates         builtin version  -> No such option
     #
@@ -2203,8 +2242,8 @@ def _run_cli() -> None:
     # and neither is being wired here; see `.spec/REVIEW-TRIAGE.md` "Builtins
     # and the delivery inputs" for the evidence and the open question.
     #
-    #     $ func --output json builtin info jobs
-    #     Error: No such option '--output'.
+    #     $ func --emit-format json builtin info jobs
+    #     Error: No such option '--emit-format'.
     #
     # Recorded rather than fixed: making `func builtin` accept the delivery
     # flags is a behaviour change nobody has asked for, and inventing one while

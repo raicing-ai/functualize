@@ -244,7 +244,7 @@ Two habits worth more than any table here:
 programs — the second builds commands from a discovery cache and may never
 import your file. `func builtin cache clear` forces the cold path.
 
-**Do not parse prose.** Use exit codes, and `--output json` where a job emits.
+**Do not parse prose.** Use exit codes, and `--emit-format json` where a job emits.
 
 ---
 

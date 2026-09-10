@@ -328,7 +328,7 @@ Runs jobs concurrently with a bounded thread pool. Output modes:
 Jobs with a `Stdout` capability act as Unix pipeline stages:
 
 ```bash
-func build --output ndjson | jq '.targets'
+func build --emit-format ndjson | jq '.targets'
 ```
 
 `func build` emits NDJSON; `jq` processes it. The exit code table propagates

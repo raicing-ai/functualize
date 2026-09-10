@@ -7,7 +7,7 @@ and wrong against a surface that no longer exists.
 
 Three of the four checks below already caught live drift when first written —
 a capability table calling per-invocation `State` "persistence across runs", a
-`--output` vocabulary missing its default, and testing doubles documented with
+`--emit-format` vocabulary missing its default, and testing doubles documented with
 attributes they do not have.
 """
 
@@ -157,21 +157,21 @@ def test_no_invented_public_names(path):
 
 
 def test_documented_output_values_match_the_flag():
-    """The `--output` vocabulary in prose is the one dispatch accepts."""
-    valid, default = OPTIONAL_VALUE_VALID_SET["--output"]
+    """The `--emit-format` vocabulary in prose is the one dispatch accepts."""
+    valid, default = OPTIONAL_VALUE_VALID_SET["--emit-format"]
     text = "\n".join(p.read_text(encoding="utf-8") for p in markdown_files())
 
     # Wherever the skills enumerate the vocabulary, the default must be in it —
     # omitting `auto` was the original drift, and it is the value most callers
     # actually get.
     assert default in valid
-    mentions = re.findall(r"`--output`[^\n]*", text)
-    assert mentions, "no skill documents --output any more — intended?"
+    mentions = re.findall(r"`--emit-format`[^\n]*", text)
+    assert mentions, "no skill documents --emit-format any more — intended?"
     enumerations = [m for m in mentions if "json" in m and "ndjson" in m]
-    assert enumerations, "--output is mentioned but never enumerated"
+    assert enumerations, "--emit-format is mentioned but never enumerated"
     for line in enumerations:
         assert default in line, (
-            f"--output enumeration omits the default {default!r}: {line}"
+            f"--emit-format enumeration omits the default {default!r}: {line}"
         )
 
 

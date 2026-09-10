@@ -235,7 +235,7 @@ FUNCTUALIZE_CLI_OUTPUT=json func …       # override for one run
 > | Spelling | Chooses | Values |
 > | --- | --- | --- |
 > | `[cli] output` setting | how **builtin commands** render | `rich`, `plain`, `json` |
-> | `--output` global flag | how `Stdout.emit()` *serializes* a job's output | `auto`, `json`, `ndjson`, `raw`, `none` |
+> | `--emit-format` global flag | how `Stdout.emit()` *serializes* a job's output | `auto`, `json`, `ndjson`, `raw`, `none` |
 > | `builtin parallel --output` | how concurrent jobs' streams are *arranged* | `interleaved`, `grouped`, `prefixed` |
 
 `[cli] output` is what an agent should set once instead of passing a flag on

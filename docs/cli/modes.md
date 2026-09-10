@@ -170,7 +170,7 @@ erroring:
   alias all still win first. Within a group, a **job wins** over a plugin
   command on an exact sub-command name conflict (your code overrides a plugin's).
 - Plugin commands execute through the same ad-hoc Click path the scaffolded
-  project `CliAdapter` uses, so typed options and `--output` behave identically.
+  project `CliAdapter` uses, so typed options and `--emit-format` behave identically.
 
 Disabling a plugin (via `plugins.disabled`) makes its commands fall back to the
 normal "unknown command" error.

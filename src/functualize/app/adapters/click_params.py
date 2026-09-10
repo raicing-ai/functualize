@@ -1508,15 +1508,15 @@ def invoke_command_capturing(
     stdout: a job's return value is programmatic only — it feeds ``rc.invoke()``
     and ``FromJob``/``FromStep``. Job data reaches stdout solely through the
     explicit ``Stdout`` capability (``out.emit()`` / ``out.write()``), which the
-    engine injects and which honors ``--output``. See
+    engine injects and which honors ``--emit-format``. See
     ``functualize._types.stdout`` for the ratified design.
 
     ``emit_return=True`` restores return-value emission for **plugin/ad-hoc
     commands**, which are plain click callbacks rather than engine-executed
     jobs: they get no ``Stdout`` injection and carry no ``FromJob`` semantics,
-    so serializing their return under ``--output`` remains the right behavior.
+    so serializing their return under ``--emit-format`` remains the right behavior.
     Emission still requires an *explicit* format — ``auto`` and ``none`` stay
-    silent, preserving "no ``--output``, no stdout dump".
+    silent, preserving "no ``--emit-format``, no stdout dump".
 
     ``obj`` seeds ``ctx.obj`` for callers invoking a command out of its group,
     where no root callback runs to populate it.

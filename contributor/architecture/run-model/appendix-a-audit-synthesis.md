@@ -77,8 +77,8 @@ Worth recording, because a merged document tends to erase which half found what 
 halves earned their place.
 
 **The coverage audit contributed the things you can only get by running the binary.** The 17
-surfaces, each with its boot path. The live reproduction of `--output` being absent from an
-app's own entry point (`Error: No such option '--output'`). The observation that
+surfaces, each with its boot path. The live reproduction of `--emit-format` being absent from an
+app's own entry point (`Error: No such option '--emit-format'`). The observation that
 `FUNCTUALIZE_CLI_OUTPUT` appears only in help text and is read by nothing — **which drifted
 before execution reached it**: `_cli/info.py:63` reads it now, and run-request-entry/T14
 closed as already-satisfied rather than as work (see that task for the evidence). The STATUS ledger

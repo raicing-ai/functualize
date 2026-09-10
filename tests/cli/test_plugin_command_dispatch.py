@@ -184,7 +184,7 @@ class TestDispatchGroupMerged:
         # Job wins (D3). The observable is what the job *emits*, not what it
         # returns: a job's return value is programmatic only (rc.invoke /
         # FromJob) and is never written to stdout. This doubles as the
-        # end-to-end proof that `out: Stdout` is injected and honors --output
+        # end-to-end proof that `out: Stdout` is injected and honors --emit-format
         # through real dispatch.
         assert "JOB_TOOLS" in out
         assert "MCP Tools" not in out
