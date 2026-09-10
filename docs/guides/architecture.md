@@ -442,13 +442,13 @@ descriptor cache): `tty: TTY` grants terminal ownership for a job-owned Textual
 app (`tty.run(app)`, refused off a terminal), and `live: Live` mounts a live
 `LiveConstruct` into the active surface's live zone (`live.add(construct)`).
 
-### Custom event emission — rc.emit()
+### Custom event emission — rc.events.emit()
 
 Jobs emit custom structured events that reach the `EventBus` and every registered
 `Surface`:
 
 ```python
-rc.emit("pipeline.stage.complete", resource="extract", records=1000)
+rc.events.emit("pipeline.stage.complete", resource="extract", records=1000)
 ```
 
 Framework lifecycle events (`job.execute.*`, `job.teardown.*`, `plugin.*`,

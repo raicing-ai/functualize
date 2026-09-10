@@ -21,19 +21,20 @@ from functualize._types.enums import RunStatus, RunType
 _module_logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from pydantic import BaseModel
 
     from functualize._config.job_config import JobConfigView
     from functualize._engine.capabilities.discovery_facade import DiscoveryFacade
     from functualize._engine.capabilities.invoke import Invoke
+    from functualize._engine.capabilities.observability_facade import (
+        ObservabilityFacade,
+    )
     from functualize._engine.capabilities.state_store import StateStore
     from functualize._engine.capabilities.wiring_facade import WiringFacade
     from functualize._engine.capabilities.workflow import WorkflowTracker
     from functualize._engine.capabilities.workflow_scope import WorkflowScope
     from functualize._engine.result import JobResult
-    from functualize._events.perf import PerfTimeline, Phase
+    from functualize._events.perf import PerfTimeline
     from functualize._primitives.di import DIRegistry
     from functualize._types.interactivity import (
         PromptChoice,
@@ -203,6 +204,18 @@ class RunContext:
         #: `config`, `log`, `invoke`, `state`, `cwd` — stays flat.
         self._discovery: DiscoveryFacade | None = None
         self._wiring: WiringFacade | None = None
+        self._events: ObservabilityFacade | None = None
+
+    @property
+    def events(self) -> ObservabilityFacade:
+        """`rc.events` — events, phases, run status and the perf timeline."""
+        if self._events is None:
+            from functualize._engine.capabilities.observability_facade import (
+                ObservabilityFacade,
+            )
+
+            self._events = ObservabilityFacade(self)
+        return self._events
 
     @property
     def wiring(self) -> WiringFacade:
@@ -225,14 +238,6 @@ class RunContext:
         return self._discovery
 
     # --- Callback registration (backward compat) ---
-
-    def on_status_change(self, callback: Any) -> None:
-        """Register a callback invoked on status transitions."""
-        self._status_callbacks.append(callback)
-
-    def on_phase_change(self, callback: Any) -> None:
-        """Register a callback invoked on phase changes."""
-        self._phase_callbacks.append(callback)
 
     def on_log(self, callback: Any) -> None:
         """Register a callback invoked on log emissions."""
@@ -277,18 +282,11 @@ class RunContext:
             self._workflow_tracker = _WorkflowTracker(
                 job_name=self._name,
                 run_context=self,
-                perf_timeline=self._perf_timeline or self._resolve_timeline(),
+                perf_timeline=self._perf_timeline or self.events._resolve_timeline(),
                 execution_engine=self._execution_engine,
                 step_logger=self._logger,
             )
         return self._workflow_tracker
-
-    def _resolve_timeline(self) -> Any:
-        if self._perf_timeline is not None:
-            return self._perf_timeline
-        from functualize._events.perf import perf_timeline
-
-        return perf_timeline
 
     # --- Properties ---
 
@@ -314,10 +312,6 @@ class RunContext:
             or len(self._result_metadata) < self._MAX_RESULT_METADATA_KEYS
         ):
             self._result_metadata[key] = value
-
-    @property
-    def phases(self) -> list[JobPhase]:
-        return self._get_tracker().steps
 
     @property
     def job_config(self) -> Any:
@@ -352,24 +346,6 @@ class RunContext:
     @property
     def job_directory(self) -> Path | None:
         return self._job_directory
-
-    @property
-    def run_status(self) -> RunStatus:
-        return cast("RunStatus", self._metadata["run_status"])
-
-    @property
-    def run_duration(self) -> float:
-        duration = self._metadata.get("duration")
-        if duration is not None:
-            return float(duration)
-        start = self._metadata.get("start_time")
-        if start is None:
-            return 0.0
-        return float((datetime.now(UTC) - start).total_seconds())
-
-    @property
-    def current_phase(self) -> JobPhase | None:
-        return self._get_tracker().current_step
 
     # --- DI Subscript Access ---
 
@@ -440,105 +416,7 @@ class RunContext:
 
     # --- Delegation: Phase Tracking ---
 
-    def track_phase(
-        self,
-        phase_name: str,
-        phase_message: str,
-        phase_status: RunStatus = RunStatus.RUNNING,
-    ) -> None:
-        """Track a job phase. Delegates to WorkflowTracker.track_step()."""
-        # Determine if this is a new phase or an update
-        existing = self._get_tracker().get_step(phase_name)
-        action = "updated" if existing is not None else "created"
-
-        self._get_tracker().track_step(phase_name, phase_message, phase_status)
-
-        # Build phase dict for callbacks (backward compat)
-        phase_dict: JobPhase = {
-            "name": phase_name,
-            "message": phase_message,
-            "status": phase_status,
-            "start_time": None,
-            "end_time": None,
-            "duration": None,
-        }
-
-        # Invoke phase callbacks with (phase_dict, action)
-        for cb in self._phase_callbacks:
-            try:
-                cb(phase_dict, action)
-            except Exception:
-                self._logger.warning(
-                    "Phase callback %r raised an exception", cb, exc_info=True
-                )
-
-    def get_phase(self, phase_name: str) -> JobPhase | None:
-        return self._get_tracker().get_step(phase_name)
-
     # --- Delegation: Event Emission ---
-
-    def _resolve_event_bus(self) -> Any | None:
-        """Resolve the EventBus from the host the engine was built for."""
-        if self._execution_engine is None:
-            return None
-        host = self._execution_engine.host
-        if host is None:
-            return None
-        return host.event_bus
-
-    def emit(self, event_name: str, resource: str = "", **payload: Any) -> None:
-        """Emit a structured event. Delegates to EventBus.emit()."""
-        return self._emit_event(event_name, resource, payload)
-
-    def on_event(self, pattern: str, callback: Callable[[Any], None]) -> Any | None:
-        """Subscribe to structured events for the life of this execution.
-
-        The inbound counterpart to :meth:`emit` — lets code holding a
-        RunContext (notably a job-owned UI, which receives the context via
-        its ``TTY`` handle) observe events as they happen, including those
-        emitted by children started with :meth:`invoke`.
-
-        Args:
-            pattern: Exact event name, prefix wildcard (``"job.*"``), or
-                the global wildcard (``"*"``).
-            callback: Receives a StructuredEvent. Called synchronously on the
-                emitting thread — which is a worker thread for most job
-                events, so a UI callback must marshal onto its own loop.
-
-        Returns:
-            A SubscriptionHandle for :meth:`off_event`, or None when no
-            EventBus is reachable (e.g. a RunContext built outside the
-            engine), so callers can subscribe unconditionally.
-        """
-        event_bus = self._resolve_event_bus()
-        if event_bus is None:
-            return None
-        return event_bus.subscribe(pattern, callback)
-
-    def off_event(self, handle: Any) -> None:
-        """Remove a subscription created by :meth:`on_event`.
-
-        Accepts None (what ``on_event`` returns when no bus was reachable)
-        so teardown paths need no guard of their own.
-        """
-        if handle is None:
-            return
-        event_bus = self._resolve_event_bus()
-        if event_bus is not None:
-            event_bus.unsubscribe(handle)
-
-    def _emit_event(
-        self, event_name: str, resource: str, payload: dict[str, Any]
-    ) -> None:
-        """Internal emit implementation — resolves EventBus and dispatches."""
-        event_bus = self._resolve_event_bus()
-        if event_bus is not None:
-            event_bus.emit(event_name, resource=resource, **payload)
-        host = self._execution_engine.host if self._execution_engine else None
-        if host is not None and not any(
-            event_name.startswith(p) for p in self._FRAMEWORK_EVENT_PREFIXES
-        ):
-            _dispatch_to_surfaces(host, event_name, resource, payload)
 
     # --- Logging ---
 
@@ -589,87 +467,7 @@ class RunContext:
 
     # --- Run Status ---
 
-    def track_run_status(
-        self,
-        run_status: RunStatus = RunStatus.RUNNING,
-        failure_message: str = "",
-    ) -> None:
-        current_status = self._metadata["run_status"]
-        if current_status in _TERMINAL_STATES:
-            raise InvalidStateTransitionError(
-                f"Cannot transition from terminal state {current_status.value} "
-                f"to {run_status.value}"
-            )
-        self._metadata["run_status"] = run_status
-        if run_status in _TERMINAL_STATES:
-            self._metadata["end_time"] = datetime.now(UTC)
-            start_time = self._metadata["start_time"]
-            if start_time is not None:
-                self._metadata["duration"] = (
-                    self._metadata["end_time"] - start_time
-                ).total_seconds()
-        if failure_message:
-            self._logger.error(f"Run status: {run_status.value} - {failure_message}")
-
-    def set_run_status(self, status: RunStatus, message: str = "") -> None:
-        old_status = self._metadata["run_status"]
-        self.track_run_status(run_status=status, failure_message=message)
-        # Invoke status callbacks
-        for cb in self._status_callbacks:
-            try:
-                cb(old_status, status, message)
-            except Exception:
-                self._logger.warning(
-                    "Status change callback %r raised an exception", cb, exc_info=True
-                )
-
     # --- Perf Timeline ---
-
-    @property
-    def _timeline(self) -> PerfTimeline:
-        if self._perf_timeline is not None:
-            return self._perf_timeline
-        from functualize._events.perf import perf_timeline
-
-        return perf_timeline
-
-    def _validate_mark_name(self, name: str) -> None:
-        if not name or len(name) > 256:
-            raise ValueError(
-                "Mark name must be a non-empty string of at most 256 characters."
-            )
-
-    def perf_mark(self, name: str) -> None:
-        self._validate_mark_name(name)
-        tl = self._timeline
-        if tl.enabled:
-            tl.mark(f"{self._name}.{name}")
-
-    def perf_mark_start(self, name: str) -> None:
-        self._validate_mark_name(name)
-        tl = self._timeline
-        if tl.enabled:
-            tl.mark(f"{self._name}.{name}.start")
-
-    def perf_mark_end(self, name: str) -> None:
-        self._validate_mark_name(name)
-        tl = self._timeline
-        if tl.enabled:
-            tl.mark(f"{self._name}.{name}.end")
-
-    def get_perf_phases(
-        self,
-        include: str | None = None,
-        exclude: str | None = None,
-    ) -> list[Phase]:
-        from functualize._events._pattern_matcher import filter_phases
-
-        report = self._timeline.report()
-        prefix = f"{self._name}."
-        job_phases = [p for p in report.phases if p.name.startswith(prefix)]
-        unprefixed = [p.name[len(prefix) :] for p in job_phases]
-        matching = set(filter_phases(unprefixed, include, exclude))
-        return [p for p, u in zip(job_phases, unprefixed, strict=True) if u in matching]
 
     # --- State Store ---
 

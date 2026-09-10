@@ -1,7 +1,7 @@
 """Functualize Flow Viz Plugin — inline execution tree visualization.
 
 Renders a live job execution tree — status icons, durations, nested
-``rc.invoke()`` children, custom ``rc.emit`` events — as a hosted
+``rc.invoke()`` children, custom ``rc.events.emit`` events — as a hosted
 ``LiveConstruct``.
 
 Architecture note: this plugin used to be a self-rendering ``Surface`` with two
@@ -180,13 +180,13 @@ class FlowVizConstruct:
         Caveat — the lifecycle branch is currently unreachable: ``job.execute.``
         is one of ``RunContext._FRAMEWORK_EVENT_PREFIXES``, which
         ``_dispatch_to_surfaces`` filters out, so surfaces (and therefore
-        hosted constructs) only ever see custom ``rc.emit`` events. The
+        hosted constructs) only ever see custom ``rc.events.emit`` events. The
         handling is kept because it is the correct mapping the moment lifecycle
         events are surfaced, and because it costs nothing meanwhile. See
         ``contributor/architecture/event-vocabulary.md``.
 
         Unrecognized events are recorded on the current node rather than
-        dropped, so a domain's custom ``rc.emit`` still shows up in the tree.
+        dropped, so a domain's custom ``rc.events.emit`` still shows up in the tree.
         """
         event_name = str(getattr(event, "event_name", "") or "")
         payload = getattr(event, "payload", {}) or {}
@@ -266,7 +266,7 @@ class FlowVizConstruct:
     def _record_custom(
         self, event_name: str, resource: str, payload: dict[str, Any]
     ) -> None:
-        """Attach a custom ``rc.emit`` event to the current node."""
+        """Attach a custom ``rc.events.emit`` event to the current node."""
         node = self.current_node
         if node is None:
             # No job scope yet — start one so custom events are still visible.

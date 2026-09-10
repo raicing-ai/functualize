@@ -14,4 +14,4 @@ def test_pipeline_emits_invokes_and_phases():
     morning_report(ForecastConfig(city="Tokyo"), rc)
     invoked = [call.args[0] for call in rc.invoke.call_args_list]
     assert invoked == ["forecast", "alert"]
-    assert rc.track_phase.call_count == 4
+    assert rc.events.track_phase.call_count == 4

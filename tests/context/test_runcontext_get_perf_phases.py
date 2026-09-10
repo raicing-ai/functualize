@@ -55,7 +55,7 @@ class TestGetPerfPhasesScoping:
         timeline.mark("other_job.download.end")
 
         rc = _make_rc("my_job", mock_config, mock_logger, timeline)
-        phases = rc.get_perf_phases()
+        phases = rc.events.get_perf_phases()
 
         assert len(phases) == 1
         assert phases[0].name == "my_job.upload"
@@ -68,7 +68,7 @@ class TestGetPerfPhasesScoping:
         timeline.mark("other_job.upload.end")
 
         rc = _make_rc("my_job", mock_config, mock_logger, timeline)
-        phases = rc.get_perf_phases()
+        phases = rc.events.get_perf_phases()
 
         assert phases == []
 
@@ -77,7 +77,7 @@ class TestGetPerfPhasesScoping:
     ):
         """Returns empty list when timeline has no marks."""
         rc = _make_rc("my_job", mock_config, mock_logger, timeline)
-        phases = rc.get_perf_phases()
+        phases = rc.events.get_perf_phases()
 
         assert phases == []
 
@@ -89,7 +89,7 @@ class TestGetPerfPhasesScoping:
         timeline.mark("my_job.step_b.end")
 
         rc = _make_rc("my_job", mock_config, mock_logger, timeline)
-        phases = rc.get_perf_phases()
+        phases = rc.events.get_perf_phases()
 
         assert len(phases) == 2
         names = {p.name for p in phases}
@@ -109,7 +109,7 @@ class TestGetPerfPhasesFiltering:
         timeline.mark("my_job.custom.step.end")
 
         rc = _make_rc("my_job", mock_config, mock_logger, timeline)
-        phases = rc.get_perf_phases(include="phase")
+        phases = rc.events.get_perf_phases(include="phase")
 
         assert len(phases) == 2
         names = {p.name for p in phases}
@@ -123,7 +123,7 @@ class TestGetPerfPhasesFiltering:
         timeline.mark("my_job.phase.download.end")
 
         rc = _make_rc("my_job", mock_config, mock_logger, timeline)
-        phases = rc.get_perf_phases(exclude="phase.upload")
+        phases = rc.events.get_perf_phases(exclude="phase.upload")
 
         assert len(phases) == 1
         assert phases[0].name == "my_job.phase.download"
@@ -138,7 +138,7 @@ class TestGetPerfPhasesFiltering:
         timeline.mark("my_job.custom.step.end")
 
         rc = _make_rc("my_job", mock_config, mock_logger, timeline)
-        phases = rc.get_perf_phases(include="phase", exclude="phase.download")
+        phases = rc.events.get_perf_phases(include="phase", exclude="phase.download")
 
         assert len(phases) == 1
         assert phases[0].name == "my_job.phase.upload"
@@ -151,7 +151,7 @@ class TestGetPerfPhasesFiltering:
         timeline.mark("my_job.phase.download.end")
 
         rc = _make_rc("my_job", mock_config, mock_logger, timeline)
-        phases = rc.get_perf_phases(include="phase.*load")
+        phases = rc.events.get_perf_phases(include="phase.*load")
 
         # "phase.*load" → * matches chars except '.', so "up" and "down"
         assert len(phases) == 2
@@ -164,7 +164,7 @@ class TestGetPerfPhasesFiltering:
         timeline.mark("my_job.deep.nested.phase.end")
 
         rc = _make_rc("my_job", mock_config, mock_logger, timeline)
-        phases = rc.get_perf_phases(include="**")
+        phases = rc.events.get_perf_phases(include="**")
 
         assert len(phases) == 2
 
@@ -178,7 +178,7 @@ class TestGetPerfPhasesFiltering:
         timeline.mark("my_job.custom.step.end")
 
         rc = _make_rc("my_job", mock_config, mock_logger, timeline)
-        phases = rc.get_perf_phases(include="phase.upload,custom.step")
+        phases = rc.events.get_perf_phases(include="phase.upload,custom.step")
 
         assert len(phases) == 2
         names = {p.name for p in phases}
@@ -190,7 +190,7 @@ class TestGetPerfPhasesFiltering:
         timeline.mark("my_job.phase.upload.end")
 
         rc = _make_rc("my_job", mock_config, mock_logger, timeline)
-        phases = rc.get_perf_phases(include="nonexistent")
+        phases = rc.events.get_perf_phases(include="nonexistent")
 
         assert phases == []
 
@@ -202,7 +202,7 @@ class TestGetPerfPhasesFiltering:
         timeline.mark("my_job.phase.upload.end")
 
         rc = _make_rc("my_job", mock_config, mock_logger, timeline)
-        phases = rc.get_perf_phases(include="phase")
+        phases = rc.events.get_perf_phases(include="phase")
 
         assert phases[0].name == "my_job.phase.upload"
         assert isinstance(phases[0], Phase)
@@ -215,7 +215,7 @@ class TestGetPerfPhasesFiltering:
         timeline.mark("my_job.work.end")
 
         rc = _make_rc("my_job", mock_config, mock_logger, timeline)
-        phases = rc.get_perf_phases()
+        phases = rc.events.get_perf_phases()
 
         assert len(phases) == 1
         phase = phases[0]

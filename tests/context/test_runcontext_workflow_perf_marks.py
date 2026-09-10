@@ -55,7 +55,7 @@ class TestJobPhasePerfMarkNewPhase:
         self, rc: RunContext, timeline: PerfTimeline
     ) -> None:
         """New step records a start mark with workflow naming convention."""
-        rc.track_phase("upload", "Starting upload")
+        rc.events.track_phase("upload", "Starting upload")
         report = timeline.report()
         mark_names = [name for name, _ in report.marks]
         assert "test-job.phase.upload.start" in mark_names
@@ -64,7 +64,7 @@ class TestJobPhasePerfMarkNewPhase:
         self, rc: RunContext, timeline: PerfTimeline
     ) -> None:
         """New step with RUNNING status does not record an end mark."""
-        rc.track_phase("upload", "Starting upload", RunStatus.RUNNING)
+        rc.events.track_phase("upload", "Starting upload", RunStatus.RUNNING)
         report = timeline.report()
         mark_names = [name for name, _ in report.marks]
         assert "test-job.phase.upload.end" not in mark_names
@@ -73,7 +73,7 @@ class TestJobPhasePerfMarkNewPhase:
         self, rc: RunContext, timeline: PerfTimeline
     ) -> None:
         """New step with terminal status records both start and end marks."""
-        rc.track_phase("quick-check", "Done", RunStatus.SUCCESS)
+        rc.events.track_phase("quick-check", "Done", RunStatus.SUCCESS)
         report = timeline.report()
         mark_names = [name for name, _ in report.marks]
         assert "test-job.phase.quick-check.start" in mark_names
@@ -83,7 +83,7 @@ class TestJobPhasePerfMarkNewPhase:
         self, rc: RunContext, timeline: PerfTimeline
     ) -> None:
         """New step with FAILURE status records both start and end marks."""
-        rc.track_phase("validate", "Failed", RunStatus.FAILURE)
+        rc.events.track_phase("validate", "Failed", RunStatus.FAILURE)
         report = timeline.report()
         mark_names = [name for name, _ in report.marks]
         assert "test-job.phase.validate.start" in mark_names
@@ -93,7 +93,7 @@ class TestJobPhasePerfMarkNewPhase:
         self, rc: RunContext, timeline: PerfTimeline
     ) -> None:
         """New step with CANCELLED status records both start and end marks."""
-        rc.track_phase("process", "Cancelled", RunStatus.CANCELLED)
+        rc.events.track_phase("process", "Cancelled", RunStatus.CANCELLED)
         report = timeline.report()
         mark_names = [name for name, _ in report.marks]
         assert "test-job.phase.process.start" in mark_names
@@ -103,7 +103,7 @@ class TestJobPhasePerfMarkNewPhase:
         self, rc: RunContext, timeline: PerfTimeline
     ) -> None:
         """New step with TIMEOUT status records both start and end marks."""
-        rc.track_phase("fetch", "Timed out", RunStatus.TIMEOUT)
+        rc.events.track_phase("fetch", "Timed out", RunStatus.TIMEOUT)
         report = timeline.report()
         mark_names = [name for name, _ in report.marks]
         assert "test-job.phase.fetch.start" in mark_names
@@ -117,8 +117,8 @@ class TestJobPhasePerfMarkExistingPhase:
         self, rc: RunContext, timeline: PerfTimeline
     ) -> None:
         """Existing step transitioning to SUCCESS records end mark."""
-        rc.track_phase("upload", "Starting")
-        rc.track_phase("upload", "Done", RunStatus.SUCCESS)
+        rc.events.track_phase("upload", "Starting")
+        rc.events.track_phase("upload", "Done", RunStatus.SUCCESS)
         report = timeline.report()
         mark_names = [name for name, _ in report.marks]
         assert "test-job.phase.upload.end" in mark_names
@@ -127,8 +127,8 @@ class TestJobPhasePerfMarkExistingPhase:
         self, rc: RunContext, timeline: PerfTimeline
     ) -> None:
         """Existing step transitioning to FAILURE records end mark."""
-        rc.track_phase("upload", "Starting")
-        rc.track_phase("upload", "Failed", RunStatus.FAILURE)
+        rc.events.track_phase("upload", "Starting")
+        rc.events.track_phase("upload", "Failed", RunStatus.FAILURE)
         report = timeline.report()
         mark_names = [name for name, _ in report.marks]
         assert "test-job.phase.upload.end" in mark_names
@@ -137,8 +137,8 @@ class TestJobPhasePerfMarkExistingPhase:
         self, rc: RunContext, timeline: PerfTimeline
     ) -> None:
         """Updating an existing step with non-terminal status does not record end."""
-        rc.track_phase("upload", "Starting")
-        rc.track_phase("upload", "Still running", RunStatus.RUNNING)
+        rc.events.track_phase("upload", "Starting")
+        rc.events.track_phase("upload", "Still running", RunStatus.RUNNING)
         report = timeline.report()
         mark_names = [name for name, _ in report.marks]
         assert "test-job.phase.upload.end" not in mark_names
@@ -147,8 +147,8 @@ class TestJobPhasePerfMarkExistingPhase:
         self, rc: RunContext, timeline: PerfTimeline
     ) -> None:
         """Start + end marks from workflow tracking produce a derived phase."""
-        rc.track_phase("upload", "Starting")
-        rc.track_phase("upload", "Done", RunStatus.SUCCESS)
+        rc.events.track_phase("upload", "Starting")
+        rc.events.track_phase("upload", "Done", RunStatus.SUCCESS)
         report = timeline.report()
         phase = report.phase("test-job.phase.upload")
         assert phase is not None
@@ -162,7 +162,7 @@ class TestJobPhasePerfMarkDisabled:
         self, rc_disabled: RunContext, disabled_timeline: PerfTimeline
     ) -> None:
         """No marks recorded when timeline is disabled (new step)."""
-        rc_disabled.track_phase("upload", "Starting")
+        rc_disabled.events.track_phase("upload", "Starting")
         report = disabled_timeline.report()
         assert len(report.marks) == 0
 
@@ -170,7 +170,7 @@ class TestJobPhasePerfMarkDisabled:
         self, rc_disabled: RunContext, disabled_timeline: PerfTimeline
     ) -> None:
         """No marks recorded when timeline is disabled (terminal step)."""
-        rc_disabled.track_phase("upload", "Done", RunStatus.SUCCESS)
+        rc_disabled.events.track_phase("upload", "Done", RunStatus.SUCCESS)
         report = disabled_timeline.report()
         assert len(report.marks) == 0
 
@@ -178,8 +178,8 @@ class TestJobPhasePerfMarkDisabled:
         self, rc_disabled: RunContext, disabled_timeline: PerfTimeline
     ) -> None:
         """No marks recorded when timeline is disabled (transition)."""
-        rc_disabled.track_phase("upload", "Starting")
-        rc_disabled.track_phase("upload", "Done", RunStatus.SUCCESS)
+        rc_disabled.events.track_phase("upload", "Starting")
+        rc_disabled.events.track_phase("upload", "Done", RunStatus.SUCCESS)
         report = disabled_timeline.report()
         assert len(report.marks) == 0
 
@@ -187,6 +187,6 @@ class TestJobPhasePerfMarkDisabled:
         self, rc_disabled: RunContext
     ) -> None:
         """Workflow step tracking still works even when perf is disabled."""
-        rc_disabled.track_phase("upload", "Starting")
-        assert len(rc_disabled.phases) == 1
-        assert rc_disabled.phases[0]["name"] == "upload"
+        rc_disabled.events.track_phase("upload", "Starting")
+        assert len(rc_disabled.events.phases) == 1
+        assert rc_disabled.events.phases[0]["name"] == "upload"

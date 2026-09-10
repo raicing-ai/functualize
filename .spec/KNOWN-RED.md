@@ -153,3 +153,29 @@ worktree isolation was adopted.
 
 **Not a defect on this branch.** If it fails *in isolation*, that is a real
 packaging break and this entry does not apply.
+
+---
+
+## 10 · `tests/discovery/test_parse_failure_persists.py::test_a_warm_run_reports_exactly_what_the_cold_one_did[app]` — flaky under `-n auto`
+
+**Seen:** 2026-09-11, one failure in a `-n auto` run (10,137 passed, 1 failed),
+during `engine-sealed-construction`/T8. The commit under test renamed
+`rc.<member>` call sites and touched nothing in `_discovery/`.
+
+**Discriminator.** Run the file alone, then the directory, then a wider slice:
+
+```
+uv run pytest tests/discovery/test_parse_failure_persists.py -q      # 9 passed, 1 skipped
+uv run pytest tests/discovery -q -n auto                             # 667 passed
+uv run pytest tests/discovery tests/cli tests/group_options -q -n auto  # 2502 passed
+```
+
+All green. The test asserts a **cold run and a warm run produce the identical
+failure list, in order** — it runs the same tree twice and compares. Both runs
+resolve a cache path, and under xdist several workers resolve into the same
+`XDG_CACHE_HOME` unless a test owns one; a neighbour writing between the two
+runs changes what the second one reads.
+
+**Not a defect on this branch.** If it fails *in isolation*, the cold/warm
+agreement has genuinely broken and this entry does not apply — that pair is a
+real defect this file's §2 was written about, not a flake.

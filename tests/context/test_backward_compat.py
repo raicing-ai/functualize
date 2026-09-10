@@ -17,6 +17,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from functualize._config.job_config import JobConfigView
+from functualize._engine.capabilities.observability_facade import ObservabilityFacade
 from functualize._events.hooks import HookEvent, HookRegistry
 from functualize.job._state_store import StateStore
 from functualize.job.context import (
@@ -89,7 +90,7 @@ class TestExistingPublicPropertiesUnchanged:
 
     def test_phases_property_returns_list(self, run_context: RunContext) -> None:
         """The `phases` property returns a list."""
-        steps = run_context.phases
+        steps = run_context.events.phases
         assert isinstance(steps, list)
         assert steps == []
 
@@ -137,12 +138,14 @@ class TestExistingPublicMethodSignatures:
         self, run_context: RunContext
     ) -> None:
         """track_run_status() accepts (run_status, failure_message) params."""
-        run_context.track_run_status(run_status=RunStatus.SUCCESS, failure_message="")
+        run_context.events.track_run_status(
+            run_status=RunStatus.SUCCESS, failure_message=""
+        )
         assert run_context.metadata["run_status"] == RunStatus.SUCCESS
 
     def test_track_run_status_signature(self) -> None:
         """track_run_status() has expected signature."""
-        sig = inspect.signature(RunContext.track_run_status)
+        sig = inspect.signature(ObservabilityFacade.track_run_status)
         params = list(sig.parameters.keys())
         assert "self" in params
         assert "run_status" in params
@@ -155,21 +158,21 @@ class TestExistingPublicMethodSignatures:
         self, run_context: RunContext
     ) -> None:
         """track_run_status() raises InvalidStateTransitionError from terminal states."""
-        run_context.track_run_status(RunStatus.FAILURE, failure_message="bad")
+        run_context.events.track_run_status(RunStatus.FAILURE, failure_message="bad")
         with pytest.raises(InvalidStateTransitionError):
-            run_context.track_run_status(RunStatus.SUCCESS)
+            run_context.events.track_run_status(RunStatus.SUCCESS)
 
     def test_track_phase_accepts_name_message_status(
         self, run_context: RunContext
     ) -> None:
         """track_phase() accepts (phase_name, phase_message, phase_status)."""
-        run_context.track_phase("s1", "msg", RunStatus.RUNNING)
-        assert len(run_context.phases) == 1
-        assert run_context.phases[0]["name"] == "s1"
+        run_context.events.track_phase("s1", "msg", RunStatus.RUNNING)
+        assert len(run_context.events.phases) == 1
+        assert run_context.events.phases[0]["name"] == "s1"
 
     def test_track_phase_signature(self) -> None:
         """track_phase() has expected signature."""
-        sig = inspect.signature(RunContext.track_phase)
+        sig = inspect.signature(ObservabilityFacade.track_phase)
         params = list(sig.parameters.keys())
         assert "self" in params
         assert "phase_name" in params

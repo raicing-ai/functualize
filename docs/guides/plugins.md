@@ -442,7 +442,7 @@ stdin fallback collects but renders nothing; a full-screen app satisfies both.
 An object may register as either or both.
 
 A job never touches these. Its whole conversational API is the `RunContext`
-(`rc.log` / `rc.emit` / `rc.prompt_*`); the engine turns those into
+(`rc.log` / `rc.events.emit` / `rc.prompt_*`); the engine turns those into
 `StructuredEvent`s and `PromptRequest`s and routes them. That ignorance is what
 lets one unmodified job render in a TUI panel, in plain stdout, in a job-owned
 app, as MCP gate checkpoints, or under a test double. The full architecture is

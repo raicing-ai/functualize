@@ -113,7 +113,7 @@ class TestStatusCallbackErrorIsolation:
 
                     return bad_cb
 
-                rc.on_status_change(make_bad_cb(i))
+                rc.events.on_status_change(make_bad_cb(i))
             else:
 
                 def make_good_cb(
@@ -124,9 +124,9 @@ class TestStatusCallbackErrorIsolation:
 
                     return good_cb
 
-                rc.on_status_change(make_good_cb(i))
+                rc.events.on_status_change(make_good_cb(i))
 
-        rc.set_run_status(target_status)
+        rc.events.set_run_status(target_status)
 
         # All callbacks should have been invoked regardless of failures
         assert invoked == list(range(n))
@@ -144,11 +144,11 @@ class TestStatusCallbackErrorIsolation:
         def bad_cb(old: RunStatus, new: RunStatus, msg: str) -> None:
             raise ValueError("explode")
 
-        rc.on_status_change(bad_cb)
-        rc.set_run_status(target_status)
+        rc.events.on_status_change(bad_cb)
+        rc.events.set_run_status(target_status)
 
         # Status transition happened despite callback failure
-        assert rc.run_status == target_status
+        assert rc.events.run_status == target_status
 
     @given(
         target_status=terminal_statuses,
@@ -166,8 +166,8 @@ class TestStatusCallbackErrorIsolation:
         def bad_cb(old: RunStatus, new: RunStatus, msg: str) -> None:
             raise ValueError(err_msg)
 
-        rc.on_status_change(bad_cb)
-        rc.set_run_status(target_status)
+        rc.events.on_status_change(bad_cb)
+        rc.events.set_run_status(target_status)
 
         mock_logger.warning.assert_called()
         # The implementation logs with exc_info=True, capturing exception in traceback
@@ -195,12 +195,12 @@ class TestStatusCallbackErrorIsolation:
 
                 return bad_cb
 
-            rc.on_status_change(make_bad_cb(i))
+            rc.events.on_status_change(make_bad_cb(i))
 
-        rc.set_run_status(target_status)
+        rc.events.set_run_status(target_status)
 
         # Status still transitioned
-        assert rc.run_status == target_status
+        assert rc.events.run_status == target_status
         # Each failure was logged
         assert mock_logger.warning.call_count == n
 
@@ -236,7 +236,7 @@ class TestStepCallbackErrorIsolation:
 
                     return bad_cb
 
-                rc.on_phase_change(make_bad_cb(i))
+                rc.events.on_phase_change(make_bad_cb(i))
             else:
 
                 def make_good_cb(idx: int) -> Callable[[JobPhase, str], None]:
@@ -245,9 +245,9 @@ class TestStepCallbackErrorIsolation:
 
                     return good_cb
 
-                rc.on_phase_change(make_good_cb(i))
+                rc.events.on_phase_change(make_good_cb(i))
 
-        rc.track_phase(step_name, "running", RunStatus.RUNNING)
+        rc.events.track_phase(step_name, "running", RunStatus.RUNNING)
 
         # All callbacks invoked in order
         assert invoked == list(range(n))
@@ -265,11 +265,11 @@ class TestStepCallbackErrorIsolation:
         def bad_cb(step: JobPhase, action: str) -> None:
             raise ValueError("step explode")
 
-        rc.on_phase_change(bad_cb)
-        rc.track_phase(step_name, "running", RunStatus.RUNNING)
+        rc.events.on_phase_change(bad_cb)
+        rc.events.track_phase(step_name, "running", RunStatus.RUNNING)
 
         # Step was tracked despite callback failure
-        tracked = rc.get_phase(step_name)
+        tracked = rc.events.get_phase(step_name)
         assert tracked is not None
         assert tracked["name"] == step_name
         assert tracked["status"] == RunStatus.RUNNING
@@ -290,8 +290,8 @@ class TestStepCallbackErrorIsolation:
         def bad_cb(step: JobPhase, action: str) -> None:
             raise ValueError(err_msg)
 
-        rc.on_phase_change(bad_cb)
-        rc.track_phase(step_name, "running")
+        rc.events.on_phase_change(bad_cb)
+        rc.events.track_phase(step_name, "running")
 
         mock_logger.warning.assert_called()
         # The implementation logs with exc_info=True, capturing exception in traceback
@@ -319,12 +319,12 @@ class TestStepCallbackErrorIsolation:
 
                 return bad_cb
 
-            rc.on_phase_change(make_bad_cb(i))
+            rc.events.on_phase_change(make_bad_cb(i))
 
-        rc.track_phase(step_name, "running", RunStatus.RUNNING)
+        rc.events.track_phase(step_name, "running", RunStatus.RUNNING)
 
         # Step still tracked
-        assert rc.get_phase(step_name) is not None
+        assert rc.events.get_phase(step_name) is not None
         # Each failure was logged independently
         assert mock_logger.warning.call_count == n
 

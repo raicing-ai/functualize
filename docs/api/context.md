@@ -69,29 +69,29 @@ def either_way(rc: RunContext, log: Log) -> None:
 
 ### Status Tracking
 
-#### `rc.set_run_status(status, message="")`
+#### `rc.events.set_run_status(status, message="")`
 
 Transition the execution status. Terminal states cannot be transitioned from.
 
 ```python
 from functualize.types import RunStatus
 
-rc.set_run_status(RunStatus.SUCCESS, "All records processed")
+rc.events.set_run_status(RunStatus.SUCCESS, "All records processed")
 ```
 
 ---
 
 ### Job Phases
 
-#### `rc.track_phase(phase_name, message, status=None)`
+#### `rc.events.track_phase(phase_name, message, status=None)`
 
 Create or update a named job phase. Delegates to the `WorkflowTracker` capability class.
 
 ```python
 from functualize.types import RunStatus
 
-rc.track_phase("extract", "Fetching from API")
-rc.track_phase("extract", "Got 1000 records", RunStatus.SUCCESS)
+rc.events.track_phase("extract", "Fetching from API")
+rc.events.track_phase("extract", "Got 1000 records", RunStatus.SUCCESS)
 ```
 
 ---
@@ -128,12 +128,12 @@ results = rc.invoke_parallel(jobs)
 
 ### Event Emission
 
-#### `rc.emit(event_name, resource="", **payload)`
+#### `rc.events.emit(event_name, resource="", **payload)`
 
 Emit a custom structured event. Delegates directly to `EventBus.emit()`.
 
 ```python
-rc.emit("etl.extract.complete", resource="customers", record_count=1500)
+rc.events.emit("etl.extract.complete", resource="customers", record_count=1500)
 ```
 
 ---
@@ -163,7 +163,7 @@ response = rc.prompt(PromptRequest(
 
 ### Performance Instrumentation
 
-#### `rc.perf_mark(name)` / `rc.perf_mark_start(name)` / `rc.perf_mark_end(name)`
+#### `rc.events.perf_mark(name)` / `rc.events.perf_mark_start(name)` / `rc.events.perf_mark_end(name)`
 
 Record performance marks. Delegates to the `Perf` capability class.
 

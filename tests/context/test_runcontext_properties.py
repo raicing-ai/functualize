@@ -158,9 +158,9 @@ class TestJobPhaseTracking:
         # **Validates: Requirements 5.5**
         rc = make_run_context()
         for step_name, step_message, step_status in steps:
-            rc.track_phase(step_name, step_message, step_status)
+            rc.events.track_phase(step_name, step_message, step_status)
 
-        tracked_names = [s["name"] for s in rc.phases]
+        tracked_names = [s["name"] for s in rc.events.phases]
         expected_names = [s[0] for s in steps]
         assert tracked_names == expected_names
 
@@ -180,10 +180,10 @@ class TestJobPhaseTracking:
         # **Validates: Requirements 5.5**
         rc = make_run_context()
         for step_name, step_message, step_status in steps:
-            rc.track_phase(step_name, step_message, step_status)
+            rc.events.track_phase(step_name, step_message, step_status)
 
         for i, (step_name, _step_message, step_status) in enumerate(steps):
-            tracked = rc.phases[i]
+            tracked = rc.events.phases[i]
             assert tracked["name"] == step_name
             assert tracked["status"] == step_status
 
@@ -199,9 +199,9 @@ class TestJobPhaseTracking:
         # Feature: functualize, Property 11: Workflow Step Tracking
         # **Validates: Requirements 5.5**
         rc = make_run_context()
-        rc.track_phase(step_name, message, status)
+        rc.events.track_phase(step_name, message, status)
 
-        tracked = rc.phases[0]
+        tracked = rc.events.phases[0]
         assert len(tracked["message"]) == 1000
         assert tracked["message"] == message[:1000]
 
@@ -217,9 +217,9 @@ class TestJobPhaseTracking:
         # Feature: functualize, Property 11: Workflow Step Tracking
         # **Validates: Requirements 5.5**
         rc = make_run_context()
-        rc.track_phase(step_name, message, status)
+        rc.events.track_phase(step_name, message, status)
 
-        tracked = rc.phases[0]
+        tracked = rc.events.phases[0]
         assert tracked["message"] == message
 
     @given(
@@ -238,9 +238,9 @@ class TestJobPhaseTracking:
         # **Validates: Requirements 5.5**
         rc = make_run_context()
         for step_name, step_message, step_status in steps:
-            rc.track_phase(step_name, step_message, step_status)
+            rc.events.track_phase(step_name, step_message, step_status)
 
-        for tracked in rc.phases:
+        for tracked in rc.events.phases:
             assert tracked["start_time"] is not None
             assert tracked["start_time"].tzinfo == UTC
 
@@ -261,11 +261,11 @@ class TestJobPhaseTracking:
         # Feature: functualize, Property 11: Workflow Step Tracking
         # **Validates: Requirements 5.5**
         rc = make_run_context()
-        rc.track_phase(step_name, initial_message, RunStatus.RUNNING)
-        rc.track_phase(step_name, updated_message, updated_status)
+        rc.events.track_phase(step_name, initial_message, RunStatus.RUNNING)
+        rc.events.track_phase(step_name, updated_message, updated_status)
 
-        assert len(rc.phases) == 1
-        tracked = rc.phases[0]
+        assert len(rc.events.phases) == 1
+        tracked = rc.events.phases[0]
         assert tracked["name"] == step_name
         assert tracked["status"] == updated_status
         assert tracked["message"] == updated_message[:1000]
@@ -289,7 +289,7 @@ class TestTerminalStatusTransition:
         # **Validates: Requirements 5.6, 5.7**
         rc = make_run_context(name=name)
         before = datetime.now(UTC)
-        rc.track_run_status(terminal_status)
+        rc.events.track_run_status(terminal_status)
         after = datetime.now(UTC)
 
         end_time = rc.metadata["end_time"]
@@ -306,7 +306,7 @@ class TestTerminalStatusTransition:
         # Feature: functualize, Property 12: Terminal Status Transition
         # **Validates: Requirements 5.6, 5.7**
         rc = make_run_context(name=name)
-        rc.track_run_status(terminal_status)
+        rc.events.track_run_status(terminal_status)
 
         duration = rc.metadata["duration"]
         assert duration is not None
@@ -331,10 +331,10 @@ class TestTerminalStatusTransition:
         # Feature: functualize, Property 12: Terminal Status Transition
         # **Validates: Requirements 5.6, 5.7**
         rc = make_run_context(name=name)
-        rc.track_run_status(first_terminal)
+        rc.events.track_run_status(first_terminal)
 
         with pytest.raises(InvalidStateTransitionError):
-            rc.track_run_status(second_terminal)
+            rc.events.track_run_status(second_terminal)
 
     @given(name=job_names, terminal_status=terminal_statuses)
     def test_terminal_transition_updates_run_status(
@@ -344,7 +344,7 @@ class TestTerminalStatusTransition:
         # Feature: functualize, Property 12: Terminal Status Transition
         # **Validates: Requirements 5.6, 5.7**
         rc = make_run_context(name=name)
-        rc.track_run_status(terminal_status)
+        rc.events.track_run_status(terminal_status)
 
         assert rc.metadata["run_status"] == terminal_status
 
@@ -360,7 +360,7 @@ class TestTerminalStatusTransition:
         # Feature: functualize, Property 12: Terminal Status Transition
         # **Validates: Requirements 5.6, 5.7**
         rc = make_run_context(name=name)
-        rc.track_run_status(first_terminal)
+        rc.events.track_run_status(first_terminal)
 
         with pytest.raises(InvalidStateTransitionError):
-            rc.track_run_status(non_terminal)
+            rc.events.track_run_status(non_terminal)

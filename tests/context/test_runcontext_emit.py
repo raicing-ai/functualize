@@ -78,14 +78,16 @@ def _make_rc(
 
 
 class TestEmitDelegatesToEventBus:
-    """Tests that rc.emit() delegates to the app's EventBus."""
+    """Tests that rc.events.emit() delegates to the app's EventBus."""
 
     def test_delegates_to_event_bus(self):
         """emit() calls event_bus.emit with event_name, resource, and payload."""
         event_bus = MagicMock()
         rc = _make_rc(event_bus=event_bus)
 
-        rc.emit("deploy.artifact.upload_end", resource="api.tar.gz", duration_ms=1200)
+        rc.events.emit(
+            "deploy.artifact.upload_end", resource="api.tar.gz", duration_ms=1200
+        )
 
         event_bus.emit.assert_called_once_with(
             "deploy.artifact.upload_end",
@@ -98,7 +100,7 @@ class TestEmitDelegatesToEventBus:
         event_bus = MagicMock()
         rc = _make_rc(event_bus=event_bus)
 
-        rc.emit("custom.domain.action")
+        rc.events.emit("custom.domain.action")
 
         event_bus.emit.assert_called_once_with(
             "custom.domain.action",
@@ -110,7 +112,7 @@ class TestEmitDelegatesToEventBus:
         event_bus = MagicMock()
         rc = _make_rc(event_bus=event_bus)
 
-        rc.emit("custom.domain.action")
+        rc.events.emit("custom.domain.action")
 
         call_kwargs = event_bus.emit.call_args
         assert (
@@ -122,14 +124,16 @@ class TestEmitDelegatesToEventBus:
 
 
 class TestEmitSurfaceDispatch:
-    """Tests that rc.emit() dispatches to active Surfaces."""
+    """Tests that rc.events.emit() dispatches to active Surfaces."""
 
     def test_dispatches_to_output_renderer(self):
         """emit() dispatches StructuredEvent to Surface.handle_event()."""
         renderer = FakeSurface()
         rc = _make_rc(renderers=[renderer])
 
-        rc.emit("deploy.artifact.upload_end", resource="api.tar.gz", duration_ms=1200)
+        rc.events.emit(
+            "deploy.artifact.upload_end", resource="api.tar.gz", duration_ms=1200
+        )
 
         assert len(renderer.events) == 1
         event = renderer.events[0]
@@ -143,7 +147,7 @@ class TestEmitSurfaceDispatch:
         renderer2 = FakeSurface()
         rc = _make_rc(renderers=[renderer1, renderer2])
 
-        rc.emit("custom.domain.action", resource="res")
+        rc.events.emit("custom.domain.action", resource="res")
 
         assert len(renderer1.events) == 1
         assert len(renderer2.events) == 1
@@ -153,7 +157,7 @@ class TestEmitSurfaceDispatch:
         renderer = FakeSurface()
         rc = _make_rc(renderers=[renderer])
 
-        rc.emit("custom.domain.action")
+        rc.events.emit("custom.domain.action")
 
         event = renderer.events[0]
         # trace_id and span_id are set from current_context()
@@ -188,7 +192,7 @@ class TestEmitFrameworkEventFilter:
         event_bus = MagicMock()
         rc = _make_rc(renderers=[renderer], event_bus=event_bus)
 
-        rc.emit(event_name, resource="test")
+        rc.events.emit(event_name, resource="test")
 
         # EventBus still receives the event
         event_bus.emit.assert_called_once()
@@ -209,7 +213,7 @@ class TestEmitFrameworkEventFilter:
         renderer = FakeSurface()
         rc = _make_rc(renderers=[renderer])
 
-        rc.emit(event_name)
+        rc.events.emit(event_name)
 
         assert len(renderer.events) == 1
         assert renderer.events[0].event_name == event_name
@@ -227,7 +231,7 @@ class TestEmitErrorIsolation:
         with patch(
             "functualize._engine.capabilities.runcontext._module_logger"
         ) as mock_logger:
-            rc.emit("custom.domain.action")
+            rc.events.emit("custom.domain.action")
 
         # Healthy renderer still got the event
         assert len(healthy_renderer.events) == 1
@@ -246,7 +250,7 @@ class TestEmitErrorIsolation:
         with patch(
             "functualize._engine.capabilities.runcontext._module_logger"
         ) as mock_logger:
-            rc.emit("custom.domain.action")
+            rc.events.emit("custom.domain.action")
 
         # Both errors were logged
         assert mock_logger.error.call_count == 2
@@ -269,14 +273,14 @@ class TestEmitZeroCost:
         )
 
         # Should not raise
-        rc.emit("custom.domain.action")
+        rc.events.emit("custom.domain.action")
 
     def test_no_renderers_skips_dispatch(self):
         """emit() skips Surface dispatch when none registered."""
         event_bus = MagicMock()
         rc = _make_rc(renderers=[], event_bus=event_bus)
 
-        rc.emit("custom.domain.action")
+        rc.events.emit("custom.domain.action")
 
         # EventBus still called
         event_bus.emit.assert_called_once()
@@ -292,11 +296,11 @@ class TestEmitZeroCost:
         rc = _make_rc(renderers=[non_surface], event_bus=event_bus)
 
         # Should not raise, and the fan-out simply skips it.
-        rc.emit("custom.domain.action")
+        rc.events.emit("custom.domain.action")
 
 
 class TestOnEvent:
-    """rc.on_event() — the inbound counterpart to emit(), used by job-owned UIs."""
+    """rc.events.on_event() — the inbound counterpart to emit(), used by job-owned UIs."""
 
     def test_subscriber_receives_emitted_event(self):
         """A real bus round-trip: subscribe, emit, observe."""
@@ -305,8 +309,8 @@ class TestOnEvent:
         received: list[Any] = []
         rc = _make_rc(event_bus=EventBus())
 
-        rc.on_event("custom.*", received.append)
-        rc.emit("custom.domain.action", resource="res-1")
+        rc.events.on_event("custom.*", received.append)
+        rc.events.emit("custom.domain.action", resource="res-1")
 
         assert len(received) == 1
         assert received[0].event_name == "custom.domain.action"
@@ -318,10 +322,10 @@ class TestOnEvent:
         received: list[Any] = []
         rc = _make_rc(event_bus=EventBus())
 
-        handle = rc.on_event("custom.*", received.append)
-        rc.emit("custom.domain.first")
-        rc.off_event(handle)
-        rc.emit("custom.domain.second")
+        handle = rc.events.on_event("custom.*", received.append)
+        rc.events.emit("custom.domain.first")
+        rc.events.off_event(handle)
+        rc.events.emit("custom.domain.second")
 
         assert [e.event_name for e in received] == ["custom.domain.first"]
 
@@ -335,7 +339,7 @@ class TestOnEvent:
             _execution_engine=None,
         )
 
-        assert rc.on_event("custom.*", lambda _event: None) is None
+        assert rc.events.on_event("custom.*", lambda _event: None) is None
 
     def test_off_event_tolerates_none_handle(self):
         """Teardown passes back whatever on_event returned, including None."""
@@ -346,4 +350,4 @@ class TestOnEvent:
             _execution_engine=None,
         )
 
-        rc.off_event(None)  # must not raise
+        rc.events.off_event(None)  # must not raise

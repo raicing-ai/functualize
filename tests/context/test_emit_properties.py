@@ -1,6 +1,6 @@
-"""Property-based tests for rc.emit() behavior.
+"""Property-based tests for rc.events.emit() behavior.
 
-Property 29: rc.emit delegates to EventBus and dispatches to OutputRenderers
+Property 29: rc.events.emit delegates to EventBus and dispatches to OutputRenderers
 Property 30: Framework lifecycle events excluded from on_event() dispatch
 Property 31: OutputRenderer.on_event() exception isolation
 
@@ -133,11 +133,11 @@ def _make_rc(
     return rc
 
 
-# --- Property 29: rc.emit delegates to EventBus and dispatches to OutputRenderers ---
+# --- Property 29: rc.events.emit delegates to EventBus and dispatches to OutputRenderers ---
 
 
 class TestProperty29EmitDelegatesAndDispatches:
-    """For any custom event emitted via rc.emit(event_name, resource, **payload),
+    """For any custom event emitted via rc.events.emit(event_name, resource, **payload),
     the EventBus SHALL emit a StructuredEvent with the current PropagationContext
     attached, AND all active OutputRenderer instances SHALL receive the event via
     their on_event() method.
@@ -160,7 +160,7 @@ class TestProperty29EmitDelegatesAndDispatches:
         event_bus = MagicMock()
         rc = _make_rc(event_bus=event_bus)
 
-        rc.emit(event_name, resource=resource, **payload)
+        rc.events.emit(event_name, resource=resource, **payload)
 
         event_bus.emit.assert_called_once_with(event_name, resource=resource, **payload)
 
@@ -179,7 +179,7 @@ class TestProperty29EmitDelegatesAndDispatches:
         renderers = [FakeOutputRenderer(name=f"renderer-{i}") for i in range(n)]
         rc = _make_rc(renderers=renderers)
 
-        rc.emit(event_name, resource=resource)
+        rc.events.emit(event_name, resource=resource)
 
         for renderer in renderers:
             assert len(renderer.events) == 1
@@ -203,7 +203,7 @@ class TestProperty29EmitDelegatesAndDispatches:
         renderer = FakeOutputRenderer()
         rc = _make_rc(renderers=[renderer])
 
-        rc.emit(event_name, resource=resource, **payload)
+        rc.events.emit(event_name, resource=resource, **payload)
 
         assert len(renderer.events) == 1
         event = renderer.events[0]
@@ -232,7 +232,7 @@ class TestProperty29EmitDelegatesAndDispatches:
         renderers = [FakeOutputRenderer(name=f"renderer-{i}") for i in range(n)]
         rc = _make_rc(renderers=renderers, event_bus=event_bus)
 
-        rc.emit(event_name, resource=resource, **payload)
+        rc.events.emit(event_name, resource=resource, **payload)
 
         # EventBus received
         event_bus.emit.assert_called_once_with(event_name, resource=resource, **payload)
@@ -273,7 +273,7 @@ class TestProperty30FrameworkEventsExcluded:
         event_bus = MagicMock()
         rc = _make_rc(renderers=renderers, event_bus=event_bus)
 
-        rc.emit(event_name, resource=resource)
+        rc.events.emit(event_name, resource=resource)
 
         # EventBus still receives the event
         event_bus.emit.assert_called_once()
@@ -298,7 +298,7 @@ class TestProperty30FrameworkEventsExcluded:
         renderer = FakeOutputRenderer()
         rc = _make_rc(renderers=[renderer])
 
-        rc.emit(event_name, resource=resource)
+        rc.events.emit(event_name, resource=resource)
 
         assert len(renderer.events) == 1
         assert renderer.events[0].event_name == event_name
@@ -324,8 +324,8 @@ class TestProperty30FrameworkEventsExcluded:
         renderer = FakeOutputRenderer()
         rc = _make_rc(renderers=[renderer])
 
-        rc.emit(framework_name, resource=resource)
-        rc.emit(custom_name, resource=resource)
+        rc.events.emit(framework_name, resource=resource)
+        rc.events.emit(custom_name, resource=resource)
 
         # Only the custom event should have been dispatched
         assert len(renderer.events) == 1
@@ -384,7 +384,7 @@ class TestProperty31ExceptionIsolation:
         rc = _make_rc(renderers=renderers)
 
         with patch("functualize._engine.capabilities.runcontext._module_logger"):
-            rc.emit(event_name, resource=resource)
+            rc.events.emit(event_name, resource=resource)
 
         # All healthy renderers received the event
         for i in healthy_positions:
@@ -418,7 +418,7 @@ class TestProperty31ExceptionIsolation:
         with patch(
             "functualize._engine.capabilities.runcontext._module_logger"
         ) as mock_logger:
-            rc.emit(event_name, resource=resource)
+            rc.events.emit(event_name, resource=resource)
 
         # Each failing renderer produced one ERROR log
         assert mock_logger.error.call_count == n
@@ -430,7 +430,7 @@ class TestProperty31ExceptionIsolation:
     def test_exception_does_not_propagate_to_caller(
         self, event_name: str, resource: str
     ) -> None:
-        """Exceptions in on_event() do not propagate to the rc.emit() caller.
+        """Exceptions in on_event() do not propagate to the rc.events.emit() caller.
 
         **Validates: Requirements 29.9**
         """
@@ -441,7 +441,7 @@ class TestProperty31ExceptionIsolation:
 
         with patch("functualize._engine.capabilities.runcontext._module_logger"):
             # Should not raise
-            rc.emit(event_name, resource=resource)
+            rc.events.emit(event_name, resource=resource)
 
     @given(
         event_name=custom_event_names,
@@ -461,7 +461,7 @@ class TestProperty31ExceptionIsolation:
         rc = _make_rc(renderers=[renderer], event_bus=event_bus)
 
         with patch("functualize._engine.capabilities.runcontext._module_logger"):
-            rc.emit(event_name, resource=resource)
+            rc.events.emit(event_name, resource=resource)
 
         # EventBus was still called
         event_bus.emit.assert_called_once()

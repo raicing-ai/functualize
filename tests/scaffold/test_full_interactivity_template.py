@@ -296,18 +296,18 @@ class TestFullInteractivityContent:
         assert "prompt_text" in source
 
     def test_workflow_job_has_track_phase(self, full_project):
-        """workflow_job.py demonstrates rc.track_phase() (R4-AC5)."""
+        """workflow_job.py demonstrates rc.events.track_phase() (R4-AC5)."""
         source = (
             full_project / "src" / "my_app" / "jobs" / "workflow_job.py"
         ).read_text()
         assert "track_phase" in source
 
     def test_events_job_has_emit(self, full_project):
-        """events_job.py demonstrates rc.emit() (R4-AC5)."""
+        """events_job.py demonstrates rc.events.emit() (R4-AC5)."""
         source = (
             full_project / "src" / "my_app" / "jobs" / "events_job.py"
         ).read_text()
-        assert "rc.emit(" in source
+        assert "rc.events.emit(" in source
 
     def test_readme_has_configuration_section(self, full_project):
         """README.md has a Configuration section (R5-AC2)."""

@@ -21,7 +21,7 @@ Whether you're configuring layered settings, building auto-discovered jobs, exte
 - [Composing Capabilities](composition.md) — **how the guides above fit together**: use cases, a combination matrix of what happens at each intersection, an idiomatic matrix of what you lose by hand-rolling, and the five traps between features. Every claim is executed by `examples/standalone/composition_lab/`
 - [MCP Adapter](mcp.md) — Expose jobs as MCP tools for external AI agents, schema export, multi-server management
 - [Plugins](plugins.md) — Extending Functualize with entry-point-based plugins and the PluginMetadata protocol
-- [Interactivity](interactivity.md) — the Surface and PromptCollector protocols, the TTY and Live job capabilities, rc.prompt(), and rc.emit()
+- [Interactivity](interactivity.md) — the Surface and PromptCollector protocols, the TTY and Live job capabilities, rc.prompt(), and rc.events.emit()
 - [TUI Integration](tui.md) — Interactive terminal interfaces: the inline SmartBar TUI (auto-generated from job metadata) and Textual full-screen applications
 - [Hooks](hooks.md) — Cross-cutting lifecycle hook system with global and job-scoped registration, PRE_EXECUTE gating, and signature-adaptive dispatch
 - [Hooks vs Plugins](hooks-vs-plugins.md) — When to use hooks vs plugins, and how to share reusable behavior with colleagues

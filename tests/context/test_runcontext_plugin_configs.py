@@ -89,7 +89,7 @@ class TestRunContextBackwardCompatibility:
         assert rc_without_configs.name == "test-job"
         assert rc_without_configs.config is not None
         assert isinstance(rc_without_configs.metadata, dict)
-        assert rc_without_configs.phases == []
+        assert rc_without_configs.events.phases == []
         assert rc_without_configs.job_config is None
 
 

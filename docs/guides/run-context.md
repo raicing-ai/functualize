@@ -160,10 +160,10 @@ from functualize.types import RunStatus
 
 def my_job(rc: RunContext) -> None:
     # Status starts as RUNNING
-    rc.track_run_status(RunStatus.SUCCESS)
+    rc.events.track_run_status(RunStatus.SUCCESS)
 
     # This would raise InvalidStateTransitionError:
-    # rc.track_run_status(RunStatus.FAILURE)
+    # rc.events.track_run_status(RunStatus.FAILURE)
 ```
 
 ## Logging
@@ -216,19 +216,19 @@ from functualize.types import RunStatus
 
 def etl_job(rc: RunContext) -> None:
     # Start the extract phase
-    rc.track_phase("extract", "Fetching data from API")
+    rc.events.track_phase("extract", "Fetching data from API")
     data = fetch_data()
-    rc.track_phase("extract", "Extracted 1000 records", RunStatus.SUCCESS)
+    rc.events.track_phase("extract", "Extracted 1000 records", RunStatus.SUCCESS)
 
     # Start the transform phase
-    rc.track_phase("transform", "Applying transformations")
+    rc.events.track_phase("transform", "Applying transformations")
     transformed = transform(data)
-    rc.track_phase("transform", "Transformed 1000 records", RunStatus.SUCCESS)
+    rc.events.track_phase("transform", "Transformed 1000 records", RunStatus.SUCCESS)
 
     # Start the load phase
-    rc.track_phase("load", "Writing to database")
+    rc.events.track_phase("load", "Writing to database")
     load(transformed)
-    rc.track_phase("load", "Loaded 1000 records", RunStatus.SUCCESS)
+    rc.events.track_phase("load", "Loaded 1000 records", RunStatus.SUCCESS)
 ```
 
 Key behaviors:
@@ -297,23 +297,23 @@ JOB_GROUP = "data_sync"
 def sync(rc: RunContext) -> None:
     """Synchronize data from external API to local database."""
     # Track extraction step
-    rc.track_phase("extract", "Fetching records from API")
+    rc.events.track_phase("extract", "Fetching records from API")
     records = fetch_from_api()
-    rc.track_phase("extract", f"Fetched {len(records)} records", RunStatus.SUCCESS)
+    rc.events.track_phase("extract", f"Fetched {len(records)} records", RunStatus.SUCCESS)
 
     # Track validation step
-    rc.track_phase("validate", "Validating record schemas")
+    rc.events.track_phase("validate", "Validating record schemas")
     valid_records = validate(records)
-    rc.track_phase(
+    rc.events.track_phase(
         "validate",
         f"Validated {len(valid_records)}/{len(records)} records",
         RunStatus.SUCCESS,
     )
 
     # Track load step
-    rc.track_phase("load", "Writing to database")
+    rc.events.track_phase("load", "Writing to database")
     write_to_db(valid_records)
-    rc.track_phase("load", f"Loaded {len(valid_records)} records", RunStatus.SUCCESS)
+    rc.events.track_phase("load", f"Loaded {len(valid_records)} records", RunStatus.SUCCESS)
 
     rc.log("Data sync completed successfully")
 ```
@@ -410,14 +410,14 @@ Returns the user's text input as a string.
 
 ## Custom Event Emission
 
-### `rc.emit(event_name, resource="", **payload)`
+### `rc.events.emit(event_name, resource="", **payload)`
 
 Emit a custom structured event to the `EventBus` and every registered `Surface`:
 
 ```python
 def etl_job(rc: RunContext) -> None:
     records = fetch_data()
-    rc.emit(
+    rc.events.emit(
         "etl.extract.complete",
         resource="customer_table",
         record_count=len(records),

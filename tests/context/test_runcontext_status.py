@@ -173,8 +173,8 @@ class TestSetRunStatusUpdatesProperty:
         **Validates: Requirements 8.2**
         """
         rc = make_run_context()
-        rc.set_run_status(target_status)
-        assert rc.run_status == target_status
+        rc.events.set_run_status(target_status)
+        assert rc.events.run_status == target_status
 
     @pytest.mark.parametrize("target_status", NON_TERMINAL_STATUSES)
     def test_set_run_status_updates_to_non_terminal(
@@ -185,8 +185,8 @@ class TestSetRunStatusUpdatesProperty:
         **Validates: Requirements 8.2**
         """
         rc = make_run_context()
-        rc.set_run_status(target_status)
-        assert rc.run_status == target_status
+        rc.events.set_run_status(target_status)
+        assert rc.events.run_status == target_status
 
 
 class TestRunningToTerminalSucceeds:
@@ -199,10 +199,10 @@ class TestRunningToTerminalSucceeds:
         **Validates: Requirements 8.2**
         """
         rc = make_run_context()
-        assert rc.run_status == RunStatus.RUNNING
+        assert rc.events.run_status == RunStatus.RUNNING
         # Should not raise
-        rc.set_run_status(terminal)
-        assert rc.run_status == terminal
+        rc.events.set_run_status(terminal)
+        assert rc.events.run_status == terminal
 
     @pytest.mark.parametrize("terminal", TERMINAL_STATUSES)
     @pytest.mark.parametrize("message", MESSAGES)
@@ -214,8 +214,8 @@ class TestRunningToTerminalSucceeds:
         **Validates: Requirements 8.2**
         """
         rc = make_run_context()
-        rc.set_run_status(terminal, message)
-        assert rc.run_status == terminal
+        rc.events.set_run_status(terminal, message)
+        assert rc.events.run_status == terminal
 
 
 class TestTerminalToAnyRaises:
@@ -234,9 +234,9 @@ class TestTerminalToAnyRaises:
         **Validates: Requirements 8.2, 8.3**
         """
         rc = make_run_context()
-        rc.set_run_status(first_terminal)
+        rc.events.set_run_status(first_terminal)
         with pytest.raises(InvalidStateTransitionError):
-            rc.set_run_status(second_status)
+            rc.events.set_run_status(second_status)
 
 
 class TestTrackRunStatusBackwardCompat:
@@ -249,8 +249,8 @@ class TestTrackRunStatusBackwardCompat:
         **Validates: Requirements 8.3**
         """
         rc = make_run_context()
-        rc.track_run_status(run_status=terminal)
-        assert rc.run_status == terminal
+        rc.events.track_run_status(run_status=terminal)
+        assert rc.events.run_status == terminal
 
     @pytest.mark.parametrize("target_status", ALL_STATUSES)
     def test_track_run_status_and_set_run_status_agree_on_state_machine(
@@ -264,7 +264,7 @@ class TestTrackRunStatusBackwardCompat:
         rc1 = make_run_context()
         exc1: Exception | None = None
         try:
-            rc1.set_run_status(target_status)
+            rc1.events.set_run_status(target_status)
         except InvalidStateTransitionError as e:
             exc1 = e
 
@@ -272,7 +272,7 @@ class TestTrackRunStatusBackwardCompat:
         rc2 = make_run_context()
         exc2: Exception | None = None
         try:
-            rc2.track_run_status(run_status=target_status)
+            rc2.events.track_run_status(run_status=target_status)
         except InvalidStateTransitionError as e:
             exc2 = e
 
@@ -281,7 +281,7 @@ class TestTrackRunStatusBackwardCompat:
 
         # If both succeeded, resulting status should match
         if exc1 is None and exc2 is None:
-            assert rc1.run_status == rc2.run_status == target_status
+            assert rc1.events.run_status == rc2.events.run_status == target_status
 
     @pytest.mark.parametrize("first_terminal", TERMINAL_STATUSES)
     @pytest.mark.parametrize("second_status", ALL_STATUSES)
@@ -294,12 +294,12 @@ class TestTrackRunStatusBackwardCompat:
         """
         # set_run_status path
         rc1 = make_run_context()
-        rc1.set_run_status(first_terminal)
+        rc1.events.set_run_status(first_terminal)
         with pytest.raises(InvalidStateTransitionError):
-            rc1.set_run_status(second_status)
+            rc1.events.set_run_status(second_status)
 
         # track_run_status path
         rc2 = make_run_context()
-        rc2.track_run_status(run_status=first_terminal)
+        rc2.events.track_run_status(run_status=first_terminal)
         with pytest.raises(InvalidStateTransitionError):
-            rc2.track_run_status(run_status=second_status)
+            rc2.events.track_run_status(run_status=second_status)

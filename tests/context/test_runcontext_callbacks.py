@@ -45,24 +45,24 @@ class TestOnStatusChange:
     def test_registers_callback(self, rc: RunContext) -> None:
         """on_status_change adds callback to the list."""
         cb = MagicMock()
-        rc.on_status_change(cb)
+        rc.events.on_status_change(cb)
         assert rc._status_callbacks is not None
         assert cb in rc._status_callbacks
 
     def test_callback_invoked_on_set_run_status(self, rc: RunContext) -> None:
         """Registered callback is invoked when set_run_status is called."""
         cb = MagicMock()
-        rc.on_status_change(cb)
-        rc.set_run_status(RunStatus.SUCCESS, "done")
+        rc.events.on_status_change(cb)
+        rc.events.set_run_status(RunStatus.SUCCESS, "done")
         cb.assert_called_once_with(RunStatus.RUNNING, RunStatus.SUCCESS, "done")
 
     def test_multiple_callbacks_invoked_in_order(self, rc: RunContext) -> None:
         """Multiple callbacks are invoked in registration order."""
         calls: list[int] = []
-        rc.on_status_change(lambda old, new, msg: calls.append(1))
-        rc.on_status_change(lambda old, new, msg: calls.append(2))
-        rc.on_status_change(lambda old, new, msg: calls.append(3))
-        rc.set_run_status(RunStatus.SUCCESS)
+        rc.events.on_status_change(lambda old, new, msg: calls.append(1))
+        rc.events.on_status_change(lambda old, new, msg: calls.append(2))
+        rc.events.on_status_change(lambda old, new, msg: calls.append(3))
+        rc.events.set_run_status(RunStatus.SUCCESS)
         assert calls == [1, 2, 3]
 
     def test_callback_exception_logged_at_warning(
@@ -73,8 +73,8 @@ class TestOnStatusChange:
         def bad_cb(old: RunStatus, new: RunStatus, msg: str) -> None:
             raise ValueError("boom")
 
-        rc.on_status_change(bad_cb)
-        rc.set_run_status(RunStatus.SUCCESS)
+        rc.events.on_status_change(bad_cb)
+        rc.events.set_run_status(RunStatus.SUCCESS)
         mock_logger.warning.assert_called()
         # Exception is logged with exc_info=True, callback reference is in message
         assert mock_logger.warning.call_args is not None
@@ -87,9 +87,9 @@ class TestOnStatusChange:
         def bad_cb(old: RunStatus, new: RunStatus, msg: str) -> None:
             raise RuntimeError("explode")
 
-        rc.on_status_change(bad_cb)
-        rc.set_run_status(RunStatus.SUCCESS)
-        assert rc.run_status == RunStatus.SUCCESS
+        rc.events.on_status_change(bad_cb)
+        rc.events.set_run_status(RunStatus.SUCCESS)
+        assert rc.events.run_status == RunStatus.SUCCESS
 
     def test_callback_exception_does_not_prevent_other_callbacks(
         self, rc: RunContext
@@ -100,21 +100,23 @@ class TestOnStatusChange:
         def bad_cb(old: RunStatus, new: RunStatus, msg: str) -> None:
             raise ValueError("first fails")
 
-        rc.on_status_change(bad_cb)
-        rc.on_status_change(second_cb)
-        rc.set_run_status(RunStatus.SUCCESS)
+        rc.events.on_status_change(bad_cb)
+        rc.events.on_status_change(second_cb)
+        rc.events.set_run_status(RunStatus.SUCCESS)
         second_cb.assert_called_once()
 
     def test_no_callbacks_registered_no_error(self, rc: RunContext) -> None:
         """set_run_status works fine when no callbacks registered."""
-        rc.set_run_status(RunStatus.SUCCESS)
-        assert rc.run_status == RunStatus.SUCCESS
+        rc.events.set_run_status(RunStatus.SUCCESS)
+        assert rc.events.run_status == RunStatus.SUCCESS
 
     def test_callback_receives_correct_old_and_new_status(self, rc: RunContext) -> None:
         """Callback receives correct old and new status values."""
         received: list[tuple[RunStatus, RunStatus, str]] = []
-        rc.on_status_change(lambda old, new, msg: received.append((old, new, msg)))
-        rc.set_run_status(RunStatus.SUCCESS, "all good")
+        rc.events.on_status_change(
+            lambda old, new, msg: received.append((old, new, msg))
+        )
+        rc.events.set_run_status(RunStatus.SUCCESS, "all good")
         assert received == [(RunStatus.RUNNING, RunStatus.SUCCESS, "all good")]
 
 
@@ -124,15 +126,15 @@ class TestOnJobPhaseChange:
     def test_registers_callback(self, rc: RunContext) -> None:
         """on_phase_change adds callback to the list."""
         cb = MagicMock()
-        rc.on_phase_change(cb)
+        rc.events.on_phase_change(cb)
         assert rc._phase_callbacks is not None
         assert cb in rc._phase_callbacks
 
     def test_callback_invoked_on_new_step(self, rc: RunContext) -> None:
         """Callback invoked with action='created' on new step."""
         cb = MagicMock()
-        rc.on_phase_change(cb)
-        rc.track_phase("deploy", "deploying", RunStatus.RUNNING)
+        rc.events.on_phase_change(cb)
+        rc.events.track_phase("deploy", "deploying", RunStatus.RUNNING)
         cb.assert_called_once()
         step_arg, action_arg = cb.call_args[0]
         assert step_arg["name"] == "deploy"
@@ -141,9 +143,9 @@ class TestOnJobPhaseChange:
     def test_callback_invoked_on_updated_step(self, rc: RunContext) -> None:
         """Callback invoked with action='updated' on existing step update."""
         cb = MagicMock()
-        rc.on_phase_change(cb)
-        rc.track_phase("build", "building", RunStatus.RUNNING)
-        rc.track_phase("build", "done", RunStatus.SUCCESS)
+        rc.events.on_phase_change(cb)
+        rc.events.track_phase("build", "building", RunStatus.RUNNING)
+        rc.events.track_phase("build", "done", RunStatus.SUCCESS)
         assert cb.call_count == 2
         # Second call should have action='updated'
         _, action_arg = cb.call_args_list[1][0]
@@ -152,10 +154,10 @@ class TestOnJobPhaseChange:
     def test_multiple_callbacks_invoked_in_order(self, rc: RunContext) -> None:
         """Multiple callbacks invoked in registration order."""
         calls: list[int] = []
-        rc.on_phase_change(lambda step, action: calls.append(1))
-        rc.on_phase_change(lambda step, action: calls.append(2))
-        rc.on_phase_change(lambda step, action: calls.append(3))
-        rc.track_phase("step1", "msg")
+        rc.events.on_phase_change(lambda step, action: calls.append(1))
+        rc.events.on_phase_change(lambda step, action: calls.append(2))
+        rc.events.on_phase_change(lambda step, action: calls.append(3))
+        rc.events.track_phase("step1", "msg")
         assert calls == [1, 2, 3]
 
     def test_callback_exception_logged_at_warning(
@@ -166,8 +168,8 @@ class TestOnJobPhaseChange:
         def bad_cb(step: JobPhase, action: str) -> None:
             raise ValueError("step boom")
 
-        rc.on_phase_change(bad_cb)
-        rc.track_phase("deploy", "deploying")
+        rc.events.on_phase_change(bad_cb)
+        rc.events.track_phase("deploy", "deploying")
         mock_logger.warning.assert_called()
         assert mock_logger.warning.call_args is not None
 
@@ -179,10 +181,10 @@ class TestOnJobPhaseChange:
         def bad_cb(step: JobPhase, action: str) -> None:
             raise RuntimeError("explode")
 
-        rc.on_phase_change(bad_cb)
-        rc.track_phase("deploy", "deploying", RunStatus.RUNNING)
-        assert rc.get_phase("deploy") is not None
-        assert rc.get_phase("deploy")["status"] == RunStatus.RUNNING  # type: ignore[index]
+        rc.events.on_phase_change(bad_cb)
+        rc.events.track_phase("deploy", "deploying", RunStatus.RUNNING)
+        assert rc.events.get_phase("deploy") is not None
+        assert rc.events.get_phase("deploy")["status"] == RunStatus.RUNNING  # type: ignore[index]
 
     def test_callback_exception_does_not_prevent_other_callbacks(
         self, rc: RunContext
@@ -193,16 +195,16 @@ class TestOnJobPhaseChange:
         def bad_cb(step: JobPhase, action: str) -> None:
             raise ValueError("first fails")
 
-        rc.on_phase_change(bad_cb)
-        rc.on_phase_change(second_cb)
-        rc.track_phase("deploy", "deploying")
+        rc.events.on_phase_change(bad_cb)
+        rc.events.on_phase_change(second_cb)
+        rc.events.track_phase("deploy", "deploying")
         second_cb.assert_called_once()
 
     def test_step_dict_passed_to_callback(self, rc: RunContext) -> None:
         """Callback receives the actual step dictionary."""
         received: list[tuple[JobPhase, str]] = []
-        rc.on_phase_change(lambda step, action: received.append((step, action)))
-        rc.track_phase("build", "building", RunStatus.RUNNING)
+        rc.events.on_phase_change(lambda step, action: received.append((step, action)))
+        rc.events.track_phase("build", "building", RunStatus.RUNNING)
         step, action = received[0]
         assert step["name"] == "build"
         assert step["message"] == "building"
@@ -211,8 +213,8 @@ class TestOnJobPhaseChange:
 
     def test_no_callbacks_registered_no_error(self, rc: RunContext) -> None:
         """track_phase works fine when no callbacks registered."""
-        rc.track_phase("test", "testing")
-        assert rc.get_phase("test") is not None
+        rc.events.track_phase("test", "testing")
+        assert rc.events.get_phase("test") is not None
 
 
 class TestOnLog:

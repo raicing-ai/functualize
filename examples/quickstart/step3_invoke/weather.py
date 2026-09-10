@@ -5,7 +5,7 @@ Run with:
 
 Demonstrates:
 - rc.invoke() to call other jobs (by name or function reference)
-- rc.track_phase() for phase tracking
+- rc.events.track_phase() for phase tracking
 - Flow-viz plugin subscribes to these events automatically
 """
 
@@ -37,13 +37,13 @@ def alert(config: ForecastConfig, rc: RunContext) -> str:
 
 def morning_report(config: ForecastConfig, rc: RunContext) -> str:
     """Run the full morning weather pipeline with step tracking."""
-    rc.track_phase("forecast", "Fetching forecast", RunStatus.RUNNING)
+    rc.events.track_phase("forecast", "Fetching forecast", RunStatus.RUNNING)
     rc.invoke("forecast", city=config.city, days=config.days)
-    rc.track_phase("forecast", "Forecast retrieved", RunStatus.SUCCESS)
+    rc.events.track_phase("forecast", "Forecast retrieved", RunStatus.SUCCESS)
 
-    rc.track_phase("alerts", "Checking alerts", RunStatus.RUNNING)
+    rc.events.track_phase("alerts", "Checking alerts", RunStatus.RUNNING)
     rc.invoke("alert", city=config.city)  # Invoke by name
-    rc.track_phase("alerts", "Alerts checked", RunStatus.SUCCESS)
+    rc.events.track_phase("alerts", "Alerts checked", RunStatus.SUCCESS)
 
     rc.log("Morning report complete")
     return "complete"

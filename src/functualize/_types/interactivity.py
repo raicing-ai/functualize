@@ -8,7 +8,7 @@ How a job talks to a human. Two channels, and only two:
   — 1:1 dispatch to the one *active* collector.
 
 A job never touches either. Its entire conversational API is the RunContext
-(``rc.log`` / ``rc.emit`` / ``rc.prompt_*``); the engine turns those into
+(``rc.log`` / ``rc.events.emit`` / ``rc.prompt_*``); the engine turns those into
 events and prompt requests. That ignorance is deliberate: it is what lets one
 unmodified job render in a TUI panel, in plain stdout, in a job-owned
 full-screen app, as MCP gate checkpoints, or under a test double.

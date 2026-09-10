@@ -221,16 +221,16 @@ class TestRunStatusProperty:
 
     def test_initial_run_status_is_running(self, rc):
         """run_status is RUNNING on fresh RunContext."""
-        assert rc.run_status == RunStatus.RUNNING
+        assert rc.events.run_status == RunStatus.RUNNING
 
     def test_run_status_reflects_track_run_status(self, rc):
         """run_status property reflects changes made via track_run_status."""
-        rc.track_run_status(RunStatus.SUCCESS)
-        assert rc.run_status == RunStatus.SUCCESS
+        rc.events.track_run_status(RunStatus.SUCCESS)
+        assert rc.events.run_status == RunStatus.SUCCESS
 
     def test_run_status_is_enum_type(self, rc):
         """run_status returns a RunStatus enum value."""
-        assert isinstance(rc.run_status, RunStatus)
+        assert isinstance(rc.events.run_status, RunStatus)
 
 
 class TestSetRunStatus:
@@ -238,20 +238,20 @@ class TestSetRunStatus:
 
     def test_set_run_status_updates_status(self, rc):
         """set_run_status updates the run_status property."""
-        rc.set_run_status(RunStatus.SUCCESS)
-        assert rc.run_status == RunStatus.SUCCESS
+        rc.events.set_run_status(RunStatus.SUCCESS)
+        assert rc.events.run_status == RunStatus.SUCCESS
 
     def test_set_run_status_raises_on_terminal(self, rc):
         """set_run_status raises InvalidStateTransitionError from terminal state."""
-        rc.set_run_status(RunStatus.SUCCESS)
+        rc.events.set_run_status(RunStatus.SUCCESS)
         with pytest.raises(InvalidStateTransitionError):
-            rc.set_run_status(RunStatus.FAILURE)
+            rc.events.set_run_status(RunStatus.FAILURE)
 
     def test_set_run_status_invokes_callbacks(self, rc):
         """set_run_status invokes registered status callbacks."""
         callback = MagicMock()
         rc._status_callbacks = [callback]
-        rc.set_run_status(RunStatus.SUCCESS, "done")
+        rc.events.set_run_status(RunStatus.SUCCESS, "done")
         callback.assert_called_once_with(RunStatus.RUNNING, RunStatus.SUCCESS, "done")
 
     def test_set_run_status_callback_error_does_not_prevent_transition(
@@ -263,21 +263,21 @@ class TestSetRunStatus:
             raise ValueError("callback error")
 
         rc._status_callbacks = [bad_callback]
-        rc.set_run_status(RunStatus.SUCCESS)
-        assert rc.run_status == RunStatus.SUCCESS
+        rc.events.set_run_status(RunStatus.SUCCESS)
+        assert rc.events.run_status == RunStatus.SUCCESS
         mock_logger.warning.assert_called()
 
     def test_set_run_status_backward_compat_with_track_run_status(self, rc):
         """set_run_status calls track_run_status internally."""
-        rc.set_run_status(RunStatus.FAILURE, "oops")
+        rc.events.set_run_status(RunStatus.FAILURE, "oops")
         assert rc.metadata["run_status"] == RunStatus.FAILURE
         assert rc.metadata["end_time"] is not None
         assert rc.metadata["duration"] is not None
 
     def test_track_run_status_still_works_independently(self, rc):
         """track_run_status remains functional (backward compat)."""
-        rc.track_run_status(run_status=RunStatus.SUCCESS, failure_message="")
-        assert rc.run_status == RunStatus.SUCCESS
+        rc.events.track_run_status(run_status=RunStatus.SUCCESS, failure_message="")
+        assert rc.events.run_status == RunStatus.SUCCESS
 
 
 class TestGetPhase:
@@ -285,12 +285,12 @@ class TestGetPhase:
 
     def test_returns_none_for_untracked_step(self, rc):
         """get_phase returns None for unknown step name."""
-        assert rc.get_phase("nonexistent") is None
+        assert rc.events.get_phase("nonexistent") is None
 
     def test_returns_step_dict_for_tracked_step(self, rc):
         """get_phase returns the step dict for a tracked step."""
-        rc.track_phase("deploy", "deploying", RunStatus.RUNNING)
-        step = rc.get_phase("deploy")
+        rc.events.track_phase("deploy", "deploying", RunStatus.RUNNING)
+        step = rc.events.get_phase("deploy")
         assert step is not None
         assert step["name"] == "deploy"
         assert step["status"] == RunStatus.RUNNING
@@ -298,19 +298,19 @@ class TestGetPhase:
 
     def test_returns_updated_step(self, rc):
         """get_phase returns updated step after re-tracking."""
-        rc.track_phase("build", "building")
-        rc.track_phase("build", "done", RunStatus.SUCCESS)
-        step = rc.get_phase("build")
+        rc.events.track_phase("build", "building")
+        rc.events.track_phase("build", "done", RunStatus.SUCCESS)
+        step = rc.events.get_phase("build")
         assert step is not None
         assert step["status"] == RunStatus.SUCCESS
         assert step["message"] == "done"
 
     def test_finds_correct_step_among_multiple(self, rc):
         """get_phase finds the correct step among many."""
-        rc.track_phase("step1", "msg1")
-        rc.track_phase("step2", "msg2")
-        rc.track_phase("step3", "msg3")
-        step = rc.get_phase("step2")
+        rc.events.track_phase("step1", "msg1")
+        rc.events.track_phase("step2", "msg2")
+        rc.events.track_phase("step3", "msg3")
+        step = rc.events.get_phase("step2")
         assert step is not None
         assert step["name"] == "step2"
 
@@ -320,20 +320,20 @@ class TestCurrentPhase:
 
     def test_returns_none_when_no_steps(self, rc):
         """current_phase is None when no steps tracked."""
-        assert rc.current_phase is None
+        assert rc.events.current_phase is None
 
     def test_returns_last_added_step(self, rc):
         """current_phase returns the most recently added step."""
-        rc.track_phase("step1", "first")
-        rc.track_phase("step2", "second")
-        assert rc.current_phase is not None
-        assert rc.current_phase["name"] == "step2"
+        rc.events.track_phase("step1", "first")
+        rc.events.track_phase("step2", "second")
+        assert rc.events.current_phase is not None
+        assert rc.events.current_phase["name"] == "step2"
 
     def test_returns_same_as_last_in_workflow_steps(self, rc):
         """current_phase is the same object as workflow_steps[-1]."""
-        rc.track_phase("s1", "m1")
-        rc.track_phase("s2", "m2")
-        assert rc.current_phase is rc.phases[-1]
+        rc.events.track_phase("s1", "m1")
+        rc.events.track_phase("s2", "m2")
+        assert rc.events.current_phase is rc.events.phases[-1]
 
 
 class TestRunDuration:
@@ -343,20 +343,20 @@ class TestRunDuration:
         """run_duration returns positive elapsed time while running."""
         # Small sleep to ensure measurable duration
         time.sleep(0.01)
-        assert rc.run_duration > 0.0
+        assert rc.events.run_duration > 0.0
 
     def test_run_duration_returns_final_duration_when_terminal(self, rc):
         """run_duration returns the final computed duration after terminal."""
-        rc.track_run_status(RunStatus.SUCCESS)
-        duration = rc.run_duration
+        rc.events.track_run_status(RunStatus.SUCCESS)
+        duration = rc.events.run_duration
         assert duration == rc.metadata["duration"]
 
     def test_run_duration_stable_after_terminal(self, rc):
         """run_duration doesn't change after reaching terminal state."""
-        rc.track_run_status(RunStatus.SUCCESS)
-        d1 = rc.run_duration
+        rc.events.track_run_status(RunStatus.SUCCESS)
+        d1 = rc.events.run_duration
         time.sleep(0.01)
-        d2 = rc.run_duration
+        d2 = rc.events.run_duration
         assert d1 == d2
 
     def test_run_duration_zero_if_no_start_time(self, mock_config, mock_logger):
@@ -367,8 +367,8 @@ class TestRunDuration:
             logger=mock_logger,
             metadata={"start_time": None},
         )
-        assert run_ctx.run_duration == 0.0
+        assert run_ctx.events.run_duration == 0.0
 
     def test_run_duration_is_float(self, rc):
         """run_duration returns a float."""
-        assert isinstance(rc.run_duration, float)
+        assert isinstance(rc.events.run_duration, float)
