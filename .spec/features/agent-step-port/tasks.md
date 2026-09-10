@@ -60,7 +60,7 @@ now: `0` · after: `0`
 
 ## Wave 2 — the declaration refuses before the walk
 
-### [ ] T3 · `AgentStep`, `_NODE_TYPES`, and the validation refusals
+### [x] T3 · `AgentStep`, `_NODE_TYPES`, and the validation refusals
 
 **Files:** `src/functualize/workflow/__init__.py`,
 `src/functualize/workflow/_validation.py`,
@@ -85,7 +85,7 @@ walk is worse than not starting — side effects have already happened.
 
 ## Wave 3 — the walker stops type-testing
 
-### [ ] T4 · Open the node dispatch
+### [x] T4 · Open the node dispatch
 
 **Files:** `src/functualize/_engine/workflow_walker.py`,
 `src/functualize/_engine/agent_step.py`
@@ -116,7 +116,7 @@ now: `3` · after: `3`
 
 ## Wave 4 — something implements it
 
-### [ ] T5 · The core `cli-prompt` executor, and registration
+### [x] T5 · The core `cli-prompt` executor, and registration
 
 **Files:** `src/functualize/_engine/agent_step.py`, `src/functualize/_app/impl.py`,
 `tests/workflow/test_agent_step_walk.py`
@@ -146,7 +146,7 @@ now: `1` · after: `1`, extended to cover executor capability names
 
 ## Wave 5 — the parity test
 
-### [ ] T6 · A protected gate refuses an agent — parity test 4
+### [x] T6 · A protected gate refuses an agent — parity test 4
 
 **Files:** `tests/workflow/test_agent_step_refusals.py`
 
@@ -160,7 +160,7 @@ test that only checks the refusal in isolation does not test the property.
 
 ## Wave 6 — checkpoint
 
-### [ ] T7 · Feature gate
+### [x] T7 · Feature gate
 
 - `uv run ruff check src/ tests/`, `ruff format --check`
 - `uv run mypy src/`

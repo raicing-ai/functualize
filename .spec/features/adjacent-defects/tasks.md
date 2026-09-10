@@ -200,7 +200,7 @@ the others. **Sabotage:** drop the fingerprint argument at the call site; this t
 
 ## Wave 5 — three user-visible behaviours
 
-### [ ] T11 · An enum parameter arrives as its enum — **#38**
+### [x] T11 · An enum parameter arrives as its enum — **#38**
 
 **Files:** `src/functualize/app/adapters/click_params.py`,
 `tests/cli/test_enum_parameter_roundtrip.py`
@@ -217,7 +217,7 @@ now: `≥1` · after: unchanged — **the count is not the gate**; the test is
 **Test:** one test asserts both surfaces: `func paint.py paint red` and
 `app.execute("paint", color=Color.RED)` both see `Color.RED` in the body.
 
-### [ ] T12 · Unknown-command explanation reaches an app's own entry point — **#37**
+### [x] T12 · Unknown-command explanation reaches an app's own entry point — **#37**
 
 **Files:** `src/functualize/app/adapters/cli.py`, `tests/cli/test_unknown_command_parity.py`
 
@@ -227,7 +227,7 @@ standalone mode. Spec AC-12.
 **Test:** via the dual-surface `cli_run` fixture — the same assertion on `func` and on an app
 entry point.
 
-### [ ] T13 · A parse failure survives a warm cache — **#27**
+### [x] T13 · A parse failure survives a warm cache — **#27**
 
 **Files:** `src/functualize/_discovery/`, `tests/discovery/test_parse_failure_persists.py`
 
@@ -239,7 +239,7 @@ not touch `discovery_hash`** (risk R-a). Spec AC-13.
 
 ## Wave 6 — the architectural one, alone and withdrawable
 
-### [ ] T14 · Single-file mode stops executing CWD module code
+### [x] T14 · Single-file mode stops executing CWD module code
 
 **Files:** `src/functualize/_cli/main.py`, `tests/cli/test_single_file_cwd_isolation.py`
 
@@ -258,7 +258,7 @@ regression test **stay**.
 
 ## Wave 7 — checkpoint
 
-### [ ] T15 · Feature gate
+### [x] T15 · Feature gate
 
 - `uv run ruff check src/ tests/ plugins/`, `ruff format --check`
 - `uv run mypy src/`
