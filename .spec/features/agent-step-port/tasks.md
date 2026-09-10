@@ -54,7 +54,7 @@ now: `1` *(`_gate/_strategy.py:40`)* · after: `2`
 ```bash
 grep -rn -E 'import functualize_(ai|mcp)' src/ | wc -l
 ```
-now: `0` · after: `0`
+now: `0` · after: `0` *(**invariant** — core must never import a plugin; zero before and zero after is the whole claim)*
 
 ---
 
@@ -107,7 +107,7 @@ now: `≥1` *(`:261`)* · after: `0`
 ```bash
 rg -c 'visited' src/functualize/_engine/workflow_walker.py
 ```
-now: `3` · after: `3`
+now: `3` · after: `3` *(**invariant** — opening the node dispatch must not disturb the walk's visited-set bookkeeping)*
 
 **Verification:** the existing workflow suites, plus
 `uv run pytest tests/engine/test_lifecycle_order.py -q`.
@@ -137,7 +137,7 @@ now: `0` · after: `1`
 ```bash
 rg -c 'def _check_name_agreement' src/functualize/_engine/capabilities/registry.py
 ```
-now: `1` · after: `1`, extended to cover executor capability names
+now: `1` · after: `1`, extended to cover executor capability names *(**invariant** — the name-agreement guard must survive the new registration path)*
 
 **Sabotage:** delete the registration call; the walk test must fail with
 `AgentExecutorUnavailableError`, **not** with a human prompt. **Commit before sabotaging.**

@@ -186,7 +186,7 @@ Four `negative_flag_for` call sites (`:322`, `:608`, `:675`, `:876`) plus the fl
 ```bash
 rg -c 'negative_flag_for' src/functualize/app/adapters/click_params.py
 ```
-now: `5` *(1 import + 4 calls)* · after: `5` — **the count is not the gate**; the import path
+now: `5` *(1 import + 4 calls)* · after: `5` — **the count is not the gate**; the import path *(**invariant** — the task says so itself: "the count is not the gate"; the import path is)*
 is. `rg -n 'from functualize.types import.*negative_flag_for' src/functualize/app/adapters/click_params.py` after: `1`
 
 ### [x] T10 · The TUI bar and sync read the grammar

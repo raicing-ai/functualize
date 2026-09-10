@@ -314,9 +314,24 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
     # registered in *both* boot paths for the same reason the gate strategy is:
     # a bare app has exactly one executor, and an `AgentStep` naming none
     # resolves to it.
-    from functualize._engine.agent_step import CliPromptExecutor as _CliPromptExecutor
 
-    app.register_agent_step_executor(_CliPromptExecutor(app))
+    # **No default executor** (spec §5, US-3, §3.5; design doc §F, and the
+    # maintainer's decision of 2026-09-10). Core used to register its own
+    # `cli-prompt` executor here, in both boot paths — and because
+    # `AgentStepRegistry.resolve` gives an unnamed step "the single registered
+    # one", that registration *was* the default. So on a bare install the most
+    # natural declaration an author can write,
+    #
+    #     AgentStep(name="draft", instructions="Write the migration")
+    #
+    # was performed by asking that author to write the migration. The spec
+    # forbids exactly that, four times over: "it does not fall back to prompting
+    # a human — a fallback that changes who answers is a different program."
+    #
+    # With nothing registered, `resolve` raises `AgentExecutorUnavailableError`
+    # and names the package to install, which is the refusal the feature is
+    # built on. A plugin that registers exactly one executor still supplies it
+    # to unnamed steps; that is a plugin the operator chose to install.
 
     # Initialize observability early so EventBus is available for the engine
     init_observability(app)
@@ -507,9 +522,24 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     # registered in *both* boot paths for the same reason the gate strategy is:
     # a bare app has exactly one executor, and an `AgentStep` naming none
     # resolves to it.
-    from functualize._engine.agent_step import CliPromptExecutor as _CliPromptExecutor
 
-    app.register_agent_step_executor(_CliPromptExecutor(app))
+    # **No default executor** (spec §5, US-3, §3.5; design doc §F, and the
+    # maintainer's decision of 2026-09-10). Core used to register its own
+    # `cli-prompt` executor here, in both boot paths — and because
+    # `AgentStepRegistry.resolve` gives an unnamed step "the single registered
+    # one", that registration *was* the default. So on a bare install the most
+    # natural declaration an author can write,
+    #
+    #     AgentStep(name="draft", instructions="Write the migration")
+    #
+    # was performed by asking that author to write the migration. The spec
+    # forbids exactly that, four times over: "it does not fall back to prompting
+    # a human — a fallback that changes who answers is a different program."
+    #
+    # With nothing registered, `resolve` raises `AgentExecutorUnavailableError`
+    # and names the package to install, which is the refusal the feature is
+    # built on. A plugin that registers exactly one executor still supplies it
+    # to unnamed steps; that is a plugin the operator chose to install.
 
     # Initialize observability early so EventBus is available for the engine
     init_observability(app)

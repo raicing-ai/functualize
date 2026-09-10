@@ -18,6 +18,9 @@ from pathlib import Path
 import pytest
 
 from functualize._app.state import AppState
+from functualize._engine.agent_step import (
+    CliPromptExecutor as _CliPromptExecutor,
+)
 from functualize._primitives.state_store import StateStore
 from functualize._types.enums import RunStatus
 from functualize._types.errors import AgentExecutorUnavailableError
@@ -65,12 +68,22 @@ def _store() -> StateStore:
 def _single_agent_step_app(surface: _Surface) -> FunctualizeApp:
     """An app whose one workflow is a single agent step, and nothing else.
 
-    No executor is registered by the test: resolution of an unnamed executor
-    against "the single registered one" is only meaningful if the single
-    registered one is core's own.
+    **The executor is registered here, explicitly.** It used to be registered by
+    `boot.py` for every app, and these tests relied on that — which was the
+    defect: core shipping `cli-prompt` made it the default for any step naming no
+    executor, and the spec forbids a default in four separate places ("it does
+    not fall back to prompting a human — a fallback that changes who answers is
+    a different program"). The maintainer decided the code was wrong, not the
+    spec, so `boot.py` registers nothing.
+
+    A test that wants an agent step to *run* must therefore supply an executor,
+    exactly as an operator must install a package. That is now the honest setup:
+    the refusal path is covered by `test_agent_step_refusals.py`, and this file
+    covers the walk once something is there to do the work.
     """
     app = FunctualizeApp(name="testapp")
     app.push_surface(surface)
+    app.register_agent_step_executor(_CliPromptExecutor(app))
 
     @workflow(
         steps=[AgentStep(name="draft", instructions="Write the migration")],
@@ -182,6 +195,8 @@ class TestAnAgentStepInsideAGraph:
         surface = _Surface("ship it")
         app = FunctualizeApp(name="testapp")
         app.push_surface(surface)
+        # Registered explicitly: core no longer ships a default executor.
+        app.register_agent_step_executor(_CliPromptExecutor(app))
         ran: list[str] = []
 
         def prepare() -> str:

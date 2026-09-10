@@ -46,6 +46,18 @@ _GATE = re.compile(
 )
 _AFTER_INT = re.compile(r"after:\s*`?(\d+)`?")
 _NOW_INT = re.compile(r"now(?: at [^:]*)?:\s*`?(\d+)`?")
+#: Two exemptions, both **explicit and greppable**, because nothing else can
+#: distinguish them from a broken gate:
+#:
+#: - `invariant` — the gate asserts a count must *not* change ("core still
+#:   imports no plugin"). `now == after` is the point, not a defect.
+#: - `superseded` — a later task legitimately invalidated the record. The gate
+#:   was true for the wave that wrote it and is false against HEAD, and a reader
+#:   has to be able to tell that from a regression.
+#:
+#: Requiring the word means the author *states* which one it is. Inferring it
+#: from phrasing was tried and guessed wrong about seven gates.
+_EXEMPT = re.compile(r"\binvariant\b|\bsuperseded\b", re.I)
 
 
 def _task_files() -> list[Path]:
@@ -87,8 +99,19 @@ def _gates(path: Path) -> list[tuple[str, str, int, int | None]]:
         cmd = match.group("cmd").strip()
         if cmd.startswith("uv run") or "&&" in cmd or "\n" in cmd:
             continue
+        # **Counting gates only.** `rg -c` and `| wc -l` return a number, and
+        # comparing that to the recorded `after:` is meaningful. A bare `rg -n`
+        # returns *matching lines*, and its recorded values are line numbers —
+        # `job-owned-freshness` T3 reads `now: 1026 · after: 1026`, which is one
+        # line, not one thousand and twenty-six of anything. Treating those as
+        # counts made this test report a defect that was its own misreading.
+        if "-c " not in cmd and "wc -l" not in cmd:
+            continue
         done, task_name = owner(match.start())
         if not done:
+            continue
+        if _EXEMPT.search(match.group("values")):
+            _EXEMPTED.append(f"{path.parent.name} {task_name}")
             continue
         now = _NOW_INT.search(match.group("values"))
         out.append(
@@ -121,6 +144,7 @@ def _run(cmd: str) -> int:
     return total
 
 
+_EXEMPTED: list[str] = []
 _ALL = [(p, g) for p in _task_files() for g in _gates(p)]
 
 
@@ -131,6 +155,18 @@ class TestEveryRecordedGateStillHolds:
         assert len(_ALL) >= 12, (
             f"only {len(_ALL)} gates parsed from {len(_task_files())} task files — "
             "the format probably changed and this test now checks nothing"
+        )
+
+    def test_the_exemption_is_not_a_way_out(self) -> None:
+        """`invariant` and `superseded` must stay a minority.
+
+        An exemption anyone can write is an exemption that eventually covers
+        everything. This bounds it: if more gates are exempt than checked, the
+        convention has become the escape hatch it was meant not to be.
+        """
+        assert len(_EXEMPTED) <= len(_ALL), (
+            f"{len(_EXEMPTED)} gates are exempt and only {len(_ALL)} are checked: "
+            f"{_EXEMPTED}"
         )
 
     @pytest.mark.parametrize(
@@ -161,6 +197,9 @@ class TestNoGateIsAlreadySatisfied:
         does. Some are legitimately phrased that way — a task whose gate is "this
         count must not change" — and those say so in prose beside the numbers.
         """
+        # A gate whose prose says the count is deliberately unchanged is
+        # exempt: some tasks legitimately assert "this must not move". Those
+        # say so beside the numbers, and the recorded line is what this reads.
         already = [
             f"{path.parent.name} {task}: now == after == {after} for {cmd}"
             for path, (task, cmd, after, now) in _ALL

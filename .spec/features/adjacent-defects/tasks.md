@@ -36,7 +36,12 @@ wrappers call the engine directly. Spec AC-9.
 ```bash
 rg -n 'guarded_execute' src/functualize/app/_workflow_control.py | wc -l
 ```
-now: `4` *(docstring `:18`, `__all__` `:50`, def `:154`, comment `:324`)* · after: `3`
+now: `6` · after: `5` *(**corrected**: the authored census said `4` and the live file had
+**6** — two real call sites it omitted, `resume_scope` and `call_gate_tool`, which spec §1.6
+itself names as `guarded_execute`'s only two callers repo-wide. The executing agent reported the
+discrepancy; the record was never updated to match, so the gate read stale until
+`tests/spec/test_task_gates_still_hold.py` re-ran it. A census written by reading is not a
+census.)*
 *(the docstring claim gone; the comment at `:324` is true and stays)*
 
 ### [x] T3 · Remove `JobContext.deadline`
@@ -151,7 +156,7 @@ now: `file absent` · after: `≥2`
 ```bash
 rg -c 'exclude_type_checking_imports = true' pyproject.toml
 ```
-now: `1` · after: `1`
+now: `1` · after: `1` *(**invariant** — the setting is the blind spot this task documents; the gate asserts it is still there to document)*
 
 ---
 

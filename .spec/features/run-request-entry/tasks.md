@@ -61,13 +61,18 @@ Spec AC-2.
 ```bash
 rg -c 'def run\(self, request' src/functualize/_engine/executor.py
 ```
-now: `0` · after: `1`
+now: `0` · after: `1` *(still `1` — the entry survives every later wave)*
 
 **Gate — the label exists**
 ```bash
 rg -c 'TRANSITIONAL\(run-request' src/functualize/_engine/executor.py
 ```
-now: `0` · after: `1`
+now: `0` · after: `1` **at T2**, and **`0` now** — *superseded by T11, which deleted
+`execute()` and with it the transitional label this gate was watching. The record is correct
+for the wave that wrote it and false against HEAD, which is the exact shape
+`tests/spec/test_task_gates_still_hold.py` exists to surface. Recorded rather than silently
+rewritten: a gate that a later task legitimately invalidates is not the same thing as a gate
+that regressed, and a reader has to be able to tell them apart.*
 
 **Test:** `engine.run(request)` and the equivalent `engine.execute(...)` produce equal
 `JobResult`s for the same job — the property that makes wave 3 safe.
@@ -89,7 +94,9 @@ the single-line spelling can never match — the gate now reads the signature mu
 ```bash
 rg -U -c 'def execute\(\n\s+self,\n\s+request' src/functualize/app/core.py
 ```
-now: `0` · after: `1`
+now: `0` · after: `1` **at T3**, and **`0` now** — *superseded by T15, which deleted the dual
+form so the signature collapsed to one line (`def execute(self, request: RunRequest)`). The
+multi-line pattern this gate was narrowed to can no longer match, correctly.*
 
 > **The legacy form survives to T15.** T3 lands a facade that accepts *either* a
 > `RunRequest` or the old `(job_name, *, scope_id, group_option_values, **kwargs)`,
@@ -117,7 +124,10 @@ Surfaces: `func.job`, `func.group`, `func.single-file`, `func.builtin`.
 ```bash
 rg -c 'RunRequest\(' src/functualize/_cli/main.py
 ```
-now: `0` · after: `4`
+now: `0` · after: `4` **at T4**, and **`0` now — superseded by T12**, which removed all
+eleven deposit writes. The four requests this gate counted were *deposited* on the app and read
+by nobody; T12 replaced them with builder arguments the doors state directly. The record is
+right for its wave and false against HEAD.
 
 ### [x] T5 · Both click constructors build requests through one helper
 
@@ -206,7 +216,7 @@ Surfaces `invoke`, `invoke.parallel`. `parent_scope=self._workflow_scope` at `:3
 ```bash
 rg -c 'parent_scope=None' src/functualize/_engine/capabilities/invoke.py
 ```
-now: `1` · after: `1` *(unchanged — this gate asserts the deliberate behaviour survives)*
+now: `1` · after: `1` *(unchanged — this gate asserts the deliberate behaviour survives)* *(**invariant** — parallel items stay independent; AC-17 pins this deliberate `None`)*
 
 ---
 

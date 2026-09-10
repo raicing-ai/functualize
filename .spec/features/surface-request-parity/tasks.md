@@ -25,7 +25,7 @@ now: `0` · after: `≥1`
 ```bash
 rg -c 'parent_scope=None' src/functualize/_engine/capabilities/invoke.py
 ```
-now: `1` · after: `1` ✓ (gate 1: `0` → `4`)
+now: `1` · after: `1` ✓ (gate 1: `0` → `4`) *(**invariant** — same deliberate `None`: a batch's items must not share a scope)*
 
 **Test:** write the inheritance test **first** — a bare `rc.invoke(job)` behaves identically
 before and after (risk R-f) — then the override test.
