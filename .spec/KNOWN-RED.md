@@ -109,3 +109,25 @@ task's file list.
 **Discriminator.** Does the failing assertion count or list something? If so and
 your change adds to that set, it **is** yours, however unrelated the file looks.
 Update the test; that is in scope.
+
+## 8 · `test_thread_worker_keeps_event_loop_responsive` — flaky under `-n auto`
+
+**Seen:** 2026-09-10, one failure in a `--run-slow -n auto` run
+(11,415 passed, 1 failed). Not seen in the four preceding full runs the same day.
+
+**Discriminator.** Run it alone:
+
+```
+uv run pytest tests/tui_audit/test_blocking_worker.py -q -p no:randomly
+```
+
+Three consecutive isolated runs passed (3 passed, ~3.1s each). The test asserts
+the Textual event loop stays responsive **within a time budget** while a thread
+worker runs, so it measures wall-clock latency — which is exactly what `-n auto`
+on a loaded machine takes away. A real regression here would fail in isolation
+too, and repeatably.
+
+**Not a defect on this branch**, and nothing in this session touched the worker
+path except `_cli/tui/job_execution.py`'s verdict branch (which does not run in
+this test). If it starts failing *in isolation*, that is a different bug and
+this entry no longer applies.
