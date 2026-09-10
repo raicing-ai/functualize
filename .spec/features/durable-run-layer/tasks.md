@@ -51,11 +51,25 @@ data, and one corrupt run log then blocks every workflow in the project.
    clock keeps minting under the last millisecond seen, so a new run can never sort into the
    middle of the log.
 
-**Gate — the existing two are untouched**
+**Gate — `state.json`'s version is untouched**
 ```bash
-rg -c 'STATE_VERSION = 1' src/functualize/_primitives/state_format.py; rg -c 'SCOPES_VERSION = 1' src/functualize/_primitives/scope_format.py
+rg -c 'STATE_VERSION = 1' src/functualize/_primitives/state_format.py
 ```
-now: `1`, `1` · after: `1`, `1`
+now: `1` · after: `1` *(**invariant** — the third file exists so the other two keep their own
+version numbers; a bump here would mean this feature had reached into a neighbour's format)*
+
+**Gate — `scopes.json`'s version is untouched**
+```bash
+rg -c 'SCOPES_VERSION = 1' src/functualize/_primitives/scope_format.py
+```
+now: `1` · after: `1` *(**invariant** — same reason. The lease T5 adds is **additive inside the
+scope record**, which is why it needs no bump; see schema §4.)*
+
+> **Both gates were one fence when this task was authored**, holding two `rg`
+> commands separated by `;` and recording a single `1`. That is two defects at once, and
+> `tests/spec/test_task_gates_still_hold.py` found both on the first re-run: the combined
+> output is `1\n1`, so the recorded `after: 1` is simply wrong, and an unmarked `now == after`
+> is a gate that cannot fail. Split, valued separately, and marked.
 
 ---
 
