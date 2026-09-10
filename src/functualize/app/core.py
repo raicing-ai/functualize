@@ -15,7 +15,6 @@ Facade methods:
 from __future__ import annotations
 
 from collections.abc import Callable, Generator, Mapping, Sequence
-from dataclasses import replace
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
@@ -66,12 +65,6 @@ DEFAULT_CONFIG_FILE_REGEX = r"^config\.(\w+)\.(\w+)$"
 
 #: Sentinel written to a JobDescriptor's source/source_file by
 #: register_dynamic_job — marks a job that came from code, not from a file.
-_DYNAMIC_SOURCE = "<dynamic>"
-
-
-def _is_dynamic(descriptor: JobDescriptor) -> bool:
-    """True if the descriptor was registered from code rather than discovered."""
-    return descriptor.source_file == _DYNAMIC_SOURCE
 
 
 class FunctualizeApp:
@@ -470,27 +463,11 @@ class FunctualizeApp:
         workflow_context: dict[str, Any] | None = None,
         gate_name: str = "unnamed",
     ) -> Any:
-        """Resolve a gate by applying the resolution algorithm.
+        """Resolve a gate by applying the resolution algorithm."""
+        from functualize._app.impl import resolve_gate
 
-        Delegates to the underlying GateRegistry.resolve_gate() method.
-
-        Args:
-            model_class: The Pydantic BaseModel subclass to resolve.
-            force_gate: If True, dispatch to strategy even when fully resolved.
-            gate_strategy: Override strategy — a single strategy name/enum,
-                or list of strategies, or a preset name.
-            resolved_fields: Dict of field names to already-resolved values.
-            workflow_context: Arbitrary context from the current workflow state.
-            gate_name: Identifier for the gate (used in error messages).
-
-        Returns:
-            A fully populated BaseModel instance.
-
-        Raises:
-            GateResolutionError: If all strategies fail to resolve.
-            ValueError: If a preset references an unregistered strategy.
-        """
-        return self._gate_registry.resolve_gate(
+        return resolve_gate(
+            self,
             model_class,
             force_gate=force_gate,
             gate_strategy=gate_strategy,
@@ -520,39 +497,10 @@ class FunctualizeApp:
             return None
 
     def config_files(self, job_name: str | None = None) -> list[ConfigFileInfo]:
-        """Return every config file the kernel discovered, and its role.
+        """Return every config file the kernel discovered, and its role."""
+        from functualize._app.impl import config_files
 
-        The single answer to "what happened with the config files": where
-        they are, which environment slot each names, whether it is actually
-        contributing under the active environment, how strongly it wins, and
-        what it said. Delivery layers need all of that together — knowing a
-        file merely exists cannot explain why its values aren't taking
-        effect.
-
-        Inactive (INERT) and unparsed files are included, precisely so a
-        caller can show "present, but belongs to another environment"
-        instead of silently omitting the file the user is asking about.
-
-        Args:
-            job_name: When given, each file's ``values`` are narrowed to that
-                job's config section. When None, ``values`` are the file's
-                full contents.
-
-        Returns:
-            Files in kernel discovery order. Empty if the active preset has
-            no file source (e.g. ``env_only()``) or nothing was discovered.
-        """
-        infos = self._file_source_infos()
-        if job_name is None:
-            return infos
-
-        section = self.get_job_config_section(job_name)
-        narrowed: list[ConfigFileInfo] = []
-        for info in infos:
-            section_data = info.values.get(section)
-            values = dict(section_data) if isinstance(section_data, dict) else {}
-            narrowed.append(replace(info, values=values))
-        return narrowed
+        return config_files(self, job_name)
 
     def resolution_chain(self) -> ResolutionChain:
         """Return the config resolution chain [CLI → Env → Files → Defaults].
@@ -593,71 +541,10 @@ class FunctualizeApp:
         return state
 
     def refresh(self) -> None:
-        """Re-read the project from disk: discovery and config resolution.
+        """Re-read the project from disk: discovery and config resolution."""
+        from functualize._app.impl import refresh
 
-        For persistent consumers (TUI, MCP server) whose process outlives the
-        project state it booted from. After a job file is added, edited, or
-        deleted — or a config file changes — ``refresh()`` makes the next
-        :meth:`get_jobs` / :meth:`execute` observe the new state.
-
-        Rebuilds:
-        - Job discovery — re-runs the same registration the boot path uses,
-          so added/removed/edited job modules are picked up.
-        - The config resolution chain — unless an explicit chain was supplied
-          via ``ConfigSources(config_resolution_chain=...)``, in which case
-          the caller owns the chain and it is left untouched.
-        - Live RunContext config views, so in-flight contexts see new values.
-
-        Scope: refresh owns only what *discovery* produced. Jobs registered
-        programmatically (decorators, ``register_job``) are left in place —
-        their source is code that already ran, not a file being re-read. It
-        does not re-run plugin boot.
-
-        Not safe to call while a job is executing: it re-registers the very
-        entries an in-flight execution resolves against. Call it on a
-        boundary, e.g. between TUI shell cycles.
-        """
-        from functualize._app.boot import resolve_and_register_jobs
-
-        registry = self.job_registry
-
-        # Retire the previous discovery generation. Jobs registered from code
-        # (register_dynamic_job) also live in _job_descriptors but carry the
-        # "<dynamic>" sentinel — re-reading the disk can never rediscover
-        # them, so purging them would destroy them permanently.
-        retained = [d for d in registry._job_descriptors if _is_dynamic(d)]
-        discovered_names = {
-            d.name for d in registry._job_descriptors if not _is_dynamic(d)
-        }
-        registry._job_descriptors[:] = retained
-        for name in discovered_names:
-            registry._registered_jobs.pop(name, None)
-            self._execution_engine._registered_jobs.pop(name, None)
-        registry._registered_commands = {
-            key: module_path
-            for key, module_path in registry._registered_commands.items()
-            # Keys are "<group_or___top__>::<job name>".
-            if key.split("::", 1)[-1] not in discovered_names
-        }
-
-        # Drop the listing memo so get_jobs() re-reads the rebuilt registry.
-        self._jobs_memo = None
-
-        resolve_and_register_jobs(self)
-
-        # Config: an explicitly-supplied chain is the caller's to manage;
-        # rebuilding it would discard what they passed in.
-        if self._config_sources.config_resolution_chain is None:
-            self._resolution_chain = self._build_resolution_chain()
-            # Nothing is pushed into the engine: it reads the chain through
-            # this object (``resolution_chain()``), so a rebuild is visible to
-            # it the moment it asks. This used to be a write into the engine's
-            # private field, at runtime, from a *refresh* — which is how the
-            # engine's config dependency became something that could change
-            # under a run.
-
-        # Push the (possibly new) chain into live RunContext config views.
-        self.job_registry.update_config_paths()
+        return refresh(self)
 
     def active_environment(self) -> str:
         """Return the active environment name (e.g. ``"prod"``).
@@ -679,15 +566,9 @@ class FunctualizeApp:
 
     def _file_source_infos(self) -> list[ConfigFileInfo]:
         """Return the FileSource's per-file info, or [] if there is none."""
-        try:
-            for source in self._resolution_chain.sources:
-                if getattr(source, "source_type", "") != "file":
-                    continue
-                infos = getattr(source, "file_infos", None)
-                return list(infos) if infos else []
-        except (AttributeError, TypeError):
-            pass
-        return []
+        from functualize._app.impl import _file_source_infos
+
+        return _file_source_infos(self)
 
     def get_job_config_section(self, job_name: str) -> str:
         """Return the TOML config section name used by the kernel for a job.
@@ -786,57 +667,10 @@ class FunctualizeApp:
         timeout: float | None = None,
         observer: Any | None = None,
     ) -> list[JobResult]:
-        """Execute jobs concurrently, returning results in input order (T40).
+        """Execute jobs concurrently, returning results in input order (T40)."""
+        from functualize._app.impl import execute_parallel
 
-        The public seam over ``Invoke.parallel`` for callers that are not
-        themselves jobs — ``func builtin parallel``, primarily. It lives on the
-        app because ``_cli`` may not import the engine, and because "run these
-        N jobs at once" is the same operation whether a job asks for it or a
-        command line does; two implementations would drift on the parts that
-        matter (ordering, the timeout, how a failure is reported).
-
-        Args:
-            job_names: 1-32 registered job names.
-            timeout: Seconds the batch may run before unfinished jobs come back
-                as :attr:`RunStatus.TIMEOUT`. ``None`` uses the engine default
-                (300s); ``<= 0`` waits indefinitely.
-            observer: Notified on each worker thread around its job — what
-                per-job output attribution is built on. See
-                ``_engine.capabilities.invoke.ParallelObserver``.
-
-        Returns:
-            One :class:`JobResult` per name, in input order. Failures are
-            *returned*, not raised — a batch reports on every job, including
-            the ones that ran fine beside a broken one.
-        """
-        from pathlib import Path
-
-        from functualize._engine.capabilities.invoke import WiredInvoke
-
-        # Under lazy boot nothing is in the engine registry until something
-        # asks, and `parallel` resolves names on a worker thread where a miss
-        # surfaces as a bare KeyError per job rather than a usable error. The
-        # normal CLI path materializes while building the command tree; this
-        # command never builds one, so it has to ask here.
-        self.get_jobs()
-
-        invoke = WiredInvoke(
-            execution_engine=self.execution_engine,
-            gate_registry=getattr(self, "_gate_registry", None),
-            invoke_depth=0,
-            # This door is a caller who is *not* a job — `func builtin
-            # parallel`, or an embedder. Its items are top-level work the user
-            # asked for, so they say `app.parallel` and reach history; a job's
-            # own `rc.invoke_parallel` says `invoke.parallel` and does not
-            # (run-request/T16).
-            parallel_item_surface="app.parallel",
-            cwd=Path.cwd(),
-        )
-        return invoke.parallel(
-            [(name, {}) for name in job_names],
-            timeout=timeout,
-            observer=observer,
-        )
+        return execute_parallel(self, job_names, timeout=timeout, observer=observer)
 
     def resolved_job_config(self, job_name: str) -> Any | None:
         """A job's config model, resolved through the full ladder but not run (T43).
@@ -858,215 +692,35 @@ class FunctualizeApp:
     def explain(self, job_name: str) -> str:
         """Render why ``job_name`` would or would not run (§D.6).
 
-        The prose half of :meth:`explain_verdicts`, which is where the
-        evaluation lives. Two forms of one answer, derived from one set of
-        verdicts, so `func builtin why` and `func builtin why --json` cannot
-        disagree — a `--json` that re-derived the verdicts would be a second
-        reader of the same question, which is the shape of every defect this
-        module's history records.
+        The prose half of :meth:`explain_verdicts`. Two forms of one answer,
+        derived from one set of verdicts, so `func builtin why` and
+        `func builtin why --json` cannot disagree.
         """
-        from functualize._engine.explain import render_dep_line, render_verdict
+        from functualize._app.impl import explain
 
-        target, deps, note, error = self.explain_verdicts(job_name)
-        if error is not None:
-            return error
-
-        assert target is not None
-        rendered = render_verdict(
-            job_name,
-            target,
-            deps=[render_dep_line(name, verdict) for name, verdict in deps],
-        )
-        return f"{rendered}\n  {note}" if note else rendered
+        return explain(self, job_name)
 
     def explain_verdicts(self, job_name: str) -> tuple[Any, list[Any], str, str | None]:
         """The raw material behind `func builtin why`.
 
         Returns ``(target_verdict, [(dep_name, dep_verdict), …], note, error)``.
-        ``error`` is a rendered string for the two cases that have no verdict at
-        all — an unresolvable job, and one with no `@job` declaration — and is
-        None otherwise.
+        Evaluates the same pre-flight pipeline the executor consults, fresh
+        rather than from a cache — a verdict is a function of the world *now*,
+        and a stored explanation goes stale exactly when someone asks.
 
-        Evaluates the same pre-flight pipeline the executor consults, so this
-        can never describe a decision the run would not make. Evaluated fresh
-        rather than read from a cache: a verdict is a function of the world
-        *now* — files on disk, a precondition's exit code — and a stored
-        explanation goes stale exactly when someone asks.
-
-        Lives on the app because `func why`, the JSON form and the TUI all need
-        it, and none of them may import the engine directly.
+        Stays on the app because `func builtin why`, the JSON form and the TUI
+        all need it and none of them may import the engine directly; the
+        ~115 executable lines behind it live in `_app/impl.py` (T9).
         """
+        from functualize._app.impl import explain_verdicts
 
-        from functualize._engine.guards import GuardState, GuardVerdict
-        from functualize._engine.preflight import Preflight
-        from functualize._primitives.state_store import StateStore
-
-        try:
-            entry = self.execution_engine.materialize_job(job_name)
-        except Exception as exc:
-            # `KeyError: "Job 'x' not found in engine registry"` is what this
-            # said, which is the exception's repr rather than an answer.
-            # `func builtin why` exists to answer "why is my job missing?", and
-            # when discovery already knows — a module that failed to load, two
-            # files contesting one group's flags — that is the answer, in the
-            # same words the unknown-command reporters use. One implementation,
-            # so the two doors cannot say different things about one project
-            # (adj M4, decision D-4).
-            import contextlib
-
-            from functualize._cli.info import explain_missing_job
-
-            reason = None
-            with contextlib.suppress(Exception):
-                reason = explain_missing_job(job_name, self)
-            detail = reason or f"{type(exc).__name__}: {exc}"
-            return None, [], "", f"{job_name} → UNKNOWN\n  {detail}"
-
-        declaration = getattr(entry.function, "__functualize_job__", None)
-        if declaration is None:
-            return (
-                None,
-                [],
-                "",
-                f"{job_name} → WOULD RUN\n"
-                "  no @job declaration — nothing guards or caches this job",
-            )
-
-        store = StateStore.for_project(self.state_root)
-        preflight = Preflight(store, root=self.state_root)
-
-        def config_for(name: str) -> Any:
-            """The config a run of ``name`` would resolve, or None.
-
-            The fingerprint key is a function of the resolved config, so
-            omitting it here addressed a *different* key than the run wrote
-            under and this method reported "no previous run recorded" for a
-            job that had just succeeded — the contradiction §D.6 exists to
-            make impossible.
-
-            `resolve_config_model` deliberately propagates ValidationError; on
-            a read path that must degrade rather than turn `why` into a crash,
-            so an unresolvable config becomes None *and says so* in the log.
-            """
-            import logging
-
-            try:
-                return self.execution_engine.resolve_config_model(name)
-            except Exception as exc:
-                logging.getLogger(__name__).debug(
-                    "config for %r could not be resolved while explaining it "
-                    "(%s); the verdict is computed without it",
-                    name,
-                    exc,
-                )
-                return None
-
-        def verdict_for(name: str) -> Any:
-            try:
-                dep_entry = self.execution_engine.materialize_job(name)
-            except Exception:
-                return GuardVerdict(GuardState.RUN, "not registered")
-            dep_declaration = getattr(dep_entry.function, "__functualize_job__", None)
-            if dep_declaration is None:
-                return GuardVerdict(GuardState.RUN, "no @job declaration")
-            return preflight.check(
-                name, dep_declaration, config=config_for(name)
-            ).verdict
-
-        # A dependency's own verdict matters: a fresh target with a stale dep
-        # still runs, and a user staring at the target alone cannot see why.
-        deps = [
-            (name, verdict_for(name))
-            for name in self.execution_engine._declared_dep_names(job_name)
-        ]
-        # The *target's* verdict needs the same config as the dependencies'.
-        # It produces the headline, so getting this one wrong is the visible
-        # half of the contradiction.
-        target = preflight.check(
-            job_name, declaration, config=config_for(job_name)
-        ).verdict
-
-        # Resolved Q19: a recorded value that cannot be handed to a `FromJob`
-        # dependent is a reason the upstream keeps re-running, and it is
-        # invisible in the freshness verdict — the job *is* fresh; only its
-        # value cannot travel. `func why` is where someone already asks "why
-        # did this run again", so the answer belongs here.
-        note = self._return_value_note(job_name, declaration, store)
-        return target, deps, note, None
+        return explain_verdicts(self, job_name)
 
     def explain_data(self, job_name: str) -> dict[str, Any]:
-        """`func builtin why --json` — the same verdicts, as data.
+        """The machine-readable half of :meth:`explain`, off the same verdicts."""
+        from functualize._app.impl import explain_data
 
-        `ExitCode.STALE` (4) has been pinned in `_types/exit_codes.py` since the
-        table was written, documented as "stale-check failure", and produced
-        **nowhere**: an inert surface of the same class as the `@job(matrix=…)`
-        kwarg this branch removed. `why` answers exactly the question that
-        number was reserved for, and answered it in prose with exit 0, so no
-        script could act on it. This gives the code its first producer.
-
-        `exit_code` is in the payload as well as being the process's exit code,
-        so a caller that captured stdout does not also have to capture ``$?``.
-        """
-        from functualize._engine.explain import explain_exit_code, model_name
-        from functualize._types.exit_codes import ExitCode
-
-        target, deps, note, error = self.explain_verdicts(job_name)
-        if error is not None:
-            return {
-                "job": job_name,
-                "state": "unknown",
-                "will_run": True,
-                "reason": error.split("\n", 1)[-1].strip(),
-                "checks": [],
-                "awaiting": None,
-                "note": None,
-                "deps": [],
-                "exit_code": int(ExitCode.USAGE),
-            }
-
-        assert target is not None
-        return {
-            "job": job_name,
-            # The enum's *wire* values, so a new member is a new string rather
-            # than a renamed one.
-            "state": target.state.value,
-            "will_run": bool(target.will_run),
-            "reason": target.reason,
-            # No `changed` key: a `GuardVerdict` does not carry the
-            # fingerprint's changed-path list — it carries the rendered
-            # explanation of it, in `reason` and `checks`. Emitting an
-            # always-empty array would be worse than omitting it.
-            "checks": list(target.checks),
-            "awaiting": model_name(target.awaiting),
-            "note": note or None,
-            "deps": [
-                {
-                    "job": name,
-                    "state": verdict.state.value,
-                    "will_run": bool(verdict.will_run),
-                }
-                for name, verdict in deps
-            ],
-            "exit_code": int(explain_exit_code(target)),
-        }
-
-    def _return_value_note(self, job_name: str, declaration: Any, store: Any) -> str:
-        """One line about an unusable recorded return value, or ""."""
-        from functualize._primitives.fingerprint import why_return_value_unreusable
-
-        if getattr(declaration, "cache", None) is None:
-            return ""
-        for method in ("checksum", "timestamp", "none"):
-            # Through the engine's own key derivation. Reading under
-            # `compute_args_hash(None, {})` found no record for any job with a
-            # config class, so the note this method exists to print was
-            # unprintable exactly where it mattered most.
-            record = store.get_fingerprint(
-                self.execution_engine.fingerprint_key_for(job_name, method)
-            )
-            if record is not None:
-                return why_return_value_unreusable(record)
-        return ""
+        return explain_data(self, job_name)
 
     def cache_stats(self) -> CacheInfo:
         """Return statistics about the job discovery cache.
@@ -1126,38 +780,10 @@ class FunctualizeApp:
         )
 
     def register_surface(self, surface: Any) -> None:
-        """Register something that renders a job's events, answers its
-        prompts, or both.
+        """Register something that renders a job's events, answers its prompts, or both."""
+        from functualize._app.impl import register_surface
 
-        The two capabilities are independent — a renderer need not be able to
-        collect, and a collector need not render — so satisfying either is
-        enough:
-
-        - :class:`Surface` — has ``handle_event(event)``; receives the event
-          fan-out.
-        - :class:`PromptCollector` — has ``collect(request)``; eligible to
-          answer ``rc.prompt_*()``.
-
-        Raises:
-            TypeError: If the object satisfies neither protocol.
-        """
-        from functualize._types.interactivity import PromptCollector, Surface
-
-        renders = isinstance(surface, Surface)
-        collects = isinstance(surface, PromptCollector)
-
-        if not renders and not collects:
-            raise TypeError(
-                "Surface protocol not satisfied. An object registered here "
-                "must implement handle_event(event) to receive events, "
-                "collect(request) to answer prompts, or both."
-            )
-
-        # Skip duplicates
-        if surface in self._surfaces:
-            return
-
-        self._surfaces.append(surface)
+        return register_surface(self, surface)
 
     def register_ambient_construct(
         self,
@@ -1166,49 +792,11 @@ class FunctualizeApp:
         name: str | None = None,
         predicate: Any = None,
     ) -> None:
-        """Register a live construct that renders by default for eligible jobs.
+        """Register a live construct that renders by default for eligible jobs."""
+        from functualize._app.impl import register_ambient_construct
 
-        The ambient tier of the ``Live`` model: where ``live.add(...)`` is the
-        job asking for a construct, this is a plugin providing one for every
-        job that matches ``predicate`` — with no job-author code::
-
-            app.register_ambient_construct(
-                FlowVizConstruct,
-                predicate=lambda descriptor: descriptor.uses_invoke,
-            )
-
-        Pass a **factory** (a class or zero-arg callable), not an instance:
-        each run gets a fresh construct, so one job's state cannot bleed into
-        the next.
-
-        Args:
-            construct_factory: Zero-arg callable returning a construct with
-                ``__rich__()`` and, optionally, ``handle_event(event)``.
-            name: Identifier used for suppression (``live.suppress(name)``,
-                ``@job(suppress_live=[name])``, ``[live] suppress``). Defaults
-                to the factory's ``name`` attribute, else its ``__name__``.
-            predicate: Optional ``(JobDescriptor) -> bool`` gate. Omit for
-                always-on. A predicate that raises is treated as False.
-        """
-        from functualize._engine.ambient import AmbientEntry
-
-        if not callable(construct_factory):
-            raise TypeError(
-                "register_ambient_construct() expects a factory (a class or "
-                "zero-arg callable) returning a construct, not an instance — "
-                "each run needs its own construct state."
-            )
-
-        resolved = name or getattr(construct_factory, "name", None)
-        if not isinstance(resolved, str) or not resolved:
-            resolved = getattr(construct_factory, "__name__", "construct")
-
-        if not hasattr(self, "_ambient_constructs"):
-            self._ambient_constructs: list[Any] = []
-        if any(entry.name == resolved for entry in self._ambient_constructs):
-            return  # idempotent: a re-run plugin must not double-register
-        self._ambient_constructs.append(
-            AmbientEntry(factory=construct_factory, name=resolved, predicate=predicate)
+        return register_ambient_construct(
+            self, construct_factory, name=name, predicate=predicate
         )
 
     def resolve_ambient_constructs(self, descriptor: Any = None) -> list[Any]:
@@ -1445,26 +1033,20 @@ class FunctualizeApp:
     def _build_resolution_chain(self) -> ResolutionChain:
         """Build a ResolutionChain [CLI → Env → Files → Defaults].
 
-        Must stay argument-for-argument equivalent to the boot path's own
-        call (``_app/boot.py`` step 6) — a rebuild that omits ``environment``
-        silently disables overlay banding, so every ``config.<slot>.*`` file
-        would merge in discovery order instead of only the active one.
+        The regex comparison stays here, not in `_app/impl`: the default it
+        compares against is `ConfigSources.file_pattern`, and `_app` may not
+        import a public folder to read it (the "Internal never imports public"
+        contract). Reaching for it there passed ruff and broke `lint-imports`,
+        which is the check that was actually about this.
         """
-        from functualize._app.boot import build_resolution_chain
+        from functualize._app.impl import _build_resolution_chain
 
         custom_regex = (
             self._config_file_regex
             if self._config_file_regex != ConfigSources.file_pattern
             else None
         )
-        return build_resolution_chain(
-            self._config_path,
-            self.name,
-            self.config_registry,
-            file_regex=custom_regex,
-            environment=self._environment,
-            event_bus=self.event_bus,
-        )
+        return _build_resolution_chain(self, custom_regex)
 
     # ─── Private Methods ─────────────────────────────────────────────────
 

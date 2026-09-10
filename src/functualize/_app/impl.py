@@ -24,6 +24,7 @@ import inspect
 import logging
 import re
 from collections.abc import Callable, Generator
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -32,10 +33,29 @@ from functualize._primitives.cache_format import find_functualize_dir
 from functualize._primitives.locator import ResourceLocator
 
 if TYPE_CHECKING:
-    from functualize._types.descriptors import CacheInfo
+    from collections.abc import Sequence
+
+    from functualize._config.chain import ResolutionChain
+    from functualize._engine.result import JobResult
+    from functualize._types.descriptors import CacheInfo, ConfigFileInfo
     from functualize.app.config import ConfigSources, JobSources, PluginSources
 
 logger = logging.getLogger(__name__)
+
+
+#: The `source_file` a job registered from code carries. Re-reading the disk can
+#: never rediscover such a job, which is why `refresh` retains them.
+_DYNAMIC_SOURCE = "<dynamic>"
+
+
+def _is_dynamic(descriptor: Any) -> bool:
+    """True if the descriptor was registered from code rather than discovered.
+
+    Lives here rather than in `app/core.py` because `refresh` — the one caller
+    that matters — moved here in T9, and `_app` may not import a public folder
+    to reach back for it. `core.py` re-exports it for its own use.
+    """
+    return bool(descriptor.source_file == _DYNAMIC_SOURCE)
 
 
 def build_resource_locator(cwd: Path | None = None) -> ResourceLocator:
@@ -897,3 +917,561 @@ def on_job_submit_event(app: Any, event: Any) -> None:
         logger.info(
             "interactivity.job.submit: job '%s' ran in scope '%s'", job_name, scope_id
         )
+
+
+# ─── `func builtin why` — the verdict surface ─────────────────────────────
+#
+# Moved out of `app/core.py` by `engine-sealed-construction`/T9. It is ~115
+# executable lines of *evaluation* on a class whose job is composition, and it
+# was the largest single block there. `RunContext`'s diet (T8) used facades
+# because a job author reaches those members by name; this one uses `_app/impl`
+# because nothing outside `core.py` calls them — `explain`, `explain_data` and
+# `explain_verdicts` are what `func builtin why` and the TUI ask the app for,
+# and they stay on the app, three lines each.
+
+
+def explain(app: Any, job_name: str) -> str:
+    """Render why ``job_name`` would or would not run (§D.6).
+
+    The prose half of :meth:`explain_verdicts`, which is where the
+    evaluation lives. Two forms of one answer, derived from one set of
+    verdicts, so `func builtin why` and `func builtin why --json` cannot
+    disagree — a `--json` that re-derived the verdicts would be a second
+    reader of the same question, which is the shape of every defect this
+    module's history records.
+    """
+    from functualize._engine.explain import render_dep_line, render_verdict
+
+    target, deps, note, error = explain_verdicts(app, job_name)
+    if error is not None:
+        return error
+
+    assert target is not None
+    rendered = render_verdict(
+        job_name,
+        target,
+        deps=[render_dep_line(name, verdict) for name, verdict in deps],
+    )
+    return f"{rendered}\n  {note}" if note else rendered
+
+
+def explain_verdicts(app: Any, job_name: str) -> tuple[Any, list[Any], str, str | None]:
+    """The raw material behind `func builtin why`.
+
+    Returns ``(target_verdict, [(dep_name, dep_verdict), …], note, error)``.
+    ``error`` is a rendered string for the two cases that have no verdict at
+    all — an unresolvable job, and one with no `@job` declaration — and is
+    None otherwise.
+
+    Evaluates the same pre-flight pipeline the executor consults, so this
+    can never describe a decision the run would not make. Evaluated fresh
+    rather than read from a cache: a verdict is a function of the world
+    *now* — files on disk, a precondition's exit code — and a stored
+    explanation goes stale exactly when someone asks.
+
+    Lives on the app because `func why`, the JSON form and the TUI all need
+    it, and none of them may import the engine directly.
+    """
+
+    from functualize._engine.guards import GuardState, GuardVerdict
+    from functualize._engine.preflight import Preflight
+    from functualize._primitives.state_store import StateStore
+
+    try:
+        entry = app.execution_engine.materialize_job(job_name)
+    except Exception as exc:
+        # `KeyError: "Job 'x' not found in engine registry"` is what this
+        # said, which is the exception's repr rather than an answer.
+        # `func builtin why` exists to answer "why is my job missing?", and
+        # when discovery already knows — a module that failed to load, two
+        # files contesting one group's flags — that is the answer, in the
+        # same words the unknown-command reporters use. One implementation,
+        # so the two doors cannot say different things about one project
+        # (adj M4, decision D-4).
+        import contextlib
+
+        from functualize._cli.info import explain_missing_job
+
+        reason = None
+        with contextlib.suppress(Exception):
+            reason = explain_missing_job(job_name, app)
+        detail = reason or f"{type(exc).__name__}: {exc}"
+        return None, [], "", f"{job_name} → UNKNOWN\n  {detail}"
+
+    declaration = getattr(entry.function, "__functualize_job__", None)
+    if declaration is None:
+        return (
+            None,
+            [],
+            "",
+            f"{job_name} → WOULD RUN\n"
+            "  no @job declaration — nothing guards or caches this job",
+        )
+
+    store = StateStore.for_project(app.state_root)
+    preflight = Preflight(store, root=app.state_root)
+
+    def config_for(name: str) -> Any:
+        """The config a run of ``name`` would resolve, or None.
+
+        The fingerprint key is a function of the resolved config, so
+        omitting it here addressed a *different* key than the run wrote
+        under and this method reported "no previous run recorded" for a
+        job that had just succeeded — the contradiction §D.6 exists to
+        make impossible.
+
+        `resolve_config_model` deliberately propagates ValidationError; on
+        a read path that must degrade rather than turn `why` into a crash,
+        so an unresolvable config becomes None *and says so* in the log.
+        """
+        import logging
+
+        try:
+            return app.execution_engine.resolve_config_model(name)
+        except Exception as exc:
+            logging.getLogger(__name__).debug(
+                "config for %r could not be resolved while explaining it "
+                "(%s); the verdict is computed without it",
+                name,
+                exc,
+            )
+            return None
+
+    def verdict_for(name: str) -> Any:
+        try:
+            dep_entry = app.execution_engine.materialize_job(name)
+        except Exception:
+            return GuardVerdict(GuardState.RUN, "not registered")
+        dep_declaration = getattr(dep_entry.function, "__functualize_job__", None)
+        if dep_declaration is None:
+            return GuardVerdict(GuardState.RUN, "no @job declaration")
+        return preflight.check(name, dep_declaration, config=config_for(name)).verdict
+
+    # A dependency's own verdict matters: a fresh target with a stale dep
+    # still runs, and a user staring at the target alone cannot see why.
+    deps = [
+        (name, verdict_for(name))
+        for name in app.execution_engine._declared_dep_names(job_name)
+    ]
+    # The *target's* verdict needs the same config as the dependencies'.
+    # It produces the headline, so getting this one wrong is the visible
+    # half of the contradiction.
+    target = preflight.check(job_name, declaration, config=config_for(job_name)).verdict
+
+    # Resolved Q19: a recorded value that cannot be handed to a `FromJob`
+    # dependent is a reason the upstream keeps re-running, and it is
+    # invisible in the freshness verdict — the job *is* fresh; only its
+    # value cannot travel. `func why` is where someone already asks "why
+    # did this run again", so the answer belongs here.
+    note = _return_value_note(app, job_name, declaration, store)
+    return target, deps, note, None
+
+
+def explain_data(app: Any, job_name: str) -> dict[str, Any]:
+    """`func builtin why --json` — the same verdicts, as data.
+
+    `ExitCode.STALE` (4) has been pinned in `_types/exit_codes.py` since the
+    table was written, documented as "stale-check failure", and produced
+    **nowhere**: an inert surface of the same class as the `@job(matrix=…)`
+    kwarg this branch removed. `why` answers exactly the question that
+    number was reserved for, and answered it in prose with exit 0, so no
+    script could act on it. This gives the code its first producer.
+
+    `exit_code` is in the payload as well as being the process's exit code,
+    so a caller that captured stdout does not also have to capture ``$?``.
+    """
+    from functualize._engine.explain import explain_exit_code, model_name
+    from functualize._types.exit_codes import ExitCode
+
+    target, deps, note, error = explain_verdicts(app, job_name)
+    if error is not None:
+        return {
+            "job": job_name,
+            "state": "unknown",
+            "will_run": True,
+            "reason": error.split("\n", 1)[-1].strip(),
+            "checks": [],
+            "awaiting": None,
+            "note": None,
+            "deps": [],
+            "exit_code": int(ExitCode.USAGE),
+        }
+
+    assert target is not None
+    return {
+        "job": job_name,
+        # The enum's *wire* values, so a new member is a new string rather
+        # than a renamed one.
+        "state": target.state.value,
+        "will_run": bool(target.will_run),
+        "reason": target.reason,
+        # No `changed` key: a `GuardVerdict` does not carry the
+        # fingerprint's changed-path list — it carries the rendered
+        # explanation of it, in `reason` and `checks`. Emitting an
+        # always-empty array would be worse than omitting it.
+        "checks": list(target.checks),
+        "awaiting": model_name(target.awaiting),
+        "note": note or None,
+        "deps": [
+            {
+                "job": name,
+                "state": verdict.state.value,
+                "will_run": bool(verdict.will_run),
+            }
+            for name, verdict in deps
+        ],
+        "exit_code": int(explain_exit_code(target)),
+    }
+
+
+def _return_value_note(app: Any, job_name: str, declaration: Any, store: Any) -> str:
+    """One line about an unusable recorded return value, or ""."""
+    from functualize._primitives.fingerprint import why_return_value_unreusable
+
+    if getattr(declaration, "cache", None) is None:
+        return ""
+    for method in ("checksum", "timestamp", "none"):
+        # Through the engine's own key derivation. Reading under
+        # `compute_args_hash(None, {})` found no record for any job with a
+        # config class, so the note this method exists to print was
+        # unprintable exactly where it mattered most.
+        record = store.get_fingerprint(
+            app.execution_engine.fingerprint_key_for(job_name, method)
+        )
+        if record is not None:
+            return why_return_value_unreusable(record)
+    return ""
+
+
+# ─── Bodies moved out of the app facade (T9) ──────────────────────────────
+#
+# `FunctualizeApp` is the composition root's public face. Everything here was a
+# method on it and is *work* rather than composition — resolving a chain,
+# rendering a config-file list, validating a surface registration, fanning out a
+# parallel batch. `core.py` keeps a delegate with the public docstring; the
+# reasoning that belongs with the code came here with it.
+
+
+def config_files(app: Any, job_name: str | None = None) -> list[ConfigFileInfo]:
+    """Return every config file the kernel discovered, and its role.
+
+    The single answer to "what happened with the config files": where
+    they are, which environment slot each names, whether it is actually
+    contributing under the active environment, how strongly it wins, and
+    what it said. Delivery layers need all of that together — knowing a
+    file merely exists cannot explain why its values aren't taking
+    effect.
+
+    Inactive (INERT) and unparsed files are included, precisely so a
+    caller can show "present, but belongs to another environment"
+    instead of silently omitting the file the user is asking about.
+
+    Args:
+        job_name: When given, each file's ``values`` are narrowed to that
+            job's config section. When None, ``values`` are the file's
+            full contents.
+
+    Returns:
+        Files in kernel discovery order. Empty if the active preset has
+        no file source (e.g. ``env_only()``) or nothing was discovered.
+    """
+    infos = _file_source_infos(app)
+    if job_name is None:
+        return infos
+
+    section = app.get_job_config_section(job_name)
+    narrowed: list[ConfigFileInfo] = []
+    for info in infos:
+        section_data = info.values.get(section)
+        values = dict(section_data) if isinstance(section_data, dict) else {}
+        narrowed.append(replace(info, values=values))
+    return narrowed
+
+
+def refresh(app: Any) -> None:
+    """Re-read the project from disk: discovery and config resolution.
+
+    For persistent consumers (TUI, MCP server) whose process outlives the
+    project state it booted from. After a job file is added, edited, or
+    deleted — or a config file changes — ``refresh()`` makes the next
+    :meth:`get_jobs` / :meth:`execute` observe the new state.
+
+    Rebuilds:
+    - Job discovery — re-runs the same registration the boot path uses,
+      so added/removed/edited job modules are picked up.
+    - The config resolution chain — unless an explicit chain was supplied
+      via ``ConfigSources(config_resolution_chain=...)``, in which case
+      the caller owns the chain and it is left untouched.
+    - Live RunContext config views, so in-flight contexts see new values.
+
+    Scope: refresh owns only what *discovery* produced. Jobs registered
+    programmatically (decorators, ``register_job``) are left in place —
+    their source is code that already ran, not a file being re-read. It
+    does not re-run plugin boot.
+
+    Not safe to call while a job is executing: it re-registers the very
+    entries an in-flight execution resolves against. Call it on a
+    boundary, e.g. between TUI shell cycles.
+    """
+    from functualize._app.boot import resolve_and_register_jobs
+
+    registry = app.job_registry
+
+    # Retire the previous discovery generation. Jobs registered from code
+    # (register_dynamic_job) also live in _job_descriptors but carry the
+    # "<dynamic>" sentinel — re-reading the disk can never rediscover
+    # them, so purging them would destroy them permanently.
+    retained = [d for d in registry._job_descriptors if _is_dynamic(d)]
+    discovered_names = {d.name for d in registry._job_descriptors if not _is_dynamic(d)}
+    registry._job_descriptors[:] = retained
+    for name in discovered_names:
+        registry._registered_jobs.pop(name, None)
+        app._execution_engine._registered_jobs.pop(name, None)
+    registry._registered_commands = {
+        key: module_path
+        for key, module_path in registry._registered_commands.items()
+        # Keys are "<group_or___top__>::<job name>".
+        if key.split("::", 1)[-1] not in discovered_names
+    }
+
+    # Drop the listing memo so get_jobs() re-reads the rebuilt registry.
+    app._jobs_memo = None
+
+    resolve_and_register_jobs(app)
+
+    # Config: an explicitly-supplied chain is the caller's to manage;
+    # rebuilding it would discard what they passed in.
+    if app._config_sources.config_resolution_chain is None:
+        # Through the app, not directly: the regex default it compares
+        # against is public, and only the app may read it (see the delegate).
+        app._resolution_chain = app._build_resolution_chain()
+        # Nothing is pushed into the engine: it reads the chain through
+        # this object (``resolution_chain()``), so a rebuild is visible to
+        # it the moment it asks. This used to be a write into the engine's
+        # private field, at runtime, from a *refresh* — which is how the
+        # engine's config dependency became something that could change
+        # under a run.
+
+    # Push the (possibly new) chain into live RunContext config views.
+    app.job_registry.update_config_paths()
+
+
+def _file_source_infos(app: Any) -> list[ConfigFileInfo]:
+    """Return the FileSource's per-file info, or [] if there is none."""
+    try:
+        for source in app._resolution_chain.sources:
+            if getattr(source, "source_type", "") != "file":
+                continue
+            infos = getattr(source, "file_infos", None)
+            return list(infos) if infos else []
+    except (AttributeError, TypeError):
+        pass
+    return []
+
+
+def _build_resolution_chain(app: Any, custom_regex: str | None) -> ResolutionChain:
+    """Build a ResolutionChain [CLI → Env → Files → Defaults].
+
+    Must stay argument-for-argument equivalent to the boot path's own
+    call (``_app/boot.py`` step 6) — a rebuild that omits ``environment``
+    silently disables overlay banding, so every ``config.<slot>.*`` file
+    would merge in discovery order instead of only the active one.
+    """
+    from functualize._app.boot import build_resolution_chain
+
+    return build_resolution_chain(
+        app._config_path,
+        app.name,
+        app.config_registry,
+        file_regex=custom_regex,
+        environment=app._environment,
+        event_bus=app.event_bus,
+    )
+
+
+def execute_parallel(
+    app: Any,
+    job_names: Sequence[str],
+    *,
+    timeout: float | None = None,
+    observer: Any | None = None,
+) -> list[JobResult]:
+    """Execute jobs concurrently, returning results in input order (T40).
+
+    The public seam over ``Invoke.parallel`` for callers that are not
+    themselves jobs — ``func builtin parallel``, primarily. It lives on the
+    app because ``_cli`` may not import the engine, and because "run these
+    N jobs at once" is the same operation whether a job asks for it or a
+    command line does; two implementations would drift on the parts that
+    matter (ordering, the timeout, how a failure is reported).
+
+    Args:
+        job_names: 1-32 registered job names.
+        timeout: Seconds the batch may run before unfinished jobs come back
+            as :attr:`RunStatus.TIMEOUT`. ``None`` uses the engine default
+            (300s); ``<= 0`` waits indefinitely.
+        observer: Notified on each worker thread around its job — what
+            per-job output attribution is built on. See
+            ``_engine.capabilities.invoke.ParallelObserver``.
+
+    Returns:
+        One :class:`JobResult` per name, in input order. Failures are
+        *returned*, not raised — a batch reports on every job, including
+        the ones that ran fine beside a broken one.
+    """
+    from pathlib import Path
+
+    from functualize._engine.capabilities.invoke import WiredInvoke
+
+    # Under lazy boot nothing is in the engine registry until something
+    # asks, and `parallel` resolves names on a worker thread where a miss
+    # surfaces as a bare KeyError per job rather than a usable error. The
+    # normal CLI path materializes while building the command tree; this
+    # command never builds one, so it has to ask here.
+    app.get_jobs()
+
+    invoke = WiredInvoke(
+        execution_engine=app.execution_engine,
+        gate_registry=getattr(app, "_gate_registry", None),
+        invoke_depth=0,
+        # This door is a caller who is *not* a job — `func builtin
+        # parallel`, or an embedder. Its items are top-level work the user
+        # asked for, so they say `app.parallel` and reach history; a job's
+        # own `rc.invoke_parallel` says `invoke.parallel` and does not
+        # (run-request/T16).
+        parallel_item_surface="app.parallel",
+        cwd=Path.cwd(),
+    )
+    return invoke.parallel(
+        [(name, {}) for name in job_names],
+        timeout=timeout,
+        observer=observer,
+    )
+
+
+def resolve_gate(
+    app: Any,
+    model_class: type,
+    *,
+    force_gate: bool = False,
+    gate_strategy: Any = None,
+    resolved_fields: dict[str, Any] | None = None,
+    workflow_context: dict[str, Any] | None = None,
+    gate_name: str = "unnamed",
+) -> Any:
+    """Resolve a gate by applying the resolution algorithm.
+
+    Delegates to the underlying GateRegistry.resolve_gate() method.
+
+    Args:
+        model_class: The Pydantic BaseModel subclass to resolve.
+        force_gate: If True, dispatch to strategy even when fully resolved.
+        gate_strategy: Override strategy — a single strategy name/enum,
+            or list of strategies, or a preset name.
+        resolved_fields: Dict of field names to already-resolved values.
+        workflow_context: Arbitrary context from the current workflow state.
+        gate_name: Identifier for the gate (used in error messages).
+
+    Returns:
+        A fully populated BaseModel instance.
+
+    Raises:
+        GateResolutionError: If all strategies fail to resolve.
+        ValueError: If a preset references an unregistered strategy.
+    """
+    return app._gate_registry.resolve_gate(
+        model_class,
+        force_gate=force_gate,
+        gate_strategy=gate_strategy,
+        resolved_fields=resolved_fields,
+        workflow_context=workflow_context,
+        gate_name=gate_name,
+    )
+
+
+def register_surface(app: Any, surface: Any) -> None:
+    """Register something that renders a job's events, answers its
+    prompts, or both.
+
+    The two capabilities are independent — a renderer need not be able to
+    collect, and a collector need not render — so satisfying either is
+    enough:
+
+    - :class:`Surface` — has ``handle_event(event)``; receives the event
+      fan-out.
+    - :class:`PromptCollector` — has ``collect(request)``; eligible to
+      answer ``rc.prompt_*()``.
+
+    Raises:
+        TypeError: If the object satisfies neither protocol.
+    """
+    from functualize._types.interactivity import PromptCollector, Surface
+
+    renders = isinstance(surface, Surface)
+    collects = isinstance(surface, PromptCollector)
+
+    if not renders and not collects:
+        raise TypeError(
+            "Surface protocol not satisfied. An object registered here "
+            "must implement handle_event(event) to receive events, "
+            "collect(request) to answer prompts, or both."
+        )
+
+    # Skip duplicates
+    if surface in app._surfaces:
+        return
+
+    app._surfaces.append(surface)
+
+
+def register_ambient_construct(
+    app: Any,
+    construct_factory: Any,
+    *,
+    name: str | None = None,
+    predicate: Any = None,
+) -> None:
+    """Register a live construct that renders by default for eligible jobs.
+
+    The ambient tier of the ``Live`` model: where ``live.add(...)`` is the
+    job asking for a construct, this is a plugin providing one for every
+    job that matches ``predicate`` — with no job-author code::
+
+        register_ambient_construct(app,
+            FlowVizConstruct,
+            predicate=lambda descriptor: descriptor.uses_invoke,
+        )
+
+    Pass a **factory** (a class or zero-arg callable), not an instance:
+    each run gets a fresh construct, so one job's state cannot bleed into
+    the next.
+
+    Args:
+        construct_factory: Zero-arg callable returning a construct with
+            ``__rich__()`` and, optionally, ``handle_event(event)``.
+        name: Identifier used for suppression (``live.suppress(name)``,
+            ``@job(suppress_live=[name])``, ``[live] suppress``). Defaults
+            to the factory's ``name`` attribute, else its ``__name__``.
+        predicate: Optional ``(JobDescriptor) -> bool`` gate. Omit for
+            always-on. A predicate that raises is treated as False.
+    """
+    from functualize._engine.ambient import AmbientEntry
+
+    if not callable(construct_factory):
+        raise TypeError(
+            "register_ambient_construct() expects a factory (a class or "
+            "zero-arg callable) returning a construct, not an instance — "
+            "each run needs its own construct state."
+        )
+
+    resolved = name or getattr(construct_factory, "name", None)
+    if not isinstance(resolved, str) or not resolved:
+        resolved = getattr(construct_factory, "__name__", "construct")
+
+    if not hasattr(app, "_ambient_constructs"):
+        app._ambient_constructs = []
+    if any(entry.name == resolved for entry in app._ambient_constructs):
+        return  # idempotent: a re-run plugin must not double-register
+    app._ambient_constructs.append(
+        AmbientEntry(factory=construct_factory, name=resolved, predicate=predicate)
+    )
