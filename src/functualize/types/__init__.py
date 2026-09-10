@@ -8,6 +8,11 @@ Usage::
     from functualize.types import JobResult, JobDescriptor, RunStatus
 """
 
+# `_engine`'s own error, published because a delivery boundary has to catch it:
+# `app/adapters/click_params.py` turns it into a usage exit. The adapters may not
+# import `_engine` (surface-request-parity/T4), and an error nobody outside the
+# engine can name is an error nobody outside the engine can handle.
+from functualize._engine.missing_value import MissingValueError
 from functualize._types import (
     CacheInfo,
     ConfigFileInfo,
@@ -53,6 +58,7 @@ __all__ = [
     "report_line",
     "status_from_wire",
     "wire_value",
+    "MissingValueError",
     "RUN_SURFACES",
     "RunRequest",
     "RunSurface",

@@ -210,6 +210,9 @@ __all__ = [
     "read_display_modules_from_cache",
     "read_group_options_from_cache",
     "discovery_hash_for",
+    "has_eligible_ambient",
+    "is_execution_engine",
+    "terminal_available",
     "read_routing_names_from_cache",
     "read_routing_rows_from_cache",
     "resolve_cache_path",
@@ -1666,6 +1669,51 @@ def build_group_trie(
         builtin=builtin,
         group_options=group_options,
     )
+
+
+def is_execution_engine(candidate: Any) -> bool:
+    """Is ``candidate`` a real execution engine?
+
+    A **type** question, kept as one. `app/adapters/click_params.py` guards
+    against being handed something that is not an engine, and the honest form of
+    that guard is `isinstance` — surface-request-parity/T4 forbids the adapter
+    importing `_engine` to phrase it, not the guard itself.
+
+    Duck-typing was tried and is wrong here: `callable(getattr(engine, "run"))`
+    is satisfied by any `MagicMock`, which is precisely the case the guard
+    exists to catch ("invoking a job without an attached app"). A check that
+    every stand-in passes is not a check.
+
+    This corridor may import `_engine`; the adapters may not. That is the whole
+    point of a corridor.
+    """
+    from functualize._engine.executor import JobExecutionEngine
+
+    return isinstance(candidate, JobExecutionEngine)
+
+
+def terminal_available() -> bool:
+    """Is there a real terminal for a job that declares ``tty: TTY``?
+
+    Published here because the **adapters may not import `_engine`**
+    (surface-request-parity/T4) and both dispatch paths have to answer this
+    before running anything. One route, so the cold and warm paths cannot
+    disagree about what a terminal is.
+    """
+    from functualize._engine.capabilities.tty import terminal_available as _probe
+
+    return _probe()
+
+
+def has_eligible_ambient(app: Any, descriptor: Any) -> bool:
+    """Would a plugin's ambient construct render for this job?
+
+    Same corridor, same reason: `adapters/surface_gate.py` asks it and may not
+    reach `_engine` to do so.
+    """
+    from functualize._engine.ambient import has_eligible_ambient as _probe
+
+    return _probe(app, descriptor)
 
 
 def discovery_hash_for(app: Any = None) -> str | None:

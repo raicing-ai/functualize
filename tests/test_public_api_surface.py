@@ -177,6 +177,7 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         # The request a run is made from (run-request-entry F1 T1).
         "RunRequest",
         "RunSurface",
+        "MissingValueError",
         "RUN_SURFACES",
         "JobResult",
         "JobDescriptor",

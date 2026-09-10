@@ -28,7 +28,7 @@ from functualize.app.adapters.click_params import (
     build_click_params_from_descriptor,
 )
 from functualize.app.adapters.lazy_command import make_lazy_command
-from functualize.types import RunRequest
+from functualize.types import ExitCode, RunRequest
 
 
 # Module-level Pydantic model for _detect_config_class tests
@@ -605,4 +605,11 @@ class TestCapabilityFloorRefusal:
         ):
             cmd.callback()  # type: ignore[misc]
 
-        assert exc.value.code == 1
+        # `REFUSED`, not 1. This test used to assert 1 and was therefore
+        # **pinning a divergence**: the warm path called `sys.exit(1)` while the
+        # eager path raised `SystemExit(ExitCode.REFUSED)` for the identical
+        # refusal of the identical job, so the exit code depended on whether the
+        # discovery cache happened to be warm (pitfalls.md §23).
+        # surface-request-parity/T4 gave both paths one route; the assertion
+        # moves to the code that route reports.
+        assert exc.value.code == ExitCode.REFUSED

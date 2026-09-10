@@ -1050,25 +1050,21 @@ def build_job_engine_callback(
     app_ref = app
 
     def wrapper(**kwargs: Any) -> Any:
-        from functualize._engine.executor import (
-            JobExecutionEngine as _JobExecutionEngine,
-        )
-
         if requires_tty:
-            from functualize._engine.capabilities.tty import terminal_available
+            from functualize.app.adapters.surface_gate import (
+                refuse_without_terminal,
+            )
 
-            if not terminal_available():
-                print(
-                    f"Error: '{name}' needs an interactive terminal "
-                    f"(it declares `tty: TTY`). Run it from `func` at a real "
-                    f"TTY — it cannot run over a pipe, in CI, or under MCP.",
-                    file=sys.stderr,
-                )
-                # A pre-flight refusal, not a job failure (T39 exit table).
-                raise SystemExit(ExitCode.REFUSED)
+            refuse_without_terminal(name)
+
+        # The type question, asked through the corridor rather than by
+        # importing the kernel to phrase it (T4, AC-1). Duck-typing was tried
+        # here and is wrong: `callable(engine.run)` is true of any `MagicMock`,
+        # which is exactly the case this guard catches.
+        from functualize.app.utils import is_execution_engine
 
         engine = getattr(app_ref, "_execution_engine", None)
-        if not isinstance(engine, _JobExecutionEngine):
+        if not is_execution_engine(engine):
             raise RuntimeError(
                 f"Cannot execute job '{name}': no execution engine available. "
                 "Ensure the app has been booted with an execution engine."
@@ -1198,7 +1194,7 @@ def deliver_job_result(result: Any, name: str, app_ref: Any = None) -> Any:
 
         from pydantic import ValidationError as PydanticValidationError
 
-        from functualize._engine.missing_value import MissingValueError
+        from functualize.types import MissingValueError
 
         if isinstance(result.exception, PydanticValidationError):
             from functualize.app.adapters.cli import _print_validation_error

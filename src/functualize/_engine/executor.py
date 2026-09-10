@@ -41,7 +41,11 @@ from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
 from functualize._types import AmbiguousJobError, JobResult, RunStatus
 from functualize._types.annotations import resolved_hints
 from functualize._types.redaction import Secret, redacted_snapshot
-from functualize._types.run_request import CONSOLE_SURFACES, RunRequest
+from functualize._types.run_request import (
+    CONSOLE_SURFACES,
+    RunRequest,
+    nested_request,
+)
 
 NoneType = type(None)
 
@@ -1075,6 +1079,7 @@ class JobExecutionEngine:
                 cwd=cwd,
                 job_directory=job_directory,
                 _invoke_depth=invoke_depth,
+                _parent_request=request,
                 _max_invoke_depth=self.max_invoke_depth,
                 _execution_engine=self,
                 _di_registry=self._di_registry,
@@ -1397,7 +1402,8 @@ class JobExecutionEngine:
         def run_step(step_name: str) -> Any:
             entry = self.get_job(step_name)
             step_result = self.run(
-                RunRequest(
+                nested_request(
+                    request,
                     job_name=step_name,
                     surface="engine.step",
                     invoke_depth=invoke_depth + 1,
@@ -1990,7 +1996,8 @@ class JobExecutionEngine:
             # failed warm with "dependencies failed"; naming the node and
             # letting the one entry resolve it is what makes that unrepeatable.
             result = self.run(
-                RunRequest(
+                nested_request(
+                    getattr(context, "request", None),
                     job_name=node,
                     surface="engine.dependency",
                     invoke_depth=invoke_depth + 1,

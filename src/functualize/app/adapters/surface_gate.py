@@ -34,7 +34,7 @@ def wants_ambient(app: Any, descriptor: Any) -> bool:
     falls back to "no" rather than breaking the run.
     """
     try:
-        from functualize._engine.ambient import has_eligible_ambient
+        from functualize.app.utils import has_eligible_ambient
 
         return has_eligible_ambient(app, descriptor)
     except Exception:
@@ -87,3 +87,39 @@ def _explicit_stdout_preference(descriptor: Any) -> bool:
         return explicit_surface(hint, setting) is RenderSurface.STDOUT
     except Exception:
         return False
+
+
+def refuse_without_terminal(job_name: str) -> None:
+    """Refuse a `tty: TTY` job when there is no terminal — one route, one code.
+
+    Capability floor (`surface-architecture.md` §5): a job that owns the
+    terminal cannot run where there is none, and refusing pre-flight with an
+    actionable message beats corrupt output or a signal-handler traceback
+    mid-run.
+
+    **This existed twice**, once in each dispatch path, with the *same message*
+    and **different exit codes** — `click_params.py` raised
+    `SystemExit(ExitCode.REFUSED)` and `lazy_command.py` called `sys.exit(1)`.
+    So the identical refusal of the identical job reported differently depending
+    on whether the discovery cache happened to be warm. That is
+    `contributor/reference/pitfalls.md` §23 exactly ("Cold boot exited 1, warm
+    boot exited 0, for the same job and the same failure"), and it is why
+    surface-request-parity/T4 asks for one route rather than merely one import.
+
+    `REFUSED` is the correct code: nothing ran, and this is a pre-flight
+    decision, not a job failure (T39 exit table).
+    """
+    import sys
+
+    from functualize.app.utils import terminal_available
+    from functualize.types import ExitCode
+
+    if terminal_available():
+        return
+    print(
+        f"Error: '{job_name}' needs an interactive terminal "
+        f"(it declares `tty: TTY`). Run it from `func` at a real "
+        f"TTY — it cannot run over a pipe, in CI, or under MCP.",
+        file=sys.stderr,
+    )
+    raise SystemExit(ExitCode.REFUSED)

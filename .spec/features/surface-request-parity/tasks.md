@@ -133,7 +133,7 @@ the resume round-trip and both malformed-envelope refusals. Restored: 59 passed,
 
 ## Wave 3 — the adapters let go of the kernel
 
-### [ ] T4 · Five `_engine` imports leave `app/adapters/`
+### [x] T4 · Five `_engine` imports leave `app/adapters/`
 
 **Files:** `src/functualize/app/adapters/click_params.py`,
 `src/functualize/app/adapters/lazy_command.py`,

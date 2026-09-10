@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from functualize._engine.capabilities.spec import CapabilitySpec
-from functualize._types import RunRequest
+from functualize._types.run_request import nested_request
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -273,6 +273,7 @@ class WiredInvoke(Invoke):
         invoke_depth: int = 0,
         max_invoke_depth: int = 10,
         parallel_item_surface: RunSurface = "invoke.parallel",
+        parent_request: Any = None,
         workflow_scope: WorkflowScope | None = None,
         cwd: Path | None = None,
         run_context: Any | None = None,
@@ -292,6 +293,9 @@ class WiredInvoke(Invoke):
         # at depth 1. That is what made `func builtin parallel a b` invisible to
         # `func builtin history` (STATUS #5) with no depth rule able to fix it.
         self._parallel_item_surface: RunSurface = parallel_item_surface
+        # The request that asked for the run this capability belongs to. Its
+        # delivery inputs travel to every child; see `JobExecutionEngine._nested`.
+        self._parent_request: Any = parent_request
         self._workflow_scope = workflow_scope
         self._cwd = cwd
         self._rc = run_context
@@ -417,7 +421,8 @@ class WiredInvoke(Invoke):
             # Surface `invoke` (contracts §5). parent_scope is carried
             # unchanged: a child joins the parent's workflow scope.
             return self._engine.run(
-                RunRequest(
+                nested_request(
+                    self._parent_request,
                     job_name=job_name,
                     surface="invoke",
                     kwargs=kwargs,
@@ -626,7 +631,8 @@ class WiredInvoke(Invoke):
                 # `None` scope below is the deliberate behaviour spec AC-17
                 # pins: parallel jobs are independent — no shared scope.
                 result = self._engine.run(
-                    RunRequest(
+                    nested_request(
+                        self._parent_request,
                         job_name=job_name,
                         surface=self._parallel_item_surface,
                         kwargs=kwargs,
@@ -850,6 +856,11 @@ def _make_invoke(ctx: Any) -> WiredInvoke:
     return WiredInvoke(
         execution_engine=ctx.engine,
         gate_registry=ctx.engine._gate_registry,
+        # `ctx` is a CapabilityContext; the ExecutionContext — and the request
+        # that asked for this run — is one hop in at `ctx.context`. Reading
+        # `ctx.request` returns None and the children silently take defaults,
+        # which is how `--output none` stopped reaching an invoked child.
+        parent_request=getattr(ctx.context, "request", None),
         invoke_depth=ctx.context.invoke_depth,
         max_invoke_depth=ctx.engine.max_invoke_depth,
         workflow_scope=ctx.context.parent_scope,

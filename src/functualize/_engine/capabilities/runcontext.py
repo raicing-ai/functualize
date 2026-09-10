@@ -141,6 +141,7 @@ class RunContext:
         perf_timeline: PerfTimeline | None = None,
         _workflow_scope: WorkflowScope | None = None,
         _invoke_depth: int = 0,
+        _parent_request: Any = None,
         _max_invoke_depth: int = 10,
         _execution_engine: Any = None,
         cwd: Path | None = None,
@@ -164,6 +165,7 @@ class RunContext:
         self._perf_timeline: PerfTimeline | None = perf_timeline
         self._workflow_scope: WorkflowScope | None = _workflow_scope
         self._invoke_depth: int = _invoke_depth
+        self._parent_request: Any = _parent_request
         self._max_invoke_depth: int = _max_invoke_depth
         self._execution_engine: Any = _execution_engine
         self._cwd: Path | None = cwd
@@ -209,6 +211,10 @@ class RunContext:
 
             self._invoke_capability = WiredInvoke(
                 execution_engine=self._execution_engine,
+                # The request that asked for *this* run, so `rc.invoke`'s
+                # children inherit its delivery inputs instead of silently
+                # taking defaults (run-request-entry, nested-inheritance fix).
+                parent_request=self._parent_request,
                 invoke_depth=self._invoke_depth,
                 max_invoke_depth=self._max_invoke_depth,
                 workflow_scope=self._workflow_scope,

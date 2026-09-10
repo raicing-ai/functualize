@@ -88,16 +88,14 @@ def make_lazy_command(
         # crash mid-run with a signal-handler traceback. Read from the cached
         # descriptor flag, so this costs no import on the warm path.
         if getattr(descriptor, "requires_tty", False):
-            from functualize._engine.capabilities.tty import terminal_available
+            from functualize.app.adapters.surface_gate import (
+                refuse_without_terminal,
+            )
 
-            if not terminal_available():
-                print(
-                    f"Error: '{descriptor.name}' needs an interactive terminal "
-                    f"(it declares `tty: TTY`). Run it from `func` at a real "
-                    f"TTY — it cannot run over a pipe, in CI, or under MCP.",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
+            # Was `sys.exit(1)` here and `SystemExit(ExitCode.REFUSED)` on the
+            # eager path — the same refusal reporting two codes depending on
+            # whether the cache was warm (pitfalls.md §23).
+            refuse_without_terminal(descriptor.name)
         # A job that declares `live: Live` renders into a rich stdout surface
         # for direct `func <job>` runs: push a StdoutSurface for the duration so
         # live.add(construct) binds to its live zone (and it supersedes a stray

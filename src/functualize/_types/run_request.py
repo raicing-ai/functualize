@@ -160,4 +160,46 @@ class RunRequest:
         return _dc_replace(self, **changes)
 
 
-__all__ = ["CONSOLE_SURFACES", "RUN_SURFACES", "RunRequest", "RunSurface"]
+def nested_request(parent: RunRequest | None, **changes: Any) -> RunRequest:
+    """A request for a run made *by* another run.
+
+    The **delivery inputs travel down** — ``prompt_gates``, ``output_format``,
+    ``force``. They describe how this invocation of the program behaves, not how
+    one job behaves, so a workflow step, a dependency and an ``rc.invoke`` child
+    all answer them the way the run the user started does.
+
+    Everything else resets: a child's arguments, scope and dependency policy are
+    its own. A caller that states one of those overrides the reset.
+
+    Before run-request-entry these lived on the app as process-globals, so
+    nesting inherited them by accident of storage. Making them per-request made
+    the inheritance something the code has to *say* — and for a while it did not,
+    so ``func --output none outer`` silently emitted from ``outer``'s child.
+
+    It lives here rather than on the engine because it is a fact about what a
+    request *is*, and because the engine is not the only thing that builds a
+    nested one: `_engine/capabilities/invoke.py` does too, and reaching into a
+    private engine method to ask this question coupled a capability to the
+    kernel's internals (and broke every test with a mocked engine).
+    """
+    if parent is None:
+        return RunRequest(**changes)
+    fields: dict[str, Any] = {
+        "kwargs": _EMPTY,
+        "group_option_values": None,
+        "parent_scope": None,
+        "workflow_scope_id": None,
+        "run_dependencies": True,
+        "force_fresh": False,
+    }
+    fields.update(changes)
+    return parent.replace(**fields)
+
+
+__all__ = [
+    "CONSOLE_SURFACES",
+    "RUN_SURFACES",
+    "RunRequest",
+    "RunSurface",
+    "nested_request",
+]
