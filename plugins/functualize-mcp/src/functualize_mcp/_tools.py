@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 from functualize._types.enums import RunStatus
 from functualize._types.errors import ScopeCancelledError
-from functualize.types import RunRequest, wire_value
+from functualize.types import Family, RunRequest, wire_value
 from functualize_mcp._translator import JobToolTranslator
 
 if TYPE_CHECKING:
@@ -32,6 +32,21 @@ if TYPE_CHECKING:
 __all__ = ["MCPToolRegistry"]
 
 logger = logging.getLogger(__name__)
+
+
+#: The boundary this surface delivers across (`run-outcome-authority` AC-3).
+#:
+#: A **constant, not a docstring.** AC-3 says "each delivery surface names its
+#: family in one place, and the name is greppable", and T6's gate checked that
+#: with `rg -c 'Family.TOOL' <file>` — which the prose paragraph nearby
+#: satisfied on its own, while `Family.TOOL` had no code consumer anywhere in
+#: the tree. A gate matching its own explanation is `AUDIT.md`'s hazard #1, and
+#: an enum member nothing imports is vocabulary, not a mechanism.
+#:
+#: `tests/types/test_every_surface_declares_its_family.py` reads this and checks
+#: it against what the surface actually does with a BLOCKED result, which is the
+#: one status the four families disagree about.
+OUTCOME_FAMILY = Family.TOOL
 
 
 def wire_status(status: Any) -> str:

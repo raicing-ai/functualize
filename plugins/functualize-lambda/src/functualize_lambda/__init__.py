@@ -36,10 +36,25 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from functualize.types import RunRequest, http_status_for_status
+from functualize.types import Family, RunRequest, http_status_for_status
 
 if TYPE_CHECKING:
     from functualize.app.core import FunctualizeApp
+
+
+#: The boundary this surface delivers across (`run-outcome-authority` AC-3).
+#:
+#: A **constant, not a docstring.** AC-3 says "each delivery surface names its
+#: family in one place, and the name is greppable", and T6's gate checked that
+#: with `rg -c 'Family.WIRE' <file>` — which the prose paragraph nearby
+#: satisfied on its own, while `Family.WIRE` had no code consumer anywhere in
+#: the tree. A gate matching its own explanation is `AUDIT.md`'s hazard #1, and
+#: an enum member nothing imports is vocabulary, not a mechanism.
+#:
+#: `tests/types/test_every_surface_declares_its_family.py` reads this and checks
+#: it against what the surface actually does with a BLOCKED result, which is the
+#: one status the four families disagree about.
+OUTCOME_FAMILY = Family.WIRE
 
 
 def _envelope(payload: dict[str, Any], job_name: str) -> RunRequest:

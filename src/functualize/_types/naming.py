@@ -37,7 +37,6 @@ __all__ = [
     "TrieNode",
     "TrieResolution",
     "normalize_name",
-    "negative_flag_for",
     "normalize_segment",
     "resolve_name",
 ]
@@ -95,18 +94,6 @@ def normalize_name(name: str | None) -> str | None:
     if name is None:
         return None
     return ".".join(normalize_segment(part) for part in name.split("."))
-
-
-# ``negative_flag_for`` moved to ``_types/flag_grammar.py`` with the rest of the
-# flag vocabulary (run-outcome-authority/T8). This name is kept because
-# `app/adapters/click_params.py` and `tests/adapters/test_boolean_negation.py`
-# still import it from here; it is a **re-export, not a wrapper**. The first
-# execution left a delegating function with a copy of the docstring, so the
-# tree carried two definitions of it — the exact duplication the move existed
-# to end, and invisible to a gate that counts occurrences of the name rather
-# than of `def`. There is no import cycle to route around: `flag_grammar`
-# imports nothing from this module.
-from functualize._types.flag_grammar import negative_flag_for  # noqa: E402
 
 
 def resolve_name(candidate: str, known: Iterable[str]) -> str:

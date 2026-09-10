@@ -67,7 +67,14 @@ no way back to the enum.
 docstring says "Three doors disagreed."** The correct local fix produced a ninth global site,
 because there was no global one to join.
 
-### 1.5 The TUI is now the only surface calling a blocked run a success
+### 1.5 The TUI is the only surface that *renders* a blocked run as a success
+
+> **Corrected after review (roa S3).** This heading read "the only surface calling a
+> blocked run a success", which contradicts §1.1 in this same document — §1.1 site 5
+> lists `func builtin parallel` as a site that decides the failure set, and wave 2
+> changed its answer about BLOCKED from exit 0 to exit 5. The TUI is the only surface
+> whose *panel* calls a paused run done; it is not the only surface whose answer about
+> BLOCKED changed in this feature.
 
 0.3.0 changed `workflow resume` from always-exit-0 to 5-when-blocked, **deliberately breaking
 compatibility**. Its docstring (`builtins.py:1354-1358`):
