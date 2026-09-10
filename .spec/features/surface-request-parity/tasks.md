@@ -162,7 +162,7 @@ now: `lazy_command.py:1`, `click_params.py:1` · after: at most one file names i
 
 ## Wave 4 — the contract forbids the edge
 
-### [ ] T5 · `app.adapters` must not import `_engine`
+### [x] T5 · `app.adapters` must not import `_engine`
 
 **Files:** `pyproject.toml`
 
@@ -173,7 +173,22 @@ and a red contract in CI teaches people to ignore it.
 ```bash
 uv run lint-imports 2>&1 | tail -2
 ```
-now: `Contracts: 6 kept, 0 broken.` · after: `Contracts: 7 kept, 0 broken.`
+now: `Contracts: 6 kept, 0 broken.` · after: **`Contracts: 7 kept, 0 broken.`**
+
+**Falsified before being believed.** A contract that cannot fail is a line in a config file.
+Re-adding `from functualize._engine.executor import JobExecutionEngine` to
+`app/adapters/cli.py`:
+
+```
+Delivery adapters go through the request, not the engine
+--------------------------------------------------------
+functualize.app.adapters is not allowed to import functualize._engine:
+-   functualize.app.adapters.cli -> functualize._engine.executor (l.25)
+```
+
+Reverted; 7 kept, 0 broken. Precondition re-derived rather than assumed —
+`rg 'from functualize\._engine|import functualize\._engine' src/functualize/app/adapters/ | wc -l`
+answers `0`, so T4's removal holds and the contract landed green as intended.
 
 > The contract is the deliverable. Removing the imports without forbidding them leaves the
 > door open and calls it closed.

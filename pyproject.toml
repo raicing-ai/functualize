@@ -340,3 +340,20 @@ forbidden_modules = [
     "functualize._app",
 ]
 allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+# The delivery adapters build a `RunRequest` and hand it to `engine.run()`; they
+# do not reach past it. Five imports crossed this line before
+# `surface-request-parity`/T4 removed them — a click builder importing the
+# executor to ask what a status meant, an adapter importing the walker to name a
+# scope — and each was a second reader of a question the request already
+# answers.
+#
+# Landed **after** the removal, deliberately: a contract added first would land
+# red, and a red contract in CI is one people learn to scroll past. Removing the
+# imports without forbidding them leaves the door open and calls it closed.
+name = "Delivery adapters go through the request, not the engine"
+type = "forbidden"
+source_modules = ["functualize.app.adapters"]
+forbidden_modules = ["functualize._engine"]
+allow_indirect_imports = true
