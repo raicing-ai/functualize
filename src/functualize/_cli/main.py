@@ -2172,16 +2172,36 @@ def _run_cli() -> None:
 
     # BUILTIN mode: plain Click group (no FallbackGroup).
     #
-    # **The delivery flags do not reach here**, and that is the current state
-    # rather than a wiring detail. Two comments used to describe a module-level
-    # dict carrying them into the `cli_app` callback. Both bridges it named were
-    # deleted by T11 and T12, whose gate reads 0 — but the gate matches
-    # *identifiers*, so the prose naming them survived and went on telling a
-    # reader the mechanism existed. It does not:
+    # **The pre-command globals split here, and the split is exact.** BUILTIN
+    # mode takes the ones that configure *discovery and the process* and
+    # rejects the three that configure *a run*:
+    #
+    #     func --log-level ERROR      builtin version  -> functualize 0.3.0
+    #     func --config-directory /tmp builtin version -> functualize 0.3.0
+    #     func --exclude nothing.py   builtin version  -> functualize 0.3.0
+    #     func --output json          builtin version  -> No such option
+    #     func --force                builtin version  -> No such option
+    #     func --prompt-gates         builtin version  -> No such option
+    #
+    # All six are in the same pre-boot grammar (`_types/flag_grammar.py`), so
+    # "early-parse flag" and "delivery input" are not two vocabularies — the
+    # three delivery inputs are a *subset* of the globals, and they are exactly
+    # the subset this door drops, because they belong on a `RunRequest` and
+    # BUILTIN mode builds none.
+    #
+    # Two comments used to describe a module-level dict carrying them into the
+    # `cli_app` callback. Both bridges they named were deleted by T11 and T12,
+    # whose gate reads 0 — but the gate matches *identifiers*, so the prose
+    # naming them survived and went on telling a reader the mechanism existed.
     #
     # (Deliberately worded without those two names: T11's gate counts them in
     # this directory, and a comment quoting one would hold the count above zero
     # for ever. That has happened seven times on this branch.)
+    #
+    # Two builtins would genuinely use one — `builtin parallel` (`--force`) and
+    # `builtin why` (`--force` changes the verdict it reports). Neither is wired
+    # and neither is being wired here; see `.spec/REVIEW-TRIAGE.md` "Builtins
+    # and the delivery inputs" for the evidence and the open question.
     #
     #     $ func --output json builtin info jobs
     #     Error: No such option '--output'.

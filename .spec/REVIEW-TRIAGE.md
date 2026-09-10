@@ -394,3 +394,83 @@ floor of 12 the entire time.
 itself partly unfalsifiable, and a count of what it found could not reveal that.
 When a check filters, assert on **what it filtered out**, not only on what it kept.
 
+
+## Builtins and the delivery inputs — a question `rre F11` raised and did not answer
+
+`F11` was filed as prose drift, and fixing it left a vaguer claim than it should
+have: *"the delivery flags do not reach BUILTIN mode."* True, and it does not say
+which flags, why, or whether it matters. The maintainer asked the two questions
+that expose it — **which builtins would need them, and are delivery flags even a
+different thing from early-parse flags?** Both are answered here from measurement.
+
+### They are not two vocabularies — one is a subset of the other
+
+All three delivery inputs live in the same pre-boot grammar as every other
+global (`_types/flag_grammar.py`): `--output` in `GLOBAL_OPTIONS_OPTIONAL_VALUE`,
+`--force` / `--prompt-gates` / `--no-prompt-gates` in `GLOBAL_BOOL_FLAGS`. So
+"early-parse flag" is the *grammar*; "delivery input" is the subset that lands on
+a `RunRequest`.
+
+**BUILTIN mode drops exactly that subset**, which is a much sharper fact than
+"the flags do not reach here":
+
+```
+func --log-level ERROR       builtin version  ->  functualize 0.3.0
+func --config-directory /tmp builtin version  ->  functualize 0.3.0
+func --exclude nothing.py    builtin version  ->  functualize 0.3.0
+func --output json           builtin version  ->  Error: No such option '--output'.
+func --force                 builtin version  ->  Error: No such option '--force'.
+func --prompt-gates          builtin version  ->  Error: No such option '--prompt-gates'.
+```
+
+The globals that configure **discovery and the process** get through; the three
+that configure **a run** do not, because BUILTIN mode builds no request.
+
+### Which builtins would actually use one
+
+Of the seventeen, only two run a job, and one more reports on whether a job
+*would* run:
+
+| Builtin | Would use | Status |
+|---|---|---|
+| `builtin parallel` | **`--force`** | **A real asymmetry.** `func build --force` works; `func builtin parallel build deploy` cannot force, so a fresh job is skipped with no override. `execute_parallel(job_names, timeout, observer)` has no parameter for it and builds `WiredInvoke` with **no `parent_request`**, so `nested_request(None, …)` gives every item `force=False`. The *carrying* mechanism works — that is `rre F1`, fixed in batch 1 — the **door has no flag**. |
+| `builtin why` | `--force` | `why` reports the freshness verdict, and `--force` changes what that verdict would be. Currently unsayable. |
+| `builtin workflow resume` | `--prompt-gates` | **Not a gap.** It takes `--input` / `--gate`, an explicit answer, which is a reasoned alternative to prompting for a verb that may be run non-interactively. |
+| the other fourteen | — | Inspection only. Nothing to deliver. |
+
+### And a collision found while checking
+
+Three *local* spellings of "how should this be rendered" have grown inside the
+builtins, and one **collides with the global flag of the same name**:
+
+| Where | Flag | Values |
+|---|---|---|
+| global | `--output` | `auto, json, ndjson, raw, none` — `out.emit()` serialization |
+| `builtin parallel` | `--output` | `interleaved, grouped, prefixed` — output *routing* |
+| `builtin workflow resume` | `--format` | `table, json` |
+| `builtin why` | `--json` | (a boolean) |
+
+Same name, **disjoint value sets, different meanings** — plus two more spellings
+of the JSON question. This is the divergence class `run-outcome-authority` exists
+to end, in a corner the global grammar does not reach.
+
+### Status: NEEDS DECISION (D-3)
+
+Nothing is being changed on the strength of this. Wiring `--force` into
+`builtin parallel` and `builtin why` is a small, well-understood addition; the
+`--output` collision is not, because renaming either spelling is a **breaking
+CLI change** and the two meanings are both legitimate. Three options, in the
+order I would take them:
+
+1. **Wire `--force` only.** Closes the asymmetry a user can actually hit, touches
+   `execute_parallel`'s signature and two builtins, leaves the naming alone.
+2. **Also rename `builtin parallel --output` to `--layout`** (or `--report`), so
+   one spelling means one thing. Breaking, and worth it only if the collision is
+   thought likely to bite.
+3. **Record both as intended and stop.** Defensible: a builtin is a command, not
+   a job, and a command owning its own flags is ordinary.
+
+My recommendation is (1) now and (2) folded into whichever feature next touches
+the builtin CLI, because a breaking rename wants a release note rather than a
+triage commit. **Your call.**
+
