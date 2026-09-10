@@ -484,13 +484,13 @@ def fan_out(rc: RunContext) -> None:
 
 ## Job Introspection
 
-### `rc.get_job_schema(job_name)`
+### `rc.discovery.get_job_schema(job_name)`
 
 Introspect a registered job's `JobDescriptor` at runtime:
 
 ```python
 def dynamic_orchestrator(rc: RunContext) -> None:
-    schema = rc.get_job_schema("data-sync")
+    schema = rc.discovery.get_job_schema("data-sync")
     rc.log(f"Job group: {schema.group}")
     rc.log(f"Config fields: {list(schema.config_schema.model_fields.keys())}")
 ```

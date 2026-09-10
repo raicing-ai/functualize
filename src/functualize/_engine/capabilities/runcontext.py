@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
     from functualize._config.job_config import JobConfigView
+    from functualize._engine.capabilities.discovery_facade import DiscoveryFacade
     from functualize._engine.capabilities.invoke import Invoke
     from functualize._engine.capabilities.state_store import StateStore
     from functualize._engine.capabilities.workflow import WorkflowTracker
@@ -195,6 +196,23 @@ class RunContext:
         self._status_callbacks: list[Any] = []
         self._phase_callbacks: list[Any] = []
         self._log_callbacks: list[Any] = []
+        #: Facades. `RunContext` reached 800 lines by being the one object a
+        #: job holds, so everything a job might ever want was a method on it
+        #: (T8). These group the rarer capabilities behind a name that says
+        #: which subject they belong to; the core a job actually reaches for —
+        #: `config`, `log`, `invoke`, `state`, `cwd` — stays flat.
+        self._discovery: DiscoveryFacade | None = None
+
+    @property
+    def discovery(self) -> DiscoveryFacade:
+        """`rc.discovery` — read-only questions about the registered jobs."""
+        if self._discovery is None:
+            from functualize._engine.capabilities.discovery_facade import (
+                DiscoveryFacade,
+            )
+
+            self._discovery = DiscoveryFacade(self)
+        return self._discovery
 
     # --- Callback registration (backward compat) ---
 
@@ -713,65 +731,6 @@ class RunContext:
         return resource
 
     # --- Job Schema ---
-
-    def get_job_schema(self, job_name: str) -> Any:
-        from functualize._engine.errors import JobNotFoundError
-
-        if self._execution_engine is None:
-            raise RuntimeError(
-                "Cannot get job schema: RunContext was not created by JobExecutionEngine"
-            )
-        host = self._execution_engine.host
-        descriptor = host.get_descriptor(job_name) if host is not None else None
-        if descriptor is None:
-            raise JobNotFoundError(job_name)
-        return descriptor
-
-    def list_jobs(self) -> list[dict[str, Any]]:
-        """Return read-only summaries of every registered job.
-
-        For job-owned UIs that browse jobs (a launcher, a picker) — the
-        counterpart to :meth:`get_job_schema` for one job. Returns plain
-        dicts, not callables or descriptors, so a UI cannot accidentally
-        reach into the registry or force a lazy job to materialize::
-
-            for job in rc.list_jobs():
-                print(job["name"], "—", job["description"])
-
-        Each entry has ``name``, ``group``, ``description`` (the docstring's
-        first line), and ``requires_tty``. Returns an empty list outside a
-        real execution context.
-        """
-        if self._execution_engine is None:
-            return []
-        host = self._execution_engine.host
-        if host is None:
-            return []
-
-        try:
-            names = list(host.registered_jobs())
-        except Exception:
-            return []
-
-        summaries: list[dict[str, Any]] = []
-        for name in names:
-            if not name:
-                continue
-            descriptor = host.get_descriptor(name)
-            docstring = getattr(descriptor, "docstring", "") or ""
-            summaries.append(
-                {
-                    "name": name,
-                    "group": name.rsplit(".", 1)[0] if "." in name else "",
-                    "description": docstring.strip().splitlines()[0]
-                    if docstring.strip()
-                    else "",
-                    "requires_tty": bool(getattr(descriptor, "requires_tty", False)),
-                }
-            )
-        return summaries
-
-    # --- Prompt System ---
 
     def _get_input_provider(self) -> Any | None:
         """Return the collector that should answer this job's prompts.

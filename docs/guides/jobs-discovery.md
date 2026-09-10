@@ -399,11 +399,11 @@ print(descriptor.config_schema)  # Pydantic model class or None
 print(descriptor.metadata)       # JobMetadataAnnotation or None
 ```
 
-From within a job, use `rc.get_job_schema(job_name)` to introspect sibling jobs:
+From within a job, use `rc.discovery.get_job_schema(job_name)` to introspect sibling jobs:
 
 ```python
 def orchestrator(rc: RunContext) -> None:
-    schema = rc.get_job_schema("validate-data")
+    schema = rc.discovery.get_job_schema("validate-data")
     rc.log(f"Job has {len(schema.config_schema.model_fields)} config fields")
 ```
 

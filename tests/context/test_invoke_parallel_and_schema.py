@@ -295,7 +295,7 @@ class TestGetJobSchema:
         engine.host.get_descriptor.return_value = descriptor
 
         rc, _ = make_run_context(execution_engine=engine)
-        result = rc.get_job_schema("my-job")
+        result = rc.discovery.get_job_schema("my-job")
 
         assert result is descriptor
         assert result.name == "my-job"
@@ -309,13 +309,13 @@ class TestGetJobSchema:
 
         rc, _ = make_run_context(execution_engine=engine)
         with pytest.raises(JobNotFoundError):
-            rc.get_job_schema("nonexistent")
+            rc.discovery.get_job_schema("nonexistent")
 
     def test_raises_runtime_error_without_engine(self) -> None:
         """Raises RuntimeError if RunContext not created by engine."""
         rc, _ = make_run_context(execution_engine=None)
         with pytest.raises(RuntimeError, match="not created by"):
-            rc.get_job_schema("any-job")
+            rc.discovery.get_job_schema("any-job")
 
 
 # --- Tests: Log Callback Filter ---
