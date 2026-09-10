@@ -291,8 +291,38 @@ s=open('src/functualize/_engine/capabilities/runcontext.py').read().splitlines()
 st=[i for i,l in enumerate(s,1) if l.startswith('class RunContext:')][0]
 print(len(s)-st+1)"
 ```
-now: `788` *(class starts at `:117`; note `:52` is `RunContextMetadata`, a TypedDict)* ·
-after: `≤500`
+now: `800` *(the brief recorded `788`; the class starts at `:128`, and `:52` is
+`RunContextMetadata`, a TypedDict)* · after: `≤500`
+
+> **The brief did not add up, and the maintainer decided how to close it (2026-09-11).**
+> The two groups named above are **160 lines** measured — `emit`/`on_event`/`perf_*` 103,
+> `get_job_schema`/`list_jobs` 57 — so moving exactly what T8 says lands the class at **640**,
+> not ≤500. The `≤500` was authored before anyone counted.
+>
+> Measured cost of every candidate group:
+>
+> | group | lines | example |
+> |---|---|---|
+> | events + perf *(named)* | 103 | `rc.emit`, `rc.perf_mark` |
+> | discovery *(named)* | 57 | `rc.get_job_schema` |
+> | phase tracking | 46 | `rc.track_phase` |
+> | run status | 49 | `rc.set_run_status` |
+> | plugin config | 32 | `rc.get_plugin_config` |
+> | resources | 18 | `rc.get_resource` |
+> | prompting | 147 | `rc.prompt_confirm` |
+> | logging | 50 | `rc.log` — **stays**, it is the core idiom |
+>
+> **Decision: move all of them except logging**, target ≈ **348**. Four facades, one commit
+> each, each a breaking rename with no alias (pre-alpha; the constitution says delete rather
+> than shim). What stays flat is what a job actually reaches for: `config`, `name`,
+> `metadata`, `log`, `invoke`, `state`, `cwd`, `job_directory`, `workflow_scope`,
+> `__getitem__`.
+>
+> **Progress:** `rc.discovery` done (`cc7631a`, 800 → **758**). Remaining: `rc.wiring`
+> (plugin config + resources), `rc.events` (events, perf, phases, run status), `rc.prompts`.
+> ~490 call sites across `src/`, `tests/`, `docs/`, `examples/`, `skills/` and `plugins/`;
+> each rename is anchored on a `rc.`/`context.`/`ctx.` prefix rather than done as a substring
+> replace, because `JobProvider.list_jobs` already proved that a bare name collides.
 
 ### [ ] T9 · `FunctualizeApp` diet
 
