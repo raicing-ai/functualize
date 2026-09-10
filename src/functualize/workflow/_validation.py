@@ -4,7 +4,7 @@ Structural checks only — everything provable from the declaration alone, with
 no registry and no I/O, so a malformed graph fails at import rather than
 halfway through a walk:
 
-- duplicate node names (a `Step` and a `Gate` share one namespace)
+- duplicate node names (every node kind shares one namespace)
 - edges whose source or target names no node
 - conditional targets naming no node
 
@@ -18,6 +18,7 @@ from collections.abc import Sequence
 
 from functualize._types.workflow import (
     END,
+    AgentStep,
     ConditionalEdge,
     Edge,
     Gate,
@@ -25,27 +26,35 @@ from functualize._types.workflow import (
     _EndSentinel,
 )
 
-_NODE_TYPES = (Step, Gate)
+_NODE_TYPES = (Step, Gate, AgentStep)
 
 
 def _validate_workflow_graph(
-    nodes: Sequence[Step | Gate], edges: Sequence[Edge | ConditionalEdge]
+    nodes: Sequence[Step | Gate | AgentStep],
+    edges: Sequence[Edge | ConditionalEdge],
 ) -> None:
     """Validate the workflow graph structure at decoration time.
 
     Args:
-        nodes: Workflow nodes — `Step` (runs a job) or `Gate` (pauses).
+        nodes: Workflow nodes — `Step` (runs a job), `Gate` (pauses), or
+            `AgentStep` (delegates to a registered agent executor).
         edges: `Edge` / `ConditionalEdge` connections between nodes.
 
     Raises:
         TypeError: If a list entry is not a workflow node or edge type.
         ValueError: On duplicate node names or references to unknown nodes.
+
+    Only what the declaration alone can prove is checked here. Whether an
+    `AgentStep` has an executor, and whether that executor can honour what the
+    step requires, needs the live registry and is refused before the walk
+    (``_engine.agent_step``) — the same split that puts `Step` job resolution
+    at boot rather than at decoration.
     """
     node_names: set[str] = set()
     for node in nodes:
         if not isinstance(node, _NODE_TYPES):
             raise TypeError(
-                f"Workflow steps must be Step or Gate objects, "
+                f"Workflow steps must be Step, Gate or AgentStep objects, "
                 f"got {type(node).__name__}"
             )
         name = node.name

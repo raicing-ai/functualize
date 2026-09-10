@@ -787,6 +787,29 @@ def register_dynamic_job(
     app._hook_registry.invoke_job_registered(hook_metadata)
 
 
+# ─── Agent Step Executors ────────────────────────────────────────────────
+
+
+def register_agent_step_executor(app: Any, executor: Any) -> None:
+    """Register an agent step executor on ``app``.
+
+    Registered, never auto-discovered (the agent-step port's §3.1):
+    auto-discovery is how a surface acquires behaviour nobody declared, and
+    this is the one node kind whose behaviour runs outside the process.
+
+    Args:
+        app: The FunctualizeApp instance.
+        executor: An `AgentStepExecutor`. It is refused unless it declares a
+            `name`, a `capabilities` set and `execute(ctx)` — a missing
+            declaration must fail where it is declared, not mid-walk.
+
+    Raises:
+        TypeError: ``executor`` does not satisfy `AgentStepExecutor`.
+        ValueError: Its name is already registered, or empty.
+    """
+    app._agent_step_registry.register(executor)
+
+
 # ─── Configuration Model Resolution ─────────────────────────────────────
 
 

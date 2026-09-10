@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from functualize._config.registry import ProviderRegistry
     from functualize._discovery.pipeline import ResolutionPipeline
     from functualize._discovery.registry import JobRegistry
+    from functualize._engine.agent_step import AgentStepRegistry
     from functualize._engine.executor import JobExecutionEngine
     from functualize._engine.result import JobResult
     from functualize._events.bus import EventBus
@@ -47,7 +48,11 @@ if TYPE_CHECKING:
     from functualize._plugins.loader import PluginLoader
     from functualize._primitives.di import DIRegistry
     from functualize._types.descriptors import CacheInfo, ConfigFileInfo, JobDescriptor
-    from functualize._types.protocols import JobProvider, JobTransform
+    from functualize._types.protocols import (
+        AgentStepExecutor,
+        JobProvider,
+        JobTransform,
+    )
     from functualize.job._workflow_scope import WorkflowScope
 
 DEFAULT_CONFIG_FILE_REGEX = r"^config\.(\w+)\.(\w+)$"
@@ -110,6 +115,7 @@ class FunctualizeApp:
     _hook_registry: HookRegistry
     _di_registry: DIRegistry
     _gate_registry: GateRegistry
+    _agent_step_registry: AgentStepRegistry
     _domain_registry: DomainRegistry
     _execution_engine: JobExecutionEngine
     _resolution_pipeline: ResolutionPipeline
@@ -315,6 +321,29 @@ class FunctualizeApp:
             ValueError: If strategies list length is outside [1, 10].
         """
         self._gate_registry.register_preset(name, strategies)
+
+    # ─── Agent Step Executor Registry Facade ─────────────────────────────
+
+    def register_agent_step_executor(self, executor: AgentStepExecutor) -> None:
+        """Register an executor that services ``AgentStep`` nodes.
+
+        Registered, never auto-discovered: a workflow that declares an agent
+        step reaches an executor because a package registered one, not because
+        a discovery scan found it.
+
+        Args:
+            executor: An implementation of `AgentStepExecutor` — a ``name``, a
+                ``capabilities`` set, and ``execute(ctx)``.
+
+        Raises:
+            TypeError: ``executor`` does not satisfy `AgentStepExecutor`, so a
+                forgotten capability declaration fails here rather than
+                mid-walk.
+            ValueError: Its name is empty or already registered.
+        """
+        from functualize._app.impl import register_agent_step_executor
+
+        register_agent_step_executor(self, executor)
 
     @property
     def _gate_strategies(self) -> dict[str, GateResolver]:

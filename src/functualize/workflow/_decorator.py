@@ -16,12 +16,18 @@ from functualize._types.workflow import WorkflowDeclaration
 from functualize.workflow._validation import _validate_workflow_graph
 
 if TYPE_CHECKING:
-    from functualize._types.workflow import ConditionalEdge, Edge, Gate, Step
+    from functualize._types.workflow import (
+        AgentStep,
+        ConditionalEdge,
+        Edge,
+        Gate,
+        Step,
+    )
 
 
 def workflow(
     *,
-    steps: Sequence[Step | Gate],
+    steps: Sequence[Step | Gate | AgentStep],
     edges: Sequence[Edge | ConditionalEdge],
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator registering a function as a declarative workflow.
@@ -31,8 +37,9 @@ def workflow(
     workflow's epilogue: it runs when the walk reaches ``END``.
 
     Args:
-        steps: Workflow nodes — `Step` (runs a registered job) or `Gate`
-            (pauses for input).
+        steps: Workflow nodes — `Step` (runs a registered job), `Gate`
+            (pauses for input), or `AgentStep` (delegates to a registered
+            agent executor).
         edges: List of Edge or ConditionalEdge objects defining connections.
 
     Returns:

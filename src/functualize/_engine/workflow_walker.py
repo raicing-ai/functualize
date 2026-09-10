@@ -28,6 +28,7 @@ reaches ``END`` — is not here; it belongs to the workflow *job*, not the walk.
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
@@ -36,12 +37,11 @@ from typing import TYPE_CHECKING, Any
 from functualize._engine.frontier import END as _FRONTIER_END
 from functualize._engine.frontier import FrontierWalk, GraphModel, WalkState, step_key
 from functualize._primitives.graph import descendants
-from functualize._types.workflow import ConditionalEdge, Gate
+from functualize._types.workflow import AgentStep, ConditionalEdge, Gate, Step
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from functualize._primitives.state_store import StateStore
+    from functualize._types.protocols import AgentStepResult
     from functualize._types.workflow import WorkflowDeclaration, _EndSentinel
 
 __all__ = [
@@ -141,6 +141,36 @@ class WalkReport:
         return self.outcome is WalkOutcome.COMPLETED
 
 
+@dataclass(frozen=True)
+class _NodeRun:
+    """What servicing one node produced, for the loop's common tail.
+
+    A handler either returns one of these — the node ran (or replayed) and the
+    walk continues past it — or a `WalkReport`, which means the node ended the
+    walk. That is the whole contract between the loop and a node kind, and it
+    is why adding a kind does not touch the loop.
+    """
+
+    value: Any
+    inputs: dict[str, Any] | None = None
+    replayed: bool = False
+
+
+@dataclass
+class _Ledger:
+    """The walk's running account: what ran, what replayed, what it produced.
+
+    One object rather than three arguments, because a handler that ends the
+    walk (a block, a nested block) has to carry the account *as it stands* into
+    the report it builds. Handing over the lists themselves would make that a
+    copy the loop could later diverge from.
+    """
+
+    executed: list[str] = field(default_factory=list)
+    replayed: list[str] = field(default_factory=list)
+    results: dict[str, Any] = field(default_factory=dict)
+
+
 def graph_model_of(declaration: WorkflowDeclaration) -> GraphModel:
     """Compile a declaration into the shared graph model (§A.7 one-engine rule).
 
@@ -185,6 +215,10 @@ class WorkflowWalker:
             makes an invocation a *resume*.
         run_step: Executes one `Step` by its node name and returns its value.
             Raising marks the step — and the walk — failed.
+        run_agent_step: Executes one `AgentStep`. The *runner* supplies it,
+            having already chosen and checked the executor against the step's
+            requirements; a walker built without one refuses an agent step
+            rather than recording a step that silently did nothing.
         workflow_name: Job name recorded on the scope, for observers.
         gate_registry: Resolution dispatch for gates. When None (default),
             gates always block.
@@ -199,6 +233,7 @@ class WorkflowWalker:
         scope_id: str,
         *,
         run_step: Callable[[str], Any],
+        run_agent_step: Callable[[AgentStep], AgentStepResult] | None = None,
         workflow_name: str | None = None,
         gate_registry: Any = None,
         prompt_gates: bool = False,
@@ -207,6 +242,7 @@ class WorkflowWalker:
         self._store = store
         self._scope_id = scope_id
         self._run_step = run_step
+        self._run_agent_step = run_agent_step
         self._workflow_name = workflow_name
         self._graph = graph_model_of(declaration)
         self._predecessors = self._build_predecessors(declaration)
@@ -225,11 +261,8 @@ class WorkflowWalker:
 
         pending: deque[str] = deque([entry])
         visited: set[str] = set()
-        executed: list[str] = []
-        replayed: list[str] = []
-        results: dict[str, Any] = {}
+        ledger = _Ledger()
 
-        step_inputs: dict[str, dict[str, Any]] = {}
         deferrals = 0
         while pending:
             name = pending.popleft()
@@ -258,100 +291,158 @@ class WorkflowWalker:
                 # declaration changed under a live scope rather than a typo.
                 return self._fail(name, f"unknown node {name!r} in the graph")
 
-            if isinstance(node, Gate):
-                payload = self._walk.gate_payload(node.name)
-                blocked_reason = ""
-                if payload is None:
-                    strategies = _gate_strategy_list(node, self._prompt_gates)
-                    if strategies is not None and self._gate_registry is not None:
-                        from functualize._types.errors import GateResolutionError
+            # The table *is* the dispatch: the loop never asks what kind of
+            # node it is holding, and a fourth kind is a handler registered in
+            # `_NODE_HANDLERS` rather than an edit here. A kind with no handler
+            # is refused by name, never run as whichever of the others it most
+            # resembles.
+            handler = _NODE_HANDLERS.get(type(node))
+            if handler is None:
+                return self._fail(
+                    name, f"no handler for node kind {type(node).__name__!r}"
+                )
 
-                        try:
-                            model = self._gate_registry.resolve_gate(
-                                node.awaits,
-                                gate_strategy=strategies,
-                                gate_name=node.name,
-                            )
-                            payload = model.model_dump()
-                            self._walk.block(
-                                node.name,
-                                node.name,
-                                model=getattr(node.awaits, "__name__", ""),
-                                input_schema=node.awaits.model_json_schema(),
-                                tools=[
-                                    {"tool": spec.name, "bound": sorted(spec.bound)}
-                                    for spec in node.tool_specs()
-                                ],
-                                blocked_at=_now(),
-                            )
-                            self._store.deposit_gate_payload(
-                                self._scope_id, node.name, payload
-                            )
-                        except GateResolutionError as exc:
-                            # Every rung of the ladder failed. That is a block,
-                            # not a crash — but "blocked on triage" alone reads
-                            # identically to a gate waiting by design, so carry
-                            # the reason. `last_error` names the unregistered
-                            # strategies and the package each one needs
-                            # (`_gate/_strategy.STRATEGY_PROVIDERS`), which is
-                            # the difference between "wait for a human" and
-                            # "pip install functualize-ai".
-                            blocked_reason = exc.last_error
-                if payload is None:
-                    self._block(node)
-                    return WalkReport(
-                        WalkOutcome.BLOCKED,
-                        self._scope_id,
-                        tuple(executed),
-                        tuple(replayed),
-                        blocked_reason=blocked_reason,
-                        blocked_on=node.name,
-                        results=results,
-                    )
-                value: Any = payload
-                replayed.append(name)
+            run = handler(self, node, name, ledger)
+            if isinstance(run, WalkReport):
+                return run
+            if run.replayed:
+                ledger.replayed.append(name)
             else:
-                record = self._store.get_step(self._scope_id, _key(name))
-                if record is not None and record.get("status") == "success":
-                    value = record.get("return_value")
-                    replayed.append(name)
-                else:
-                    try:
-                        outcome = self._run_step(name)
-                    except StepBlocked as blocked:
-                        # A nested workflow stopped at a gate. The parent
-                        # blocks *here*, without recording the step as
-                        # finished, so resuming the child and re-entering
-                        # replays up to this node and carries on.
-                        self._store.set_position(self._scope_id, name)
-                        self._store.set_scope_status(self._scope_id, WalkState.BLOCKED)
-                        return WalkReport(
-                            WalkOutcome.BLOCKED,
-                            self._scope_id,
-                            tuple(executed),
-                            tuple(replayed),
-                            blocked_on=blocked.blocked_on,
-                            results=results,
-                        )
-                    except Exception as exc:  # a step failure stops the walk
-                        return self._fail(name, f"{type(exc).__name__}: {exc}")
-                    if isinstance(outcome, StepOutcome):
-                        value, step_inputs[name] = outcome.value, outcome.inputs
-                    else:
-                        value = outcome
-                    executed.append(name)
-
-            results[name] = value
-            pending.extend(self._advance(name, value, step_inputs.get(name, {})))
+                ledger.executed.append(name)
+            ledger.results[name] = run.value
+            pending.extend(self._advance(name, run.value, run.inputs))
 
         self._store.set_scope_status(self._scope_id, WalkState.COMPLETED)
         return WalkReport(
             WalkOutcome.COMPLETED,
             self._scope_id,
-            tuple(executed),
-            tuple(replayed),
-            results=results,
+            tuple(ledger.executed),
+            tuple(ledger.replayed),
+            results=ledger.results,
         )
+
+    # ------------------------------------------------------------------
+    # One handler per node kind
+    # ------------------------------------------------------------------
+
+    def _service_gate(
+        self,
+        node: Gate,
+        name: str,
+        ledger: _Ledger,
+    ) -> _NodeRun | WalkReport:
+        """A gate: replay its deposited payload, resolve it, or block here."""
+        payload = self._walk.gate_payload(node.name)
+        blocked_reason = ""
+        if payload is None:
+            strategies = _gate_strategy_list(node, self._prompt_gates)
+            if strategies is not None and self._gate_registry is not None:
+                from functualize._types.errors import GateResolutionError
+
+                try:
+                    model = self._gate_registry.resolve_gate(
+                        node.awaits,
+                        gate_strategy=strategies,
+                        gate_name=node.name,
+                    )
+                    payload = model.model_dump()
+                    self._walk.block(
+                        node.name,
+                        node.name,
+                        model=getattr(node.awaits, "__name__", ""),
+                        input_schema=node.awaits.model_json_schema(),
+                        tools=[
+                            {"tool": spec.name, "bound": sorted(spec.bound)}
+                            for spec in node.tool_specs()
+                        ],
+                        blocked_at=_now(),
+                    )
+                    self._store.deposit_gate_payload(self._scope_id, node.name, payload)
+                except GateResolutionError as exc:
+                    # Every rung of the ladder failed. That is a block,
+                    # not a crash — but "blocked on triage" alone reads
+                    # identically to a gate waiting by design, so carry
+                    # the reason. `last_error` names the unregistered
+                    # strategies and the package each one needs
+                    # (`_gate/_strategy.STRATEGY_PROVIDERS`), which is
+                    # the difference between "wait for a human" and
+                    # "pip install functualize-ai".
+                    blocked_reason = exc.last_error
+        if payload is None:
+            self._block(node)
+            return WalkReport(
+                WalkOutcome.BLOCKED,
+                self._scope_id,
+                tuple(ledger.executed),
+                tuple(ledger.replayed),
+                blocked_reason=blocked_reason,
+                blocked_on=node.name,
+                results=ledger.results,
+            )
+        return _NodeRun(payload, replayed=True)
+
+    def _service_step(
+        self,
+        node: Step,
+        name: str,
+        ledger: _Ledger,
+    ) -> _NodeRun | WalkReport:
+        """A step: replay its recorded value, or run the job it names."""
+        record = self._store.get_step(self._scope_id, _key(name))
+        if record is not None and record.get("status") == "success":
+            return _NodeRun(record.get("return_value"), replayed=True)
+        try:
+            outcome = self._run_step(name)
+        except StepBlocked as blocked:
+            # A nested workflow stopped at a gate. The parent
+            # blocks *here*, without recording the step as
+            # finished, so resuming the child and re-entering
+            # replays up to this node and carries on.
+            self._store.set_position(self._scope_id, name)
+            self._store.set_scope_status(self._scope_id, WalkState.BLOCKED)
+            return WalkReport(
+                WalkOutcome.BLOCKED,
+                self._scope_id,
+                tuple(ledger.executed),
+                tuple(ledger.replayed),
+                blocked_on=blocked.blocked_on,
+                results=ledger.results,
+            )
+        except Exception as exc:  # a step failure stops the walk
+            return self._fail(name, f"{type(exc).__name__}: {exc}")
+        if isinstance(outcome, StepOutcome):
+            return _NodeRun(outcome.value, inputs=outcome.inputs)
+        return _NodeRun(outcome)
+
+    def _service_agent(
+        self,
+        node: AgentStep,
+        name: str,
+        ledger: _Ledger,
+    ) -> _NodeRun | WalkReport:
+        """An agent step: replay its recorded value, or delegate to an executor.
+
+        The executor was chosen and checked against the step's requirements in
+        ``WorkflowRunner.prelude``, before this walk started — so a missing
+        executor cannot reach here, and nothing is resolved twice.
+        """
+        record = self._store.get_step(self._scope_id, _key(name))
+        if record is not None and record.get("status") == "success":
+            return _NodeRun(record.get("return_value"), replayed=True)
+        if self._run_agent_step is None:
+            # A walker built by hand with no executor door. Refused rather than
+            # skipped: a step that silently records nothing is worse than one
+            # that says why it did not run.
+            return self._fail(
+                name,
+                "no agent step executor is reachable from this walk "
+                "(WorkflowRunner supplies the registered one)",
+            )
+        try:
+            result = self._run_agent_step(node)
+        except Exception as exc:  # an executor failure stops the walk
+            return self._fail(name, f"{type(exc).__name__}: {exc}")
+        return _NodeRun(result.value)
 
     # ------------------------------------------------------------------
     # Internals
@@ -469,6 +560,27 @@ def _key(name: str) -> str:
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+#: One node kind's handler: the walker, the node, its graph key, the ledger.
+#:
+#: The node is ``Any`` because each handler narrows it to its own kind — the
+#: table is keyed by class and the loop hands the node straight through.
+_NodeHandler = Callable[[WorkflowWalker, Any, str, _Ledger], _NodeRun | WalkReport]
+
+#: The node dispatch: node class → the handler that services it.
+#:
+#: This table replaced the type test that used to sit inside the walk loop,
+#: asking whether each node was a gate and treating everything else as a step
+#: (AC-10). The loop now looks a node's class up here and never asks what kind
+#: it is holding, so a fourth node kind is a handler plus a row — not an edit to
+#: the walk's mechanics, which are load-bearing for diamond joins and for
+#: resume. A class absent from the table is refused by name.
+_NODE_HANDLERS: dict[type, _NodeHandler] = {
+    Gate: WorkflowWalker._service_gate,
+    Step: WorkflowWalker._service_step,
+    AgentStep: WorkflowWalker._service_agent,
+}
 
 
 def _gate_strategy_list(gate: Gate, prompt_gates: bool) -> list[str] | None:

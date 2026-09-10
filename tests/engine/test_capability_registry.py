@@ -170,3 +170,42 @@ def test_a_capability_context_is_the_only_factory_argument() -> None:
     assert LOG_SPEC.factory is not None
     built = LOG_SPEC.factory(CapabilityContext(engine=None, context=_Ctx(), caps={}))
     assert type(built).__name__ == "Log"
+
+
+def test_the_agent_capability_flags_are_all_reachable_from_a_declaration() -> None:
+    """The same agreement, for the flags an *executor* declares.
+
+    `AgentCapability` is what an executor promises it can enforce;
+    `IMPLIED_CAPABILITIES` says which `AgentStep` declaration makes a step
+    require each flag. A member of the enum with no entry there is a flag the
+    engine can never refuse a step for — it would exist in the public
+    vocabulary and do nothing.
+    """
+    from functualize._types.protocols import AgentCapability
+    from functualize._types.workflow import IMPLIED_CAPABILITIES
+
+    assert {capability for capability in AgentCapability} == set(IMPLIED_CAPABILITIES)
+
+
+def test_the_agent_capability_guard_actually_fires() -> None:
+    """Proof the second half of the import check is a guard, not a comment.
+
+    Deleting a row from the implication table is exactly the "forgotten
+    declaration" the check exists for: the flag stays declarable by an executor
+    and becomes unrequireable by a step.
+    """
+    from functualize._engine.capabilities import registry
+    from functualize._types import workflow
+
+    original = workflow.IMPLIED_CAPABILITIES
+    incomplete = {
+        capability: attribute
+        for capability, attribute in original.items()
+        if capability.value != "enforces_tool_allowlist"
+    }
+    workflow.IMPLIED_CAPABILITIES = incomplete
+    try:
+        with pytest.raises(RuntimeError, match="enforces_tool_allowlist"):
+            registry._check_agent_capability_coverage()
+    finally:
+        workflow.IMPLIED_CAPABILITIES = original
