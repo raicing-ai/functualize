@@ -584,6 +584,30 @@ the ledger covers every paragraph, not only every numbered one.
 | `adj §4` — dead `_SRC` in `test_entry_point_cache.py` | **FIXED** | Left behind when `_python_files()` was rewritten to root plugin paths differently. | Nit-level reading. | Deleted. |
 | `adj §2`, `adj §3`, `roa A4` — positive findings | **NO ACTION, recorded** | — | — | These are the reviewers reporting that something is *right*: `adj §2` (the changes sit in the layer whose reason-for-existing they match), `adj §3` (`_EnumChoice` uses click's correct extension point and the `discovery_hash=None` Null Object is declared in `contracts.md`), and `roa A4` (`_types/outcome.py` imports stdlib and `_types` only; the authority is reached through the public corridor; 6/6 contracts). Recorded so the ledger's coverage is provable rather than assumed. `adj §3`'s one caveat — the declared shim is what B2 hides behind — was closed by B2's own fix. |
 
+### The `Shell` finding kept going
+
+Widening the protocol turned `isinstance(FakeShell(), Shell)` **False** — the
+shipped test double had `__call__` and `sudo` and not `cd`, `prefix`, `defer` or
+`run_deferred`, so a job written with the documented `with sh.cd(...)` idiom
+could not be unit-tested with `FakeShell` at all. Nothing said so, because the
+protocol had been missing the same four: the conformance test passed by asking
+for almost nothing.
+
+The double has them now, with the semantics that make them assertable rather
+than accepted-and-ignored: `cd` puts the effective directory on the recorded
+call's `kwargs["cwd"]` (nesting, and yielding to an explicit per-call `cwd` the
+way the real shell does); `prefix` is applied **before** matching, because the
+real shell runs the prefixed argv and folding it in afterwards would let a test
+pass against a command that never ran; `defer` queues without running, so a test
+can assert what a job registered; `run_deferred` runs LIFO with `check=False`,
+like the engine's unwind, but still refuses an unmapped command — a fake that
+swallowed one is a fake nothing can be asserted against.
+
+**Three layers were wrong in the same direction, and each one hid the next**: a
+protocol that under-declared, a double that under-implemented, and a conformance
+test that could not tell. One `mypy --strict` run on the documented idiom
+surfaced all three.
+
 ### Noticed while fixing, not in any review
 
 `app/adapters/cli.py` ends its unknown-command report with
