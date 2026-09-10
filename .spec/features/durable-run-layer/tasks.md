@@ -12,7 +12,7 @@ handoff, plugin release, version release). Narrowed to identity-and-token spelli
 
 ## Wave 0 — storage
 
-### [ ] T1 · `runs.json` and `RunStore`
+### [x] T1 · `runs.json` and `RunStore`
 
 **Files:** `src/functualize/_primitives/run_format.py`,
 `src/functualize/_primitives/run_store.py`, `tests/primitives/test_run_store.py`
@@ -24,7 +24,32 @@ and the lock helpers. Nothing writes to it yet.
 ```bash
 rg -c 'RUNS_VERSION' src/functualize/_primitives/run_format.py
 ```
-now: `file absent` · after: `≥1`
+now: `file absent` · after: `≥1` — **`5`**
+
+**Test:** `tests/primitives/test_run_store.py`, **27 passed**. The one that earns its place is
+`TestTheReadRuleIsTheOppositeOfScopes`, which pins the discard against the refusal *in the same
+class*: four unusable inputs read as empty here, and the same shape makes `load_scopes` raise.
+A future refactor that merges the two files fails there with the reason attached — that putting
+run records under `scopes.json` forces the **strictest** policy onto the **most voluminous**
+data, and one corrupt run log then blocks every workflow in the project.
+
+**Two defects found by writing the tests, both in code written minutes earlier:**
+
+1. **Two rules that contradicted each other.** `_trim` deleted events for any run id not in
+   `runs`; `append_event`'s docstring promised an event for an unopened run is kept — which it
+   must be, because the subscriber and the record-opener are deliberately uncoordinated (the
+   bus does no file I/O, AC-5). The distinction the first draft missed: a run this file
+   **evicted** is not a run it has **never seen**. Evicted runs take their events; orphans are
+   kept and bounded as a group. Two tests now hold the two rules apart so neither can be
+   restated as the other.
+2. **The ULID was not monotonic.** Five runs opened in one millisecond share a timestamp
+   prefix, and a freshly drawn random tail then ordered them arbitrarily —
+   `test_recent_runs_are_newest_first` caught it. `rc.invoke_parallel` opens a batch in a few
+   microseconds, so a millisecond collision is the **common** case here, not the exotic one,
+   and "the most recent five runs, shuffled" is a bug a reader would blame on the store. The
+   tail now increments within a millisecond (the spec's monotonic variant) and a backwards
+   clock keeps minting under the last millisecond seen, so a new run can never sort into the
+   middle of the log.
 
 **Gate — the existing two are untouched**
 ```bash
