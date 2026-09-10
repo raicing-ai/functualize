@@ -89,8 +89,9 @@ walk starts**, rather than running with the constraint dropped.
 are compared by value. An unknown name is refused at registration.
 
 `ctx.inputs` is always empty and `AgentStepResult.tool_calls` is dropped by the
-walker — both are declared and marked `TRANSITIONAL` in the source, waiting on
-typed step outcomes and a run event stream respectively.
+walker — both are declared and marked transitional in the source, naming the
+feature that completes them: typed step outcomes and a run event stream
+respectively.
 
 ## Gates
 

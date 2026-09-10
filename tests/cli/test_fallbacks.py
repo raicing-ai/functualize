@@ -101,8 +101,12 @@ class TestRunFallbackChain:
 
         assert result == 1
         captured = capsys.readouterr()
-        # The error message should appear on stderr
-        assert "not found" in captured.err
+        # The error message should appear on stderr, in the sentence `func`
+        # uses. This door said "Command 'dep' not found." for the condition
+        # `func` calls "Unknown command 'dep'." — the same event, two
+        # sentences, under a comment in that same function saying the surface
+        # does not change the answer (adj §4).
+        assert "Unknown command 'dep'" in captured.err
         # Should suggest "deploy" since "dep" is a prefix of "deploy"
         assert "deploy" in captured.err
 

@@ -732,8 +732,18 @@ def _try_discovered_job(cmd: str, remaining_args: list[str], app: object) -> int
 
 
 def _show_command_not_found(cmd: str, app: object) -> None:
-    """Print a 'command not found' error with suggestions."""
-    print(f"Error: Command '{cmd}' not found.", file=sys.stderr)
+    """Print an 'unknown command' error with suggestions.
+
+    **The same sentence `func` prints**, deliberately. This door said
+    ``Error: Command 'x' not found.`` while `_cli/main.py:_show_command_not_found`
+    said ``Error: Unknown command 'x'.`` for the identical condition — with the
+    comment below, in this function, asserting that the surface a user came
+    through does not change the answer. The explanation underneath already
+    reached both doors (`tests/cli/test_unknown_command_parity.py`); the
+    headline did not, and a test asserting the headline could therefore only
+    ever run on one of them (adj §4).
+    """
+    print(f"Error: Unknown command '{cmd}'.", file=sys.stderr)
 
     try:
         from functualize.app import FunctualizeApp

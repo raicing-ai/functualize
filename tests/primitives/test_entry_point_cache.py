@@ -43,7 +43,6 @@ import ast
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[2]
-_SRC = _ROOT / "src" / "functualize"
 _PLUGINS_SRC = sorted((_ROOT / "plugins").glob("*/src"))
 #: The stdlib function a bypass reaches, spelled the way the AST resolves it.
 #: The canonical module is excluded from the scan: it is the cache, not a

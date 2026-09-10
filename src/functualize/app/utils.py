@@ -1733,18 +1733,45 @@ def discovery_hash_for(app: Any = None) -> str | None:
 
     The corridor exists because ``_cli`` may import public folders only, and
     ``discovery_hash_from_config`` lives in ``_discovery``.
+
+    **``None`` means one thing, and a missing attribute is not it.** This used
+    to read ``_discovery_config``, then fall back to ``discovery_config``, then
+    swallow every exception — three ways to return ``None``, of which only one
+    was the documented "cannot know". The second spelling had **no writer
+    anywhere in ``src/``**, and the combination meant a renamed attribute, a
+    refactored app or a stand-in object degraded the cache reader to its
+    pre-fix behaviour with nothing said: not an error, just the check quietly
+    no longer happening — the exact shape `pitfalls.md` §5 is about, and the
+    one adj §4 found here.
+
+    So: no ``app`` is ``None`` (the documented path, for callers that have none
+    in hand); an ``app`` whose ``_discovery_config`` is ``None`` is ``None``
+    (that app declared no discovery configuration); and an object with no such
+    attribute at all is an :class:`AttributeError`, because
+    :class:`~functualize.app.core.FunctualizeApp` sets it in ``__init__`` and
+    anything else is a caller mistake worth hearing about.
+
+    Raises:
+        AttributeError: ``app`` is not ``None`` and has no
+            ``_discovery_config`` — it is not an app.
     """
     from functualize._discovery.filter_factory import discovery_hash_from_config
 
-    config = getattr(app, "_discovery_config", None) if app is not None else None
-    if config is None:
-        config = getattr(app, "discovery_config", None) if app is not None else None
+    if app is None:
+        return None
+    missing: Any = object()
+    config: Any = getattr(app, "_discovery_config", missing)
+    if config is missing:
+        raise AttributeError(
+            f"discovery_hash_for() was handed a "
+            f"{type(app).__name__} with no `_discovery_config`. Pass a "
+            f"FunctualizeApp, or pass None to skip the check deliberately — "
+            f"returning None here would disable a cache correctness check "
+            f"without saying so."
+        )
     if config is None:
         return None
-    try:
-        return discovery_hash_from_config(config)
-    except Exception:  # pragma: no cover - a fingerprint is never worth a crash
-        return None
+    return discovery_hash_from_config(config)
 
 
 def _levenshtein(s: str, t: str) -> int:

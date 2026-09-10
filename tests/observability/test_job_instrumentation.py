@@ -129,8 +129,16 @@ class TestJobExecuteInstrumentation:
         assert "duration_ms" in end_event.payload
         assert end_event.payload["duration_ms"] >= 0
 
-    def test_job_execute_emits_start_and_error_on_failure(self, tmp_path):
-        """Failing job emits job.execute.start and job.execute.error events."""
+    def test_job_execute_emits_start_and_end_on_failure(self, tmp_path):
+        """A failing job emits `job.execute.start` and `job.execute.end`.
+
+        **`job.execute.end` carries `status="failure"`; there is no separate
+        error event.** The name in this docstring said otherwise, and the
+        assertion twenty lines down already carried the correction as a
+        comment — so the test was right and its title was not, for a
+        `job.execute.error` that `adjacent-defects` T6 removed from the catalog
+        precisely because nothing emitted it (adj §4).
+        """
         modules = {
             "failing": """\
                 def fail_job():

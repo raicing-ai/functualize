@@ -13,7 +13,12 @@ from functualize._events._obs_types import EventMetadata
 def get_framework_event_catalog() -> list[EventMetadata]:
     """Return all framework-defined event metadata entries.
 
-    Covers domains: job, config, plugin, cli, tui.
+    Covers domains: job, config, plugin, cli, interactivity, lifecycle, shell.
+
+    Derived by reading the entries below rather than remembered: the list said
+    "job, config, plugin, cli, tui" after `tui.session.*` had been removed from
+    it — in the same edit — and named none of the three domains that were there
+    all along (adj §4).
     """
     return [
         # --- Job domain ---

@@ -60,7 +60,7 @@ The TUI is a modal (vim-like) editor over a command bar:
 
 The dependency direction is one-way: `tui/` imports domain/data modules
 (`_cli/data/`, `_cli/completions/`, plain-function modules like
-`tui/sync.py`, `tui/chain_resolution.py`, `tui/missing_args.py`); those
+`tui/sync.py`, `tui/chain_resolution.py`); those
 modules never require a running app. Everything decidable without a screen
 (tokenizing, readiness evaluation, chain resolution, diff computation,
 shortcut generation) stays in pure functions/dataclasses tested with plain
