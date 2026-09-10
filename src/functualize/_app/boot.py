@@ -220,6 +220,13 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
         _GateStrategy.RESOLVE.value, _ResolveResolver()
     )
 
+    # Agent step executors (the agent-step port). Registered, never discovered:
+    # built here so it exists before the engine is constructed, and populated
+    # through the same `app.register_agent_step_executor` door a plugin uses.
+    from functualize._engine.agent_step import AgentStepRegistry as _AgentStepRegistry
+
+    app._agent_step_registry = _AgentStepRegistry()
+
     # Observability subsystem (lazy-initialized)
     app._observability_initialized = False
     app._event_bus = None
@@ -249,6 +256,15 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
 
     _register_prompt_gate_strategy(app, collector_factory=active_collector)
 
+    # Core's own agent step executor — the one that asks a person. Registered
+    # through the public door a plugin uses, so there is no second way in, and
+    # registered in *both* boot paths for the same reason the gate strategy is:
+    # a bare app has exactly one executor, and an `AgentStep` naming none
+    # resolves to it.
+    from functualize._engine.agent_step import CliPromptExecutor as _CliPromptExecutor
+
+    app.register_agent_step_executor(_CliPromptExecutor(app))
+
     # Initialize observability early so EventBus is available for the engine
     init_observability(app)
 
@@ -276,6 +292,7 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
         max_invoke_depth=app._execution_config.max_invoke_depth,
         plugin_config_registry=app.plugin_config_registry,
         gate_registry=app._gate_registry,
+        agent_step_registry=app._agent_step_registry,
         config_view_factory=_config_view_factory,
         config_resolver=_resolve_job_config,
     )
@@ -432,6 +449,13 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
         _GateStrategy.RESOLVE.value, _ResolveResolver()
     )
 
+    # Agent step executors (the agent-step port). Registered, never discovered:
+    # built here so it exists before the engine is constructed, and populated
+    # through the same `app.register_agent_step_executor` door a plugin uses.
+    from functualize._engine.agent_step import AgentStepRegistry as _AgentStepRegistry
+
+    app._agent_step_registry = _AgentStepRegistry()
+
     # Observability subsystem (lazy-initialized)
     app._observability_initialized = False
     app._event_bus = None
@@ -459,6 +483,15 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     from functualize._engine.surface_routing import active_collector
 
     _register_prompt_gate_strategy(app, collector_factory=active_collector)
+
+    # Core's own agent step executor — the one that asks a person. Registered
+    # through the public door a plugin uses, so there is no second way in, and
+    # registered in *both* boot paths for the same reason the gate strategy is:
+    # a bare app has exactly one executor, and an `AgentStep` naming none
+    # resolves to it.
+    from functualize._engine.agent_step import CliPromptExecutor as _CliPromptExecutor
+
+    app.register_agent_step_executor(_CliPromptExecutor(app))
 
     # Initialize observability early so EventBus is available for the engine
     init_observability(app)
@@ -488,6 +521,7 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
         max_invoke_depth=app._execution_config.max_invoke_depth,
         plugin_config_registry=app.plugin_config_registry,
         gate_registry=app._gate_registry,
+        agent_step_registry=app._agent_step_registry,
         config_view_factory=_config_view_factory2,
         config_resolver=_resolve_job_config2,
     )

@@ -6,7 +6,7 @@ walker knows how to do (gates), and edges wire them together. Anything that
 would make the graph a second, parallel way of *writing* logic was deliberately
 left out — that is what the decorated function's epilogue body is for.
 
-Two node kinds:
+Three node kinds:
 
 - :class:`Step` wraps a reference to a registered job. It carries no behavior
   of its own; the job's own ``@job`` declaration (deps, guards, caching) is
@@ -16,9 +16,14 @@ Two node kinds:
   awaited schema, and resumes when input is deposited. Gates used to be a
   ``Step(awaits_input=...)`` flag, which made "a node that runs a job" and "a
   node that waits for a human" the same type with mutually exclusive fields.
+- :class:`AgentStep` is work performed by an agent rather than by a local job
+  call. It names the executor that services it and declares what it needs
+  honoured; an executor that cannot honour it is refused **before the walk**
+  (``_engine.agent_step``), never run with the constraint silently dropped.
 
 Node identity is the node's ``name``: for a `Step` the referenced job name, for
-a `Gate` its declared name. Edges reference nodes by that name.
+a `Gate` or an `AgentStep` its declared name. Edges reference nodes by that
+name.
 
 Lives in ``_types`` (not the public ``functualize.workflow`` package) for the
 same reason ``JobDeclaration`` does: boot and discovery must read declarations,
@@ -33,15 +38,18 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from functualize._types.job_declaration import _ref_name
+from functualize._types.protocols import AgentCapability
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
 
 __all__ = [
     "END",
+    "AgentStep",
     "ConditionalEdge",
     "Edge",
     "Gate",
+    "IMPLIED_CAPABILITIES",
     "Step",
     "Tool",
     "ToolRef",
@@ -313,6 +321,127 @@ class Gate:
 
 
 @dataclass(frozen=True)
+class AgentStep:
+    """A workflow node performed by an agent, not by a registered job.
+
+    The third node kind, and the first whose execution is *not* a local
+    function call: it runs somewhere else, it can take arbitrarily long, it can
+    fail in ways a ``try/except`` around a callable does not describe, and it
+    can be **refused** — which is the point. A step that declares something its
+    executor cannot honour refuses before the walk starts, rather than running
+    with the constraint silently dropped.
+
+    Nothing about the agent is declared here. The port says what the *engine*
+    needs; how an implementation talks to a model, an MCP client or a terminal
+    is the implementation's business.
+
+    Attributes:
+        name: Graph key for this node — the address it is recorded under, and
+            the name a refusal reports.
+        instructions: What the step asks the agent to do. Required, and not
+            allowed to be blank: an agent step with nothing to ask cannot be
+            serviced by anyone.
+        executor: The registered executor that services this step, by name.
+            ``None`` means *the only registered executor*, which is a unique
+            answer — a step declaring ``None`` where two are registered is
+            refused rather than guessed at, because handing it to one of them
+            would be substituting an executor for the one the step meant.
+        tools: The tool allowlist this step declares. Declaring any tool
+            implies :attr:`AgentCapability.ENFORCES_TOOL_ALLOWLIST`
+            (:data:`IMPLIED_CAPABILITIES`). An empty sequence declares no
+            constraint, which is *not* the same statement as "no tools".
+        requires: Capabilities the step needs honoured, on top of the implied
+            ones. Widening a declaration is explicit; narrowing it is not
+            possible — ``tools=[…]`` implies its capability either way.
+        time_budget_s: The step's active-time budget in seconds, when it
+            declares one. Declaring one implies
+            :attr:`AgentCapability.PRESERVES_ACTIVE_TIME_BUDGET`: an executor
+            that cannot honour a budget must refuse the step, not ignore it.
+    """
+
+    name: str
+    instructions: str
+    executor: str | None = None
+    tools: Sequence[str] = ()
+    requires: frozenset[AgentCapability] = frozenset()
+    time_budget_s: float | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not self.name.strip():
+            raise ValueError("AgentStep name must be a non-empty string")
+        # A node name is a graph address, so it canonicalizes like every other
+        # address (`Step`, `Gate`, `Edge`) — otherwise an edge written from the
+        # name the author typed would not find this node.
+        object.__setattr__(self, "name", _job_ref_name(self.name))
+        if not isinstance(self.instructions, str) or not self.instructions.strip():
+            raise ValueError(
+                f"AgentStep '{self.name}' must declare non-empty instructions"
+            )
+        if self.executor is not None and (
+            not isinstance(self.executor, str) or not self.executor.strip()
+        ):
+            raise ValueError(
+                f"AgentStep '{self.name}' executor must be a non-empty string or "
+                f"None, got {self.executor!r}"
+            )
+        tools = tuple(self.tools)
+        if any(not isinstance(tool, str) or not tool.strip() for tool in tools):
+            raise ValueError(
+                f"AgentStep '{self.name}' tools must be non-empty strings, "
+                f"got {tools!r}"
+            )
+        object.__setattr__(self, "tools", tools)
+        if self.time_budget_s is not None and self.time_budget_s <= 0:
+            raise ValueError(
+                f"AgentStep '{self.name}' time_budget_s must be positive, "
+                f"got {self.time_budget_s!r}"
+            )
+        # Folded in rather than left to the checker: anything reading
+        # `step.requires` gets the set the engine will actually check against,
+        # so an implication cannot be missed by reading the declaration.
+        object.__setattr__(
+            self, "requires", frozenset(self.requires) | implied_capabilities(self)
+        )
+
+
+#: Every capability flag an executor may declare, and the `AgentStep` attribute
+#: whose presence makes a step require it. ``None`` means no declaration implies
+#: that flag — an author must name it in ``requires``.
+#:
+#: **This table is checked, not maintained.** A flag absent from it is one no
+#: declaration can require, so nothing can ever refuse a step for it and the
+#: flag is dead on arrival. ``_engine/capabilities/registry.py`` asserts at
+#: import that these keys are exactly the ``AgentCapability`` members and
+#: refuses to start when they disagree — ADR-014's shape for the injected
+#: capabilities, applied to the flags an executor declares.
+IMPLIED_CAPABILITIES: dict[AgentCapability, str | None] = {
+    # An author who constrains tools has stated an intent. Satisfying it
+    # silently-not-at-all is the failure this port exists to prevent, so the
+    # capability is implied; it can be widened explicitly, never narrowed.
+    AgentCapability.ENFORCES_TOOL_ALLOWLIST: "tools",
+    # A budget the executor cannot honour is a constraint left unenforced.
+    AgentCapability.PRESERVES_ACTIVE_TIME_BUDGET: "time_budget_s",
+    # Nothing else in a declaration says "this output must reach a live
+    # surface", so this one is reached by naming it.
+    AgentCapability.SUPPORTS_VISIBLE_OUTPUT: None,
+}
+
+
+def implied_capabilities(step: AgentStep) -> frozenset[AgentCapability]:
+    """The capabilities ``step`` requires by declaring something.
+
+    Not the whole requirement — an author may also name capabilities in
+    ``requires``, which :meth:`AgentStep.__post_init__` has already folded in
+    by the time anything reads the attribute.
+    """
+    return frozenset(
+        capability
+        for capability, attribute in IMPLIED_CAPABILITIES.items()
+        if attribute is not None and getattr(step, attribute)
+    )
+
+
+@dataclass(frozen=True)
 class Edge:
     """Unconditional directed connection between two workflow nodes.
 
@@ -387,7 +516,7 @@ class WorkflowNodeShape:
     """
 
     name: str
-    kind: str  # "step" | "gate"
+    kind: str  # "step" | "gate" | "agent"
     model: str | None = None
 
 
@@ -445,6 +574,11 @@ class WorkflowShape:
         for node in self.nodes:
             if node.kind == "gate":
                 nodes.append({"gate": node.name, "model": node.model})
+            elif node.kind == "agent":
+                # Its own key, not "step": an agent step runs no registered
+                # job, so a consumer that read it as one would look up a job
+                # that does not exist.
+                nodes.append({"agent": node.name})
             else:
                 nodes.append({"step": node.name})
 
@@ -484,6 +618,8 @@ class WorkflowShape:
                         name=str(raw["gate"]), kind="gate", model=raw.get("model")
                     )
                 )
+            elif "agent" in raw:
+                nodes.append(WorkflowNodeShape(name=str(raw["agent"]), kind="agent"))
             elif "step" in raw:
                 nodes.append(WorkflowNodeShape(name=str(raw["step"]), kind="step"))
             else:
@@ -512,6 +648,21 @@ class WorkflowShape:
         return cls(nodes=tuple(nodes), edges=tuple(edges))
 
 
+def _node_kind(node: Step | Gate | AgentStep) -> str:
+    """The kind a node is recorded as in the cache shape.
+
+    One place decides this, so a new node kind is a row here rather than a
+    second reading of the same question wherever the shape is consumed.
+    """
+    if isinstance(node, Gate):
+        return "gate"
+    if isinstance(node, AgentStep):
+        return "agent"
+    if isinstance(node, Step):
+        return "step"
+    raise TypeError(f"Unknown workflow node type {type(node).__name__!r}")
+
+
 @dataclass(frozen=True)
 class WorkflowDeclaration:
     """The frozen graph attached by ``@workflow`` (mirrors ``JobDeclaration``).
@@ -521,7 +672,7 @@ class WorkflowDeclaration:
     which is what lets discovery serialize the graph shape into the cache.
     """
 
-    nodes: tuple[Step | Gate, ...] = ()
+    nodes: tuple[Step | Gate | AgentStep, ...] = ()
     edges: tuple[Edge | ConditionalEdge, ...] = ()
 
     def __post_init__(self) -> None:
@@ -538,7 +689,7 @@ class WorkflowDeclaration:
         """
         return self.nodes[0].name if self.nodes else None
 
-    def node(self, name: str) -> Step | Gate | None:
+    def node(self, name: str) -> Step | Gate | AgentStep | None:
         """Look up a node by its graph key."""
         for node in self.nodes:
             if node.name == name:
@@ -548,7 +699,8 @@ class WorkflowDeclaration:
     def step_refs(self) -> tuple[str | Callable[..., Any], ...]:
         """Every `Step`'s job reference, in declaration order.
 
-        Boot resolves these against the registry; gates have no job to resolve.
+        Boot resolves these against the registry; gates have no job to resolve
+        and an `AgentStep` names an *executor*, which is a different registry.
         """
         return tuple(node.job for node in self.nodes if isinstance(node, Step))
 
@@ -586,7 +738,7 @@ class WorkflowDeclaration:
         nodes = tuple(
             WorkflowNodeShape(
                 name=node.name,
-                kind="gate" if isinstance(node, Gate) else "step",
+                kind=_node_kind(node),
                 model=(
                     getattr(node.awaits, "__name__", None)
                     if isinstance(node, Gate)

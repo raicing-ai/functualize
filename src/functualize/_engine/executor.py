@@ -186,6 +186,7 @@ class JobExecutionEngine:
         plugin_config_registry: Any = None,
         resolution_chain: Any = None,
         gate_registry: Any = None,
+        agent_step_registry: Any = None,
         config_view_factory: Callable[..., Any] | None = None,
         config_resolver: Callable[..., Any] | None = None,
     ) -> None:
@@ -197,6 +198,7 @@ class JobExecutionEngine:
         self._plugin_config_registry = plugin_config_registry
         self._resolution_chain = resolution_chain
         self._gate_registry = gate_registry
+        self._agent_step_registry = agent_step_registry
         self._registered_jobs: dict[str, RegisteredJob] = {}
         self._registry_mirrors: list[dict[str, RegisteredJob]] = []
         self._resolution_plan_cache: dict[int, ResolutionPlan] = {}
@@ -1397,6 +1399,8 @@ class JobExecutionEngine:
             run_step=run_step,
             scope_id=scope_id,
             gate_registry=self._gate_registry,
+            agent_step_registry=self._agent_step_registry,
+            request=request,
             # From the request, not from the app. This used to reach two
             # attributes deep into `engine._app` for a value the CLI boundary
             # had deposited there before dispatch — so two concurrent runs

@@ -9,6 +9,7 @@ Public API:
     - workflow: Decorator for declaring multi-step workflows.
     - Step: A node that runs a registered job.
     - Gate: A node that pauses for input.
+    - AgentStep: A node performed by an agent, via a registered executor.
     - Tool: A job a gate offers, with gate-fixed arguments narrowed away.
     - Edge: Directed connection between two workflow nodes.
     - ConditionalEdge: Branching connection based on runtime condition.
@@ -20,6 +21,7 @@ Public API:
 from functualize._types.from_job import FromStep
 from functualize._types.workflow import (
     END,
+    AgentStep,
     ConditionalEdge,
     Edge,
     Gate,
@@ -31,6 +33,7 @@ from functualize.workflow._decorator import workflow
 
 __all__ = [
     "workflow",
+    "AgentStep",
     "ConditionalEdge",
     "Edge",
     "END",

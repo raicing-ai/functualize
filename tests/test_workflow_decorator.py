@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from pydantic import BaseModel
 
 from functualize.workflow import END, ConditionalEdge, Edge, Gate, Step, workflow
-from functualize.workflow._validation import _validate_workflow_graph
+from functualize.workflow._validation import _NODE_TYPES, _validate_workflow_graph
 
 
 class Approval(BaseModel):
@@ -214,9 +216,24 @@ class TestValidateWorkflowGraph:
         )
 
     def test_non_node_entry_rejected(self) -> None:
-        """A stray value in the node list is a mistake, not a silent no-op."""
-        with pytest.raises(TypeError, match="must be Step or Gate"):
+        """A stray value in the node list is a mistake, not a silent no-op.
+
+        The refusal has to name every kind it accepts — that is the whole value
+        of the diagnostic — so the expectation is *which kinds are mentioned*,
+        derived from the validator's own tuple rather than transcribed. A kind
+        added to `_NODE_TYPES` without being added to the message fails here;
+        a transcribed literal would instead have to be edited by hand every
+        time the vocabulary grows, which is how a message and a vocabulary
+        drift apart.
+        """
+        named = {word for word in re.findall(r"\b[A-Z]\w*\b", self._node_type_error())}
+        assert {kind.__name__ for kind in _NODE_TYPES} <= named
+
+    @staticmethod
+    def _node_type_error() -> str:
+        with pytest.raises(TypeError) as caught:
             _validate_workflow_graph(["build"], [])  # type: ignore[list-item]
+        return str(caught.value)
 
     def test_non_edge_entry_rejected(self) -> None:
         """A stray value in the edge list is a mistake, not a silent no-op."""
