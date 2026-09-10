@@ -163,11 +163,19 @@ class FlowVizConstruct:
         """Update tree state from one structured event.
 
         The engine's job vocabulary is ``job.execute.start`` /
-        ``job.execute.end`` / ``job.execute.error`` (see
-        ``_events/_catalog_entries.py``). Nesting is **not** a separate
+        ``job.execute.end`` (see ``_events/_catalog_entries.py``). Nesting is
+        **not** a separate
         ``invoke.*`` event pair — a child started via ``rc.invoke()`` emits the
         same ``job.execute.*`` names carrying an ``invoke_depth`` payload, so
         the tree is built from that depth rather than from an open/close stack.
+
+        ``job.execute.error`` is still matched below but **cannot arrive**: the
+        engine folds a failure into ``job.execute.end`` with
+        ``status='failure'``, and adjacent-defects/T6 removed the catalog entry
+        that had promised otherwise. The branch is harmless and is kept so that
+        an older producer, or a plugin emitting the name itself, still lands in
+        the right place — but this docstring no longer cites the catalog for it,
+        because the catalog no longer names it.
 
         Caveat — the lifecycle branch is currently unreachable: ``job.execute.``
         is one of ``RunContext._FRAMEWORK_EVENT_PREFIXES``, which

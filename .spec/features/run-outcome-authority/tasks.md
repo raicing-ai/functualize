@@ -240,7 +240,7 @@ correctly does not).
 
 ## Wave 6 — the tests that keep it collapsed
 
-### [ ] T12 · Round-trip and consumer-count
+### [x] T12 · Round-trip and consumer-count
 
 **Files:** `tests/types/test_flag_grammar_roundtrip.py`,
 `tests/types/test_flag_grammar_consumer_count.py`
@@ -250,13 +250,28 @@ legitimate consumer is one obvious line and the diff shows a reviewer what chang
 
 **Gate — the consumer set as it stands** *(corrected during execution)*
 ```bash
-rg -l 'GLOBAL_OPTIONS_ALWAYS_VALUE|GLOBAL_OPTIONS_OPTIONAL_VALUE|OPTIONAL_VALUE_VALID_SET' \
+rg -l -e 'GLOBAL_OPTIONS_ALWAYS_VALUE|GLOBAL_OPTIONS_OPTIONAL_VALUE|OPTIONAL_VALUE_VALID_SET' \
    -e 'GLOBAL_OPTIONS_WITH_VALUE|GLOBAL_BOOL_FLAGS|flag_aliases|negative_aliases' \
    -e 'match_group_flag|negative_flag_for' src/functualize/ \
   | grep -vE '_types/flag_grammar.py|_types/naming.py|app/utils.py|types/__init__.py' | sort
 ```
-now: `_cli/dispatch.py`, `_cli/main.py`, `_cli/tui/bar.py`, `_cli/tui/sync.py`,
-`app/adapters/click_params.py` *(5 files)* · after: the same 5, pinned by the test
+now: `_cli/completions/data.py`, `_cli/dispatch.py`, `_cli/main.py`,
+`_cli/tui/bar.py`, `_cli/tui/sync.py`, `app/adapters/cli.py`,
+`app/adapters/click_params.py` *(7 files)* · after: the same 7, pinned by
+`tests/types/test_flag_grammar_consumer_count.py`
+
+*(**Corrected twice.** The first version counted only the name `negative_flag_for`; see the
+note below. The second version — this gate's own first fix — was **itself broken**: written as
+`rg -l 'P1' -e 'P2' -e 'P3' path`, and once any `-e` is present `rg` reads the leading
+positional as a **file path**, not a pattern. It printed `No such file or directory` on stderr
+and silently searched only two of the three groups, which is why its "expected 5" matched no
+actual run — it could not see `_cli/main.py` at all. Every group needs its own `-e`.*
+
+*Of the two files the count gained, `app/adapters/cli.py` is a **true** consumer added by
+run-request-entry/T13 (it reads `OPTIONAL_VALUE_VALID_SET["--output"]` for its own flag), and
+`_cli/completions/data.py` is a **mention only** — `negative_flag_for` appears there once, in
+a docstring. `rg -l` is a mention scan and so is the test; carving out a docstring exclusion
+would be inventing a narrower gate than the one being audited.)*
 
 *(The gate as authored counted only the name `negative_flag_for`, and after T8 that
 under-counts in both directions. `_cli/dispatch.py` no longer says `negative_flag_for` — its

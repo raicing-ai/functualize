@@ -55,7 +55,7 @@ class TestRunContext:
         - prompt: AutoPrompt([]) (no pre-configured answers)
         - perf: NoopPerf (silently accepts all calls)
         - state: empty State instance
-        - job_context: JobContext(name="test", trace_id=None, deadline=None, metadata=empty)
+        - job_context: JobContext(name="test", trace_id=None, metadata=empty)
 
         Args:
             log: Override for the Log capability.
@@ -81,7 +81,6 @@ class TestRunContext:
             else JobContext(
                 name="test",
                 trace_id=None,
-                deadline=None,
             )
         )
 

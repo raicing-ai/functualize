@@ -13,11 +13,15 @@ walk turns the CLI into a second job-executing door. A door that called
 failure ``_gate_refusal`` was written to prevent, where an agent refused
 ``deploy`` as a tool just calls ``run_job("deploy")`` instead.
 
-So every path that can run a job while a gate waits — CLI ``resume``, MCP
-``resume_workflow``, ``--wf-resume``, ``call_gate_tool`` — passes through
-:func:`guarded_execute`, and :class:`GateToolPolicy` lives here rather than in
-the plugin. A check that a caller can skip by not calling it is not a
-permission.
+So every path that can run a job while a gate waits — CLI ``workflow resume``,
+MCP ``resume_workflow``, ``call_gate_tool`` — is routed through the module's
+one job-executing chokepoint, and :class:`GateToolPolicy` lives here rather
+than in the plugin. A check that a caller can skip by not calling it is not a
+permission. ``--wf-resume`` is not one of those paths: the click wrappers
+resolve it with ``apply_workflow_flags`` and run the engine directly. The walk
+it continues is the workflow's own — the continuation no policy governs
+(``resume_scope`` passes ``policy=None`` for the same reason) — so routing it
+through the chokepoint would add nothing.
 
 **``resume`` advances; ``answer`` records.** One meaning each, on every surface.
 This is the verb the whole feature exists for: before it, nothing anywhere

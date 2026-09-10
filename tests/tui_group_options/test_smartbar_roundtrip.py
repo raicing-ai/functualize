@@ -266,40 +266,6 @@ class TestTheThreeFoundBySweep:
             f"bar reports {readiness} with the required `image` unfilled"
         )
 
-    async def test_d8_missing_args_detection_runs_for_a_grouped_job(
-        self, glab_tui
-    ) -> None:
-        """Returns `None` — "not a job" — whenever `tokens[0]` is a group,
-        which silently disables the whole feature for every grouped job."""
-        from functualize._cli.introspect import InProcessIntrospector
-        from functualize._cli.tui.missing_args import get_missing_required_args
-
-        introspector = InProcessIntrospector(glab_tui._func_app)
-        result = await get_missing_required_args(
-            introspector, ["deploy", "--env", "prod", "web", "run"]
-        )
-
-        assert result is not None, "missing-args detection was skipped entirely"
-        assert result.job_name == "deploy.web.run"
-        assert [f.name for f in result.missing_fields] == ["image"]
-
-    async def test_d8_a_provided_positional_is_not_reported_missing(
-        self, glab_tui
-    ) -> None:
-        """The other half: once `image` is typed, nothing is missing."""
-        from functualize._cli.introspect import InProcessIntrospector
-        from functualize._cli.tui.missing_args import get_missing_required_args
-
-        introspector = InProcessIntrospector(glab_tui._func_app)
-        result = await get_missing_required_args(
-            introspector, ["deploy", "--env", "prod", "web", "run", "v1.2"]
-        )
-
-        assert result is not None
-        assert result.is_executable, (
-            f"still reports {[f.name for f in result.missing_fields]} missing"
-        )
-
     def test_d9_used_flag_filtering_counts_only_the_jobs_own_tokens(
         self, collision_tui
     ) -> None:

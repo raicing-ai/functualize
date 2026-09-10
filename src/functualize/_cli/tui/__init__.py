@@ -24,7 +24,6 @@ from functualize._cli.tui.integration import (
     exit_to_command_mode,
 )
 from functualize._cli.tui.key_handler import KEYMAPS, KeyDispatcher
-from functualize._cli.tui.missing_args import get_missing_required_args
 from functualize._cli.tui.panel_host import PanelHost
 from functualize._cli.tui.path_field_editor import PathFieldEditor
 from functualize._cli.tui.path_suggestion_scanner import PathSuggestionScanner
@@ -69,7 +68,6 @@ __all__ = [
     "discover_config_targets",
     "find_related_displays",
     "format_type_hint",
-    "get_missing_required_args",
     "is_display_related",
     "render_footer",
     "validate_setting",

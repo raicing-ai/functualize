@@ -148,7 +148,7 @@ producer or consumer:
 | `job.execute.error`, `cli.parse.start`, `tui.session.start/end` | declared in `_events/_catalog_entries.py`, **emitted nowhere** |
 | `JobContext.deadline` | `_engine/capabilities/job_context.py:27,38` — *"Optional deadline after which the job should abort"*; **no construction site ever sets it** |
 | `_deposit` | `_workflow_tools.py:423-432` — orphaned by 0.3.0's `answer_gate` |
-| `FUNCTUALIZE_CLI_OUTPUT` | help text at `builtins.py:1961, 2072, 2166`; read by nothing |
+| ~~`FUNCTUALIZE_CLI_OUTPUT`~~ | ~~help text at `builtins.py:1961, 2072, 2166`; read by nothing~~ — **no longer true.** Read at `_cli/info.py:63` via `resolve_renderer`, which all three help sites route through; verified by behaviour (`FUNCTUALIZE_CLI_OUTPUT=json func builtin info jobs` emits JSON) and pinned by `tests/cli/test_info_subcommands.py`. Fixed between `c0c921f` and execution, not by this roadmap (run-request-entry/T14) |
 | `get_missing_required_args`, `omit_defaults` | STATUS #13, #14 |
 
 ## F. One comment that is false

@@ -153,12 +153,32 @@ snapshots passed`, and the full `tests/_cli tests/cli` run is `1 failed, 2697
 passed` with the only red being the environmental `self_doctor` check that reads
 a sibling worktree's stale venv off `PATH`.
 
-They were **transient, caused by a concurrent sibling agent** editing
-`app/adapters/click_params.py` for F2 T9 while this agent's suite ran — that
-file renders the flags the SmartBar snapshot draws. The agent's control
-experiment (revert the fix, same 4 still fail) correctly proved the failures were
-not its own, but could not see that the cause was a half-written file in a
-shared worktree rather than committed sibling work.
+**Correction (2026-09-10): the cause given below was wrong.** A later agent
+diagnosed it properly and the diagnosis reproduces on demand:
+
+    NO_COLOR=1 TERM=dumb uv run pytest tests/_cli/test_snapshot_baseline.py
+      -> 4 failed
+    (no NO_COLOR, TERM=xterm-256color)
+      -> 4 passed, 4 snapshots passed
+
+The agent shells export `NO_COLOR=1` and `TERM=dumb`, which puts the TUI in its
+`nocolor` pseudo-class and changes the rendered palette (`#0178d4` -> `#656565`),
+so every colour-bearing baseline mismatches. The orchestrator's shell has
+`TERM=xterm-256color` and no `NO_COLOR`, which is why the same command passed for
+me and failed for two different agents. Nothing to do with concurrent edits.
+
+The original (wrong) explanation is kept below rather than deleted, because the
+reasoning error is the useful part: I had just watched a concurrent agent break
+`bar.py`, so I attributed a second unexplained failure to the same cause without
+testing it. A control experiment that rules out *your* change does not identify
+what did cause it.
+
+> ~~They were **transient, caused by a concurrent sibling agent** editing
+> `app/adapters/click_params.py` for F2 T9 while this agent's suite ran — that
+> file renders the flags the SmartBar snapshot draws. The agent's control
+> experiment (revert the fix, same 4 still fail) correctly proved the failures
+> were not its own, but could not see that the cause was a half-written file in a
+> shared worktree rather than committed sibling work.~~
 
 **Regenerating those snapshots would have baked a mid-edit render into the
 baseline.** Refusing to touch `__snapshots__/` was the correct call, and the

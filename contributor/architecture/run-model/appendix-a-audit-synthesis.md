@@ -79,7 +79,9 @@ halves earned their place.
 **The coverage audit contributed the things you can only get by running the binary.** The 17
 surfaces, each with its boot path. The live reproduction of `--output` being absent from an
 app's own entry point (`Error: No such option '--output'`). The observation that
-`FUNCTUALIZE_CLI_OUTPUT` appears only in help text and is read by nothing. The STATUS ledger
+`FUNCTUALIZE_CLI_OUTPUT` appears only in help text and is read by nothing — **which drifted
+before execution reached it**: `_cli/info.py:63` reads it now, and run-request-entry/T14
+closed as already-satisfied rather than as work (see that task for the evidence). The STATUS ledger
 re-verified item by item, including four that turned out **closed**. And D-11, reproduced
 twice, where the misleading error was the part worth recording.
 

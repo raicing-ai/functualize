@@ -322,7 +322,7 @@ now: `0` · after: `≥2`
 **Test:** via the dual-surface `cli_run` fixture — the same test body passes on `func` and on
 an app entry point. This test **cannot exist today**; that is the defect.
 
-### [ ] T14 · `FUNCTUALIZE_CLI_OUTPUT` is read or removed
+### [x] T14 · `FUNCTUALIZE_CLI_OUTPUT` is read or removed
 
 **Files:** `src/functualize/_cli/builtins.py`
 
@@ -334,6 +334,35 @@ rg -c 'FUNCTUALIZE_CLI_OUTPUT' src/functualize/_cli/builtins.py src/functualize/
 ```
 now: `builtins.py:3`, tree-wide: `3` · after: help-text count `3` **and** a read site, **or**
 tree-wide `0`
+
+**Outcome: already satisfied when the wave opened — by prior work, not by this task.**
+The audit's premise ("documented in help text at three sites and read nowhere") was true at
+`c0c921f` and became false before execution began. `_cli/info.py:63` reads it:
+
+```python
+from_env = os.environ.get("FUNCTUALIZE_CLI_OUTPUT")
+return from_env if from_env in RENDERERS else "rich"
+```
+
+`resolve_renderer`'s own docstring records why it was added — on `func` the settings store had
+already folded the variable into `cli_config`, but "a project's own `main.py` builds no store,
+so `cli_config` is `None` on that surface and the documented env var silently did nothing".
+All three `builtins.py` help sites (`:2510`, `:2624`, `:2718`) route through it
+(`:2529`, `:2641`, `:2740`).
+
+Verified by behaviour, not by reading:
+
+```
+$ func builtin info jobs                          -> hello  A job to list.
+$ FUNCTUALIZE_CLI_OUTPUT=json func builtin info jobs -> [ { "name": "hello", ...
+```
+
+Already pinned against regression by `tests/cli/test_info_subcommands.py` (69 passed), so no
+new test is owed. The tree-wide count is **7**, not 3 — the gate's `now:` was stale in the
+same way its premise was.
+
+*(`contributor/architecture/run-model/01-current-state.md:151` and
+`appendix-a-audit-synthesis.md:82` still assert "read by nothing"; corrected with this task.)*
 
 ### [ ] T15 · Control inputs cannot arrive as job arguments
 

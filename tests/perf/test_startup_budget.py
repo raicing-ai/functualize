@@ -51,12 +51,11 @@ BUDGET_CONFIG_ENTRY_POINTS_MS = 50.0  # discover_entry_points()
 # ~221ms median), so this still catches an order-of-magnitude regression without
 # reporting machine load as a code defect.
 #
-# This is the dominant boot phase — ~57% of total boot — and worth reducing
-# rather than merely re-budgeting. One concrete lead: a single boot calls
-# `importlib.metadata.entry_points()` seven times (measured), and each call
-# rescans all 215 installed distributions from disk. Caching that would cut
-# ~53ms of the ~65ms `FunctualizeApp()` construction cost. Left alone here
-# because it is a change to the boot hot path and needs its own verification.
+# This is the dominant boot phase — ~57% of total boot — and still worth
+# reducing rather than merely re-budgeting. The caching this comment once
+# proposed shipped on 2026-08-27: `_primitives/entry_points.py` collapses the
+# seven per-boot `importlib.metadata.entry_points()` walks into one scan per
+# process, and every discovery site reads that shared snapshot.
 BUDGET_CONFIG_RESOLUTION_MS = 300.0
 BUDGET_JOB_REGISTRATION_MS = 50.0  # Command registration (no jobs = fast)
 BUDGET_CHILDREN_MS = 50.0  # No children = fast

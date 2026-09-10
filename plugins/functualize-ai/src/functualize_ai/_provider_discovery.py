@@ -50,6 +50,10 @@ def discover_ai_providers() -> dict[str, importlib.metadata.EntryPoint]:
     Returns:
         Dictionary mapping provider names to their entry points.
     """
+    # Deliberate exception to the `functualize._primitives` entry-point cache:
+    # this package is published standalone (pyproject declares pydantic and
+    # functualize-state, not functualize), so it cannot import the internal
+    # helper without acquiring an undeclared dependency on functualize core.
     eps = importlib.metadata.entry_points(group=ENTRY_POINT_GROUP)
     return {ep.name: ep for ep in eps}
 

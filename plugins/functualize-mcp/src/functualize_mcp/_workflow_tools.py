@@ -47,7 +47,6 @@ from functualize.app.utils import (
     answer_gate,
     call_gate_tool,
     cancel_scope,
-    deposit_gate_input,
     describe_scope,
     gate_draft,
     list_scopes,
@@ -419,17 +418,6 @@ class WorkflowToolProvider:
             if scope.get("status") in _LIVE_STATUSES
             for name, _ in _pending_gates(scope)
         ]
-
-    def _deposit(
-        self, scope_id: str, gate: str, payload: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Validate against the gate's model, then fill its payload slot.
-
-        Delegates to the lifted ``deposit_gate_input`` (D2b): the CLI
-        ``func builtin workflow resume`` calls the *same* function, so there is
-        one notion of "accept input for a gate" rather than a plugin-local copy.
-        """
-        return deposit_gate_input(self._app, self.store, scope_id, gate, payload)
 
 
 def _now() -> str:
