@@ -207,6 +207,19 @@ class RunRequest:
     cwd: Path | None = None
     job_directory: Path | None = None
 
+    #: The run that launched this one, when there is one (`durable-run-layer`).
+    #:
+    #: Carried on the **request** rather than in a `ContextVar`, because
+    #: `rc.invoke_parallel` runs its items on a `ThreadPoolExecutor` and a fresh
+    #: thread starts with an empty context — the batch items are precisely the
+    #: children whose parentage the run log most needs, so the mechanism that
+    #: loses them there is the wrong mechanism.
+    #:
+    #: `nested_request` does **not** propagate it automatically: a child's
+    #: parent is the run that built the request, and only that code knows its
+    #: own run id. Inheriting it would make a grandchild claim its grandparent.
+    parent_run_id: str | None = None
+
     def __post_init__(self) -> None:
         if self.surface not in RUN_SURFACES:
             # Name the offender and the closed set; a door that mistypes itself
@@ -239,6 +252,7 @@ class RunRequest:
                 self.force_fresh,
                 self.cwd,
                 self.job_directory,
+                self.parent_run_id,
             )
         )
 
@@ -354,6 +368,9 @@ def nested_request(parent: RunRequest | None, **changes: Any) -> RunRequest:
         "workflow_scope_id": None,
         "run_dependencies": True,
         "force_fresh": False,
+        # Reset, not inherited: a child's parent is whoever built its request,
+        # and inheriting would make a grandchild claim its grandparent.
+        "parent_run_id": None,
     }
     fields.update(changes)
     return parent.replace(**fields)

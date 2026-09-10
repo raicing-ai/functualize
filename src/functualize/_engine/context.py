@@ -53,6 +53,14 @@ class ExecutionContext:
             behaviour travels *with the run* instead of sitting on a
             process-lifetime object that a second, concurrent run would share.
             ``None`` only for a context built outside ``run()``.
+        run_id: The run-log id this execution was recorded under, when the run
+            log could be written. **Carried on the context, not in a
+            `ContextVar`**, because `rc.invoke_parallel` runs its items on a
+            thread pool and a fresh thread starts with an empty context — the
+            batch items are exactly the children whose parentage the log most
+            needs. A child request reads it from here to set its own
+            ``parent_run_id``. ``None`` when the store could not be written, or
+            for a context built outside ``run()``.
 
             **Provenance, not the working copy — and the distinction is the
             rule that was missing.** This context also carries ``job_name``,
@@ -96,6 +104,7 @@ class ExecutionContext:
     config_class: type | None = None
     parent_scope: Any | None = None
     request: RunRequest | None = None
+    run_id: str | None = None
 
     #: Parameter names in ``call_kwargs`` that the executor injected — DI
     #: capabilities, the resolved config model, resolved group options, and

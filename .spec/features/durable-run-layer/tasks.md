@@ -75,9 +75,13 @@ scope record**, which is why it needs no bump; see schema §4.)*
 
 ## Wave 1 — the record opens where every door passes
 
-### [ ] T2 · `engine.run()` opens and closes a run record
+### [x] T2 · `engine.run()` opens and closes a run record
 
-**Files:** `src/functualize/_engine/executor.py`, `tests/engine/test_run_record.py`
+**Files:** `src/functualize/_engine/executor.py`, `src/functualize/_engine/context.py`,
+`src/functualize/_types/run_request.py`,
+`src/functualize/_engine/capabilities/{runcontext,invoke}.py`,
+`src/functualize/_engine/{workflow_orchestrator,dependency_runner}.py`,
+`tests/engine/test_run_record.py`
 
 Spec AC-1, AC-2, AC-3. Includes nested and parallel runs — the ones history excludes.
 
@@ -85,12 +89,51 @@ Spec AC-1, AC-2, AC-3. Includes nested and parallel runs — the ones history ex
 ```bash
 rg -n 'if invoke_depth == 0:' src/functualize/_engine/executor.py | head -1
 ```
-now: `705` · after: `705`, unchanged — the record is **not** the history ring
+now: `705` · after: **`1311`** — the *line number* moved (`engine-sealed-construction` T6/T7
+extracted ~300 lines from this file); the **line** is unchanged, which is what the gate is
+about. The ring's rule, its 200 cap and its depth gate are untouched, and
+`test_the_child_is_absent_from_history` asserts that behaviourally rather than by line number.
 
 **Test:** a nested `rc.invoke` child gets a run record with `parent_run_id` set, and does
-**not** appear in `func builtin history`.
+**not** appear in `func builtin history`. ✓ — both halves, in one class, because they are one
+claim: two logs answering two questions.
 **Test:** the record carries `surface`, and it differs between a `func` run and an MCP run of
-the same job (AC-2).
+the same job (AC-2). ✓
+
+**9 tests, and the parentage mechanism is the part worth reading.** `parent_run_id` rides on
+the **`RunRequest`**, not in a `ContextVar`: `rc.invoke_parallel` hands its items to a
+`ThreadPoolExecutor`, and a fresh thread starts with an *empty* context — so a context variable
+would report every batch item as a top-level run, and batch items are exactly the children
+whose parentage the log most needs. `TestParallelItemsKeepTheirParent` is that assertion.
+`nested_request` deliberately does **not** propagate the field: a child's parent is whoever
+built its request, and inheriting would make a grandchild claim its grandparent.
+
+**A bug found by the probe, in a place a test would have missed.** There are **two**
+`RunContext` construction sites in `executor.py`: one at the DI binding (`binding.source ==
+"runcontext"`) and a fallback for a context DI did not fill. Only the fallback was given the
+run identity at first — so a job declaring `rc: RunContext` produced children with
+`parent_run_id=None` while the path a test could most easily exercise looked correct. `Invoke`
+turned out to have a **third** door, its own capability factory, which needed the same hop.
+Three sites, one fact.
+
+**Three defects in the tests themselves, each of the same species:**
+
+1. `parent()` took `invoke: Invoke` with `Invoke` imported **inside the test method**. A nested
+   function's `__globals__` is the module's, so the annotation did not resolve and the job
+   failed with "missing 1 required positional argument". The test then read the run log and
+   found one record — and would have reported that as a *product* defect.
+2. Neither child test asserted the run **succeeded** before reading the log. That is what let
+   (1) look like a recording bug. Every test here now asserts the status first: a test that
+   reads a log without checking the run worked is measuring the wrong thing.
+3. The dependency test declared `@job(deps=Deps("upstream"))` and registered the entry without
+   `dependencies=`. The job **graph** is built from `RegisteredJob.dependencies`, which
+   discovery fills from the declaration — so a hand-registered entry must say it twice, and
+   saying it once produced a green run with no dependency at all.
+
+**Best-effort, deliberately.** Both halves are wrapped and log at debug:
+`test_a_run_survives_a_store_that_cannot_be_written` monkeypatches the store to raise and
+asserts the job still succeeds. Without it this file would be asserting the log works *and*
+quietly making the engine fragile — an observation is never worth a run.
 
 ---
 

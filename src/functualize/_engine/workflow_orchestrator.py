@@ -68,6 +68,7 @@ class WorkflowOrchestrator:
         invoke_depth: int,
         start_time: float,
         request: RunRequest | None = None,
+        run_id: str | None = None,
     ) -> tuple[Any, JobResult | None]:
         """Walk a `@workflow` job's graph before its body runs.
 
@@ -96,6 +97,10 @@ class WorkflowOrchestrator:
                     job_name=step_name,
                     surface="engine.step",
                     invoke_depth=invoke_depth + 1,
+                    # The walk's own run is this step's parent. Set here rather
+                    # than inherited by `nested_request`, so a step of a nested
+                    # workflow claims the inner walk and not the outer one.
+                    parent_run_id=run_id,
                     # Run the step *inside* the scope, so a `FromJob` parameter
                     # resolves against what the walk has already recorded rather
                     # than falling through to the fingerprint store and, finding

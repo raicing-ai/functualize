@@ -144,6 +144,11 @@ class DependencyRunner:
                     job_name=node,
                     surface="engine.dependency",
                     invoke_depth=invoke_depth + 1,
+                    # The dependent's run is this upstream's parent, read off
+                    # the context rather than a ContextVar — see
+                    # `RunRequest.parent_run_id` for why that distinction
+                    # matters for a thread pool.
+                    parent_run_id=getattr(context, "run_id", None),
                     # The plan already contains this node's own dependencies,
                     # in order. Letting it schedule them again would run a
                     # shared upstream once per path into it — a diamond ran

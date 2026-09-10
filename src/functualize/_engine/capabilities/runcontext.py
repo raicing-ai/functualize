@@ -150,6 +150,7 @@ class RunContext:
         _workflow_scope: WorkflowScope | None = None,
         _invoke_depth: int = 0,
         _parent_request: Any = None,
+        _run_id: str | None = None,
         _max_invoke_depth: int = 10,
         _execution_engine: Any = None,
         cwd: Path | None = None,
@@ -174,6 +175,10 @@ class RunContext:
         self._workflow_scope: WorkflowScope | None = _workflow_scope
         self._invoke_depth: int = _invoke_depth
         self._parent_request: Any = _parent_request
+        #: The run-log id of *this* run, so `rc.invoke` children can name
+        #: their parent. Carried rather than looked up: a batch item runs on
+        #: a worker thread, where a `ContextVar` would be empty.
+        self._run_id: str | None = _run_id
         self._max_invoke_depth: int = _max_invoke_depth
         self._execution_engine: Any = _execution_engine
         self._cwd: Path | None = cwd
@@ -264,6 +269,7 @@ class RunContext:
                 # children inherit its delivery inputs instead of silently
                 # taking defaults (run-request-entry, nested-inheritance fix).
                 parent_request=self._parent_request,
+                parent_run_id=self._run_id,
                 invoke_depth=self._invoke_depth,
                 max_invoke_depth=self._max_invoke_depth,
                 workflow_scope=self._workflow_scope,

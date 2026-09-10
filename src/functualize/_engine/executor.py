@@ -774,10 +774,12 @@ class JobExecutionEngine:
         """
         job = self.get_job(request.job_name)
         kwargs = self._request_kwargs(request, job)
+        run_id = self._open_run_record(request, kwargs)
         result = self._execute_lifecycle(
             request.job_name,
             job.function,
             request=request,
+            run_id=run_id,
             kwargs=kwargs,
             invoke_depth=request.invoke_depth,
             cwd=request.cwd,
@@ -794,9 +796,66 @@ class JobExecutionEngine:
                 else None
             ),
         )
+        self._close_run_record(run_id, result)
         if self._records_history(request):
             self._record_history(request.job_name, kwargs, result)
         return result
+
+    def _open_run_record(
+        self, request: RunRequest, kwargs: dict[str, Any]
+    ) -> str | None:
+        """Record this run as started; return its id, or None if unrecordable.
+
+        **Every** run through this entry, including the nested and parallel ones
+        the history ring excludes — that difference is the point of having both.
+        The ring answers *"what did I ask for"* and is capped at 200 so a deep
+        workflow cannot evict a user's own launches. The run log answers *"what
+        happened in this project"*, and a child with no record makes the tree
+        unanswerable.
+
+        Best-effort and silent, exactly like `_record_history`: a store that
+        cannot be written must not turn a job that ran fine into a visible
+        failure. Returning `None` is how the close half learns to do nothing.
+        """
+        try:
+            from functualize._primitives.fingerprint import compute_args_hash
+            from functualize._primitives.run_store import RunStore, runner_identity
+
+            store = RunStore.beside_state(self._state_store().path)
+            return store.open_run(
+                {
+                    "job": request.job_name,
+                    # AC-2: which surface started this run, answerable from the
+                    # record rather than inferred from what else is in it.
+                    "surface": request.surface,
+                    "args_hash": compute_args_hash(call_args=self._hashable(kwargs)),
+                    "scope_id": request.workflow_scope_id,
+                    "parent_run_id": request.parent_run_id,
+                    "invoke_depth": request.invoke_depth,
+                    "group_option_values": (
+                        dict(request.group_option_values)
+                        if request.group_option_values is not None
+                        else {}
+                    ),
+                    "force": request.force,
+                    "runner": runner_identity(),
+                }
+            )
+        except Exception:  # noqa: BLE001 - an observation is never worth a run
+            logger.debug("could not open a run record", exc_info=True)
+            return None
+
+    def _close_run_record(self, run_id: str | None, result: JobResult) -> None:
+        """Mark the run finished. Silent for the same reason as opening it."""
+        if run_id is None:
+            return
+        try:
+            from functualize._primitives.run_store import RunStore
+
+            store = RunStore.beside_state(self._state_store().path)
+            store.close_run(run_id, result.status.value.lower())
+        except Exception:  # noqa: BLE001 - an observation is never worth a run
+            logger.debug("could not close run record %s", run_id, exc_info=True)
 
     @staticmethod
     def _records_history(request: RunRequest) -> bool:
@@ -951,6 +1010,7 @@ class JobExecutionEngine:
         force: bool = False,
         group_option_values: dict[str, Any] | None = None,
         request: RunRequest | None = None,
+        run_id: str | None = None,
     ) -> JobResult:
         """Execute a job with full lifecycle.
 
@@ -1020,6 +1080,7 @@ class JobExecutionEngine:
             config_class=config_class,
             parent_scope=parent_scope,
             request=request,
+            run_id=run_id,
         )
 
         declaration = getattr(function, "__functualize_workflow__", None)
@@ -1061,6 +1122,7 @@ class JobExecutionEngine:
                 invoke_depth=invoke_depth,
                 start_time=start_time,
                 request=request,
+                run_id=run_id,
             )
             if early is not None:
                 return early
@@ -1099,6 +1161,7 @@ class JobExecutionEngine:
                 job_directory=job_directory,
                 _invoke_depth=invoke_depth,
                 _parent_request=request,
+                _run_id=run_id,
                 _max_invoke_depth=self.max_invoke_depth,
                 _execution_engine=self,
                 _di_registry=self._di_registry,
@@ -1471,6 +1534,15 @@ class JobExecutionEngine:
                     _di_registry=self._di_registry,
                     _workflow_scope=context.parent_scope,
                     _caps=per_invocation_caps,
+                    # **This** is the RunContext a job's `rc:` parameter gets —
+                    # the one at :1151 is the fallback for a context that DI did
+                    # not fill. Both need the run's identity, and only this one
+                    # was given it at first: `rc.invoke` children came out with
+                    # `parent_run_id=None` while the fallback path looked
+                    # correct, which is the shape of bug that survives a test
+                    # written against the wrong path.
+                    _parent_request=context.request,
+                    _run_id=context.run_id,
                 )
                 resolved[binding.name] = rc
                 per_invocation_caps[RunContext] = rc

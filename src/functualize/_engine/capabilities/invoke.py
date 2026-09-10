@@ -282,6 +282,7 @@ class WiredInvoke(Invoke):
         max_invoke_depth: int = 10,
         parallel_item_surface: RunSurface = "invoke.parallel",
         parent_request: Any = None,
+        parent_run_id: str | None = None,
         workflow_scope: WorkflowScope | None = None,
         cwd: Path | None = None,
         run_context: Any | None = None,
@@ -304,6 +305,9 @@ class WiredInvoke(Invoke):
         # The request that asked for the run this capability belongs to. Its
         # delivery inputs travel to every child; see `JobExecutionEngine._nested`.
         self._parent_request: Any = parent_request
+        #: The run that owns this capability — the parent of everything it
+        #: invokes, including a parallel batch's items.
+        self._parent_run_id: str | None = parent_run_id
         self._workflow_scope = workflow_scope
         self._cwd = cwd
         self._rc = run_context
@@ -444,6 +448,7 @@ class WiredInvoke(Invoke):
                     group_option_values=group_option_values,
                     parent_scope=parent_scope,
                     invoke_depth=child_depth,
+                    parent_run_id=self._parent_run_id,
                     cwd=self._cwd,
                     job_directory=registered_job.job_directory,
                 )
@@ -650,6 +655,11 @@ class WiredInvoke(Invoke):
                         surface=self._parallel_item_surface,
                         kwargs=kwargs,
                         parent_scope=None,  # Independent — no shared scope
+                        # Independent *scopes*, one parent *run*: the batch
+                        # items are the children the run log most needs to
+                        # place, and they run on worker threads where a
+                        # ContextVar would be empty.
+                        parent_run_id=self._parent_run_id,
                         invoke_depth=child_depth,
                         cwd=self._cwd,
                         job_directory=registered_job.job_directory,
@@ -874,6 +884,12 @@ def _make_invoke(ctx: Any) -> WiredInvoke:
         # `ctx.request` returns None and the children silently take defaults,
         # which is how `--emit-format none` stopped reaching an invoked child.
         parent_request=getattr(ctx.context, "request", None),
+        # Same hop, same reason: the run that owns this capability is the parent
+        # of everything it invokes. Read off the ExecutionContext rather than a
+        # `ContextVar`, because `parallel` hands items to worker threads where a
+        # context variable would be empty — and those items are exactly the
+        # children the run log most needs to place.
+        parent_run_id=getattr(ctx.context, "run_id", None),
         invoke_depth=ctx.context.invoke_depth,
         max_invoke_depth=ctx.engine.max_invoke_depth,
         workflow_scope=ctx.context.parent_scope,
