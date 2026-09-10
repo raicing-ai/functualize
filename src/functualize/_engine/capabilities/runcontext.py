@@ -13,7 +13,6 @@ import logging
 from datetime import UTC, datetime
 from logging import Logger
 from pathlib import Path
-from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar, TypedDict, TypeVar, cast, overload
 
 from functualize._engine.capabilities.log import Log, validate_log_level
@@ -30,6 +29,7 @@ if TYPE_CHECKING:
     from functualize._engine.capabilities.discovery_facade import DiscoveryFacade
     from functualize._engine.capabilities.invoke import Invoke
     from functualize._engine.capabilities.state_store import StateStore
+    from functualize._engine.capabilities.wiring_facade import WiringFacade
     from functualize._engine.capabilities.workflow import WorkflowTracker
     from functualize._engine.capabilities.workflow_scope import WorkflowScope
     from functualize._engine.result import JobResult
@@ -202,6 +202,16 @@ class RunContext:
         #: which subject they belong to; the core a job actually reaches for —
         #: `config`, `log`, `invoke`, `state`, `cwd` — stays flat.
         self._discovery: DiscoveryFacade | None = None
+        self._wiring: WiringFacade | None = None
+
+    @property
+    def wiring(self) -> WiringFacade:
+        """`rc.wiring` — the plugin configs and resources this app provides."""
+        if self._wiring is None:
+            from functualize._engine.capabilities.wiring_facade import WiringFacade
+
+            self._wiring = WiringFacade(self)
+        return self._wiring
 
     @property
     def discovery(self) -> DiscoveryFacade:
@@ -661,41 +671,6 @@ class RunContext:
         matching = set(filter_phases(unprefixed, include, exclude))
         return [p for p, u in zip(job_phases, unprefixed, strict=True) if u in matching]
 
-    # --- Plugin Config ---
-
-    @property
-    def plugin_configs(self) -> MappingProxyType[str, BaseModel]:
-        if self._plugin_configs is None:
-            self._plugin_configs = {}
-        return MappingProxyType(self._plugin_configs)
-
-    def get_plugin_config(self, section: str) -> BaseModel:
-        if self._plugin_configs is None or section not in self._plugin_configs:
-            available = list((self._plugin_configs or {}).keys())
-            raise KeyError(
-                f"No plugin config for section '{section}'. Available: {available}"
-            )
-        return self._plugin_configs[section]
-
-    def with_plugin_config(self, section: str, **overrides: Any) -> RunContext:
-        current = self.get_plugin_config(section)
-        model_class = type(current)
-        new_config = model_class(**{**current.model_dump(), **overrides})
-        new_configs = dict(self._plugin_configs or {})
-        new_configs[section] = new_config
-        return RunContext(
-            name=self._name,
-            config=self._config,
-            logger=self._logger,
-            metadata=self._metadata,
-            plugin_configs=new_configs,
-            state_store=self._state_store,
-            resources=self._resources,
-            perf_timeline=self._perf_timeline,
-            _di_registry=self._di_registry,
-            _caps=self._caps,
-        )
-
     # --- State Store ---
 
     @property
@@ -709,26 +684,6 @@ class RunContext:
 
             self._state_store = _StateStore()
         return self._state_store
-
-    # --- Resources ---
-
-    @property
-    def resources(self) -> MappingProxyType[str, Any]:
-        if self._resources is None:
-            self._resources = {}
-        return MappingProxyType(self._resources)
-
-    def get_resource(self, name: str, type_: type[T]) -> T:
-        if self._resources is None or name not in self._resources:
-            available = list((self._resources or {}).keys())
-            raise KeyError(f"Resource '{name}' not found. Available: {available}")
-        resource = self._resources[name]
-        if not isinstance(resource, type_):
-            raise TypeError(
-                f"Resource '{name}': expected {type_.__name__}, "
-                f"got {type(resource).__name__}"
-            )
-        return resource
 
     # --- Job Schema ---
 

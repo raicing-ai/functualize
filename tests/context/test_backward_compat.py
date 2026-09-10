@@ -395,13 +395,13 @@ class TestPluginConfigsEmptyMapping:
         self, run_context: RunContext
     ) -> None:
         """plugin_configs returns empty mapping on a vanilla RunContext."""
-        configs = run_context.plugin_configs
+        configs = run_context.wiring.plugin_configs
         assert len(configs) == 0
         assert dict(configs) == {}
 
     def test_plugin_configs_is_mapping(self, run_context: RunContext) -> None:
         """plugin_configs supports mapping interface (iteration, len, in)."""
-        configs = run_context.plugin_configs
+        configs = run_context.wiring.plugin_configs
         assert len(configs) == 0
         assert list(configs.keys()) == []
         assert list(configs.values()) == []
@@ -410,11 +410,11 @@ class TestPluginConfigsEmptyMapping:
     def test_plugin_configs_does_not_raise(self, run_context: RunContext) -> None:
         """Accessing plugin_configs does not raise any error."""
         # Should not raise
-        _ = run_context.plugin_configs
+        _ = run_context.wiring.plugin_configs
 
     def test_plugin_configs_is_immutable(self, run_context: RunContext) -> None:
         """plugin_configs mapping does not allow item assignment."""
-        configs = run_context.plugin_configs
+        configs = run_context.wiring.plugin_configs
         with pytest.raises(TypeError):
             configs["test"] = "value"  # type: ignore[index]
 
@@ -516,9 +516,9 @@ class TestRunContextConstructorBackwardCompat:
         """New keyword-only params default to None and don't change behavior."""
         rc = RunContext(name="test", config=mock_config, logger=mock_logger)
         # All new features work without explicit construction args
-        assert len(rc.plugin_configs) == 0
+        assert len(rc.wiring.plugin_configs) == 0
         assert isinstance(rc.state, StateStore)
-        assert len(rc.resources) == 0
+        assert len(rc.wiring.resources) == 0
 
 
 class TestRunContextMetadataDefaults:

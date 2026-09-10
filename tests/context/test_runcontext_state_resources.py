@@ -95,24 +95,24 @@ class TestResourcesProperty:
 
     def test_resources_returns_mapping_proxy(self, rc):
         """resources property returns a MappingProxyType."""
-        assert isinstance(rc.resources, MappingProxyType)
+        assert isinstance(rc.wiring.resources, MappingProxyType)
 
     def test_resources_empty_by_default(self, rc):
         """resources is empty when no resources injected."""
-        assert len(rc.resources) == 0
-        assert dict(rc.resources) == {}
+        assert len(rc.wiring.resources) == 0
+        assert dict(rc.wiring.resources) == {}
 
     def test_resources_lazily_initialized(self, mock_config, mock_logger):
         """resources dict not allocated until first access."""
         run_ctx = RunContext(name="test", config=mock_config, logger=mock_logger)
         assert run_ctx._resources is None
-        _ = run_ctx.resources
+        _ = run_ctx.wiring.resources
         assert run_ctx._resources is not None
 
     def test_resources_immutable_from_outside(self, rc):
         """Resources mapping cannot be mutated via the property."""
         with pytest.raises(TypeError):
-            rc.resources["key"] = "value"  # type: ignore[index]
+            rc.wiring.resources["key"] = "value"  # type: ignore[index]
 
     def test_resources_with_provided_dict(self, mock_config, mock_logger):
         """If resources dict provided in constructor, it is used."""
@@ -123,7 +123,7 @@ class TestResourcesProperty:
             logger=mock_logger,
             resources=resources,
         )
-        assert "db" in run_ctx.resources
+        assert "db" in run_ctx.wiring.resources
 
 
 class TestGetResource:
@@ -142,13 +142,13 @@ class TestGetResource:
             logger=mock_logger,
             resources={"db": client},
         )
-        result = run_ctx.get_resource("db", DBClient)
+        result = run_ctx.wiring.get_resource("db", DBClient)
         assert result is client
 
     def test_get_resource_raises_key_error_missing(self, rc):
         """get_resource raises KeyError for unknown resource name."""
         with pytest.raises(KeyError, match="not found"):
-            rc.get_resource("missing", str)
+            rc.wiring.get_resource("missing", str)
 
     def test_get_resource_key_error_lists_available(self, mock_config, mock_logger):
         """KeyError message lists available resources."""
@@ -159,7 +159,7 @@ class TestGetResource:
             resources={"db": "client", "cache": "redis"},
         )
         with pytest.raises(KeyError, match="Available"):
-            run_ctx.get_resource("missing", str)
+            run_ctx.wiring.get_resource("missing", str)
 
     def test_get_resource_raises_type_error_mismatch(self, mock_config, mock_logger):
         """get_resource raises TypeError when type doesn't match."""
@@ -170,7 +170,7 @@ class TestGetResource:
             resources={"db": "not-a-dict"},
         )
         with pytest.raises(TypeError, match="expected dict"):
-            run_ctx.get_resource("db", dict)
+            run_ctx.wiring.get_resource("db", dict)
 
     def test_get_resource_type_error_message(self, mock_config, mock_logger):
         """TypeError message identifies resource name, expected and actual type."""
@@ -181,7 +181,7 @@ class TestGetResource:
             resources={"counter": "hello"},
         )
         with pytest.raises(TypeError, match="counter.*expected int.*got str"):
-            run_ctx.get_resource("counter", int)
+            run_ctx.wiring.get_resource("counter", int)
 
 
 class TestInjectResource:
@@ -190,7 +190,7 @@ class TestInjectResource:
     def test_inject_resource_adds_to_resources(self, rc):
         """inject_resource makes resource accessible via get_resource."""
         inject_resource(rc, "db", {"host": "localhost"})
-        result = rc.get_resource("db", dict)
+        result = rc.wiring.get_resource("db", dict)
         assert result == {"host": "localhost"}
 
     def test_inject_resource_creates_resources_dict_if_none(
@@ -206,14 +206,14 @@ class TestInjectResource:
     def test_inject_resource_visible_in_resources_property(self, rc):
         """Injected resources appear in the resources mapping proxy."""
         inject_resource(rc, "cache", [1, 2, 3])
-        assert "cache" in rc.resources
-        assert rc.resources["cache"] == [1, 2, 3]
+        assert "cache" in rc.wiring.resources
+        assert rc.wiring.resources["cache"] == [1, 2, 3]
 
     def test_inject_resource_overwrites_existing(self, rc):
         """inject_resource can overwrite an existing resource."""
         inject_resource(rc, "db", "old")
         inject_resource(rc, "db", "new")
-        assert rc.get_resource("db", str) == "new"
+        assert rc.wiring.get_resource("db", str) == "new"
 
 
 class TestRunStatusProperty:

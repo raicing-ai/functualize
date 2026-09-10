@@ -154,7 +154,7 @@ class TestFullPluginConfigFlow:
 
             def notify_job(rc: RunContext):
                 '''A job that accesses plugin config.'''
-                config = rc.get_plugin_config("plugin.notifications")
+                config = rc.wiring.get_plugin_config("plugin.notifications")
                 print(f"webhook_url={config.webhook_url}")
                 print(f"timeout={config.timeout}")
                 print(f"enabled={config.enabled}")
@@ -223,7 +223,7 @@ class TestFullPluginConfigFlow:
 
             def check_env(rc: RunContext):
                 '''Check env-resolved plugin config.'''
-                config = rc.get_plugin_config("plugin.notifications")
+                config = rc.wiring.get_plugin_config("plugin.notifications")
                 print(f"webhook_url={config.webhook_url}")
                 print(f"timeout={config.timeout}")
             """)
@@ -277,11 +277,11 @@ class TestFullPluginConfigFlow:
 
             def multi_config(rc: RunContext):
                 '''Access multiple plugin configs.'''
-                notif = rc.get_plugin_config("plugin.notifications")
-                db = rc.get_plugin_config("plugin.database")
+                notif = rc.wiring.get_plugin_config("plugin.notifications")
+                db = rc.wiring.get_plugin_config("plugin.database")
                 print(f"notif_url={notif.webhook_url}")
                 print(f"db_pool={db.pool_size}")
-                print(f"config_count={len(rc.plugin_configs)}")
+                print(f"config_count={len(rc.wiring.plugin_configs)}")
             """)
         )
 
@@ -323,7 +323,7 @@ class TestFullPluginConfigFlow:
             def immutable_check(rc: RunContext):
                 '''Verify plugin_configs is immutable.'''
                 try:
-                    rc.plugin_configs["plugin.notifications"] = None
+                    rc.wiring.plugin_configs["plugin.notifications"] = None
                     print("MUTABLE")
                 except TypeError:
                     print("IMMUTABLE")
@@ -363,7 +363,7 @@ class TestMiddlewareChainIntegration:
 
             def resource_user(rc: RunContext):
                 '''A job that uses an injected resource.'''
-                db = rc.get_resource("db_client", str)
+                db = rc.wiring.get_resource("db_client", str)
                 print(f"db_client={db}")
             """)
         )
@@ -535,7 +535,7 @@ class TestMiddlewareChainIntegration:
         )
 
         def config_reading_middleware(rc: Any) -> Generator[None]:
-            config = rc.get_plugin_config("plugin.notifications")
+            config = rc.wiring.get_plugin_config("plugin.notifications")
             captured_urls.append(config.webhook_url)
             yield
 
@@ -731,11 +731,11 @@ class TestCombinedPluginMiddlewareScopeFlow:
             def full_flow(rc: RunContext):
                 '''Job exercising config, resources, and state.'''
                 # Access plugin config
-                notif = rc.get_plugin_config("plugin.notifications")
+                notif = rc.wiring.get_plugin_config("plugin.notifications")
                 print(f"notif_url={notif.webhook_url}")
 
                 # Access injected resource
-                client = rc.get_resource("http_client", str)
+                client = rc.wiring.get_resource("http_client", str)
                 print(f"http_client={client}")
 
                 # Read and write state
@@ -796,7 +796,7 @@ class TestCombinedPluginMiddlewareScopeFlow:
             def legacy_test(rc: RunContext):
                 '''Job with legacy plugin.'''
                 # plugin_configs should be empty (no config plugins)
-                print(f"config_count={len(rc.plugin_configs)}")
+                print(f"config_count={len(rc.wiring.plugin_configs)}")
             """)
         )
 

@@ -98,30 +98,30 @@ class TestPluginConfigsProperty:
 
     def test_returns_mapping_proxy(self, rc_with_configs):
         """plugin_configs returns a MappingProxyType."""
-        result = rc_with_configs.plugin_configs
+        result = rc_with_configs.wiring.plugin_configs
         assert isinstance(result, MappingProxyType)
 
     def test_contains_registered_sections(self, rc_with_configs):
         """All registered sections are present."""
-        configs = rc_with_configs.plugin_configs
+        configs = rc_with_configs.wiring.plugin_configs
         assert "plugin.notifications" in configs
         assert "plugin.api" in configs
 
     def test_returns_correct_models(self, rc_with_configs):
         """Correct model instances are returned."""
-        configs = rc_with_configs.plugin_configs
+        configs = rc_with_configs.wiring.plugin_configs
         assert isinstance(configs["plugin.notifications"], SamplePluginConfig)
         assert isinstance(configs["plugin.api"], AnotherPluginConfig)
 
     def test_is_immutable(self, rc_with_configs):
         """The mapping cannot be modified from outside."""
-        configs = rc_with_configs.plugin_configs
+        configs = rc_with_configs.wiring.plugin_configs
         with pytest.raises(TypeError):
             configs["new_section"] = SamplePluginConfig()  # type: ignore[index]
 
     def test_empty_when_no_configs_provided(self, rc_without_configs):
         """Returns empty mapping when no plugin configs registered."""
-        configs = rc_without_configs.plugin_configs
+        configs = rc_without_configs.wiring.plugin_configs
         assert len(configs) == 0
         assert isinstance(configs, MappingProxyType)
 
@@ -131,7 +131,7 @@ class TestPluginConfigsProperty:
         # Access internal directly - should be None before first access
         assert rc._plugin_configs is None
         # Now access the property
-        _ = rc.plugin_configs
+        _ = rc.wiring.plugin_configs
         # Should be initialized now
         assert rc._plugin_configs is not None
 
@@ -141,7 +141,7 @@ class TestGetPluginConfig:
 
     def test_returns_config_for_registered_section(self, rc_with_configs):
         """Returns the correct config model for a registered section."""
-        config = rc_with_configs.get_plugin_config("plugin.notifications")
+        config = rc_with_configs.wiring.get_plugin_config("plugin.notifications")
         assert isinstance(config, SamplePluginConfig)
         assert config.webhook_url == "https://example.com/hook"
         assert config.timeout == 30
@@ -149,21 +149,21 @@ class TestGetPluginConfig:
     def test_raises_key_error_for_unknown_section(self, rc_with_configs):
         """Raises KeyError when section is not registered."""
         with pytest.raises(KeyError, match="No plugin config for section"):
-            rc_with_configs.get_plugin_config("plugin.nonexistent")
+            rc_with_configs.wiring.get_plugin_config("plugin.nonexistent")
 
     def test_error_message_lists_available_sections(self, rc_with_configs):
         """KeyError message lists available sections."""
         with pytest.raises(KeyError, match="Available:"):
-            rc_with_configs.get_plugin_config("plugin.nonexistent")
+            rc_with_configs.wiring.get_plugin_config("plugin.nonexistent")
 
     def test_raises_key_error_when_no_configs(self, rc_without_configs):
         """Raises KeyError when no configs are registered at all."""
         with pytest.raises(KeyError):
-            rc_without_configs.get_plugin_config("plugin.anything")
+            rc_without_configs.wiring.get_plugin_config("plugin.anything")
 
     def test_returns_config_with_custom_values(self, rc_with_configs):
         """Returns config with custom values from registration."""
-        config = rc_with_configs.get_plugin_config("plugin.api")
+        config = rc_with_configs.wiring.get_plugin_config("plugin.api")
         assert isinstance(config, AnotherPluginConfig)
         assert config.api_key == "real-key"
         assert config.max_retries == 3
@@ -174,49 +174,61 @@ class TestWithPluginConfig:
 
     def test_returns_new_runcontext(self, rc_with_configs):
         """Returns a new RunContext instance."""
-        new_rc = rc_with_configs.with_plugin_config("plugin.notifications", timeout=60)
+        new_rc = rc_with_configs.wiring.with_plugin_config(
+            "plugin.notifications", timeout=60
+        )
         assert new_rc is not rc_with_configs
 
     def test_override_applied_in_new_context(self, rc_with_configs):
         """The override is applied in the new RunContext."""
-        new_rc = rc_with_configs.with_plugin_config("plugin.notifications", timeout=60)
-        config = new_rc.get_plugin_config("plugin.notifications")
+        new_rc = rc_with_configs.wiring.with_plugin_config(
+            "plugin.notifications", timeout=60
+        )
+        config = new_rc.wiring.get_plugin_config("plugin.notifications")
         assert config.timeout == 60
 
     def test_original_unchanged(self, rc_with_configs):
         """The original RunContext's config remains unchanged."""
-        rc_with_configs.with_plugin_config("plugin.notifications", timeout=60)
-        original_config = rc_with_configs.get_plugin_config("plugin.notifications")
+        rc_with_configs.wiring.with_plugin_config("plugin.notifications", timeout=60)
+        original_config = rc_with_configs.wiring.get_plugin_config(
+            "plugin.notifications"
+        )
         assert original_config.timeout == 30
 
     def test_non_overridden_fields_preserved(self, rc_with_configs):
         """Fields not overridden retain their original values."""
-        new_rc = rc_with_configs.with_plugin_config("plugin.notifications", timeout=60)
-        config = new_rc.get_plugin_config("plugin.notifications")
+        new_rc = rc_with_configs.wiring.with_plugin_config(
+            "plugin.notifications", timeout=60
+        )
+        config = new_rc.wiring.get_plugin_config("plugin.notifications")
         assert config.webhook_url == "https://example.com/hook"
         assert config.enabled is True
 
     def test_other_sections_preserved(self, rc_with_configs):
         """Other plugin config sections are preserved unchanged."""
-        new_rc = rc_with_configs.with_plugin_config("plugin.notifications", timeout=60)
-        api_config = new_rc.get_plugin_config("plugin.api")
+        new_rc = rc_with_configs.wiring.with_plugin_config(
+            "plugin.notifications", timeout=60
+        )
+        api_config = new_rc.wiring.get_plugin_config("plugin.api")
         assert api_config.api_key == "real-key"
 
     def test_raises_key_error_for_unknown_section(self, rc_with_configs):
         """Raises KeyError for unregistered section."""
         with pytest.raises(KeyError):
-            rc_with_configs.with_plugin_config("plugin.nonexistent", value=1)
+            rc_with_configs.wiring.with_plugin_config("plugin.nonexistent", value=1)
 
     def test_raises_validation_error_for_invalid_overrides(self, rc_with_configs):
         """Raises ValidationError when overrides fail Pydantic validation."""
         with pytest.raises(ValidationError):
-            rc_with_configs.with_plugin_config(
+            rc_with_configs.wiring.with_plugin_config(
                 "plugin.notifications", timeout="not-an-int"
             )
 
     def test_new_context_preserves_name(self, rc_with_configs):
         """The new RunContext preserves the original name."""
-        new_rc = rc_with_configs.with_plugin_config("plugin.notifications", timeout=60)
+        new_rc = rc_with_configs.wiring.with_plugin_config(
+            "plugin.notifications", timeout=60
+        )
         assert new_rc.name == rc_with_configs.name
 
     def test_new_context_shares_state_store(self, mock_config, mock_logger):
@@ -229,7 +241,7 @@ class TestWithPluginConfig:
             plugin_configs={"plugin.notifications": SamplePluginConfig()},
             state_store=store,
         )
-        new_rc = rc.with_plugin_config("plugin.notifications", timeout=99)
+        new_rc = rc.wiring.with_plugin_config("plugin.notifications", timeout=99)
         assert new_rc._state_store is store
 
 
@@ -245,7 +257,7 @@ class TestConstructorNewParams:
             logger=mock_logger,
             plugin_configs=configs,
         )
-        assert rc.get_plugin_config("section").timeout == 30
+        assert rc.wiring.get_plugin_config("section").timeout == 30
 
     def test_state_store_param(self, mock_config, mock_logger):
         """state_store kwarg is stored for later use."""
