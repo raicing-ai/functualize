@@ -258,6 +258,19 @@ T6+T7 the file has lost **308 lines**, from 2771.
 
 Separate wave from T6 **only** because both edit `executor.py`. Neither depends on the other.
 
+**What the move broke, and why that is the system working.** Both extractions carry a
+`RunStatus` collection — "did this predecessor satisfy its edge?" — which
+`tests/types/test_no_second_failure_set.py` allowlists per module. The move turned **both** of
+its directions red at once: the two new modules carried an unexplained set, *and*
+`_engine/executor.py`'s entry had gone stale. A one-directional allowlist would have caught
+only the first and left a permanent excuse behind for a file that no longer needs one. The
+exemptions travelled with the code, unchanged in substance.
+
+Also worth recording: the targeted suites run after each commit
+(`tests/engine tests/workflow tests/execution tests/spec tests/integration`) did **not**
+include `tests/types`, so this surfaced only in the full run. A refactor's blast radius is not
+the directory it edits.
+
 ---
 
 ## Wave 7 — the facades lose weight

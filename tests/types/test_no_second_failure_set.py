@@ -43,9 +43,19 @@ _SRC = Path(__file__).resolve().parents[2] / "src" / "functualize"
 #: hole nobody can see.
 _ALLOWED: dict[str, str] = {
     "_types/outcome.py": "the authority itself",
-    "_engine/executor.py": (
-        "graph edges: the dependency scheduler and the walk ask whether a "
-        "predecessor satisfied its edge, not how a run is delivered"
+    # Both of these were `_engine/executor.py` until
+    # `engine-sealed-construction`/T6 and /T7 split the two subjects out of it.
+    # The exemption travelled with the code, unchanged in substance — and this
+    # file made that a decision rather than an accident: the move turned **both**
+    # tests below red at once, one for the new modules and one for the stale
+    # entry, which is exactly what a two-directional allowlist is for.
+    "_engine/workflow_orchestrator.py": (
+        "graph edges: the walk asks whether a step satisfied its edge, not how "
+        "a run is delivered"
+    ),
+    "_engine/dependency_runner.py": (
+        "graph edges: the dependency scheduler asks whether a predecessor "
+        "satisfied its edge, not how a run is delivered"
     ),
     "_engine/capabilities/workflow.py": (
         "graph edges: which step statuses stop a walk"
