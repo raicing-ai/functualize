@@ -177,6 +177,16 @@ false premise survives user confirmation and then gets built on.
   for a different tool; the routing table is
   `.claude/skills/code-intel/SKILL.md`, the timing is
   `.claude/agents/spec-driven-developer.md` → *Retrieval Passes*.
+- **A description of a thing is not the thing.** Verify the *payload*, not the
+  path to it. Real failure (2026-09-11): an agent writing the architecture gate
+  told contributors to name code smells by catalogue name — *feature envy*,
+  *middle man*, *shotgun surgery* — having confirmed the design-patterns skill
+  existed and its symlink resolved, and let the skills-listing **description**
+  stand in for the skill's **contents**. `rg -c` over the skill found **zero**
+  of those six names; they live only in a per-user skill the repository does
+  not ship, so on another machine the instruction was unfollowable. Checking
+  that a file exists, that an import resolves, or that a doc claims a thing,
+  is not checking the thing.
 - **"I read the file" is not verification of a negative.** *Nothing calls this*,
   *this is the only caller*, *no test covers it* are claims about the whole repo;
   answer them with `rg` or serena's `find_referencing_symbols`, never by reading.
