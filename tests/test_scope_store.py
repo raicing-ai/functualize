@@ -62,6 +62,10 @@ class TestScopeLifecycle:
             "position",
             "epilogue",
             "tool_calls",
+            # Added by capability-duality/T2: what a job stored through
+            # `rc.state` is a record like the rest of these, and belongs in the
+            # file whose rule is "refuse rather than discard".
+            "state",
         }
 
     def test_scope_ids_are_sorted(self, store: ScopeStore) -> None:

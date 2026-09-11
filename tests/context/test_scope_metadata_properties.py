@@ -17,6 +17,7 @@ from hypothesis import strategies as st
 
 from functualize.job._workflow_scope import WorkflowScope
 from functualize.job.context import RunContext
+from tests._state_support import new_state_store
 
 # --- Strategies ---
 
@@ -120,7 +121,7 @@ class TestStateStoreReplacement:
 
         **Validates: Requirements 7.5**
         """
-        scope = WorkflowScope(scope_id)
+        scope = WorkflowScope(scope_id, state_store=new_state_store(scope_id))
 
         # Write data to the original store
         for key, value in initial_data.items():
@@ -163,7 +164,7 @@ class TestStateStoreReplacement:
 
         **Validates: Requirements 7.5**
         """
-        scope = WorkflowScope(scope_id)
+        scope = WorkflowScope(scope_id, state_store=new_state_store(scope_id))
 
         # Write data to the original store
         for key, value in initial_data.items():
@@ -206,7 +207,7 @@ class TestStateStoreReplacement:
 
         **Validates: Requirements 7.5**
         """
-        scope = WorkflowScope(scope_id)
+        scope = WorkflowScope(scope_id, state_store=new_state_store(scope_id))
 
         # Write to original store
         for key, value in initial_data.items():
@@ -249,7 +250,7 @@ class TestStateStoreReplacement:
 
         **Validates: Requirements 7.5**
         """
-        scope = WorkflowScope(scope_id)
+        scope = WorkflowScope(scope_id, state_store=new_state_store(scope_id))
         original_store = scope.state_store
 
         # Write data to original store

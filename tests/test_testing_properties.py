@@ -17,6 +17,7 @@ from hypothesis import strategies as st
 from functualize.job.capabilities import Invoke, JobContext, Log, Perf, Prompt, State
 from functualize.testing import TestRunContext
 from functualize.testing.doubles import AutoPrompt, CapturingLog, MockInvoke, NoopPerf
+from tests._state_support import new_state_store
 
 # =============================================================================
 # Property 13: TestRunContext override composition
@@ -47,7 +48,7 @@ def _make_override(key: str) -> Any:
     elif key == "perf":
         return NoopPerf()
     elif key == "state":
-        return State()
+        return State(new_state_store())
     elif key == "job_context":
         return JobContext(name="custom_test", trace_id="trace-123")
     raise ValueError(f"Unknown key: {key}")

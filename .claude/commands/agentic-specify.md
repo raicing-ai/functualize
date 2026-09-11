@@ -21,3 +21,19 @@ Specify phase for: $ARGUMENTS
 4. Write `spec.md` — problem statement, user stories, behavior, acceptance criteria (behavior only, no implementation)
 5. Write `contracts.md` — external interfaces only: component props, API response types, event payloads, exported function signatures. NOT database schemas or internal types.
 6. Get user confirmation before proceeding to Plan
+
+**Confirmation here is not the last word.** `/agentic-plan` opens with an
+architecture gate that draws the BEFORE and AFTER shapes of the region, and that
+pass is expected to send work back to this phase: where the diagrams show the
+premise, scope or decomposition in `spec.md` is wrong, `spec.md` is **revised**,
+not planned around. Re-confirm with the user when it moves. The loop closes when
+Plan's AFTER shape holds; from Plan's blast-radius pass onward the spec is fixed.
+(`.claude/rules/spec-workflow.md` → *The architecture gate*.)
+
+**A code smell is one of the things that sends work back here.** The gate names
+the smells the current design already carries, and checks every candidate AFTER
+for the ones it would *introduce*. Either can indict the spec rather than the
+approach — a spec whose only clean implementation trades *middle man* for
+*shotgun surgery* is a spec asking for the wrong decomposition, and the fix
+belongs in `spec.md`. Expect to be handed that finding, and revise rather than
+absorb it downstream.

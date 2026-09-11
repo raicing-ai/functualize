@@ -97,7 +97,7 @@ class TestStateStoreKeysAndClearConsistency:
 
         # All previous gets should return None
         for key in items:
-            assert store.get(key, object) is None
+            assert store.get(key) is None
 
     @given(
         items=st.dictionaries(
