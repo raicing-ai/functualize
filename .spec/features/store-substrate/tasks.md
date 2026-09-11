@@ -103,23 +103,74 @@ holds the key spins the full ten-second timeout, warns that writes can now be
 lost, and proceeds. `lock` is how a caller gets exclusion; `expect` is how a
 caller gets it back from a substrate that has none to give.
 
-## T2 · The three stores take a substrate, not a path
+## T2 · The stores take a substrate, not a path — [x]
 
-`[F]` `src/functualize/_primitives/{state,scope,run,scope_state}_store.py`,
-`src/functualize/_primitives/{state,scope,run}_format.py`
+`[F]` `src/functualize/_primitives/{fresh,scope,run,scope_state}_store.py`,
+`src/functualize/_primitives/shell_history.py`,
+`src/functualize/_primitives/{fresh,scope,run}_format.py`,
+`src/functualize/_types/{protocols,errors}.py`,
+`src/functualize/_engine/executor.py`, `src/functualize/_app/impl.py`,
+`src/functualize/_cli/builtins.py`, `src/functualize/app/utils.py`,
+`src/functualize/testing/builder.py`, and 30 test modules
 
-**Four stores, not three** — `scope_state_store.py` arrived with
-`scope-record-lifecycle`/T3. See the re-measurement note at the top.
+**Five stores, not three.** `scope_state_store.py` arrived with
+`scope-record-lifecycle`/T3 (see the re-measurement note above);
+`shell_history.py` arrived with `durable-run-layer`/T3b. Leaving the fifth on
+paths would have made AC-4 false in the one place nobody would look.
 
-No typed method changes. `__init__` takes a substrate and a collection name.
-The per-file discard rules stay on the **store** — they are decisions about
-meaning, not storage.
+No typed method changes. `__init__` takes a substrate and a key. The per-file
+discard rules stay on the **store** — they are decisions about meaning, not
+storage.
 
 ```
-rg -c "open\(|write_text|fcntl|os\.replace|mkstemp" src/functualize/_primitives/{state,scope,run}_store.py | awk -F: '{s+=$2} END {print s+0}'
+rg -c "open\(|write_text|fcntl|os\.replace|mkstemp" src/functualize/_primitives/{fresh,scope,run}_store.py | awk -F: '{s+=$2} END {print s+0}'
 ```
 now: `0` · after: `0` — **invariant**: the stores touch no file today and must
 still touch none. This gate cannot go green by accident; it can only go red.
+
+Re-run over all five stores it returns `1`, and the hit is the *prose* at
+`scope_state_store.py:19` explaining why one file per scope means one `flock`.
+Exactly what the re-measurement note at the top predicted. Do not "fix" it by
+editing the docstring.
+
+### `beside_fresh` is deleted, not ported
+
+It existed on three stores to apply the sibling rule to an already-resolved
+path, so two stores could not land in different directories. There is now one
+substrate handed to both, so there is no second resolution to keep in
+agreement — the rule is not *enforced*, it is **unsayable**. That is AC-4, and
+it is a fact about the type rather than a convention.
+
+Two tests that asserted "the two resolutions agree" were rewritten to assert
+"the two stores are handed the same object", because the thing they guarded
+against can no longer be expressed.
+
+### What the port cost
+
+The port grew from three members to six, each with one caller a three-member
+port would have stranded on the filesystem — recorded in `protocols.py` and
+revising spec AC-1:
+
+| member | the caller that needs it |
+|---|---|
+| `clear` | `func builtin data clear`, the way out of a document the reader refuses. Must not read what it moves. |
+| `delete` | the scope-state purge. Runs per scope, so it must not keep a copy — and there is nothing to recover once the record is gone. |
+| `describe` | `func builtin data show`, which exists to say where a person's data is. A key ending `/` describes a namespace, because scope state is one document per run. |
+
+`tests/primitives/test_substrate.py::TestItSatisfiesTheProtocol` is what made
+that growth visible: its two hand-written stand-ins stopped satisfying the
+Protocol the moment a member was added.
+
+### Two spies got simpler, and that is the result
+
+`test_walk_coalescing.py` patched **two** names — `save_scopes` and
+`update_scopes` — because a write could go through either and a spy that
+missed one counted too few. `test_lease_fencing.py::_no_locking` patched
+`scope_format.file_lock`, leaving the other two formats' locking real.
+
+Both now patch one method on the substrate. The tests did not get easier to
+write by accident: there was one write path and one lock path to patch because
+the feature made there be one.
 
 ## T3 · `ScopeStore` becomes a peer; the facade is deleted
 

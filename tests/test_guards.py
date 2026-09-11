@@ -15,6 +15,7 @@ from functualize._engine.guards import (
     guard_key,
 )
 from functualize._primitives.fingerprint import FingerprintVerdict
+from functualize._primitives.substrate import JsonFileSubstrate
 from functualize._types.job_declaration import Precondition
 
 FRESH = FingerprintVerdict(True, "3 sources unchanged")
@@ -126,7 +127,7 @@ class TestSessionCache:
     def test_cache_backed_by_state_store(self, tmp_path) -> None:
         from functualize._primitives.fresh_store import FreshStore
 
-        store = FreshStore(tmp_path / "fresh.json")
+        store = FreshStore(JsonFileSubstrate(tmp_path))
         cache = PreconditionCache(store)
         cache.set("docker --version", True)
         assert cache.get("docker --version") is True

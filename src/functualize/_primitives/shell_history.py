@@ -68,9 +68,7 @@ class ShellHistoryStore:
 
     __slots__ = ("_key", "_substrate")
 
-    def __init__(
-        self, substrate: StoreSubstrate, key: str = SHELL_HISTORY_KEY
-    ) -> None:
+    def __init__(self, substrate: StoreSubstrate, key: str = SHELL_HISTORY_KEY) -> None:
         self._substrate = substrate
         self._key = key
 

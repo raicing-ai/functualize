@@ -873,10 +873,8 @@ def register_builtin_commands(cli_group: Any) -> None:
             # was 2,188 records costing 58 ms per state write, and nobody
             # noticed until an external review measured the file. A number with
             # no ceiling beside it does not read as "getting full".
-            click.echo(
-                f"Scopes: {len(store.scope_ids())} of {SCOPES_LIMIT} "
-                f"({store.scopes.describe()})"
-            )
+            click.echo(f"Scopes: {len(store.scope_ids())} of {SCOPES_LIMIT}")
+            click.echo(f"  at {store.scopes.describe()}")
             # Scope state is reported separately because T3 moved job state
             # out of the record document. Reporting only the records after that
             # move would say "small" about the half that no longer grows while
@@ -905,10 +903,12 @@ def register_builtin_commands(cli_group: Any) -> None:
         # the group was renamed to escape.
         runs = RunStore.for_project(Path.cwd())
         shell = ShellHistoryStore.for_project(Path.cwd())
-        click.echo(f"Runs: {len(runs.run_ids())} ({runs.describe()})")
+        click.echo(f"Runs: {len(runs.run_ids())}")
+        click.echo(f"  at {runs.describe()}")
         click.echo(f"Shell history: {shell.count()}")
+        click.echo(f"  at {shell.describe()}")
 
-        click.echo(f"Freshness: {store.describe()}")
+        click.echo(f"Freshness path: {store.describe()}")
         click.echo(f"Scopes format: v{SCOPES_VERSION}")
         click.echo(f"Mode:       {_state_mode_line(mode, marker)}")
 

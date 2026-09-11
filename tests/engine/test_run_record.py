@@ -33,6 +33,7 @@ from functualize._events.bus import EventBus
 from functualize._events.hooks import HookRegistry
 from functualize._primitives.di import DIRegistry
 from functualize._primitives.fresh_store import FreshStore
+from functualize._primitives.run_format import RUNS_KEY
 from functualize._primitives.run_store import RunStore
 from functualize._types.enums import RunStatus
 from functualize._types.run_request import RunRequest
@@ -64,7 +65,7 @@ def engine(_project: Path) -> JobExecutionEngine:
 
 @pytest.fixture
 def runs(engine: JobExecutionEngine) -> RunStore:
-    return RunStore.beside_fresh(FreshStore.for_project(engine.fresh_root).path)
+    return RunStore(FreshStore.for_project(engine.fresh_root).substrate)
 
 
 class TestTheRecordOpensAndCloses:
@@ -132,7 +133,7 @@ class TestTheRecordOpensAndCloses:
 
         record = runs.recent_runs()[0]
         assert record["args_hash"]
-        assert "hunter2" not in runs.path.read_text()
+        assert "hunter2" not in runs.substrate.path_for(RUNS_KEY).read_text()
 
 
 class TestChildrenAreRecordedAndPlaced:
@@ -313,7 +314,7 @@ class TestARecordAlwaysCloses:
             with contextlib.suppress(Exception):
                 app.execute(RunRequest(job_name="j", surface="app.execute"))
 
-            store = RunStore.beside_fresh(engine._state_store().path)
+            store = RunStore(engine._state_store().substrate)
             statuses = {
                 rid: (store.get_run(rid) or {}).get("status") for rid in store.run_ids()
             }

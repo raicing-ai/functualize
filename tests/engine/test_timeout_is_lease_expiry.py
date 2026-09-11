@@ -29,13 +29,14 @@ import pytest
 from functualize._engine.frontier import FrontierWalk, GraphModel
 from functualize._primitives.fresh_store import FreshStore
 from functualize._primitives.lease import DEFAULT_LEASE_SECONDS, is_expired
+from functualize._primitives.substrate import JsonFileSubstrate
 from functualize.app._workflow_control import reclaim_scope
 from functualize.app._workflow_view import derived_state
 
 
 @pytest.fixture
 def store(tmp_path: Path) -> FreshStore:
-    s = FreshStore(tmp_path / "fresh.json")
+    s = FreshStore(JsonFileSubstrate(tmp_path))
     s.ensure_scope("wf", "demo")
     s.set_scope_status("wf", "running")
     return s
@@ -132,7 +133,7 @@ class TestTheWalkActuallyRenews:
             WorkflowDeclaration,
         )
 
-        store = FreshStore(tmp_path / "fresh.json")
+        store = FreshStore(JsonFileSubstrate(tmp_path))
         declaration = WorkflowDeclaration(
             nodes=(Step("a"), Step("b")),
             edges=(Edge(source="a", target="b"), Edge(source="b", target=END)),
@@ -170,7 +171,7 @@ class TestTheWalkActuallyRenews:
             WorkflowDeclaration,
         )
 
-        store = FreshStore(tmp_path / "fresh.json")
+        store = FreshStore(JsonFileSubstrate(tmp_path))
         declaration = WorkflowDeclaration(
             nodes=(Step("a"),), edges=(Edge(source="a", target=END),)
         )

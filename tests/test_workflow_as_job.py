@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from functualize._engine.workflow_runner import WorkflowRunner, new_scope_id
 from functualize._engine.workflow_walker import WalkOutcome
 from functualize._primitives.fresh_store import FreshStore
+from functualize._primitives.substrate import JsonFileSubstrate
 from functualize._types.enums import RunStatus
 from functualize._types.workflow import (
     END,
@@ -36,7 +37,7 @@ class TripPreferences(BaseModel):
 
 @pytest.fixture
 def store(tmp_path: Path) -> FreshStore:
-    return FreshStore(tmp_path / "fresh.json")
+    return FreshStore(JsonFileSubstrate(tmp_path))
 
 
 def _gated() -> WorkflowDeclaration:

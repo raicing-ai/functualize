@@ -26,6 +26,7 @@ from functualize._engine.workflow_validation import (
 )
 from functualize._engine.workflow_walker import WorkflowWalker
 from functualize._primitives.fresh_store import FreshStore
+from functualize._primitives.substrate import JsonFileSubstrate
 from functualize._types.errors import WorkflowDepthExceededError
 from functualize._types.workflow import END, Edge, Step, WorkflowDeclaration
 
@@ -38,7 +39,7 @@ def _graph() -> WorkflowDeclaration:
 
 @pytest.fixture
 def store(tmp_path: Path) -> FreshStore:
-    return FreshStore(tmp_path / "fresh.json")
+    return FreshStore(JsonFileSubstrate(tmp_path))
 
 
 class TestDepthComesFromTheScopeId:

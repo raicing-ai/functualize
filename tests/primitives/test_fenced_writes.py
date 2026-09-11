@@ -24,11 +24,12 @@ import pytest
 
 from functualize._primitives.lease import StaleGenerationError
 from functualize._primitives.scope_store import ScopeStore
+from functualize._primitives.substrate import JsonFileSubstrate
 
 
 @pytest.fixture
 def store(tmp_path: Path) -> ScopeStore:
-    s = ScopeStore(tmp_path / "scopes.json")
+    s = ScopeStore(JsonFileSubstrate(tmp_path))
     s.ensure_scope("wf", "demo")
     return s
 

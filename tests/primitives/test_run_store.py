@@ -15,52 +15,63 @@ other, so a future refactor that merges the files fails here with the reason.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 
+from functualize._primitives.fresh_store import FreshStore
 from functualize._primitives.run_format import (
     EVENTS_PER_RUN_LIMIT,
     RUNS_FILENAME,
+    RUNS_KEY,
     RUNS_LIMIT,
     RUNS_VERSION,
     empty_runs,
-    load_runs,
-    resolve_runs_path,
-    save_runs,
+    stamp_runs,
 )
 from functualize._primitives.run_store import RunStore, new_run_id, runner_identity
-from functualize._primitives.scope_format import load_scopes
+from functualize._primitives.scope_format import SCOPES_KEY
+from functualize._primitives.scope_store import ScopeStore
+from functualize._primitives.substrate import JsonFileSubstrate
 from functualize._types.errors import ScopeStoreUnreadableError
 
 
 @pytest.fixture
 def store(tmp_path: Path) -> RunStore:
-    return RunStore(tmp_path / RUNS_FILENAME)
+    return RunStore(JsonFileSubstrate(tmp_path))
 
 
 class TestTheEnvelope:
     def test_a_missing_file_reads_as_no_runs(self, store: RunStore) -> None:
         assert store.run_ids() == []
-        assert not store.path.exists(), "reading must not create the file"
+        assert store.substrate.read(RUNS_KEY) is None, (
+            "reading must not create the document"
+        )
 
     def test_it_stamps_the_version_on_write(self, store: RunStore) -> None:
         store.open_run({"job": "build", "surface": "func.job"})
 
-        data = json.loads(store.path.read_text())
+        data = store.substrate.read(RUNS_KEY).data
         assert data["format_version"] == RUNS_VERSION
         assert set(data) == {"format_version", "runs", "events"}
 
-    def test_the_path_is_the_state_files_sibling(self, tmp_path: Path) -> None:
-        """One upward walk, three files — they cannot land in different modes."""
-        (tmp_path / ".functualize").mkdir()
+    def test_the_documents_share_one_substrate(self, tmp_path: Path) -> None:
+        """One upward walk, one root — they cannot land in different modes.
 
-        assert resolve_runs_path(tmp_path).name == RUNS_FILENAME
-        assert (
-            RunStore.beside_fresh(tmp_path / "fresh.json").path
-            == tmp_path / RUNS_FILENAME
-        )
+        This used to assert that two independent resolutions agreed. They no
+        longer *can* disagree: there is one substrate and the stores are handed
+        it, so what is left to check is that the sibling layout is unchanged
+        and that a `RunStore` and a `FreshStore` built for one project really
+        are built on the same object.
+        """
+        (tmp_path / ".functualize").mkdir()
+        substrate = JsonFileSubstrate.for_project(tmp_path)
+
+        assert substrate.path_for(RUNS_KEY).name == RUNS_FILENAME
+        assert substrate.path_for(RUNS_KEY).parent == tmp_path / ".functualize"
+        assert RunStore.for_project(tmp_path).substrate.path_for(
+            RUNS_KEY
+        ) == FreshStore.for_project(tmp_path).substrate.path_for(RUNS_KEY)
 
 
 class TestTheReadRuleIsTheOppositeOfScopes:
@@ -81,20 +92,23 @@ class TestTheReadRuleIsTheOppositeOfScopes:
     def test_an_unusable_run_log_reads_as_empty(
         self, label: str, content: str, tmp_path: Path
     ) -> None:
-        path = tmp_path / RUNS_FILENAME
-        path.write_text(content)
+        substrate = JsonFileSubstrate(tmp_path)
+        substrate.path_for(RUNS_KEY).parent.mkdir(parents=True, exist_ok=True)
+        substrate.path_for(RUNS_KEY).write_text(content)
 
-        assert load_runs(path) == empty_runs(), label
+        assert RunStore(substrate)._read() == empty_runs(), label
 
     def test_the_bytes_are_left_in_place(self, tmp_path: Path) -> None:
         """Discarding the content is not destroying it.
 
         A human debugging a bad write must still find what was written.
         """
-        path = tmp_path / RUNS_FILENAME
+        substrate = JsonFileSubstrate(tmp_path)
+        path = substrate.path_for(RUNS_KEY)
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("not json at all")
 
-        load_runs(path)
+        RunStore(substrate)._read()
 
         assert path.read_text() == "not json at all"
 
@@ -104,11 +118,13 @@ class TestTheReadRuleIsTheOppositeOfScopes:
         If this ever stops raising, the two files have converged on one policy —
         and whichever one they converged on is wrong for the other's data.
         """
-        path = tmp_path / "scopes.json"
+        substrate = JsonFileSubstrate(tmp_path)
+        path = substrate.path_for(SCOPES_KEY)
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('{"format_version": 99, "scopes": {}}')
 
         with pytest.raises(ScopeStoreUnreadableError):
-            load_scopes(path)
+            ScopeStore(substrate).scope_ids()
 
 
 class TestRunRecords:
@@ -157,7 +173,7 @@ class TestRunRecords:
         assert record["args_hash"] == "abc123"
         assert "kwargs" not in record
         assert "arguments" not in record
-        assert "hunter2" not in store.path.read_text()
+        assert "hunter2" not in store.substrate.path_for(RUNS_KEY).read_text()
 
     def test_children_are_findable_from_their_parent(self, store: RunStore) -> None:
         """The relationship history drops on purpose.
@@ -248,16 +264,18 @@ class TestTheRings:
         The oldest id is used deliberately: ULIDs sort chronologically, so a
         run named with all zeros is the first thing the ring evicts.
         """
-        path = tmp_path / RUNS_FILENAME
+        substrate = JsonFileSubstrate(tmp_path)
         oldest = "run-0000000000AAAAAAAAAAAAAAAA"
-        save_runs(
-            path,
-            {
-                "runs": {oldest: {"job": "old", "status": "success"}},
-                "events": {oldest: [{"seq": 1, "event_name": "job.execute.end"}]},
-            },
+        substrate.write(
+            RUNS_KEY,
+            stamp_runs(
+                {
+                    "runs": {oldest: {"job": "old", "status": "success"}},
+                    "events": {oldest: [{"seq": 1, "event_name": "job.execute.end"}]},
+                }
+            ),
         )
-        store = RunStore(path)
+        store = RunStore(substrate)
         assert len(store.events_for(oldest)) == 1, "fixture precondition"
 
         for i in range(RUNS_LIMIT + 5):
@@ -278,7 +296,7 @@ class TestTheRings:
         about what it observed — and these two tests are what stop either rule
         being restated as the other.
         """
-        store = RunStore(tmp_path / RUNS_FILENAME)
+        store = RunStore(JsonFileSubstrate(tmp_path))
         store.append_event("run-never-opened", {"event_name": "job.execute.start"})
 
         store.open_run({"job": "unrelated", "surface": "func.job"})

@@ -26,7 +26,6 @@ from typing import Any
 
 import pytest
 
-from functualize._primitives import scope_format
 from functualize._primitives.lease import (
     DEFAULT_LEASE_SECONDS,
     Lease,
@@ -37,6 +36,7 @@ from functualize._primitives.lease import (
     read_lease,
 )
 from functualize._primitives.scope_store import ScopeStore
+from functualize._primitives.substrate import JsonFileSubstrate
 
 NOW = datetime(2026, 9, 12, 12, 0, 0, tzinfo=UTC)
 LATER = NOW + timedelta(seconds=DEFAULT_LEASE_SECONDS + 1)
@@ -44,7 +44,7 @@ LATER = NOW + timedelta(seconds=DEFAULT_LEASE_SECONDS + 1)
 
 @pytest.fixture
 def store(tmp_path: Path) -> ScopeStore:
-    s = ScopeStore(tmp_path / "scopes.json")
+    s = ScopeStore(JsonFileSubstrate(tmp_path))
     s.ensure_scope("wf")
     return s
 
@@ -202,18 +202,23 @@ def _no_locking() -> Iterator[None]:
     design that leaned on it would be correct only where locking happens to
     work — and silently wrong on a network filesystem, which is exactly where
     two runners are most likely to meet.
+
+    Patched on the **substrate** since `store-substrate`/T2, which is a
+    stronger statement than before: locking used to be three per-format
+    functions, so disabling one left the others real. There is now one
+    `lock`, and this disables all of it.
     """
-    real = scope_format.file_lock
+    real = JsonFileSubstrate.lock
 
     @contextmanager
-    def _nothing(path: Any, timeout: float = 10.0) -> Iterator[None]:
+    def _nothing(self: Any, *keys: str) -> Iterator[None]:
         yield
 
-    scope_format.file_lock = _nothing  # type: ignore[assignment]
+    JsonFileSubstrate.lock = _nothing  # type: ignore[assignment,method-assign]
     try:
         yield
     finally:
-        scope_format.file_lock = real  # type: ignore[assignment]
+        JsonFileSubstrate.lock = real  # type: ignore[assignment,method-assign]
 
 
 class TestFencingHoldsWithoutLocking:
@@ -254,12 +259,21 @@ class TestFencingHoldsWithoutLocking:
         wrong reason — a green suite asserting the opposite of what it claims.
         """
         entered: list[str] = []
+        patched = None
         with _no_locking():
-            real_lock = scope_format.file_lock
-            with real_lock(store.path):
+            patched = JsonFileSubstrate.lock
+            # A key nothing has touched, so any sidecar found must have been
+            # made by this acquisition — the fixture's own `ensure_scope` ran
+            # before the patch and left one beside `scopes`.
+            with store.substrate.lock("never-locked"):
                 entered.append("no-op")
+            assert (
+                not store.substrate.path_for("never-locked")
+                .with_suffix(".json.lock")
+                .exists()
+            ), "a real lock was taken while locking was disabled"
         assert entered == ["no-op"]
-        assert scope_format.file_lock is not real_lock, "the lock was not restored"
+        assert JsonFileSubstrate.lock is not patched, "the lock was not restored"
 
 
 class TestExpiry:

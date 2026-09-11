@@ -23,6 +23,7 @@ from functualize._engine.agent_step import AgentStepRegistry
 from functualize._engine.workflow_runner import WorkflowRunner
 from functualize._engine.workflow_walker import WalkOutcome
 from functualize._primitives.fresh_store import FreshStore
+from functualize._primitives.substrate import JsonFileSubstrate
 from functualize._types.errors import (
     AgentCapabilityRefusedError,
     AgentExecutorUnavailableError,
@@ -91,7 +92,7 @@ class _Recorder:
 
 @pytest.fixture
 def store(tmp_path: Path) -> FreshStore:
-    return FreshStore(tmp_path / "fresh.json")
+    return FreshStore(JsonFileSubstrate(tmp_path))
 
 
 def _registry(*executors: _Executor) -> AgentStepRegistry:

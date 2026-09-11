@@ -174,7 +174,7 @@ class TestUnreadableStoreRefuses:
     def test_the_refusal_names_the_escape_hatch(self, cli_run, project) -> None:
         _poison(project)
         result = cli_run(["builtin", "workflow", "list"], cwd=project)
-        assert "func builtin state clear --scopes" in result.stderr
+        assert "func builtin data clear --scopes" in result.stderr
 
     @pytest.mark.parametrize(
         "argv",

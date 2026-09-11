@@ -13,27 +13,47 @@ from pathlib import Path
 
 import pytest
 
-from functualize._primitives.fresh_format import FRESH_FILENAME
-from functualize._primitives.scope_format import SCOPES_FILENAME, SCOPES_VERSION
+from functualize._primitives.fresh_format import FRESH_KEY
+from functualize._primitives.fresh_store import FreshStore
+from functualize._primitives.scope_format import (
+    SCOPES_FILENAME,
+    SCOPES_KEY,
+    SCOPES_VERSION,
+)
 from functualize._primitives.scope_store import ScopeStore
+from functualize._primitives.substrate import JsonFileSubstrate
 from functualize._types.errors import ScopeStoreUnreadableError
 
 
 @pytest.fixture
 def store(tmp_path) -> ScopeStore:
-    return ScopeStore(tmp_path / SCOPES_FILENAME)
+    return ScopeStore(JsonFileSubstrate(tmp_path))
 
 
 class TestLocation:
-    def test_beside_state_finds_the_sibling(self, tmp_path) -> None:
-        store = ScopeStore.beside_fresh(tmp_path / FRESH_FILENAME)
-        assert store.path == tmp_path / SCOPES_FILENAME
+    """`beside_fresh` is gone, and its absence is the point.
+
+    It existed to apply the sibling rule to an explicit path so two stores
+    could not land in different directories. With one substrate handed to both
+    there is no second resolution to keep in agreement — the rule is not
+    enforced any more, it is unsayable.
+    """
+
+    def test_the_scope_store_shares_the_fresh_store_substrate(self, tmp_path) -> None:
+        (tmp_path / ".functualize").mkdir()
+        fresh = FreshStore.for_project(tmp_path)
+        assert fresh.scopes.substrate is fresh.substrate
 
     def test_for_project_resolves_like_the_state_file(self, tmp_path) -> None:
         (tmp_path / ".functualize").mkdir()
+        substrate = ScopeStore.for_project(tmp_path).substrate
         assert (
-            ScopeStore.for_project(tmp_path).path
+            substrate.path_for(SCOPES_KEY)
             == tmp_path / ".functualize" / SCOPES_FILENAME
+        )
+        assert (
+            substrate.path_for(FRESH_KEY).parent
+            == substrate.path_for(SCOPES_KEY).parent
         )
 
 
@@ -146,14 +166,15 @@ class TestToolCalls:
 
 class TestBatch:
     def test_batch_writes_once(self, store: ScopeStore, monkeypatch) -> None:
-        import functualize._primitives.scope_store as module
-
         writes = []
-        real = module.save_scopes
+        real = JsonFileSubstrate.write
         monkeypatch.setattr(
-            module,
-            "save_scopes",
-            lambda p, e: (writes.append(p), real(p, e))[1],
+            JsonFileSubstrate,
+            "write",
+            lambda self, key, payload, **kw: (
+                writes.append(key),
+                real(self, key, payload, **kw),
+            )[1],
         )
 
         with store.batch():
@@ -195,8 +216,8 @@ class TestBatch:
 class TestConcurrency:
     def test_two_stores_over_one_path_merge_by_scope(self, tmp_path) -> None:
         """Last-writer-wins per scope, not per file (AC-16)."""
-        a = ScopeStore(tmp_path / SCOPES_FILENAME)
-        b = ScopeStore(tmp_path / SCOPES_FILENAME)
+        a = ScopeStore(JsonFileSubstrate(tmp_path))
+        b = ScopeStore(JsonFileSubstrate(tmp_path))
         a.ensure_scope("run-a", "release")
         b.ensure_scope("run-b", "deploy")
         a.set_position("run-a", "approve")
@@ -211,30 +232,33 @@ class TestFailClosed:
     """The read never degrades to "no scopes" — the reason this class exists."""
 
     def test_reading_an_unreadable_store_raises(self, tmp_path) -> None:
-        path = tmp_path / SCOPES_FILENAME
+        sub = JsonFileSubstrate(tmp_path)
+        path = sub.path_for(SCOPES_KEY)
         path.write_text(json.dumps({"format_version": 99, "scopes": {"a": {}}}))
-        store = ScopeStore(path)
+        store = ScopeStore(sub)
         with pytest.raises(ScopeStoreUnreadableError):
             store.scope_ids()
         with pytest.raises(ScopeStoreUnreadableError):
             store.get_scope("a")
 
     def test_writing_to_an_unreadable_store_raises(self, tmp_path) -> None:
-        path = tmp_path / SCOPES_FILENAME
+        sub = JsonFileSubstrate(tmp_path)
+        path = sub.path_for(SCOPES_KEY)
         payload = json.dumps({"format_version": 99, "scopes": {"a": {}}})
         path.write_text(payload)
         with pytest.raises(ScopeStoreUnreadableError):
-            ScopeStore(path).ensure_scope("b")
+            ScopeStore(sub).ensure_scope("b")
         assert path.read_text() == payload
 
     def test_clear_is_the_escape_hatch(self, tmp_path) -> None:
-        path = tmp_path / SCOPES_FILENAME
+        sub = JsonFileSubstrate(tmp_path)
+        path = sub.path_for(SCOPES_KEY)
         path.write_text(json.dumps({"format_version": 99, "scopes": {"a": {}}}))
-        store = ScopeStore(path)
+        store = ScopeStore(sub)
 
         backup = store.clear()
 
-        assert backup is not None and backup.exists()
+        assert backup is not None and Path(backup).exists()
         assert store.scope_ids() == []
 
     def test_clear_returns_none_when_there_was_nothing(self, store: ScopeStore) -> None:
@@ -244,7 +268,9 @@ class TestFailClosed:
 class TestOnDiskShape:
     def test_envelope_is_two_keys(self, store: ScopeStore) -> None:
         store.ensure_scope("s1", "release")
-        raw = json.loads(store.path.read_text())
+        stored = store.substrate.read(SCOPES_KEY)
+        assert stored is not None
+        raw = stored.data
         assert set(raw) == {"format_version", "scopes"}
         assert raw["format_version"] == SCOPES_VERSION
 
@@ -252,7 +278,9 @@ class TestOnDiskShape:
         """The shape StateBackend's KV protocol addresses — the sqlite seam."""
         store.ensure_scope("s1")
         store.ensure_scope("s2")
-        raw = json.loads(store.path.read_text())
+        stored = store.substrate.read(SCOPES_KEY)
+        assert stored is not None
+        raw = stored.data
         assert sorted(raw["scopes"]) == ["s1", "s2"]
         assert all(isinstance(v, dict) for v in raw["scopes"].values())
 
@@ -284,7 +312,7 @@ class TestBatchIsPerThread:
     def _run(self, tmp_path: Path, raise_inside: bool) -> dict:
         import threading
 
-        store = ScopeStore(tmp_path / f"scopes-{raise_inside}.json")
+        store = ScopeStore(JsonFileSubstrate(tmp_path))
         store.ensure_scope("s")
         started, done = threading.Event(), threading.Event()
 
@@ -305,7 +333,7 @@ class TestBatchIsPerThread:
         except RuntimeError:
             pass
         thread.join(5)
-        record = ScopeStore(store.path).get_scope("s") or {}
+        record = ScopeStore(store.substrate).get_scope("s") or {}
         return record.get("steps") or {}
 
     def test_both_writes_land_on_a_clean_exit(self, tmp_path: Path) -> None:

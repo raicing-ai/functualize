@@ -22,14 +22,15 @@ import pytest
 
 from functualize import FunctualizeApp, RunContext
 from functualize._engine.capabilities.state import State  # noqa: TC001
-from functualize._primitives.scope_format import resolve_scopes_path
+from functualize._primitives.scope_format import SCOPES_KEY
 from functualize._primitives.scope_store import ScopeStore
+from functualize._primitives.substrate import JsonFileSubstrate
 from functualize._types.run_request import RunRequest
 
 
 def _records() -> dict[str, Any]:
     """Every scope record on disk, read fresh."""
-    path = resolve_scopes_path(Path.cwd())
+    path = JsonFileSubstrate.for_project(Path.cwd()).path_for(SCOPES_KEY)
     if not path.exists():
         return {}
     return json.loads(path.read_text()).get("scopes", {})
@@ -99,7 +100,7 @@ class TestAPlainJobsScopeIsFinished:
         app.execute(RunRequest(job_name="writes", surface="app.execute"))
         assert len(_records()) == 1
 
-        store = ScopeStore(resolve_scopes_path(Path.cwd()))
+        store = ScopeStore.for_project(Path.cwd())
         report = purge_scopes(store)
 
         assert report.get("removed"), f"purge removed nothing: {report}"
@@ -147,7 +148,7 @@ class TestALiveScopeIsNeverFinished:
     @staticmethod
     def _block_mid_run(rc: RunContext) -> None:
         """Mark this run's scope blocked, as a walk stopping at a gate does."""
-        ScopeStore(resolve_scopes_path(Path.cwd())).set_scope_status(
+        ScopeStore.for_project(Path.cwd()).set_scope_status(
             rc._workflow_scope.scope_id, "blocked"
         )
 
@@ -337,5 +338,5 @@ class TestOnlyTheMinterCloses:
         app.execute(RunRequest(job_name="parent", surface="app.execute"))
 
         scope_id = next(iter(_records()))
-        store = ScopeStore(resolve_scopes_path(Path.cwd()))
+        store = ScopeStore.for_project(Path.cwd())
         assert key in store.state_snapshot(scope_id)

@@ -7,25 +7,38 @@ session precondition cache.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from functualize._primitives.fresh_format import (
     FRESH_FILENAME,
-    load_fresh,
+    FRESH_KEY,
+    normalize_fresh,
 )
 from functualize._primitives.fresh_store import FreshStore
+from functualize._primitives.scope_format import SCOPES_KEY
+from functualize._primitives.substrate import JsonFileSubstrate
+
+
+def _stored(store: FreshStore) -> dict:
+    """What is actually in storage, read back through the substrate."""
+    found = store.substrate.read(FRESH_KEY)
+    return normalize_fresh(None if found is None else found.data)
 
 
 @pytest.fixture
 def store(tmp_path) -> FreshStore:
-    return FreshStore(tmp_path / FRESH_FILENAME)
+    return FreshStore(JsonFileSubstrate(tmp_path))
 
 
 class TestConstruction:
     def test_for_project_resolves_beside_cache(self, tmp_path) -> None:
         (tmp_path / ".functualize").mkdir()
         store = FreshStore.for_project(tmp_path)
-        assert store.path == tmp_path / ".functualize" / FRESH_FILENAME
+        assert store.substrate.path_for(FRESH_KEY) == (
+            tmp_path / ".functualize" / FRESH_FILENAME
+        )
 
     def test_reads_before_any_write(self, store: FreshStore) -> None:
         assert store.get_fingerprint("missing") is None
@@ -194,7 +207,7 @@ class TestScopeBatch:
         with store.scope_batch():
             store.ensure_scope("s1", "release")
             store.set_position("s1", "approve")
-        reloaded = FreshStore(store.path)
+        reloaded = FreshStore(store.substrate)
         assert reloaded.get_position("s1") == "approve"
 
     def test_reads_inside_batch_see_pending_writes(self, store: FreshStore) -> None:
@@ -205,7 +218,7 @@ class TestScopeBatch:
     def test_nested_batch_reuses_outer(self, store: FreshStore) -> None:
         with store.scope_batch(), store.scope_batch():
             store.ensure_scope("s1")
-        assert FreshStore(store.path).scope_ids() == ["s1"]
+        assert FreshStore(store.substrate).scope_ids() == ["s1"]
 
     def test_batch_preserves_existing_records(self, store: FreshStore) -> None:
         store.ensure_scope("pre")
@@ -218,12 +231,22 @@ class TestTwoFiles:
     """The split, from the façade's side: one store, two files, and nothing
     outside `_primitives` needs to know which is which."""
 
-    def test_scope_file_is_the_state_file_sibling(self, store: FreshStore) -> None:
-        assert store.scopes_path == store.path.with_name("scopes.json")
+    def test_the_two_documents_share_one_substrate(self, store: FreshStore) -> None:
+        """Stronger than "they are siblings", and the reason the feature exists.
+
+        Sibling paths were two resolutions kept in agreement by care. There is
+        now one substrate, handed to both, so they cannot be in different
+        directories, different modes, or different backends — not because a
+        rule says so but because there is only one object.
+        """
+        assert store.scopes.substrate is store.substrate
+        assert store.substrate.path_for(SCOPES_KEY) == store.substrate.path_for(
+            FRESH_KEY
+        ).with_name("scopes.json")
 
     def test_scopes_are_not_in_the_state_envelope(self, store: FreshStore) -> None:
         store.ensure_scope("s1", "release")
-        assert "scopes" not in load_fresh(store.path)
+        assert "scopes" not in _stored(store)
 
     def test_a_state_version_bump_leaves_scopes_intact(self, store: FreshStore) -> None:
         """The defect this feature exists to remove, as a unit test. The
@@ -234,9 +257,10 @@ class TestTwoFiles:
         store.put_gate("s1", "approve", {"payload": {"approved_by": "sam"}})
         store.put_fingerprint("k", {"n": 1})
 
-        raw = json.loads(store.path.read_text())
+        path = store.substrate.path_for(FRESH_KEY)
+        raw = json.loads(path.read_text())
         raw["format_version"] = 999
-        store.path.write_text(json.dumps(raw))
+        path.write_text(json.dumps(raw))
         store.put_fingerprint("other", {"n": 2})  # one unrelated write
 
         assert store.get_fingerprint("k") is None  # derived state: discarded
@@ -269,7 +293,7 @@ class TestClear:
 
         assert store.get_fingerprint("k") is None
         assert store.scope_ids() == []
-        assert moved is not None and moved.exists()
+        assert moved is not None and Path(moved).exists()
 
     def test_discarded_scopes_are_moved_aside_not_deleted(
         self, store: FreshStore
@@ -280,7 +304,7 @@ class TestClear:
         assert moved is not None
         import json
 
-        assert json.loads(moved.read_text())["scopes"]["s1"]["gates"]["approve"][
+        assert json.loads(Path(moved).read_text())["scopes"]["s1"]["gates"]["approve"][
             "payload"
         ] == {"approved_by": "sam"}
 
@@ -294,4 +318,4 @@ class TestClear:
         store.clear()
         from functualize._primitives.fresh_format import empty_fresh
 
-        assert load_fresh(store.path) == empty_fresh()
+        assert _stored(store) == empty_fresh()

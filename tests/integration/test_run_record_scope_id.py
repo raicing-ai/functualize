@@ -23,21 +23,22 @@ from typing import Any
 
 from functualize import FunctualizeApp, RunContext
 from functualize._engine.capabilities.state import State  # noqa: TC001
-from functualize._primitives.run_format import resolve_runs_path
-from functualize._primitives.scope_format import resolve_scopes_path
+from functualize._primitives.run_format import RUNS_KEY
+from functualize._primitives.scope_format import SCOPES_KEY
 from functualize._primitives.scope_store import ScopeStore
+from functualize._primitives.substrate import JsonFileSubstrate
 from functualize._types.run_request import RunRequest
 
 
 def _runs() -> dict[str, Any]:
-    path = resolve_runs_path(Path.cwd())
+    path = JsonFileSubstrate.for_project(Path.cwd()).path_for(RUNS_KEY)
     if not path.exists():
         return {}
     return json.loads(path.read_text()).get("runs", {})
 
 
 def _scopes() -> dict[str, Any]:
-    path = resolve_scopes_path(Path.cwd())
+    path = JsonFileSubstrate.for_project(Path.cwd()).path_for(SCOPES_KEY)
     if not path.exists():
         return {}
     return json.loads(path.read_text()).get("scopes", {})
@@ -105,7 +106,7 @@ class TestEveryRunRecordNamesItsScope:
         _run_one("stateless", stateless)
         scope_id = next(iter(_runs().values()))["scope_id"]
 
-        store = ScopeStore(resolve_scopes_path(Path.cwd()))
+        store = ScopeStore.for_project(Path.cwd())
         assert store.get_scope(scope_id) is None
 
     def test_a_child_run_names_the_same_scope_as_its_parent(self) -> None:

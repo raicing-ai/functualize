@@ -27,6 +27,7 @@ from functualize._engine.workflow_validation import (
 )
 from functualize._engine.workflow_walker import WorkflowWalker
 from functualize._primitives.fresh_store import FreshStore
+from functualize._primitives.substrate import JsonFileSubstrate
 from functualize._types.workflow import (
     END,
     Edge,
@@ -68,7 +69,7 @@ def _rerouted() -> WorkflowDeclaration:
 
 @pytest.fixture
 def store(tmp_path: Path) -> FreshStore:
-    return FreshStore(tmp_path / "fresh.json")
+    return FreshStore(JsonFileSubstrate(tmp_path))
 
 
 def _walk(declaration: WorkflowDeclaration, store: FreshStore) -> WorkflowWalker:

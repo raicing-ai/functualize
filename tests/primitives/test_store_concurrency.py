@@ -26,6 +26,7 @@ import pytest
 from functualize._primitives.fresh_store import FreshStore
 from functualize._primitives.run_store import RunStore
 from functualize._primitives.scope_store import ScopeStore
+from functualize._primitives.substrate import JsonFileSubstrate
 
 WRITERS = 8
 
@@ -34,7 +35,7 @@ class TestThreadsMerge:
     """N threads writing distinct keys, and every key survives."""
 
     def test_scope_store_keeps_every_thread_s_scope(self, tmp_path: Path) -> None:
-        store = ScopeStore(tmp_path / "scopes.json")
+        store = ScopeStore(JsonFileSubstrate(tmp_path))
         errors: list[BaseException] = []
 
         def writer(n: int) -> None:
@@ -51,14 +52,14 @@ class TestThreadsMerge:
             t.join(10)
 
         assert not errors, errors
-        fresh = ScopeStore(tmp_path / "scopes.json")
+        fresh = ScopeStore(JsonFileSubstrate(tmp_path))
         for n in range(WRITERS):
             assert fresh.get_state(f"scope-{n}", "value") == n, (
                 f"scope-{n} lost its write; {WRITERS} threads, distinct keys"
             )
 
     def test_run_store_keeps_every_thread_s_run(self, tmp_path: Path) -> None:
-        store = RunStore(tmp_path / "runs.json")
+        store = RunStore(JsonFileSubstrate(tmp_path))
         ids: list[str] = []
         lock = threading.Lock()
 
@@ -74,7 +75,7 @@ class TestThreadsMerge:
             t.join(10)
 
         assert len(set(ids)) == WRITERS, "two runs were given the same id"
-        fresh = RunStore(tmp_path / "runs.json")
+        fresh = RunStore(JsonFileSubstrate(tmp_path))
         recorded = set(fresh.run_ids())
         assert set(ids) <= recorded, (
             f"{len(set(ids) - recorded)} run(s) opened successfully and are not "
@@ -82,7 +83,7 @@ class TestThreadsMerge:
         )
 
     def test_state_store_keeps_every_thread_s_fingerprint(self, tmp_path: Path) -> None:
-        store = FreshStore(tmp_path / "fresh.json")
+        store = FreshStore(JsonFileSubstrate(tmp_path))
 
         def writer(n: int) -> None:
             store.put_fingerprint(f"job-{n}", {"hash": str(n)})
@@ -93,7 +94,7 @@ class TestThreadsMerge:
         for t in threads:
             t.join(10)
 
-        fresh = FreshStore(tmp_path / "fresh.json")
+        fresh = FreshStore(JsonFileSubstrate(tmp_path))
         keys = set(fresh.fingerprint_keys())
         missing = {f"job-{n}" for n in range(WRITERS)} - keys
         assert not missing, f"{missing} lost their fingerprint"

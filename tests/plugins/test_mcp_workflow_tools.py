@@ -18,6 +18,7 @@ from functualize_mcp._workflow_tools import WorkflowToolProvider
 from pydantic import BaseModel
 
 from functualize._app.state import AppState
+from functualize._primitives.substrate import JsonFileSubstrate
 from functualize.app._workflow_view import _topology
 from functualize.app.core import FunctualizeApp
 from functualize.app.utils import FreshStore
@@ -936,7 +937,7 @@ class TestUnreadableScopeStore:
         )
         from functualize._primitives.fresh_store import FreshStore
 
-        return FreshStore(tmp_path / "fresh.json")
+        return FreshStore(JsonFileSubstrate(tmp_path))
 
     async def test_get_workflow_state_reports_the_fault(self, poisoned) -> None:
         provider = WorkflowToolProvider(_gated_app(), store=poisoned)

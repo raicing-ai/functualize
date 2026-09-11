@@ -25,7 +25,8 @@ import pytest
 
 from functualize import FunctualizeApp, RunContext
 from functualize._engine.capabilities.state import State  # noqa: TC001
-from functualize._primitives.scope_format import resolve_scopes_path
+from functualize._primitives.scope_format import SCOPES_KEY
+from functualize._primitives.substrate import JsonFileSubstrate
 from functualize._types.run_request import RunRequest
 
 #: The checkout's own state root — what the suite used to fill up. Resolved
@@ -121,7 +122,9 @@ class TestTheSuiteDoesNotWriteIntoTheRepository:
         asserts the resolved path is inside *this* test's `tmp_path`, so the
         record written by the test above is not visible here.
         """
-        resolved = resolve_scopes_path(Path.cwd()).resolve()
+        resolved = (
+            JsonFileSubstrate.for_project(Path.cwd()).path_for(SCOPES_KEY).resolve()
+        )
         assert resolved.is_relative_to(tmp_path.resolve()), (
             f"state resolved to {resolved}, which is outside this test's "
             f"{tmp_path} — the sandbox is shared, so tests can still see each "
@@ -143,7 +146,9 @@ class TestTheOptOutWorks:
         an opt-out nobody has exercised is an opt-out that silently does
         nothing.
         """
-        resolved = resolve_scopes_path(_REPO_ROOT).resolve()
+        resolved = (
+            JsonFileSubstrate.for_project(_REPO_ROOT).path_for(SCOPES_KEY).resolve()
+        )
         assert resolved == _REPO_SCOPES.resolve(), (
             f"the marker did not restore the real walk: got {resolved}"
         )

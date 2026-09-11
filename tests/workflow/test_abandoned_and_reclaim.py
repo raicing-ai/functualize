@@ -21,6 +21,7 @@ import pytest
 
 from functualize._primitives.fresh_store import FreshStore
 from functualize._primitives.lease import DEFAULT_LEASE_SECONDS
+from functualize._primitives.substrate import JsonFileSubstrate
 from functualize.app._workflow_control import cancel_scope, purge_scopes, reclaim_scope
 from functualize.app._workflow_view import derived_state
 
@@ -29,7 +30,7 @@ PAST = datetime.now(UTC) - timedelta(seconds=DEFAULT_LEASE_SECONDS + 60)
 
 @pytest.fixture
 def store(tmp_path: Path) -> FreshStore:
-    s = FreshStore(tmp_path / "fresh.json")
+    s = FreshStore(JsonFileSubstrate(tmp_path))
     s.ensure_scope("wf", "demo")
     s.set_scope_status("wf", "running")
     return s

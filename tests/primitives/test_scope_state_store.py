@@ -17,46 +17,47 @@ from pathlib import Path
 
 import pytest
 
-from functualize._primitives.scope_format import SCOPES_LIMIT
+from functualize._primitives.scope_format import SCOPES_KEY, SCOPES_LIMIT
 from functualize._primitives.scope_state_store import (
     ScopeStateStore,
     ScopeStateUnreadableError,
-    scope_state_path,
+    scope_state_key,
 )
 from functualize._primitives.scope_store import ScopeStore
+from functualize._primitives.substrate import JsonFileSubstrate
 
 
 class TestStateRoundTrips:
     def test_set_then_get(self, tmp_path: Path) -> None:
-        store = ScopeStore(tmp_path / "scopes.json")
+        store = ScopeStore(JsonFileSubstrate(tmp_path))
         store.set_state("s1", "k", {"nested": [1, 2]})
         assert store.get_state("s1", "k") == {"nested": [1, 2]}
 
     def test_a_missing_key_returns_the_default(self, tmp_path: Path) -> None:
-        store = ScopeStore(tmp_path / "scopes.json")
+        store = ScopeStore(JsonFileSubstrate(tmp_path))
         store.set_state("s1", "other", 1)
         assert store.get_state("s1", "k", "fallback") == "fallback"
 
     def test_a_missing_scope_returns_the_default(self, tmp_path: Path) -> None:
         """No file is "no state" — the absence of a run, not a lost one."""
-        store = ScopeStore(tmp_path / "scopes.json")
+        store = ScopeStore(JsonFileSubstrate(tmp_path))
         assert store.get_state("never-ran", "k", "fallback") == "fallback"
 
     def test_delete_reports_whether_the_key_was_there(self, tmp_path: Path) -> None:
-        store = ScopeStore(tmp_path / "scopes.json")
+        store = ScopeStore(JsonFileSubstrate(tmp_path))
         store.set_state("s1", "k", 1)
         assert store.delete_state("s1", "k") is True
         assert store.delete_state("s1", "k") is False
 
     def test_a_stored_none_is_not_a_missing_key(self, tmp_path: Path) -> None:
         """`None` is a value. Distinguished by `delete`'s sentinel."""
-        store = ScopeStore(tmp_path / "scopes.json")
+        store = ScopeStore(JsonFileSubstrate(tmp_path))
         store.set_state("s1", "k", None)
         assert store.get_state("s1", "k", "fallback") is None
         assert store.delete_state("s1", "k") is True
 
     def test_snapshot_and_clear(self, tmp_path: Path) -> None:
-        store = ScopeStore(tmp_path / "scopes.json")
+        store = ScopeStore(JsonFileSubstrate(tmp_path))
         store.set_state("s1", "a", 1)
         store.set_state("s1", "b", 2)
         assert store.state_snapshot("s1") == {"a": 1, "b": 2}
@@ -65,13 +66,13 @@ class TestStateRoundTrips:
 
     def test_it_survives_a_new_store_object(self, tmp_path: Path) -> None:
         """Durability is the thing this must not lose while fixing the cost."""
-        ScopeStore(tmp_path / "scopes.json").set_state("s1", "k", "durable")
-        assert ScopeStore(tmp_path / "scopes.json").get_state("s1", "k") == "durable"
+        ScopeStore(JsonFileSubstrate(tmp_path)).set_state("s1", "k", "durable")
+        assert ScopeStore(JsonFileSubstrate(tmp_path)).get_state("s1", "k") == "durable"
 
 
 class TestScopesAreIsolated:
     def test_two_scopes_do_not_see_each_other(self, tmp_path: Path) -> None:
-        store = ScopeStore(tmp_path / "scopes.json")
+        store = ScopeStore(JsonFileSubstrate(tmp_path))
         store.set_state("a", "k", "from-a")
         store.set_state("b", "k", "from-b")
         assert store.get_state("a", "k") == "from-a"
@@ -83,22 +84,26 @@ class TestScopesAreIsolated:
         Separate files are also separate locks, which is the second win: two
         unrelated runs used to serialize on one `fcntl.flock` sidecar.
         """
-        scopes = tmp_path / "scopes.json"
+        scopes = JsonFileSubstrate(tmp_path)
         store = ScopeStore(scopes)
         store.set_state("a", "k", 1)
         store.set_state("b", "k", 2)
 
-        assert scope_state_path(scopes, "a").exists()
-        assert scope_state_path(scopes, "b").exists()
-        assert scope_state_path(scopes, "a") != scope_state_path(scopes, "b")
+        assert scopes.path_for(scope_state_key("a")).exists()
+        assert scopes.path_for(scope_state_key("b")).exists()
+        assert scopes.path_for(scope_state_key("a")) != scopes.path_for(
+            scope_state_key("b")
+        )
 
     def test_state_is_not_in_the_scope_record(self, tmp_path: Path) -> None:
         """The move itself. Reading the record must not find job state."""
-        scopes = tmp_path / "scopes.json"
+        scopes = JsonFileSubstrate(tmp_path)
         store = ScopeStore(scopes)
         store.set_state("a", "secret", "value")
 
-        record = json.loads(scopes.read_text())["scopes"]["a"]
+        stored = scopes.read(SCOPES_KEY)
+        assert stored is not None
+        record = stored.data["scopes"]["a"]
         assert "value" not in json.dumps(record), (
             "job state is still being written into the scope record — the "
             "whole-file read-modify-write is back"
@@ -110,7 +115,7 @@ class TestTheCostDoesNotGrowWithTheProject:
 
     @staticmethod
     def _store_with(n: int) -> ScopeStore:
-        store = ScopeStore(Path(tempfile.mkdtemp()) / "scopes.json")
+        store = ScopeStore(JsonFileSubstrate(Path(tempfile.mkdtemp())))
         if n:
             with store.batch():
                 for i in range(n):
@@ -177,14 +182,14 @@ class TestTheCostDoesNotGrowWithTheProject:
         """
         store = self._store_with(2000)
         assert len(store.scope_ids()) == SCOPES_LIMIT
-        assert store.path.stat().st_size > 50_000
+        assert store.substrate.path_for(SCOPES_KEY).stat().st_size > 50_000
 
 
 class TestStateImpliesARecord:
     """State with no record is state nothing can ever purge."""
 
     def test_writing_state_creates_the_scope_record(self, tmp_path: Path) -> None:
-        scopes = tmp_path / "scopes.json"
+        scopes = JsonFileSubstrate(tmp_path)
         store = ScopeStore(scopes)
         store.set_state("s1", "k", 1)
 
@@ -195,14 +200,14 @@ class TestStateImpliesARecord:
 
     def test_reading_state_does_not_create_a_record(self, tmp_path: Path) -> None:
         """A read of a scope that never ran must not mint anything."""
-        store = ScopeStore(tmp_path / "scopes.json")
+        store = ScopeStore(JsonFileSubstrate(tmp_path))
         assert store.get_state("never-ran", "k") is None
         assert store.get_scope("never-ran") is None
 
 
 class TestBatching:
     def test_a_batch_writes_once(self, tmp_path: Path) -> None:
-        scopes = tmp_path / "scopes.json"
+        scopes = JsonFileSubstrate(tmp_path)
         store = ScopeStore(scopes)
         with store.state_batch("s1"):
             store.set_state("s1", "a", 1)
@@ -211,7 +216,7 @@ class TestBatching:
 
     def test_an_exception_discards_the_block(self, tmp_path: Path) -> None:
         """All-or-nothing, as `ScopeStore.batch` is."""
-        store = ScopeStore(tmp_path / "scopes.json")
+        store = ScopeStore(JsonFileSubstrate(tmp_path))
         store.set_state("s1", "kept", "yes")
         with pytest.raises(RuntimeError), store.state_batch("s1"):
             store.set_state("s1", "discarded", "no")
@@ -231,7 +236,7 @@ class TestBatching:
         here deadlocks by construction, because a second writer to the *same*
         scope correctly blocks on the file lock the batch is holding.
         """
-        store = ScopeStore(tmp_path / "scopes.json")
+        store = ScopeStore(JsonFileSubstrate(tmp_path))
         inner = store._state_store("s1")
         seen: dict[str, object] = {}
 
@@ -258,7 +263,7 @@ class TestBatching:
         `set`. With a file per scope, a batch held open on one scope must not
         delay a write to another.
         """
-        store = ScopeStore(tmp_path / "scopes.json")
+        store = ScopeStore(JsonFileSubstrate(tmp_path))
         store.set_state("a", "seed", 0)
         store.set_state("b", "seed", 0)
         done = threading.Event()
@@ -284,8 +289,8 @@ class TestACorruptFileRefuses:
     """A record is not a cache — it must not degrade to empty."""
 
     def test_unparseable_state_raises(self, tmp_path: Path) -> None:
-        scopes = tmp_path / "scopes.json"
-        path = scope_state_path(scopes, "s1")
+        scopes = JsonFileSubstrate(tmp_path)
+        path = scopes.path_for(scope_state_key("s1"))
         path.parent.mkdir(parents=True)
         path.write_text("{not json")
 
@@ -299,8 +304,8 @@ class TestACorruptFileRefuses:
         it as "no state", and carry on — silently, which is the failure this
         refusal exists to prevent.
         """
-        scopes = tmp_path / "scopes.json"
-        path = scope_state_path(scopes, "s1")
+        scopes = JsonFileSubstrate(tmp_path)
+        path = scopes.path_for(scope_state_key("s1"))
         path.parent.mkdir(parents=True)
         path.write_text("{not json")
 
@@ -318,23 +323,22 @@ class TestAScopeIdCannotEscapeTheDirectory:
         at its source; quietly rewriting it would hide that.
         """
         with pytest.raises(ValueError, match="scope id"):
-            scope_state_path(tmp_path / "scopes.json", bad)
+            JsonFileSubstrate(tmp_path).path_for(scope_state_key(bad))
 
 
 class TestDiscard:
     def test_discard_removes_the_file(self, tmp_path: Path) -> None:
-        scopes = tmp_path / "scopes.json"
+        scopes = JsonFileSubstrate(tmp_path)
         store = ScopeStore(scopes)
         store.set_state("s1", "k", 1)
         assert store.discard_state("s1") is True
-        assert not scope_state_path(scopes, "s1").exists()
+        assert not scopes.path_for(scope_state_key("s1")).exists()
 
     def test_discarding_nothing_is_not_an_error(self, tmp_path: Path) -> None:
-        assert ScopeStore(tmp_path / "scopes.json").discard_state("never") is False
+        assert ScopeStore(JsonFileSubstrate(tmp_path)).discard_state("never") is False
 
     def test_a_direct_store_discards_too(self, tmp_path: Path) -> None:
-        path = tmp_path / "fresh.json"
-        store = ScopeStateStore(path)
+        store = ScopeStateStore(JsonFileSubstrate(tmp_path), "s1")
         store.set("k", 1)
         assert store.discard() is True
         assert store.discard() is False
@@ -358,7 +362,7 @@ class TestReviewFindings:
         wrote state with **no record** — and `purge_scopes` walks records, so
         nothing could ever find it again.
         """
-        scopes = tmp_path / "scopes.json"
+        scopes = JsonFileSubstrate(tmp_path)
         store = ScopeStore(scopes)
         store.set_state("s1", "k", 1)
         assert store.delete_scope("s1") is True
@@ -377,7 +381,7 @@ class TestReviewFindings:
         reset that never happened. If the unlink lands inside a `_mutate`'s
         load-write window it is **lost**. An error beats picking a winner.
         """
-        store = ScopeStore(tmp_path / "scopes.json")
+        store = ScopeStore(JsonFileSubstrate(tmp_path))
         store.set_state("s1", "k", 1)
 
         with (
@@ -388,13 +392,13 @@ class TestReviewFindings:
 
     def test_discard_does_not_resurrect_the_file(self, tmp_path: Path) -> None:
         """The outcome the refusal above protects, asserted directly."""
-        scopes = tmp_path / "scopes.json"
+        scopes = JsonFileSubstrate(tmp_path)
         store = ScopeStore(scopes)
         store.set_state("s1", "k", 1)
         with store.state_batch("s1"):
             store.set_state("s1", "k", 2)
         assert store.discard_state("s1") is True
-        assert not scope_state_path(scopes, "s1").exists()
+        assert not scopes.path_for(scope_state_key("s1")).exists()
 
     def test_one_store_object_per_path(self, tmp_path: Path) -> None:
         """Q1.5 / Q2.2. Two objects over one path self-deadlock on `flock`.
@@ -402,7 +406,7 @@ class TestReviewFindings:
         They also split the batch: a batch opened on one is invisible to the
         other, so writes through the second bypass it entirely.
         """
-        store = ScopeStore(tmp_path / "scopes.json")
+        store = ScopeStore(JsonFileSubstrate(tmp_path))
         assert store._state_store("s1") is store._state_store("s1")
         assert store._state_store("s1") is not store._state_store("s2")
 
@@ -416,8 +420,8 @@ class TestReviewFindings:
         empty and the next `set` replaced the file wholesale, which is exactly
         the silent loss the promise rules out.
         """
-        scopes = tmp_path / "scopes.json"
-        path = scope_state_path(scopes, "s1")
+        scopes = JsonFileSubstrate(tmp_path)
+        path = scopes.path_for(scope_state_key("s1"))
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('{"state": ' + bad_state + "}")
 
@@ -432,8 +436,8 @@ class TestReviewFindings:
         An envelope that simply has no `state` key yet is "no state", which is
         the absence of a run rather than a damaged one.
         """
-        scopes = tmp_path / "scopes.json"
-        path = scope_state_path(scopes, "s1")
+        scopes = JsonFileSubstrate(tmp_path)
+        path = scopes.path_for(scope_state_key("s1"))
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("{}")
 

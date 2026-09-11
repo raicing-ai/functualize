@@ -16,6 +16,7 @@ import pytest
 from functualize._engine.frontier import END, FrontierWalk, GraphModel
 from functualize._primitives.fresh_store import FreshStore
 from functualize._primitives.scope_store import ScopeStore
+from functualize._primitives.substrate import JsonFileSubstrate
 
 # approve ──→ END
 LINEAR_GRAPH = GraphModel(entry="approve", edges={"approve": [END]})
@@ -23,33 +24,29 @@ LINEAR_GRAPH = GraphModel(entry="approve", edges={"approve": [END]})
 
 @pytest.fixture
 def counting_saves(monkeypatch):
-    """Count physical writes of the scope file."""
-    import functualize._primitives.scope_store as module
+    """Count physical writes of the scope document.
+
+    **One patch, since `store-substrate`/T2.** This used to patch two names —
+    `save_scopes` and `update_scopes` — because a write could go through either,
+    and a spy that missed one counted too few. There is now a single `write` on
+    the substrate, so miscounting by patching the wrong door is not possible.
+    """
+    from functualize._primitives.substrate import JsonFileSubstrate
 
     calls: list[str] = []
-    real = module.save_scopes
+    real = JsonFileSubstrate.write
 
-    def _spy(path, envelope):
-        calls.append(str(path))
-        real(path, envelope)
+    def _spy(self, key, payload, **kwargs):
+        calls.append(key)
+        return real(self, key, payload, **kwargs)
 
-    monkeypatch.setattr(module, "save_scopes", _spy)
-    # update_scopes writes through scope_format, not the name patched above.
-    import functualize._primitives.scope_format as fmt
-
-    real_update = fmt.update_scopes
-
-    def _update_spy(path, mutate):
-        calls.append(str(path))
-        return real_update(path, mutate)
-
-    monkeypatch.setattr(module, "update_scopes", _update_spy)
+    monkeypatch.setattr(JsonFileSubstrate, "write", _spy)
     return calls
 
 
 class TestFrontierWritesOncePerCall:
     def test_block_writes_once_not_three_times(self, tmp_path, counting_saves):
-        walk = FrontierWalk(LINEAR_GRAPH, FreshStore(tmp_path / "fresh.json"), "s1")
+        walk = FrontierWalk(LINEAR_GRAPH, FreshStore(JsonFileSubstrate(tmp_path)), "s1")
         counting_saves.clear()
 
         walk.block("approve", "approve_gate", model="", input_schema={})
@@ -60,7 +57,7 @@ class TestFrontierWritesOncePerCall:
         )
 
     def test_start_writes_once(self, tmp_path, counting_saves):
-        walk = FrontierWalk(LINEAR_GRAPH, FreshStore(tmp_path / "fresh.json"), "s1")
+        walk = FrontierWalk(LINEAR_GRAPH, FreshStore(JsonFileSubstrate(tmp_path)), "s1")
         counting_saves.clear()
 
         walk.start("release")
@@ -73,7 +70,7 @@ class TestOutcomeIsUnchanged:
     written."""
 
     def test_block_records_the_same_thing_it_always_did(self, tmp_path):
-        store = FreshStore(tmp_path / "fresh.json")
+        store = FreshStore(JsonFileSubstrate(tmp_path))
         walk = FrontierWalk(LINEAR_GRAPH, store, "s1")
 
         walk.start("release")
@@ -97,7 +94,7 @@ class TestAllOrNothingPerNode:
     three. All-or-nothing beats a torn record."""
 
     def test_an_exception_mid_batch_leaves_no_partial_node(self, tmp_path):
-        store = ScopeStore(tmp_path / "scopes.json")
+        store = ScopeStore(JsonFileSubstrate(tmp_path))
         store.ensure_scope("s1", "release")
 
         with pytest.raises(RuntimeError), store.batch():

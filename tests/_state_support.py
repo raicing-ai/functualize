@@ -34,9 +34,12 @@ def new_state_store(scope_id: str = "test-scope") -> Any:
     """A real `ScopeBackedStateStore`, in a directory cleaned up with it."""
     from functualize._engine.capabilities.state import ScopeBackedStateStore
     from functualize._primitives.scope_store import ScopeStore
+    from functualize._primitives.substrate import JsonFileSubstrate
 
     tmp = tempfile.TemporaryDirectory(prefix="functualize-state-")
-    store = ScopeBackedStateStore(ScopeStore(Path(tmp.name) / "scopes.json"), scope_id)
+    store = ScopeBackedStateStore(
+        ScopeStore(JsonFileSubstrate(Path(tmp.name))), scope_id
+    )
     # Hold the directory for exactly the store's lifetime.
     store._tmp = tmp
     return store

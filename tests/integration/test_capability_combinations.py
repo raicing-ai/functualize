@@ -236,7 +236,7 @@ class TestTheRunLogRecordsParentage:
     def _store(self, run: Any) -> Any:
         from functualize._primitives.run_store import RunStore
 
-        return RunStore.beside_fresh(run["app"].execution_engine._state_store().path)
+        return RunStore(run["app"].execution_engine._state_store().substrate)
 
     def test_the_log_recorded_the_run(self, run: Any) -> None:
         assert self._store(run).run_ids(), "no run was recorded at all"
@@ -352,7 +352,7 @@ class TestTheSeamsThatBreak:
         # same file, not the objects the failed run left behind.
         from functualize._primitives.scope_store import ScopeStore
 
-        scopes = ScopeStore.beside_fresh(app.execution_engine._state_store().path)
+        scopes = ScopeStore(app.execution_engine._state_store().substrate)
         state = scopes.state_snapshot("broken")
         assert state.get("good.done") is True, (
             "a completed step's state was lost because a later step failed"
@@ -394,7 +394,7 @@ class TestAPlainJobIsNotAWorkflow:
                 == "Success"
             )
 
-        scopes = ScopeStore.beside_fresh(app.execution_engine._state_store().path)
+        scopes = ScopeStore(app.execution_engine._state_store().substrate)
         assert scopes.scope_ids() == [], (
             "three runs that stored nothing still wrote scope records"
         )
@@ -419,7 +419,7 @@ class TestAPlainJobIsNotAWorkflow:
             == "Success"
         )
 
-        store = FreshStore(app.execution_engine._state_store().path)
+        store = FreshStore(app.execution_engine._state_store().substrate)
         assert list_scopes(app, store) == [], (
             "a plain job's state record was listed as a running workflow"
         )
@@ -444,7 +444,7 @@ class TestAPlainJobIsNotAWorkflow:
             ).status.value
             == "Success"
         )
-        store = FreshStore(app.execution_engine._state_store().path)
+        store = FreshStore(app.execution_engine._state_store().substrate)
         rows = list_scopes(app, store, state="completed")
         assert any(r["workflow_id"] == "listed" for r in rows), (
             f"the real workflow vanished from the listing: {rows}"

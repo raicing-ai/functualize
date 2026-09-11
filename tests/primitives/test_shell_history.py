@@ -18,33 +18,35 @@ import json
 import threading
 from pathlib import Path
 
+from functualize._primitives.fresh_store import FreshStore
 from functualize._primitives.shell_history import (
+    SHELL_HISTORY_KEY,
     SHELL_HISTORY_LIMIT,
     ShellHistoryStore,
-    resolve_shell_history_path,
 )
+from functualize._primitives.substrate import JsonFileSubstrate
 
 
 class TestRoundTrip:
     def test_append_and_read_newest_first(self, tmp_path: Path) -> None:
-        store = ShellHistoryStore(tmp_path / "shell-history.json")
+        store = ShellHistoryStore(JsonFileSubstrate(tmp_path))
         store.append({"command": "a"})
         store.append({"command": "b"})
         assert [e["command"] for e in store.entries()] == ["b", "a"]
 
     def test_limit(self, tmp_path: Path) -> None:
-        store = ShellHistoryStore(tmp_path / "shell-history.json")
+        store = ShellHistoryStore(JsonFileSubstrate(tmp_path))
         for i in range(5):
             store.append({"command": str(i)})
         assert len(store.entries(limit=2)) == 2
 
     def test_reads_before_any_write(self, tmp_path: Path) -> None:
-        assert ShellHistoryStore(tmp_path / "shell-history.json").entries() == []
+        assert ShellHistoryStore(JsonFileSubstrate(tmp_path)).entries() == []
 
     def test_it_survives_a_new_store_object(self, tmp_path: Path) -> None:
-        path = tmp_path / "shell-history.json"
-        ShellHistoryStore(path).append({"command": "durable"})
-        assert ShellHistoryStore(path).entries()[0]["command"] == "durable"
+        sub = JsonFileSubstrate(tmp_path)
+        ShellHistoryStore(sub).append({"command": "durable"})
+        assert ShellHistoryStore(sub).entries()[0]["command"] == "durable"
 
     def test_the_ring_is_bounded(self, tmp_path: Path) -> None:
         """Bounded at the same 200 the shared ring used.
@@ -52,7 +54,7 @@ class TestRoundTrip:
         A migration that silently shortens a user's recall is a migration
         noticed for the wrong reason.
         """
-        store = ShellHistoryStore(tmp_path / "shell-history.json")
+        store = ShellHistoryStore(JsonFileSubstrate(tmp_path))
         for i in range(SHELL_HISTORY_LIMIT + 10):
             store.append({"command": str(i)})
         entries = store.entries()
@@ -69,20 +71,26 @@ class TestItIsAConvenience:
     """
 
     def test_an_unreadable_file_reads_as_empty(self, tmp_path: Path) -> None:
-        path = tmp_path / "shell-history.json"
+        sub = JsonFileSubstrate(tmp_path)
+        path = sub.path_for(SHELL_HISTORY_KEY)
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("{not json")
-        assert ShellHistoryStore(path).entries() == []
+        assert ShellHistoryStore(sub).entries() == []
 
     def test_a_wrong_shape_reads_as_empty(self, tmp_path: Path) -> None:
-        path = tmp_path / "shell-history.json"
+        sub = JsonFileSubstrate(tmp_path)
+        path = sub.path_for(SHELL_HISTORY_KEY)
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({"entries": "not a list"}))
-        assert ShellHistoryStore(path).entries() == []
+        assert ShellHistoryStore(sub).entries() == []
 
     def test_writing_over_a_broken_file_works(self, tmp_path: Path) -> None:
         """The consequence of degrading: it must be recoverable by use."""
-        path = tmp_path / "shell-history.json"
+        sub = JsonFileSubstrate(tmp_path)
+        path = sub.path_for(SHELL_HISTORY_KEY)
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("{not json")
-        store = ShellHistoryStore(path)
+        store = ShellHistoryStore(sub)
         store.append({"command": "after"})
         assert [e["command"] for e in store.entries()] == ["after"]
 
@@ -94,10 +102,10 @@ class TestConcurrentShells:
         Read-modify-write under the file's own lock, the same discipline the
         other stores use.
         """
-        path = tmp_path / "shell-history.json"
+        sub = JsonFileSubstrate(tmp_path)
 
         def write(tag: str) -> None:
-            store = ShellHistoryStore(path)
+            store = ShellHistoryStore(sub)
             for i in range(20):
                 store.append({"command": f"{tag}-{i}"})
 
@@ -107,7 +115,7 @@ class TestConcurrentShells:
         for thread in threads:
             thread.join(timeout=20)
 
-        commands = [e["command"] for e in ShellHistoryStore(path).entries()]
+        commands = [e["command"] for e in ShellHistoryStore(sub).entries()]
         assert len(commands) == 40, f"writes were lost: {len(commands)} of 40"
         assert len({c for c in commands if c.startswith("a-")}) == 20
         assert len({c for c in commands if c.startswith("b-")}) == 20
@@ -124,18 +132,24 @@ class TestItSitsBesideTheOtherStores:
 
         (tmp_path / ".functualize").mkdir()
         state = resolve_fresh_path(tmp_path)
-        shell = resolve_shell_history_path(tmp_path)
+        shell = JsonFileSubstrate.for_project(tmp_path).path_for(SHELL_HISTORY_KEY)
         assert shell.parent == state.parent
         assert shell.name == "shell-history.json"
 
-    def test_beside_state_agrees_with_for_project(self, tmp_path: Path) -> None:
-        from functualize._primitives.fresh_format import resolve_fresh_path
+    def test_it_shares_the_substrate_with_the_other_stores(
+        self, tmp_path: Path
+    ) -> None:
+        """`beside_fresh` is gone: there is no second resolution to agree with.
 
+        It applied the sibling rule to an already-resolved state path so the
+        two could not disagree. One substrate makes disagreement unsayable, so
+        what is left to assert is that the stores really are handed the same
+        one.
+        """
         (tmp_path / ".functualize").mkdir()
-        assert (
-            ShellHistoryStore.beside_fresh(resolve_fresh_path(tmp_path)).path
-            == ShellHistoryStore.for_project(tmp_path).path
-        )
+        assert ShellHistoryStore.for_project(tmp_path).substrate.path_for(
+            SHELL_HISTORY_KEY
+        ) == FreshStore.for_project(tmp_path).substrate.path_for(SHELL_HISTORY_KEY)
 
 
 class TestStateJsonNoLongerHoldsHistory:

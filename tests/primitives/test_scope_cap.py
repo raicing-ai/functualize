@@ -13,16 +13,17 @@ exists to prevent. So an over-cap file holding nothing finished stays over cap.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from functualize._primitives.scope_format import (
+    SCOPES_KEY,
     SCOPES_LIMIT,
     TERMINAL_SCOPE_STATUSES,
-    load_scopes,
-    save_scopes,
+    normalize_scopes,
+    stamp_scopes,
 )
 from functualize._primitives.scope_store import ScopeStore
+from functualize._primitives.substrate import JsonFileSubstrate
 
 
 def _envelope(records: dict[str, str]) -> dict[str, object]:
@@ -30,19 +31,21 @@ def _envelope(records: dict[str, str]) -> dict[str, object]:
     return {"scopes": {sid: {"status": status} for sid, status in records.items()}}
 
 
-def _write(path: Path, records: dict[str, str]) -> dict[str, object]:
-    save_scopes(path, _envelope(records))
-    return load_scopes(path)
+def _write(substrate: JsonFileSubstrate, records: dict[str, str]) -> dict[str, object]:
+    substrate.write(SCOPES_KEY, stamp_scopes(_envelope(records)))
+    stored = substrate.read(SCOPES_KEY)
+    assert stored is not None
+    return normalize_scopes(stored.data, where=substrate.describe(SCOPES_KEY))
 
 
 class TestTheCapBounds:
     def test_a_file_under_the_cap_is_untouched(self, tmp_path: Path) -> None:
-        path = tmp_path / "scopes.json"
+        path = JsonFileSubstrate(tmp_path)
         records = {f"done-{i:04d}": "completed" for i in range(SCOPES_LIMIT)}
         assert len(_write(path, records)["scopes"]) == SCOPES_LIMIT
 
     def test_going_over_evicts_down_to_the_cap(self, tmp_path: Path) -> None:
-        path = tmp_path / "scopes.json"
+        path = JsonFileSubstrate(tmp_path)
         records = {f"done-{i:04d}": "completed" for i in range(SCOPES_LIMIT + 50)}
         assert len(_write(path, records)["scopes"]) == SCOPES_LIMIT
 
@@ -52,7 +55,7 @@ class TestTheCapBounds:
         Run ids are ULIDs and sort by time; a scope id is `<job>-<hex8>` and
         does not. Dict order is the creation order, and JSON preserves it.
         """
-        path = tmp_path / "scopes.json"
+        path = JsonFileSubstrate(tmp_path)
         records = {f"done-{i:04d}": "completed" for i in range(SCOPES_LIMIT + 10)}
         kept = _write(path, records)["scopes"]
 
@@ -69,7 +72,7 @@ class TestALiveScopeIsNeverEvicted:
         self, tmp_path: Path
     ) -> None:
         """One parked workflow, buried under twice the cap in finished runs."""
-        path = tmp_path / "scopes.json"
+        path = JsonFileSubstrate(tmp_path)
         records: dict[str, str] = {"parked": "blocked"}
         records.update({f"done-{i:04d}": "completed" for i in range(SCOPES_LIMIT * 2)})
 
@@ -83,7 +86,7 @@ class TestALiveScopeIsNeverEvicted:
 
     def test_a_running_scope_survives_too(self, tmp_path: Path) -> None:
         """`running` is live as well — a run in flight is not a candidate."""
-        path = tmp_path / "scopes.json"
+        path = JsonFileSubstrate(tmp_path)
         records: dict[str, str] = {"inflight": "running"}
         records.update({f"done-{i:04d}": "completed" for i in range(SCOPES_LIMIT + 5)})
 
@@ -96,7 +99,7 @@ class TestALiveScopeIsNeverEvicted:
         alternative — evicting something live to satisfy a number — is the
         failure this whole feature exists to prevent.
         """
-        path = tmp_path / "scopes.json"
+        path = JsonFileSubstrate(tmp_path)
         over = SCOPES_LIMIT + 25
         records = {f"live-{i:04d}": "blocked" for i in range(over)}
 
@@ -111,7 +114,7 @@ class TestALiveScopeIsNeverEvicted:
         live ones really are not.
         """
         for status in sorted(TERMINAL_SCOPE_STATUSES):
-            path = tmp_path / f"scopes-{status}.json"
+            path = JsonFileSubstrate(tmp_path / status)
             records = {"candidate": status}
             records.update({f"done-{i:04d}": "completed" for i in range(SCOPES_LIMIT)})
             assert "candidate" not in _write(path, records)["scopes"], (
@@ -119,7 +122,7 @@ class TestALiveScopeIsNeverEvicted:
             )
 
         for status in ("running", "blocked"):
-            path = tmp_path / f"scopes-{status}.json"
+            path = JsonFileSubstrate(tmp_path / status)
             records = {"candidate": status}
             records.update({f"done-{i:04d}": "completed" for i in range(SCOPES_LIMIT)})
             assert "candidate" in _write(path, records)["scopes"], (
@@ -131,12 +134,14 @@ class TestTheCapAppliesThroughTheStore:
     """Not just the format helper — the object everything actually uses."""
 
     def test_writing_through_scopestore_trims(self, tmp_path: Path) -> None:
-        path = tmp_path / "scopes.json"
+        path = JsonFileSubstrate(tmp_path)
         store = ScopeStore(path)
         with store.batch():
             for i in range(SCOPES_LIMIT + 20):
                 store.ensure_scope(f"done-{i:04d}")
                 store.set_scope_status(f"done-{i:04d}", "completed")
 
-        on_disk = json.loads(path.read_text())["scopes"]
+        stored = path.read(SCOPES_KEY)
+        assert stored is not None
+        on_disk = stored.data["scopes"]
         assert len(on_disk) == SCOPES_LIMIT

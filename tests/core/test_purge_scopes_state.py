@@ -15,8 +15,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from functualize._primitives.scope_state_store import scope_state_dir, scope_state_path
+from functualize._primitives.scope_state_store import STATE_DIRNAME, scope_state_key
 from functualize._primitives.scope_store import ScopeStore
+from functualize._primitives.substrate import JsonFileSubstrate
 from functualize.app._workflow_control import purge_scopes
 
 
@@ -28,16 +29,16 @@ def _finished_scope(store: ScopeStore, scope_id: str) -> None:
 
 class TestPurgeRemovesBothHalves:
     def test_the_state_file_goes_with_the_record(self, tmp_path: Path) -> None:
-        scopes = tmp_path / "scopes.json"
+        scopes = JsonFileSubstrate(tmp_path)
         store = ScopeStore(scopes)
         _finished_scope(store, "done")
-        assert scope_state_path(scopes, "done").exists()
+        assert scopes.path_for(scope_state_key("done")).exists()
 
         report = purge_scopes(store)
 
         assert report["removed"] == ["done"]
         assert store.get_scope("done") is None
-        assert not scope_state_path(scopes, "done").exists(), (
+        assert not scopes.path_for(scope_state_key("done")).exists(), (
             "the record was purged but its state file survives — nothing "
             "walks state files, so it can never be collected"
         )
@@ -48,14 +49,14 @@ class TestPurgeRemovesBothHalves:
         A per-scope check can pass while a loop that purges the *last* record
         only cleans up one file.
         """
-        scopes = tmp_path / "scopes.json"
+        scopes = JsonFileSubstrate(tmp_path)
         store = ScopeStore(scopes)
         for i in range(5):
             _finished_scope(store, f"done-{i}")
 
         purge_scopes(store)
 
-        leftovers = sorted(p.name for p in scope_state_dir(scopes).glob("*.json"))
+        leftovers = sorted(p.name for p in (scopes.root / STATE_DIRNAME).glob("*.json"))
         assert leftovers == [], f"orphaned state files: {leftovers}"
 
 
@@ -63,7 +64,7 @@ class TestALiveScopeKeepsItsState:
     """AC-5's other half: purge must leave in-flight runs alone, both halves."""
 
     def test_a_running_scope_keeps_record_and_state(self, tmp_path: Path) -> None:
-        scopes = tmp_path / "scopes.json"
+        scopes = JsonFileSubstrate(tmp_path)
         store = ScopeStore(scopes)
         store.set_state("live", "progress", "half")
         store.set_scope_status("live", "running")
@@ -83,7 +84,7 @@ class TestALiveScopeKeepsItsState:
         A workflow parked at a gate is the record that must survive, and its
         state is what a human's approval is spent on.
         """
-        scopes = tmp_path / "scopes.json"
+        scopes = JsonFileSubstrate(tmp_path)
         store = ScopeStore(scopes)
         store.set_state("parked", "approved_by", "a-human")
         store.set_scope_status("parked", "blocked")
@@ -91,7 +92,7 @@ class TestALiveScopeKeepsItsState:
         purge_scopes(store)
 
         assert store.get_state("parked", "approved_by") == "a-human"
-        assert scope_state_path(scopes, "parked").exists()
+        assert scopes.path_for(scope_state_key("parked")).exists()
 
 
 class TestPurgeIsStillSelective:
@@ -101,7 +102,7 @@ class TestPurgeIsStillSelective:
         Guards against the fix deleting every state file rather than the ones
         belonging to purged records.
         """
-        scopes = tmp_path / "scopes.json"
+        scopes = JsonFileSubstrate(tmp_path)
         store = ScopeStore(scopes)
         _finished_scope(store, "ok")
         store.set_state("bad", "why", "crashed")
@@ -110,7 +111,7 @@ class TestPurgeIsStillSelective:
         report = purge_scopes(store, state="failed")
 
         assert report["removed"] == ["bad"]
-        assert not scope_state_path(scopes, "bad").exists()
-        assert scope_state_path(scopes, "ok").exists(), (
+        assert not scopes.path_for(scope_state_key("bad")).exists()
+        assert scopes.path_for(scope_state_key("ok")).exists(), (
             "a scope the filter did not select lost its state file"
         )

@@ -27,18 +27,19 @@ from typing import Any
 import pytest
 
 from functualize import FunctualizeApp, RunContext
-
-# Real imports, not a TYPE_CHECKING block: with `from __future__ import
-# annotations` every annotation is a string, and the DI resolution plan reads
-# them back with `get_type_hints`, which looks them up in module globals. Under
-# TC001's suggestion these jobs would resolve nothing and silently take no
-# capability at all — the failure this whole file exists to catch.
 from functualize._engine.capabilities.invoke import Invoke  # noqa: TC001
 from functualize._engine.capabilities.log import Log  # noqa: TC001
 from functualize._engine.capabilities.perf import Perf  # noqa: TC001
 from functualize._engine.capabilities.prompt import Prompt  # noqa: TC001
 from functualize._engine.capabilities.state import State  # noqa: TC001
 from functualize._events.perf import perf_timeline
+
+# Real imports, not a TYPE_CHECKING block: with `from __future__ import
+# annotations` every annotation is a string, and the DI resolution plan reads
+# them back with `get_type_hints`, which looks them up in module globals. Under
+# TC001's suggestion these jobs would resolve nothing and silently take no
+# capability at all — the failure this whole file exists to catch.
+from functualize._primitives.substrate import JsonFileSubstrate
 from functualize._types.run_request import RunRequest
 
 
@@ -57,7 +58,7 @@ def state(tmp_path: Any) -> Any:
     from functualize._engine.capabilities.state import ScopeBackedStateStore, State
     from functualize._primitives.scope_store import ScopeStore
 
-    return State(ScopeBackedStateStore(ScopeStore(tmp_path / "scopes.json"), "s"))
+    return State(ScopeBackedStateStore(ScopeStore(JsonFileSubstrate(tmp_path)), "s"))
 
 
 def _run(app: FunctualizeApp, name: str) -> Any:

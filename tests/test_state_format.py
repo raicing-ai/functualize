@@ -1,7 +1,14 @@
 """Tests for the runtime state store format (S3/T15, Part F + schema.md §1).
 
-The store is derived state: a missing, corrupt, or stale-version file must
+The store is derived state: a missing, corrupt, or stale-version document must
 degrade to an empty envelope, never crash a run.
+
+**Asserted through `FreshStore`, not through a format function.**
+`store-substrate` split reading in two — the substrate turns bytes into a
+mapping, `normalize_fresh` coerces that mapping — so neither half alone is the
+rule this file is about. The store is where they meet, and it is what every
+caller uses. `scopes.json`'s opposite rule is pinned the same way in
+`test_scope_format.py`.
 """
 
 from __future__ import annotations
@@ -12,15 +19,42 @@ import pytest
 
 from functualize._primitives.fresh_format import (
     FRESH_FILENAME,
+    FRESH_KEY,
     FRESH_VERSION,
     empty_fresh,
     file_lock,
-    load_fresh,
     normalize_fresh,
     resolve_fresh_path,
-    save_fresh,
-    update_fresh,
+    stamp_fresh,
 )
+from functualize._primitives.fresh_store import FreshStore
+from functualize._primitives.substrate import JsonFileSubstrate
+
+
+def _sub(tmp_path) -> JsonFileSubstrate:
+    return JsonFileSubstrate(tmp_path)
+
+
+def _file(sub: JsonFileSubstrate):
+    """The document's file, for the assertions that are about bytes."""
+    path = sub.path_for(FRESH_KEY)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _save(sub: JsonFileSubstrate, state: dict) -> None:
+    sub.write(FRESH_KEY, stamp_fresh(state))
+
+
+def _load(sub: JsonFileSubstrate) -> dict:
+    """What a reader gets — the two halves of the read, joined as callers see them."""
+    return FreshStore(sub)._read()
+
+
+def _update(sub: JsonFileSubstrate, mutate) -> dict:
+    store = FreshStore(sub)
+    store._mutate(mutate)
+    return store._read()
 
 
 class TestEnvelope:
@@ -81,55 +115,61 @@ class TestPathResolution:
 
 class TestRoundTrip:
     def test_save_then_load(self, tmp_path) -> None:
-        path = tmp_path / FRESH_FILENAME
+        sub = _sub(tmp_path)
         state = empty_fresh()
         state["fingerprints"]["job::abc::checksum"] = {"generates": ["dist/x"]}
-        save_fresh(path, state)
-        assert load_fresh(path)["fingerprints"]["job::abc::checksum"] == {
+        _save(sub, state)
+        assert _load(sub)["fingerprints"]["job::abc::checksum"] == {
             "generates": ["dist/x"]
         }
 
     def test_save_creates_parent_directory(self, tmp_path) -> None:
-        path = tmp_path / "nested" / "deeper" / FRESH_FILENAME
-        save_fresh(path, empty_fresh())
+        sub = _sub(tmp_path / "nested" / "deeper")
+        path = _file(sub)
+        _save(sub, empty_fresh())
         assert path.exists()
 
     def test_save_always_stamps_current_version(self, tmp_path) -> None:
-        path = tmp_path / FRESH_FILENAME
-        save_fresh(path, {"format_version": 999, "fingerprints": {}})
+        sub = _sub(tmp_path)
+        path = _file(sub)
+        _save(sub, {"format_version": 999, "fingerprints": {}})
         assert json.loads(path.read_text())["format_version"] == FRESH_VERSION
 
     def test_save_leaves_no_temp_files(self, tmp_path) -> None:
-        path = tmp_path / FRESH_FILENAME
-        save_fresh(path, empty_fresh())
+        sub = _sub(tmp_path)
+        _save(sub, empty_fresh())
         assert [p.name for p in tmp_path.iterdir()] == [FRESH_FILENAME]
 
 
 class TestTolerantLoad:
     def test_missing_file_is_empty_state(self, tmp_path) -> None:
-        assert load_fresh(tmp_path / "nope.json") == empty_fresh()
+        assert _load(_sub(tmp_path)) == empty_fresh()
 
     def test_corrupt_json_is_empty_state(self, tmp_path) -> None:
-        path = tmp_path / FRESH_FILENAME
+        sub = _sub(tmp_path)
+        path = _file(sub)
         path.write_text("{not valid json")
-        assert load_fresh(path) == empty_fresh()
+        assert _load(sub) == empty_fresh()
 
     def test_truncated_write_is_empty_state(self, tmp_path) -> None:
-        path = tmp_path / FRESH_FILENAME
+        sub = _sub(tmp_path)
+        path = _file(sub)
         path.write_text('{"format_version": 1, "fingerprints": {"a"')
-        assert load_fresh(path) == empty_fresh()
+        assert _load(sub) == empty_fresh()
 
     def test_version_mismatch_discards(self, tmp_path) -> None:
-        path = tmp_path / FRESH_FILENAME
+        sub = _sub(tmp_path)
+        path = _file(sub)
         path.write_text(
             json.dumps({"format_version": FRESH_VERSION + 1, "fingerprints": {"a": 1}})
         )
-        assert load_fresh(path)["fingerprints"] == {}
+        assert _load(sub)["fingerprints"] == {}
 
     def test_non_dict_is_empty_state(self, tmp_path) -> None:
-        path = tmp_path / FRESH_FILENAME
+        sub = _sub(tmp_path)
+        path = _file(sub)
         path.write_text("[1, 2, 3]")
-        assert load_fresh(path) == empty_fresh()
+        assert _load(sub) == empty_fresh()
 
     def test_normalize_fills_missing_sections(self) -> None:
         state = normalize_fresh({"format_version": FRESH_VERSION})
@@ -148,32 +188,33 @@ class TestTolerantLoad:
 
 class TestLockedUpdate:
     def test_update_state_persists(self, tmp_path) -> None:
-        path = tmp_path / FRESH_FILENAME
+        sub = _sub(tmp_path)
 
         def add(state):
             state["fingerprints"]["build"] = {"n": 1}
 
-        result = update_fresh(path, add)
+        result = _update(sub, add)
         assert result["fingerprints"] == {"build": {"n": 1}}
-        assert load_fresh(path)["fingerprints"] == {"build": {"n": 1}}
+        assert _load(sub)["fingerprints"] == {"build": {"n": 1}}
 
     def test_sequential_updates_of_different_keys_both_survive(self, tmp_path) -> None:
         # Part F: concurrent runs touching *different* job keys must merge,
         # not clobber — update_fresh re-reads inside the lock.
-        path = tmp_path / FRESH_FILENAME
-        update_fresh(path, lambda s: s["fingerprints"].update({"job-a": {"n": 1}}))
-        update_fresh(path, lambda s: s["fingerprints"].update({"job-b": {"n": 2}}))
-        fingerprints = load_fresh(path)["fingerprints"]
+        sub = _sub(tmp_path)
+        _update(sub, lambda s: s["fingerprints"].update({"job-a": {"n": 1}}))
+        _update(sub, lambda s: s["fingerprints"].update({"job-b": {"n": 2}}))
+        fingerprints = _load(sub)["fingerprints"]
         assert fingerprints == {"job-a": {"n": 1}, "job-b": {"n": 2}}
 
     def test_update_starts_from_empty_when_file_absent(self, tmp_path) -> None:
-        path = tmp_path / FRESH_FILENAME
-        state = update_fresh(path, lambda s: s["fingerprints"].update({"s1": {}}))
+        sub = _sub(tmp_path)
+        state = _update(sub, lambda s: s["fingerprints"].update({"s1": {}}))
         assert state["format_version"] == FRESH_VERSION
         assert state["fingerprints"] == {"s1": {}}
 
     def test_lock_is_released_after_block(self, tmp_path) -> None:
-        path = tmp_path / FRESH_FILENAME
+        sub = _sub(tmp_path)
+        path = _file(sub)
         with file_lock(path):
             pass
         # A second acquisition must not hang or fail.
@@ -181,20 +222,21 @@ class TestLockedUpdate:
             pass
 
     def test_lock_does_not_corrupt_state_file(self, tmp_path) -> None:
-        path = tmp_path / FRESH_FILENAME
-        save_fresh(path, empty_fresh())
+        sub = _sub(tmp_path)
+        path = _file(sub)
+        _save(sub, empty_fresh())
         with file_lock(path):
             pass
-        assert load_fresh(path) == empty_fresh()
+        assert _load(sub) == empty_fresh()
 
     def test_no_absolute_paths_in_keys(self, tmp_path) -> None:
         # Part G: content-addressable-friendly — keys stay project-relative.
-        path = tmp_path / FRESH_FILENAME
-        update_fresh(
-            path,
+        sub = _sub(tmp_path)
+        _update(
+            sub,
             lambda s: s["fingerprints"].update(
                 {"build::deadbeef::checksum": {"sources": {"src/a.py": {}}}}
             ),
         )
-        for key in load_fresh(path)["fingerprints"]:
+        for key in _load(sub)["fingerprints"]:
             assert not key.startswith("/")

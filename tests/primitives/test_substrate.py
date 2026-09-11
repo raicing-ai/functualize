@@ -397,11 +397,14 @@ class TestItSatisfiesTheProtocol:
         assert isinstance(substrate, StoreSubstrate)
 
     def test_a_minimal_implementation_also_satisfies_it(self) -> None:
-        """Three members is the whole contract.
+        """Six members is the whole contract.
 
         Asserted with an in-memory stand-in written here rather than shipped:
         the point is that the port is small enough to implement, not that this
-        particular one exists.
+        particular one exists. It grew from three while `store-substrate`/T2
+        moved the stores onto it — `clear`, `delete` and `describe` each have
+        one caller a three-member port would have stranded on the filesystem —
+        and this test is what makes that growth visible rather than quiet.
         """
 
         class InMemory:
@@ -431,6 +434,19 @@ class TestItSatisfiesTheProtocol:
                 with self.one_lock:
                     yield
 
+            def clear(self, key: str) -> str | None:
+                found = self.docs.pop(key, None)
+                if found is None:
+                    return None
+                self.docs[f"{key}.bak"] = found
+                return f"{key}.bak"
+
+            def delete(self, key: str) -> bool:
+                return self.docs.pop(key, None) is not None
+
+            def describe(self, key: str) -> str:
+                return f"in memory ({len(self.docs)} documents)"
+
         assert isinstance(InMemory(), StoreSubstrate)
 
     def test_a_single_lock_substrate_is_expressible(self) -> None:
@@ -459,6 +475,15 @@ class TestItSatisfiesTheProtocol:
                 acquisitions.append(keys)
                 with self._lock:
                     yield
+
+            def clear(self, key: str) -> str | None:
+                return None
+
+            def delete(self, key: str) -> bool:
+                return False
+
+            def describe(self, key: str) -> str:
+                return "one lock, no storage"
 
         sub = OneLock()
         assert isinstance(sub, StoreSubstrate)

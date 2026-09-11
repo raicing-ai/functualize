@@ -221,9 +221,7 @@ class ScopeStore:
             ) from exc
         if stored is None:
             return empty_scopes()
-        return normalize_scopes(
-            stored.data, where=self._substrate.describe(self._key)
-        )
+        return normalize_scopes(stored.data, where=self._substrate.describe(self._key))
 
     def _mutate(self, mutate: Any, *, scope_id: str | None = None) -> None:
         """Apply ``mutate`` to the envelope, honoring an open batch.
