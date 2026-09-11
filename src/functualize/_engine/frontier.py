@@ -24,6 +24,7 @@ The walker itself lands in S4; this is the engine it will sit on.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -74,6 +75,9 @@ class WalkState:
     COMPLETED = "completed"
 
 
+logger = logging.getLogger(__name__)
+
+
 class FrontierWalk:
     """Expands a graph's frontier at runtime, persisting position and records.
 
@@ -87,6 +91,59 @@ class FrontierWalk:
         self._graph = graph
         self._store = store
         self._scope_id = scope_id
+        #: The lease generation this walk holds, or None if it never claimed.
+        #: Set by `claim`; every scope write it makes carries it (T6).
+        self._generation: int | None = None
+
+    # ------------------------------------------------------------------
+    # The lease (`durable-run-layer`/T5, T6)
+    # ------------------------------------------------------------------
+
+    def claim(
+        self, *, owner: str | None = None, force: bool = False
+    ) -> int:
+        """Take the scope, and fence every write this walk makes.
+
+        Returns the generation claimed. After this, a write from *any* other
+        holder of this scope is refused — which is what closes the
+        concurrent-`resume` limitation: the second walk's writes stop, rather
+        than interleaving with the first's into a record neither would
+        recognise.
+
+        Raises:
+            LeaseHeldError: Another runner holds it and has not expired. Pass
+                ``force`` only for an explicit reclaim, where a human has
+                decided the holder is gone.
+        """
+        from functualize._primitives.lease import DEFAULT_LEASE_SECONDS
+        from functualize._primitives.run_store import runner_identity
+
+        self._store.ensure_scope(self._scope_id)
+        lease = self._store.claim_scope(
+            self._scope_id,
+            owner=owner or runner_identity(),
+            seconds=DEFAULT_LEASE_SECONDS,
+            force=force,
+        )
+        self._generation = int(lease.generation)
+        self._store.hold_scope_generation(lease.generation)
+        return int(lease.generation)
+
+    def release(self) -> None:
+        """Give up the claim, leaving the scope immediately claimable.
+
+        Best-effort: a walk that ends by raising must not turn a failed step
+        into a second, more confusing failure about a lease.
+        """
+        if self._generation is None:
+            return
+        try:
+            self._store.release_scope(self._scope_id, generation=self._generation)
+        except Exception:  # noqa: BLE001 - releasing is never worth a failure
+            logger.debug("could not release the scope lease", exc_info=True)
+        finally:
+            self._generation = None
+            self._store.hold_scope_generation(None)
 
     # ------------------------------------------------------------------
     # Walk control

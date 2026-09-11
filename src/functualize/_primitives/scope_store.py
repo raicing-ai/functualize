@@ -133,6 +133,9 @@ class ScopeStore:
         #: payload on the instance. A fresh object per call would make a batch
         #: block invisible to the writes inside it.
         self._state_stores: dict[str, ScopeStateStore] = {}
+        #: The lease generation every write must carry, or None when this
+        #: store is not driving a walk. See `hold`.
+        self._generation: int | None = None
 
     @property
     def _batch(self) -> dict[str, Any] | None:
@@ -178,12 +181,51 @@ class ScopeStore:
             return self._batch
         return load_scopes(self._path)
 
-    def _mutate(self, mutate: Any) -> None:
-        """Apply ``mutate`` to the envelope, honoring an open batch."""
+    def _mutate(self, mutate: Any, *, scope_id: str | None = None) -> None:
+        """Apply ``mutate`` to the envelope, honoring an open batch.
+
+        **Where fencing happens** (`durable-run-layer`/T6). Putting the check
+        on each of the eleven write methods would fence them all today and miss
+        the twelfth, added next month by someone who did not know the rule —
+        the same failure mode the capability tripwire exists for. One check
+        here means a write path added tomorrow is fenced the day it is written.
+
+        The check runs **inside the lock**, against the envelope this call is
+        about to modify, so a claim that landed between the caller's last read
+        and this write is seen. Checking beforehand would leave exactly that
+        window open.
+        """
+
+        def _guarded(envelope: dict[str, Any]) -> None:
+            if self._generation is not None and scope_id is not None:
+                check_generation(
+                    scope_id, read_lease(envelope["scopes"].get(scope_id)), self._generation
+                )
+            mutate(envelope)
+
         if self._batch is not None:
-            mutate(self._batch)
+            _guarded(self._batch)
             return
-        update_scopes(self._path, mutate)
+        update_scopes(self._path, _guarded)
+
+    def hold(self, generation: int | None) -> None:
+        """Fence every subsequent write on this store to ``generation``.
+
+        Set by a walk once it has claimed the scope. `None` turns fencing off,
+        which is the state every store starts in: a store that is not driving a
+        walk — the CLI reading records, a purge, a plugin — has no lease and
+        must not be refused.
+
+        **Per instance, not per thread.** A walk owns its scope for the length
+        of the walk, and the object driving it is the one holding the lease. A
+        parallel batch item does not walk, so it does not hold one.
+        """
+        self._generation = generation
+
+    @property
+    def generation(self) -> int | None:
+        """The generation this store's writes carry, or None if unfenced."""
+        return self._generation
 
     @contextmanager
     def batch(self) -> Iterator[ScopeStore]:
@@ -226,7 +268,7 @@ class ScopeStore:
             if workflow is not None:
                 scope["workflow"] = workflow
 
-        self._mutate(_apply)
+        self._mutate(_apply, scope_id=scope_id)
 
     def set_scope_status(self, scope_id: str, status: str) -> None:
         """Set a scope's status (running/blocked/completed/failed/cancelled)."""
@@ -234,7 +276,7 @@ class ScopeStore:
         def _apply(envelope: dict[str, Any]) -> None:
             envelope["scopes"].setdefault(scope_id, _blank_scope())["status"] = status
 
-        self._mutate(_apply)
+        self._mutate(_apply, scope_id=scope_id)
 
     def record_step(self, scope_id: str, step_key: str, record: dict[str, Any]) -> None:
         """Record a per-scope step result, keyed ``<job_name>::<args_hash>``.
@@ -248,7 +290,7 @@ class ScopeStore:
             scope = envelope["scopes"].setdefault(scope_id, _blank_scope())
             scope["steps"][step_key] = record
 
-        self._mutate(_apply)
+        self._mutate(_apply, scope_id=scope_id)
 
     def get_step(self, scope_id: str, step_key: str) -> dict[str, Any] | None:
         """Return a recorded step result for this scope, or None."""
@@ -378,7 +420,7 @@ class ScopeStore:
             scope = envelope["scopes"].setdefault(scope_id, _blank_scope())
             scope["branches"][source] = target
 
-        self._mutate(_apply)
+        self._mutate(_apply, scope_id=scope_id)
 
     def get_branch(self, scope_id: str, source: str) -> str | None:
         """Return the branch target recorded for ``source``, or None."""
@@ -395,7 +437,7 @@ class ScopeStore:
             scope = envelope["scopes"].setdefault(scope_id, _blank_scope())
             scope["gates"][gate_name] = record
 
-        self._mutate(_apply)
+        self._mutate(_apply, scope_id=scope_id)
 
     def get_gate(self, scope_id: str, gate_name: str) -> dict[str, Any] | None:
         """Return a persisted gate record, or None."""
@@ -413,7 +455,7 @@ class ScopeStore:
         def _apply(envelope: dict[str, Any]) -> None:
             envelope["scopes"][scope_id]["gates"][gate_name]["payload"] = payload
 
-        self._mutate(_apply)
+        self._mutate(_apply, scope_id=scope_id)
         return True
 
     def get_gate_draft(self, scope_id: str, gate_name: str) -> dict[str, Any] | None:
@@ -449,7 +491,7 @@ class ScopeStore:
                 "updated_at": _now(),
             }
 
-        self._mutate(_apply)
+        self._mutate(_apply, scope_id=scope_id)
         return True
 
     def clear_gate_draft(self, scope_id: str, gate_name: str) -> bool:
@@ -465,7 +507,7 @@ class ScopeStore:
         def _apply(envelope: dict[str, Any]) -> None:
             envelope["scopes"][scope_id]["gates"][gate_name].pop("draft", None)
 
-        self._mutate(_apply)
+        self._mutate(_apply, scope_id=scope_id)
         return True
 
     def reopen_gate(self, scope_id: str, gate_name: str) -> bool:
@@ -490,7 +532,7 @@ class ScopeStore:
             gate["draft"] = {"values": dict(gate["payload"]), "updated_at": _now()}
             gate["payload"] = None
 
-        self._mutate(_apply)
+        self._mutate(_apply, scope_id=scope_id)
         return True
 
     def _forget(self, scope_id: str) -> None:
@@ -643,7 +685,7 @@ class ScopeStore:
         def _apply(envelope: dict[str, Any]) -> None:
             envelope["scopes"].pop(scope_id, None)
 
-        self._mutate(_apply)
+        self._mutate(_apply, scope_id=scope_id)
         self._forget(scope_id)
         return True
 
@@ -653,7 +695,7 @@ class ScopeStore:
         def _apply(envelope: dict[str, Any]) -> None:
             envelope["scopes"].setdefault(scope_id, _blank_scope())["position"] = node
 
-        self._mutate(_apply)
+        self._mutate(_apply, scope_id=scope_id)
 
     def get_position(self, scope_id: str) -> str | None:
         """Return the persisted walk position, or None."""
@@ -670,7 +712,7 @@ class ScopeStore:
             scope = envelope["scopes"].setdefault(scope_id, _blank_scope())
             scope["epilogue"] = record
 
-        self._mutate(_apply)
+        self._mutate(_apply, scope_id=scope_id)
 
     def get_epilogue(self, scope_id: str) -> dict[str, Any] | None:
         """Return the epilogue record, or None if it has not run."""
@@ -699,7 +741,7 @@ class ScopeStore:
             scope = envelope["scopes"].setdefault(scope_id, _blank_scope())
             scope.setdefault("tool_calls", []).append(record)
 
-        self._mutate(_apply)
+        self._mutate(_apply, scope_id=scope_id)
 
     def get_tool_calls(self, scope_id: str) -> list[dict[str, Any]]:
         """Every tool call recorded in this scope, oldest first."""

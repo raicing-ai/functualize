@@ -101,6 +101,21 @@ class FreshStore:
             return
         update_fresh(self._path, mutate)
 
+    def hold_scope_generation(self, generation: int | None) -> None:
+        """Fence every scope write through this store to ``generation``.
+
+        Forwarded to the scope store, which is where the check lives
+        (`durable-run-layer`/T6). `None` turns fencing off — the state every
+        store starts in, because a store that is not driving a walk holds no
+        lease and must not be refused.
+        """
+        self._scopes.hold(generation)
+
+    @property
+    def scope_generation(self) -> int | None:
+        """The generation this store's scope writes carry, or None."""
+        return self._scopes.generation
+
     @contextmanager
     def scope_batch(self) -> Iterator[FreshStore]:
         """Hold the scope-file lock for many mutations, writing once at the end.
@@ -214,6 +229,43 @@ class FreshStore:
     def reopen_gate(self, scope_id: str, gate_name: str) -> bool:
         """Move an answered gate's payload back into its draft."""
         return self._scopes.reopen_gate(scope_id, gate_name)
+
+    def get_lease(self, scope_id: str) -> Any:
+        """The lease on a scope, or None if nobody has claimed it."""
+        return self._scopes.get_lease(scope_id)
+
+    def claim_scope(
+        self,
+        scope_id: str,
+        *,
+        owner: str,
+        seconds: float = 300.0,
+        force: bool = False,
+    ) -> Any:
+        """Take a scope, returning the lease at its new generation.
+
+        Raises:
+            LeaseHeldError: Someone else holds it and has not expired.
+        """
+        return self._scopes.claim_scope(
+            scope_id, owner=owner, seconds=seconds, force=force
+        )
+
+    def renew_scope(
+        self, scope_id: str, *, owner: str, generation: int, seconds: float = 300.0
+    ) -> Any:
+        """Extend a claim you hold. The generation does not move."""
+        return self._scopes.renew_scope(
+            scope_id, owner=owner, generation=generation, seconds=seconds
+        )
+
+    def release_scope(self, scope_id: str, *, generation: int) -> None:
+        """Give up a claim, leaving the scope immediately claimable."""
+        self._scopes.release_scope(scope_id, generation=generation)
+
+    def check_scope_generation(self, scope_id: str, generation: int) -> None:
+        """Raise `StaleGenerationError` unless ``generation`` holds this scope."""
+        self._scopes.check_scope_generation(scope_id, generation)
 
     def delete_scope(self, scope_id: str) -> bool:
         """Remove a scope entirely. False if it was not there."""
