@@ -30,6 +30,7 @@ Lives in `_primitives/` (stdlib-only): no `_types`, no pydantic, no `_discovery`
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 from contextlib import contextmanager, suppress
@@ -69,6 +70,9 @@ STATE_FILENAME = "state.json"
 HISTORY_LIMIT = 200
 
 _SECTIONS: tuple[str, ...] = ("fingerprints", "history", "session")
+
+
+logger = logging.getLogger(__name__)
 
 
 def empty_state() -> dict[str, Any]:
@@ -250,7 +254,7 @@ def state_lock(path: Path | str, timeout: float = 10.0) -> Iterator[None]:
     handle = None
     try:
         handle = open(lock_path, "a+")  # noqa: SIM115 — released in finally
-        _acquire_lock(handle, timeout)
+        _acquire_lock(handle, timeout, lock_path)
         yield
     finally:
         if handle is not None:
@@ -258,12 +262,35 @@ def state_lock(path: Path | str, timeout: float = 10.0) -> Iterator[None]:
             handle.close()
 
 
-def _acquire_lock(handle: Any, timeout: float) -> None:
+def _lock_timeout(path: Any, timeout: float) -> None:
+    """Say that the lock was given up on, then let the caller proceed.
+
+    Proceeding is the right default — a stuck lock must not wedge a build — but
+    it is also the **one path where a write can be lost**, because two
+    processes then read-modify-write the same file with nothing between them.
+    It used to happen in complete silence, so the only evidence was the missing
+    data.
+
+    A warning rather than an exception: raising here would turn a slow
+    neighbour into a failed run, which is the deadlock this branch exists to
+    avoid. The caller is told, and decides.
+    """
+    logger.warning(
+        "Gave up waiting %.0fs for the lock on %s and is proceeding without "
+        "it. Concurrent writers can now lose each other's updates. This means "
+        "something else held the lock for longer than that — a stuck process, "
+        "or a filesystem where locking does not work.",
+        timeout,
+        path,
+    )
+
+
+def _acquire_lock(handle: Any, timeout: float, path: Any = None) -> None:
     """Best-effort exclusive lock; returns (unlocked) if unsupported."""
     try:
         import fcntl
     except ImportError:
-        _acquire_lock_windows(handle, timeout)
+        _acquire_lock_windows(handle, timeout, path)
         return
     import time as _time
 
@@ -274,7 +301,9 @@ def _acquire_lock(handle: Any, timeout: float) -> None:
             return
         except OSError:
             if _time.monotonic() >= deadline:
-                return  # advisory: proceed rather than deadlock a build
+                # Advisory: proceed rather than deadlock a build — but say so.
+                _lock_timeout(path, timeout)
+                return
             _time.sleep(0.01)
 
 
@@ -297,7 +326,7 @@ def _msvcrt_locking() -> tuple[Any, Any, Any] | None:
     return locking, nblck, unlck
 
 
-def _acquire_lock_windows(handle: Any, timeout: float) -> None:
+def _acquire_lock_windows(handle: Any, timeout: float, path: Any = None) -> None:
     import time as _time
 
     api = _msvcrt_locking()
@@ -311,6 +340,8 @@ def _acquire_lock_windows(handle: Any, timeout: float) -> None:
             return
         except OSError:
             if _time.monotonic() >= deadline:
+                # Same give-up as the POSIX branch, and just as audible.
+                _lock_timeout(path, timeout)
                 return
             _time.sleep(0.01)
 
