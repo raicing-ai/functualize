@@ -138,7 +138,7 @@ def _expire_the_dead_runners_lease(project: Path) -> None:
     assert scope and scope.get("lease"), "the crashed runner left no lease"
     past = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
     lease = {**scope["lease"], "expires_at": past}
-    store._scopes._mutate(  # noqa: SLF001
+    store._mutate(  # noqa: SLF001
         lambda env: env["scopes"]["crash-scope"].__setitem__("lease", lease)
     )
 
