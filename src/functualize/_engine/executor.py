@@ -1523,11 +1523,18 @@ class JobExecutionEngine:
     def _scope_store(self) -> Any:
         """The **scope records**, on the same substrate as the ledger.
 
-        A method rather than a second cached attribute: `ScopeStore` is cheap to
-        build and carries per-scope fencing state, and sharing one instance
-        across unrelated callers is what made the parent's fence apply to a
-        child's scope in `durable-run-layer`/T6. The substrate is the thing
-        worth resolving once, and it already is.
+        A method rather than a second cached attribute, for the ordinary
+        reason: `ScopeStore` is cheap to build, the expensive part is resolving
+        the substrate and that is already cached, and one fewer piece of engine
+        state is one fewer thing with a lifetime.
+
+        **Not for correctness.** The first version of this said sharing one
+        instance would make a parent's fence apply to a child's scope. That was
+        true before `durable-run-layer`/T6 keyed the hold per scope and is not
+        true now — measured: caching this store fails nothing across
+        `tests/workflow/`, `test_fenced_writes.py` and the nested-workflow
+        end-to-end tests. Left as a method anyway, but without a safety claim
+        the code does not make.
         """
         from functualize._primitives.scope_store import ScopeStore
 

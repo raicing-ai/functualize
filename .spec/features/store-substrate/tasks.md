@@ -172,23 +172,71 @@ Both now patch one method on the substrate. The tests did not get easier to
 write by accident: there was one write path and one lock path to patch because
 the feature made there be one.
 
-## T3 · `ScopeStore` becomes a peer; the facade is deleted
+## T3 · `ScopeStore` becomes a peer; the facade is deleted — [x]
 
-`[F]` `src/functualize/_primitives/state_store.py`,
-`src/functualize/app/_workflow_answer.py`,
+`[F]` `src/functualize/_primitives/fresh_store.py`,
+`src/functualize/_engine/{frontier,workflow_walker,workflow_runner,executor,
+dependency_runner,workflow_orchestrator}.py`,
 `src/functualize/app/_workflow_control.py`,
 `src/functualize/app/adapters/workflow_flags.py`,
 `src/functualize/_cli/builtins.py`, `src/functualize/app/utils.py`,
-`plugins/functualize-mcp/src/functualize_mcp/_workflow_tools.py`
+`src/functualize/_app/impl.py`,
+`plugins/functualize-mcp/src/functualize_mcp/_workflow_tools.py`,
+and 48 test modules
 
-25 of `StateStore`'s 36 methods are pure pass-through. They are **deleted**;
-callers accept a `ScopeStore` instead. All five modules already take the store
-by injection, so this is a type change rather than a rewiring.
+**33 pass-throughs, not 25** — the file is `fresh_store.py` since
+`durable-run-layer`/T3b, and eight more forwarders were added after this task
+was written, which is the growth the task predicted. They are **deleted**;
+callers accept a `ScopeStore` instead.
 
 ```
-rg -c "self\._scopes\." src/functualize/_primitives/state_store.py
+rg -c "self\._scopes\." src/functualize/_primitives/fresh_store.py
 ```
-now: `25` · after: `0`
+now: `0` · before: `33`. `fresh_store.py` went 359 → 226 lines.
+
+### Three renames vanish with the facade
+
+`hold_scope_generation`, `scope_generation` and `scope_batch` existed only
+because on a store that *also* held fingerprints, a bare `hold`,
+`generation_for` or `batch` would not have said what it acted on. On a
+`ScopeStore` the plain names are unambiguous, so the callers use them.
+
+That rename moved a recorded gate: `durable-run-layer`/T6 counts `generation`
+in `frontier.py` and it went 14 → 13.
+`tests/spec/test_task_gates_still_hold.py` caught it, and the drift is recorded
+there rather than re-recorded here.
+
+### The rename found a live bug, because a defensive lookup hid it
+
+`cancel_scope` took the lease and then held what it took, or it fenced *itself*
+out — its own status write would carry the generation the store held before the
+claim. That fix read the store through `getattr(store, "scope_generation",
+None)` with a `callable` guard, and `hasattr` on the way back.
+
+After the rename the guards matched nothing, so `previous` became `None`, the
+hold was never set, and the self-fencing bug came back — **silently**, which is
+what a defensive lookup against a type you control buys you. Two tests caught
+it. Both lookups are now direct calls.
+
+### Sabotage
+
+Four, each asserted to have applied first:
+
+| sabotage | result |
+|---|---|
+| cancel forgets to hold what it took | 2 fail |
+| cancel never restores the caller's hold | 2 fail |
+| `FreshStore.__getattr__` forwards to `_scopes` again | 1 fail |
+| the engine caches one shared `ScopeStore` | **0 fail** |
+
+The last one is recorded rather than fixed. `_scope_store()`'s docstring said a
+fresh instance per call kept a parent's fence off a child's scope — that was
+true before `durable-run-layer`/T6 keyed the hold *per scope*, and is not true
+now. Confirmed by widening the sabotage across all of `tests/workflow/`,
+`test_fenced_writes.py` and the nested-workflow end-to-end tests: 303 passed.
+The method is kept for the ordinary reasons and the safety claim was deleted
+from the docstring, because a comment asserting a property no test can lose is
+the same defect as a gate that cannot fail.
 
 ## T4 · One choice moves all four stores
 
