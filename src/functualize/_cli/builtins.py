@@ -643,6 +643,24 @@ def _state_location() -> tuple[Path, str, Path | None]:
     return resolve_state_location(Path.cwd())
 
 
+def _file_size(path: Path) -> str:
+    """A human-readable size for ``path``, or ``"absent"``.
+
+    Bytes under a kilobyte, then KB, then MB — the three magnitudes this file
+    passes through. Reported because the record *count* alone did not make the
+    growth legible: 2,188 records is a number, 1.6 MB is a problem.
+    """
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return "absent"
+    if size < 1024:
+        return f"{size} B"
+    if size < 1024 * 1024:
+        return f"{size / 1024:.0f} KB"
+    return f"{size / (1024 * 1024):.1f} MB"
+
+
 def _state_mode_line(mode: str, marker: Path | None) -> str:
     """Render the state-store mode for a human.
 
@@ -816,6 +834,7 @@ def register_builtin_commands(cli_group: Any) -> None:
     def state_show() -> None:
         """Show runtime state statistics."""
         from functualize.app.utils import (
+            SCOPES_LIMIT,
             SCOPES_VERSION,
             ScopeStoreUnreadableError,
             StateStore,
@@ -831,7 +850,15 @@ def register_builtin_commands(cli_group: Any) -> None:
         # 2: nothing here is fine.
         fault: ScopeStoreUnreadableError | None = None
         try:
-            click.echo(f"Scopes: {len(store.scope_ids())}")
+            # Count, cap and **size** together. The count alone was already
+            # here and it is not what a user needs: the defect this reports on
+            # was 2,188 records costing 58 ms per state write, and nobody
+            # noticed until an external review measured the file. A number with
+            # no ceiling beside it does not read as "getting full".
+            click.echo(
+                f"Scopes: {len(store.scope_ids())} of {SCOPES_LIMIT} "
+                f"({_file_size(store.scopes_path)})"
+            )
         except ScopeStoreUnreadableError as exc:
             fault = exc
             found = exc.found_version

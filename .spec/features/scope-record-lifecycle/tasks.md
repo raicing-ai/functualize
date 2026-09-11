@@ -3,7 +3,7 @@
 Gates were run from the worktree root at authoring time; each `now:` is what it
 printed. `[F]` is the file scope, equal to the gate's hit set.
 
-## T1 · A non-workflow scope reaches a terminal status when its run ends
+## T1 · A non-workflow scope reaches a terminal status when its run ends [x]
 
 `[F]` `src/functualize/_engine/executor.py`
 `src/functualize/_engine/capabilities/workflow_scope.py`
@@ -35,7 +35,7 @@ grep -c "scope.close()\|set_scope_status" src/functualize/_engine/executor.py
 ```
 now: `0` · after: `>= 1`
 
-## T2 · `scopes.json` gets a cap that cannot evict a live scope
+## T2 · `scopes.json` gets a cap that cannot evict a live scope [x]
 
 `[F]` `src/functualize/_primitives/scope_format.py`
 `tests/primitives/test_scope_cap.py`
@@ -106,7 +106,7 @@ The review's figure was 58 ms on 1,019 KB / 2,188 records; this one is 39 ms on
 steps and gates. **The ratio is the claim, not the millisecond** — the absolute
 number depends on how much each record holds, the multiple does not.
 
-## T4 · `state show` reports the scope file's size and record count
+## T4 · `state show` reports the scope file's size and record count [x]
 
 `[F]` `src/functualize/_cli/builtins.py`
 `tests/cli/test_state_show_scopes.py`
@@ -117,7 +117,8 @@ worktree and only an external review noticed. A user should not need one.
 ```
 uv run func builtin state show 2>&1 | grep -ci "scope"
 ```
-now: to be recorded by T4 · after: `>= 1`
+now: `1` — the line read `Scopes: 7`, a number with no ceiling and no size
+beside it · after: `Scopes: 7 of 500 (412 B)`
 
 ## T5 · Purge removes a finished scope's state file with its record
 
@@ -138,7 +139,7 @@ grep -c "scope_state\|state_path" src/functualize/app/_workflow_control.py
 ```
 now: `0` · after: `>= 1`
 
-## T6 · A run record's `scope_id` means one thing
+## T6 · A run record's `scope_id` means one thing [x]
 
 `[F]` `src/functualize/_engine/executor.py`
 `tests/integration/test_run_record_scope_id.py`
@@ -152,9 +153,23 @@ now the honest one — but that is a conclusion to verify by reading the writer,
 not to assume here.
 
 ```
-grep -rn "scope_id" src/functualize/_primitives/run_format.py | wc -l
+uv run pytest tests/integration/test_run_record_scope_id.py -q -p no:randomly 2>&1 | tail -1
 ```
-now: to be recorded by T6 · after: unchanged count, with the meaning documented
+now: `1 failed, 3 passed` — a nested run's record read `scope_id: null` ·
+after: `4 passed`
+
+**The gate written at planning time was wrong and is replaced rather than
+quietly dropped.** It counted `scope_id` in `_primitives/run_format.py`, which
+has **zero** occurrences — the field is written by `executor._open_run_record`,
+not defined by the format module. Running it before writing it would have
+caught that; this is the Retrieval Before Assertion rule, failed and corrected.
+
+What the corrected gate found is worse than F6 reported. F6 said `scope_id`
+*names a scope that is not a workflow*; in fact every **nested** run's record
+carried `scope_id: null`, because `nested_request` withholds the scope id from
+a child (so it does not share step records and gates) while still handing it
+the scope object — so `_ensure_scope` returns early and the id is never filled
+in. A run tree could not say which scope its branches ran in.
 
 ## Task Dependency Graph
 

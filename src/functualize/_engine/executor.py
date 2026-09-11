@@ -776,6 +776,19 @@ class JobExecutionEngine:
         surface is what distinguishes them: see :meth:`_records_history`.
         """
         job = self.get_job(request.job_name)
+        # Whether *this* call mints the scope, decided before `_ensure_scope`
+        # fills it in. Only the minter closes it, and "minter" means the run
+        # arrived naming **neither** a scope object nor a scope id:
+        #
+        # * `parent_scope` set — a workflow step, a dependency or an
+        #   `rc.invoke` child. The parent is still working; finishing its scope
+        #   would seal the store out from under it.
+        # * `workflow_scope_id` set — the caller named a scope, so the caller
+        #   owns its lifetime. This is the case that carries state *across*
+        #   runs: two `execute`s into one scope, which is what makes
+        #   `invocation=2` possible and is the whole point of durable state.
+        #   Closing it after the first run turned the second into a failure.
+        owns_scope = request.parent_scope is None and not request.workflow_scope_id
         request = self._ensure_scope(request)
         kwargs = self._request_kwargs(request, job)
         run_id = self._open_run_record(request, kwargs)
@@ -792,6 +805,7 @@ class JobExecutionEngine:
         # durable-run-layer/T5, unbuilt, and `derived_state` has no
         # `abandoned` case. Found by an external review of the AFTER state.
         closed = False
+        outcome = "failed"
         try:
             result = self._execute_lifecycle(
                 request.job_name,
@@ -816,9 +830,12 @@ class JobExecutionEngine:
             )
             self._close_run_record(run_id, result)
             closed = True
+            outcome = "completed" if result.status is RunStatus.SUCCESS else "failed"
         finally:
             if not closed:
                 self._close_run_record_failed(run_id)
+            if owns_scope:
+                self._close_scope(request, outcome)
         if self._records_history(request):
             self._record_history(request.job_name, kwargs, result)
         return result
@@ -912,7 +929,33 @@ class JobExecutionEngine:
                     # record rather than inferred from what else is in it.
                     "surface": request.surface,
                     "args_hash": compute_args_hash(call_args=self._hashable(kwargs)),
-                    "scope_id": request.workflow_scope_id,
+                    # **"The scope this run ran in"**, for every run — review
+                    # F6 asked whether this should instead be null for a
+                    # non-workflow job. It should not, and the reason is that
+                    # `_ensure_scope` runs immediately above: every run now has
+                    # a scope, so a null here would mean "I did not look",
+                    # not "there was none".
+                    #
+                    # The reader's obligation, which is the part worth writing
+                    # down: **a scope id here may have no record on disk.** A
+                    # run that never touched state leaves none — nothing is
+                    # minted just so it can be marked finished, because that is
+                    # how the file grew in the first place
+                    # (`scope-record-lifecycle`). So resolving this id yields
+                    # "no records", which is an answer, not an error.
+                    #
+                    # Falls back to the scope *object* because `nested_request`
+                    # deliberately withholds the scope **id** from a child — so
+                    # the child does not share the parent's step records and
+                    # gates — while still handing it the scope itself for
+                    # state. `_ensure_scope` therefore returns early and
+                    # `workflow_scope_id` stays None, which left every nested
+                    # run's record reading `scope_id: null`: a run tree with no
+                    # way to say which scope its branches ran in. Reading the
+                    # object here fixes the *record* without touching what the
+                    # id controls during execution.
+                    "scope_id": request.workflow_scope_id
+                    or getattr(request.parent_scope, "scope_id", None),
                     "parent_run_id": request.parent_run_id,
                     "invoke_depth": request.invoke_depth,
                     "group_option_values": (
@@ -927,6 +970,57 @@ class JobExecutionEngine:
         except Exception:  # noqa: BLE001 - an observation is never worth a run
             logger.debug("could not open a run record", exc_info=True)
             return None
+
+    def _close_scope(self, request: RunRequest, outcome: str) -> None:
+        """Mark a scope this run minted as finished, and seal its store.
+
+        **Why here.** A plain job that calls `rc.state.set(...)` wrote a record
+        with ``status: "running"`` and nothing ever changed it, so
+        `purge_scopes` refused it (`app/_workflow_control.py:442`), the age
+        filter refused it for having no timestamps, and `list_scopes` hid it.
+        The record was immortal *and* invisible — `scopes.json` reached 2,188
+        records on this project with no way to drain it
+        (`.spec/reviews/omp-after-review.md` F1).
+
+        This is the same `finally` that closes the run record, for the same
+        reason: the lifecycle has raising paths `run()` does not catch, and a
+        run that leaves by raising must not leave a record behind claiming to
+        be in progress.
+
+        **Only a scope still ``running`` is closed, and that guard is the whole
+        safety argument.** A workflow that stopped at a gate has status
+        ``blocked``; overwriting it would both lose the resume point and seal
+        the store the resumed walk needs to write to. Anything the walk already
+        decided — ``blocked``, ``completed``, ``failed``, ``cancelled`` — is
+        left exactly as it is. This method finishes runs nobody else finishes;
+        it does not adjudicate the ones that finish themselves.
+
+        Best-effort and silent, like the run-record half: an observation is
+        never worth failing a run that did its work.
+        """
+        scope = request.parent_scope
+        if scope is None:
+            return
+        scope_id = getattr(scope, "scope_id", None)
+        if scope_id is None:
+            return
+        try:
+            from functualize._primitives.scope_store import ScopeStore
+
+            scopes = ScopeStore.beside_state(self._state_store().path)
+            record = scopes.get_scope(scope_id)
+            if record is None:
+                # Nothing was ever written for this scope — a run that touched
+                # no state. There is no record to finish, and creating one just
+                # to mark it finished is how the file grew in the first place.
+                return
+            if record.get("status") != "running":
+                return
+            scopes.set_scope_status(scope_id, outcome)
+            if not getattr(scope, "closed", False):
+                scope.close()
+        except Exception:  # noqa: BLE001 - an observation is never worth a run
+            logger.debug("could not close the run's scope", exc_info=True)
 
     def _close_run_record_failed(self, run_id: str | None) -> None:
         """Close a record whose run left `engine.run()` by raising.

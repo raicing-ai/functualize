@@ -47,6 +47,7 @@ from functualize._primitives.parameter_types import (
 )
 from functualize._primitives.plugin_kinds import PluginKind, classify_group
 from functualize._primitives.scope_format import (
+    SCOPES_LIMIT,
     SCOPES_VERSION,
     resolve_scopes_path,
 )
@@ -227,6 +228,7 @@ __all__ = [
     # The scope store's location and version, for `builtin state show` and
     # `builtin info`: a file whose path nothing reports is a file nobody finds.
     "resolve_scopes_path",
+    "SCOPES_LIMIT",
     "SCOPES_VERSION",
     # Raised when the scope store cannot be honoured. Public because `_cli`,
     # `app/adapters` and the MCP plugin all have to turn it into a refusal, and
