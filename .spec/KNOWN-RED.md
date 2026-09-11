@@ -156,11 +156,19 @@ packaging break and this entry does not apply.
 
 ---
 
-## 10 · `tests/discovery/test_parse_failure_persists.py::test_a_warm_run_reports_exactly_what_the_cold_one_did[app]` — flaky under `-n auto`
+## 10 · `tests/discovery/test_parse_failure_persists.py::test_a_warm_run_reports_exactly_what_the_cold_one_did` — flaky under `-n auto`
+
+**Both parametrizations.** Either `[app]` or `[func]` can be the one that
+fails; the cause is the shared cache path, not the door, so pinning the entry
+to one of them would make the other read as a new defect.
 
 **Seen:** 2026-09-11, one failure in a `-n auto` run (10,137 passed, 1 failed),
 during `engine-sealed-construction`/T8. The commit under test renamed
 `rc.<member>` call sites and touched nothing in `_discovery/`.
+
+**Seen again:** 2026-09-11, `[func]` this time, in the `-n auto` run that
+verified the capability-duality fixes (11,699 passed, 1 failed). Serial re-run
+of the file: 9 passed, 1 skipped.
 
 **Discriminator.** Run the file alone, then the directory, then a wider slice:
 
