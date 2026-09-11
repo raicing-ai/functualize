@@ -31,7 +31,9 @@ refactor**, not the directory you edited.
 | T2 · `State` is durable, no in-memory tier | **code done, tests not migrated** — `fb7b409` |
 | T3 · a workflow step's `rc.state` is the run's store | done — `2d72925` |
 | T5 · ADR-021 | done — `5009eca` |
-| T4, T6, T7, T8, T9, T10 | not started |
+| T4 · `rc._cap` is the one resolver | done — `d7a01c4` |
+| T6 · the registry-driven tripwire | done — `43f5809` |
+| T7, T8, T9, T10 | not started |
 
 Plus `a7fb91d`: a scope with no workflow is no longer listed as one.
 
