@@ -945,6 +945,7 @@ def _make_invoke(ctx: Any) -> WiredInvoke:
 
 CAPABILITY = CapabilitySpec(
     name="Invoke",
+    rc_accessor="_get_invoke",
     type=Invoke,
     factory=_make_invoke,
 )

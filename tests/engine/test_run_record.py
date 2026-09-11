@@ -19,6 +19,7 @@ whose parentage the log most needs, are the ones a context variable would lose.
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 from typing import Any
 
@@ -269,3 +270,55 @@ def test_a_run_survives_a_store_that_cannot_be_written(
 
     assert result.status is RunStatus.SUCCESS
     assert result.return_value == "built"
+
+
+class TestARecordAlwaysCloses:
+    """A run that leaves `engine.run()` by raising still closes its record.
+
+    Open and close were two statements in a row, so a lifecycle that raised
+    left the record `running` for ever. A job body raising is not this case —
+    that is caught and becomes a FAILURE result — but `MissingProviderError`
+    and `DIValidationError` propagate out of `_execute_lifecycle` uncaught.
+
+    Nothing reaps a stale record: the lease that would is
+    `durable-run-layer`/T5, not built, and `derived_state` has no `abandoned`
+    case. Found by an external review of the AFTER state.
+    """
+
+    def test_a_raised_lifecycle_leaves_no_running_record(self, tmp_path: Any) -> None:
+        import os
+
+        from functualize import FunctualizeApp
+        from functualize._primitives.run_store import RunStore
+        from functualize._types.run_request import RunRequest
+
+        (tmp_path / ".functualize").mkdir()
+        cwd = os.getcwd()
+        os.chdir(tmp_path)
+        try:
+            app = FunctualizeApp(name="reaper")
+
+            class Unprovided:
+                pass
+
+            def needs_a_provider(dep: Unprovided) -> str:
+                return "never"
+
+            app.register_dynamic_job("needs_a_provider", needs_a_provider)
+            with contextlib.suppress(Exception):
+                app.execute(
+                    RunRequest(job_name="needs_a_provider", surface="app.execute")
+                )
+
+            store = RunStore.beside_state(app.execution_engine._state_store().path)
+            still_running = [
+                rid
+                for rid in store.run_ids()
+                if (store.get_run(rid) or {}).get("status") == "running"
+            ]
+            assert not still_running, (
+                f"{len(still_running)} record(s) left saying 'running' after the "
+                "run left engine.run() by raising"
+            )
+        finally:
+            os.chdir(cwd)

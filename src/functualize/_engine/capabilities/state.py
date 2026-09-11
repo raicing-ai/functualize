@@ -274,6 +274,7 @@ class State:
 
 CAPABILITY = CapabilitySpec(
     name="State",
+    rc_accessor="state",
     type=State,
     # Built from the execution context, lazily: this factory runs *during*
     # parameter resolution, so for `def j(state: State, rc: RunContext)` the

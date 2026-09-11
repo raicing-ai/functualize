@@ -536,3 +536,89 @@ class TestSubscriptAccessFindsCapabilities:
         app.register_dynamic_job("j", j)
         assert _run(app, "j").status.value == "Success"
         assert seen["sources"] is False
+
+
+class TestTheDualityRuleIsEnforcedByTheRegistry:
+    """The rule, parametrized over `CAPABILITY_SPECS` rather than a list here.
+
+    **This is the difference between a rule and a habit.** The Constitution and
+    `contributor/guides/wiring-discipline.md` both stated the duality rule in
+    prose for the project's whole life, and five of six capabilities violated
+    it anyway — because "every user-declarable capability has an end-to-end
+    test" was read as *decorator* declarations, and because nothing enumerated
+    the capabilities to check coverage against.
+
+    Driving off the registry (ADR-014) fixes exactly that: a capability added
+    tomorrow is covered the day its `CapabilitySpec` is written, and a
+    capability that legitimately cannot share declares `shared_with_rc=False`
+    where a reader can see it — rather than being quietly absent from a
+    hand-written list.
+    """
+
+    def _specs(self) -> list[Any]:
+        from functualize._engine.capabilities.registry import CAPABILITY_SPECS
+
+        return [
+            spec
+            for spec in CAPABILITY_SPECS
+            if spec.rc_accessor is not None and spec.type is not None
+        ]
+
+    def test_at_least_one_capability_declares_an_accessor(self) -> None:
+        """Guards the parametrized test below against passing vacuously.
+
+        If `rc_accessor` were never set, every test here would iterate an empty
+        list and report success — which is the shape of a test that enforces
+        nothing.
+        """
+        assert self._specs(), (
+            "no capability declares rc_accessor; the duality check below would "
+            "be iterating nothing"
+        )
+
+    def test_every_declared_accessor_reaches_the_injected_object(self) -> None:
+        """`rc.<accessor>` is the object the DI parameter got — for all of them."""
+        app = FunctualizeApp(name="registry")
+        specs = self._specs()
+        seen: dict[str, bool] = {}
+
+        def j(rc: RunContext, log: Log, state: State, inv: Invoke) -> str:
+            injected = {Log: log, State: state, Invoke: inv}
+            for spec in specs:
+                if not spec.shared_with_rc:
+                    continue
+                target: Any = rc
+                for part in spec.rc_accessor.split("."):
+                    target = getattr(target, part)
+                if callable(target) and not hasattr(target, "__self__"):
+                    pass
+                reached = target() if callable(target) else target
+                seen[spec.name] = reached is injected.get(spec.type)
+            return "ok"
+
+        app.register_dynamic_job("j", j)
+        assert _run(app, "j").status.value == "Success"
+
+        drifted = [name for name, same in seen.items() if not same]
+        assert not drifted, (
+            f"{drifted} reached a different object through rc than through DI — "
+            "the two doors have drifted (ADR-021)"
+        )
+        assert set(seen) == {s.name for s in specs if s.shared_with_rc}
+
+    def test_an_exemption_is_declared_rather_than_implied(self) -> None:
+        """A capability that cannot share says so on its spec.
+
+        `shared_with_rc=False` is the only way out of the check above. That
+        keeps an exemption visible in the registry instead of implied by an
+        omission — ADR-021 lists the five classes that qualify and the
+        one-sentence test for whether something really is one.
+        """
+        from functualize._engine.capabilities.registry import CAPABILITY_SPECS
+
+        exempt = [s.name for s in CAPABILITY_SPECS if not s.shared_with_rc]
+        assert exempt == [], (
+            f"{exempt} declare an exemption from the duality rule; that is "
+            "allowed, but ADR-021 requires a recorded reason — update this "
+            "test with it when one is added"
+        )

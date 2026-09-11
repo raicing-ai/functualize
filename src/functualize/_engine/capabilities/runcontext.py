@@ -295,10 +295,23 @@ class RunContext:
     # --- Capability accessors (lazy init) ---
 
     def _get_invoke(self) -> Invoke:
+        """The run's `Invoke` — the same object a `inv: Invoke` parameter got.
+
+        **The capability map first** (ADR-021). Fixing the hook parentage made
+        both doors *behave* alike; they were still two objects, and the
+        registry-driven duality test caught that. Two `WiredInvoke`s per run is
+        two places for depth, gate registry and parent request to drift apart —
+        which is how the original defect happened.
+        """
         if self._execution_engine is None:
             raise RuntimeError(
                 "Cannot invoke jobs: RunContext was not created by JobExecutionEngine"
             )
+        from functualize._engine.capabilities.invoke import Invoke as _Invoke
+
+        shared = self._cap_or_none(_Invoke)
+        if shared is not None:
+            return cast("Invoke", shared)
         if self._invoke_capability is None:
             from functualize._engine.capabilities.invoke import WiredInvoke
 
@@ -321,6 +334,10 @@ class RunContext:
                 # arguments were accepted and documented, and did nothing.
                 gate_registry=getattr(self._execution_engine, "_gate_registry", None),
             )
+            # Into the shared map, so a capability resolved after this one
+            # finds the same object rather than building a second.
+            if self._caps is not None:
+                self._caps[_Invoke] = self._invoke_capability
         return self._invoke_capability
 
     def _get_tracker(self) -> WorkflowTracker:

@@ -26,6 +26,7 @@ change. That seam is preserved, not built.
 
 from __future__ import annotations
 
+import threading
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -91,7 +92,32 @@ class ScopeStore:
 
     def __init__(self, path: Path | str) -> None:
         self._path = Path(path)
-        self._batch: dict[str, Any] | None = None
+        #: The open batch, **per thread**.
+        #:
+        #: It was one attribute on the instance, which was correct while one
+        #: run owned one store. It is not any more: `invoke_parallel` gives all
+        #: 32 workers the same `WorkflowScope`, so they share one `ScopeStore`
+        #: and shared one `_batch` — and `_mutate` folds *any* write on the
+        #: instance into whatever batch happens to be open. A sibling thread's
+        #: `set_state` therefore joined another thread's transaction, returned
+        #: successfully, and vanished if that transaction raised. Reproduced by
+        #: an external review before this was fixed:
+        #:
+        #:     clean batch exit : {"main": 1, "sibling": 2}
+        #:     batch raises     : {}
+        #:
+        #: Thread-local, so a batch is a transaction for the thread that opened
+        #: it and nobody else's writes ride on it. The file lock still
+        #: serialises the *commit* across threads and processes alike.
+        self._local = threading.local()
+
+    @property
+    def _batch(self) -> dict[str, Any] | None:
+        return getattr(self._local, "batch", None)
+
+    @_batch.setter
+    def _batch(self, value: dict[str, Any] | None) -> None:
+        self._local.batch = value
 
     @classmethod
     def for_project(cls, start: Path | str) -> ScopeStore:

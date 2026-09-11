@@ -254,3 +254,63 @@ class TestOnDiskShape:
         raw = json.loads(store.path.read_text())
         assert sorted(raw["scopes"]) == ["s1", "s2"]
         assert all(isinstance(v, dict) for v in raw["scopes"].values())
+
+
+class TestBatchIsPerThread:
+    """A batch is a transaction for the thread that opened it, and no other.
+
+    `_batch` was one attribute on the instance, which was correct while one run
+    owned one store. `invoke_parallel` gives all 32 workers the same
+    `WorkflowScope` — so one `ScopeStore`, one `_batch` — and `_mutate` folded
+    *any* write on the instance into whatever batch happened to be open. A
+    sibling thread's `set_state` joined another thread's transaction, returned
+    successfully, and vanished when that transaction raised.
+
+    Found by an external review of the AFTER state, which reproduced it as
+    `clean batch exit : {"main": 1, "sibling": 2}` / `batch raises : {}`.
+    """
+
+    def _run(self, tmp_path: Path, raise_inside: bool) -> dict:
+        import threading
+
+        store = ScopeStore(tmp_path / f"scopes-{raise_inside}.json")
+        store.ensure_scope("s")
+        started, done = threading.Event(), threading.Event()
+
+        def sibling() -> None:
+            started.wait(5)
+            store.set_state("s", "sibling", 2)
+            done.set()
+
+        thread = threading.Thread(target=sibling)
+        thread.start()
+        try:
+            with store.batch():
+                store.set_state("s", "main", 1)
+                started.set()
+                done.wait(5)
+                if raise_inside:
+                    raise RuntimeError("boom")
+        except RuntimeError:
+            pass
+        thread.join(5)
+        return ScopeStore(store.path).state_snapshot("s")
+
+    def test_both_writes_land_on_a_clean_exit(self, tmp_path: Path) -> None:
+        assert self._run(tmp_path, raise_inside=False) == {"main": 1, "sibling": 2}
+
+    def test_a_siblings_write_survives_another_threads_failed_batch(
+        self, tmp_path: Path
+    ) -> None:
+        """The lost write. This is the assertion that was false."""
+        assert self._run(tmp_path, raise_inside=True) == {"sibling": 2}
+
+    def test_the_batching_threads_own_writes_are_still_discarded(
+        self, tmp_path: Path
+    ) -> None:
+        """All-or-nothing still holds *within* the thread that opened it.
+
+        Without this, the fix could have been "never discard anything", which
+        would break the walk's node-level atomicity.
+        """
+        assert "main" not in self._run(tmp_path, raise_inside=True)
