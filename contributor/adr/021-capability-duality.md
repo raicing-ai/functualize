@@ -87,10 +87,36 @@ divergence — but as *"the trap this job pins"*, alongside §9's *"Three things
 are called state"*. A warning is not a design. The isolation was an artifact,
 the two are now one class, and the example no longer teaches the trap.
 
+`Prompt` was the same shape, found later and worse. `rc.prompts` was a
+`PromptFacade` and a `prompt: Prompt` parameter was a `Prompt`, and the two
+were not merely different objects — **the injected one was inert**. Its factory
+was `lambda ctx: Prompt()`, so `_provider` was `None` forever and every call
+raised `InputNotAvailable` while `rc.prompts`, reading the live surface stack,
+answered. A job written `def j(p: Prompt)` could not prompt at all.
+
+That is worth separating from drift, because the two fail differently. Drift is
+two objects that agree today and stop agreeing later. This was a door that
+never worked, shipped behind a class whose existence implied it did. The
+registry-driven test does not catch it — identity held once the objects were
+merged, because the caps map holds whatever the factory returned regardless of
+whether it is wired. Catching it took a test that asserts *the answer*, through
+a collector that records being called. Both sabotages were run and they fail
+**different** tests: breaking the factory fails the round-trip tests, breaking
+the caps lookup fails the tripwire. They are complementary, not redundant.
+
 **The test for whether something is a real exemption**: can you state, in one
 sentence, what a user gains from the two doors returning different objects? For
-all five rows above the answer is concrete. For `State` it was never anything
-but "that is what the code did".
+all five rows above the answer is concrete. For `State` and `Prompt` it was
+never anything but "that is what the code did".
+
+**And a capability with one door is not an exemption — it is a non-case.**
+`Sources` was twice reported as a rule violation. It is not: it has no second
+door. `rc.discovery` is `DiscoveryFacade` (`get_job_schema` / `list_jobs`,
+registry introspection) and `RunContext` has no `sources` accessor at all.
+Giving it an `rc_accessor` would *create* a door rather than consolidate one. A
+capability reachable one way cannot drift from itself, so the tripwire skipping
+it is correct rather than a gap — and the row above already covers it for the
+separate reason that its value is not complete when DI runs.
 
 ### Why this is enforced by a registry-driven test, not by prose
 
@@ -119,3 +145,19 @@ ADR-014's name agreement an import-time assertion rather than a test.
   `"fetch.count"` key convention is documented rather than built, because a
   framework namespace is a second concept for something a string prefix already
   does.
+- **That decision was made twice, because the first time it missed the place
+  the namespace API actually lived.** `get_job_state("fetch", "rows")` and
+  `list_job_namespaces()` were on `StateStoreProtocol`, not on `State`, so they
+  survived the paragraph above by sitting one file away from where anyone read
+  it. Both are now deleted (`capability-duality`/T12). The lesson is narrower
+  than "check harder": a decision phrased about a *class* does not reach the
+  *protocol* that class implements, and a plugin contract is exactly where an
+  unwanted concept goes to survive.
+- The deletion cost `functualize-state-sqlite` a real capability, which is
+  recorded rather than glossed: it scoped rows by a genuine `(scope_id,
+  job_namespace)` pair and could answer a cross-namespace read that the default
+  dotted-key store only simulates. The Pre-Release Stance is what pays for
+  that; a released framework could not have made this trade so cheaply.
+- `Prompt` is one class. Deleting `PromptFacade` fixed an injected capability
+  that had never worked, which is why the duality rule earns its keep beyond
+  tidiness: the audit that enforces it is what surfaced the dead door.

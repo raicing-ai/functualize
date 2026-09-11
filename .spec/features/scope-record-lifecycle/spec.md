@@ -98,3 +98,33 @@ They are not exclusive; 1 is probably needed regardless.
 Test residue (`capability-duality`/T10). It inflated the measurement above —
 2,200 records in a worktree is not a production number — but the **mechanism**
 is production behaviour and does not depend on it.
+
+## F · Inherited: when is a scope finished? (Q-2)
+
+Routed here on 2026-09-11, by the maintainer, from `.spec/OPEN-QUESTIONS.md`
+Q-2. It is the same question as §A's and must not be answered separately.
+
+`WorkflowScope.close()` has **no production caller** — `git grep "\.close()"
+-- src/` finds no hit on a scope anywhere outside tests. So the guarantee
+`ScopeBackedStateStore._check_open` makes —
+
+> once a scope is finished, a late write from a straggling thread must fail
+> loudly rather than mutate a record something already read as final
+
+— is reachable only from tests. That is the fourth instance of the shape
+`contributor/guides/wiring-discipline.md` exists for, and `_check_open` was
+added to the pile during `capability-duality`.
+
+**Why it lands here rather than as its own fix.** Wiring `close()` requires
+deciding *when* a scope is finished. A workflow scope has an obvious moment —
+the walk reaches END. A plain job's scope does not, and "nothing marks a
+non-workflow scope terminal" is precisely §A's defect: records that never end
+are records that never get trimmed. One answer settles both.
+
+**Do not resolve this by deleting `close()`.** Deleting it makes a late write
+from a straggler silently mutate a record something already treated as final,
+which is the failure the guarantee exists to prevent — and this feature adds
+trimming, which makes "finished" load-bearing rather than decorative.
+
+Whichever option §D takes must therefore say, in one sentence, what marks a
+scope terminal for a non-workflow job, and wire `close()` to it.
