@@ -103,6 +103,19 @@ class StateStore:
         instead of two (a string and a namespace API), and it is why this
         parameter survived the deletion of the per-invocation ``State``.
 
+        **Include the separator in the prefix.** This is a plain
+        ``str.startswith``, not a namespace lookup, so the trailing ``"."`` is
+        the entire difference between a namespace and a substring::
+
+            state.set("fetch.rows", 1); state.set("fetchmeta.x", 1)
+
+            state.keys("fetch")     # ['fetch.rows', 'fetchmeta.x']  <- leaks
+            state.keys("fetch.")    # ['fetch.rows']
+
+        A convention costs one concept instead of two; this is the bill for
+        that, and it is why the separator is shown in every example rather
+        than left to the reader.
+
         Args:
             prefix: Only keys starting with this are returned
                 (case-sensitive). The default ``""`` returns all of them.

@@ -228,3 +228,115 @@ class TestADerivedContextKeepsItsWiring:
         app.register_dynamic_job("j", j)
         assert _run(app, "j").status.value == "Success"
         assert drifted == [], f"deriving a context dropped {drifted}"
+
+
+class TestStateCarriesAcrossOneRun:
+    """State written by one job in a run is readable by the next.
+
+    `rc.state` returns the scope's store only `if self._workflow_scope is not
+    None`, and `nested_request` resets `parent_scope` unless a caller states
+    it. The workflow orchestrator stated the scope *id* and not the scope
+    *object*, so every step arrived with no scope, lazily built a private
+    store, and wrote into something nothing would ever read — silently, with
+    no test and no doc describing the behaviour either way.
+
+    The run is the boundary (ADR-021): jobs within one run share, two runs
+    share nothing.
+    """
+
+    def _app(self, seen: dict[str, Any]) -> FunctualizeApp:
+        from functualize import END, Edge, Step, workflow
+
+        app = FunctualizeApp(name="duality")
+
+        def s1(rc: RunContext) -> str:
+            rc.state.set("fetch.rows", 500)
+            return "ok"
+
+        def s2(rc: RunContext) -> str:
+            seen["step sees earlier step"] = rc.state.get("fetch.rows")
+            seen["prefix filter"] = rc.state.keys("fetch.")
+            return "ok"
+
+        @workflow(
+            steps=[Step("s1"), Step("s2")],
+            edges=[Edge("s1", "s2"), Edge("s2", END)],
+        )
+        def flow(rc: RunContext) -> str:
+            seen["epilogue sees step"] = rc.state.get("fetch.rows")
+            return "done"
+
+        for name, fn in (("s1", s1), ("s2", s2), ("flow", flow)):
+            app.register_dynamic_job(name, fn)
+        return app
+
+    def test_a_later_step_reads_an_earlier_steps_write(self) -> None:
+        seen: dict[str, Any] = {}
+        assert _run(self._app(seen), "flow").status.value == "Success"
+        assert seen["step sees earlier step"] == 500
+
+    def test_the_epilogue_reads_the_steps_writes(self) -> None:
+        seen: dict[str, Any] = {}
+        assert _run(self._app(seen), "flow").status.value == "Success"
+        assert seen["epilogue sees step"] == 500
+
+    def test_the_documented_key_convention_is_usable(self) -> None:
+        """`"fetch.rows"` + `keys("fetch.")` — a convention, not a namespace API.
+
+        One flat store per run is the maintainer's decision, so two steps can
+        pick the same key name. The remedy is a string prefix rather than a
+        second concept, which only works if `keys` can filter by one.
+        """
+        seen: dict[str, Any] = {}
+        assert _run(self._app(seen), "flow").status.value == "Success"
+        assert seen["prefix filter"] == ["fetch.rows"]
+
+    def test_two_runs_of_one_workflow_share_nothing(self) -> None:
+        """The run is the boundary — the half that makes sharing safe."""
+        seen_a: dict[str, Any] = {}
+        app = self._app(seen_a)
+        assert _run(app, "flow").status.value == "Success"
+
+        leaked: dict[str, Any] = {}
+
+        def probe(rc: RunContext) -> str:
+            leaked["value"] = rc.state.get("fetch.rows")
+            return "ok"
+
+        app.register_dynamic_job("probe", probe)
+        assert _run(app, "probe").status.value == "Success"
+        assert leaked["value"] is None, (
+            "a later, unrelated run saw the workflow's state — the scope is "
+            "supposed to bound sharing to one run"
+        )
+
+
+class TestThePrefixConventionHasASharpEdge:
+    """`keys(prefix)` is `str.startswith`, so the separator is load-bearing.
+
+    Choosing a convention over a namespace API costs one concept instead of
+    two, and this is the bill: `keys("fetch")` also matches `"fetchmeta.x"` —
+    another job's key. The docstring shows the separator in every example for
+    this reason, and this test is what keeps that claim true.
+    """
+
+    def test_the_separator_is_what_bounds_the_namespace(self) -> None:
+        from functualize._engine.capabilities.state_store import StateStore
+
+        store = StateStore()
+        for key in ("fetch.rows", "fetch.ms", "fetchmeta.x", "report.rows"):
+            store.set(key, 1)
+
+        assert sorted(store.keys("fetch.")) == ["fetch.ms", "fetch.rows"]
+        assert "fetchmeta.x" in store.keys("fetch"), (
+            "if this ever stops being true, keys() has become a namespace "
+            "lookup and the docstring's warning is now wrong"
+        )
+
+    def test_an_empty_prefix_returns_everything(self) -> None:
+        from functualize._engine.capabilities.state_store import StateStore
+
+        store = StateStore()
+        store.set("a", 1)
+        store.set("b.c", 2)
+        assert sorted(store.keys()) == ["a", "b.c"]

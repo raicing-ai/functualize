@@ -124,6 +124,30 @@ class WorkflowOrchestrator:
                         if getattr(entry.function, "__functualize_workflow__", None)
                         else runner.scope_id
                     ),
+                    # The scope *object*, alongside its id. `nested_request`
+                    # resets `parent_scope` unless a caller states it, and this
+                    # caller did not — so every step arrived with
+                    # `_workflow_scope = None`, and `rc.state`, whose whole
+                    # scope-sharing branch is `if self._workflow_scope is not
+                    # None`, lazily built each step a private store. A step
+                    # wrote into a store nothing would ever read, silently, and
+                    # the epilogue saw none of it.
+                    #
+                    # The id and the object answer different questions and were
+                    # never interchangeable: the id names which *records* a walk
+                    # resumes, the object is where the run's shared state lives.
+                    # Passing one and not the other is what made "state between
+                    # the steps of a workflow" a reasonable belief that was
+                    # false.
+                    #
+                    # Shared across a nested workflow too, unlike the id above:
+                    # a nested walk needs its own *records* so the inner
+                    # epilogue does not surface as the outer's, but it is still
+                    # part of the same run, and the run is the boundary the
+                    # maintainer chose for state (ADR-021).
+                    parent_scope=(
+                        request.parent_scope if request is not None else None
+                    ),
                 )
             )
             # SKIPPED counts as satisfied: a step whose guards or fingerprint
