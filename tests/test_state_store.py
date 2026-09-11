@@ -10,7 +10,6 @@ from __future__ import annotations
 import pytest
 
 from functualize._primitives.state_format import (
-    HISTORY_LIMIT,
     STATE_FILENAME,
     load_state,
 )
@@ -30,7 +29,6 @@ class TestConstruction:
 
     def test_reads_before_any_write(self, store: StateStore) -> None:
         assert store.get_fingerprint("missing") is None
-        assert store.get_history() == []
         assert store.scope_ids() == []
 
 
@@ -143,24 +141,23 @@ class TestGates:
         assert store.get_position("s1") is None
 
 
-class TestHistory:
-    def test_append_and_read_newest_first(self, store: StateStore) -> None:
-        store.append_history({"job": "a"})
-        store.append_history({"job": "b"})
-        assert [r["job"] for r in store.get_history()] == ["b", "a"]
+class TestHistoryIsGone:
+    """`durable-run-layer`/T3b removed the ring this class used to exercise.
 
-    def test_limit(self, store: StateStore) -> None:
-        for i in range(5):
-            store.append_history({"job": str(i)})
-        assert len(store.get_history(limit=2)) == 2
+    Not deleted silently: the ring held two kinds of record and they went to
+    two different places. Job history is derived from the run log
+    (`app/_run_view.job_history`), which recorded the same runs plus the nested
+    ones plus who invoked them — the ring was a poorer copy of a subset. Shell
+    history moved to `_primitives/shell_history.py`, because a command typed in
+    shell mode was never a run and the log has nowhere to hold one.
 
-    def test_ring_buffer_bounds(self, store: StateStore) -> None:
-        for i in range(HISTORY_LIMIT + 10):
-            store.append_history({"job": str(i)})
-        history = store.get_history()
-        assert len(history) == HISTORY_LIMIT
-        # Oldest entries dropped; newest retained.
-        assert history[0]["job"] == str(HISTORY_LIMIT + 9)
+    Asserted rather than assumed, because a store that quietly kept the methods
+    would leave two writers for one fact, which is the drift the move removes.
+    """
+
+    def test_the_store_no_longer_records_history(self, store: StateStore) -> None:
+        assert not hasattr(store, "append_history")
+        assert not hasattr(store, "get_history")
 
 
 class TestSessionPreconditions:
@@ -256,13 +253,11 @@ class TestClear:
         including scopes, and the rename is what records that decision."""
         store.put_fingerprint("k", {"n": 1})
         store.ensure_scope("s1")
-        store.append_history({"job": "a"})
         store.set_precondition("p", True)
 
         assert store.clear() is None
 
         assert store.get_fingerprint("k") is None
-        assert store.get_history() == []
         assert store.get_precondition("p") is None
         assert store.scope_ids() == ["s1"]
 

@@ -226,6 +226,60 @@ what the user launched.
 keeps only `invoke_depth == 0` plus top-level parallel items; the run log keeps
 those *and* the nested ones, *and* who invoked them.
 
+> **BLOCKED 2026-09-12 — the premise above is only half true.**
+>
+> The history ring holds **two namespaces**, and only one of them is a subset
+> of the run log:
+>
+> | namespace | written by | shape | in the run log? |
+> |---|---|---|---|
+> | `job` | `executor._record_history` | `job`, `args_hash`, `status`, `duration_ms`, `at` | **yes** — a strict subset |
+> | `shell` | `_cli/tui/shell_mode.py:308` | `command`, `argv`, `exit_code` | **no** — a shell command is not a job run |
+>
+> `func builtin history --namespace shell` is a documented flag
+> (`builtins.py:1794-1796`, *"Show only one namespace (e.g. job, shell)"*), so
+> this is a shipped surface, not an accident.
+>
+> **Deleting the ring as written would silently lose shell history**, and
+> `runs.json` has nowhere to put a command that was never a run. Which means
+> step 2 — the rename — cannot happen either: a `history` key would still be
+> sitting inside a file called `fresh.json`, the exact worse-lie this task was
+> written to avoid.
+>
+> **The fork, and it needs the maintainer.** Three ways out, and they differ in
+> what the user sees, not just internally:
+>
+> 1. **Shell history gets its own file** (`.functualize/shell-history.json`).
+>    `state.json` then holds only freshness verdicts and `fresh.json` becomes
+>    honest. Costs a fourth file in `.functualize/` and a small store to own it.
+> 2. **Shell commands become run records** with their own surface value. One
+>    log for "things that happened", but it puts non-runs in the run log and
+>    every run consumer then has to filter them out.
+> 3. **Keep the ring, drop the rename.** Cheapest; leaves the three-way "state"
+>    collision this task exists to fix.
+>
+> Measured blast radius if the rename does go ahead: **19** `state_root` refs,
+> **34** `resolve_state_location` / `beside_state` / `resolve_state_path` refs
+> in `src/`, and **9** doc files naming `state.json`.
+>
+> Held rather than guessed: picking wrong means ~60 references moved twice.
+>
+> **ANSWERED 2026-09-12 — option 1: shell history gets its own file.**
+>
+> `.functualize/shell-history.json`, owned by a small store of its own.
+> `state.json` then holds only freshness verdicts, which is what makes
+> `fresh.json` a definition rather than an approximation.
+>
+> The maintainer's reasoning for the fourth file over folding shell commands
+> into the run log: a filter every consumer must remember is a rule that gets
+> forgotten once and then ships. `func builtin history` reads two sources and
+> keeps its `--namespace` flag; nothing changes for the user.
+>
+> **Executed in two commits, because they fail differently.** The history move
+> is behavioural and its mistakes are visible in a test. The rename is ~60
+> mechanical references whose mistakes are import errors. Mixing them would
+> make a bisect useless.
+
 So the order is:
 
 1. **Derive** `history` from `runs.json` in this task's projection, and delete

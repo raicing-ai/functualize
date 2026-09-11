@@ -13,8 +13,15 @@ test) and pins the two decisions that keep the ring useful rather than noisy:
   handful of things the user launched under the internals of one of them — a
   single deep workflow could evict all real history from the 200-record ring.
 
-Secrets never enter the ring: only the `args_hash` is stored, so a record
+Secrets never enter history: only the `args_hash` is stored, so a record
 identifies a run without persisting its inputs.
+
+**Retargeted by `durable-run-layer`/T3b.** The ring in `state.json` is gone;
+job history is now *derived* from the run log, because the log already recorded
+every one of those runs plus the nested ones plus who invoked them. Only the
+`_history` helper below changed — every rule this file pins is asserted through
+the derivation instead of the writer, and they all held. That is the evidence
+the move preserved the semantics rather than the claim that it did.
 """
 
 from __future__ import annotations
@@ -25,8 +32,9 @@ from pathlib import Path
 import pytest
 
 from functualize._app.state import AppState
+from functualize._primitives.run_store import RunStore
 from functualize.app.core import FunctualizeApp, request_for
-from functualize.app.utils import StateStore
+from functualize.app.utils import job_history
 
 
 @pytest.fixture(autouse=True)
@@ -39,7 +47,8 @@ def _in_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[No
 
 
 def _history(tmp_path: Path) -> list[dict]:
-    return StateStore.for_project(tmp_path).get_history()
+    """What `func builtin history` shows for jobs — derived from the run log."""
+    return job_history(RunStore.for_project(tmp_path))
 
 
 def _app() -> FunctualizeApp:
@@ -189,16 +198,21 @@ class TestOnlyTopLevelRuns:
         jobs = [r["job"] for r in _history(tmp_path)]
         assert jobs == ["fanout"], f"a nested parallel item leaked in: {jobs}"
 
-    def test_the_ring_is_bounded(self, tmp_path: Path) -> None:
-        """The store trims to HISTORY_LIMIT (200); a long-lived project must not
-        grow state.json without bound."""
-        from functualize._primitives.state_format import HISTORY_LIMIT
+    def test_history_is_bounded(self, tmp_path: Path) -> None:
+        """A long-lived project must not grow its log without bound.
+
+        The bound moved with the data: the ring's own `HISTORY_LIMIT` (200) is
+        gone, and history is now capped by whatever the run log keeps —
+        `RUNS_LIMIT` (500). Larger, and correctly so: one cap now covers both
+        questions, and the run log is the thing that has to stay bounded.
+        """
+        from functualize._primitives.run_format import RUNS_LIMIT
 
         app = _app()
-        for _ in range(HISTORY_LIMIT + 15):
+        for _ in range(RUNS_LIMIT + 15):
             app.execute(request_for("ok"))
 
-        assert len(_history(tmp_path)) == HISTORY_LIMIT
+        assert len(_history(tmp_path)) == RUNS_LIMIT
 
 
 class TestHistoryDoesNotDisturbTheRun:
@@ -208,16 +222,17 @@ class TestHistoryDoesNotDisturbTheRun:
         """History is a convenience. A store that cannot be written must never
         turn a job that ran fine into a visible failure.
 
-        `append_history` is the realistic failure (a full disk, a locked
-        store); the recorder's guard wraps record-building *and* the write, so
-        this exercises the whole guarded path.
+        `RunStore.open_run` is the realistic failure now (a full disk, a
+        locked store) — the ring's `append_history` is gone, and opening the
+        run record is what took its place as the write on the run's path. The
+        engine's guard wraps it, so this exercises the whole guarded path.
         """
-        from functualize._primitives import state_store as store_mod
+        from functualize._primitives import run_store as store_mod
 
-        def _explode(self: object, record: object) -> None:
+        def _explode(self: object, record: object) -> str:
             raise OSError("disk full")
 
-        monkeypatch.setattr(store_mod.StateStore, "append_history", _explode)
+        monkeypatch.setattr(store_mod.RunStore, "open_run", _explode)
 
         result = _app().execute(request_for("ok"))
 

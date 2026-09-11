@@ -67,13 +67,17 @@ class TestRendering:
 
 class TestBothNamespaces:
     def test_job_and_shell_runs_appear_together(self, cli_run, project) -> None:
-        """The whole point of one ring: a command that shows what ran, whether
-        it was a job or a shell command."""
-        from functualize.app.utils import StateStore
+        """One command, whatever ran — a job or a typed shell command.
+
+        They came from one ring until `durable-run-layer`/T3b and now come from
+        two sources: jobs derived from the run log, shell commands from their
+        own file. This test is the reason that split is invisible to a user.
+        """
+        from functualize._primitives.shell_history import ShellHistoryStore
 
         cli_run(["alpha"], cwd=project)
         # A shell record, written the way the shell surface writes it.
-        StateStore.for_project(project).append_history(
+        ShellHistoryStore.for_project(project).append(
             {"namespace": "shell", "command": "ls -la", "exit_code": 0}
         )
 
@@ -83,10 +87,10 @@ class TestBothNamespaces:
         assert "ls -la" in out
 
     def test_namespace_filter_narrows_to_one_kind(self, cli_run, project) -> None:
-        from functualize.app.utils import StateStore
+        from functualize._primitives.shell_history import ShellHistoryStore
 
         cli_run(["alpha"], cwd=project)
-        StateStore.for_project(project).append_history(
+        ShellHistoryStore.for_project(project).append(
             {"namespace": "shell", "command": "ls -la", "exit_code": 0}
         )
 
@@ -98,9 +102,9 @@ class TestBothNamespaces:
         assert "alpha" not in out
 
     def test_a_nonzero_shell_exit_is_shown(self, cli_run, project) -> None:
-        from functualize.app.utils import StateStore
+        from functualize._primitives.shell_history import ShellHistoryStore
 
-        StateStore.for_project(project).append_history(
+        ShellHistoryStore.for_project(project).append(
             {"namespace": "shell", "command": "false", "exit_code": 1}
         )
 

@@ -327,18 +327,25 @@ class TestHandoffExecution:
     def test_it_records_history(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Not `argument_history` — that store is per-job-per-field shaped."""
+        """Not `argument_history` — that store is per-job-per-field shaped.
+
+        Its own file since `durable-run-layer`/T3b. It shared a ring in
+        `state.json` with job-run history until then; the job half became a
+        derivation of the run log, and a typed shell command has no run for the
+        log to hold.
+        """
         monkeypatch.chdir(tmp_path)
         execute_shell_handoff(None, "true")
 
-        from functualize.app.utils import StateStore
+        from functualize._primitives.shell_history import ShellHistoryStore
 
-        history = StateStore.for_project(tmp_path).get_history()
+        history = ShellHistoryStore.for_project(tmp_path).entries()
         assert len(history) == 1
         assert history[0]["command"] == "true"
         assert history[0]["namespace"] == HISTORY_NAMESPACE
         assert history[0]["exit_code"] == 0
         assert history[0]["argv"] == ["true"]
+        assert history[0]["at"], "a record with no timestamp cannot be merged"
 
     def test_history_failure_does_not_fail_the_command(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

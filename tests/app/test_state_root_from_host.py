@@ -57,7 +57,17 @@ def test_a_run_writes_its_state_under_the_projects_root(
     monkeypatch.chdir(elsewhere)
     app.execute(request_for("capture-cwd"))
 
-    assert (project / ".functualize" / "state.json").exists()
+    # The **run log**, not `state.json`. `durable-run-layer`/T3b removed the
+    # history ring, which was the only thing a plain job wrote to `state.json`
+    # — it now holds freshness verdicts, so a job that declares no sources
+    # leaves no file there at all. The question this test asks is unchanged:
+    # did the run's state land under the *project*, or did the kernel follow
+    # the process's working directory? `runs.json` answers it, and every run
+    # writes one.
+    assert (project / ".functualize" / "runs.json").exists()
+    assert not (elsewhere / ".functualize").exists(), (
+        "the run wrote under the process's cwd rather than the project"
+    )
     assert not (elsewhere / ".functualize").exists()
 
 

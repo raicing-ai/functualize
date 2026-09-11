@@ -66,10 +66,13 @@ STATE_VERSION = 1
 # State file name within the resolved directory (beside cache.json).
 STATE_FILENAME = "state.json"
 
-# Ring-buffer bound for the run-history section (`func history`).
-HISTORY_LIMIT = 200
-
-_SECTIONS: tuple[str, ...] = ("fingerprints", "history", "session")
+#: The sections this file holds. **Freshness verdicts, and nothing else** —
+#: `history` left in `durable-run-layer`/T3b. Job history is now derived from
+#: the run log (`app/_run_view.job_history`), which recorded the same runs plus
+#: the nested ones plus who invoked them; shell history moved to its own file,
+#: because a typed command was never a run and the run log has nowhere to put
+#: it. What remains is what the file is actually for.
+_SECTIONS: tuple[str, ...] = ("fingerprints", "session")
 
 
 logger = logging.getLogger(__name__)
@@ -80,7 +83,6 @@ def empty_state() -> dict[str, Any]:
     return {
         "format_version": STATE_VERSION,
         "fingerprints": {},
-        "history": [],
         "session": {"preconditions": {}},
     }
 

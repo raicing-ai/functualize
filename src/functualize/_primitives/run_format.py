@@ -59,7 +59,8 @@ RUNS_VERSION = 1
 #: Run-log file name within the resolved directory (beside `state.json`).
 RUNS_FILENAME = "runs.json"
 
-#: Ring cap per run, matching `HISTORY_LIMIT`'s reasoning: an unbounded event
+#: Ring cap per run. Same reasoning the retired `HISTORY_LIMIT` had (it left
+#: in `durable-run-layer`/T3b): an unbounded event
 #: log on a long walk is the same defect the history cap exists to prevent, and
 #: a workflow with a retry loop is exactly where it would bite.
 EVENTS_PER_RUN_LIMIT = 200

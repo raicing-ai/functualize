@@ -36,6 +36,7 @@ from functualize._primitives.run_store import RunStore
 from functualize._primitives.state_store import StateStore
 from functualize._types.enums import RunStatus
 from functualize._types.run_request import RunRequest
+from functualize.app.utils import job_history
 from functualize.job import Deps, Invoke, job
 
 
@@ -179,12 +180,15 @@ class TestChildrenAreRecordedAndPlaced:
         result = engine.run(RunRequest(job_name="parent", surface="func.job"))
         assert result.status is RunStatus.SUCCESS, result.exception
 
-        store = StateStore.for_project(engine.state_root)
-        jobs = [entry.get("job") for entry in store.get_history()]
+        jobs = [
+            entry.get("job")
+            for entry in job_history(RunStore.for_project(engine.state_root))
+        ]
         assert "parent" in jobs
         assert "child" not in jobs, (
-            "the history ring recorded a nested child; that is the ring's rule "
-            "changing, which this feature must not do"
+            "history showed a nested child; that is the launch rule changing, "
+            "which this feature must not do — it moved from the ring's writer "
+            "to `_run_view._is_a_launch`, but it is the same rule"
         )
 
     def test_a_dependency_names_its_dependent(

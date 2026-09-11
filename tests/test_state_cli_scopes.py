@@ -208,7 +208,11 @@ class TestShowDiagnosesRatherThanDies:
         _poison(project)
         result = cli_run(["builtin", "state", "show"], cwd=project)
         assert "Fingerprints: 1" in result.stdout
-        assert "History entries: 0" in result.stdout
+        # `History entries` left this command with `durable-run-layer`/T3b:
+        # `state.json` no longer holds history, and reporting a count of
+        # something the file does not hold would be a lie in the one command a
+        # user runs to find out what is wrong. What remains is asserted above.
+        assert "Fingerprints:" in result.stdout
         assert "State path:" in result.stdout
 
     def test_show_renders_the_scope_line_as_the_fault(self, cli_run, project) -> None:

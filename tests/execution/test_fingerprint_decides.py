@@ -20,8 +20,9 @@ import pytest
 from pydantic import BaseModel
 
 from functualize._app.state import AppState
+from functualize._primitives.run_store import RunStore
 from functualize.app.core import FunctualizeApp, request_for
-from functualize.app.utils import StateStore
+from functualize.app.utils import job_history
 from functualize.job import (
     Fingerprint,
     Freshness,
@@ -58,7 +59,7 @@ def _app(**jobs: object) -> FunctualizeApp:
 
 def _history() -> list[dict[str, object]]:
     """This project's run ring, newest first."""
-    return list(reversed(StateStore.for_project(Path.cwd()).get_history()))
+    return list(reversed(job_history(RunStore.for_project(Path.cwd()))))
 
 
 def test_a_job_that_does_not_opt_in_is_still_skipped() -> None:

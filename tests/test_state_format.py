@@ -11,7 +11,6 @@ import json
 import pytest
 
 from functualize._primitives.state_format import (
-    HISTORY_LIMIT,
     STATE_FILENAME,
     STATE_VERSION,
     empty_state,
@@ -34,11 +33,17 @@ class TestEnvelope:
         state = empty_state()
         assert state["format_version"] == STATE_VERSION
         assert state["fingerprints"] == {}
-        assert state["history"] == []
         assert state["session"] == {"preconditions": {}}
 
-    def test_history_limit_is_positive(self) -> None:
-        assert HISTORY_LIMIT > 0
+    def test_history_is_gone(self) -> None:
+        """`durable-run-layer`/T3b — this file holds freshness verdicts only.
+
+        Job history is derived from the run log, which recorded the same runs
+        plus the nested ones plus who invoked them; shell history moved to its
+        own file, because a typed command was never a run. What is left is what
+        the file is actually for, which is what lets it be named for that.
+        """
+        assert "history" not in empty_state()
 
 
 class TestPathResolution:
@@ -146,11 +151,11 @@ class TestLockedUpdate:
         path = tmp_path / STATE_FILENAME
 
         def add(state):
-            state["history"].append({"job": "build"})
+            state["fingerprints"]["build"] = {"n": 1}
 
         result = update_state(path, add)
-        assert result["history"] == [{"job": "build"}]
-        assert load_state(path)["history"] == [{"job": "build"}]
+        assert result["fingerprints"] == {"build": {"n": 1}}
+        assert load_state(path)["fingerprints"] == {"build": {"n": 1}}
 
     def test_sequential_updates_of_different_keys_both_survive(self, tmp_path) -> None:
         # Part F: concurrent runs touching *different* job keys must merge,

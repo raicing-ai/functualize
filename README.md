@@ -36,7 +36,7 @@ If you're building internal tooling, deployment pipelines, or any multi-step aut
 - **Workflow Graphs** — DAGs with `Step(func)`, `Gate(name, awaits=Model, strategy=...)`, and `Edge`. Gates block for human or AI input; `--prompt-gates` resolves them inline, `--wf-resume` advances blocked scopes.
 - **Domain SDK Architecture** — Pluggable capability domains (state, AI, tasks, interactivity) with swappable provider backends.
 - **Plugin System** — Extend via Python entry points: lifecycle hooks, CLI commands, dynamic jobs, adapter plugins, and format providers.
-- **Built-in commands** — `func builtin parallel` (concurrent jobs), `func builtin history` (run log), `func builtin env` (config as env vars), `func builtin shell-init` (shell completions), `func builtin workflow` (inspect and resume gates).
+- **Built-in commands** — `func builtin parallel` (concurrent jobs), `func builtin history` (recent launches), `func builtin run` (the run log — every execution, its origin and outcome), `func builtin env` (config as env vars), `func builtin shell-init` (shell completions), `func builtin workflow` (inspect and resume gates).
 - **Pinned exit codes** — Stable, documented codes: `0` success · `1` job raised · `2` usage/config error · `3` refused pre-flight · `4` stale check · `5` blocked awaiting gate input.
 - **Standalone Mode** — Run single-file jobs with `func file.py function`, or make them self-executing with PEP 723 shebang scripts (`#!/usr/bin/env -S func`).
 - **Inline TUI** — Bare `func` opens a smart command shell under your prompt: SmartBar readiness colors, autocomplete, and config panels showing where every value comes from (via `functualize[cli]`).

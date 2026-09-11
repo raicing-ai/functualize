@@ -913,7 +913,11 @@ def register_builtin_commands(cli_group: Any) -> None:
             count = "" if exc.scope_count is None else f"{exc.scope_count} scopes, "
             click.echo(f"Scopes:       unreadable — {count}{detail}")
 
-        click.echo(f"History entries: {len(store.get_history())}")
+        # History left this file in `durable-run-layer`/T3b, so `state show`
+        # stops reporting it: what remains here is freshness verdicts, and a
+        # count of something the file no longer holds would be a lie in the one
+        # command a user runs to find out what is wrong. `func builtin history`
+        # is where history is answered now.
         click.echo(f"State path: {path}")
         click.echo(f"Scopes path: {store.scopes_path}")
         click.echo(f"Scopes format: v{SCOPES_VERSION}")
@@ -1802,22 +1806,43 @@ def register_builtin_commands(cli_group: Any) -> None:
         help="Show at most this many of the most recent records.",
     )
     def history_command(namespace: str | None, limit: int | None) -> None:
-        """Show recent runs, newest first."""
+        """Show recent runs, newest first.
+
+        **Two sources since `durable-run-layer`/T3b**, where one ring used to
+        hold both. Job history is *derived* from the run log — which recorded
+        the same runs plus the nested ones plus who invoked them, making the
+        ring a poorer copy of a subset. Shell history moved to its own file,
+        because a typed command was never a run and the log has nowhere to put
+        it.
+
+        Nothing changes for the caller: the same records, the same order, the
+        same `--namespace` flag.
+        """
         from pathlib import Path
 
-        from functualize.app.utils import StateStore, resolve_state_path
+        from functualize._primitives.run_store import RunStore
+        from functualize._primitives.shell_history import ShellHistoryStore
+        from functualize.app.utils import job_history
 
-        path = resolve_state_path(Path.cwd())
-        # Read directly, not via `for_project`: history is inspected far more
-        # often than it is written, and reading must not create a state file in
-        # a project that has never run anything.
-        if not path.exists():
+        # Read directly, never via `for_project`: history is inspected far more
+        # often than it is written, and reading must not create a store in a
+        # project that has never run anything.
+        run_path = RunStore.for_project(Path.cwd()).path
+        shell_path = ShellHistoryStore.for_project(Path.cwd()).path
+        if not run_path.exists() and not shell_path.exists():
             click.echo("No history recorded yet.", err=True)
             return
 
-        records = StateStore(path).get_history()
-        if namespace is not None:
-            records = [r for r in records if r.get("namespace") == namespace]
+        records: list[dict[str, Any]] = []
+        if namespace in (None, "job") and run_path.exists():
+            records.extend(job_history(RunStore(run_path)))
+        if namespace in (None, "shell") and shell_path.exists():
+            records.extend(ShellHistoryStore(shell_path).entries())
+        # Merged newest-first across both sources. Sorted on `at`, which every
+        # record now carries — the shell half did not stamp one until T3b, and
+        # an unsorted merge would have put every shell line after every job
+        # line regardless of when either happened.
+        records.sort(key=lambda r: str(r.get("at") or ""), reverse=True)
         if limit is not None:
             records = records[:limit]
 

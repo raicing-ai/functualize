@@ -172,7 +172,7 @@ def load_scopes(path: Path | str) -> dict[str, Any]:
 TERMINAL_SCOPE_STATUSES = frozenset({"completed", "failed", "cancelled"})
 
 #: Ring cap on scope records, the third of three — `state_format` has
-#: ``HISTORY_LIMIT = 200`` and `run_format` has ``RUNS_LIMIT = 500``. This file
+#: ``EVENTS_PER_RUN_LIMIT`` and `run_format` has ``RUNS_LIMIT = 500``. This file
 #: had none, which is how it reached 2,188 records and 58 ms per state write on
 #: a real project (`.spec/reviews/omp-after-review.md` F1).
 #:

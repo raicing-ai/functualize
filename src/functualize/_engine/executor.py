@@ -43,10 +43,7 @@ from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
 from functualize._types import AmbiguousJobError, JobResult, RunStatus
 from functualize._types.annotations import resolved_hints
 from functualize._types.redaction import Secret, redacted_snapshot
-from functualize._types.run_request import (
-    SURFACE_POLICY,
-    RunRequest,
-)
+from functualize._types.run_request import SURFACE_POLICY
 
 NoneType = type(None)
 
@@ -54,6 +51,7 @@ if TYPE_CHECKING:
     from functualize._engine.middleware import ExecutionMiddlewareChain
     from functualize._engine.result import RegisteredJob
     from functualize._types.protocols import EngineHost
+    from functualize._types.run_request import RunRequest
 
 logger = logging.getLogger(__name__)
 
@@ -773,7 +771,9 @@ class JobExecutionEngine:
         neither appeared in ``func builtin history`` because
         ``Invoke.parallel`` runs each item one level down — mechanically nested,
         but not nested *work*. Depth alone cannot tell the two apart, so the
-        surface is what distinguishes them: see :meth:`_records_history`.
+        surface is what distinguishes them; the rule now lives at read time
+        in `app/_run_view._is_a_launch`, because both of its inputs are in
+        the run record.
         """
         job = self.get_job(request.job_name)
         # Whether *this* call mints the scope, decided before `_ensure_scope`
@@ -836,8 +836,6 @@ class JobExecutionEngine:
                 self._close_run_record_failed(run_id)
             if owns_scope:
                 self._close_scope(request, outcome)
-        if self._records_history(request):
-            self._record_history(request.job_name, kwargs, result)
         return result
 
     def _ensure_scope(self, request: RunRequest) -> RunRequest:
@@ -913,7 +911,7 @@ class JobExecutionEngine:
         happened in this project"*, and a child with no record makes the tree
         unanswerable.
 
-        Best-effort and silent, exactly like `_record_history`: a store that
+        Best-effort and silent: a store that
         cannot be written must not turn a job that ran fine into a visible
         failure. Returning `None` is how the close half learns to do nothing.
         """
@@ -1052,37 +1050,6 @@ class JobExecutionEngine:
         except Exception:  # noqa: BLE001 - an observation is never worth a run
             logger.debug("could not close run record %s", run_id, exc_info=True)
 
-    @staticmethod
-    def _records_history(request: RunRequest) -> bool:
-        """Is this run one of the things the user launched? (spec AC-18)
-
-        ``invoke_depth == 0`` is the ordinary answer. The one exception is an
-        item of a **top-level parallel batch**: ``func builtin parallel a b``
-        reaches ``Invoke.parallel``, which runs each item at ``depth + 1``, so
-        the plain depth rule recorded neither `a` nor `b` and
-        ``func builtin history`` came back empty for a command the user had
-        just run (STATUS #5).
-
-        The distinction is **the door, not the depth**. Depth cannot make it:
-        a top-level job's ``RunContext`` and the standalone ``WiredInvoke`` that
-        ``app.execute_parallel`` builds both sit at depth 0, so both put their
-        items at depth 1. A first attempt at this rule used
-        ``surface == "invoke.parallel" and invoke_depth == 1`` and recorded
-        *every* fan-out, including ``rc.invoke_parallel`` from inside a job —
-        precisely the eviction the depth rule exists to prevent. The test that
-        caught it had to be fixed first: it passed bare job names where
-        ``invoke_parallel`` takes ``(job, kwargs)`` pairs, so the items never
-        ran and "no history records" meant "nothing happened".
-
-        So the two callers name themselves. ``app.execute_parallel`` — the seam
-        for callers that are not jobs — stamps its items ``app.parallel``;
-        ``rc.invoke_parallel`` stamps ``invoke.parallel`` and stays out of the
-        ring, because its parent is already in it.
-        """
-        if request.invoke_depth == 0:
-            return True
-        return SURFACE_POLICY[request.surface].records_batch_items
-
     def _request_kwargs(
         self, request: RunRequest, job: RegisteredJob
     ) -> dict[str, Any]:
@@ -1139,38 +1106,6 @@ class JobExecutionEngine:
             if pname not in resolved and kwargs.get(pname) is None:
                 kwargs.pop(pname, None)
         return kwargs
-
-    def _record_history(
-        self, job_name: str, kwargs: dict[str, Any], result: JobResult
-    ) -> None:
-        """Append one run record to the state store's history ring (T42).
-
-        Best-effort and silent, exactly like the shell-mode recorder it shares
-        the ring with: history is a convenience, so a store that cannot be
-        written must not turn a job that ran fine into a visible failure. The
-        one thing worth being strict about is what it must *not* write —
-        argument values, which can be secrets. Only the ``args_hash`` goes in,
-        so the record identifies a run without persisting its inputs (schema
-        §1: secrets are never stored in history, hashed only).
-        """
-        from datetime import UTC, datetime
-
-        try:
-            from functualize._primitives.fingerprint import compute_args_hash
-
-            record = {
-                "namespace": "job",
-                "job": job_name,
-                "args_hash": compute_args_hash(call_args=self._hashable(kwargs)),
-                "status": result.status.value.lower(),
-                "duration_ms": round(result.duration_ms, 3),
-                "at": datetime.now(UTC).isoformat(),
-            }
-            self._state_store().append_history(record)
-        except Exception as exc:  # noqa: BLE001 - convenience, never fatal
-            logger.warning(
-                "could not record job history (%s: %s)", type(exc).__name__, exc
-            )
 
     @staticmethod
     def _hashable(kwargs: dict[str, Any]) -> dict[str, Any]:

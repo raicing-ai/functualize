@@ -106,6 +106,7 @@ from functualize._types.run_request import (
 from functualize.app._run_view import (
     RUN_STATES,
     describe_run,
+    job_history,
     list_runs,
     run_events,
     run_tree,
@@ -198,6 +199,7 @@ __all__ = [
     "gate_draft",
     "resolve_gate",
     "describe_run",
+    "job_history",
     "run_events",
     "run_tree",
     "describe_scope",

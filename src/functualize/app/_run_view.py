@@ -44,10 +44,12 @@ from datetime import datetime
 from typing import Any
 
 from functualize._types.enums import RunStatus
+from functualize._types.run_request import SURFACE_POLICY
 
 __all__ = [
     "RUN_STATES",
     "describe_run",
+    "job_history",
     "list_runs",
     "run_events",
     "run_tree",
@@ -273,3 +275,65 @@ def run_tree(store: Any, run_id: str) -> dict[str, Any] | None:
         return {**node, "children": children}
 
     return _expand(root, {run_id})
+
+
+def _is_a_launch(record: dict[str, Any]) -> bool:
+    """Did the *user* ask for this run, as opposed to something it set off?
+
+    The rule `executor._records_history` used to apply at **write** time, moved
+    here and applied at read time. It is reproducible because both of its
+    inputs — `surface` and `invoke_depth` — are in the run record, which is the
+    whole reason history can be derived rather than stored.
+
+    `invoke_depth == 0` is the ordinary answer. The exception is an item of a
+    **top-level parallel batch**: `func builtin parallel a b` reaches
+    `Invoke.parallel`, which runs each item at depth 1, so the plain depth rule
+    showed neither `a` nor `b` for a command the user had just run.
+
+    **The distinction is the door, not the depth** — a top-level job's context
+    and the standalone `WiredInvoke` that `app.execute_parallel` builds both sit
+    at depth 0, so both put their items at depth 1. `app.execute_parallel`
+    stamps its items `app.parallel` and is included; `rc.invoke_parallel` stamps
+    `invoke.parallel` and is not, because its parent is already listed.
+    """
+    if record.get("invoke_depth", 0) == 0:
+        return True
+    surface = record.get("surface")
+    policy = SURFACE_POLICY.get(surface) if surface else None
+    return bool(policy and policy.records_batch_items)
+
+
+def job_history(store: Any, limit: int | None = None) -> list[dict[str, Any]]:
+    """What the user launched, newest first — derived, not stored.
+
+    Until `durable-run-layer`/T3b this was a second record: a 200-entry ring in
+    `state.json`, written by the engine beside the run log. The run log already
+    held every one of those runs *and* the nested ones *and* who invoked them,
+    so the ring was a poorer copy of a subset — the drift these projections
+    exist to end, in the one place it had survived.
+
+    Shaped exactly as the ring's job entries were (`namespace`, `job`,
+    `args_hash`, `status`, `duration_ms`, `at`), so `func builtin history` and
+    its renderer are unchanged by the move. The one thing the ring was strict
+    about is preserved: **argument values are never included**, only their
+    hash, so a record identifies a run without persisting its inputs.
+    """
+    out: list[dict[str, Any]] = []
+    for run_id in sorted(store.run_ids(), reverse=True):
+        record = store.get_run(run_id)
+        if record is None or not _is_a_launch(record):
+            continue
+        duration = _duration_ms(record)
+        out.append(
+            {
+                "namespace": "job",
+                "job": record.get("job"),
+                "args_hash": record.get("args_hash"),
+                "status": record.get("status"),
+                "duration_ms": None if duration is None else round(duration, 3),
+                "at": record.get("started_at"),
+            }
+        )
+        if limit is not None and len(out) >= limit:
+            break
+    return out

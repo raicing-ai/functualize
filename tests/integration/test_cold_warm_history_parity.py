@@ -32,7 +32,8 @@ import textwrap
 from pathlib import Path
 from typing import Any
 
-from functualize._primitives.state_store import StateStore
+from functualize._primitives.run_store import RunStore
+from functualize.app.utils import job_history
 from tests.conftest import surfaces
 
 _JOB = textwrap.dedent(
@@ -53,7 +54,7 @@ _IDENTITY = ("namespace", "job", "args_hash", "status")
 
 
 def _history(root: Path) -> list[dict[str, Any]]:
-    return StateStore.for_project(root).get_history()
+    return job_history(RunStore.for_project(root))
 
 
 def _assert_warm(root: Path) -> None:

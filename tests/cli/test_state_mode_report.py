@@ -141,4 +141,18 @@ def test_the_reported_path_is_the_one_the_engine_writes(tmp_path: Path) -> None:
     ]
 
     assert reported, "no State path line"
-    assert Path(reported[0]).exists(), reported[0]
+    # The **directory** the engine wrote into, not the state file itself.
+    # `durable-run-layer`/T3b left `state.json` holding only freshness
+    # verdicts, so a job that declares no sources writes none — and a test
+    # asserting the file exists would then be asserting that this particular
+    # job has a fingerprint, which is not what it is for.
+    #
+    # What it is for is that the path `state show` reports and the path the
+    # engine writes come from **one** upward walk. `runs.json` is written by
+    # every run and is resolved as this path's sibling, so finding it beside
+    # the reported path is exactly that claim.
+    beside = Path(reported[0]).parent
+    assert (beside / "runs.json").exists(), (
+        f"`state show` reported {reported[0]}, but the engine wrote its run "
+        f"log elsewhere — the two upward walks have disagreed"
+    )

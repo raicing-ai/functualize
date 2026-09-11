@@ -42,7 +42,6 @@ from typing import TYPE_CHECKING, Any
 
 from functualize._primitives.scope_store import ScopeStore
 from functualize._primitives.state_format import (
-    HISTORY_LIMIT,
     empty_state,
     load_state,
     resolve_state_path,
@@ -247,26 +246,6 @@ class StateStore:
     def scope_ids(self) -> list[str]:
         """All known scope ids."""
         return self._scopes.scope_ids()
-
-    # ------------------------------------------------------------------
-    # History ring buffer (`func history`)
-    # ------------------------------------------------------------------
-
-    def append_history(self, record: dict[str, Any]) -> None:
-        """Append a run record, trimming to :data:`HISTORY_LIMIT` (newest last)."""
-
-        def _apply(state: dict[str, Any]) -> None:
-            history = state["history"]
-            history.append(record)
-            if len(history) > HISTORY_LIMIT:
-                del history[: len(history) - HISTORY_LIMIT]
-
-        self._mutate(_apply)
-
-    def get_history(self, limit: int | None = None) -> list[dict[str, Any]]:
-        """Return run history newest-first, optionally capped at ``limit``."""
-        history = list(reversed(self._read()["history"]))
-        return history[:limit] if limit is not None else history
 
     # ------------------------------------------------------------------
     # Session-scoped precondition cache
