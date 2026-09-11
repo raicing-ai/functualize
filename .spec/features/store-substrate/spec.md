@@ -167,9 +167,33 @@ implementation has to satisfy it.
 
 ## F · Acceptance criteria
 
-- **AC-1** A `StoreSubstrate` protocol exists with three members — `read`,
-  `write` (compare-and-swap via `expect`), `lock` — and the three `_format`
-  modules are its default implementation.
+- **AC-1** A `StoreSubstrate` protocol exists with `read`, `write`
+  (compare-and-swap via `expect`) and `lock`, and the `_format` modules'
+  filesystem half is its default implementation.
+
+  **Revised during T1–T2, from three members to six.** Written as three on the
+  argument that the port must not become the union of the stores' verbs, which
+  still holds — six is nowhere near the eighty-nine that argument was against.
+  But three stranded the stores' *operator* surface on the filesystem, and a
+  store that is substrate-agnostic except for its purge and its two operator
+  commands is not substrate-agnostic. Each addition has exactly one caller:
+
+  - `clear(key)` — `func builtin data clear`, the documented way out of a
+    document `read` refuses. It must move the bytes **without reading them**,
+    so it cannot be composed from `read` + `write`.
+  - `delete(key)` — the scope-state purge. It runs once per scope, so keeping a
+    copy each time would accumulate forever, and there is nothing to recover:
+    the record that referenced the document is already gone.
+  - `describe(key)` — `func builtin data show`, whose reason for existing is to
+    tell a person where their data is. A key ending in `/` names a namespace,
+    because scope state is one document per run and a line about the single
+    document `scope-state` would describe nothing that exists.
+
+  `read` also returns `Stored(data, revision)` rather than a bare envelope.
+  `plan.md` R-a had `read -> dict` alongside `write(expect=int)`, which cannot
+  work: a caller that reads the document in one call and its revision in
+  another has a window between them, and would pass an `expect` describing a
+  document it never saw.
 - **AC-2** The store classes keep every typed method and still touch the
   filesystem **zero** times. (G1 is an invariant, not a target.)
 - **AC-3** A workflow that blocks at a gate under a non-filesystem substrate is

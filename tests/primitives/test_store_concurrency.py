@@ -115,14 +115,15 @@ class TestProcessesMerge:
             textwrap.dedent("""
                 import sys
                 from functualize._primitives.scope_store import ScopeStore
+                from functualize._primitives.substrate import JsonFileSubstrate
 
                 n = sys.argv[1]
-                store = ScopeStore(sys.argv[2])
+                store = ScopeStore(JsonFileSubstrate(sys.argv[2]))
                 store.ensure_scope("scope-" + n, workflow="w" + n)
                 store.set_state("scope-" + n, "value", int(n))
             """)
         )
-        target = str(tmp_path / "scopes.json")
+        target = str(tmp_path)
         procs = [
             subprocess.Popen(  # noqa: S603 - fixed argv, no shell
                 [sys.executable, str(program), str(n), target],
@@ -135,7 +136,7 @@ class TestProcessesMerge:
             out, err = p.communicate(timeout=120)
             assert p.returncode == 0, err.decode()[-500:]
 
-        data = json.loads(Path(target).read_text())
+        data = json.loads((Path(target) / "scopes.json").read_text())
         found = sorted(data["scopes"])
         assert found == sorted(f"scope-{n}" for n in range(WRITERS)), (
             f"{WRITERS} processes wrote distinct scopes; the file has {found}"
