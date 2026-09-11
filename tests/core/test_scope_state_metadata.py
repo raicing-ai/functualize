@@ -54,12 +54,6 @@ class ConformingStore:
     def clear(self) -> None:
         self._data.clear()
 
-    def get_job_state(self, job_name: str, key: str, default: Any = None) -> Any:
-        return default
-
-    def list_job_namespaces(self) -> list[str]:
-        return []
-
 
 class NonConformingStore:
     """A store missing required methods."""
@@ -204,8 +198,6 @@ class TestReplaceStateStore:
         assert "keys" in error_msg
         assert "to_dict" in error_msg
         assert "clear" in error_msg
-        assert "get_job_state" in error_msg
-        assert "list_job_namespaces" in error_msg
 
     def test_replace_on_closed_scope_raises_invalid_state_transition(self) -> None:
         """Replacing on closed scope raises InvalidStateTransitionError."""

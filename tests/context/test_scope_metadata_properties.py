@@ -65,7 +65,6 @@ class ConformingStore:
 
     def __init__(self) -> None:
         self._data: dict[str, Any] = {}
-        self._job_namespaces: dict[str, dict[str, Any]] = {}
 
     def get(self, key: str, default: Any = None) -> Any:
         return self._data.get(key, default)
@@ -84,13 +83,6 @@ class ConformingStore:
 
     def clear(self) -> None:
         self._data.clear()
-
-    def get_job_state(self, job_name: str, key: str, default: Any = None) -> Any:
-        namespace = self._job_namespaces.get(job_name, {})
-        return namespace.get(key, default)
-
-    def list_job_namespaces(self) -> list[str]:
-        return list(self._job_namespaces.keys())
 
 
 # --- Property 14: StateStore replacement — new store used, no data migration ---

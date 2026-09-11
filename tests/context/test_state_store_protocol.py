@@ -56,8 +56,6 @@ class TestStateStoreProtocolCompliance:
         assert callable(store.keys)
         assert callable(store.to_dict)
         assert callable(store.clear)
-        assert callable(store.get_job_state)
-        assert callable(store.list_job_namespaces)
 
     def test_state_store_delete_method(self) -> None:
         """StateStore.delete removes a key, no-op for missing keys.
@@ -72,28 +70,32 @@ class TestStateStoreProtocolCompliance:
         # No-op for missing key
         store.delete("nonexistent")
 
-    def test_state_store_get_job_state(self) -> None:
-        """StateStore.get_job_state reads from job namespaces.
+    def test_a_job_namespace_is_a_key_prefix_and_nothing_more(self) -> None:
+        """The convention that replaced `get_job_state` (T12).
 
-        **Validates: Requirements 7.1**
+        A namespace was once two protocol methods — `get_job_state("job_a",
+        "counter")` and `list_job_namespaces()`. Both were deleted: a framework
+        namespace is a second concept for what a string prefix already does
+        (ADR-021 §B), and the default store's implementation was literally
+        `get(f"{job_name}.{key}")`.
+
+        What replaces them is what a user writes by hand, asserted here so the
+        convention stays real rather than becoming folklore: a dotted key, and
+        a glob to enumerate one namespace.
         """
         store = new_state_store()
         store.set("job_a.counter", 42)
-        assert store.get_job_state("job_a", "counter") == 42
-        assert store.get_job_state("job_a", "missing", "default") == "default"
-        assert store.get_job_state("nonexistent_job", "key") is None
+        store.set("job_a.rows", 7)
+        store.set("job_b.counter", 1)
 
-    def test_state_store_list_job_namespaces(self) -> None:
-        """StateStore.list_job_namespaces returns job names with state.
-
-        **Validates: Requirements 7.1**
-        """
-        store = new_state_store()
-        assert store.list_job_namespaces() == []
-        store.set("job_a.key", "value")
-        store.set("job_b.key", "value")
-        namespaces = store.list_job_namespaces()
-        assert sorted(namespaces) == ["job_a", "job_b"]
+        assert store.get("job_a.counter") == 42
+        assert store.get("job_a.missing", "default") == "default"
+        assert store.get("nonexistent_job.key") is None
+        assert sorted(store.keys()) == [
+            "job_a.counter",
+            "job_a.rows",
+            "job_b.counter",
+        ]
 
     def test_protocol_default_get_behavior(self) -> None:
         """StateStore.get with default value works per protocol contract.

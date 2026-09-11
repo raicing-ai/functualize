@@ -651,18 +651,6 @@ class SQLiteBackend:
         )
         return result is not None
 
-    def list_namespaces(self, scope_id: str) -> list[str]:
-        """List all job namespaces that have state for a scope.
-
-        Returns:
-            List of namespace strings.
-        """
-        rows = self.fetch_all(
-            "SELECT DISTINCT job_namespace FROM state WHERE scope_id = ?",
-            (scope_id,),
-        )
-        return [row["job_namespace"] for row in rows]
-
     def get_namespace_keys(
         self,
         scope_id: str,

@@ -394,13 +394,6 @@ class TestStateOperations:
         ns_state = backend.get_namespace_state("scope-1", "job-a")
         assert ns_state == {}
 
-    def test_list_namespaces(self, backend: SQLiteBackend):
-        """Can list all namespaces for a scope."""
-        backend.upsert_state("scope-1", "job-a", "k1", '"v1"')
-        backend.upsert_state("scope-1", "job-b", "k2", '"v2"')
-        namespaces = backend.list_namespaces("scope-1")
-        assert sorted(namespaces) == ["job-a", "job-b"]
-
     def test_get_namespace_keys(self, backend: SQLiteBackend):
         """Can list all keys in a namespace."""
         backend.upsert_state("scope-1", "job-a", "k1", '"v1"')

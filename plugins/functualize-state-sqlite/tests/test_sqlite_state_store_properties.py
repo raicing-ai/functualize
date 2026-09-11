@@ -3,7 +3,7 @@
 Tests Properties 26, 27, and 28 from the Plugin Ecosystem Enablement design.
 
 - Property 26: SQLiteStateStore round-trip — set then get returns equivalent value
-- Property 27: Cross-job state isolation — get_job_state reads correct namespace
+- Property 27: Cross-job state isolation — one job's write does not touch another's
 - Property 28: Non-serializable values stored as placeholder with type name
 """
 
@@ -131,67 +131,22 @@ class TestSQLiteStateStoreRoundTrip:
 
 
 class TestCrossJobStateIsolation:
-    """Property 27: For two jobs A and B each writing state under their own
-    namespace, rc.state.get_job_state("A", key) from job B's context SHALL
-    return the value written by job A, not job B's value for the same key.
+    """Property 27: two jobs writing the same key in one scope do not collide.
+
+    **The cross-*read* half of this property is gone** (`capability-duality`
+    /T12). It asserted `store_b.get_job_state("A", key)` returning A's value —
+    a framework namespace API, which ADR-021 §B records the maintainer deciding
+    not to have, on the grounds that a namespace is something a string prefix
+    already does. Deleting it from `StateStoreProtocol` cost this plugin a
+    genuine capability: its rows are scoped by a real `(scope_id,
+    job_namespace)` pair, so it could answer a cross-namespace read that the
+    default dotted-key store only simulates.
+
+    What survives is the half that matters for correctness, and it is asserted
+    below: each job's own `get()` is unaffected by the other's write.
 
     **Validates: Requirements 23.7**
     """
-
-    @given(
-        key=state_keys,
-        value_a=json_values,
-        value_b=json_values,
-        job_a_name=job_names,
-        job_b_name=job_names,
-    )
-    def test_get_job_state_reads_correct_namespace(
-        self,
-        key: str,
-        value_a: Any,
-        value_b: Any,
-        job_a_name: str,
-        job_b_name: str,
-    ):
-        """**Validates: Requirements 23.7**
-
-        For two jobs A and B writing to their own namespace,
-        get_job_state("A", key) from B's context returns A's value.
-        """
-        # Ensure distinct job names to test isolation
-        if job_a_name == job_b_name:
-            job_b_name = job_b_name + "_other"
-
-        backend = _make_backend()
-        try:
-            scope_id = "shared-scope"
-
-            # Create stores for both jobs in the same scope
-            store_a = SQLiteStateStore(
-                backend, scope_id=scope_id, job_namespace=job_a_name
-            )
-            store_b = SQLiteStateStore(
-                backend, scope_id=scope_id, job_namespace=job_b_name
-            )
-
-            # Job A writes its value
-            store_a.set(key, value_a)
-            # Job B writes a different value for the same key
-            store_b.set(key, value_b)
-
-            # From B's context, reading A's namespace returns A's value
-            result_from_b = store_b.get_job_state(job_a_name, key)
-            assert result_from_b == value_a, (
-                f"Expected value from job A ({value_a!r}), got {result_from_b!r}"
-            )
-
-            # From A's context, reading B's namespace returns B's value
-            result_from_a = store_a.get_job_state(job_b_name, key)
-            assert result_from_a == value_b, (
-                f"Expected value from job B ({value_b!r}), got {result_from_a!r}"
-            )
-        finally:
-            backend.close()
 
     @given(
         key=state_keys,

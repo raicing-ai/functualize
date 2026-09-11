@@ -49,7 +49,7 @@ Public classes exported by this plugin:
 Internal classes (available via direct import but not part of the public protocol surface):
 
 - `SQLiteBackend` — Low-level connection manager with WAL mode, schema initialization, and query helpers for sessions, executions, steps, and namespaced state.
-- `SQLiteStateStore` — `StateStoreProtocol` implementation scoped to a `(scope_id, job_namespace)` pair, with `get()`, `set()`, `delete()`, `keys()`, `to_dict()`, `clear()`, and cross-job access via `get_job_state()`.
+- `SQLiteStateStore` — `StateStoreProtocol` implementation scoped to a `(scope_id, job_namespace)` pair, with `get()`, `set()`, `delete()`, `keys()`, `to_dict()` and `clear()`.
 - `ExecutionTracker` — High-level session management and execution recording with automatic session resume based on TTL, and AI context summary generation via `to_ai_context()`.
 
 ## Development

@@ -244,6 +244,50 @@ uv run pytest tests/integration/test_capability_duality.py -q -p no:randomly 2>&
 now: `26 passed` (Prompt not covered) · after: `> 26 passed` with Prompt in the
 registry-driven set
 
+## T12 · The framework namespace accessors go
+
+`[F]` `src/functualize/_engine/capabilities/protocols.py`
+`src/functualize/_engine/capabilities/state.py`
+`src/functualize/_engine/capabilities/workflow_scope.py`
+`plugins/functualize-state-sqlite/src/functualize_state_sqlite/state_store.py`
+`plugins/functualize-state-sqlite/README.md`
+`plugins/functualize-state-sqlite/tests/test_sqlite_state_store_properties.py`
+`tests/context/test_state_store_protocol.py`
+`tests/context/test_scope_metadata_properties.py`
+`tests/core/test_scope_state_metadata.py`
+`contributor/adr/021-capability-duality.md`
+
+Opened as Q-4, answered: delete now rather than waiting for `store-substrate`
+to retire the protocol around them.
+
+`get_job_state("fetch", "rows")` and `list_job_namespaces()` **are** a framework
+namespace API, which is the thing ADR-021 §B records the maintainer deciding
+*not* to build — "a framework namespace is a second concept for something a
+string prefix already does". They survived that decision by being on
+`StateStoreProtocol` rather than on `State`, where nobody looked.
+
+They are dead: no call in `src/`, `examples/`, or any plugin's own code. The
+only callers are the protocol-conformance tests that exist because the methods
+do. `ScopeBackedStateStore.get_job_state` is literally
+`self.get(f"{job_name}.{key}")` — the convention, re-spelled as an API.
+
+This is a **plugin-contract change**, not a local cleanup:
+`functualize-state-sqlite` implements both, and its `SQLiteStateStore` scopes
+rows by a real `(scope_id, job_namespace)` pair rather than a dotted key. So
+the plugin loses a genuine capability, not just a wrapper — recorded here
+because that is the cost, and the Pre-Release Stance is what pays it.
+
+```
+grep -rnE "def (get_job_state|list_job_namespaces)|\.(get_job_state|list_job_namespaces)\(" src/ plugins/*/src/ | wc -l
+```
+now: `10` — 2 on the protocol, 2 on `ScopeBackedStateStore`, 2 on `State`
+with its 2 delegating calls, 2 on `SQLiteStateStore` · after: `0`
+
+A plain `grep get_job_state src/ plugins/*/src/` returns `1` afterwards, not
+`0`: `state.py:71` keeps a sentence saying the pair was removed and why. The
+gate matches definitions and calls so it measures the code rather than the
+record of it.
+
 ## Task Dependency Graph
 
 T1 and T5 touch no file any other task touches. T2 depends on T1 (it deletes
@@ -255,6 +299,6 @@ and of T2, but T6's assertions cover all three, and T7 documents T3's outcome.
   {"id": 0, "tasks": ["T1", "T5"]},
   {"id": 1, "tasks": ["T2", "T3", "T4"]},
   {"id": 2, "tasks": ["T6", "T7", "T8", "T9", "T10"]},
-  {"id": 3, "tasks": ["T11"]}
+  {"id": 3, "tasks": ["T11", "T12"]}
 ]}
 ```

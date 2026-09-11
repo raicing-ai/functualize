@@ -109,8 +109,6 @@ class WorkflowScope:
                 "keys",
                 "to_dict",
                 "clear",
-                "get_job_state",
-                "list_job_namespaces",
             ]
             missing = [
                 m

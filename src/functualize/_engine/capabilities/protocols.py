@@ -46,20 +46,3 @@ class StateStoreProtocol(Protocol):
     def clear(self) -> None:
         """Remove all stored state."""
         ...
-
-    def get_job_state(self, job_name: str, key: str, default: Any = None) -> Any:
-        """Read a value from another job's namespace.
-
-        Args:
-            job_name: The job namespace to read from.
-            key: The state key within that namespace.
-            default: Value to return if key not found.
-
-        Returns:
-            The stored value, or default if not found.
-        """
-        ...
-
-    def list_job_namespaces(self) -> list[str]:
-        """Return all job namespaces that have stored state."""
-        ...

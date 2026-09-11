@@ -66,11 +66,11 @@ class ScopeBackedStateStore:
     the in-memory store used to be, minus the part where it lost everything on
     resume.
 
-    **Job namespaces are the key convention, not a second mechanism.** The run
-    shares one flat key space, and `get_job_state("fetch", "rows")` is
-    `get("fetch.rows")`. That is the maintainer's decision made concrete: a
-    namespace is a string prefix a user can also write by hand, rather than an
-    API they must discover.
+    **Job namespaces are a key convention, not a mechanism.** The run shares one
+    flat key space; `set("fetch.rows", …)` is all a namespace is. T12 removed
+    the `get_job_state` / `list_job_namespaces` pair that spelled the same
+    convention as an API — a framework namespace is a second concept for
+    something a string prefix already does (ADR-021 §B).
     """
 
     #: ``_tmp`` lets a caller that created a throwaway directory for this
@@ -137,14 +137,6 @@ class ScopeBackedStateStore:
     def clear(self) -> None:
         self._check_open()
         self._scopes.clear_state(self._scope_id)
-
-    def get_job_state(self, job_name: str, key: str, default: Any = None) -> Any:
-        """``job_name.key`` — the convention, spelled out."""
-        return self.get(f"{job_name}.{key}", default)
-
-    def list_job_namespaces(self) -> list[str]:
-        """The distinct first segments of every dotted key."""
-        return sorted({k.split(".", 1)[0] for k in self.keys() if "." in k})
 
     def batch(self) -> Any:
         """Hold the file lock across many writes."""
@@ -240,14 +232,6 @@ class State:
     def clear(self) -> None:
         """Drop every key this run holds."""
         self._bound().clear()
-
-    def get_job_state(self, job_name: str, key: str, default: Any = None) -> Any:
-        """``job_name.key`` — the namespace convention, spelled out."""
-        return self._bound().get_job_state(job_name, key, default)
-
-    def list_job_namespaces(self) -> list[str]:
-        """The distinct first segments of every dotted key."""
-        return self._bound().list_job_namespaces()
 
     def batch(self) -> Any:
         """Hold the file lock across many writes, writing once at the end.
