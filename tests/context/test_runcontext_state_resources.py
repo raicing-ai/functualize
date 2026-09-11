@@ -1,7 +1,7 @@
 """Unit tests for RunContext state store, resources, run status getters, and workflow step access.
 
 Tests task 6.5 additions:
-- state property (lazy StateStore creation)
+- state property (lazy FreshStore creation)
 - resources property (lazy MappingProxyType)
 - get_resource(name, type_) with type checking
 - inject_resource(rc, name, resource) utility function
@@ -53,7 +53,7 @@ class TestStateProperty:
     """`rc.state` — the run's durable store.
 
     Rewritten when the in-memory tier was removed. The old contract was "a
-    lazily-allocated per-context `StateStore`", which is precisely the
+    lazily-allocated per-context `FreshStore`", which is precisely the
     behaviour that made a resumed run come back empty. The new one is: `State`,
     backed by the run's scope, and the *same object* a `state: State` parameter
     receives (ADR-021).

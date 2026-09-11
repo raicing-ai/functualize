@@ -22,9 +22,9 @@ import pytest
 from pydantic import BaseModel
 
 from functualize._app.state import AppState
+from functualize._primitives.fresh_format import FRESH_FILENAME
+from functualize._primitives.fresh_store import FreshStore
 from functualize._primitives.scope_format import SCOPES_FILENAME
-from functualize._primitives.state_format import STATE_FILENAME
-from functualize._primitives.state_store import StateStore
 from functualize.app.core import FunctualizeApp
 from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, workflow
@@ -32,7 +32,7 @@ from functualize.workflow import END, Edge, Gate, Step, workflow
 
 def _blocked_run(root):
     """A blocked release pipeline holding a human's recorded approval."""
-    store = StateStore.for_project(root)
+    store = FreshStore.for_project(root)
     store.ensure_scope("rel-1", "release")
     store.set_scope_status("rel-1", "blocked")
     store.set_position("rel-1", "approve")
@@ -53,7 +53,7 @@ class TestVersionBumpNoLongerErasesRuns:
     def test_a_derived_version_bump_leaves_the_run_intact(self, tmp_path) -> None:
         (tmp_path / ".functualize").mkdir()
         store = _blocked_run(tmp_path)
-        state_path = tmp_path / ".functualize" / STATE_FILENAME
+        state_path = tmp_path / ".functualize" / FRESH_FILENAME
 
         assert store.scope_ids() == ["rel-1"]
 
@@ -75,7 +75,7 @@ class TestVersionBumpNoLongerErasesRuns:
         """The old rule is correct *for derived data* and must survive."""
         (tmp_path / ".functualize").mkdir()
         store = _blocked_run(tmp_path)
-        state_path = tmp_path / ".functualize" / STATE_FILENAME
+        state_path = tmp_path / ".functualize" / FRESH_FILENAME
 
         raw = json.loads(state_path.read_text())
         raw["format_version"] = 999
@@ -87,7 +87,7 @@ class TestVersionBumpNoLongerErasesRuns:
     def test_the_whole_walk_state_survives_not_just_the_payload(self, tmp_path) -> None:
         (tmp_path / ".functualize").mkdir()
         store = _blocked_run(tmp_path)
-        state_path = tmp_path / ".functualize" / STATE_FILENAME
+        state_path = tmp_path / ".functualize" / FRESH_FILENAME
 
         raw = json.loads(state_path.read_text())
         raw["format_version"] = 999
@@ -126,7 +126,7 @@ class TestTheTwoFilesAreReallySeparate:
     def test_scopes_are_not_written_into_the_state_file(self, tmp_path) -> None:
         (tmp_path / ".functualize").mkdir()
         _blocked_run(tmp_path)
-        raw = json.loads((tmp_path / ".functualize" / STATE_FILENAME).read_text())
+        raw = json.loads((tmp_path / ".functualize" / FRESH_FILENAME).read_text())
         assert "scopes" not in raw
 
     def test_fingerprints_are_not_written_into_the_scope_file(self, tmp_path) -> None:
@@ -138,7 +138,7 @@ class TestTheTwoFilesAreReallySeparate:
     def test_the_two_versions_are_independent(self, tmp_path) -> None:
         (tmp_path / ".functualize").mkdir()
         _blocked_run(tmp_path)
-        state = json.loads((tmp_path / ".functualize" / STATE_FILENAME).read_text())
+        state = json.loads((tmp_path / ".functualize" / FRESH_FILENAME).read_text())
         scopes = json.loads((tmp_path / ".functualize" / SCOPES_FILENAME).read_text())
         assert "format_version" in state
         assert "format_version" in scopes
@@ -215,7 +215,7 @@ class TestBlockedRunResumesAcrossTheSplit:
         result = _resume_release(app)
         assert result.metadata.get("workflow_status") == "blocked"
 
-        store = StateStore.for_project(project)
+        store = FreshStore.for_project(project)
         scope = store.get_scope("rel-1")
         assert scope is not None
         assert scope["status"] == "blocked"
@@ -239,7 +239,7 @@ class TestBlockedRunResumesAcrossTheSplit:
         _resume_release(app)
         assert calls == ["build"], "the completed step re-executed on resume"
 
-        store = StateStore.for_project(project)
+        store = FreshStore.for_project(project)
         recorded = store.get_step("rel-1", "build::")
         assert recorded is not None
         assert recorded["status"] == "success"
@@ -250,7 +250,7 @@ class TestBlockedRunResumesAcrossTheSplit:
     ) -> None:
         """The operator story: clear stale fingerprints, keep the run."""
         _resume_release(app)
-        store = StateStore.for_project(project)
+        store = FreshStore.for_project(project)
 
         store.clear()
 

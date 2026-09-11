@@ -149,7 +149,7 @@ class TestAWorkflowSubmittedByEventCanBeAnsweredAndResumed:
         self, tmp_path, monkeypatch
     ) -> None:
         monkeypatch.chdir(tmp_path)
-        from functualize._primitives.state_store import StateStore
+        from functualize._primitives.fresh_store import FreshStore
         from functualize.app._workflow_answer import answer_gate
         from functualize.app._workflow_control import resume_scope
 
@@ -165,7 +165,7 @@ class TestAWorkflowSubmittedByEventCanBeAnsweredAndResumed:
             f"the walk should have stopped at the gate, ran: {calls}"
         )
 
-        store = StateStore.for_project(tmp_path)
+        store = FreshStore.for_project(tmp_path)
         answer_gate(app, store, scope_id, "approve", {"approved": True})
         result = resume_scope(app, store, scope_id)
 
@@ -184,7 +184,7 @@ class TestAWorkflowSubmittedByEventCanBeAnsweredAndResumed:
         ran the body would satisfy the test above.
         """
         monkeypatch.chdir(tmp_path)
-        from functualize._primitives.state_store import StateStore
+        from functualize._primitives.fresh_store import FreshStore
         from functualize.app._workflow_control import resume_scope
 
         app, calls = self._gated_app(tmp_path)
@@ -192,7 +192,7 @@ class TestAWorkflowSubmittedByEventCanBeAnsweredAndResumed:
         on_job_submit_event(app, _Event(job_name="release", kwargs={}))
         scope_id = next(iter(app._scope_registry))
 
-        result = resume_scope(app, StateStore.for_project(tmp_path), scope_id)
+        result = resume_scope(app, FreshStore.for_project(tmp_path), scope_id)
 
         assert result["status"] != "success", (
             f"an unanswered gate resumed to completion: {result}"

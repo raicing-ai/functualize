@@ -124,9 +124,9 @@ class TestSessionCache:
         )
 
     def test_cache_backed_by_state_store(self, tmp_path) -> None:
-        from functualize._primitives.state_store import StateStore
+        from functualize._primitives.fresh_store import FreshStore
 
-        store = StateStore(tmp_path / "state.json")
+        store = FreshStore(tmp_path / "fresh.json")
         cache = PreconditionCache(store)
         cache.set("docker --version", True)
         assert cache.get("docker --version") is True

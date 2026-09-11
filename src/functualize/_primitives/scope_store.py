@@ -4,11 +4,11 @@
 :mod:`functualize._primitives.scope_format`, which owns the file format,
 locking, atomic write, and the fail-closed read.
 
-**Why this is a separate class from ``StateStore``.** They hold different kinds
+**Why this is a separate class from ``FreshStore``.** They hold different kinds
 of data with opposite discard rules — derived state is safe to throw away, a
 record of an in-flight run is not — and a store's read behaviour is the thing
 most easily got wrong by a reader who assumes the neighbouring rule applies.
-Splitting the classes gives the fail-closed read exactly one owner. ``StateStore``
+Splitting the classes gives the fail-closed read exactly one owner. ``FreshStore``
 still presents one façade over both, so no caller outside ``_primitives`` has to
 know which file a section lives in.
 
@@ -17,7 +17,7 @@ concurrent runs touching *different* scope ids merge rather than clobber
 (last-writer-wins per scope, not per file). A walk that makes several mutations
 for one node takes the lock once with :meth:`ScopeStore.batch`.
 
-**Record shape is unchanged** from when these records lived in ``state.json``.
+**Record shape is unchanged** from when these records lived in ``fresh.json``.
 Every section is a flat ``{str: record}`` mapping, which is what the
 ``StateBackend`` KV protocol (``get``/``set``/``delete``/``keys``) addresses, so
 ``functualize-state-sqlite`` can back this store later without a record-format
@@ -74,9 +74,9 @@ def _blank_scope() -> dict[str, Any]:
         "tool_calls": [],
         #: Keys a *job body* wrote through `rc.state` / `state: State`.
         #:
-        #: Here rather than in `state.json` by that file's own rule: this one
+        #: Here rather than in `fresh.json` by that file's own rule: this one
         #: holds records — not recomputable, refuse rather than discard — and
-        #: what a job stored is a record by that test. `state.json` may throw
+        #: what a job stored is a record by that test. `fresh.json` may throw
         #: its contents away on a bad read, which for job state is the silent
         #: data loss this section exists to avoid.
         #:
@@ -137,11 +137,11 @@ class ScopeStore:
         return cls(resolve_scopes_path(Path(start)))
 
     @classmethod
-    def beside_state(cls, state_path: Path | str) -> ScopeStore:
+    def beside_fresh(cls, state_path: Path | str) -> ScopeStore:
         """Build a store beside a given state file.
 
         The sibling rule, applied to an explicit path rather than a project
-        root — so ``StateStore(tmp / "state.json")`` in a test finds
+        root — so ``FreshStore(tmp / "fresh.json")`` in a test finds
         ``tmp / "scopes.json"`` with no extra wiring, and the two files cannot
         land in different directories.
         """

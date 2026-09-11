@@ -641,7 +641,7 @@ def create_workflow_scope(
     #
     # The same upward walk the engine uses, so a reader and a writer cannot
     # disagree about which project's file this is.
-    scopes = ScopeStore.beside_state(app.execution_engine._state_store().path)
+    scopes = ScopeStore.beside_fresh(app.execution_engine._state_store().path)
     scope = WorkflowScope(
         scope_id,
         metadata=metadata,
@@ -993,7 +993,7 @@ def explain_verdicts(app: Any, job_name: str) -> tuple[Any, list[Any], str, str 
 
     from functualize._engine.guards import GuardState, GuardVerdict
     from functualize._engine.preflight import Preflight
-    from functualize._primitives.state_store import StateStore
+    from functualize._primitives.fresh_store import FreshStore
 
     try:
         entry = app.execution_engine.materialize_job(job_name)
@@ -1026,8 +1026,8 @@ def explain_verdicts(app: Any, job_name: str) -> tuple[Any, list[Any], str, str 
             "  no @job declaration — nothing guards or caches this job",
         )
 
-    store = StateStore.for_project(app.state_root)
-    preflight = Preflight(store, root=app.state_root)
+    store = FreshStore.for_project(app.fresh_root)
+    preflight = Preflight(store, root=app.fresh_root)
 
     def config_for(name: str) -> Any:
         """The config a run of ``name`` would resolve, or None.

@@ -1,6 +1,6 @@
 """The suite must not write into the checkout's own `.functualize/`.
 
-`capability-duality`/T10. `resolve_state_location` walks **upward**, so before
+`capability-duality`/T10. `resolve_fresh_location` walks **upward**, so before
 `tests/conftest.py::_isolate_state_root` every test that did not `chdir`
 resolved to the repository's state root and wrote there. Measured immediately
 before the fixture landed: **3,212 scope records** in this worktree's

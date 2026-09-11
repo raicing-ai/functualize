@@ -391,7 +391,7 @@ class EngineHost(Protocol):
         ...
 
     @property
-    def state_root(self) -> Path:
+    def fresh_root(self) -> Path:
         """Where this project's derived run state (fingerprints, history,
         workflow scopes) lives.
 

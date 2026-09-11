@@ -1,4 +1,4 @@
-"""Tests for ON_SCOPE_CREATED hook, StateStore replacement, and JobResult metadata.
+"""Tests for ON_SCOPE_CREATED hook, FreshStore replacement, and JobResult metadata.
 
 Covers task 7.1:
 - ON_SCOPE_CREATED fired from create_workflow_scope() with scope instance

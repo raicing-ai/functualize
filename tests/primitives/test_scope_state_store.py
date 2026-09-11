@@ -333,7 +333,7 @@ class TestDiscard:
         assert ScopeStore(tmp_path / "scopes.json").discard_state("never") is False
 
     def test_a_direct_store_discards_too(self, tmp_path: Path) -> None:
-        path = tmp_path / "state.json"
+        path = tmp_path / "fresh.json"
         store = ScopeStateStore(path)
         store.set("k", 1)
         assert store.discard() is True

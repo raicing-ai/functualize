@@ -17,7 +17,7 @@ available.
 So state lives in ``scopes.json``, beside ``steps``, ``branches``, ``gates`` and
 ``epilogue``. That is the right file by the rule it already states: it holds
 **records** — not recomputable, refuse rather than discard on a bad read —
-whereas ``state.json`` holds derived data it may legitimately throw away. What a
+whereas ``fresh.json`` holds derived data it may legitimately throw away. What a
 job stored is a record by that test.
 
 Three properties follow from the file rather than from code here: it survives a

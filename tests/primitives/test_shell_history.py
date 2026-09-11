@@ -120,20 +120,20 @@ class TestItSitsBesideTheOtherStores:
         Two walks can disagree about which project or which mode they are in,
         and a reader must not reconstruct a key the writer computed.
         """
-        from functualize._primitives.state_format import resolve_state_path
+        from functualize._primitives.fresh_format import resolve_fresh_path
 
         (tmp_path / ".functualize").mkdir()
-        state = resolve_state_path(tmp_path)
+        state = resolve_fresh_path(tmp_path)
         shell = resolve_shell_history_path(tmp_path)
         assert shell.parent == state.parent
         assert shell.name == "shell-history.json"
 
     def test_beside_state_agrees_with_for_project(self, tmp_path: Path) -> None:
-        from functualize._primitives.state_format import resolve_state_path
+        from functualize._primitives.fresh_format import resolve_fresh_path
 
         (tmp_path / ".functualize").mkdir()
         assert (
-            ShellHistoryStore.beside_state(resolve_state_path(tmp_path)).path
+            ShellHistoryStore.beside_fresh(resolve_fresh_path(tmp_path)).path
             == ShellHistoryStore.for_project(tmp_path).path
         )
 
@@ -142,9 +142,9 @@ class TestStateJsonNoLongerHoldsHistory:
     """The point of the move: the file can now be named for what it holds."""
 
     def test_the_envelope_has_no_history_section(self) -> None:
-        from functualize._primitives.state_format import _SECTIONS, empty_state
+        from functualize._primitives.fresh_format import _SECTIONS, empty_fresh
 
-        assert "history" not in empty_state()
+        assert "history" not in empty_fresh()
         assert "history" not in _SECTIONS
         assert set(_SECTIONS) == {"fingerprints", "session"}, (
             "what is left must be freshness verdicts only — that is what makes "

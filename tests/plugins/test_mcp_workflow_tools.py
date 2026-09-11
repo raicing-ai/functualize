@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from functualize._app.state import AppState
 from functualize.app._workflow_view import _topology
 from functualize.app.core import FunctualizeApp
-from functualize.app.utils import StateStore
+from functualize.app.utils import FreshStore
 from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, workflow
 
@@ -59,8 +59,8 @@ class Approval(BaseModel):
     approved: bool
 
 
-def _store() -> StateStore:
-    return StateStore.for_project(Path.cwd())
+def _store() -> FreshStore:
+    return FreshStore.for_project(Path.cwd())
 
 
 def _gated_app(calls: list[str] | None = None) -> FunctualizeApp:
@@ -933,9 +933,9 @@ class TestUnreadableScopeStore:
                 }
             )
         )
-        from functualize._primitives.state_store import StateStore
+        from functualize._primitives.fresh_store import FreshStore
 
-        return StateStore(tmp_path / "state.json")
+        return FreshStore(tmp_path / "fresh.json")
 
     async def test_get_workflow_state_reports_the_fault(self, poisoned) -> None:
         provider = WorkflowToolProvider(_gated_app(), store=poisoned)

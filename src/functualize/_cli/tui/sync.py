@@ -9,7 +9,7 @@ Integration wiring:
     OverrideReset). The controller/app that owns both the SmartBar and the
     ConfigTablePanel should listen for these messages and call
     `sync_overrides_to_bar(command_path, fields)` to rebuild bar text, then
-    update the SmartBar's saved state via `bar.save_state()` so that
+    update the SmartBar's saved state via `bar.save_fresh()` so that
     restore_state uses the most recent synced text.
 
     This is also the single source of truth for reconstructing bar text

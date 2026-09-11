@@ -235,7 +235,7 @@ document, this one included.
 | Would this job run, and why? | `func builtin why <job>` |
 | What ran recently? | `func builtin history` |
 | What is the resolved config? | `func builtin config show` |
-| Where does runtime state live? | `func builtin state show` |
+| Where does runtime state live? | `func builtin data show` |
 | What does this job take? | `func <group> <job> --help` |
 
 Two habits worth more than any table here:

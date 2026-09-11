@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from functualize._primitives.state_store import StateStore
+    from functualize._primitives.fresh_store import FreshStore
 
 __all__ = ["END", "FrontierWalk", "GraphModel", "WalkState"]
 
@@ -83,7 +83,7 @@ class FrontierWalk:
         scope_id: The scope these records belong to.
     """
 
-    def __init__(self, graph: GraphModel, store: StateStore, scope_id: str) -> None:
+    def __init__(self, graph: GraphModel, store: FreshStore, scope_id: str) -> None:
         self._graph = graph
         self._store = store
         self._scope_id = scope_id

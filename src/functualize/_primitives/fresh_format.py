@@ -13,8 +13,8 @@ rules, different file. `func cache clear` and `func state clear` never
 invalidate each other.
 
 Location mirrors the discovery cache (proposal Part F):
-- Declared-project mode: `.functualize/state.json`
-- Standalone mode: `$XDG_CACHE_HOME/functualize/<project_id>/state.json`
+- Declared-project mode: `.functualize/fresh.json`
+- Standalone mode: `$XDG_CACHE_HOME/functualize/<project_id>/fresh.json`
 
 This module holds the format version, filename, location resolution, and the
 tolerant load / locked atomic save so readers and writers never drift — the
@@ -61,10 +61,22 @@ if TYPE_CHECKING:
 # v1 (2026-09-09): scopes moved to scopes.json. Version deliberately NOT bumped
 # — nothing about the remaining sections changed, and bumping would discard
 # every fingerprint to no purpose.
-STATE_VERSION = 1
+FRESH_VERSION = 1
 
-# State file name within the resolved directory (beside cache.json).
-STATE_FILENAME = "state.json"
+#: The freshness ledger's file name, beside `cache.json`.
+#:
+#: **Renamed from `fresh.json` in `durable-run-layer`/T3b**, once the file held
+#: only freshness verdicts. The old name was the vaguest word available and it
+#: collided three ways: `rc.state.set(...)` wrote to a scope's state file,
+#: `fresh.json` held fingerprints, and `func builtin state` cleared both. A user
+#: who stored a value and then ran `state clear` wiped the wrong thing.
+#:
+#: No read-both migration. The Pre-Release Stance permits deleting rather than
+#: shimming, and the cost is bounded: an old `fresh.json` is simply not found,
+#: so the next run recomputes its freshness verdicts and writes `fresh.json`.
+#: The worst case is one extra run of each job — which is exactly the worst case
+#: this file's discard rule already accepts.
+FRESH_FILENAME = "fresh.json"
 
 #: The sections this file holds. **Freshness verdicts, and nothing else** —
 #: `history` left in `durable-run-layer`/T3b. Job history is now derived from
@@ -78,10 +90,10 @@ _SECTIONS: tuple[str, ...] = ("fingerprints", "session")
 logger = logging.getLogger(__name__)
 
 
-def empty_state() -> dict[str, Any]:
+def empty_fresh() -> dict[str, Any]:
     """Return a fresh, fully-populated envelope (schema.md §1)."""
     return {
-        "format_version": STATE_VERSION,
+        "format_version": FRESH_VERSION,
         "fingerprints": {},
         "session": {"preconditions": {}},
     }
@@ -102,10 +114,10 @@ def find_functualize_dir(start: Path) -> Path | None:
 
 #: The two places a freshness ledger can live. Pinned as exactly two strings so
 #: a script can match on them.
-STATE_MODES = ("project", "standalone")
+FRESH_MODES = ("project", "standalone")
 
 
-def resolve_state_location(start: Path) -> tuple[Path, str, Path | None]:
+def resolve_fresh_location(start: Path) -> tuple[Path, str, Path | None]:
     """Where the runtime state lives, and **which of the two modes** that is.
 
     Mirrors ``cache_format.resolve_cache_path`` so state lands beside the
@@ -124,7 +136,7 @@ def resolve_state_location(start: Path) -> tuple[Path, str, Path | None]:
     The mode is returned rather than re-derived by each caller because deriving
     it means repeating the upward walk, and two walks can disagree. Nothing
     reported which mode you were in, so a project could spend its whole life in
-    standalone without noticing and then go looking for a ``state.json`` that
+    standalone without noticing and then go looking for a ``fresh.json`` that
     was under a hashed directory in the home cache.
 
     Args:
@@ -132,22 +144,22 @@ def resolve_state_location(start: Path) -> tuple[Path, str, Path | None]:
 
     Returns:
         ``(state_path, mode, functualize_dir)`` — the path (which may not exist
-        yet), one of :data:`STATE_MODES`, and the directory that decided it, or
+        yet), one of :data:`FRESH_MODES`, and the directory that decided it, or
         None in standalone mode.
     """
     start = Path(start).resolve()
     functualize_dir = find_functualize_dir(start)
     if functualize_dir is not None:
-        return functualize_dir / STATE_FILENAME, "project", functualize_dir
+        return functualize_dir / FRESH_FILENAME, "project", functualize_dir
     project_id = compute_project_id(str(start))
-    path = _xdg_cache_dir() / "functualize" / project_id / STATE_FILENAME
+    path = _xdg_cache_dir() / "functualize" / project_id / FRESH_FILENAME
     return path, "standalone", None
 
 
-def resolve_state_path(start: Path) -> Path:
+def resolve_fresh_path(start: Path) -> Path:
     """Resolve the runtime state file path for a project.
 
-    The path half of :func:`resolve_state_location`, which is where the rule
+    The path half of :func:`resolve_fresh_location`, which is where the rule
     lives — one upward walk, one answer.
 
     Args:
@@ -156,10 +168,10 @@ def resolve_state_path(start: Path) -> Path:
     Returns:
         Absolute path where the state file lives (may not exist yet).
     """
-    return resolve_state_location(start)[0]
+    return resolve_fresh_location(start)[0]
 
 
-def normalize_state(data: Any) -> dict[str, Any]:
+def normalize_fresh(data: Any) -> dict[str, Any]:
     """Coerce loaded data into a valid envelope, filling missing sections.
 
     Anything unrecognizable (not a dict, wrong version) yields a fresh envelope
@@ -167,10 +179,10 @@ def normalize_state(data: Any) -> dict[str, Any]:
     discard. `scope_format.load_scopes` deliberately does the opposite.
     """
     if not isinstance(data, dict):
-        return empty_state()
-    if data.get("format_version") != STATE_VERSION:
-        return empty_state()
-    state = empty_state()
+        return empty_fresh()
+    if data.get("format_version") != FRESH_VERSION:
+        return empty_fresh()
+    state = empty_fresh()
     for section in _SECTIONS:
         value = data.get(section)
         if isinstance(value, type(state[section])):
@@ -180,7 +192,7 @@ def normalize_state(data: Any) -> dict[str, Any]:
     return state
 
 
-def load_state(path: Path | str) -> dict[str, Any]:
+def load_fresh(path: Path | str) -> dict[str, Any]:
     """Load the state envelope, tolerating a missing, corrupt, or stale file.
 
     Never raises for bad content: a truncated write, hand-editing, or a format
@@ -190,11 +202,11 @@ def load_state(path: Path | str) -> dict[str, Any]:
     try:
         raw = Path(path).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
-        return empty_state()
+        return empty_fresh()
     try:
-        return normalize_state(json.loads(raw))
+        return normalize_fresh(json.loads(raw))
     except (json.JSONDecodeError, ValueError):
-        return empty_state()
+        return empty_fresh()
 
 
 def atomic_write_json(path: Path | str, payload: dict[str, Any]) -> None:
@@ -232,19 +244,19 @@ def atomic_write_json(path: Path | str, payload: dict[str, Any]) -> None:
         raise
 
 
-def save_state(path: Path | str, state: dict[str, Any]) -> None:
+def save_fresh(path: Path | str, state: dict[str, Any]) -> None:
     """Write the envelope atomically, stamping the current format version.
 
-    Callers that read-modify-write must hold :func:`state_lock` — or better,
-    use :func:`update_state`.
+    Callers that read-modify-write must hold :func:`file_lock` — or better,
+    use :func:`update_fresh`.
     """
     payload = dict(state)
-    payload["format_version"] = STATE_VERSION
+    payload["format_version"] = FRESH_VERSION
     atomic_write_json(path, payload)
 
 
 @contextmanager
-def state_lock(path: Path | str, timeout: float = 10.0) -> Iterator[None]:
+def file_lock(path: Path | str, timeout: float = 10.0) -> Iterator[None]:
     """Hold an advisory lock on the state file for the block (Part F).
 
     Uses a ``.lock`` sidecar so the lock survives the atomic replace of the
@@ -362,7 +374,7 @@ def _release_lock(handle: Any) -> None:
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
-def update_state(
+def update_fresh(
     path: Path | str, mutate: Callable[[dict[str, Any]], None]
 ) -> dict[str, Any]:
     """Read-modify-write the envelope under one lock, returning the new state.
@@ -372,8 +384,8 @@ def update_state(
     clobbering each other (Part F: last-writer-wins per key, not per file).
     """
     target = Path(path)
-    with state_lock(target):
-        state = load_state(target)
+    with file_lock(target):
+        state = load_fresh(target)
         mutate(state)
-        save_state(target, state)
+        save_fresh(target, state)
         return state

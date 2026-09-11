@@ -23,9 +23,9 @@ from typing import Any
 
 import pytest
 
+from functualize._primitives.fresh_store import FreshStore
 from functualize._primitives.run_store import RunStore
 from functualize._primitives.scope_store import ScopeStore
-from functualize._primitives.state_store import StateStore
 
 WRITERS = 8
 
@@ -82,7 +82,7 @@ class TestThreadsMerge:
         )
 
     def test_state_store_keeps_every_thread_s_fingerprint(self, tmp_path: Path) -> None:
-        store = StateStore(tmp_path / "state.json")
+        store = FreshStore(tmp_path / "fresh.json")
 
         def writer(n: int) -> None:
             store.put_fingerprint(f"job-{n}", {"hash": str(n)})
@@ -93,7 +93,7 @@ class TestThreadsMerge:
         for t in threads:
             t.join(10)
 
-        fresh = StateStore(tmp_path / "state.json")
+        fresh = FreshStore(tmp_path / "fresh.json")
         keys = set(fresh.fingerprint_keys())
         missing = {f"job-{n}" for n in range(WRITERS)} - keys
         assert not missing, f"{missing} lost their fingerprint"
@@ -153,16 +153,16 @@ class TestTheTimeoutIsAudible:
     def test_a_timeout_warns(self, tmp_path: Path, caplog: Any) -> None:
         import logging
 
-        from functualize._primitives.state_format import state_lock
+        from functualize._primitives.fresh_format import file_lock
 
-        target = tmp_path / "state.json"
+        target = tmp_path / "fresh.json"
         target.write_text("{}")
 
         holder_ready = threading.Event()
         release = threading.Event()
 
         def hold() -> None:
-            with state_lock(target, timeout=30):
+            with file_lock(target, timeout=30):
                 holder_ready.set()
                 release.wait(20)
 
@@ -173,7 +173,7 @@ class TestTheTimeoutIsAudible:
         try:
             with (
                 caplog.at_level(logging.WARNING),
-                state_lock(target, timeout=0.05),
+                file_lock(target, timeout=0.05),
             ):
                 pass
         finally:

@@ -1,26 +1,26 @@
 """Typed accessors over the runtime state envelope, and the façade over both stores.
 
-``StateStore`` reads and writes **derived** runtime state — fingerprints, run
+``FreshStore`` reads and writes **derived** runtime state — fingerprints, run
 history, and the session-scoped precondition cache. It sits on
-:mod:`functualize._primitives.state_format`, which owns that file's format,
+:mod:`functualize._primitives.fresh_format`, which owns that file's format,
 locking, and atomic write.
 
 **Two files, one façade.** Workflow scopes used to live in this envelope and no
 longer do: they are a *record* of an in-flight run, not derived data, and the
 version-mismatch rule that is correct for a cache silently erased them. They now
 live in ``scopes.json`` behind :class:`~functualize._primitives.scope_store.ScopeStore`,
-whose read fails closed. ``StateStore`` owns one and forwards every scope method
+whose read fails closed. ``FreshStore`` owns one and forwards every scope method
 to it, so **which file a section lives in is not a caller's concern** — nothing
 outside ``_primitives`` changed when they split.
 
 The scope file is always this file's sibling, derived via
-``ScopeStore.beside_state``. One upward walk decides both, so the two can never
+``ScopeStore.beside_fresh``. One upward walk decides both, so the two can never
 land in different directories or different modes.
 
 **Write discipline.** Every mutation is a locked read-modify-write, so two
 concurrent runs touching *different* keys merge rather than clobber
 (last-writer-wins per key, not per file). A walk that makes several scope
-mutations for one node takes the lock once with :meth:`StateStore.scope_batch`.
+mutations for one node takes the lock once with :meth:`FreshStore.scope_batch`.
 
 **Relationship to ``functualize-state``.** Every section in both files is a flat
 ``{str: record}`` mapping, which is exactly the shape the plugin's
@@ -40,39 +40,39 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from functualize._primitives.scope_store import ScopeStore
-from functualize._primitives.state_format import (
-    empty_state,
-    load_state,
-    resolve_state_path,
-    save_state,
-    state_lock,
-    update_state,
+from functualize._primitives.fresh_format import (
+    empty_fresh,
+    file_lock,
+    load_fresh,
+    resolve_fresh_path,
+    save_fresh,
+    update_fresh,
 )
+from functualize._primitives.scope_store import ScopeStore
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
 
-class StateStore:
-    """Typed read/write access to ``.functualize/state.json`` and its sibling.
+class FreshStore:
+    """Typed read/write access to ``.functualize/fresh.json`` and its sibling.
 
     Args:
         path: The state file. Use :meth:`for_project` to resolve it the same
             way the discovery cache is resolved. The scope file is derived from
-            it, so a test constructing ``StateStore(tmp / "state.json")`` gets
+            it, so a test constructing ``FreshStore(tmp / "fresh.json")`` gets
             ``tmp / "scopes.json"`` with no extra wiring.
     """
 
     def __init__(self, path: Path | str) -> None:
         self._path = Path(path)
         self._batch: dict[str, Any] | None = None
-        self._scopes = ScopeStore.beside_state(self._path)
+        self._scopes = ScopeStore.beside_fresh(self._path)
 
     @classmethod
-    def for_project(cls, start: Path | str) -> StateStore:
+    def for_project(cls, start: Path | str) -> FreshStore:
         """Build a store at the project's resolved state path."""
-        return cls(resolve_state_path(Path(start)))
+        return cls(resolve_fresh_path(Path(start)))
 
     @property
     def path(self) -> Path:
@@ -92,17 +92,17 @@ class StateStore:
         """Current state — the open batch if one is active, else the file."""
         if self._batch is not None:
             return self._batch
-        return load_state(self._path)
+        return load_fresh(self._path)
 
     def _mutate(self, mutate: Any) -> None:
         """Apply ``mutate`` to the state, honoring an open batch."""
         if self._batch is not None:
             mutate(self._batch)
             return
-        update_state(self._path, mutate)
+        update_fresh(self._path, mutate)
 
     @contextmanager
-    def scope_batch(self) -> Iterator[StateStore]:
+    def scope_batch(self) -> Iterator[FreshStore]:
         """Hold the scope-file lock for many mutations, writing once at the end.
 
         Without this, a walk that records a step, sets the position and sets the
@@ -296,6 +296,6 @@ class StateStore:
             there were none. Scopes are moved aside rather than deleted, so a
             run discarded by mistake is still recoverable.
         """
-        with state_lock(self._path):
-            save_state(self._path, empty_state())
+        with file_lock(self._path):
+            save_fresh(self._path, empty_fresh())
         return self._scopes.clear() if scopes else None

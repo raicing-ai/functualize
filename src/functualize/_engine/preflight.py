@@ -41,7 +41,7 @@ from functualize._primitives.fingerprint import (
 )
 
 if TYPE_CHECKING:
-    from functualize._primitives.state_store import StateStore
+    from functualize._primitives.fresh_store import FreshStore
 
 __all__ = ["Preflight", "PreflightDecision"]
 
@@ -120,7 +120,7 @@ class Preflight:
 
     def __init__(
         self,
-        store: StateStore | None = None,
+        store: FreshStore | None = None,
         *,
         evaluator: GuardEvaluator | None = None,
         root: Path | str,

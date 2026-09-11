@@ -4,7 +4,7 @@ Property 23: invoke_parallel — results maintain input order regardless of comp
 For any list of N job specs, the returned results maintain input positional order.
 
 Property 24: invoke_parallel — independent RunContexts with no shared mutable state
-For parallel jobs, each child has independent RunContext/StateStore. State writes
+For parallel jobs, each child has independent RunContext/FreshStore. State writes
 in one don't affect siblings.
 
 Property 25: Log callback pipeline — None suppresses, string replaces, chain order preserved

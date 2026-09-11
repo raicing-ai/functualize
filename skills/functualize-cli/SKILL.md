@@ -175,7 +175,7 @@ Four locations, three roles. Knowing which is which is most of the debugging.
 
 ```bash
 func builtin config path     # every config file, found or missing, in order
-func builtin state show      # runtime state stats and the path in use
+func builtin data show      # every store: counts, sizes and paths in use
 func builtin cache show      # entry count, stale count, cache path
 func builtin skills path     # the skills shipped with this version
 ```
@@ -192,7 +192,7 @@ they land:
 
 For anything with a repository, run `mkdir .functualize`. Then `rm -rf
 .functualize` is a complete reset and your freshness ledger is somewhere you can
-see it. `func builtin state show` prints which mode is active — check it before
+see it. `func builtin data show` prints which mode is active — check it before
 concluding a fingerprint is broken.
 
 ---
@@ -273,7 +273,7 @@ func builtin info             # config resolution, state path, skills
 func builtin info schema --kind builtin   # func's own commands, as JSON Schema
 func builtin history          # recent job and shell runs
 func builtin cache clear      # force the cold discovery path
-func builtin state clear      # reset fingerprints, history, scopes
+func builtin data clear      # reset freshness verdicts; --scopes and --runs widen it
 func builtin parallel a b c   # run several jobs concurrently
 func builtin env <job>        # resolved config as env vars (secrets masked)
 func builtin domains list     # installed domain SDKs and their providers
@@ -343,6 +343,6 @@ tree wholesale; `--prune` also removes other versions' trees.
 | A job does not appear | `func builtin why <job>` | Discovery filters, or a stale cache |
 | Behaviour differs between runs | `func builtin cache clear` | Warm path never imported the file |
 | A config value has no effect | `func builtin config show` | A higher layer wins; read the source column |
-| "It will not re-run" | `func builtin why <job>`, then `func builtin state show` | Fingerprint fresh, or standalone mode pointing at a different ledger |
+| "It will not re-run" | `func builtin why <job>`, then `func builtin data show` | Fingerprint fresh, or standalone mode pointing at a different ledger |
 | A credential leaked into output | check for `Secret[str]` on the field | Marker-only declaration does not mask |
 | Wrong functualize version runs | `func builtin self doctor` — it lists every `func` that has run on this machine, with its version and install mode | A second install, usually from a bare `pip install` |

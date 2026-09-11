@@ -265,10 +265,10 @@ class TestFix2CacheIndependence:
     def test_fingerprints_survive_a_discovery_cache_rebuild(self, project) -> None:
         """Fix 2: rebuilding cache.json must not drop fingerprints."""
         from functualize._primitives.cache_format import resolve_cache_path
-        from functualize._primitives.state_store import StateStore
+        from functualize._primitives.fresh_store import FreshStore
 
         (project / ".functualize").mkdir()
-        store = StateStore.for_project(project)
+        store = FreshStore.for_project(project)
         key = fingerprint_key("build", compute_args_hash({"env": "dev"}), "checksum")
         store.put_fingerprint(key, make_record(_fresh_map(project)))
 
@@ -277,7 +277,7 @@ class TestFix2CacheIndependence:
         cache_path.write_text('{"format_version": 9}')
         cache_path.unlink()
 
-        assert StateStore.for_project(project).get_fingerprint(key) is not None
+        assert FreshStore.for_project(project).get_fingerprint(key) is not None
 
 
 class TestReturnValueReuse:

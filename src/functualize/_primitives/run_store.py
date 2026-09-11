@@ -4,7 +4,7 @@
 :mod:`functualize._primitives.run_format`, which owns the file format, locking,
 atomic write, and the discard-on-anything-unusable read.
 
-**Why a third store beside `StateStore` and `ScopeStore`.** The same reason
+**Why a third store beside `FreshStore` and `ScopeStore`.** The same reason
 there is a third file: their read rules are opposites, and a store's read
 behaviour is the thing most easily got wrong by someone who assumes the
 neighbouring rule applies. `ScopeStore` fails closed because a scope is the only
@@ -143,11 +143,11 @@ class RunStore:
         return cls(resolve_runs_path(Path(start)))
 
     @classmethod
-    def beside_state(cls, state_path: Path | str) -> RunStore:
+    def beside_fresh(cls, state_path: Path | str) -> RunStore:
         """Build a store beside a given state file.
 
         The sibling rule applied to an explicit path, so
-        ``StateStore(tmp / "state.json")`` in a test finds ``tmp / "runs.json"``
+        ``FreshStore(tmp / "fresh.json")`` in a test finds ``tmp / "runs.json"``
         with no extra wiring and the three files cannot land in different
         directories.
         """

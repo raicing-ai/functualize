@@ -58,7 +58,7 @@ class TestTheEnvelope:
 
         assert resolve_runs_path(tmp_path).name == RUNS_FILENAME
         assert (
-            RunStore.beside_state(tmp_path / "state.json").path
+            RunStore.beside_fresh(tmp_path / "fresh.json").path
             == tmp_path / RUNS_FILENAME
         )
 

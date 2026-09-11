@@ -1700,7 +1700,7 @@ class FunctualizeInlineTUI(App[int]):
             return  # Panel doesn't support filtering — no-op
         self._focus_state.transition(FocusMode.FILTER)
         # Save bar state so we can restore on exit
-        self._smart_bar.save_state()
+        self._smart_bar.save_fresh()
         # Pre-fill with existing filter if re-entering
         self._smart_bar.value = panel.active_filter
         self._smart_bar.placeholder = "Filter..."

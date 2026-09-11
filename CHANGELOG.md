@@ -39,6 +39,34 @@ a live job on another machine reads as abandoned — which is the deliberate
 direction, because a misleading row gets re-checked while a dead run reported as
 `running` is hidden for ever.
 
+### Changed — `state.json` is `fresh.json`, and `builtin state` is `builtin data`
+
+**Breaking, pre-release.** The word *state* meant three different things, and
+the collision had a live cost: a user who wrote `rc.state.set(...)` and then ran
+`func builtin state clear` cleared the wrong thing — their data survived, their
+freshness cache did not.
+
+| was | is | why |
+|---|---|---|
+| `.functualize/state.json` | `.functualize/fresh.json` | it holds only freshness verdicts now; the name is the definition rather than an approximation |
+| `func builtin state` | `func builtin data` | the group covers **five** files, so naming it after any one of them under-describes it |
+| `StateStore` (runtime) | `FreshStore` | there were two classes called `StateStore`; now there are none |
+
+`func builtin data clear` gains `--runs` and `--all` beside the existing
+`--scopes`. Its default is unchanged, and so is the asymmetry that matters:
+**derived data is deleted, records are moved aside.** `scopes.json` holds gate
+payloads a human deposited, so `--scopes` renames the file and reports where it
+went — which is also the escape hatch from a scope file that cannot be parsed.
+
+`func builtin data show` now reports every store — freshness, scopes, scope
+state, the run log and shell history — with counts, sizes and paths.
+
+**No migration, and no compatibility alias.** An old `state.json` is simply not
+found, so the next run recomputes its freshness verdicts and writes
+`fresh.json`. The worst case is one extra run of each job, which is exactly the
+worst case that file's discard rule already accepts. Delete the stale file if
+you want the disk back.
+
 ### Changed — a run's state no longer costs the project's history
 
 `rc.state` became durable in this cycle by living inside the scope record, which

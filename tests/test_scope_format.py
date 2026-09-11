@@ -11,6 +11,10 @@ import json
 
 import pytest
 
+from functualize._primitives.fresh_format import (
+    FRESH_FILENAME,
+    resolve_fresh_path,
+)
 from functualize._primitives.scope_format import (
     SCOPES_FILENAME,
     SCOPES_VERSION,
@@ -20,10 +24,6 @@ from functualize._primitives.scope_format import (
     resolve_scopes_path,
     save_scopes,
     update_scopes,
-)
-from functualize._primitives.state_format import (
-    STATE_FILENAME,
-    resolve_state_path,
 )
 from functualize._types.errors import ScopeStoreUnreadableError
 
@@ -55,16 +55,16 @@ class TestLocation:
         """One upward walk, one answer — the two files can never land in
         different directories or different modes."""
         (tmp_path / ".functualize").mkdir()
-        state = resolve_state_path(tmp_path)
+        state = resolve_fresh_path(tmp_path)
         scopes = resolve_scopes_path(tmp_path)
         assert scopes.parent == state.parent
-        assert state.name == STATE_FILENAME
+        assert state.name == FRESH_FILENAME
         assert scopes.name == SCOPES_FILENAME
 
     def test_sibling_rule_holds_in_standalone_mode(self, tmp_path) -> None:
         """No .functualize/ — both fall back to the XDG cache, together."""
         assert (
-            resolve_scopes_path(tmp_path).parent == resolve_state_path(tmp_path).parent
+            resolve_scopes_path(tmp_path).parent == resolve_fresh_path(tmp_path).parent
         )
 
 

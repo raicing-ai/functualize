@@ -249,10 +249,10 @@ class TestSmartBarStateRoundTrip:
     """Property 2: SmartBar state round-trip across INSERT mode.
 
     For any SmartBar state (value, cursor_position, placeholder), calling
-    save_state() then restore_state() SHALL produce a bar state identical
+    save_fresh() then restore_state() SHALL produce a bar state identical
     to the original.
 
-    Additionally, restore_state() without prior save_state() raises RuntimeError.
+    Additionally, restore_state() without prior save_fresh() raises RuntimeError.
 
     **Validates: Requirements 4.1, 4.3, 4.4**
     """
@@ -277,7 +277,7 @@ class TestSmartBarStateRoundTrip:
             expected_cursor = len(value)  # Setting value moves cursor to end
 
             # Save state
-            bar.save_state()
+            bar.save_fresh()
 
             # Modify state (simulating INSERT mode)
             bar.value = "modified_value_for_insert"
@@ -307,7 +307,7 @@ class TestSmartBarStateRoundTrip:
         cursor_offset: int,
         placeholder: str,
     ) -> None:
-        """Req 4.1: save_state captures cursor_position correctly."""
+        """Req 4.1: save_fresh captures cursor_position correctly."""
         async with _BarTestApp().run_test() as pilot:
             bar = pilot.app.query_one("#bar", SmartBar)
 
@@ -319,7 +319,7 @@ class TestSmartBarStateRoundTrip:
             bar.placeholder = placeholder
 
             # Save
-            bar.save_state()
+            bar.save_fresh()
 
             # Modify everything
             bar.value = "completely_different"
@@ -339,6 +339,6 @@ class TestSmartBarStateRoundTrip:
             bar = pilot.app.query_one("#bar", SmartBar)
 
             with pytest.raises(
-                RuntimeError, match="restore_state.*without prior save_state"
+                RuntimeError, match="restore_state.*without prior save_fresh"
             ):
                 bar.restore_state()

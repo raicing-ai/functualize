@@ -423,7 +423,7 @@ class RunContext:
                 "this RunContext was not created by an engine, so it has no "
                 "working directory; pass cwd= when building it"
             )
-        return cast("Path", self._execution_engine.state_root)
+        return cast("Path", self._execution_engine.fresh_root)
 
     @property
     def job_directory(self) -> Path | None:

@@ -1,7 +1,7 @@
 """ScopeStore: the accessors, and the two behaviours that are new.
 
 The accessors are a move — they behaved this way when they lived on
-``StateStore``, and `tests/test_state_store.py` keeps proving that through the
+``FreshStore``, and `tests/test_state_store.py` keeps proving that through the
 façade. What is new here is `batch()` and the fail-closed read reaching a
 caller.
 """
@@ -13,9 +13,9 @@ from pathlib import Path
 
 import pytest
 
+from functualize._primitives.fresh_format import FRESH_FILENAME
 from functualize._primitives.scope_format import SCOPES_FILENAME, SCOPES_VERSION
 from functualize._primitives.scope_store import ScopeStore
-from functualize._primitives.state_format import STATE_FILENAME
 from functualize._types.errors import ScopeStoreUnreadableError
 
 
@@ -26,7 +26,7 @@ def store(tmp_path) -> ScopeStore:
 
 class TestLocation:
     def test_beside_state_finds_the_sibling(self, tmp_path) -> None:
-        store = ScopeStore.beside_state(tmp_path / STATE_FILENAME)
+        store = ScopeStore.beside_fresh(tmp_path / FRESH_FILENAME)
         assert store.path == tmp_path / SCOPES_FILENAME
 
     def test_for_project_resolves_like_the_state_file(self, tmp_path) -> None:

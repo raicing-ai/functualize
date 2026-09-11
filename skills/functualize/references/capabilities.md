@@ -153,19 +153,29 @@ state.get("parsed_count", default=0)
 state.keys(prefix="cache:")
 ```
 
-Three different things in this project are called "state", and only one of them
-survives a process:
+Several things here were called "state", which is why two of them have been
+renamed. What each one is, and how long it lasts:
 
 | Name | Reached by | Scope | Survives the process? |
 | --- | --- | --- | --- |
-| `State` (capability) | a job parameter | one invocation | **no** |
-| `StateStore` (runtime) | `functualize.app.utils` | the project | **yes** — `.functualize/state.json` |
+| `State` (capability) | `rc.state` or a `state: State` parameter | **one run**, shared by every job in it | **yes** — `.functualize/scope-state/<id>.json` |
+| `FreshStore` (runtime) | `functualize.app.utils` | the project | yes — `.functualize/fresh.json` |
 | The discovery cache | `func builtin cache` | the project | yes, but it is not yours |
 
-For a value that must outlive the run, write a file you own, or use the runtime
-store — never `State`. `func builtin state show` prints where the runtime store
-lives; see [config-and-secrets.md](config-and-secrets.md) for the two modes it
-resolves between.
+**`State` is durable now.** It was a per-invocation dict that vanished when the
+process ended; `rc.state.set(...)` is written to disk and a resumed run reads
+back what it stored. If you read an older version of this page saying
+otherwise, that is what changed.
+
+**What `State` is *not*** is a place to keep things between unrelated runs. Its
+scope is one run — a workflow and every step, dependency and invoked child
+inside it. For a value that must outlive the run, write a file you own.
+
+`FreshStore` is a different thing entirely despite the old name: it holds the
+*freshness verdicts* that decide whether a job can skip work. You rarely touch
+it directly. `func builtin data show` prints where every store lives; see
+[config-and-secrets.md](config-and-secrets.md) for the two modes it resolves
+between.
 
 ## Sources — `declared` is not "non-empty"
 

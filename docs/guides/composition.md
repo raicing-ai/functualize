@@ -41,7 +41,7 @@ Start here. Find the sentence that matches what you are trying to do.
 | Retry a flaky *job* | `Exec(retry=Retry(attempts=N))` | `lab probe` |
 | Run the same work over N inputs | a driver job + `inv.parallel([...])` | `lab fanout` |
 | Keep a value for this invocation | `state: State` | `lab worker` |
-| Keep a value **across** runs | a file you own, or the runtime `StateStore` — **not** `State` | `lab counter` |
+| Keep a value **across** runs | a file you own, or the runtime `FreshStore` — **not** `State` | `lab counter` |
 | Ask a human mid-run | `Gate(...)` in a `@workflow` — see [Workflows](workflows.md) | — |
 | Pause and resume a long pipeline | `@workflow` + `--wf-resume` | — |
 | Expose all of it to an AI agent | the [MCP adapter](mcp.md) — no per-job work | — |

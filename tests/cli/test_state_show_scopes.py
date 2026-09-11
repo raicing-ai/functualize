@@ -24,7 +24,7 @@ def _show() -> str:
     app = FunctualizeApp(name="show-test")
     runner = CliRunner()
     result = runner.invoke(
-        app.cli_command, ["builtin", "state", "show"], catch_exceptions=False
+        app.cli_command, ["builtin", "data", "show"], catch_exceptions=False
     )
     return result.output
 

@@ -237,7 +237,7 @@ def _isolate_state_root(
 ) -> None:
     """Keep the suite's runtime state out of the repository's own `.functualize/`.
 
-    `resolve_state_location` walks **upward** from its start directory, so any
+    `resolve_fresh_location` walks **upward** from its start directory, so any
     test that does not `chdir` resolves to the checkout's own `.functualize/`
     and writes there — `scopes.json`, `runs.json` and `state.json` alike, since
     the latter two are resolved as that path's siblings.
@@ -271,9 +271,9 @@ def _isolate_state_root(
     if request.node.get_closest_marker("real_state_root") is not None:
         return
 
-    from functualize._primitives import state_format
+    from functualize._primitives import fresh_format
 
-    real_find = state_format.find_functualize_dir
+    real_find = fresh_format.find_functualize_dir
     sandbox_root = tmp_path.resolve()
     sandbox = sandbox_root / ".functualize"
 
@@ -284,7 +284,7 @@ def _isolate_state_root(
         sandbox.mkdir(parents=True, exist_ok=True)
         return sandbox
 
-    monkeypatch.setattr(state_format, "find_functualize_dir", _scoped)
+    monkeypatch.setattr(fresh_format, "find_functualize_dir", _scoped)
 
 
 @pytest.fixture(autouse=True)

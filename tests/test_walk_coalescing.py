@@ -1,6 +1,6 @@
 """The walk writes the scope file once per node, not three times (AC-17).
 
-`StateStore.batch` existed to hold the lock across many mutations, and the
+`FreshStore.batch` existed to hold the lock across many mutations, and the
 module docstring told callers to use it. Nothing in `src/` or `plugins/` ever
 did, so `record_step`, `set_position` and `set_scope_status` each performed an
 independent locked read-modify-write of a file that also held every fingerprint
@@ -14,8 +14,8 @@ from __future__ import annotations
 import pytest
 
 from functualize._engine.frontier import END, FrontierWalk, GraphModel
+from functualize._primitives.fresh_store import FreshStore
 from functualize._primitives.scope_store import ScopeStore
-from functualize._primitives.state_store import StateStore
 
 # approve ──→ END
 LINEAR_GRAPH = GraphModel(entry="approve", edges={"approve": [END]})
@@ -49,7 +49,7 @@ def counting_saves(monkeypatch):
 
 class TestFrontierWritesOncePerCall:
     def test_block_writes_once_not_three_times(self, tmp_path, counting_saves):
-        walk = FrontierWalk(LINEAR_GRAPH, StateStore(tmp_path / "state.json"), "s1")
+        walk = FrontierWalk(LINEAR_GRAPH, FreshStore(tmp_path / "fresh.json"), "s1")
         counting_saves.clear()
 
         walk.block("approve", "approve_gate", model="", input_schema={})
@@ -60,7 +60,7 @@ class TestFrontierWritesOncePerCall:
         )
 
     def test_start_writes_once(self, tmp_path, counting_saves):
-        walk = FrontierWalk(LINEAR_GRAPH, StateStore(tmp_path / "state.json"), "s1")
+        walk = FrontierWalk(LINEAR_GRAPH, FreshStore(tmp_path / "fresh.json"), "s1")
         counting_saves.clear()
 
         walk.start("release")
@@ -73,7 +73,7 @@ class TestOutcomeIsUnchanged:
     written."""
 
     def test_block_records_the_same_thing_it_always_did(self, tmp_path):
-        store = StateStore(tmp_path / "state.json")
+        store = FreshStore(tmp_path / "fresh.json")
         walk = FrontierWalk(LINEAR_GRAPH, store, "s1")
 
         walk.start("release")

@@ -119,12 +119,12 @@ class TestEmpty:
         """And does not create a state file just by being asked."""
         from pathlib import Path
 
-        from functualize.app.utils import resolve_state_path
+        from functualize.app.utils import resolve_fresh_path
 
         result = cli_run(["builtin", "history"], cwd=project)
 
         assert "No history" in result.stderr
-        assert not resolve_state_path(Path(project)).exists()
+        assert not resolve_fresh_path(Path(project)).exists()
 
     def test_an_empty_namespace_says_so(self, cli_run, project) -> None:
         cli_run(["alpha"], cwd=project)

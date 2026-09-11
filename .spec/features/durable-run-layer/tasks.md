@@ -189,7 +189,7 @@ both groups, which is the gap that widens exactly when a surface is added.
 
 ---
 
-### [ ] T3b · Derive `history` from the run log, then rename `state.json`
+### [x] T3b · Derive `history` from the run log, then rename `state.json`
 
 **Files:** `src/functualize/_primitives/state_format.py`,
 `src/functualize/_primitives/state_store.py`,
@@ -301,6 +301,40 @@ a worse lie than the one being fixed.
 - `state.json` — rejected. Its only argument is incumbency, and it is the
   source of the three-way collision above.
 
+#### The command group becomes `func builtin data` (decided 2026-09-12)
+
+Asked as "keep `state`, rename to `fresh`, or split"; the maintainer rejected
+all three and named a fourth that is better than any of them:
+
+> *Why not use `func builtin data`, then either use a flag option or
+> sub-groups to split the fresh.json vs scope.json vs run.json etc.*
+
+It is the honest name. The group was never about one file — it reports and
+clears **five**: `fresh.json`, `scopes.json`, `scope-state/`, `runs.json` and
+`shell-history.json`. Naming it after any single one of them (`state` after the
+old file, `fresh` after the new) trades one inaccuracy for another, and `data`
+is what the group actually covers.
+
+It also removes the `--scopes` awkwardness properly. That flag exists because
+the command was named for one file and had to bolt on a second; with the group
+named for the whole directory, each file is a target rather than an exception.
+
+```
+func builtin data show                      # every file: path, count, size, mode
+func builtin data clear                     # derived only, as `state clear` was
+func builtin data clear --scopes            # also move scopes.json aside
+func builtin data clear --runs              # also drop the run log
+func builtin data clear --all               # everything
+```
+
+`clear`'s default is unchanged, so the careful asymmetry it already had is
+kept: **derived data is deleted, records are moved aside.** `scopes.json`
+holds gate payloads a human deposited, so `--scopes` renames the file rather
+than removing it and says where it went — and that is also the escape hatch
+from a scope file that cannot be parsed, which is why it never reads it first.
+
+`func builtin state` is **deleted, not aliased** (Pre-Release Stance).
+
 #### Carry with it
 
 `state_root` → `fresh_root`, `resolve_state_location`, `beside_state`, and the
@@ -313,14 +347,26 @@ changelog. Pre-release stance permits the latter; say which, in the commit.
 
 **Gate**
 ```bash
-rg -c '"state\.json"' src/functualize/_primitives/state_format.py
+rg -c "state\.json" src/functualize/ | awk -F: '{s+=$2} END {print s+0}'
 ```
-now: `1` · after: `0`
+now: `29` (measured at `6a37e79`, the part-1 commit) · after: **`0`**
 
 ```bash
-rg -c '"history"' src/functualize/_primitives/state_format.py
+rg -c '"history"' src/functualize/_primitives/fresh_format.py || echo 0
 ```
-now: `2` · after: `0`
+now: `2` · after: **`0`** — satisfied by part 1, verified `0` at `6a37e79`
+
+```bash
+rg -c "^class StateStore\b" src/ plugins/ | awk -F: '{s+=$2} END {print s+0}'
+```
+now: `2` · after: **`0`** — which also closes `capability-duality`/T8, deferred
+precisely because it could not rename this class until this task decided the
+file's name.
+
+**Done in two commits**, because they fail differently: the history move is
+behavioural and its mistakes show up in a test, while the rename is ~110
+mechanical references whose mistakes are import errors. Mixing them would make
+a bisect useless.
 
 ---
 

@@ -20,7 +20,7 @@ def _closed_store():
 
 
 class TestStateStoreGet:
-    """Tests for StateStore.get() method."""
+    """Tests for FreshStore.get() method."""
 
     def test_get_returns_value_with_correct_type(self) -> None:
         store = new_state_store()
@@ -54,7 +54,7 @@ class TestStateStoreGet:
 
 
 class TestStateStoreSet:
-    """Tests for StateStore.set() method."""
+    """Tests for FreshStore.set() method."""
 
     def test_set_stores_json_serializable_value(self) -> None:
         store = new_state_store()
@@ -97,7 +97,7 @@ class TestStateStoreSet:
 
 
 class TestStateStoreKeys:
-    """Tests for StateStore.keys() method."""
+    """Tests for FreshStore.keys() method."""
 
     def test_keys_returns_empty_list_initially(self) -> None:
         store = new_state_store()
@@ -118,7 +118,7 @@ class TestStateStoreKeys:
 
 
 class TestStateStoreClear:
-    """Tests for StateStore.clear() method."""
+    """Tests for FreshStore.clear() method."""
 
     def test_clear_removes_all_state(self) -> None:
         store = new_state_store()
@@ -136,7 +136,7 @@ class TestStateStoreClear:
 
 
 class TestStateStoreToDict:
-    """Tests for StateStore.to_dict() method."""
+    """Tests for FreshStore.to_dict() method."""
 
     def test_to_dict_returns_empty_dict_initially(self) -> None:
         store = new_state_store()
@@ -154,7 +154,7 @@ class TestStateStoreToDict:
 
 
 class TestStateStoreClose:
-    """Tests for StateStore._close() method."""
+    """Tests for FreshStore._close() method."""
 
     def test_close_prevents_set(self) -> None:
         store = new_state_store()

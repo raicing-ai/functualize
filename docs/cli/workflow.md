@@ -197,7 +197,7 @@ func builtin workflow purge [--state STATE] [--older-than DAYS]
 
 Deletes finished scopes. **Never touches a running, waiting or ready one**, and
 `--state` cannot name a live state at all: this is a hard delete with no backup,
-unlike `func builtin state clear --scopes`, which moves the whole scope file
+unlike `func builtin data clear --scopes`, which moves the whole scope file
 aside.
 
 `--older-than` measures the newest recorded result in the scope. A scope with no

@@ -32,8 +32,8 @@ from functualize._engine.middleware import ExecutionMiddlewareChain
 from functualize._events.bus import EventBus
 from functualize._events.hooks import HookRegistry
 from functualize._primitives.di import DIRegistry
+from functualize._primitives.fresh_store import FreshStore
 from functualize._primitives.run_store import RunStore
-from functualize._primitives.state_store import StateStore
 from functualize._types.enums import RunStatus
 from functualize._types.run_request import RunRequest
 from functualize.app.utils import job_history
@@ -58,13 +58,13 @@ def engine(_project: Path) -> JobExecutionEngine:
         event_bus=EventBus(),
         hook_registry=HookRegistry(),
         middleware_chain=ExecutionMiddlewareChain(),
-        state_root=_project,
+        fresh_root=_project,
     )
 
 
 @pytest.fixture
 def runs(engine: JobExecutionEngine) -> RunStore:
-    return RunStore.beside_state(StateStore.for_project(engine.state_root).path)
+    return RunStore.beside_fresh(FreshStore.for_project(engine.fresh_root).path)
 
 
 class TestTheRecordOpensAndCloses:
@@ -182,7 +182,7 @@ class TestChildrenAreRecordedAndPlaced:
 
         jobs = [
             entry.get("job")
-            for entry in job_history(RunStore.for_project(engine.state_root))
+            for entry in job_history(RunStore.for_project(engine.fresh_root))
         ]
         assert "parent" in jobs
         assert "child" not in jobs, (
@@ -313,7 +313,7 @@ class TestARecordAlwaysCloses:
             with contextlib.suppress(Exception):
                 app.execute(RunRequest(job_name="j", surface="app.execute"))
 
-            store = RunStore.beside_state(engine._state_store().path)
+            store = RunStore.beside_fresh(engine._state_store().path)
             statuses = {
                 rid: (store.get_run(rid) or {}).get("status") for rid in store.run_ids()
             }

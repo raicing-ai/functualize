@@ -1,6 +1,6 @@
 """Commands typed in the TUI's shell mode — `.functualize/shell-history.json`.
 
-`durable-run-layer`/T3b. These used to share a ring inside `state.json` with
+`durable-run-layer`/T3b. These used to share a ring inside `fresh.json` with
 job-run history, under a `namespace` discriminator. That was the right home
 while both were "things the user did"; it stopped being right once the run log
 existed, because the two halves went in opposite directions:
@@ -15,7 +15,7 @@ existed, because the two halves went in opposite directions:
   which is the kind that gets forgotten once and then ships.
 
 So it gets its own file. The gain is not tidiness: with `history` gone,
-`state.json` holds **only freshness verdicts**, which is what lets it be named
+`fresh.json` holds **only freshness verdicts**, which is what lets it be named
 for what it is rather than for the vaguest word available.
 
 **A convenience, and treated as one.** Unlike `scopes.json`, losing this file
@@ -33,10 +33,10 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from functualize._primitives.state_format import (
+from functualize._primitives.fresh_format import (
     atomic_write_json,
-    resolve_state_location,
-    state_lock,
+    file_lock,
+    resolve_fresh_location,
 )
 
 __all__ = [
@@ -60,12 +60,12 @@ logger = logging.getLogger(__name__)
 def resolve_shell_history_path(start: Path | str) -> Path:
     """Where shell history lives — always the state file's sibling.
 
-    Derived from `resolve_state_location` rather than repeating its upward
+    Derived from `resolve_fresh_location` rather than repeating its upward
     walk, for the reason `scope_format` gives for doing the same: two walks can
     disagree about which project or which mode they are in, and a reader must
     not reconstruct a key the writer computed.
     """
-    return resolve_state_location(Path(start))[0].with_name(SHELL_HISTORY_FILENAME)
+    return resolve_fresh_location(Path(start))[0].with_name(SHELL_HISTORY_FILENAME)
 
 
 class ShellHistoryStore:
@@ -87,7 +87,7 @@ class ShellHistoryStore:
         return cls(resolve_shell_history_path(start))
 
     @classmethod
-    def beside_state(cls, state_path: Path | str) -> ShellHistoryStore:
+    def beside_fresh(cls, state_path: Path | str) -> ShellHistoryStore:
         """The store that sits beside an already-resolved state file."""
         return cls(Path(state_path).with_name(SHELL_HISTORY_FILENAME))
 
@@ -127,7 +127,7 @@ class ShellHistoryStore:
         project interleave rather than clobbering each other.
         """
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        with state_lock(self._path):
+        with file_lock(self._path):
             entries = self._load()
             entries.append(dict(record))
             if len(entries) > SHELL_HISTORY_LIMIT:

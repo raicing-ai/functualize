@@ -17,7 +17,7 @@ class StateStoreProtocol(Protocol):
     """Runtime-checkable protocol defining the key-value state storage contract.
 
     Any object satisfying this protocol can serve as the backing state store
-    for a WorkflowScope. The in-memory StateStore satisfies this by default;
+    for a WorkflowScope. The in-memory FreshStore satisfies this by default;
     plugins (e.g., SQLiteStateStore) can provide persistent implementations.
 
     Methods provide basic CRUD, cross-job namespace access, and bulk operations.

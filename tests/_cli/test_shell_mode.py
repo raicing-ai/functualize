@@ -355,7 +355,7 @@ class TestHandoffExecution:
         def _boom(*a: object, **k: object) -> None:
             raise OSError("read-only filesystem")
 
-        monkeypatch.setattr("functualize.app.utils.StateStore.for_project", _boom)
+        monkeypatch.setattr("functualize.app.utils.FreshStore.for_project", _boom)
         assert execute_shell_handoff(None, "true") == 0
 
     def test_the_handoff_loop_routes_the_sentinel(

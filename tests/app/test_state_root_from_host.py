@@ -52,7 +52,7 @@ def test_a_run_writes_its_state_under_the_projects_root(
 
     monkeypatch.chdir(project)
     app = _app()
-    assert app.state_root == project
+    assert app.fresh_root == project
 
     monkeypatch.chdir(elsewhere)
     app.execute(request_for("capture-cwd"))
@@ -87,7 +87,7 @@ def test_a_run_that_named_no_directory_reports_the_projects_root(
 
     monkeypatch.chdir(project)
     app = _app()
-    assert app.state_root == project
+    assert app.fresh_root == project
 
     monkeypatch.chdir(elsewhere)
     app.execute(request_for("capture-cwd"))

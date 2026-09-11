@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field
 
 from functualize._app.state import AppState
 from functualize.app.core import FunctualizeApp
-from functualize.app.utils import StateStore
+from functualize.app.utils import FreshStore
 from functualize.job import RunStatus
 from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, workflow
@@ -100,7 +100,7 @@ def app() -> FunctualizeApp:
 
 
 def _provider(app: FunctualizeApp) -> WorkflowToolProvider:
-    return WorkflowToolProvider(app, store=StateStore.for_project(Path.cwd()))
+    return WorkflowToolProvider(app, store=FreshStore.for_project(Path.cwd()))
 
 
 async def test_an_agent_can_drive_a_blocked_workflow_to_completion(

@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from functualize._app.state import AppState
 from functualize._types.errors import ScopeCancelledError
 from functualize.app.core import FunctualizeApp, request_for
-from functualize.app.utils import StateStore
+from functualize.app.utils import FreshStore
 from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, workflow
 
@@ -80,7 +80,7 @@ class TestACancelledScopeRefusesToAdvance:
                 job_name="release", surface="app.execute", workflow_scope_id="rel-1"
             )
         )
-        store = StateStore.for_project(project)
+        store = FreshStore.for_project(project)
         store.set_scope_status("rel-1", "cancelled")
 
         with pytest.raises(ScopeCancelledError):
@@ -100,7 +100,7 @@ class TestACancelledScopeRefusesToAdvance:
                 job_name="release", surface="app.execute", workflow_scope_id="rel-1"
             )
         )
-        store = StateStore.for_project(project)
+        store = FreshStore.for_project(project)
         store.set_scope_status("rel-1", "cancelled")
 
         with pytest.raises(ScopeCancelledError):
@@ -115,7 +115,7 @@ class TestACancelledScopeRefusesToAdvance:
         assert scope["status"] == "cancelled"
 
     def test_no_step_runs(self, app: FunctualizeApp, project: Path) -> None:
-        store = StateStore.for_project(project)
+        store = FreshStore.for_project(project)
         store.ensure_scope("rel-2", "release")
         store.set_scope_status("rel-2", "cancelled")
 
@@ -133,7 +133,7 @@ class TestACancelledScopeRefusesToAdvance:
     ) -> None:
         """Terminal means terminal, so the message must carry the recovery —
         a caller that cannot reuse the id needs the job name."""
-        store = StateStore.for_project(project)
+        store = FreshStore.for_project(project)
         store.ensure_scope("rel-3", "release")
         store.set_scope_status("rel-3", "cancelled")
 
@@ -158,7 +158,7 @@ class TestALiveScopeIsUnaffected:
                 job_name="release", surface="app.execute", workflow_scope_id="rel-4"
             )
         )
-        store = StateStore.for_project(project)
+        store = FreshStore.for_project(project)
         assert store.get_scope("rel-4")["status"] == "blocked"
 
         result = app.execute(

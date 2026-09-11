@@ -475,4 +475,4 @@ bus; dispatch continues** — one bad surface never interrupts a job or starves 
 | **EventBus** | `app.event_bus.emit / subscribe` | Code | Structured publish-subscribe |
 | **Middleware** | `MiddlewareChain` (yield-based generators) | Code | Wrap execution at named operation points |
 | **Format providers** | `FormatProvider` protocol | Entry points or `provider_registry` | Support for new config file formats |
-| **StateStore** | `StateStoreProtocol` protocol | `scope.replace_state_store(impl)` | Pluggable state storage backends |
+| **FreshStore** | `FreshStoreProtocol` protocol | `scope.replace_state_store(impl)` | Pluggable state storage backends |

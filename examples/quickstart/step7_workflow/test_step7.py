@@ -21,7 +21,7 @@ from weather import (
 
 from functualize._app.state import AppState
 from functualize.app.core import FunctualizeApp
-from functualize.app.utils import StateStore
+from functualize.app.utils import FreshStore
 from functualize.job import RunStatus
 from functualize.types import RunRequest
 from functualize.workflow import END, Gate, Step
@@ -53,8 +53,8 @@ def app() -> FunctualizeApp:
     return instance
 
 
-def _store() -> StateStore:
-    return StateStore.for_project(Path.cwd())
+def _store() -> FreshStore:
+    return FreshStore.for_project(Path.cwd())
 
 
 # --- Declaration -----------------------------------------------------------

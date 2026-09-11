@@ -29,7 +29,7 @@ import pytest
 
 from functualize._app.state import AppState
 from functualize.app.core import FunctualizeApp, request_for
-from functualize.app.utils import StateStore
+from functualize.app.utils import FreshStore
 from functualize.job import (
     Deps,
     Exec,
@@ -822,7 +822,7 @@ class TestWorkflowFromJobIsARead:
         )
 
         assert result.status is RunStatus.SUCCESS
-        store = StateStore.for_project(Path.cwd())
+        store = FreshStore.for_project(Path.cwd())
         steps = store.get_scope("run-1")["steps"]
         assert steps["travel-plan::"]["return_value"] == "packing for sunny"
 
@@ -838,7 +838,7 @@ class TestWorkflowFromJobIsARead:
             )
         )
 
-        store = StateStore.for_project(Path.cwd())
+        store = FreshStore.for_project(Path.cwd())
         scope = store.get_scope("run-1")
         assert sorted(scope["steps"]) == ["forecast::", "travel-plan::"]
 

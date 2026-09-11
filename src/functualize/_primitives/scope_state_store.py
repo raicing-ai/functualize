@@ -37,7 +37,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from functualize._primitives.state_format import atomic_write_json, state_lock
+from functualize._primitives.fresh_format import atomic_write_json, file_lock
 
 __all__ = ["STATE_DIRNAME", "ScopeStateStore", "scope_state_dir", "scope_state_path"]
 
@@ -155,7 +155,7 @@ class ScopeStateStore:
             mutate(self._batch)
             return
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        with state_lock(self._path):
+        with file_lock(self._path):
             state = self._load()
             mutate(state)
             atomic_write_json(self._path, {"state": state})
@@ -172,7 +172,7 @@ class ScopeStateStore:
             yield self
             return
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        with state_lock(self._path):
+        with file_lock(self._path):
             self._batch = self._load()
             try:
                 yield self
@@ -234,7 +234,7 @@ class ScopeStateStore:
                 f"cannot discard {self._path} while a batch is open on it; "
                 f"the batch would rewrite the file on exit"
             )
-        with state_lock(self._path):
+        with file_lock(self._path):
             try:
                 self._path.unlink()
             except FileNotFoundError:

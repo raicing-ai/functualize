@@ -1,6 +1,6 @@
 """The `State` capability — re-exported from its canonical location.
 
-`StateStore` used to be a second public name for a second class. There is one
+`FreshStore` used to be a second public name for a second class. There is one
 class now (ADR-021), and it is durable; see
 `functualize._engine.capabilities.state`.
 """

@@ -6,7 +6,7 @@ any sub-level navigation trail.
 
 Usage:
     header = BreadcrumbHeader(id="breadcrumb-header")
-    header.update_state(BreadcrumbState(
+    header.update_fresh(BreadcrumbState(
         type_prefix="R", position=1, total=3,
         title="Config Table", sub_levels=("Field Detail: region",)
     ))
@@ -36,7 +36,7 @@ class BreadcrumbHeader(Static):
     Renders a BreadcrumbState as a single line showing:
     [TYPE:N/M] Title [> SubLevel1 [> SubLevel2]]
 
-    Has an update_state() method to refresh the displayed breadcrumb
+    Has an update_fresh() method to refresh the displayed breadcrumb
     when the panel ring navigates or breadcrumb depth changes.
     """
 
@@ -50,7 +50,7 @@ class BreadcrumbHeader(Static):
     }
     """
 
-    def update_state(self, state: BreadcrumbState) -> None:
+    def update_fresh(self, state: BreadcrumbState) -> None:
         """Update the displayed breadcrumb from a BreadcrumbState.
 
         Calls state.render() to produce the formatted string and updates

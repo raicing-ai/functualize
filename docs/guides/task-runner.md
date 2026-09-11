@@ -80,8 +80,8 @@ Which one you are in depends on a single directory:
 
 | Mode | When | Where the ledger lives |
 |---|---|---|
-| **project** | a `.functualize/` directory is found, walking upward from the working directory | `<that directory>/state.json` — inside your project, alongside the code it describes |
-| **standalone** | no `.functualize/` directory anywhere above you | `$XDG_CACHE_HOME/functualize/<project-id>/state.json` — a hashed directory under your home cache |
+| **project** | a `.functualize/` directory is found, walking upward from the working directory | `<that directory>/fresh.json` — inside your project, alongside the code it describes |
+| **standalone** | no `.functualize/` directory anywhere above you | `$XDG_CACHE_HOME/functualize/<project-id>/fresh.json` — a hashed directory under your home cache |
 
 `func` is meant to run over loose scripts anywhere on the filesystem, so
 standalone is the fallback rather than the failure: littering a `.functualize/`
@@ -94,7 +94,7 @@ which `rm -rf .functualize` is a full reset.
 Both commands tell you which mode you are in and where the file actually is:
 
 ```bash
-func builtin state show     # State path + Mode
+func builtin data show     # State path + Mode
 func builtin info           # the same two facts, beside config resolution
 ```
 
@@ -294,11 +294,11 @@ Use `func builtin why` to see guard results, fingerprint freshness, and which de
 The state store holds fingerprints, guard results, and execution history. Its
 location depends on the mode described in
 [Where the freshness ledger lives](#where-the-freshness-ledger-lives) —
-`func builtin state show` prints the resolved path:
+`func builtin data show` prints the resolved path:
 
 ```bash
-func builtin state clear    # Clear derived state (fingerprints, history, preconditions)
-func builtin state clear --scopes   # ...and discard in-flight workflow runs too
+func builtin data clear    # Clear derived state (fingerprints, history, preconditions)
+func builtin data clear --scopes   # ...and discard in-flight workflow runs too
 func builtin cache clear            # Clear discovery cache (job metadata)
 ```
 

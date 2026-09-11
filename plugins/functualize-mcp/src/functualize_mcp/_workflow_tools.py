@@ -12,7 +12,7 @@ These tools let an external agent drive a `@workflow` across turns:
 - ``purge_workflows`` — delete finished scopes
 
 **Where the truth lives.** Everything reported here comes from two places that
-outlive the process that wrote them: the *state store* (``.functualize/state.json``
+outlive the process that wrote them: the *freshness ledger* (``.functualize/fresh.json``
 — scope status, step records, gate records, walk position) and the *discovery
 cache* (graph topology, via ``JobDescriptor.workflow``). Neither requires
 importing the module that declared the workflow, so an agent can inspect a
@@ -41,7 +41,7 @@ from functualize.app.utils import (
 )
 from functualize.app.utils import (
     RUN_STATES,
-    StateStore,
+    FreshStore,
     answer_gate,
     call_gate_tool,
     cancel_scope,
@@ -132,7 +132,7 @@ class WorkflowToolProvider:
         self,
         app: Any,
         *,
-        store: StateStore | None = None,
+        store: FreshStore | None = None,
         run_store: Any | None = None,
     ) -> None:
         self._app = app
@@ -140,10 +140,10 @@ class WorkflowToolProvider:
         self._run_store = run_store
 
     @property
-    def store(self) -> StateStore:
+    def store(self) -> FreshStore:
         """The state store, resolved from the cwd on first use."""
         if self._store is None:
-            self._store = StateStore.for_project(Path.cwd())
+            self._store = FreshStore.for_project(Path.cwd())
         return self._store
 
     @property

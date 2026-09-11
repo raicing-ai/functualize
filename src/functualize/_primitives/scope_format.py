@@ -1,6 +1,6 @@
 """Workflow-scope file format: the record half of the runtime state store.
 
-Scopes were kept in ``state.json`` beside fingerprints, history and the session
+Scopes were kept in ``fresh.json`` beside fingerprints, history and the session
 precondition cache. They do not belong there, and the difference is not
 organisational — it is the discard rule:
 
@@ -16,7 +16,7 @@ organisational — it is the discard rule:
 So the two rules are opposites, and each file states its own:
 
 ============  =====================  ===============================
-condition     ``state.json``         ``scopes.json``
+condition     ``fresh.json``         ``scopes.json``
 ============  =====================  ===============================
 absent        empty envelope         empty — "no scopes"
 unparseable   empty envelope         **refuse**, file left in place
@@ -32,7 +32,7 @@ module exists to prevent. The file moves only when a human asks, at
 **Location is derived, never resolved.** The scope file is always the sibling of
 the state file, so the two cannot end up in different modes (project vs.
 standalone) or different directories. One upward walk lives in
-``state_format.resolve_state_location``; this module calls it rather than
+``state_format.resolve_fresh_location``; this module calls it rather than
 repeating it, because two walks can disagree and a reader must not reconstruct a
 key the writer computed.
 
@@ -46,24 +46,24 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from functualize._primitives.state_format import (
+from functualize._primitives.fresh_format import (
     atomic_write_json,
-    resolve_state_location,
-    state_lock,
+    file_lock,
+    resolve_fresh_location,
 )
 from functualize._types.errors import ScopeStoreUnreadableError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-# Scope file format version. **Independent of STATE_VERSION** — that is the
+# Scope file format version. **Independent of FRESH_VERSION** — that is the
 # whole point of the split. Bumping one says nothing about the other, and
 # bumping this one refuses rather than discards.
 # v1 (2026-09-09): {format_version, scopes: {scope_id: record}}. The record
-# shape is unchanged from when it lived in state.json.
+# shape is unchanged from when it lived in the freshness ledger.
 SCOPES_VERSION = 1
 
-# Scope file name within the resolved directory (beside state.json).
+# Scope file name within the resolved directory (beside fresh.json).
 SCOPES_FILENAME = "scopes.json"
 
 
@@ -75,7 +75,7 @@ def empty_scopes() -> dict[str, Any]:
 def resolve_scopes_path(start: Path | str) -> Path:
     """Resolve the scope file path — always the state file's sibling.
 
-    Derived from :func:`state_format.resolve_state_location` rather than
+    Derived from :func:`state_format.resolve_fresh_location` rather than
     repeating its upward walk, so the two files cannot disagree about which
     project or which mode they are in.
 
@@ -85,14 +85,14 @@ def resolve_scopes_path(start: Path | str) -> Path:
     Returns:
         Absolute path where the scope file lives (may not exist yet).
     """
-    return resolve_state_location(Path(start))[0].with_name(SCOPES_FILENAME)
+    return resolve_fresh_location(Path(start))[0].with_name(SCOPES_FILENAME)
 
 
 def scopes_lock(path: Path | str, timeout: float = 10.0) -> Any:
     """Advisory lock on the scope file, using the state store's ``.lock`` sidecar
     discipline. Separate lock, separate file — the two stores never block each
     other."""
-    return state_lock(path, timeout)
+    return file_lock(path, timeout)
 
 
 def _count_scopes(data: Any) -> int | None:
@@ -240,7 +240,7 @@ def update_scopes(
             must not be allowed to overwrite a file it could not read.
     """
     target = Path(path)
-    with state_lock(target):
+    with file_lock(target):
         envelope = load_scopes(target)
         mutate(envelope)
         save_scopes(target, envelope)

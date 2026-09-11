@@ -309,7 +309,7 @@ class FunctualizeApp:
             jobs[current.name] = replacement
 
     @property
-    def state_root(self) -> Path:
+    def fresh_root(self) -> Path:
         """Where this project's derived run state lives.
 
         One answer to a question three places in the kernel used to answer for

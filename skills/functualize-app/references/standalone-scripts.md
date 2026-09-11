@@ -111,7 +111,7 @@ A loose script with no `.functualize/` directory anywhere above it runs in
 directory keyed by a hash of the path. That is usually right for a script.
 
 If the script lives in a repository and you want its freshness ledger somewhere
-visible, `mkdir .functualize` at the repo root. `func builtin state show` prints
+visible, `mkdir .functualize` at the repo root. `func builtin data show` prints
 which mode is active.
 
 ## Testing a single-file script

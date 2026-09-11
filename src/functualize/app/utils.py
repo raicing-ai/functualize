@@ -34,6 +34,11 @@ from functualize._primitives.display_detection import (
     find_display_providers,
     is_display_provider,
 )
+from functualize._primitives.fresh_format import (
+    resolve_fresh_location,
+    resolve_fresh_path,
+)
+from functualize._primitives.fresh_store import FreshStore
 from functualize._primitives.job_schema import (
     field_property,
     input_schema,
@@ -51,11 +56,6 @@ from functualize._primitives.scope_format import (
     SCOPES_VERSION,
     resolve_scopes_path,
 )
-from functualize._primitives.state_format import (
-    resolve_state_location,
-    resolve_state_path,
-)
-from functualize._primitives.state_store import StateStore
 from functualize._types.annotations import resolved_hints
 from functualize._types.descriptors import FieldDescriptor, GroupOptionsSpec
 from functualize._types.enums import RunStatus
@@ -235,9 +235,9 @@ __all__ = [
     "resolve_cache_path",
     "TrieNode",
     "TrieResolution",
-    "resolve_state_location",
-    "resolve_state_path",
-    "StateStore",
+    "resolve_fresh_location",
+    "resolve_fresh_path",
+    "FreshStore",
     # The scope store's location and version, for `builtin state show` and
     # `builtin info`: a file whose path nothing reports is a file nobody finds.
     "resolve_scopes_path",

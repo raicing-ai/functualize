@@ -27,7 +27,7 @@ from pydantic import BaseModel
 
 from functualize._app.state import AppState
 from functualize.app.core import FunctualizeApp
-from functualize.app.utils import StateStore
+from functualize.app.utils import FreshStore
 from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, Tool, workflow
 
@@ -48,8 +48,8 @@ class RefundDecision(BaseModel):
     approve: bool
 
 
-def _store() -> StateStore:
-    return StateStore.for_project(Path.cwd())
+def _store() -> FreshStore:
+    return FreshStore.for_project(Path.cwd())
 
 
 def _app(tools: list) -> FunctualizeApp:
@@ -409,7 +409,7 @@ class TestRecordedNotMemoized:
             )
         )
 
-        record = StateStore.for_project(Path.cwd()).get_tool_calls("run-1")[0]
+        record = FreshStore.for_project(Path.cwd()).get_tool_calls("run-1")[0]
         assert record["return_value"] == "refunded 100"
         assert record["status"] == "Success"
 

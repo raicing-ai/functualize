@@ -93,11 +93,14 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
         requires_subcommand=True,
     ),
     BuiltinCommand(
-        "state",
-        "Manage runtime state (fingerprints, history, session, scopes)",
+        "data",
+        "Inspect and clear what this project keeps on disk",
         (
-            ("show", "Show runtime state statistics"),
-            ("clear", "Reset derived state; --scopes also discards workflow runs"),
+            ("show", "Show every store: path, count, size, mode"),
+            (
+                "clear",
+                "Reset derived data; --scopes, --runs and --all widen the target",
+            ),
         ),
         requires_subcommand=True,
     ),
@@ -653,9 +656,9 @@ def _state_location() -> tuple[Path, str, Path | None]:
     One upward walk through the same function the engine uses, so the CLI
     cannot report a path the engine would not write to.
     """
-    from functualize.app.utils import resolve_state_location
+    from functualize.app.utils import resolve_fresh_location
 
-    return resolve_state_location(Path.cwd())
+    return resolve_fresh_location(Path.cwd())
 
 
 def _file_size(path: Path) -> str:
@@ -695,6 +698,30 @@ def _dir_size(path: Path) -> str:
         return "empty"
     total = sum(p.stat().st_size for p in files)
     return f"{len(files)} file{'' if len(files) == 1 else 's'}, {_file_size_of(total)}"
+
+
+def _run_count(path: Path) -> str:
+    """How many runs the log holds, or ``"none"``.
+
+    Best-effort: `data show` is what a user runs to find out what is wrong, so
+    a log it cannot parse must be a line rather than a crash.
+    """
+    import json
+
+    try:
+        return str(len(json.loads(path.read_text()).get("runs", {})))
+    except (OSError, ValueError, AttributeError):
+        return "none"
+
+
+def _shell_count(path: Path) -> str:
+    """How many shell commands are recorded, or ``"none"``."""
+    import json
+
+    try:
+        return str(len(json.loads(path.read_text()).get("entries", [])))
+    except (OSError, ValueError, AttributeError):
+        return "none"
 
 
 def _state_mode_line(mode: str, marker: Path | None) -> str:
@@ -852,33 +879,50 @@ def register_builtin_commands(cli_group: Any) -> None:
 
     _mount(builtin_app, cache_app, "cache")
 
-    # --- state (runtime state store, Part F) ---
+    # --- data (everything this project keeps on disk) ---
+    #
+    # **Named `data`, not for any one file** (`durable-run-layer`/T3b). It was
+    # `state`, after `state.json`, and by the time it covered five files that
+    # name was a lie in two directions: it under-described the group, and the
+    # word "state" already meant something else to a job author —
+    # `rc.state.set(...)` writes a scope's state, so `func builtin state clear`
+    # cleared the one thing the user did *not* mean.
+    #
+    # Renaming the file to `fresh.json` fixes half of that. Naming the group
+    # after the directory rather than any file in it fixes the other half, and
+    # turns `--scopes` from an exception bolted onto a one-file command into an
+    # ordinary target among several.
+    #
     # Deliberately separate from `cache`: the discovery cache answers "what jobs
-    # exist" and is rebuilt on any source change; runtime state answers "what
-    # ran last, against which inputs". Clearing one never clears the other
-    # (§D.3 Fix 2) — a shared command would recreate exactly the spurious-
-    # rebuild bug up-to-date checking exists to prevent.
-    state_app = click.Group(
-        name="state",
+    # exist" and is rebuilt on any source change; this answers "what ran last,
+    # against which inputs". Clearing one never clears the other (§D.3 Fix 2) —
+    # a shared command would recreate exactly the spurious-rebuild bug
+    # up-to-date checking exists to prevent.
+    data_app = click.Group(
+        name="data",
         help=(
-            "Manage runtime state — fingerprints, run history, the session "
-            "precondition cache, and workflow scopes."
+            "Inspect and clear what this project keeps on disk — freshness "
+            "verdicts, workflow scopes, the run log and shell history."
         ),
     )
 
-    @state_app.command("show")
-    def state_show() -> None:
+    @data_app.command("show")
+    def data_show() -> None:
         """Show runtime state statistics."""
+        from pathlib import Path
+
+        from functualize._primitives.run_store import RunStore
         from functualize._primitives.scope_state_store import scope_state_dir
+        from functualize._primitives.shell_history import ShellHistoryStore
         from functualize.app.utils import (
             SCOPES_LIMIT,
             SCOPES_VERSION,
+            FreshStore,
             ScopeStoreUnreadableError,
-            StateStore,
         )
 
         path, mode, marker = _state_location()
-        store = StateStore(path)
+        store = FreshStore(path)
         click.echo(f"Fingerprints: {len(store.fingerprint_keys())}")
 
         # `show` is the command someone runs to find out what is wrong, so it
@@ -913,54 +957,86 @@ def register_builtin_commands(cli_group: Any) -> None:
             count = "" if exc.scope_count is None else f"{exc.scope_count} scopes, "
             click.echo(f"Scopes:       unreadable — {count}{detail}")
 
-        # History left this file in `durable-run-layer`/T3b, so `state show`
-        # stops reporting it: what remains here is freshness verdicts, and a
-        # count of something the file no longer holds would be a lie in the one
-        # command a user runs to find out what is wrong. `func builtin history`
-        # is where history is answered now.
-        click.echo(f"State path: {path}")
+        # History left this file in `durable-run-layer`/T3b, so this stops
+        # reporting it: what remains here is freshness verdicts, and a count of
+        # something the file no longer holds would be a lie in the one command
+        # a user runs to find out what is wrong. `func builtin history` is
+        # where history is answered now.
+
+        # The other two stores the `data` group covers. Reporting three of five
+        # and calling the command `data` would be the same under-description
+        # the group was renamed to escape.
+        runs_path = RunStore.for_project(Path.cwd()).path
+        shell_path = ShellHistoryStore.for_project(Path.cwd()).path
+        click.echo(f"Runs: {_run_count(runs_path)} ({_file_size(runs_path)})")
+        click.echo(f"Shell history: {_shell_count(shell_path)}")
+
+        click.echo(f"Freshness path: {path}")
         click.echo(f"Scopes path: {store.scopes_path}")
+        click.echo(f"Runs path: {runs_path}")
         click.echo(f"Scopes format: v{SCOPES_VERSION}")
         click.echo(f"Mode:       {_state_mode_line(mode, marker)}")
 
         if fault is not None:
             click.echo("")
             click.echo(
-                "Error: run `func builtin state clear --scopes` to move the "
+                "Error: run `func builtin data clear --scopes` to move the "
                 "scope file aside and start fresh.",
                 err=True,
             )
             raise SystemExit(ExitCode.USAGE)
 
-    @state_app.command("clear")
+    @data_app.command("clear")
     @click.option(
         "--scopes",
         "clear_scopes",
         is_flag=True,
         help="Also discard persisted workflow scopes, including in-flight runs.",
     )
-    def state_clear(clear_scopes: bool) -> None:
-        """Reset derived runtime state — fingerprints, run history, and the
-        session precondition cache.
+    @click.option(
+        "--runs",
+        "clear_runs",
+        is_flag=True,
+        help="Also delete the run log — what ran here, and how each run ended.",
+    )
+    @click.option(
+        "--all",
+        "clear_all",
+        is_flag=True,
+        help="Every target: freshness, scopes, the run log and shell history.",
+    )
+    def data_clear(clear_scopes: bool, clear_runs: bool, clear_all: bool) -> None:
+        """Reset derived data — freshness verdicts and the session cache.
 
         Workflow scopes are kept unless --scopes is passed: a scope is a run
         somebody is waiting on, not a cache. Never touches the discovery cache.
+
+        **Derived data is deleted; records are moved aside.** That asymmetry is
+        the whole reason `--scopes` is a separate flag rather than the default:
+        a scope holds gate payloads a human deposited, so clearing it renames
+        the file and says where it went — which is also the escape hatch from a
+        scope file that cannot be parsed, and why it never reads it first.
         """
         from pathlib import Path
 
+        from functualize._primitives.run_store import RunStore
+        from functualize._primitives.shell_history import ShellHistoryStore
         from functualize.app.utils import (
+            FreshStore,
             ScopeStoreUnreadableError,
-            StateStore,
+            resolve_fresh_path,
             resolve_scopes_path,
-            resolve_state_path,
         )
 
-        path = resolve_state_path(Path.cwd())
+        if clear_all:
+            clear_scopes = clear_runs = True
+
+        path = resolve_fresh_path(Path.cwd())
         scopes_path = resolve_scopes_path(Path.cwd())
         if not path.exists() and not scopes_path.exists():
             raise SystemExit(0)
 
-        store = StateStore(path)
+        store = FreshStore(path)
 
         # Counted before clearing, and best-effort: an unreadable scope store
         # is exactly when --scopes matters most, so it must not block the one
@@ -972,7 +1048,19 @@ def register_builtin_commands(cli_group: Any) -> None:
             kept = None
 
         moved = store.clear(scopes=clear_scopes)
-        click.echo("Cleared fingerprints, history and session state.")
+        click.echo("Cleared freshness verdicts and session state.")
+
+        # Derived, like the freshness ledger — deleted rather than moved aside.
+        # The run log is an observation of what happened, not a record anyone
+        # is waiting on, so losing it costs history and nothing in flight.
+        if clear_runs:
+            for target, label in (
+                (RunStore.for_project(Path.cwd()).path, "run log"),
+                (ShellHistoryStore.for_project(Path.cwd()).path, "shell history"),
+            ):
+                if target.exists():
+                    target.unlink()
+                    click.echo(f"Cleared the {label}.")
 
         if clear_scopes:
             if moved is None:
@@ -992,7 +1080,7 @@ def register_builtin_commands(cli_group: Any) -> None:
                 "pass --scopes to move it aside."
             )
 
-    _mount(builtin_app, state_app, "state")
+    _mount(builtin_app, data_app, "data")
 
     # --- Workflow sub-group (D2b: MCP↔CLI parity over the state store) ---
     # These mirror the MCP workflow tools. `list`/`state`/`cancel` read the
@@ -1037,9 +1125,9 @@ def register_builtin_commands(cli_group: Any) -> None:
         """
         from pathlib import Path
 
-        from functualize.app.utils import StateStore
+        from functualize.app.utils import FreshStore
 
-        return StateStore.for_project(Path.cwd())
+        return FreshStore.for_project(Path.cwd())
 
     @contextlib.contextmanager
     def _workflow_refusal() -> Any:
@@ -2828,15 +2916,17 @@ def register_builtin_commands(cli_group: Any) -> None:
                     click.echo("  Convention dirs: (none detected)")
 
         # Where freshness is remembered, and which of the two modes that is.
-        # `resolve_state_path` has always walked upward for a `.functualize/`
+        # `resolve_fresh_path` has always walked upward for a `.functualize/`
         # and fallen back to the home cache, and nothing said which had
         # happened — so a project could spend its whole life in standalone
-        # mode and then go looking for a `state.json` under a hashed directory
+        # mode and then go looking for a `fresh.json` under a hashed directory
         # it had never seen.
         state_path, state_mode, state_marker = _state_location()
         click.echo("")
         click.echo("─── Runtime State ───")
-        click.echo(f"  State path: {state_path}")
+        # The same label `data show` uses. Two words for one path is the drift
+        # that made `state` ambiguous in the first place.
+        click.echo(f"  Freshness path: {state_path}")
         # The scope file is reported here for the same reason the mode is: a
         # file whose location nothing prints is a file nobody finds.
         click.echo(f"  Scopes path: {state_path.with_name('scopes.json')}")

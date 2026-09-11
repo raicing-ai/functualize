@@ -120,7 +120,7 @@ rg -c "the trap this job pins" examples/standalone/composition_lab/jobs/pipeline
 ```
 now: `1` · after: `0`
 
-## T8 · One name per store [deferred]
+## T8 · One name per store [x] — resolved by `durable-run-layer`/T3b
 
 `[F]` `src/functualize/_engine/capabilities/state_store.py`,
 `src/functualize/_primitives/state_store.py`, and their importers
@@ -149,9 +149,35 @@ actually hits, while renaming the *file* is a migration. Recorded as a decision
 rather than an omission — if the file is renamed later it is its own change.
 
 ```
-rg -c "^class StateStore" src/functualize/_engine/capabilities/state_store.py src/functualize/_primitives/state_store.py | awk -F: '{s+=$2} END {print s}'
+rg -c "^class StateStore\b" src/ plugins/ | awk -F: '{s+=$2} END {print s+0}'
 ```
-now: `2` · after: `0`
+now: `2` · after: **`0`** — verified 2026-09-12
+
+## How it resolved, and why the deferral was right
+
+Deferred because it would have renamed `_primitives.StateStore` → `RuntimeStore`
+while `store-substrate` renamed the same class → `FreshStore`, meaning the same
+class twice. Neither name is what happened: `durable-run-layer`/T3b renamed it
+`FreshStore` **and** renamed the file to `fresh.json`, so the collision is gone
+and the class is named for what it holds.
+
+The paragraph above — *"the file name and `state_root` do not move… renaming the
+file is a migration. Recorded as a decision rather than an omission — if the file
+is renamed later it is its own change"* — is superseded, exactly as it allowed
+for. The file moved, in its own change, once `history` left it and the name
+`fresh.json` became a definition rather than an approximation.
+
+What the five words are now, with no two meaning the same thing:
+
+| holds | name |
+|---|---|
+| a run's shared keys, durable | `State` (`rc.state`, or a `state:` parameter) |
+| the plugin contract `State`'s backend implements | `StateStoreProtocol` |
+| `fresh.json` — freshness verdicts, session cache | `FreshStore` |
+| `scopes.json` — the walk's control data | `ScopeStore` |
+| `scope-state/<id>.json` — one run's keys on disk | `ScopeStateStore` |
+| `runs.json` — every execution | `RunStore` |
+| `shell-history.json` — typed commands | `ShellHistoryStore` |
 
 ## T9 · The lock's timeout is not silent [x]
 

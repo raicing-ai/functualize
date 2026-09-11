@@ -40,7 +40,7 @@ from functualize._primitives.graph import descendants
 from functualize._types.workflow import AgentStep, ConditionalEdge, Gate, Step
 
 if TYPE_CHECKING:
-    from functualize._primitives.state_store import StateStore
+    from functualize._primitives.fresh_store import FreshStore
     from functualize._types.protocols import AgentStepResult
     from functualize._types.workflow import WorkflowDeclaration, _EndSentinel
 
@@ -229,7 +229,7 @@ class WorkflowWalker:
     def __init__(
         self,
         declaration: WorkflowDeclaration,
-        store: StateStore,
+        store: FreshStore,
         scope_id: str,
         *,
         run_step: Callable[[str], Any],

@@ -340,7 +340,7 @@ class SmartBar(Input):
 
     # --- State save/restore (INSERT mode) ---
 
-    def save_state(self) -> None:
+    def save_fresh(self) -> None:
         """Save current value, cursor position, placeholder, and readiness.
 
         Called before entering INSERT mode so the bar can be restored later.
@@ -356,7 +356,7 @@ class SmartBar(Input):
         """Restore previously saved state after INSERT mode ends.
 
         Raises:
-            RuntimeError: If no state was saved via save_state().
+            RuntimeError: If no state was saved via save_fresh().
         """
         # Unmask first, before anything that can raise. COMMAND mode is never
         # masked, and a bar left in `password` would silently hide every
@@ -366,7 +366,7 @@ class SmartBar(Input):
         self._suppress_autocomplete = False
 
         if self._saved_state is None:
-            msg = "restore_state() called without prior save_state()"
+            msg = "restore_state() called without prior save_fresh()"
             raise RuntimeError(msg)
 
         saved = self._saved_state

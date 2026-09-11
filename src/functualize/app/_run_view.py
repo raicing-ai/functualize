@@ -307,7 +307,7 @@ def job_history(store: Any, limit: int | None = None) -> list[dict[str, Any]]:
     """What the user launched, newest first — derived, not stored.
 
     Until `durable-run-layer`/T3b this was a second record: a 200-entry ring in
-    `state.json`, written by the engine beside the run log. The run log already
+    the freshness ledger, written by the engine beside the run log. The log already
     held every one of those runs *and* the nested ones *and* who invoked them,
     so the ring was a poorer copy of a subset — the drift these projections
     exist to end, in the one place it had survived.

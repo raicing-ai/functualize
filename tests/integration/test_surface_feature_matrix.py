@@ -48,9 +48,9 @@ def _scope_id_of(root: Path) -> str:
     the walk's identity, and taking it from the store is taking it from the
     same place `resume` will look.
     """
-    from functualize._primitives.state_store import StateStore
+    from functualize._primitives.fresh_store import FreshStore
 
-    store = StateStore.for_project(root / ".functualize")
+    store = FreshStore.for_project(root / ".functualize")
     scope_ids = store.scope_ids()
     assert len(scope_ids) == 1, f"expected exactly one scope, got {scope_ids}"
     return scope_ids[0]

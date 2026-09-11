@@ -110,9 +110,9 @@ class GateToolPolicy:
     @property
     def store(self) -> Any:
         if self._store is None:
-            from functualize._primitives.state_store import StateStore
+            from functualize._primitives.fresh_store import FreshStore
 
-            self._store = StateStore.for_project(Path.cwd())
+            self._store = FreshStore.for_project(Path.cwd())
         return self._store
 
     def permitted(self, tool_name: str) -> bool:

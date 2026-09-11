@@ -458,7 +458,7 @@ Returns a `JobResult` with status, duration, return value, and any exception.
 
 ### `rc.invoke_parallel(jobs)`
 
-Invoke multiple jobs concurrently (1-32 jobs). Each child gets an independent `RunContext` with its own `StateStore`:
+Invoke multiple jobs concurrently (1-32 jobs). Each child gets an independent `RunContext` with its own `FreshStore`:
 
 ```python
 def fan_out(rc: RunContext) -> None:

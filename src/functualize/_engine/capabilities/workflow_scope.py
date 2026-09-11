@@ -1,6 +1,6 @@
 """Workflow scope module providing a logical grouping of job executions.
 
-A WorkflowScope groups job executions that share a StateStore, enabling
+A WorkflowScope groups job executions that share a FreshStore, enabling
 cross-job state persistence. It is a generic building block — not coupled
 to any orchestration provider. Orchestration plugins consume this primitive
 to implement durable workflows.
@@ -123,9 +123,9 @@ class WorkflowScope:
         self._state_store = store
 
     def close(self) -> None:
-        """Mark scope as completed and close the underlying StateStore.
+        """Mark scope as completed and close the underlying FreshStore.
 
-        Prevents further state mutations via the shared StateStore.
+        Prevents further state mutations via the shared FreshStore.
 
         Raises:
             InvalidStateTransitionError: If the scope is already closed.

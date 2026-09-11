@@ -1,11 +1,11 @@
 """Run-log file format: the third sibling, and the one that discards.
 
-`state.json`, `scopes.json` and now `runs.json`. Three files, three version
+`fresh.json`, `scopes.json` and now `runs.json`. Three files, three version
 numbers, and — the part that matters — **three different answers to a version
 this build does not understand**:
 
 ============  =====================  ===============================  ==================
-condition     ``state.json``         ``scopes.json``                  ``runs.json``
+condition     ``fresh.json``         ``scopes.json``                  ``runs.json``
 ============  =====================  ===============================  ==================
 absent        empty envelope         empty — "no scopes"              empty — "no runs"
 unparseable   empty envelope         **refuse**, file left in place   empty envelope
@@ -18,7 +18,7 @@ Losing it spends an approval on a run that no longer exists.
 
 A **run record is an observation of something that already happened.** It is
 derived in the same sense a fingerprint is: losing it costs history, not work.
-So this file discards, like `state.json`, and the reasoning is worth stating
+So this file discards, like `fresh.json`, and the reasoning is worth stating
 because the wrong choice here is expensive in a way that is easy to miss —
 putting run records in `scopes.json` would force the *strictest* policy onto the
 *most voluminous* data, and one corrupt run log would then block every workflow
@@ -38,16 +38,16 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from functualize._primitives.state_format import (
+from functualize._primitives.fresh_format import (
     atomic_write_json,
-    resolve_state_location,
-    state_lock,
+    file_lock,
+    resolve_fresh_location,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-#: Run-log format version. **Independent of `STATE_VERSION` and
+#: Run-log format version. **Independent of `FRESH_VERSION` and
 #: `SCOPES_VERSION`** — that independence is the reason for the third file.
 #:
 #: v1 (2026-09-11): {format_version, runs: {run_id: record}, events:
@@ -56,7 +56,7 @@ if TYPE_CHECKING:
 #: fourth file whose only relationship is that it is always read with the third.
 RUNS_VERSION = 1
 
-#: Run-log file name within the resolved directory (beside `state.json`).
+#: Run-log file name within the resolved directory (beside `fresh.json`).
 RUNS_FILENAME = "runs.json"
 
 #: Ring cap per run. Same reasoning the retired `HISTORY_LIMIT` had (it left
@@ -78,19 +78,19 @@ def empty_runs() -> dict[str, Any]:
 def resolve_runs_path(start: Path | str) -> Path:
     """Resolve the run-log path — always the state file's sibling.
 
-    Derived from :func:`state_format.resolve_state_location` rather than
+    Derived from :func:`state_format.resolve_fresh_location` rather than
     repeating its upward walk, so the three files cannot disagree about which
     project or which mode they are in. A reader must not reconstruct a key the
     writer computed.
     """
-    return resolve_state_location(Path(start))[0].with_name(RUNS_FILENAME)
+    return resolve_fresh_location(Path(start))[0].with_name(RUNS_FILENAME)
 
 
 def runs_lock(path: Path | str, timeout: float = 10.0) -> Any:
     """Advisory lock on the run log, using the state store's ``.lock`` sidecar
     discipline. Separate file, separate lock — the three stores never block one
     another."""
-    return state_lock(path, timeout)
+    return file_lock(path, timeout)
 
 
 def load_runs(path: Path | str) -> dict[str, Any]:
@@ -98,7 +98,7 @@ def load_runs(path: Path | str) -> dict[str, Any]:
 
     **Never raises for content.** A missing file, a truncated one, a version
     from a future build — all read as "no runs". That is the same rule
-    `state.json` follows and the opposite of `scopes.json`, and the difference
+    `fresh.json` follows and the opposite of `scopes.json`, and the difference
     is deliberate: see this module's docstring.
 
     The file is left in place either way. Discarding the *content* is not the
@@ -149,7 +149,7 @@ def update_runs(
     nested and parallel ones history excludes.
     """
     target = Path(path)
-    with state_lock(target):
+    with file_lock(target):
         envelope = load_runs(target)
         mutate(envelope)
         _trim(envelope)

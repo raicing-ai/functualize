@@ -185,8 +185,8 @@ class JobExecutionEngine:
             into a field a later boot step has to remember to update. None
             means the engine was built without an app (embedding, unit tests);
             every host-backed accessor then answers as absent — except
-            :attr:`state_root`, which has no honest absent answer and raises.
-        state_root: Where this project's derived state lives, for an engine
+            :attr:`fresh_root`, which has no honest absent answer and raises.
+        fresh_root: Where this project's derived state lives, for an engine
             built with *no* host. Ignored when a host is given: the host
             answers that question, and a second answer is how the kernel came
             to ask the operating system three different ways.
@@ -201,7 +201,7 @@ class JobExecutionEngine:
         max_invoke_depth: int = 10,
         plugin_config_registry: Any = None,
         host: EngineHost | None = None,
-        state_root: Path | None = None,
+        fresh_root: Path | None = None,
         gate_registry: Any = None,
         agent_step_registry: Any = None,
         config_view_factory: Callable[..., Any] | None = None,
@@ -214,7 +214,7 @@ class JobExecutionEngine:
         self._max_invoke_depth = max_invoke_depth
         self._plugin_config_registry = plugin_config_registry
         self._host = host
-        self._explicit_state_root = state_root
+        self._explicit_state_root = fresh_root
         self._gate_registry = gate_registry
         self._agent_step_registry = agent_step_registry
         self._registered_jobs: dict[str, RegisteredJob] = {}
@@ -262,7 +262,7 @@ class JobExecutionEngine:
         return self._host
 
     @property
-    def state_root(self) -> Path:
+    def fresh_root(self) -> Path:
         """Where this project's derived run state (fingerprints, history,
         workflow scopes) lives — the host's answer, or the explicit one.
 
@@ -280,13 +280,13 @@ class JobExecutionEngine:
         """
         host = self._host
         if host is not None:
-            return host.state_root
+            return host.fresh_root
         if self._explicit_state_root is not None:
             return self._explicit_state_root
         raise RuntimeError(
-            "this engine was built without a host and without state_root, so "
+            "this engine was built without a host and without fresh_root, so "
             "it does not know where this project's state lives; construct it "
-            "with _app.boot.build_engine(app), or pass state_root explicitly"
+            "with _app.boot.build_engine(app), or pass fresh_root explicitly"
         )
 
     @property
@@ -892,7 +892,7 @@ class JobExecutionEngine:
             scope = host_scope(scope_id)
             self._scopes[scope_id] = scope
             return scope
-        scopes = ScopeStore.beside_state(self._state_store().path)
+        scopes = ScopeStore.beside_fresh(self._state_store().path)
         scope = WorkflowScope(
             scope_id, state_store=ScopeBackedStateStore(scopes, scope_id)
         )
@@ -919,7 +919,7 @@ class JobExecutionEngine:
             from functualize._primitives.fingerprint import compute_args_hash
             from functualize._primitives.run_store import RunStore, runner_identity
 
-            store = RunStore.beside_state(self._state_store().path)
+            store = RunStore.beside_fresh(self._state_store().path)
             return store.open_run(
                 {
                     "job": request.job_name,
@@ -1005,7 +1005,7 @@ class JobExecutionEngine:
         try:
             from functualize._primitives.scope_store import ScopeStore
 
-            scopes = ScopeStore.beside_state(self._state_store().path)
+            scopes = ScopeStore.beside_fresh(self._state_store().path)
             record = scopes.get_scope(scope_id)
             if record is None:
                 # Nothing was ever written for this scope — a run that touched
@@ -1033,7 +1033,7 @@ class JobExecutionEngine:
         try:
             from functualize._primitives.run_store import RunStore
 
-            store = RunStore.beside_state(self._state_store().path)
+            store = RunStore.beside_fresh(self._state_store().path)
             store.close_run(run_id, "failure")
         except Exception:  # noqa: BLE001 - an observation is never worth a run
             logger.debug("could not close a run record", exc_info=True)
@@ -1045,7 +1045,7 @@ class JobExecutionEngine:
         try:
             from functualize._primitives.run_store import RunStore
 
-            store = RunStore.beside_state(self._state_store().path)
+            store = RunStore.beside_fresh(self._state_store().path)
             store.close_run(run_id, result.status.value.lower())
         except Exception:  # noqa: BLE001 - an observation is never worth a run
             logger.debug("could not close run record %s", run_id, exc_info=True)
@@ -1324,7 +1324,7 @@ class JobExecutionEngine:
             # What the job was *actually* given, after config resolution and
             # coercion — the only honest answer to "why did this step do that",
             # and the thing a workflow step record has to carry. Secrets are
-            # masked here rather than at the reader: this lands in state.json
+            # masked here rather than at the reader: this lands in fresh.json
             # and is handed to external agents over MCP.
             context.metadata["resolved_inputs"] = redacted_snapshot(context.call_kwargs)
         except (ValidationError, MissingValueError) as validation_error:
@@ -1490,9 +1490,9 @@ class JobExecutionEngine:
         path walks the filesystem upward looking for `.functualize/`.
         """
         if self._workflow_state_store is None:
-            from functualize._primitives.state_store import StateStore
+            from functualize._primitives.fresh_store import FreshStore
 
-            self._workflow_state_store = StateStore.for_project(self.state_root)
+            self._workflow_state_store = FreshStore.for_project(self.fresh_root)
         return self._workflow_state_store
 
     def _failure_before_execution(
@@ -2100,7 +2100,7 @@ class JobExecutionEngine:
             from functualize._engine.preflight import Preflight
 
             self._preflight_pipeline = Preflight(
-                self._state_store(), root=self.state_root
+                self._state_store(), root=self.fresh_root
             )
         return self._preflight_pipeline
 
@@ -2398,7 +2398,7 @@ class JobExecutionEngine:
         fallback so the two features cannot drift into disagreeing about what
         "non-interactive" means (Merge B). Fields flagged secret are collected
         masked — the same test that decides whether a value is redacted in
-        ``state.json`` decides whether it is echoed while being typed.
+        ``fresh.json`` decides whether it is echoed while being typed.
 
         Args:
             config_class: The Pydantic config model being resolved.
