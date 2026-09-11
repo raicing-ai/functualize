@@ -15,6 +15,7 @@ Protocols defined here:
 - VaultKeyProvider: Where the local secrets vault's key comes from
 - EngineHost: What the execution engine needs from outside itself
 - AgentStepExecutor: Runs a workflow step by delegating it to an agent
+- StoreSubstrate: Where functualize keeps its own bookkeeping
 
 The agent step port carries its own payload vocabulary — ``AgentCapability``
 (what an executor promises it can enforce), ``AgentStepContext`` (what it is
@@ -22,6 +23,10 @@ given) and ``AgentStepResult`` (what it returns). Those three live here rather
 than in a module of their own because the port is their only consumer, and an
 implementation that imports the Protocol needs the other three names at the
 same moment.
+
+The store substrate port likewise carries ``Stored`` — a document and the
+revision it was read at, which travel together because compare-and-swap
+cannot work if they can disagree.
 
 Re-exported from functualize._types.interactivity:
 - Surface: renders a job's events
@@ -31,6 +36,7 @@ Re-exported from functualize._types.interactivity:
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
@@ -627,6 +633,109 @@ class AgentStepExecutor(Protocol):
         ...
 
 
+@dataclass(frozen=True, slots=True)
+class Stored:
+    """A document read back out of a substrate, with the revision it was at.
+
+    The two travel together because compare-and-swap cannot work if they can
+    disagree: a caller that read the document in one call and its revision in
+    another has a window between them in which someone else wrote, and would
+    then pass an ``expect`` that describes a document it never saw.
+
+    Attributes:
+        data: The document. A mapping, always — a substrate that finds
+            anything else raises rather than coercing.
+        revision: An opaque token identifying *this* content. Compare it, pass
+            it to :meth:`StoreSubstrate.write`; do not order it or do
+            arithmetic on it. A filesystem derives one from the bytes, a remote
+            store from its own row version, and neither meaning survives the
+            other.
+    """
+
+    data: dict[str, Any]
+    revision: int
+
+
+@runtime_checkable
+class StoreSubstrate(Protocol):
+    """Where functualize keeps its own bookkeeping.
+
+    Three members, deliberately. The tempting port is the union of what the
+    stores already do — ``get_scope``, ``record_step``, ``append_event``,
+    ``put_fingerprint`` — which is an interface with one implementation that
+    every new store verb widens. What the stores actually need from storage is:
+    *give me this document*, *put this document back*, and *stop anyone else
+    while I do both*. The discard rules, the caps and the record shapes are
+    decisions about **meaning** and stay on the store; ``scopes.json`` refusing
+    an unreadable file while ``fresh.json`` degrades to empty is not a fact
+    about storage and must not move here.
+
+    **A key is not a path.** ``"fresh"``, ``"scopes"``, ``"runs"``,
+    ``"scope-state/<scope-id>"`` — a substrate over SQLite or S3 maps those
+    however it likes. They are stable because they are what the store already
+    calls the thing.
+
+    **Two ways to be safe, because backends differ.** A filesystem gets mutual
+    exclusion from ``flock``; a remote store often cannot offer it and needs
+    compare-and-swap instead. Both live in the port from the start so a remote
+    implementation does not have to invent a second method later, and so
+    :meth:`write` reports refusal rather than assuming a lock was held.
+    """
+
+    def read(self, key: str) -> Stored | None:
+        """The document at ``key`` and its revision, or None if never written.
+
+        None and an empty document are different answers — nothing has been
+        stored here, versus something empty was — and stores rely on the
+        distinction: a missing ``scopes.json`` reads as "no scopes", an
+        unparseable one refuses.
+
+        Raises:
+            SubstrateUnreadableError: The document exists and could not be
+                decoded. The *store* decides whether that is fatal.
+        """
+        ...
+
+    def write(
+        self, key: str, payload: dict[str, Any], *, expect: int | None = None
+    ) -> bool:
+        """Replace the document at ``key``. False when ``expect`` did not match.
+
+        Atomic in the sense that matters: a reader sees either the previous
+        document or this one, never half of one.
+
+        Args:
+            key: The document to replace.
+            payload: Its new content.
+            expect: The revision the caller last read, or None to write
+                unconditionally. Passing None on a read-modify-write is safe
+                only while holding :meth:`lock`.
+
+        Returns:
+            True when the write landed. False when ``expect`` was given and the
+            stored revision has moved since — the caller re-reads and retries.
+            A failed compare-and-swap is an ordinary outcome, not an error.
+        """
+        ...
+
+    def lock(self, *keys: str) -> AbstractContextManager[None]:
+        """Exclusive access to every key given, where the substrate offers it.
+
+        **Variadic, and that is load-bearing.** A substrate handing out a lock
+        *per key* reproduces the lock-order inversion this port exists to
+        remove: a record write inside ``state.batch()`` takes state then
+        scopes, while a state write inside ``store.batch()`` takes scopes then
+        state, and no store can fix it because the *caller* chooses which batch
+        to open first. Being able to say "one lock covering everything this
+        substrate holds" removes it by construction rather than by asking
+        callers to be careful.
+
+        May be a no-op for a backend that offers no mutual exclusion, which is
+        why :meth:`write` takes ``expect`` and returns a bool.
+        """
+        ...
+
+
 __all__ = [
     # Protocols
     "AdapterPlugin",
@@ -638,12 +747,15 @@ __all__ = [
     "ModulePreFilter",
     "PluginWithShutdown",
     "Source",
+    "StoreSubstrate",
     "VaultKeyProvider",
     # Agent step port payload vocabulary
     "AgentCapability",
     "AgentStepContext",
     "AgentStepResult",
     "capability_value",
+    # Store substrate port payload vocabulary
+    "Stored",
     # Re-exports from functualize._types.interactivity
     "InputNotAvailable",
     "PromptChoice",

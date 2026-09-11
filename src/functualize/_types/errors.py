@@ -450,3 +450,28 @@ class AgentCapabilityRefusedError(Exception):
             f"not declare (it declares: {declared}). The step is refused — "
             "running it would leave the constraint unenforced."
         )
+
+
+class SubstrateUnreadableError(Exception):
+    """A stored document exists but its bytes could not be turned into a mapping.
+
+    **Raised, never swallowed.** Whether that is fatal is the *store's*
+    decision, not storage's: ``fresh_format`` degrades to an empty envelope
+    because its content is recomputable, and ``scope_format`` refuses because a
+    scope is the only trace of an in-flight run — see
+    :class:`ScopeStoreUnreadableError`, which is what a store raises once it has
+    decided. A substrate that chose between those would be taking a decision
+    about *meaning* it has no standing to take.
+
+    The document is **left where it is**, for the same reason
+    :class:`ScopeStoreUnreadableError` leaves its file: a refusal has to be a
+    repeatable state.
+
+    Attributes:
+        key: The document name that could not be read. A key, not a path — a
+            substrate over SQLite or S3 has no path to report.
+    """
+
+    def __init__(self, key: str, detail: str) -> None:
+        self.key = key
+        super().__init__(f"Cannot read {key!r}: {detail}")

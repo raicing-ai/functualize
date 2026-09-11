@@ -39,10 +39,12 @@ it up to discover:
    port has to make "one lock for everything this substrate holds" expressible,
    and T7's no-shared-disk case has to work under it.
 
-## T1 · The port exists, with a filesystem implementation
+## T1 · The port exists, with a filesystem implementation — [x]
 
 `[F]` `src/functualize/_types/protocols.py`,
-`src/functualize/_primitives/substrate.py` (new)
+`src/functualize/_types/errors.py`,
+`src/functualize/_primitives/substrate.py` (new),
+`tests/primitives/test_substrate.py` (new)
 
 `StoreSubstrate` with `read` / `write(expect=)` / `lock`, and
 `JsonFileSubstrate` reproducing today's behaviour exactly — same paths, same
@@ -51,7 +53,41 @@ it up to discover:
 ```
 rg -l "class StoreSubstrate" src/ || echo missing
 ```
-now: `missing` · after: the protocol's file
+now: `src/functualize/_types/protocols.py` · before: `missing`
+
+### Three shapes settled while building it
+
+Recorded because each departs from `plan.md` R-a, and a silent departure is
+indistinguishable from an oversight.
+
+1. **`lock` is variadic — `lock(*keys)`, not `lock(collection)`.** R-a predates
+   the re-measurement note at the top of this file. Spec §E.2 is the authority:
+   *"one lock for everything this substrate holds has to be expressible in the
+   port"*, because a lock per collection reproduces the inversion in a new place
+   and the feature would then have moved the bug rather than removed it.
+
+2. **Keys, not collections.** `scope_state_store` is one document per scope, so
+   the fourth store's name is `scope-state/<scope-id>` — a slash-separated
+   document name a substrate maps however it likes. `collection` stopped being
+   the right word when the fourth store arrived.
+
+3. **`read` returns `Stored(data, revision)`, not a bare envelope.** R-a has
+   `read -> dict` and `write(expect=int)`, which cannot work: a caller that
+   reads the document in one call and its revision in another has a window
+   between them and would pass an `expect` describing a document it never saw.
+   The two travel together or compare-and-swap is decorative.
+
+   For the same reason the filesystem implementation **honours** `expect`
+   rather than ignoring it as R-a permits — the revision is a content hash of
+   the bytes on disk, so a stale compare genuinely returns False and the
+   refusal is reachable by a test. A port member nothing honours is a gate that
+   cannot fail, which is what T7 would have discovered first.
+
+`write` deliberately does **not** take the lock: `file_lock` opens a fresh
+descriptor and `flock`s it, so a nested acquire inside a caller that already
+holds the key spins the full ten-second timeout, warns that writes can now be
+lost, and proceeds. `lock` is how a caller gets exclusion; `expect` is how a
+caller gets it back from a substrate that has none to give.
 
 ## T2 · The three stores take a substrate, not a path
 
