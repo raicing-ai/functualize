@@ -293,10 +293,10 @@ def test_the_blocked_message_names_a_command_path_not_a_job_address(
     assert "flow.grouped-walk --wf-resume" not in err, (
         "the message printed the job address, which is not a runnable command"
     )
-    assert re.search(r"flow grouped-walk --wf-resume [0-9a-f]+", err), err
+    assert re.search(r"flow grouped-walk --wf-resume [\w.-]+", err), err
 
     # And the command it printed actually runs.
-    match = re.search(r"--wf-resume ([0-9a-f]+)", err)
+    match = re.search(r"--wf-resume ([\w.-]+)", err)
     assert match is not None
     resumed = _run(
         project, surface, "flow", "grouped-walk", "--wf-resume", match.group(1)
