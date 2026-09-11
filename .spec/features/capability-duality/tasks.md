@@ -15,22 +15,42 @@ rg -c "def keys\(self, prefix" src/functualize/_engine/capabilities/state_store.
 ```
 now: `0` · after: `1`
 
-## T2 · `State` names one class
+## T2 · `State` is durable — no in-memory store at all
 
-`[F]` `src/functualize/_engine/capabilities/state.py` (deleted),
-`src/functualize/_engine/capabilities/state_store.py`,
-`src/functualize/_engine/capabilities/registry.py`,
-`src/functualize/job/_state.py`, `src/functualize/testing/builder.py`,
-`src/functualize/testing/doubles.py`
+`[F]` `src/functualize/_primitives/scope_format.py`,
+`src/functualize/_primitives/scope_store.py`,
+`src/functualize/_engine/capabilities/state.py`,
+`src/functualize/_engine/capabilities/state_store.py` (deleted),
+`src/functualize/_engine/capabilities/workflow_scope.py`,
+`src/functualize/_engine/capabilities/runcontext.py`,
+`src/functualize/job/_state.py`, `src/functualize/job/_state_store.py`,
+`src/functualize/testing/builder.py`, `src/functualize/testing/doubles.py`
 
-Delete the per-invocation dict; `State` becomes the public name of the
-scope-aware store. The capability factory returns the run's instance rather
-than a new object.
+**Maintainer decision (2026-09-11), superseding the first draft of this task.**
+The in-memory store existed as a fallback for when no state plugin was
+installed. A fallback that silently empties on resume is not a fallback — the
+condition it degrades to is unusable, because the case you most need state in
+(a workflow that blocked at a gate and came back) is exactly the case that
+loses it. So it goes; there is no in-memory tier.
+
+`State` is backed by `ScopeStore`, keyed by scope id. That is the right file by
+the rule each store already states: `scopes.json` holds **records** — not
+recomputable, refuse-on-corrupt — and job-written state is a record by that
+test, while `state.json` holds derived data that may be discarded. A scope
+record already carries `steps`, `branches`, `gates`, `epilogue` and `position`;
+`state` joins them.
+
+Three properties come free from that choice: it survives resume (same scope id,
+same record), it is concurrency-safe (`update_scopes` re-reads inside the lock,
+so two writers merge), and two runs share nothing (different scope ids).
+
+`WorkflowScope.replace_state_store` **stays** — a plugin swapping in SQLite is
+still supported. What changes is the default it replaces.
 
 ```
-rg -c "^class State" src/functualize/_engine/capabilities/state.py src/functualize/_engine/capabilities/state_store.py src/functualize/_primitives/state_store.py src/functualize/_engine/capabilities/protocols.py | awk -F: '{s+=$2} END {print s}'
+rg -c "^class State" src/functualize/_engine/capabilities/state.py src/functualize/_engine/capabilities/state_store.py 2>/dev/null | awk -F: '{s+=$2} END {print s+0}'
 ```
-now: `4` · after: `3`
+now: `2` · after: `1`
 
 ## T3 · A workflow step's `rc.state` is the scope's store
 

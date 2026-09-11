@@ -67,6 +67,17 @@ def _blank_scope() -> dict[str, Any]:
         "position": None,
         "epilogue": None,
         "tool_calls": [],
+        #: Keys a *job body* wrote through `rc.state` / `state: State`.
+        #:
+        #: Here rather than in `state.json` by that file's own rule: this one
+        #: holds records — not recomputable, refuse rather than discard — and
+        #: what a job stored is a record by that test. `state.json` may throw
+        #: its contents away on a bad read, which for job state is the silent
+        #: data loss this section exists to avoid.
+        #:
+        #: Namespaced under the scope, so two runs of one workflow share
+        #: nothing and a resumed run finds what its earlier half wrote.
+        "state": {},
     }
 
 
@@ -197,6 +208,65 @@ class ScopeStore:
             return None
         record = scope.get("steps", {}).get(step_key)
         return record if isinstance(record, dict) else None
+
+    def get_state(self, scope_id: str, key: str, default: Any = None) -> Any:
+        """A value a job stored in this scope, or ``default``."""
+        scope = self.get_scope(scope_id)
+        if scope is None:
+            return default
+        state = scope.get("state")
+        if not isinstance(state, dict) or key not in state:
+            return default
+        return state[key]
+
+    def set_state(self, scope_id: str, key: str, value: Any) -> None:
+        """Store one value in this scope.
+
+        Goes through ``_mutate``, so the envelope is re-read inside the lock
+        and two jobs writing different keys merge rather than clobber. A job
+        writing many keys should hold :meth:`batch` — every call here is one
+        lock-read-write cycle otherwise.
+        """
+
+        def _apply(envelope: dict[str, Any]) -> None:
+            scope = envelope["scopes"].setdefault(scope_id, _blank_scope())
+            scope.setdefault("state", {})[key] = value
+
+        self._mutate(_apply)
+
+    def delete_state(self, scope_id: str, key: str) -> bool:
+        """Remove one key. True when it was there."""
+        removed = [False]
+
+        def _apply(envelope: dict[str, Any]) -> None:
+            scope = envelope["scopes"].get(scope_id)
+            if scope is None:
+                return
+            state = scope.get("state")
+            if isinstance(state, dict) and key in state:
+                del state[key]
+                removed[0] = True
+
+        self._mutate(_apply)
+        return removed[0]
+
+    def state_snapshot(self, scope_id: str) -> dict[str, Any]:
+        """Every key this scope holds, as a plain dict."""
+        scope = self.get_scope(scope_id)
+        if scope is None:
+            return {}
+        state = scope.get("state")
+        return dict(state) if isinstance(state, dict) else {}
+
+    def clear_state(self, scope_id: str) -> None:
+        """Drop every key in this scope, leaving the scope itself."""
+
+        def _apply(envelope: dict[str, Any]) -> None:
+            scope = envelope["scopes"].get(scope_id)
+            if scope is not None:
+                scope["state"] = {}
+
+        self._mutate(_apply)
 
     def record_branch(self, scope_id: str, source: str, target: str) -> None:
         """Record a chosen ``ConditionalEdge`` target on first evaluation.
