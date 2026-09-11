@@ -232,6 +232,62 @@ def _isolate_home(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _isolate_state_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> None:
+    """Keep the suite's runtime state out of the repository's own `.functualize/`.
+
+    `resolve_state_location` walks **upward** from its start directory, so any
+    test that does not `chdir` resolves to the checkout's own `.functualize/`
+    and writes there — `scopes.json`, `runs.json` and `state.json` alike, since
+    the latter two are resolved as that path's siblings.
+
+    Measured on this worktree before the fixture: `scopes.json` **1.6 MB**,
+    `runs.json` 252 KB, `state.json` 52 KB, all of it suite residue. It is
+    gitignored, so nothing was ever committed — the cost is not a dirty tree,
+    it is that **tests stop being independent**:
+
+    * A run inherits the previous run's records, so a test asserting "this is
+      invocation 1" passes alone and fails second.
+      `test_full_orchestration_flow` read `invocation=4` on its first call
+      because three earlier runs of the same test had left a counter behind.
+    * Durable state made the growth structural rather than incidental: before
+      it, only some runs wrote; now every run does.
+    * It is the most likely explanation for `.spec/KNOWN-RED.md` §10, a
+      cache-path flake that only appears under `-n auto`.
+
+    **Redirects rather than forbids.** A test that builds a project tree under
+    `tmp_path` (the `project_tree` fixture, the static trees in
+    `tests/_support/projects/`) has its own `.functualize/` there and must keep
+    resolving to it — that *is* the behaviour under test. So a directory found
+    inside `tmp_path` is returned untouched, and only a walk that escaped to an
+    ancestor is diverted into this test's own sandbox.
+
+    Opt out with ``@pytest.mark.real_state_root`` for a test whose subject
+    *is* the resolution — `tests/test_state_format.py` asserts that a directory
+    with no `.functualize/` above it falls back to XDG, and this fixture would
+    otherwise put one there and make standalone mode unreachable.
+    """
+    if request.node.get_closest_marker("real_state_root") is not None:
+        return
+
+    from functualize._primitives import state_format
+
+    real_find = state_format.find_functualize_dir
+    sandbox_root = tmp_path.resolve()
+    sandbox = sandbox_root / ".functualize"
+
+    def _scoped(start: Path) -> Path | None:
+        found = real_find(start)
+        if found is not None and found.resolve().is_relative_to(sandbox_root):
+            return found
+        sandbox.mkdir(parents=True, exist_ok=True)
+        return sandbox
+
+    monkeypatch.setattr(state_format, "find_functualize_dir", _scoped)
+
+
+@pytest.fixture(autouse=True)
 def _reset_entry_point_cache() -> Iterator[None]:
     """Give every test a cold entry-point snapshot.
 

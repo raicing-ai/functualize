@@ -177,6 +177,7 @@ markers = [
     "slow: marks tests as slow (property-based / hypothesis, skipped unless --run-slow is passed)",
     "integration: marks tests as integration tests (test plugin loading and cross-module interactions)",
     "perf_budget: marks wall-clock startup budget assertions (skipped under coverage or xdist; see tests/perf/conftest.py)",
+    "real_state_root: opts out of the autouse state-root sandbox, for a test whose subject is the path resolution itself (see tests/conftest.py::_isolate_state_root)",
 ]
 
 [tool.ruff]

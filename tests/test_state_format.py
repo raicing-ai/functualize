@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from functualize._primitives.state_format import (
     HISTORY_LIMIT,
     STATE_FILENAME,
@@ -51,8 +53,14 @@ class TestPathResolution:
         deep.mkdir(parents=True)
         assert resolve_state_path(deep) == tmp_path / ".functualize" / STATE_FILENAME
 
+    @pytest.mark.real_state_root
     def test_standalone_mode_uses_xdg(self, tmp_path) -> None:
         # No .functualize/ anywhere under tmp_path → XDG cache path.
+        #
+        # Opted out of `_isolate_state_root` because this test's subject *is*
+        # the resolution: that fixture sandboxes the suite by putting a
+        # `.functualize/` under `tmp_path`, which is precisely the condition
+        # standalone mode is defined by the absence of.
         path = resolve_state_path(tmp_path)
         assert path.name == STATE_FILENAME
         assert ".functualize" not in str(path)
