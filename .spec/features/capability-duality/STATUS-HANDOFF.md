@@ -94,6 +94,22 @@ committed, but it makes tests order-dependent and it produced a real failure
 (`invocation=4` on a first invocation). Some of the 36 may be order-dependent
 for this reason — **fix T10 before concluding any of them is flaky.**
 
+## Follows from this feature
+
+`store-substrate` — written 2026-09-11, **not started**. Two things this
+feature surfaced that it owns:
+
+- **The split-brain.** `capability-duality` put `rc.state` inside the scope
+  record, so swapping the KV store to SQLite today puts the value in SQLite and
+  the record that gives it meaning in `scopes.json` — two locks, no transaction
+  across them. `functualize-state-sqlite` produces this now.
+- **`StateStore` is 36 methods of which 25 forward to `ScopeStore`.** They
+  become peers over one substrate and the 25 are deleted.
+
+Sequenced after `durable-run-layer` T3b (history leaves `state.json`) and
+T5–T8 (the lease, which is the compare-and-swap primitive a remote substrate
+needs).
+
 ## Held elsewhere, deliberately
 
 `durable-run-layer`/**T3b** — deriving `history` from the run log, then renaming
