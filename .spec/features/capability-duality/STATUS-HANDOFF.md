@@ -1,8 +1,22 @@
 # Handoff — capability-duality
 
-**GREEN as of 2026-09-11.** `HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n
-auto -q` → **11,716 passed, 155 skipped, 0 failed**. ruff, `mypy` (348 files),
-`lint-imports` (7 contracts), and all four plugin suites pass. The section
+**GREEN as of 2026-09-11**, across all three suites — and the first version of
+this line was wrong, which is worth keeping:
+
+| suite | how it must be run | result |
+|---|---|---|
+| `tests/` | `HYPOTHESIS_PROFILE=ci pytest --run-slow -n auto` | 11,726 passed, 155 skipped |
+| `examples/` | separately — a conftest clash means it cannot be collected with `tests/` | 201 passed |
+| `plugins/*/tests` | one package at a time, same reason | 28 + 59 + 80 + 25 passed |
+
+Plus ruff, `mypy` (348 files), `lint-imports` (7 contracts).
+
+**`examples/` was red with 8 failures when this file first said GREEN.** It does
+not run with `tests/`, so "the full suite is green" was a claim about one of
+three suites. The failures were mine (the unified scope id) and had been there
+for hours. **Run all three before saying green** — the same shape of mistake as
+the `--run-slow` one below, one level out: the first was a flag I forgot, this
+was a suite I forgot. The section
 below is kept as the record of what was wrong and how it was found.
 
 ---
@@ -33,7 +47,8 @@ refactor**, not the directory you edited.
 | T5 · ADR-021 | done — `5009eca` |
 | T4 · `rc._cap` is the one resolver | done — `d7a01c4` |
 | T6 · the registry-driven tripwire | done — `43f5809` |
-| T7, T8, T9, T10 | not started |
+| T7 · the example stops teaching the trap | done — `81d4db2` |
+| T8, T9, T10 | not started |
 
 Plus `a7fb91d`: a scope with no workflow is no longer listed as one.
 
