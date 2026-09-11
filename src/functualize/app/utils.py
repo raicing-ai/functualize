@@ -103,6 +103,13 @@ from functualize._types.redaction import (
 from functualize._types.run_request import (
     RunRequest,
 )
+from functualize.app._run_view import (
+    RUN_STATES,
+    describe_run,
+    list_runs,
+    run_events,
+    run_tree,
+)
 from functualize.app._workflow_answer import answer_gate, gate_draft, resolve_gate
 from functualize.app._workflow_control import (
     GateToolPolicy,
@@ -190,7 +197,11 @@ __all__ = [
     "resume_scope",
     "gate_draft",
     "resolve_gate",
+    "describe_run",
+    "run_events",
+    "run_tree",
     "describe_scope",
+    "list_runs",
     "list_scopes",
     "LIVE_STATUSES",
     "DiscoveryOverrides",
@@ -228,6 +239,7 @@ __all__ = [
     # The scope store's location and version, for `builtin state show` and
     # `builtin info`: a file whose path nothing reports is a file nobody finds.
     "resolve_scopes_path",
+    "RUN_STATES",
     "SCOPES_LIMIT",
     "SCOPES_VERSION",
     # Raised when the scope store cannot be honoured. Public because `_cli`,

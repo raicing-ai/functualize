@@ -129,6 +129,7 @@ nav:
     - Modes: cli/modes.md
     - Scaffold Commands: cli/scaffold.md
     - Workflow Commands: cli/workflow.md
+    - Run Commands: cli/run.md
     - User App Commands: cli/user-app.md
   - Testing:
     - TUI Command Panel Manual Test: testing/tui-command-panel-manual-test.md

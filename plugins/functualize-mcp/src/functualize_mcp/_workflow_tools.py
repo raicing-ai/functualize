@@ -40,20 +40,25 @@ from functualize.app.utils import (
     LIVE_STATUSES as _LIVE_STATUSES,
 )
 from functualize.app.utils import (
-    GateToolPolicy as _GateToolPolicy,
-)
-from functualize.app.utils import (
+    RUN_STATES,
     StateStore,
     answer_gate,
     call_gate_tool,
     cancel_scope,
+    describe_run,
     describe_scope,
     gate_draft,
+    list_runs,
     list_scopes,
     purge_scopes,
     resolve_advanceable,
     resolve_gate,
     resume_scope,
+    run_events,
+    run_tree,
+)
+from functualize.app.utils import (
+    GateToolPolicy as _GateToolPolicy,
 )
 from functualize.app.utils import (
     pending_gates as _pending_gates,
@@ -119,11 +124,20 @@ class WorkflowToolProvider:
             materializing gate models on resume.
         store: State store to read. Defaults to the project store resolved
             from the working directory, the same way the engine resolves it.
+        run_store: Run log to read. Same defaulting; separate because scopes
+            and runs are separate files answering separate questions.
     """
 
-    def __init__(self, app: Any, *, store: StateStore | None = None) -> None:
+    def __init__(
+        self,
+        app: Any,
+        *,
+        store: StateStore | None = None,
+        run_store: Any | None = None,
+    ) -> None:
         self._app = app
         self._store = store
+        self._run_store = run_store
 
     @property
     def store(self) -> StateStore:
@@ -131,6 +145,21 @@ class WorkflowToolProvider:
         if self._store is None:
             self._store = StateStore.for_project(Path.cwd())
         return self._store
+
+    @property
+    def run_store(self) -> Any:
+        """The run log, resolved from the cwd on first use.
+
+        Separate from `store` because they are separate files answering
+        separate questions — a scope is a workflow's position, a run is one
+        execution. Resolved the same way, so the two cannot disagree about
+        which project they are in.
+        """
+        if self._run_store is None:
+            from functualize._primitives.run_store import RunStore
+
+            self._run_store = RunStore.for_project(Path.cwd())
+        return self._run_store
 
     def register_tools(self, mcp: Any) -> None:
         """Register the workflow tools with a FastMCP server instance."""
@@ -142,7 +171,13 @@ class WorkflowToolProvider:
         mcp.add_tool(self._call_gate_tool)
         mcp.add_tool(self._cancel_workflow)
         mcp.add_tool(self._purge_workflows)
-        logger.info("WorkflowToolProvider: registered 8 workflow MCP tools")
+        # The run log's read verbs (`durable-run-layer`/T3), verb for verb with
+        # `func builtin run` and over the same projection — decision A3, pinned
+        # by the parity test.
+        mcp.add_tool(self._list_runs)
+        mcp.add_tool(self._get_run)
+        mcp.add_tool(self._get_run_events)
+        logger.info("WorkflowToolProvider: registered 11 workflow MCP tools")
 
     # ------------------------------------------------------------------
     # Tools
@@ -421,6 +456,80 @@ class WorkflowToolProvider:
             if scope.get("status") in _LIVE_STATUSES
             for name, _ in _pending_gates(scope)
         ]
+
+    # ------------------------------------------------------------------
+    # The run log (`durable-run-layer`/T3)
+    # ------------------------------------------------------------------
+
+    async def _list_runs(
+        self,
+        job: str | None = None,
+        surface: str | None = None,
+        state: str | None = None,
+        scope_id: str | None = None,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        return {
+            "runs": list_runs(
+                self.run_store,
+                job=job,
+                surface=surface,
+                state=state,
+                scope_id=scope_id,
+                limit=limit,
+            )
+        }
+
+    _list_runs.__name__ = "list_runs"
+    _list_runs.__qualname__ = "list_runs"
+    _list_runs.__doc__ = (
+        "Survey runs, newest first — what executed in this project and how it "
+        "ended. Filters: job — only runs of that job; surface — only runs "
+        "started through that door (app.cli, http, invoke, mcp.tool, ...); "
+        "state — one of "
+        + ", ".join(RUN_STATES)
+        + "; scope_id — only runs that executed in that workflow scope, which "
+        "is how a blocked-and-resumed workflow's several runs are found; "
+        "limit — how many rows at most, applied after filtering. "
+        "A run is one execution and is read afterwards; a workflow scope is a "
+        "position and is resumed. Use list_workflows for the latter."
+    )
+
+    async def _get_run(self, run_id: str, tree: bool = False) -> dict[str, Any]:
+        view = (
+            run_tree(self.run_store, run_id)
+            if tree
+            else describe_run(self.run_store, run_id)
+        )
+        if view is None:
+            return _error("run_not_found", f"No run '{run_id}'.")
+        return view
+
+    _get_run.__name__ = "get_run"
+    _get_run.__qualname__ = "get_run"
+    _get_run.__doc__ = (
+        "Everything known about one run: the job, the door it came through, "
+        "how it ended, how long it took, the scope it ran in and its parent. "
+        "Args: run_id — the run identifier; tree — when true, nest the runs "
+        "this run set off (a workflow step, a dependency, an invoked child) "
+        "instead of listing their ids."
+    )
+
+    async def _get_run_events(self, run_id: str) -> dict[str, Any]:
+        events = run_events(self.run_store, run_id)
+        if events is None:
+            return _error("run_not_found", f"No run '{run_id}'.")
+        return {"run_id": run_id, "events": events}
+
+    _get_run_events.__name__ = "get_run_events"
+    _get_run_events.__qualname__ = "get_run_events"
+    _get_run_events.__doc__ = (
+        "One run's event log, in sequence order. Ordered by seq rather than "
+        "timestamp, so a replay is correct across processes on different "
+        "clocks. An empty list means the run emitted nothing (or its events "
+        "aged out); a run_not_found error means there is no such run. "
+        "Args: run_id — the run identifier."
+    )
 
 
 def _now() -> str:

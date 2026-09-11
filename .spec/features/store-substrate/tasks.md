@@ -3,6 +3,42 @@
 Gates were run at authoring time from the worktree root on `6c77889`; `now:` is
 what each command returned. **Not started** — this feature is written and held.
 
+## Re-measured 2026-09-11 — what changed underneath
+
+`scope-record-lifecycle`/T3 landed between authoring and now, and it moves this
+feature's ground in three ways. Recorded here rather than left for whoever picks
+it up to discover:
+
+1. **There is a fourth store.** `_primitives/scope_state_store.py` holds one
+   run's job state, one file per scope. T2's file list and gate below say
+   *three*; they now mean four.
+2. **T2's invariant still holds, and the gate needs one word.** Re-run over all
+   four stores it returns `1`, not `0` — and the hit is a *docstring* mentioning
+   `fcntl.flock`, not file I/O. The stores still touch no file. Add `-g` or
+   match code only; do not "fix" it by editing the docstring.
+3. **The feature gained a second, independent reason to exist.** It was
+   motivated by one store per file with one seam. External review of T3
+   (`.spec/reviews/scope-state-review.md` Q2.3) found a **lock-order
+   inversion** between the scope lock and the state lock, reachable from user
+   code in both directions:
+
+   ```
+   T1: with state.batch():        # holds STATE lock
+           rc.track_phase(...)    # -> record write -> wants SCOPES lock
+   T2: with store.batch():        # holds SCOPES lock
+           store.set_state(...)   # -> wants STATE lock
+   ```
+
+   It cannot be fixed from inside the stores, because the *caller* chooses
+   which batch to open first. One substrate with one lock removes it by
+   construction. `scope-record-lifecycle/plan.md` reached the same conclusion
+   from its surviving-smell #1 ("two files describe one run"), independently.
+
+   **This means T1's `lock` is load-bearing, not incidental.** A substrate that
+   exposes per-collection locks reproduces the inversion in a new place. The
+   port has to make "one lock for everything this substrate holds" expressible,
+   and T7's no-shared-disk case has to work under it.
+
 ## T1 · The port exists, with a filesystem implementation
 
 `[F]` `src/functualize/_types/protocols.py`,
@@ -19,8 +55,11 @@ now: `missing` · after: the protocol's file
 
 ## T2 · The three stores take a substrate, not a path
 
-`[F]` `src/functualize/_primitives/{state,scope,run}_store.py`,
+`[F]` `src/functualize/_primitives/{state,scope,run,scope_state}_store.py`,
 `src/functualize/_primitives/{state,scope,run}_format.py`
+
+**Four stores, not three** — `scope_state_store.py` arrived with
+`scope-record-lifecycle`/T3. See the re-measurement note at the top.
 
 No typed method changes. `__init__` takes a substrate and a collection name.
 The per-file discard rules stay on the **store** — they are decisions about

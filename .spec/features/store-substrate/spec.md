@@ -131,6 +131,40 @@ them disagreeing. `functualize-state-sqlite` produces this **today**. The
 substrate fixes it by construction, because all four stores move together or
 none do.
 
+### E.2 · The same defect, arrived at twice more (2026-09-11)
+
+`scope-record-lifecycle`/T3 moved job state **out** of the scope record and into
+a per-scope file, which fixed a 116× cost. It did not fix the split above — it
+relocated it, and made one consequence sharper.
+
+**A lock-order inversion, found by external review**
+(`.spec/reviews/scope-state-review.md` Q2.3):
+
+```
+T1: with state.batch():        # holds the STATE lock
+        rc.track_phase(...)    # -> a record write -> wants the SCOPES lock
+T2: with store.batch():        # holds the SCOPES lock
+        store.set_state(...)   # -> wants the STATE lock
+```
+
+Both orderings are reachable from ordinary user code. Neither lock can be
+dropped without losing the guarantee it exists for, and **no global ordering
+can be imposed from inside the stores**, because the caller decides which batch
+to open first. It is mitigated today — the record is ensured before the state
+lock is taken, and both locks time out audibly after 10 s — but mitigation is
+all it is.
+
+`scope-record-lifecycle/plan.md` reached the same destination independently, as
+its surviving smell #1: two files now describe one run, so a crash between the
+two writes leaves a record with no state or state with no record.
+
+**What this changes for the design, concretely.** The port's `lock` is
+load-bearing rather than incidental. A substrate that hands out a lock *per
+collection* reproduces the inversion in a new place and this feature would then
+have moved the bug rather than removed it. "One lock for everything this
+substrate holds" has to be expressible in the port, and T7's no-shared-disk
+implementation has to satisfy it.
+
 ## F · Acceptance criteria
 
 - **AC-1** A `StoreSubstrate` protocol exists with three members — `read`,

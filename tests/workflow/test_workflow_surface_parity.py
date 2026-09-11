@@ -84,18 +84,44 @@ SURFACE_ONLY = {
 #: MCP tools with no CLI verb of their own, each folded into a CLI *option*.
 TOOL_IS_A_CLI_OPTION = {"get_gate_draft": "answer --show"}
 
+#: `builtin run` verb -> MCP tool (`durable-run-layer`/T3).
+#:
+#: A second group rather than more `workflow` verbs, because the two answer
+#: different questions: a scope is a workflow's *position* and exists to be
+#: resumed, a run is one *execution* and exists to be read afterwards. One
+#: provider serves both, so the parity check has to span both — otherwise
+#: adding a run tool would silently pass by having no CLI group to be missing
+#: from.
+RUN_VERB_TO_TOOL = {
+    "list": "list_runs",
+    "show": "get_run",
+}
+
+#: Run tools folded into a CLI *option* rather than a verb of their own.
+RUN_TOOL_IS_A_CLI_OPTION = {"get_run_events": "run show --events"}
+
 
 @pytest.fixture
 def app() -> FunctualizeApp:
     return FunctualizeApp(name="parity")
 
 
-def cli_verbs() -> dict[str, click.Command]:
-    """Every `builtin workflow` subcommand, from the live command tree."""
+def _builtin_group(name: str) -> dict[str, click.Command]:
+    """Every subcommand of `builtin <name>`, from the live command tree."""
     root = click.Group(name="func")
     register_builtin_commands(root)
-    group = root.commands["builtin"].commands["workflow"]  # type: ignore[attr-defined]
+    group = root.commands["builtin"].commands[name]  # type: ignore[attr-defined]
     return dict(group.commands)  # type: ignore[attr-defined]
+
+
+def cli_verbs() -> dict[str, click.Command]:
+    """Every `builtin workflow` subcommand."""
+    return _builtin_group("workflow")
+
+
+def run_verbs() -> dict[str, click.Command]:
+    """Every `builtin run` subcommand."""
+    return _builtin_group("run")
 
 
 def mcp_tools(app: FunctualizeApp) -> dict[str, object]:
@@ -145,8 +171,27 @@ class TestEveryVerbHasATwin:
             "add the verb to VERB_TO_TOOL with the tool it maps to."
         )
 
+    def test_every_run_verb_maps_to_a_tool(self, app: FunctualizeApp) -> None:
+        unmapped = set(run_verbs()) - set(RUN_VERB_TO_TOOL)
+        assert not unmapped, (
+            f"`builtin run` verbs with no MCP twin: {sorted(unmapped)}. Add "
+            "the tool, or add the verb to RUN_VERB_TO_TOOL."
+        )
+
     def test_every_tool_maps_to_a_verb(self, app: FunctualizeApp) -> None:
-        mapped = set(VERB_TO_TOOL.values()) | set(TOOL_IS_A_CLI_OPTION)
+        """Spans **both** groups.
+
+        One provider serves `workflow` and `run`, so checking only the workflow
+        group would let a run tool pass by having no CLI group to be missing
+        from — a gap that widens exactly when a new surface is added, which is
+        when it is least likely to be noticed.
+        """
+        mapped = (
+            set(VERB_TO_TOOL.values())
+            | set(TOOL_IS_A_CLI_OPTION)
+            | set(RUN_VERB_TO_TOOL.values())
+            | set(RUN_TOOL_IS_A_CLI_OPTION)
+        )
         unmapped = set(mcp_tools(app)) - mapped
         assert not unmapped, (
             f"MCP tools with no CLI twin: {sorted(unmapped)}. Add the verb, or "
@@ -162,6 +207,15 @@ class TestEveryVerbHasATwin:
             assert tool in tools, f"VERB_TO_TOOL names a missing MCP tool: {tool}"
         for tool in TOOL_IS_A_CLI_OPTION:
             assert tool in tools, f"TOOL_IS_A_CLI_OPTION names a missing tool: {tool}"
+
+        runs = run_verbs()
+        for verb, tool in RUN_VERB_TO_TOOL.items():
+            assert verb in runs, f"RUN_VERB_TO_TOOL names a missing CLI verb: {verb}"
+            assert tool in tools, f"RUN_VERB_TO_TOOL names a missing MCP tool: {tool}"
+        for tool in RUN_TOOL_IS_A_CLI_OPTION:
+            assert tool in tools, (
+                f"RUN_TOOL_IS_A_CLI_OPTION names a missing tool: {tool}"
+            )
 
 
 class TestAddressingMatches:
@@ -255,3 +309,34 @@ class TestTheHonestException:
         assert "--prompt-gates" not in {
             opt for cmd in cli_verbs().values() for opt in _cli_option_names(cmd)
         }, "if it ever reaches a workflow verb, MCP needs an answer for it"
+
+
+class TestRunAddressingMatches:
+    """The run verbs take the same identifiers and filters on both surfaces."""
+
+    def test_show_takes_the_run_id_on_both(self, app: FunctualizeApp) -> None:
+        command = run_verbs()["show"]
+        positionals = {p.name for p in command.params if isinstance(p, click.Argument)}
+        assert "run_id" in positionals
+        assert "run_id" in _tool_param_names(mcp_tools(app)["get_run"])
+
+    def test_events_takes_the_run_id_on_both(self, app: FunctualizeApp) -> None:
+        """`--events` is an option on `run show`; `get_run_events` is a tool.
+
+        Recorded in RUN_TOOL_IS_A_CLI_OPTION for the reason `get_gate_draft`
+        is: a terminal wants one command that can show more, an agent wants a
+        tool whose name says what it returns.
+        """
+        assert "--events" in _cli_option_names(run_verbs()["show"])
+        assert "run_id" in _tool_param_names(mcp_tools(app)["get_run_events"])
+
+    def test_list_takes_the_same_filters(self, app: FunctualizeApp) -> None:
+        cli = _cli_option_names(run_verbs()["list"])
+        assert {"--job", "--surface", "--state", "--scope", "--limit"} <= cli
+
+        tool = _tool_param_names(mcp_tools(app)["list_runs"])
+        assert {"job", "surface", "state", "scope_id", "limit"} <= tool
+
+    def test_show_offers_the_tree_on_both(self, app: FunctualizeApp) -> None:
+        assert "--tree" in _cli_option_names(run_verbs()["show"])
+        assert "tree" in _tool_param_names(mcp_tools(app)["get_run"])

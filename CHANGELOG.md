@@ -7,6 +7,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — the run log is readable
+
+Every execution has been recorded since 0.3.0 and read by nothing. `runs.json`
+knew what ran, through which door, with which parent and how it ended, and there
+was no way to ask.
+
+**`func builtin run`**, and MCP verb for verb:
+
+| CLI | MCP | |
+|---|---|---|
+| `run list` | `list_runs` | Survey runs, newest first: `--job`, `--surface`, `--state`, `--scope`, `--limit` |
+| `run show <id>` | `get_run` | One run in full; `--tree` nests what it set off |
+| `run show <id> --events` | `get_run_events` | Its event log, in sequence order |
+
+Both surfaces render **one projection** (`app/_run_view.py`), so `--format json`
+and the MCP tools return the same rows — asserted by a test, not promised in
+prose.
+
+Runs and workflow scopes answer different questions and are deliberately
+separate: a scope is a workflow's *position* and exists to be resumed; a run is
+one *execution* and exists to be read afterwards. A workflow that blocked and
+resumed three times is one scope and four runs, and
+`run list --scope <id>` is how the four are found. See
+[Run Commands](docs/cli/run.md).
+
+`--state` filters on a **derived** state, so "which runs never finished" is
+askable. It adds one value to the stored vocabulary: `abandoned`, a run with no
+recorded end whose runner is not this process. **It currently over-reports** —
+a live job on another machine reads as abandoned — which is the deliberate
+direction, because a misleading row gets re-checked while a dead run reported as
+`running` is hidden for ever.
+
+### Changed — a run's state no longer costs the project's history
+
+`rc.state` became durable in this cycle by living inside the scope record, which
+put a per-run value in a project-wide file: one `set` parsed and rewrote every
+scope record the project had ever made. Measured against a store holding 2,000
+past runs, a write was **116× slower** than the same write on an empty one, and
+a read **102×**.
+
+A run's state now lives in its own file (`.functualize/scope-state/<id>.json`).
+Steady-state writes and reads are **at parity** with an empty project. Unrelated
+runs also stop contending: one file meant one lock, so two jobs sharing nothing
+serialized on every write.
+
+`scopes.json` gains a cap (500 records) that **never evicts a live scope** — a
+workflow parked at a gate survives any amount of unrelated traffic, and a file
+holding nothing finished stays over the cap rather than discarding something
+resumable. Non-workflow scopes now reach a terminal status when their run ends,
+so `func builtin workflow purge` can finally collect them; before, they were
+immortal *and* hidden. `func builtin state show` reports the scope file's count,
+cap and size, and the state directory's — the defect's real cost was that
+nobody could see it.
+
+**Breaking, pre-release:** a run *in flight* across this upgrade resumes with
+empty state. Its step records, gates and position are unaffected. The
+`get_job_state` / `list_job_namespaces` pair is removed from `StateStoreProtocol`
+— a job namespace is a key prefix (`state.set("fetch.rows", n)`), not an API.
+
+### Fixed
+
+- **A `prompt: Prompt` parameter could not prompt.** Its factory built the
+  capability with no collector and nothing ever bound one, so every call raised
+  `InputNotAvailable` while `rc.prompts` — the documented door — answered
+  normally. They are one class now, reached two ways.
+- A nested run's log entry recorded `scope_id: null`, so a run tree could not
+  say which scope its branches ran in.
+- `state.batch()` held the wrong file's lock after state moved, silently voiding
+  its all-or-nothing guarantee.
+
+
 ## [0.3.0] - 2026-09-09
 
 ### Added — a workflow can be driven to completion without a shell

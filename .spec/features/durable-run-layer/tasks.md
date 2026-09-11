@@ -139,7 +139,7 @@ quietly making the engine fragile — an observation is never worth a run.
 
 ## Wave 2 — reading runs
 
-### [ ] T3 · The projection and the read verbs
+### [x] T3 · The projection and the read verbs
 
 **Files:** `src/functualize/app/_run_view.py`, `src/functualize/app/utils.py`,
 `src/functualize/_cli/builtins.py`,
@@ -152,7 +152,40 @@ MCP verb for verb (decision **A3**), pinned by the parity test **A7** already in
 ```bash
 uv run pytest tests/workflow/test_workflow_surface_parity.py -q
 ```
-now: `passing` · after: `passing`, with the four new verbs enumerated
+now: `23 passed` · after: `23 passed`, spanning **both** CLI groups
+
+**Three tools, not four.** `contracts.md` §6 lists `list_runs`, `get_run`,
+`get_run_events` and `reclaim_workflow`; the fourth belongs to **T8**
+(`abandoned`, and an explicit `reclaim`) and is not a read verb. Landed here:
+
+| CLI | MCP |
+|---|---|
+| `builtin run list [--job --surface --state --scope --limit]` | `list_runs` |
+| `builtin run show <id> [--tree]` | `get_run(run_id, tree=)` |
+| `builtin run show <id> --events` | `get_run_events` |
+
+`--events` folds into `show` rather than being its own verb, recorded in
+`RUN_TOOL_IS_A_CLI_OPTION` for the reason `get_gate_draft` is: a terminal wants
+one command that can show more, an agent wants a tool whose name says what it
+returns.
+
+**The parity test had to grow a second axis.** It derived CLI verbs from
+`builtin workflow` alone while reading tools from the whole provider — so a run
+tool would have passed by having no CLI group to be missing from. It now spans
+both groups, which is the gap that widens exactly when a surface is added.
+
+**Two things found while building it, both recorded rather than quietly fixed:**
+
+1. `RUN_STATES` was first written as a hand-made tuple of six values. There are
+   ten. A surface enumerating it would have rejected `cancelled`, `skipped`,
+   `timeout` and `unknown` as illegal filters. It is now derived from
+   `RunStatus` — the sixth-copy failure `pitfalls.md` §6 names, committed in a
+   comment that cited §6.
+2. `_derive_state` reports `abandoned` for a run with no end whose runner is
+   not this process. That **over-reports**: a live job on another machine reads
+   as abandoned. Kept because of what each error costs — a misleading row a
+   human re-checks, versus a dead run hidden for ever — and the docstring says
+   so plainly. T5's lease replaces the inference with a fact.
 
 ---
 
