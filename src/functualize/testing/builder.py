@@ -44,10 +44,11 @@ def _temp_state() -> State:
     """
     from functualize._engine.capabilities.state import ScopeBackedStateStore
     from functualize._primitives.scope_store import ScopeStore
+    from functualize._primitives.substrate import JsonFileSubstrate
 
     tmp = tempfile.TemporaryDirectory(prefix="functualize-test-state-")
     backend = ScopeBackedStateStore(
-        ScopeStore(Path(tmp.name) / "scopes.json"), "test-scope"
+        ScopeStore(JsonFileSubstrate(Path(tmp.name))), "test-scope"
     )
     # Keep the directory alive exactly as long as the store that needs it.
     backend._tmp = tmp  # type: ignore[attr-defined]

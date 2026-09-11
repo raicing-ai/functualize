@@ -33,11 +33,28 @@ from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any
 
-from functualize._primitives.fresh_format import atomic_write_json, file_lock
+from functualize._primitives.fresh_format import (
+    atomic_write_json,
+    file_lock,
+    resolve_fresh_location,
+)
 from functualize._types.errors import SubstrateUnreadableError
 from functualize._types.protocols import Stored
 
 __all__ = ["JsonFileSubstrate"]
+
+
+def _human_size(size: int) -> str:
+    """Bytes, then KB, then MB — the three magnitudes these files pass through.
+
+    Byte-identical to what `func builtin data show` printed before the substrate
+    existed, because the command's output is a thing people read and diff.
+    """
+    if size < 1024:
+        return f"{size} B"
+    if size < 1024 * 1024:
+        return f"{size / 1024:.0f} KB"
+    return f"{size / (1024 * 1024):.1f} MB"
 
 
 def _revision_of(raw: bytes) -> int:
@@ -64,6 +81,23 @@ class JsonFileSubstrate:
     def root(self) -> Path:
         """The directory documents live under."""
         return self._root
+
+    @classmethod
+    def for_project(cls, start: Path | str) -> JsonFileSubstrate:
+        """The substrate a project's documents live in — **one upward walk**.
+
+        Every store used to resolve its own path from the same rule and the
+        rule was written down three times; `fresh.json`, `scopes.json` and
+        `runs.json` landing in different directories was prevented by care
+        rather than by construction. Here the walk happens once, the stores
+        share the answer, and spec AC-4 — one choice moves every store or none
+        — is a fact about the type rather than a convention.
+
+        Project mode puts them in the `.functualize/` directory found walking
+        upward; standalone mode puts them in the XDG cache keyed by project id.
+        `resolve_fresh_location` still owns that decision.
+        """
+        return cls(resolve_fresh_location(Path(start))[0].parent)
 
     def path_for(self, key: str) -> Path:
         """The file a key maps to.
@@ -133,6 +167,65 @@ class JsonFileSubstrate:
         path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(path, payload)
         return True
+
+    def clear(self, key: str) -> str | None:
+        """Rename the file aside, returning where it went, or None if absent.
+
+        **Never reads it** — this is the way out of a document `read` refuses,
+        so it has to work on exactly the content that cannot be parsed.
+        """
+        target = self.path_for(key)
+        if not target.exists():
+            return None
+        backup = target.with_name(target.name + ".bak")
+        index = 1
+        while backup.exists():
+            backup = target.with_name(f"{target.name}.bak.{index}")
+            index += 1
+        target.rename(backup)
+        return str(backup)
+
+    def delete(self, key: str) -> bool:
+        """Unlink the file. True if there was one.
+
+        `FileNotFoundError` is the only failure reported as "there was none";
+        every other `OSError` propagates, because a purge that could not delete
+        must not look like one with nothing to delete.
+        """
+        try:
+            self.path_for(key).unlink()
+        except FileNotFoundError:
+            return False
+        return True
+
+    def describe(self, key: str) -> str:
+        """The path and its size, or for a ``key/`` namespace, the directory's.
+
+        The count matters as much as the total for a namespace: one document
+        per run means the file *count* is the record count, and a directory of
+        thousands of small files is a different problem from one large file.
+        """
+        if key.endswith("/"):
+            directory = self.path_for(key.rstrip("/")).with_suffix("")
+            try:
+                files = [
+                    p
+                    for p in directory.iterdir()
+                    if p.is_file() and p.suffix == ".json"
+                ]
+            except OSError:
+                return "empty"
+            if not files:
+                return "empty"
+            total = sum(p.stat().st_size for p in files)
+            plural = "" if len(files) == 1 else "s"
+            return f"{len(files)} file{plural}, {_human_size(total)}"
+        target = self.path_for(key)
+        try:
+            size = target.stat().st_size
+        except OSError:
+            return f"{target} (absent)"
+        return f"{target} ({_human_size(size)})"
 
     @contextmanager
     def lock(self, *keys: str) -> Iterator[None]:

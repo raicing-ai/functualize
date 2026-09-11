@@ -38,17 +38,17 @@ from typing import TYPE_CHECKING, Any
 
 from functualize._primitives.run_format import (
     EVENTS_PER_RUN_LIMIT,
-    RUNS_FILENAME,
-    clear_runs,
-    load_runs,
-    resolve_runs_path,
-    runs_lock,
-    save_runs,
-    update_runs,
+    RUNS_KEY,
+    normalize_runs,
+    stamp_runs,
 )
+from functualize._primitives.substrate import JsonFileSubstrate
+from functualize._types.errors import SubstrateUnreadableError
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+    from functualize._types.protocols import StoreSubstrate
 
 #: Crockford base32, ULID's alphabet: no I, L, O or U, so a run id read aloud
 #: or copied out of a log cannot become a different one.
@@ -133,47 +133,63 @@ def runner_identity() -> str:
 class RunStore:
     """Read and write run records and their events."""
 
-    def __init__(self, path: Path | str) -> None:
-        self._path = Path(path)
+    def __init__(self, substrate: StoreSubstrate, key: str = RUNS_KEY) -> None:
+        self._substrate = substrate
+        self._key = key
         self._batch: dict[str, Any] | None = None
 
     @classmethod
     def for_project(cls, start: Path | str) -> RunStore:
-        """Build a store at the project's resolved run-log path."""
-        return cls(resolve_runs_path(Path(start)))
-
-    @classmethod
-    def beside_fresh(cls, state_path: Path | str) -> RunStore:
-        """Build a store beside a given state file.
-
-        The sibling rule applied to an explicit path, so
-        ``FreshStore(tmp / "fresh.json")`` in a test finds ``tmp / "runs.json"``
-        with no extra wiring and the three files cannot land in different
-        directories.
-        """
-        return cls(Path(state_path).with_name(RUNS_FILENAME))
+        """Build a store on the project's resolved substrate."""
+        return cls(JsonFileSubstrate.for_project(Path(start)))
 
     @property
-    def path(self) -> Path:
-        """The run log this store reads and writes."""
-        return self._path
+    def substrate(self) -> StoreSubstrate:
+        """Where this store's documents live."""
+        return self._substrate
+
+    def describe(self) -> str:
+        """Where the run log lives, for `func builtin data show`."""
+        return self._substrate.describe(self._key)
 
     # ------------------------------------------------------------------
     # Read / write plumbing
     # ------------------------------------------------------------------
 
+    def _load(self) -> dict[str, Any]:
+        """Read the stored envelope, discarding anything unusable.
+
+        Never refuses. A run record is history, not an in-flight run: losing it
+        costs a `func builtin history` entry, not somebody's approval. That is
+        the same rule `fresh.json` follows and the opposite of `scopes.json`.
+        """
+        try:
+            stored = self._substrate.read(self._key)
+        except SubstrateUnreadableError:
+            return normalize_runs(None)
+        return normalize_runs(None if stored is None else stored.data)
+
     def _read(self) -> dict[str, Any]:
-        """Current envelope — the open batch if one is active, else the file."""
+        """Current envelope — the open batch if one is active, else storage."""
         if self._batch is not None:
             return self._batch
-        return load_runs(self._path)
+        return self._load()
 
     def _mutate(self, mutate: Any) -> None:
-        """Apply ``mutate`` to the envelope, honouring an open batch."""
+        """Apply ``mutate`` to the envelope, honouring an open batch.
+
+        Outside a batch, a locked read-modify-write: re-reading inside the lock
+        is what lets two processes recording *different* runs merge instead of
+        clobbering each other. That matters more here than for scopes — every
+        run writes, including the nested and parallel ones history excludes.
+        """
         if self._batch is not None:
             mutate(self._batch)
             return
-        update_runs(self._path, mutate)
+        with self._substrate.lock(self._key):
+            envelope = self._load()
+            mutate(envelope)
+            self._substrate.write(self._key, stamp_runs(envelope))
 
     @contextmanager
     def batch(self) -> Iterator[RunStore]:
@@ -185,11 +201,11 @@ class RunStore:
         if self._batch is not None:  # already batching — reuse the outer one
             yield self
             return
-        with runs_lock(self._path):
-            self._batch = load_runs(self._path)
+        with self._substrate.lock(self._key):
+            self._batch = self._load()
             try:
                 yield self
-                save_runs(self._path, self._batch)
+                self._substrate.write(self._key, stamp_runs(self._batch))
             finally:
                 self._batch = None
 
@@ -337,6 +353,16 @@ class RunStore:
     # Maintenance
     # ------------------------------------------------------------------
 
-    def clear(self) -> Path | None:
+    def clear(self) -> str | None:
         """Move the run log aside, returning where it went, or None if absent."""
-        return clear_runs(self._path)
+        return self._substrate.clear(self._key)
+
+    def discard(self) -> bool:
+        """Delete the run log. True if there was one.
+
+        Deleted rather than moved aside, like the freshness ledger: the log is
+        an observation of what happened, not a record anyone is waiting on, so
+        losing it costs history and nothing in flight.
+        """
+        with self._substrate.lock(self._key):
+            return self._substrate.delete(self._key)

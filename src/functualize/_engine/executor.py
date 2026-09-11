@@ -903,7 +903,7 @@ class JobExecutionEngine:
             scope = host_scope(scope_id)
             self._scopes[scope_id] = scope
             return scope
-        scopes = ScopeStore.beside_fresh(self._state_store().path)
+        scopes = ScopeStore(self._state_store().substrate)
         scope = WorkflowScope(
             scope_id, state_store=ScopeBackedStateStore(scopes, scope_id)
         )
@@ -930,7 +930,7 @@ class JobExecutionEngine:
             from functualize._primitives.fingerprint import compute_args_hash
             from functualize._primitives.run_store import RunStore, runner_identity
 
-            store = RunStore.beside_fresh(self._state_store().path)
+            store = RunStore(self._state_store().substrate)
             return store.open_run(
                 {
                     "job": request.job_name,
@@ -1016,7 +1016,7 @@ class JobExecutionEngine:
         try:
             from functualize._primitives.scope_store import ScopeStore
 
-            scopes = ScopeStore.beside_fresh(self._state_store().path)
+            scopes = ScopeStore(self._state_store().substrate)
             record = scopes.get_scope(scope_id)
             if record is None:
                 # Nothing was ever written for this scope — a run that touched
@@ -1055,7 +1055,7 @@ class JobExecutionEngine:
         try:
             from functualize._primitives.run_store import RunStore
 
-            store = RunStore.beside_fresh(self._state_store().path)
+            store = RunStore(self._state_store().substrate)
             store.close_run(run_id, "failure")
         except Exception:  # noqa: BLE001 - an observation is never worth a run
             logger.debug("could not close a run record", exc_info=True)
@@ -1067,7 +1067,7 @@ class JobExecutionEngine:
         try:
             from functualize._primitives.run_store import RunStore
 
-            store = RunStore.beside_fresh(self._state_store().path)
+            store = RunStore(self._state_store().substrate)
             store.close_run(run_id, result.status.value.lower())
         except Exception:  # noqa: BLE001 - an observation is never worth a run
             logger.debug("could not close run record %s", run_id, exc_info=True)

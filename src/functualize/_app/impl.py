@@ -639,9 +639,10 @@ def create_workflow_scope(
     # `_scope_registry = {}` at boot would drop — which is what made a resumed
     # run come back with its step records intact and its state silently empty.
     #
-    # The same upward walk the engine uses, so a reader and a writer cannot
-    # disagree about which project's file this is.
-    scopes = ScopeStore.beside_fresh(app.execution_engine._state_store().path)
+    # The engine's own substrate, so a reader and a writer cannot disagree
+    # about which project's documents these are — no second walk to keep in
+    # agreement, and no way to give records one backend and state another.
+    scopes = ScopeStore(app.execution_engine._state_store().substrate)
     scope = WorkflowScope(
         scope_id,
         metadata=metadata,

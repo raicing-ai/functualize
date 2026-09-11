@@ -44,21 +44,26 @@ from functualize._primitives.lease import (
     write_lease,
 )
 from functualize._primitives.scope_format import (
-    SCOPES_FILENAME,
-    clear_scopes,
-    load_scopes,
-    resolve_scopes_path,
-    save_scopes,
-    scopes_lock,
-    update_scopes,
+    SCOPES_KEY,
+    SCOPES_VERSION,
+    empty_scopes,
+    normalize_scopes,
+    stamp_scopes,
 )
 from functualize._primitives.scope_state_store import (
+    STATE_DIRNAME,
     ScopeStateStore,
-    scope_state_path,
+)
+from functualize._primitives.substrate import JsonFileSubstrate
+from functualize._types.errors import (
+    ScopeStoreUnreadableError,
+    SubstrateUnreadableError,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+    from functualize._types.protocols import StoreSubstrate
 
 
 def _now() -> str:
@@ -101,12 +106,15 @@ class ScopeStore:
     """Typed read/write access to ``.functualize/scopes.json``.
 
     Args:
-        path: The scope file. Use :meth:`for_project` to resolve it as the
-            sibling of the runtime state file.
+        substrate: Where the documents live — shared with every other store, so
+            scope records and the job state inside them cannot end up in
+            different backends.
+        key: The document name. Defaults to ``"scopes"``.
     """
 
-    def __init__(self, path: Path | str) -> None:
-        self._path = Path(path)
+    def __init__(self, substrate: StoreSubstrate, key: str = SCOPES_KEY) -> None:
+        self._substrate = substrate
+        self._key = key
         #: The open batch, **per thread**.
         #:
         #: It was one attribute on the instance, which was correct while one
@@ -150,24 +158,35 @@ class ScopeStore:
 
     @classmethod
     def for_project(cls, start: Path | str) -> ScopeStore:
-        """Build a store at the project's resolved scope path."""
-        return cls(resolve_scopes_path(Path(start)))
-
-    @classmethod
-    def beside_fresh(cls, state_path: Path | str) -> ScopeStore:
-        """Build a store beside a given state file.
-
-        The sibling rule, applied to an explicit path rather than a project
-        root — so ``FreshStore(tmp / "fresh.json")`` in a test finds
-        ``tmp / "scopes.json"`` with no extra wiring, and the two files cannot
-        land in different directories.
-        """
-        return cls(Path(state_path).with_name(SCOPES_FILENAME))
+        """Build a store on the project's resolved substrate."""
+        return cls(JsonFileSubstrate.for_project(Path(start)))
 
     @property
-    def path(self) -> Path:
-        """The scope file this store reads and writes."""
-        return self._path
+    def substrate(self) -> StoreSubstrate:
+        """Where this store's documents live."""
+        return self._substrate
+
+    def describe(self) -> str:
+        """Where the scope records live, for `func builtin data show`."""
+        return self._substrate.describe(self._key)
+
+    def describe_state(self) -> str:
+        """Where the *job state* inside those scopes lives, in aggregate.
+
+        One document per scope, so this is the half of the store that grows
+        with traffic. Reported separately from the records because reporting
+        only the records would say "small" about the half that no longer grows.
+        """
+        return self._substrate.describe(f"{STATE_DIRNAME}/")
+
+    def is_empty(self) -> bool:
+        """Whether anything has ever been stored here.
+
+        Distinct from "holds no scopes": never written, versus written and then
+        emptied. `func builtin data clear` uses it to exit quietly rather than
+        announce it cleared something that was never there.
+        """
+        return self._substrate.read(self._key) is None
 
     # ------------------------------------------------------------------
     # Read / write plumbing
@@ -177,12 +196,34 @@ class ScopeStore:
         """Current envelope — the open batch if one is active, else the file.
 
         Raises:
-            ScopeStoreUnreadableError: propagated from ``load_scopes``. Reading
-                scopes never degrades to "none".
+            ScopeStoreUnreadableError: the document exists and cannot be
+                honoured. Reading scopes never degrades to "none" — a scope is
+                the only trace of an in-flight run, and an approval spent on a
+                run that no longer exists is the failure this refusal prevents.
         """
         if self._batch is not None:
             return self._batch
-        return load_scopes(self._path)
+        return self._load()
+
+    def _load(self) -> dict[str, Any]:
+        """Read the stored envelope, refusing anything it cannot honour.
+
+        Missing is not a refusal — it reads as "no scopes", exactly as a missing
+        freshness ledger reads as "no fingerprints". The substrate reports that
+        as None; everything else it *can* decode goes to
+        :func:`normalize_scopes`, which decides.
+        """
+        try:
+            stored = self._substrate.read(self._key)
+        except SubstrateUnreadableError as exc:
+            raise ScopeStoreUnreadableError(
+                self._substrate.describe(self._key), expected_version=SCOPES_VERSION
+            ) from exc
+        if stored is None:
+            return empty_scopes()
+        return normalize_scopes(
+            stored.data, where=self._substrate.describe(self._key)
+        )
 
     def _mutate(self, mutate: Any, *, scope_id: str | None = None) -> None:
         """Apply ``mutate`` to the envelope, honoring an open batch.
@@ -212,7 +253,10 @@ class ScopeStore:
         if self._batch is not None:
             _guarded(self._batch)
             return
-        update_scopes(self._path, _guarded)
+        with self._substrate.lock(self._key):
+            envelope = self._load()
+            _guarded(envelope)
+            self._substrate.write(self._key, stamp_scopes(envelope))
 
     def hold(self, scope_id: str, generation: int | None) -> None:
         """Fence writes **to ``scope_id``** on this store to ``generation``.
@@ -253,11 +297,11 @@ class ScopeStore:
         if self._batch is not None:  # already batching — reuse the outer one
             yield self
             return
-        with scopes_lock(self._path):
-            self._batch = load_scopes(self._path)
+        with self._substrate.lock(self._key):
+            self._batch = self._load()
             try:
                 yield self
-                save_scopes(self._path, self._batch)
+                self._substrate.write(self._key, stamp_scopes(self._batch))
             finally:
                 self._batch = None
 
@@ -395,7 +439,7 @@ class ScopeStore:
         # every later accessor — and two `ScopeStateStore` objects over one
         # path self-deadlock on `flock` (review Q1.5, Q2.2).
         return self._state_stores.setdefault(
-            scope_id, ScopeStateStore(scope_state_path(self._path, scope_id))
+            scope_id, ScopeStateStore(self._substrate, scope_id)
         )
 
     def get_state(self, scope_id: str, key: str, default: Any = None) -> Any:
@@ -798,10 +842,11 @@ class ScopeStore:
     # Lifecycle (`func builtin state clear --scopes`)
     # ------------------------------------------------------------------
 
-    def clear(self) -> Path | None:
-        """Discard every scope, moving the file aside. Returns where it went.
+    def clear(self) -> str | None:
+        """Discard every scope, moving the document aside. Returns where it went.
 
         Moved rather than deleted: the runs inside may still be wanted, and this
-        is the only escape hatch from a file the reader refuses. Never reads it.
+        is the only escape hatch from a document the reader refuses. Never reads
+        it — it has to work on exactly the content that cannot be parsed.
         """
-        return clear_scopes(self._path)
+        return self._substrate.clear(self._key)

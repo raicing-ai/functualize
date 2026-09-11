@@ -662,69 +662,6 @@ def _state_location() -> tuple[Path, str, Path | None]:
     return resolve_fresh_location(Path.cwd())
 
 
-def _file_size(path: Path) -> str:
-    """A human-readable size for ``path``, or ``"absent"``.
-
-    Bytes under a kilobyte, then KB, then MB — the three magnitudes this file
-    passes through. Reported because the record *count* alone did not make the
-    growth legible: 2,188 records is a number, 1.6 MB is a problem.
-    """
-    try:
-        return _file_size_of(path.stat().st_size)
-    except OSError:
-        return "absent"
-
-
-def _file_size_of(size: int) -> str:
-    """Format a byte count. Bytes, then KB, then MB."""
-    if size < 1024:
-        return f"{size} B"
-    if size < 1024 * 1024:
-        return f"{size / 1024:.0f} KB"
-    return f"{size / (1024 * 1024):.1f} MB"
-
-
-def _dir_size(path: Path) -> str:
-    """``N files, <size>`` for a directory, or ``"empty"``.
-
-    The count matters as much as the total here: one file per run means the
-    file *count* is the record count, and a directory with thousands of small
-    files is a different problem from one large file.
-    """
-    try:
-        files = [p for p in path.iterdir() if p.is_file() and p.suffix == ".json"]
-    except OSError:
-        return "empty"
-    if not files:
-        return "empty"
-    total = sum(p.stat().st_size for p in files)
-    return f"{len(files)} file{'' if len(files) == 1 else 's'}, {_file_size_of(total)}"
-
-
-def _run_count(path: Path) -> str:
-    """How many runs the log holds, or ``"none"``.
-
-    Best-effort: `data show` is what a user runs to find out what is wrong, so
-    a log it cannot parse must be a line rather than a crash.
-    """
-    import json
-
-    try:
-        return str(len(json.loads(path.read_text()).get("runs", {})))
-    except (OSError, ValueError, AttributeError):
-        return "none"
-
-
-def _shell_count(path: Path) -> str:
-    """How many shell commands are recorded, or ``"none"``."""
-    import json
-
-    try:
-        return str(len(json.loads(path.read_text()).get("entries", [])))
-    except (OSError, ValueError, AttributeError):
-        return "none"
-
-
 def _state_mode_line(mode: str, marker: Path | None) -> str:
     """Render the state-store mode for a human.
 
@@ -919,11 +856,10 @@ def register_builtin_commands(cli_group: Any) -> None:
             RunStore,
             ScopeStoreUnreadableError,
             ShellHistoryStore,
-            scope_state_dir,
         )
 
         path, mode, marker = _state_location()
-        store = FreshStore(path)
+        store = FreshStore.for_project(Path.cwd())
         click.echo(f"Fingerprints: {len(store.fingerprint_keys())}")
 
         # `show` is the command someone runs to find out what is wrong, so it
@@ -939,14 +875,14 @@ def register_builtin_commands(cli_group: Any) -> None:
             # no ceiling beside it does not read as "getting full".
             click.echo(
                 f"Scopes: {len(store.scope_ids())} of {SCOPES_LIMIT} "
-                f"({_file_size(store.scopes_path)})"
+                f"({store.scopes.describe()})"
             )
-            # The state directory is reported separately because T3 moved job
-            # state out of the record file. Reporting only `scopes.json` after
-            # that move would say "small" about the half that no longer grows
-            # while the half that does stayed invisible — the exact failure
-            # AC-4 exists to prevent, one file over.
-            click.echo(f"Scope state: {_dir_size(scope_state_dir(store.scopes_path))}")
+            # Scope state is reported separately because T3 moved job state
+            # out of the record document. Reporting only the records after that
+            # move would say "small" about the half that no longer grows while
+            # the half that does stayed invisible — the exact failure AC-4
+            # exists to prevent, one document over.
+            click.echo(f"Scope state: {store.scopes.describe_state()}")
         except ScopeStoreUnreadableError as exc:
             fault = exc
             found = exc.found_version
@@ -967,14 +903,12 @@ def register_builtin_commands(cli_group: Any) -> None:
         # The other two stores the `data` group covers. Reporting three of five
         # and calling the command `data` would be the same under-description
         # the group was renamed to escape.
-        runs_path = RunStore.for_project(Path.cwd()).path
-        shell_path = ShellHistoryStore.for_project(Path.cwd()).path
-        click.echo(f"Runs: {_run_count(runs_path)} ({_file_size(runs_path)})")
-        click.echo(f"Shell history: {_shell_count(shell_path)}")
+        runs = RunStore.for_project(Path.cwd())
+        shell = ShellHistoryStore.for_project(Path.cwd())
+        click.echo(f"Runs: {len(runs.run_ids())} ({runs.describe()})")
+        click.echo(f"Shell history: {shell.count()}")
 
-        click.echo(f"Freshness path: {path}")
-        click.echo(f"Scopes path: {store.scopes_path}")
-        click.echo(f"Runs path: {runs_path}")
+        click.echo(f"Freshness: {store.describe()}")
         click.echo(f"Scopes format: v{SCOPES_VERSION}")
         click.echo(f"Mode:       {_state_mode_line(mode, marker)}")
 
@@ -1025,19 +959,14 @@ def register_builtin_commands(cli_group: Any) -> None:
             RunStore,
             ScopeStoreUnreadableError,
             ShellHistoryStore,
-            resolve_fresh_path,
-            resolve_scopes_path,
         )
 
         if clear_all:
             clear_scopes = clear_runs = True
 
-        path = resolve_fresh_path(Path.cwd())
-        scopes_path = resolve_scopes_path(Path.cwd())
-        if not path.exists() and not scopes_path.exists():
+        store = FreshStore.for_project(Path.cwd())
+        if store.is_empty() and store.scopes.is_empty():
             raise SystemExit(0)
-
-        store = FreshStore(path)
 
         # Counted before clearing, and best-effort: an unreadable scope store
         # is exactly when --scopes matters most, so it must not block the one
@@ -1055,12 +984,11 @@ def register_builtin_commands(cli_group: Any) -> None:
         # The run log is an observation of what happened, not a record anyone
         # is waiting on, so losing it costs history and nothing in flight.
         if clear_runs:
-            for target, label in (
-                (RunStore.for_project(Path.cwd()).path, "run log"),
-                (ShellHistoryStore.for_project(Path.cwd()).path, "shell history"),
+            for cleared, label in (
+                (RunStore.for_project(Path.cwd()).discard(), "run log"),
+                (ShellHistoryStore.for_project(Path.cwd()).clear(), "shell history"),
             ):
-                if target.exists():
-                    target.unlink()
+                if cleared:
                     click.echo(f"Cleared the {label}.")
 
         if clear_scopes:
@@ -1936,20 +1864,19 @@ def register_builtin_commands(cli_group: Any) -> None:
 
         from functualize.app.utils import RunStore, ShellHistoryStore, job_history
 
-        # Read directly, never via `for_project`: history is inspected far more
-        # often than it is written, and reading must not create a store in a
-        # project that has never run anything.
-        run_path = RunStore.for_project(Path.cwd()).path
-        shell_path = ShellHistoryStore.for_project(Path.cwd()).path
-        if not run_path.exists() and not shell_path.exists():
+        # Reading must not create anything in a project that has never run
+        # anything, which is why these ask rather than write: every read path
+        # through a store is a pure read, and `for_project` only resolves where
+        # the documents would be.
+        runs = RunStore.for_project(Path.cwd())
+        shell = ShellHistoryStore.for_project(Path.cwd())
+        job_records = job_history(runs) if namespace in (None, "job") else []
+        shell_records = shell.entries() if namespace in (None, "shell") else []
+        if not job_records and not shell_records and not runs.run_ids():
             click.echo("No history recorded yet.", err=True)
             return
 
-        records: list[dict[str, Any]] = []
-        if namespace in (None, "job") and run_path.exists():
-            records.extend(job_history(RunStore(run_path)))
-        if namespace in (None, "shell") and shell_path.exists():
-            records.extend(ShellHistoryStore(shell_path).entries())
+        records: list[dict[str, Any]] = [*job_records, *shell_records]
         # Merged newest-first across both sources. Sorted on `at`, which every
         # record now carries — the shell half did not stamp one until T3b, and
         # an unsorted merge would have put every shell line after every job

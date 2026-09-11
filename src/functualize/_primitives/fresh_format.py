@@ -40,7 +40,7 @@ from typing import TYPE_CHECKING, Any
 from functualize._primitives.locator import _xdg_cache_dir, compute_project_id
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Iterator
 
 # Current state file format version. Bump on any incompatible format change.
 # A version mismatch discards the file, and that is safe **because every section
@@ -77,6 +77,12 @@ FRESH_VERSION = 1
 #: The worst case is one extra run of each job — which is exactly the worst case
 #: this file's discard rule already accepts.
 FRESH_FILENAME = "fresh.json"
+
+#: The document name this envelope is stored under.
+#:
+#: A key, not a path. `JsonFileSubstrate.for_project` turns it back into
+#: `fresh.json` under the directory the upward walk found.
+FRESH_KEY = "fresh"
 
 #: The sections this file holds. **Freshness verdicts, and nothing else** —
 #: `history` left in `durable-run-layer`/T3b. Job history is now derived from
@@ -192,23 +198,6 @@ def normalize_fresh(data: Any) -> dict[str, Any]:
     return state
 
 
-def load_fresh(path: Path | str) -> dict[str, Any]:
-    """Load the state envelope, tolerating a missing, corrupt, or stale file.
-
-    Never raises for bad content: a truncated write, hand-editing, or a format
-    bump all degrade to an empty envelope. Correct for derived data; see
-    `scope_format` for why the scope file must not do this.
-    """
-    try:
-        raw = Path(path).read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return empty_fresh()
-    try:
-        return normalize_fresh(json.loads(raw))
-    except (json.JSONDecodeError, ValueError):
-        return empty_fresh()
-
-
 def atomic_write_json(path: Path | str, payload: dict[str, Any]) -> None:
     """Write ``payload`` as JSON atomically (tmp file + ``os.replace``).
 
@@ -244,15 +233,15 @@ def atomic_write_json(path: Path | str, payload: dict[str, Any]) -> None:
         raise
 
 
-def save_fresh(path: Path | str, state: dict[str, Any]) -> None:
-    """Write the envelope atomically, stamping the current format version.
+def stamp_fresh(state: dict[str, Any]) -> dict[str, Any]:
+    """The payload to store: the envelope with the current version stamped on.
 
-    Callers that read-modify-write must hold :func:`file_lock` — or better,
-    use :func:`update_fresh`.
+    A copy rather than a mutation, so a caller holding an open batch does not
+    find its own envelope rewritten underneath it.
     """
     payload = dict(state)
     payload["format_version"] = FRESH_VERSION
-    atomic_write_json(path, payload)
+    return payload
 
 
 @contextmanager
@@ -372,20 +361,3 @@ def _release_lock(handle: Any) -> None:
         return
     with suppress(OSError, ValueError):
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-
-
-def update_fresh(
-    path: Path | str, mutate: Callable[[dict[str, Any]], None]
-) -> dict[str, Any]:
-    """Read-modify-write the envelope under one lock, returning the new state.
-
-    This is the safe entry point for every writer: it re-reads inside the lock,
-    so two concurrent runs touching *different* job keys merge instead of
-    clobbering each other (Part F: last-writer-wins per key, not per file).
-    """
-    target = Path(path)
-    with file_lock(target):
-        state = load_fresh(target)
-        mutate(state)
-        save_fresh(target, state)
-        return state

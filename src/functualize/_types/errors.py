@@ -7,7 +7,6 @@ public contract for job authors and platform developers.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -230,10 +229,14 @@ class ScopeStoreUnreadableError(Exception):
     the read moved the file aside, the next run would find nothing, read it as
     "no scopes", and start the workflow over silently — the exact failure this
     error exists to prevent. It moves only when a human asks, at
-    ``func builtin state clear --scopes``, which the message names.
+    ``func builtin data clear --scopes``, which the message names.
 
     Attributes:
-        path: The scope file that could not be read.
+        where: A human-readable account of the document that could not be read
+            — a path under the filesystem substrate, a table row elsewhere. A
+            description rather than a `Path`, because the store no longer knows
+            it is talking to a filesystem and a substrate over a database has no
+            path to name.
         scope_count: How many scopes were visible in it, or None if it could
             not be parsed at all.
         found_version: The format version on disk, when that is the cause.
@@ -246,13 +249,13 @@ class ScopeStoreUnreadableError(Exception):
 
     def __init__(
         self,
-        path: Path,
+        where: str,
         *,
         scope_count: int | None = None,
         found_version: int | None = None,
         expected_version: int,
     ) -> None:
-        self.path = path
+        self.where = where
         self.scope_count = scope_count
         self.found_version = found_version
         self.expected_version = expected_version
@@ -274,12 +277,12 @@ class ScopeStoreUnreadableError(Exception):
                 "including any recorded gate input."
             )
         return (
-            f"{self.path} cannot be read ({cause}).\n"
+            f"{self.where} cannot be read ({cause}).\n"
             f"       {holds}\n"
             "\n"
             "  The file has been left where it is. To move it aside and "
             "start fresh:\n"
-            "      func builtin state clear --scopes"
+            "      func builtin data clear --scopes"
         )
 
 

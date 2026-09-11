@@ -55,9 +55,8 @@ from functualize._primitives.run_store import RunStore, new_run_id, runner_ident
 from functualize._primitives.scope_format import (
     SCOPES_LIMIT,
     SCOPES_VERSION,
-    resolve_scopes_path,
 )
-from functualize._primitives.scope_state_store import scope_state_dir
+from functualize._primitives.scope_state_store import scope_state_key
 from functualize._primitives.shell_history import ShellHistoryStore
 from functualize._types.annotations import resolved_hints
 from functualize._types.descriptors import FieldDescriptor, GroupOptionsSpec
@@ -245,13 +244,12 @@ __all__ = [
     "FreshStore",
     # The scope store's location and version, for `builtin state show` and
     # `builtin info`: a file whose path nothing reports is a file nobody finds.
-    "resolve_scopes_path",
     "RUN_STATES",
     "RunStore",
     "ShellHistoryStore",
     "new_run_id",
     "runner_identity",
-    "scope_state_dir",
+    "scope_state_key",
     "SCOPES_LIMIT",
     "SCOPES_VERSION",
     # Raised when the scope store cannot be honoured. Public because `_cli`,

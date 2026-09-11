@@ -30,47 +30,41 @@ without saying so.
 
 from __future__ import annotations
 
-import json
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from functualize._primitives.fresh_format import atomic_write_json, file_lock
+from functualize._types.errors import SubstrateUnreadableError
 
-__all__ = ["STATE_DIRNAME", "ScopeStateStore", "scope_state_dir", "scope_state_path"]
+if TYPE_CHECKING:
+    from functualize._types.protocols import StoreSubstrate
+
+__all__ = ["STATE_DIRNAME", "ScopeStateStore", "scope_state_key"]
 
 #: The directory holding per-scope state files, beside `scopes.json`.
 STATE_DIRNAME = "scope-state"
 
 
-def scope_state_dir(scopes_path: Path | str) -> Path:
-    """The state directory for the store whose records live at ``scopes_path``.
+def scope_state_key(scope_id: str) -> str:
+    """The document name ``scope_id``'s state is stored under.
 
-    Derived from the scope file rather than resolved independently, for the
-    reason `scope_format` gives for deriving its own path from the state file:
-    two upward walks can disagree, and a reader must not reconstruct a key the
-    writer computed.
-    """
-    return Path(scopes_path).parent / STATE_DIRNAME
+    A key, not a path. Under `JsonFileSubstrate` it becomes
+    ``scope-state/<id>.json`` beside the records, which is where these files
+    have always been; another substrate may make it anything.
 
-
-def scope_state_path(scopes_path: Path | str, scope_id: str) -> Path:
-    """Where ``scope_id``'s state lives.
-
-    The id is used as the filename. Scope ids are ``<job>-<hex8>`` and job
-    names are already constrained to identifier-ish characters, but a plugin
-    could mint something else, so separators are rejected rather than escaped:
-    a scope id that could name a path outside this directory is a bug at its
-    source, and quietly rewriting it would hide that.
+    The id is used verbatim, so separators are rejected rather than escaped: a
+    scope id that could name a document outside this namespace is a bug at its
+    source, and quietly rewriting it would hide that. Scope ids are
+    ``<job>-<hex8>`` and job names are already constrained, but a plugin could
+    mint something else.
     """
     if "/" in scope_id or "\\" in scope_id or scope_id in {"", ".", ".."}:
         raise ValueError(
-            f"scope id {scope_id!r} cannot be used as a filename; scope ids "
-            f"must not contain path separators"
+            f"scope id {scope_id!r} cannot be used as a document name; scope "
+            f"ids must not contain path separators"
         )
-    return scope_state_dir(scopes_path) / f"{scope_id}.json"
+    return f"{STATE_DIRNAME}/{scope_id}"
 
 
 class ScopeStateUnreadableError(RuntimeError):
@@ -82,12 +76,12 @@ class ScopeStateUnreadableError(RuntimeError):
     to prevent.
     """
 
-    def __init__(self, path: Path, detail: str) -> None:
+    def __init__(self, where: str, detail: str) -> None:
         super().__init__(
-            f"Cannot read scope state at {path}: {detail}. The file has been "
-            f"left in place; remove it to start this scope's state fresh."
+            f"Cannot read scope state at {where}: {detail}. It has been left "
+            f"in place; remove it to start this scope's state fresh."
         )
-        self.path = path
+        self.where = where
 
 
 class ScopeStateStore:
@@ -99,16 +93,17 @@ class ScopeStateStore:
     thread's writes into a payload it will overwrite.
     """
 
-    __slots__ = ("_local", "_path")
+    __slots__ = ("_key", "_local", "_substrate")
 
-    def __init__(self, path: Path | str) -> None:
-        self._path = Path(path)
+    def __init__(self, substrate: StoreSubstrate, scope_id: str) -> None:
+        self._substrate = substrate
+        self._key = scope_state_key(scope_id)
         self._local = threading.local()
 
     @property
-    def path(self) -> Path:
-        """The file this scope's state lives in."""
-        return self._path
+    def key(self) -> str:
+        """The document name this scope's state lives under."""
+        return self._key
 
     @property
     def _batch(self) -> dict[str, Any] | None:
@@ -119,17 +114,14 @@ class ScopeStateStore:
         self._local.batch = value
 
     def _load(self) -> dict[str, Any]:
-        """The state on disk, or `{}` if this scope has none yet."""
-        if not self._path.exists():
-            return {}
+        """This scope's stored state, or `{}` if it has none yet."""
         try:
-            raw = json.loads(self._path.read_text())
-        except (OSError, ValueError) as exc:
-            raise ScopeStateUnreadableError(self._path, str(exc)) from exc
-        if not isinstance(raw, dict):
-            raise ScopeStateUnreadableError(
-                self._path, f"expected an object, found {type(raw).__name__}"
-            )
+            stored = self._substrate.read(self._key)
+        except SubstrateUnreadableError as exc:
+            raise ScopeStateUnreadableError(self._key, str(exc)) from exc
+        if stored is None:
+            return {}
+        raw = stored.data
         state = raw.get("state")
         if state is None and "state" not in raw:
             return {}
@@ -140,7 +132,7 @@ class ScopeStateStore:
             # docstring promises not to have. Found by external review
             # (`.spec/reviews/scope-state-review.md` Q1.6).
             raise ScopeStateUnreadableError(
-                self._path,
+                self._key,
                 f"'state' is {type(state).__name__}, expected an object",
             )
         return state
@@ -154,11 +146,10 @@ class ScopeStateStore:
         if self._batch is not None:
             mutate(self._batch)
             return
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        with file_lock(self._path):
+        with self._substrate.lock(self._key):
             state = self._load()
             mutate(state)
-            atomic_write_json(self._path, {"state": state})
+            self._substrate.write(self._key, {"state": state})
 
     @contextmanager
     def batch(self) -> Iterator[ScopeStateStore]:
@@ -171,12 +162,11 @@ class ScopeStateStore:
         if self._batch is not None:  # already batching — reuse the outer one
             yield self
             return
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        with file_lock(self._path):
+        with self._substrate.lock(self._key):
             self._batch = self._load()
             try:
                 yield self
-                atomic_write_json(self._path, {"state": self._batch})
+                self._substrate.write(self._key, {"state": self._batch})
             finally:
                 self._batch = None
 
@@ -210,7 +200,7 @@ class ScopeStateStore:
         self._mutate(_apply)
 
     def discard(self) -> bool:
-        """Delete this scope's state file. True if there was one.
+        """Delete this scope's stored state. True if there was one.
 
         Called when a scope record is purged. Ordering is the caller's
         responsibility and it matters: the record goes first. The reverse
@@ -231,15 +221,11 @@ class ScopeStateStore:
         """
         if self._batch is not None:
             raise RuntimeError(
-                f"cannot discard {self._path} while a batch is open on it; "
-                f"the batch would rewrite the file on exit"
+                f"cannot discard {self._key} while a batch is open on it; "
+                f"the batch would rewrite it on exit"
             )
-        with file_lock(self._path):
-            try:
-                self._path.unlink()
-            except FileNotFoundError:
-                return False
-        return True
+        with self._substrate.lock(self._key):
+            return self._substrate.delete(self._key)
 
 
 class _Missing:

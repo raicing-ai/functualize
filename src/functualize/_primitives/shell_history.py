@@ -28,26 +28,27 @@ record.
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from functualize._primitives.fresh_format import (
-    atomic_write_json,
-    file_lock,
-    resolve_fresh_location,
-)
+from functualize._primitives.substrate import JsonFileSubstrate
+from functualize._types.errors import SubstrateUnreadableError
+
+if TYPE_CHECKING:
+    from functualize._types.protocols import StoreSubstrate
 
 __all__ = [
-    "SHELL_HISTORY_FILENAME",
+    "SHELL_HISTORY_KEY",
     "SHELL_HISTORY_LIMIT",
     "ShellHistoryStore",
-    "resolve_shell_history_path",
 ]
 
-#: Beside the other stores, in the directory the upward walk resolved.
-SHELL_HISTORY_FILENAME = "shell-history.json"
+#: The document name this store's entries live under.
+#:
+#: A key, not a path. It lands beside the other documents because they share
+#: one substrate, not because a second upward walk agreed with the first.
+SHELL_HISTORY_KEY = "shell-history"
 
 #: Ring bound. Matches the 200 the shared ring used, so a user's recall depth
 #: is unchanged by the move — a migration that silently shortens history is a
@@ -55,17 +56,6 @@ SHELL_HISTORY_FILENAME = "shell-history.json"
 SHELL_HISTORY_LIMIT = 200
 
 logger = logging.getLogger(__name__)
-
-
-def resolve_shell_history_path(start: Path | str) -> Path:
-    """Where shell history lives — always the state file's sibling.
-
-    Derived from `resolve_fresh_location` rather than repeating its upward
-    walk, for the reason `scope_format` gives for doing the same: two walks can
-    disagree about which project or which mode they are in, and a reader must
-    not reconstruct a key the writer computed.
-    """
-    return resolve_fresh_location(Path(start))[0].with_name(SHELL_HISTORY_FILENAME)
 
 
 class ShellHistoryStore:
@@ -76,25 +66,36 @@ class ShellHistoryStore:
     would invite it to grow a second purpose.
     """
 
-    __slots__ = ("_path",)
+    __slots__ = ("_key", "_substrate")
 
-    def __init__(self, path: Path | str) -> None:
-        self._path = Path(path)
+    def __init__(
+        self, substrate: StoreSubstrate, key: str = SHELL_HISTORY_KEY
+    ) -> None:
+        self._substrate = substrate
+        self._key = key
 
     @classmethod
     def for_project(cls, start: Path | str) -> ShellHistoryStore:
         """The store for the project containing ``start``."""
-        return cls(resolve_shell_history_path(start))
-
-    @classmethod
-    def beside_fresh(cls, state_path: Path | str) -> ShellHistoryStore:
-        """The store that sits beside an already-resolved state file."""
-        return cls(Path(state_path).with_name(SHELL_HISTORY_FILENAME))
+        return cls(JsonFileSubstrate.for_project(Path(start)))
 
     @property
-    def path(self) -> Path:
-        """The file this store reads and writes."""
-        return self._path
+    def substrate(self) -> StoreSubstrate:
+        """Where this store's documents live."""
+        return self._substrate
+
+    def describe(self) -> str:
+        """Where shell history lives, for `func builtin data show`."""
+        return self._substrate.describe(self._key)
+
+    def clear(self) -> bool:
+        """Forget every recorded command. True if there was anything to forget.
+
+        Deleted rather than moved aside, like the freshness ledger: this is a
+        convenience, and nobody is waiting on it.
+        """
+        with self._substrate.lock(self._key):
+            return self._substrate.delete(self._key)
 
     def _load(self) -> list[dict[str, Any]]:
         """The entries on disk, or `[]`.
@@ -104,18 +105,18 @@ class ShellHistoryStore:
         cannot recall what they typed. `scopes.json` refuses because the worst
         case there is an approval spent on a run that no longer exists.
         """
-        if not self._path.exists():
-            return []
         try:
-            raw = json.loads(self._path.read_text())
-        except (OSError, ValueError) as exc:
+            stored = self._substrate.read(self._key)
+        except SubstrateUnreadableError as exc:
             logger.warning(
                 "shell history at %s could not be read (%s); treating as empty",
-                self._path,
+                self._substrate.describe(self._key),
                 exc,
             )
             return []
-        entries = raw.get("entries") if isinstance(raw, dict) else None
+        if stored is None:
+            return []
+        entries = stored.data.get("entries")
         if not isinstance(entries, list):
             return []
         return [entry for entry in entries if isinstance(entry, dict)]
@@ -123,16 +124,15 @@ class ShellHistoryStore:
     def append(self, record: dict[str, Any]) -> None:
         """Add one command, trimming to :data:`SHELL_HISTORY_LIMIT`.
 
-        Read-modify-write under the file's own lock, so two shells in one
+        Read-modify-write under this document's lock, so two shells in one
         project interleave rather than clobbering each other.
         """
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        with file_lock(self._path):
+        with self._substrate.lock(self._key):
             entries = self._load()
             entries.append(dict(record))
             if len(entries) > SHELL_HISTORY_LIMIT:
                 del entries[: len(entries) - SHELL_HISTORY_LIMIT]
-            atomic_write_json(self._path, {"entries": entries})
+            self._substrate.write(self._key, {"entries": entries})
 
     def entries(self, limit: int | None = None) -> list[dict[str, Any]]:
         """Commands **newest first**, optionally capped at ``limit``.
@@ -142,3 +142,7 @@ class ShellHistoryStore:
         """
         entries = list(reversed(self._load()))
         return entries[:limit] if limit is not None else entries
+
+    def count(self) -> int:
+        """How many commands are recorded."""
+        return len(self._load())

@@ -13,9 +13,10 @@ whose read fails closed. ``FreshStore`` owns one and forwards every scope method
 to it, so **which file a section lives in is not a caller's concern** — nothing
 outside ``_primitives`` changed when they split.
 
-The scope file is always this file's sibling, derived via
-``ScopeStore.beside_fresh``. One upward walk decides both, so the two can never
-land in different directories or different modes.
+Both documents live in **one substrate**, handed in at construction. That is
+what makes them inseparable: there is no longer a second path to resolve, so
+they cannot land in different directories, different modes, or — once a
+non-filesystem substrate exists — different backends.
 
 **Write discipline.** Every mutation is a locked read-modify-write, so two
 concurrent runs touching *different* keys merge rather than clobber
@@ -41,65 +42,100 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from functualize._primitives.fresh_format import (
+    FRESH_KEY,
     empty_fresh,
-    file_lock,
-    load_fresh,
-    resolve_fresh_path,
-    save_fresh,
-    update_fresh,
+    normalize_fresh,
+    stamp_fresh,
 )
 from functualize._primitives.scope_store import ScopeStore
+from functualize._primitives.substrate import JsonFileSubstrate
+from functualize._types.errors import SubstrateUnreadableError
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+    from functualize._types.protocols import StoreSubstrate
 
 
 class FreshStore:
     """Typed read/write access to ``.functualize/fresh.json`` and its sibling.
 
     Args:
-        path: The state file. Use :meth:`for_project` to resolve it the same
-            way the discovery cache is resolved. The scope file is derived from
-            it, so a test constructing ``FreshStore(tmp / "fresh.json")`` gets
-            ``tmp / "scopes.json"`` with no extra wiring.
+        substrate: Where the documents live. Use :meth:`for_project` to resolve
+            it the same way the discovery cache is resolved. The scope store is
+            built on the *same* substrate, so a test constructing
+            ``FreshStore(JsonFileSubstrate(tmp))`` gets its scopes in ``tmp``
+            with no extra wiring and no second path to keep in agreement.
+        key: The document name. Defaults to ``"fresh"``; it is a parameter only
+            so a caller holding two isolated ledgers in one substrate can say so.
     """
 
-    def __init__(self, path: Path | str) -> None:
-        self._path = Path(path)
+    def __init__(self, substrate: StoreSubstrate, key: str = FRESH_KEY) -> None:
+        self._substrate = substrate
+        self._key = key
         self._batch: dict[str, Any] | None = None
-        self._scopes = ScopeStore.beside_fresh(self._path)
+        self._scopes = ScopeStore(substrate)
 
     @classmethod
     def for_project(cls, start: Path | str) -> FreshStore:
-        """Build a store at the project's resolved state path."""
-        return cls(resolve_fresh_path(Path(start)))
+        """Build a store on the project's resolved substrate."""
+        return cls(JsonFileSubstrate.for_project(Path(start)))
 
     @property
-    def path(self) -> Path:
-        """The state file this store reads and writes."""
-        return self._path
+    def substrate(self) -> StoreSubstrate:
+        """Where this store's documents live."""
+        return self._substrate
 
     @property
-    def scopes_path(self) -> Path:
-        """The scope file beside it."""
-        return self._scopes.path
+    def scopes(self) -> ScopeStore:
+        """The scope store sharing this substrate."""
+        return self._scopes
+
+    def describe(self) -> str:
+        """Where the freshness ledger lives, for `func builtin data show`."""
+        return self._substrate.describe(self._key)
+
+    def is_empty(self) -> bool:
+        """Whether anything has ever been stored here."""
+        return self._substrate.read(self._key) is None
 
     # ------------------------------------------------------------------
     # Read / write plumbing
     # ------------------------------------------------------------------
 
+    def _load(self) -> dict[str, Any]:
+        """Read the stored envelope, degrading to an empty one.
+
+        Every section here is **derived** — recomputable from the source tree —
+        so anything unusable costs one extra run and nothing more. `ScopeStore`
+        deliberately does the opposite with the same inputs.
+        """
+        try:
+            stored = self._substrate.read(self._key)
+        except SubstrateUnreadableError:
+            return empty_fresh()
+        return empty_fresh() if stored is None else normalize_fresh(stored.data)
+
     def _read(self) -> dict[str, Any]:
-        """Current state — the open batch if one is active, else the file."""
+        """Current state — the open batch if one is active, else storage."""
         if self._batch is not None:
             return self._batch
-        return load_fresh(self._path)
+        return self._load()
 
     def _mutate(self, mutate: Any) -> None:
-        """Apply ``mutate`` to the state, honoring an open batch."""
+        """Apply ``mutate`` to the state, honoring an open batch.
+
+        Outside a batch this is a locked read-modify-write: re-reading inside
+        the lock is what lets two concurrent runs touching *different* job keys
+        merge instead of clobbering each other.
+        """
         if self._batch is not None:
             mutate(self._batch)
             return
-        update_fresh(self._path, mutate)
+        with self._substrate.lock(self._key):
+            state = self._load()
+            mutate(state)
+            self._substrate.write(self._key, stamp_fresh(state))
 
     def hold_scope_generation(self, scope_id: str, generation: int | None) -> None:
         """Fence writes to ``scope_id`` through this store to ``generation``.
@@ -335,7 +371,7 @@ class FreshStore:
     # Lifecycle (`func builtin state clear`)
     # ------------------------------------------------------------------
 
-    def clear(self, *, scopes: bool = False) -> Path | None:
+    def clear(self, *, scopes: bool = False) -> str | None:
         """Reset derived runtime state. Keeps workflow scopes unless asked.
 
         Fingerprints, history and the session cache are derived — clearing them
@@ -350,10 +386,11 @@ class FreshStore:
             scopes: Also discard persisted workflow scopes.
 
         Returns:
-            Where the scope file was moved, or None if scopes were kept or
+            Where the scope document was moved, or None if scopes were kept or
             there were none. Scopes are moved aside rather than deleted, so a
-            run discarded by mistake is still recoverable.
+            run discarded by mistake is still recoverable. A description rather
+            than a path — a substrate over a table has none.
         """
-        with file_lock(self._path):
-            save_fresh(self._path, empty_fresh())
+        with self._substrate.lock(self._key):
+            self._substrate.write(self._key, stamp_fresh(empty_fresh()))
         return self._scopes.clear() if scopes else None

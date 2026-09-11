@@ -34,18 +34,7 @@ and lock rather than repeating either.
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from typing import TYPE_CHECKING, Any
-
-from functualize._primitives.fresh_format import (
-    atomic_write_json,
-    file_lock,
-    resolve_fresh_location,
-)
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
+from typing import Any
 
 #: Run-log format version. **Independent of `FRESH_VERSION` and
 #: `SCOPES_VERSION`** — that independence is the reason for the third file.
@@ -75,47 +64,27 @@ def empty_runs() -> dict[str, Any]:
     return {"format_version": RUNS_VERSION, "runs": {}, "events": {}}
 
 
-def resolve_runs_path(start: Path | str) -> Path:
-    """Resolve the run-log path — always the state file's sibling.
+#: The document name this envelope is stored under.
+#:
+#: A key, not a path. `JsonFileSubstrate.for_project` decides the one directory
+#: every document lands in, so the three files can no longer disagree about
+#: which project or which mode they are in — that used to be three copies of one
+#: upward walk held in agreement by care.
+RUNS_KEY = "runs"
 
-    Derived from :func:`state_format.resolve_fresh_location` rather than
-    repeating its upward walk, so the three files cannot disagree about which
-    project or which mode they are in. A reader must not reconstruct a key the
-    writer computed.
+
+def normalize_runs(data: Any) -> dict[str, Any]:
+    """Coerce stored content into a run envelope, discarding anything unusable.
+
+    **Never raises for content.** A truncated document, a version from a future
+    build — all read as "no runs". That is the same rule `fresh.json` follows
+    and the opposite of `scopes.json`, and the difference is deliberate: see
+    this module's docstring.
+
+    The document is left where it is either way. Discarding the *content* is not
+    the same as destroying it, and a human debugging a bad write should still
+    find the bytes.
     """
-    return resolve_fresh_location(Path(start))[0].with_name(RUNS_FILENAME)
-
-
-def runs_lock(path: Path | str, timeout: float = 10.0) -> Any:
-    """Advisory lock on the run log, using the state store's ``.lock`` sidecar
-    discipline. Separate file, separate lock — the three stores never block one
-    another."""
-    return file_lock(path, timeout)
-
-
-def load_runs(path: Path | str) -> dict[str, Any]:
-    """Load the run envelope, discarding anything unusable.
-
-    **Never raises for content.** A missing file, a truncated one, a version
-    from a future build — all read as "no runs". That is the same rule
-    `fresh.json` follows and the opposite of `scopes.json`, and the difference
-    is deliberate: see this module's docstring.
-
-    The file is left in place either way. Discarding the *content* is not the
-    same as destroying it, and a human debugging a bad write should still find
-    the bytes.
-    """
-    target = Path(path)
-    try:
-        raw = target.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return empty_runs()
-
-    try:
-        data = json.loads(raw)
-    except (json.JSONDecodeError, ValueError):
-        return empty_runs()
-
     if not isinstance(data, dict) or data.get("format_version") != RUNS_VERSION:
         return empty_runs()
 
@@ -127,34 +96,16 @@ def load_runs(path: Path | str) -> dict[str, Any]:
     return {"format_version": RUNS_VERSION, "runs": runs, "events": events}
 
 
-def save_runs(path: Path | str, envelope: dict[str, Any]) -> None:
-    """Write the run envelope atomically, stamping the current version.
+def stamp_runs(envelope: dict[str, Any]) -> dict[str, Any]:
+    """The payload to store: the current version stamped on, and the cap applied.
 
-    Callers that read-modify-write must hold :func:`runs_lock` — or better, use
-    :func:`update_runs`.
+    A copy rather than a mutation, so a caller holding an open batch does not
+    find its own envelope trimmed underneath it.
     """
     payload = dict(envelope)
     payload["format_version"] = RUNS_VERSION
-    atomic_write_json(path, payload)
-
-
-def update_runs(
-    path: Path | str, mutate: Callable[[dict[str, Any]], None]
-) -> dict[str, Any]:
-    """Read-modify-write the run envelope under one lock.
-
-    Re-reads inside the lock, so two processes recording *different* runs merge
-    instead of clobbering each other — last-writer-wins per run, not per file.
-    That matters more here than for scopes: every run writes, including the
-    nested and parallel ones history excludes.
-    """
-    target = Path(path)
-    with file_lock(target):
-        envelope = load_runs(target)
-        mutate(envelope)
-        _trim(envelope)
-        save_runs(target, envelope)
-        return envelope
+    _trim(payload)
+    return payload
 
 
 def _trim(envelope: dict[str, Any]) -> None:
@@ -200,23 +151,3 @@ def _trim(envelope: dict[str, Any]) -> None:
     for run_id, entries in events.items():
         if isinstance(entries, list) and len(entries) > EVENTS_PER_RUN_LIMIT:
             events[run_id] = entries[-EVENTS_PER_RUN_LIMIT:]
-
-
-def clear_runs(path: Path | str) -> Path | None:
-    """Move the run log aside, returning where it went, or None if absent.
-
-    Present for symmetry with `clear_scopes` and for one real case: a run log so
-    large that reading it is slow. Unlike scopes there is no *refusal* to escape
-    from — :func:`load_runs` already degrades — so this is a convenience rather
-    than the only way out. **Never reads the file.**
-    """
-    target = Path(path)
-    if not target.exists():
-        return None
-    backup = target.with_name(target.name + ".bak")
-    index = 1
-    while backup.exists():
-        backup = target.with_name(f"{target.name}.bak.{index}")
-        index += 1
-    target.rename(backup)
-    return backup

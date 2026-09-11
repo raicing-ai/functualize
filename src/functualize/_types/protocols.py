@@ -680,6 +680,15 @@ class StoreSubstrate(Protocol):
     compare-and-swap instead. Both live in the port from the start so a remote
     implementation does not have to invent a second method later, and so
     :meth:`write` reports refusal rather than assuming a lock was held.
+
+    **Six members, not three**, which is a revision of spec AC-1 made while
+    building it. The three beyond read/write/lock each have exactly one caller
+    that a three-member port would strand on the filesystem: :meth:`clear` is
+    ``func builtin data clear``, the documented way out of a document that
+    cannot be read; :meth:`delete` is the scope purge, which must not keep a
+    copy; :meth:`describe` is ``func builtin data show``, which exists to tell
+    a person where their data is. A store that is substrate-agnostic except for
+    its purge and its two operator commands is not substrate-agnostic.
     """
 
     def read(self, key: str) -> Stored | None:
@@ -732,6 +741,57 @@ class StoreSubstrate(Protocol):
 
         May be a no-op for a backend that offers no mutual exclusion, which is
         why :meth:`write` takes ``expect`` and returns a bool.
+        """
+        ...
+
+    def clear(self, key: str) -> str | None:
+        """Move the document aside **without reading it**, or None if absent.
+
+        The escape hatch from a document :meth:`read` refuses, reached by
+        ``func builtin data clear``. Not reading is the whole point: it has to
+        work on exactly the content that cannot be parsed.
+
+        Aside rather than deleted, because the runs inside a scope file someone
+        cannot load may still be wanted.
+
+        Returns:
+            A human-readable account of where it went — a path, a backup key, a
+            snapshot id — or None when there was nothing there.
+        """
+        ...
+
+    def delete(self, key: str) -> bool:
+        """Remove the document. True if there was one.
+
+        Distinct from :meth:`clear`, which keeps a copy. A purge runs whenever
+        a scope record goes, so keeping a copy each time would accumulate
+        forever — and there is nothing to recover: the record that referenced
+        this document is already gone.
+
+        A failure to remove must **not** be reported as "there was none". That
+        made a purge which could not delete look like one with nothing to
+        delete.
+        """
+        ...
+
+    def describe(self, key: str) -> str:
+        """One line a person can read: where this document lives, and its size.
+
+        ``func builtin data show`` is the command someone runs to find out what
+        is wrong, and "where is my data" is most of that answer. A substrate
+        that could not be asked would confine the command to one backend, so
+        this is a port member rather than a filesystem detail the CLI reaches
+        around the port for.
+
+        A key ending in ``/`` names a **namespace** rather than one document
+        — ``"scope-state/"`` is every scope's state — and is described in
+        aggregate. Scope state is one document per run, so a line about the
+        single document ``scope-state`` would describe nothing that exists; the
+        half of the store that actually grows would stay invisible, which is
+        the failure this line is here to prevent.
+
+        Prose, not structure: a path and a byte count mean nothing to a
+        substrate backed by a table.
         """
         ...
 
