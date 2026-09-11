@@ -228,6 +228,14 @@ class FreshStore:
         """Move an answered gate's payload back into its draft."""
         return self._scopes.reopen_gate(scope_id, gate_name)
 
+    def set_graph_digest(self, scope_id: str, digest: str) -> None:
+        """Record which graph this scope's walk was started against (T11)."""
+        self._scopes.set_graph_digest(scope_id, digest)
+
+    def get_graph_digest(self, scope_id: str) -> str:
+        """The graph this scope was started against, or `""` if unrecorded."""
+        return self._scopes.get_graph_digest(scope_id)
+
     def get_lease(self, scope_id: str) -> Any:
         """The lease on a scope, or None if nobody has claimed it."""
         return self._scopes.get_lease(scope_id)

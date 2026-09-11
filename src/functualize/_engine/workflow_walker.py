@@ -286,6 +286,7 @@ class WorkflowWalker:
 
         self._walk.claim()
         try:
+            self._check_the_graph_has_not_changed()
             return self._run_walk()
         except StaleGenerationError:
             # Someone took the scope while this walk was running — `cancel`
@@ -303,6 +304,41 @@ class WorkflowWalker:
             return WalkReport(WalkOutcome.SUPERSEDED, self._scope_id)
         finally:
             self._walk.release()
+
+    def _check_the_graph_has_not_changed(self) -> None:
+        """Refuse to advance a scope whose graph is not the one loaded (T11).
+
+        On first entry the digest is *recorded*; on every later entry it is
+        *compared*. Resuming against a changed graph would replay step records
+        against a different shape — a node that no longer exists, an edge that
+        now leads elsewhere, a gate whose answer has no step left to feed.
+
+        The digest is of the **graph projection**, never the file (decision K3,
+        risk R-g). A file digest refuses a resume when a docstring changes or an
+        unrelated job in the same module is edited, which is not a safety
+        property — it is a permanent annoyance that teaches people to bypass
+        the check.
+
+        Nothing is destroyed by the refusal: the records stay, the scope stays
+        readable, and only *advancing* stops.
+        """
+        from functualize._engine.workflow_validation import (
+            WorkflowGraphChangedError,
+            graph_digest,
+        )
+
+        current = graph_digest(self._declaration)
+        if not current:
+            return
+        recorded = self._store.get_graph_digest(self._scope_id)
+        if not recorded:
+            # First entry, or a scope parked before this check existed — the
+            # legacy-mapping path (AC-17). Record and proceed; refusing here
+            # would strand every walk that was already waiting.
+            self._store.set_graph_digest(self._scope_id, current)
+            return
+        if recorded != current:
+            raise WorkflowGraphChangedError(self._scope_id, recorded, current)
 
     def _run_walk(self) -> WalkReport:
         """The walk itself. See `run` for the lease that wraps it."""

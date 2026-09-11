@@ -818,7 +818,7 @@ paid for it. Restore from the scratchpad copy with `install -m644`; never
 
 ## Wave 10 — resume refuses the right edits
 
-### [ ] T11 · Source identity from the graph projection
+### [x] T11 · Source identity from the graph projection
 
 **Files:** `src/functualize/_engine/workflow_validation.py`,
 `src/functualize/_primitives/scope_store.py`, `tests/workflow/test_source_identity.py`
@@ -829,6 +829,53 @@ the file (risk R-g).
 **Test — parity test 3, both halves:** editing the workflow **graph** refuses a resume; editing
 an **unrelated job in the same file** succeeds. The second half is the test that fails if the
 digest is over the file.
+
+Both done. The second half is written so it *cannot* be satisfied by a file
+digest: every declaration under test lives in the test module itself, alongside
+all its fixtures and imports, so a file digest would change on any edit at all.
+
+## What the digest is over, and why not the file
+
+`WorkflowShape.to_dict()`, serialised with sorted keys so dict ordering cannot
+change the answer. A **file** digest refuses a resume when a docstring changes,
+a module is reformatted, an import is added, or an unrelated job in the same
+file is edited — and that last one is the edit people actually make while a
+workflow is parked, because it is usually the bug that made them park it. That
+is not a safety property; it is a permanent annoyance that teaches people to
+bypass the check (risk R-g).
+
+What genuinely invalidates a parked walk is the **graph**: its nodes, its edges,
+where it starts. A test covers the re-routed case specifically — same nodes,
+different edges — because a node-name comparison would pass it.
+
+The refusal **destroys nothing**: the step records stay, the scope stays
+readable, and only *advancing* stops. A safety check more destructive than the
+unsafe operation it prevents is not one.
+
+AC-17's legacy path: an unrecorded digest resumes and is recorded. Refusing
+there would strand every walk that was already parked when this check landed.
+
+## A sabotage that was inert twice, and what it showed
+
+Sabotaging `setdefault` → `=` in `set_graph_digest` failed **nothing**. So did
+moving the record *before* the comparison. Neither is a flaw in the tests:
+**the two defences cover each other.** `setdefault` makes the ordering
+irrelevant, and the ordering makes `setdefault` irrelevant, so breaking either
+alone leaves the property held by the other.
+
+Breaking **both at once** fails 4 tests, which is the evidence that the property
+is real rather than accidental. Recorded because "the sabotage did not fail
+anything" is otherwise indistinguishable from a test that proves nothing — and
+the first sabotage on this branch that reported zero failures had simply not
+applied.
+
+**Gate**
+```bash
+rg -c 'graph_digest' src/functualize/_engine/workflow_validation.py
+```
+now: `0` · after: `1` — the function's own definition. Measured, not guessed:
+the first value written here was `3`, and the gate-honesty test caught it
+before the commit did.
 
 ---
 

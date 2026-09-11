@@ -14,7 +14,12 @@ caught the moment the executor reached for it.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def _validate_workflow_from_job_refs(
@@ -196,3 +201,61 @@ def validate_workflow_declarations(app: Any = None, *, registry: Any = None) -> 
             if cycle
             else "Workflow nesting cycle detected."
         ) from exc
+
+# ----------------------------------------------------------------------
+# Source identity (`durable-run-layer`/T11)
+# ----------------------------------------------------------------------
+
+
+def graph_digest(declaration: Any) -> str:
+    """A stable digest of a workflow's **graph**, not of its file.
+
+    Decision K3, and the reason is risk R-g: a digest of the *source file*
+    refuses a resume whenever anything in that file changes — a docstring, an
+    unrelated job, a reformat. That is not a safety property, it is a
+    permanent annoyance that trains people to bypass the check. What actually
+    invalidates a parked walk is the **graph**: its nodes, its edges, where it
+    starts.
+
+    So the digest is over `WorkflowShape.to_dict()` — the same projection the
+    discovery cache stores — serialised with sorted keys so a dict's iteration
+    order cannot change the answer.
+
+    Returns `""` for anything that is not a workflow, so a caller can compare
+    unconditionally: two empty digests are equal, which is the right answer for
+    a scope that never had a graph.
+    """
+    shape = getattr(declaration, "shape", None)
+    if shape is None:
+        return ""
+    try:
+        payload = shape().to_dict()
+    except Exception:  # noqa: BLE001 - a digest is never worth failing a run
+        logger.debug("could not project a workflow shape", exc_info=True)
+        return ""
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode()).hexdigest()[:16]
+
+
+class WorkflowGraphChangedError(Exception):
+    """A parked walk's graph is not the graph that is loaded now.
+
+    Resuming would replay step records against a different shape: a node that
+    no longer exists, an edge that now leads somewhere else, a gate whose
+    answer no longer has a step to feed. The records are still there and the
+    scope is still readable — only *advancing* it is refused.
+
+    Names both digests, because the first question is always "what changed",
+    and the answer "your workflow" is not one.
+    """
+
+    def __init__(self, scope_id: str, recorded: str, current: str) -> None:
+        super().__init__(
+            f"Workflow scope '{scope_id}' was recorded against graph "
+            f"{recorded} and the loaded workflow is {current}. Resuming would "
+            f"replay its steps against a different shape. Cancel the scope, or "
+            f"restore the graph it was started with."
+        )
+        self.scope_id = scope_id
+        self.recorded = recorded
+        self.current = current

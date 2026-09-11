@@ -280,6 +280,33 @@ class ScopeStore:
 
         self._mutate(_apply, scope_id=scope_id)
 
+    def set_graph_digest(self, scope_id: str, digest: str) -> None:
+        """Record which graph this scope's walk was started against (T11).
+
+        Written once, on first entry, and never overwritten: the question a
+        resume asks is *"is the loaded graph the one this walk started with"*,
+        and a digest that followed the current declaration would always agree
+        with itself.
+        """
+
+        def _apply(envelope: dict[str, Any]) -> None:
+            scope = envelope["scopes"].setdefault(scope_id, _blank_scope())
+            scope.setdefault("graph_digest", digest)
+
+        self._mutate(_apply, scope_id=scope_id)
+
+    def get_graph_digest(self, scope_id: str) -> str:
+        """The graph this scope was started against, or `""` if unrecorded.
+
+        `""` for a scope written before T11, which is the legacy-mapping path
+        AC-17 asks for: an unrecorded digest compares equal to anything, so an
+        existing parked walk resumes rather than being refused by a check that
+        did not exist when it was parked.
+        """
+        scope = self.get_scope(scope_id)
+        digest = scope.get("graph_digest") if scope else None
+        return digest if isinstance(digest, str) else ""
+
     def set_scope_status(self, scope_id: str, status: str) -> None:
         """Set a scope's status (running/blocked/completed/failed/cancelled)."""
 
