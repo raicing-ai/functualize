@@ -207,6 +207,43 @@ class RunContext:
         self._events: ObservabilityFacade | None = None
         self._prompts: PromptFacade | None = None
 
+    def _derive(self, **overrides: Any) -> RunContext:
+        """A copy of this context with ``overrides`` applied.
+
+        Every field is carried by construction. The alternative — a second
+        ``RunContext(...)`` call listing the fields it happens to need — is
+        what ``wiring.with_plugin_config`` was, and it silently dropped seven:
+        the derived context had no engine (so ``invoke`` raised), no run id, no
+        cwd, and an ``_invoke_depth`` reset to 0, which defeats the recursion
+        guard for everything downstream of it.
+
+        Adding a field to ``__init__`` therefore does not require finding this
+        function. That was the actual failure mode: ``_run_id`` was added to
+        two construction sites and missed here.
+        """
+        fields: dict[str, Any] = {
+            "name": self._name,
+            "config": self._config,
+            "logger": self._logger,
+            "metadata": self._metadata,
+            "plugin_configs": self._plugin_configs,
+            "state_store": self._state_store,
+            "resources": self._resources,
+            "perf_timeline": self._perf_timeline,
+            "_workflow_scope": self._workflow_scope,
+            "_invoke_depth": self._invoke_depth,
+            "_parent_request": self._parent_request,
+            "_run_id": self._run_id,
+            "_max_invoke_depth": self._max_invoke_depth,
+            "_execution_engine": self._execution_engine,
+            "cwd": self._cwd,
+            "job_directory": self._job_directory,
+            "_di_registry": self._di_registry,
+            "_caps": self._caps,
+        }
+        fields.update(overrides)
+        return RunContext(**fields)
+
     @property
     def prompts(self) -> PromptFacade:
         """`rc.prompts` — ask the person on the other end, if there is one."""

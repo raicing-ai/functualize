@@ -286,6 +286,7 @@ class WiredInvoke(Invoke):
         workflow_scope: WorkflowScope | None = None,
         cwd: Path | None = None,
         run_context: Any | None = None,
+        caps: dict[type, Any] | None = None,
     ) -> None:
         self._engine = execution_engine
         self._gate_registry = gate_registry
@@ -310,7 +311,31 @@ class WiredInvoke(Invoke):
         self._parent_run_id: str | None = parent_run_id
         self._workflow_scope = workflow_scope
         self._cwd = cwd
-        self._rc = run_context
+        #: The run context this capability belongs to, for the INVOKE_* hooks.
+        #:
+        #: Two doors build a `WiredInvoke` and only one of them has a
+        #: RunContext to hand: `rc._get_invoke()` passes itself, while the DI
+        #: factory runs *during* parameter resolution, where the RunContext may
+        #: not exist yet — a job writing `def j(inv: Invoke, rc: RunContext)`
+        #: resolves `inv` first. So the DI door passes the live `caps` map and
+        #: the lookup happens when a hook fires, by which time the map is
+        #: filled. `TTY.ctx` resolves the same fact the same way and for the
+        #: same reason; this was the one capability that captured it eagerly,
+        #: so every INVOKE_START/END/FAILURE hook reached through a `inv:
+        #: Invoke` parameter received `None` as its parent.
+        self._explicit_rc = run_context
+        self._caps = caps
+
+    @property
+    def _rc(self) -> Any | None:
+        """The RunContext for this execution, or None outside a job."""
+        if self._explicit_rc is not None:
+            return self._explicit_rc
+        if self._caps is None:
+            return None
+        from functualize._engine.capabilities.runcontext import RunContext
+
+        return self._caps.get(RunContext)
 
     def __call__(
         self,
@@ -894,6 +919,9 @@ def _make_invoke(ctx: Any) -> WiredInvoke:
         max_invoke_depth=ctx.engine.max_invoke_depth,
         workflow_scope=ctx.context.parent_scope,
         cwd=ctx.context.cwd,
+        # Lazily, not `ctx.context.capabilities`: this factory runs while that
+        # map is still being filled, and the RunContext may land after it.
+        caps=ctx.caps,
     )
 
 

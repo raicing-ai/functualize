@@ -63,27 +63,18 @@ class WiringFacade:
 
         Returns the context, not the facade: the caller wants something to run a
         job with, and handing back a facade would make them reach for its owner.
-        """
-        from functualize._engine.capabilities.runcontext import RunContext
 
+        Derived rather than reconstructed — see `RunContext._derive`, which
+        exists because the reconstruction here used to drop the engine, the run
+        id, the cwd and the invoke depth.
+        """
         rc = self._rc
         current = self.get_plugin_config(section)
         model_class = type(current)
         new_config = model_class(**{**current.model_dump(), **overrides})
         new_configs = dict(rc._plugin_configs or {})
         new_configs[section] = new_config
-        return RunContext(
-            name=rc._name,
-            config=rc._config,
-            logger=rc._logger,
-            metadata=rc._metadata,
-            plugin_configs=new_configs,
-            state_store=rc._state_store,
-            resources=rc._resources,
-            perf_timeline=rc._perf_timeline,
-            _di_registry=rc._di_registry,
-            _caps=rc._caps,
-        )
+        return rc._derive(plugin_configs=new_configs)
 
     # --- Resources ---
 
