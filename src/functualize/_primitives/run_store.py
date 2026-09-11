@@ -42,7 +42,7 @@ from functualize._primitives.run_format import (
     normalize_runs,
     stamp_runs,
 )
-from functualize._primitives.substrate import JsonFileSubstrate
+from functualize._primitives.substrate import substrate_for_project
 from functualize._types.errors import SubstrateUnreadableError
 
 if TYPE_CHECKING:
@@ -141,7 +141,7 @@ class RunStore:
     @classmethod
     def for_project(cls, start: Path | str) -> RunStore:
         """Build a store on the project's resolved substrate."""
-        return cls(JsonFileSubstrate.for_project(Path(start)))
+        return cls(substrate_for_project(Path(start)))
 
     @property
     def substrate(self) -> StoreSubstrate:

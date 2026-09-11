@@ -54,7 +54,7 @@ from functualize._primitives.scope_state_store import (
     STATE_DIRNAME,
     ScopeStateStore,
 )
-from functualize._primitives.substrate import JsonFileSubstrate
+from functualize._primitives.substrate import substrate_for_project
 from functualize._types.errors import (
     ScopeStoreUnreadableError,
     SubstrateUnreadableError,
@@ -159,7 +159,7 @@ class ScopeStore:
     @classmethod
     def for_project(cls, start: Path | str) -> ScopeStore:
         """Build a store on the project's resolved substrate."""
-        return cls(JsonFileSubstrate.for_project(Path(start)))
+        return cls(substrate_for_project(Path(start)))
 
     @property
     def substrate(self) -> StoreSubstrate:

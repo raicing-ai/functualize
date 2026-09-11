@@ -32,7 +32,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from functualize._primitives.substrate import JsonFileSubstrate
+from functualize._primitives.substrate import substrate_for_project
 from functualize._types.errors import SubstrateUnreadableError
 
 if TYPE_CHECKING:
@@ -75,7 +75,7 @@ class ShellHistoryStore:
     @classmethod
     def for_project(cls, start: Path | str) -> ShellHistoryStore:
         """The store for the project containing ``start``."""
-        return cls(JsonFileSubstrate.for_project(Path(start)))
+        return cls(substrate_for_project(Path(start)))
 
     @property
     def substrate(self) -> StoreSubstrate:

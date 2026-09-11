@@ -1026,7 +1026,7 @@ def explain_verdicts(app: Any, job_name: str) -> tuple[Any, list[Any], str, str 
             "  no @job declaration — nothing guards or caches this job",
         )
 
-    store = FreshStore.for_project(app.fresh_root)
+    store = FreshStore(app.execution_engine.substrate)
     preflight = Preflight(store, root=app.fresh_root)
 
     def config_for(name: str) -> Any:

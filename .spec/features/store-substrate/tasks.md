@@ -238,19 +238,68 @@ The method is kept for the ordinary reasons and the safety claim was deleted
 from the docstring, because a comment asserting a property no test can lose is
 the same defect as a gate that cannot fail.
 
-## T4 · One choice moves all four stores
+## T4 · One choice moves all four stores — [x]
 
-`[F]` `src/functualize/_app/boot.py`, `src/functualize/_engine/executor.py`,
-`src/functualize/app/core.py`
+`[F]` `src/functualize/_primitives/substrate.py`,
+`src/functualize/_primitives/{fresh,scope,run}_store.py`,
+`src/functualize/_primitives/shell_history.py`,
+`src/functualize/_app/boot.py`, `src/functualize/_app/impl.py`,
+`src/functualize/_engine/executor.py`,
+`tests/primitives/test_one_substrate_choice.py` (new)
 
-The substrate is chosen once, at boot, and handed to every store. The
-split-brain in spec §E becomes unreachable: there is no way to give the scope
-records one backend and the state inside them another.
+The substrate is chosen in **one function**, and every store's `for_project`
+routes through it. The split-brain in spec §E becomes unreachable: there is no
+way to give the scope records one backend and the state inside them another,
+because there is one place that decides and one object handed to both.
+
+### The gate as written no longer measures anything
 
 ```
 rg -c "StateStore\.for_project|ScopeStore\.beside_state|RunStore\.beside_state" src/ -g '*.py' | rg -v "_primitives/" | awk -F: '{s+=$2} END {print s+0}'
 ```
-now: `17` · after: `0`
+now: `0` · before: `0` — **and it was already 0 before this task ran.** Every
+name in it is gone: `StateStore` was renamed by `durable-run-layer`/T3b, and
+`beside_state`/`beside_fresh` were deleted in T2. The recorded `17` described a
+tree that no longer exists. A gate that passes because its subject was renamed
+is the failure mode `tests/spec/test_task_gates_still_hold.py` exists to find,
+so it is replaced rather than quietly kept green:
+
+```
+rg -c "JsonFileSubstrate\.for_project\(" src/ -g '*.py' | awk -F: '{s+=$2} END {print s+0}'
+```
+now: `1` · before: `4` — the one place that names the filesystem substrate. The
+trailing `(` matters: four docstrings in `_primitives` *mention*
+`JsonFileSubstrate.for_project`, and a grep without it answers with prose. The
+test does the same count by walking the AST, with a guard that the walk found
+calls at all.
+
+### Not cached, deliberately
+
+`substrate_for_project` re-resolves on every call. A cache keyed by path would
+be module-level mutable state — forbidden outright — and would also be wrong:
+the CLI changes directory and so do the tests, so a memoised answer hands the
+second project the first one's documents, silently, in a way that looks like
+data loss.
+
+The *engine* caches one, because it has a run's lifetime. A run touches the
+ledger, the records, the state inside them and the run log; resolving per store
+is four upward walks per run and, once a substrate is configurable, four
+chances to be told a different answer halfway through.
+
+### Sabotage
+
+Three, each asserted to have applied first:
+
+| sabotage | result |
+|---|---|
+| `RunStore.for_project` resolves its own substrate | 2 fail |
+| the one decision memoises by path | 1 fail |
+| the engine resolves per store instead of holding one | 2 fail |
+
+The first is what AC-4 forbids and it is caught by redirecting the decision's
+**body** — not by rebinding its name. Rebinding would not reach the stores at
+all (they import the function by name), and patching each store's own binding
+would assert exactly the convention this feature replaced.
 
 ## T5 · The second seam is deleted
 

@@ -236,6 +236,8 @@ class JobExecutionEngine:
         # Dependency scheduling, the sibling subject (T7).
         self._dependency_runner = DependencyRunner(self)
         self._workflow_state_store: Any = None
+        #: Resolved on first use, then held. See :attr:`substrate`.
+        self._substrate: Any = None
         #: Scopes this process has already built, by id, so two runs
         #: naming one scope share it rather than racing on the file.
         self._scopes: dict[str, Any] = {}
@@ -1503,6 +1505,22 @@ class JobExecutionEngine:
 
         return result
 
+    @property
+    def substrate(self) -> Any:
+        """Where this project's documents live. **Resolved once per engine.**
+
+        The one decision (`substrate_for_project`) made once and held, so a run
+        that touches the freshness ledger, the scope records, the state inside
+        them and the run log walks the filesystem upward for `.functualize/`
+        one time instead of five — and, when a configured substrate arrives,
+        cannot be told a different answer halfway through a run.
+        """
+        if self._substrate is None:
+            from functualize._primitives.substrate import substrate_for_project
+
+            self._substrate = substrate_for_project(self.fresh_root)
+        return self._substrate
+
     def _state_store(self) -> Any:
         """The **freshness ledger**, resolved the way `func builtin data` does.
 
@@ -1517,7 +1535,7 @@ class JobExecutionEngine:
         if self._workflow_state_store is None:
             from functualize._primitives.fresh_store import FreshStore
 
-            self._workflow_state_store = FreshStore.for_project(self.fresh_root)
+            self._workflow_state_store = FreshStore(self.substrate)
         return self._workflow_state_store
 
     def _scope_store(self) -> Any:
@@ -1538,7 +1556,7 @@ class JobExecutionEngine:
         """
         from functualize._primitives.scope_store import ScopeStore
 
-        return ScopeStore(self._state_store().substrate)
+        return ScopeStore(self.substrate)
 
     def _failure_before_execution(
         self,

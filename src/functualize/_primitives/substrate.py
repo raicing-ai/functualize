@@ -39,9 +39,9 @@ from functualize._primitives.fresh_format import (
     resolve_fresh_location,
 )
 from functualize._types.errors import SubstrateUnreadableError
-from functualize._types.protocols import Stored
+from functualize._types.protocols import Stored, StoreSubstrate
 
-__all__ = ["JsonFileSubstrate"]
+__all__ = ["JsonFileSubstrate", "substrate_for_project"]
 
 
 def _human_size(size: int) -> str:
@@ -248,3 +248,26 @@ class JsonFileSubstrate:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 stack.enter_context(file_lock(path))
             yield
+
+
+def substrate_for_project(start: Path | str) -> StoreSubstrate:
+    """Which substrate this project's documents live in. **The one decision.**
+
+    Every store's ``for_project`` routes through here, so "which backend does
+    this project use" is answered in one place rather than once per store. That
+    is spec AC-4: choosing a substrate moves every store or none, and the
+    split-brain where scope records live in one backend while the job state
+    inside them lives in another is unreachable — not because five call sites
+    agree, but because there is one call site to agree with.
+
+    Today the answer is always the filesystem. It is a function rather than a
+    constant because the *shape* is what AC-4 needs: when a configured
+    substrate arrives, this is the body that changes and nothing else does.
+
+    Deliberately **not cached**. A cache here would be module-level mutable
+    state keyed by a path, and a process that changes directory — the CLI does,
+    and so do the tests — would get the previous project's documents. Callers
+    that resolve often hold the result instead; the engine is the one that
+    matters and it does.
+    """
+    return JsonFileSubstrate.for_project(Path(start))

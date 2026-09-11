@@ -58,7 +58,7 @@ from functualize._primitives.fresh_format import (
     stamp_fresh,
 )
 from functualize._primitives.scope_store import ScopeStore
-from functualize._primitives.substrate import JsonFileSubstrate
+from functualize._primitives.substrate import substrate_for_project
 from functualize._types.errors import SubstrateUnreadableError
 
 if TYPE_CHECKING:
@@ -88,7 +88,7 @@ class FreshStore:
     @classmethod
     def for_project(cls, start: Path | str) -> FreshStore:
         """Build a store on the project's resolved substrate."""
-        return cls(JsonFileSubstrate.for_project(Path(start)))
+        return cls(substrate_for_project(Path(start)))
 
     @property
     def substrate(self) -> StoreSubstrate:

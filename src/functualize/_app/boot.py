@@ -116,11 +116,17 @@ def init_observability(app: Any) -> None:
     from functualize._events.run_log import install_run_log as _install_run_log
 
     def _run_store_for_project() -> Any:
-        from pathlib import Path
+        """The run log, on the **engine's** substrate.
 
+        Resolved through the engine rather than from the cwd, so the run log
+        cannot end up in a different project — or, once a substrate is
+        configurable, a different backend — from the scope records describing
+        the same run. That is spec AC-4 at the one seam where an event
+        subscriber, not a run, decides where to write.
+        """
         from functualize._primitives.run_store import RunStore
 
-        return RunStore.for_project(Path.cwd())
+        return RunStore(app.execution_engine.substrate)
 
     app._run_log = _install_run_log(app._event_bus, _run_store_for_project)
 
