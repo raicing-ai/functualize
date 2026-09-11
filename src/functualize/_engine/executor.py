@@ -779,28 +779,46 @@ class JobExecutionEngine:
         request = self._ensure_scope(request)
         kwargs = self._request_kwargs(request, job)
         run_id = self._open_run_record(request, kwargs)
-        result = self._execute_lifecycle(
-            request.job_name,
-            job.function,
-            request=request,
-            run_id=run_id,
-            kwargs=kwargs,
-            invoke_depth=request.invoke_depth,
-            cwd=request.cwd,
-            job_directory=request.job_directory,
-            config_class=job.config_class,
-            parent_scope=request.parent_scope,
-            workflow_scope_id=request.workflow_scope_id,
-            run_dependencies=request.run_dependencies,
-            force_fresh=request.force_fresh,
-            force=request.force,
-            group_option_values=(
-                dict(request.group_option_values)
-                if request.group_option_values is not None
-                else None
-            ),
-        )
-        self._close_run_record(run_id, result)
+        # `finally`, not two statements in a row. `_execute_lifecycle` has
+        # raising paths `run()` does not catch — `except MissingProviderError:
+        # raise` and the `DIValidationError` beside it. A job body raising is
+        # *not* one of them; that is caught and becomes a FAILURE result.
+        #
+        # Without this the record stayed "running" for ever. Reproduced:
+        #
+        #     records: [("run-01M27Q42TF...", "running")]
+        #
+        # and nothing reaps it — the lease that would is
+        # durable-run-layer/T5, unbuilt, and `derived_state` has no
+        # `abandoned` case. Found by an external review of the AFTER state.
+        closed = False
+        try:
+            result = self._execute_lifecycle(
+                request.job_name,
+                job.function,
+                request=request,
+                run_id=run_id,
+                kwargs=kwargs,
+                invoke_depth=request.invoke_depth,
+                cwd=request.cwd,
+                job_directory=request.job_directory,
+                config_class=job.config_class,
+                parent_scope=request.parent_scope,
+                workflow_scope_id=request.workflow_scope_id,
+                run_dependencies=request.run_dependencies,
+                force_fresh=request.force_fresh,
+                force=request.force,
+                group_option_values=(
+                    dict(request.group_option_values)
+                    if request.group_option_values is not None
+                    else None
+                ),
+            )
+            self._close_run_record(run_id, result)
+            closed = True
+        finally:
+            if not closed:
+                self._close_run_record_failed(run_id)
         if self._records_history(request):
             self._record_history(request.job_name, kwargs, result)
         return result
@@ -909,6 +927,24 @@ class JobExecutionEngine:
         except Exception:  # noqa: BLE001 - an observation is never worth a run
             logger.debug("could not open a run record", exc_info=True)
             return None
+
+    def _close_run_record_failed(self, run_id: str | None) -> None:
+        """Close a record whose run left `engine.run()` by raising.
+
+        Separate from :meth:`_close_run_record` because there is no
+        ``JobResult`` to read a status from — the lifecycle did not return one.
+        Silent for the same reason as its sibling: an observation is never
+        worth a run.
+        """
+        if run_id is None:
+            return
+        try:
+            from functualize._primitives.run_store import RunStore
+
+            store = RunStore.beside_state(self._state_store().path)
+            store.close_run(run_id, "failure")
+        except Exception:  # noqa: BLE001 - an observation is never worth a run
+            logger.debug("could not close a run record", exc_info=True)
 
     def _close_run_record(self, run_id: str | None, result: JobResult) -> None:
         """Mark the run finished. Silent for the same reason as opening it."""

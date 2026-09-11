@@ -276,13 +276,15 @@ class TestARecordAlwaysCloses:
     """A run that leaves `engine.run()` by raising still closes its record.
 
     Open and close were two statements in a row, so a lifecycle that raised
-    left the record `running` for ever. A job body raising is not this case —
-    that is caught and becomes a FAILURE result — but `MissingProviderError`
-    and `DIValidationError` propagate out of `_execute_lifecycle` uncaught.
+    left the record `running` for ever, and nothing reaps a stale one: the
+    lease that would is `durable-run-layer`/T5, unbuilt, and `derived_state`
+    has no `abandoned` case. Found by an external review of the AFTER state.
 
-    Nothing reaps a stale record: the lease that would is
-    `durable-run-layer`/T5, not built, and `derived_state` has no `abandoned`
-    case. Found by an external review of the AFTER state.
+    **The lifecycle is forced to raise, rather than coaxed.** The first version
+    of this test used an unprovided DI dependency and passed *with the fix
+    removed* — the exception never left `engine.run()`, so the test proved
+    nothing. What `engine.run()` actually promises is "whatever the lifecycle
+    does, the record closes", and that is what is asserted.
     """
 
     def test_a_raised_lifecycle_leaves_no_running_record(self, tmp_path: Any) -> None:
@@ -297,28 +299,23 @@ class TestARecordAlwaysCloses:
         os.chdir(tmp_path)
         try:
             app = FunctualizeApp(name="reaper")
+            app.register_dynamic_job("j", lambda: "ok")
+            engine = app.execution_engine
 
-            class Unprovided:
-                pass
+            def boom(*_a: Any, **_k: Any) -> None:
+                raise RuntimeError("kaboom")
 
-            def needs_a_provider(dep: Unprovided) -> str:
-                return "never"
-
-            app.register_dynamic_job("needs_a_provider", needs_a_provider)
+            engine._execute_lifecycle = boom  # type: ignore[method-assign]
             with contextlib.suppress(Exception):
-                app.execute(
-                    RunRequest(job_name="needs_a_provider", surface="app.execute")
-                )
+                app.execute(RunRequest(job_name="j", surface="app.execute"))
 
-            store = RunStore.beside_state(app.execution_engine._state_store().path)
-            still_running = [
-                rid
-                for rid in store.run_ids()
-                if (store.get_run(rid) or {}).get("status") == "running"
-            ]
-            assert not still_running, (
-                f"{len(still_running)} record(s) left saying 'running' after the "
-                "run left engine.run() by raising"
+            store = RunStore.beside_state(engine._state_store().path)
+            statuses = {
+                rid: (store.get_run(rid) or {}).get("status") for rid in store.run_ids()
+            }
+            assert statuses, "no record was opened, so this test proves nothing"
+            assert "running" not in statuses.values(), (
+                f"a record still says running after the lifecycle raised: {statuses}"
             )
         finally:
             os.chdir(cwd)
