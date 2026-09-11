@@ -924,17 +924,40 @@ now: `0` · after: `3`
 
 ## Wave 12 — checkpoint
 
-### [ ] T13 · Feature gate
+### [x] T13 · Feature gate
 
-- `uv run ruff check src/ tests/ plugins/`, `ruff format --check`
-- `uv run mypy src/`
-- `uv run lint-imports`
-- `HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto`
-- `uv run pytest examples/`
-- pi-workflows parity tests **2** (crash/resume) and **3** (source identity) pass
-- AC-1…AC-18 each named to a test
-- orphan scan over every added symbol
-- the sabotages at T6, and T5's locking-disabled fencing test, **committing before each**
+- [x] `uv run ruff check src/ tests/ plugins/`, `ruff format --check` — clean, 0 to reformat
+- [x] `uv run mypy src/` — 352 files, no issues
+- [x] `uv run lint-imports` — **7 kept, 0 broken.** See below: this found a real break
+- [x] `HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n 8` — 12,002 passed / 155 skipped
+- [x] `uv run pytest examples/` — 201 passed
+- [x] all 13 plugin suites, one package at a time — green
+- [x] parity test **2** (crash/resume) — `tests/integration/test_crash_and_resume.py`,
+      a real `SIGKILL` with a guard asserting the exit code really was one
+- [x] parity test **3** (source identity) — `tests/workflow/test_source_identity.py`,
+      both halves, the second written so a file digest cannot satisfy it
+- [x] AC-1…AC-18 each named to a test — every one appears in `tests/`, lowest count 3 (AC-8)
+- [x] orphan scan over all 27 added symbols — every one has a production caller
+- [x] sabotages: T6's (dropping the check from one write path), T5's
+      locking-disabled fencing, and eleven more across T4–T12. Committed before
+      each
+
+## The gate found a real break, nine commits late
+
+`lint-imports` reported **`_cli uses public API only` BROKEN**: nine imports
+where `_cli` reached straight into `_primitives` for `RunStore`,
+`ShellHistoryStore` and `scope_state_dir`. Introduced in T3b/T3/T4 and unnoticed
+since, because the per-task loop was ruff + mypy + pytest and that set silently
+excluded a gate the repository maintains.
+
+The contract exists for the reason this whole roadmap exists: the CLI is a
+*surface*, and a surface importing internals becomes a second reader of a
+question the public API already answers. Fixed by exporting the three through
+`app/utils.py` and rewiring all nine sites.
+
+**The process lesson is not "remember lint-imports".** A check that only runs at
+a feature boundary will always find things late. It belongs in the per-task
+loop, where the diff is small enough that the cause is obvious.
 
 ---
 

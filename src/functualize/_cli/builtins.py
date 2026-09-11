@@ -912,14 +912,14 @@ def register_builtin_commands(cli_group: Any) -> None:
         """Show runtime state statistics."""
         from pathlib import Path
 
-        from functualize._primitives.run_store import RunStore
-        from functualize._primitives.scope_state_store import scope_state_dir
-        from functualize._primitives.shell_history import ShellHistoryStore
         from functualize.app.utils import (
             SCOPES_LIMIT,
             SCOPES_VERSION,
             FreshStore,
+            RunStore,
             ScopeStoreUnreadableError,
+            ShellHistoryStore,
+            scope_state_dir,
         )
 
         path, mode, marker = _state_location()
@@ -1020,11 +1020,11 @@ def register_builtin_commands(cli_group: Any) -> None:
         """
         from pathlib import Path
 
-        from functualize._primitives.run_store import RunStore
-        from functualize._primitives.shell_history import ShellHistoryStore
         from functualize.app.utils import (
             FreshStore,
+            RunStore,
             ScopeStoreUnreadableError,
+            ShellHistoryStore,
             resolve_fresh_path,
             resolve_scopes_path,
         )
@@ -1730,7 +1730,7 @@ def register_builtin_commands(cli_group: Any) -> None:
         """
         from pathlib import Path
 
-        from functualize._primitives.run_store import RunStore
+        from functualize.app.utils import RunStore
 
         return RunStore.for_project(Path.cwd())
 
@@ -1934,9 +1934,7 @@ def register_builtin_commands(cli_group: Any) -> None:
         """
         from pathlib import Path
 
-        from functualize._primitives.run_store import RunStore
-        from functualize._primitives.shell_history import ShellHistoryStore
-        from functualize.app.utils import job_history
+        from functualize.app.utils import RunStore, ShellHistoryStore, job_history
 
         # Read directly, never via `for_project`: history is inspected far more
         # often than it is written, and reading must not create a store in a

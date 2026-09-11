@@ -302,7 +302,7 @@ def _record_history_quietly(command: str, code: int) -> None:
     from datetime import UTC, datetime
     from pathlib import Path
 
-    from functualize._primitives.shell_history import ShellHistoryStore
+    from functualize.app.utils import ShellHistoryStore
 
     try:
         # Its own file since `durable-run-layer`/T3b. These used to share a ring

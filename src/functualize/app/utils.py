@@ -51,11 +51,14 @@ from functualize._primitives.parameter_types import (
     is_cli_value_type,
 )
 from functualize._primitives.plugin_kinds import PluginKind, classify_group
+from functualize._primitives.run_store import RunStore, new_run_id, runner_identity
 from functualize._primitives.scope_format import (
     SCOPES_LIMIT,
     SCOPES_VERSION,
     resolve_scopes_path,
 )
+from functualize._primitives.scope_state_store import scope_state_dir
+from functualize._primitives.shell_history import ShellHistoryStore
 from functualize._types.annotations import resolved_hints
 from functualize._types.descriptors import FieldDescriptor, GroupOptionsSpec
 from functualize._types.enums import RunStatus
@@ -244,6 +247,11 @@ __all__ = [
     # `builtin info`: a file whose path nothing reports is a file nobody finds.
     "resolve_scopes_path",
     "RUN_STATES",
+    "RunStore",
+    "ShellHistoryStore",
+    "new_run_id",
+    "runner_identity",
+    "scope_state_dir",
     "SCOPES_LIMIT",
     "SCOPES_VERSION",
     # Raised when the scope store cannot be honoured. Public because `_cli`,
