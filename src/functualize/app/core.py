@@ -130,6 +130,9 @@ class FunctualizeApp:
     # observability is left inert; the `event_bus`/`middleware` properties
     # call it first and narrow the result.
     _event_bus: EventBus | None
+    #: The run-log subscriber, or None when observability was not initialised.
+    #: Read by the engine through `EngineHost.run_log` to flush a run's buffer.
+    _run_log: Any
     _middleware_stack: MiddlewareStack | None
     # Memo caches, invalidated by the mutators below.
     _jobs_memo: list[JobDescriptor] | None = None
@@ -441,6 +444,16 @@ class FunctualizeApp:
         from functualize._app.impl import _file_source_infos
 
         return _file_source_infos(self)
+
+    @property
+    def run_log(self) -> Any:
+        """The run-log subscriber (`EngineHost.run_log`), or None.
+
+        None before `init_observability` has run — a kernel constructed but not
+        booted — which the engine reads as "nothing is collecting", not as an
+        error.
+        """
+        return getattr(self, "_run_log", None)
 
     def scope_for(self, scope_id: str) -> Any:
         """The scope named by ``scope_id``, created and announced if new.

@@ -32,6 +32,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from functualize._primitives.lease import (
+    DEFAULT_LEASE_SECONDS,
+    Lease,
+    StaleGenerationError,
+    check_generation,
+    claim,
+    read_lease,
+    release,
+    renew,
+    write_lease,
+)
 from functualize._primitives.scope_format import (
     SCOPES_FILENAME,
     clear_scopes,
@@ -491,6 +502,133 @@ class ScopeStore:
         `purge_scopes` can never find, because it walks records (review Q1.4).
         """
         self._ensured.discard(scope_id)
+
+    # ------------------------------------------------------------------
+    # The lease (`durable-run-layer`/T5)
+    #
+    # Stored inside the scope record (schema §4), additive, no version bump —
+    # the same judgement 0.3.0 made for `draft`. The *rules* live in
+    # `_primitives/lease.py` as pure functions; this applies them under the
+    # file lock so a claim is read-modify-written atomically where locking
+    # works. **The lock is an optimisation, not the mechanism**: the fencing
+    # check is a comparison of a recorded integer and holds without it.
+    # ------------------------------------------------------------------
+
+    def get_lease(self, scope_id: str) -> Lease | None:
+        """The lease on this scope, or None if nobody has claimed it."""
+        return read_lease(self.get_scope(scope_id))
+
+    def claim_scope(
+        self,
+        scope_id: str,
+        *,
+        owner: str,
+        seconds: float = DEFAULT_LEASE_SECONDS,
+        force: bool = False,
+        now: datetime | None = None,
+    ) -> Lease:
+        """Take the scope. Returns the lease at its **new** generation.
+
+        Raises:
+            LeaseHeldError: Someone else holds it and has not expired.
+        """
+        when = now or datetime.now(UTC)
+        taken: list[Lease] = []
+
+        def _apply(envelope: dict[str, Any]) -> None:
+            scope = envelope["scopes"].setdefault(scope_id, _blank_scope())
+            # Re-read *inside* the lock: two runners racing to claim an expired
+            # lease must not both see generation 6 and both write 7. Where
+            # locking works this makes the claim atomic; where it does not, the
+            # loser's later writes are still fenced, which is the guarantee
+            # that does not depend on the filesystem.
+            fresh = claim(
+                scope_id,
+                read_lease(scope),
+                owner=owner,
+                now=when,
+                seconds=seconds,
+                force=force,
+            )
+            write_lease(scope, fresh)
+            taken.append(fresh)
+
+        self._mutate(_apply)
+        return taken[0]
+
+    def renew_scope(
+        self,
+        scope_id: str,
+        *,
+        owner: str,
+        generation: int,
+        seconds: float = DEFAULT_LEASE_SECONDS,
+        now: datetime | None = None,
+    ) -> Lease:
+        """Extend a claim you hold. The generation does not move.
+
+        Raises:
+            StaleGenerationError: Someone claimed the scope after you did.
+        """
+        when = now or datetime.now(UTC)
+        renewed: list[Lease] = []
+
+        def _apply(envelope: dict[str, Any]) -> None:
+            scope = envelope["scopes"].get(scope_id)
+            if scope is None:
+                raise StaleGenerationError(
+                    scope_id, held=0, offered=generation, owner="nobody"
+                )
+            fresh = renew(
+                scope_id,
+                read_lease(scope),
+                owner=owner,
+                generation=generation,
+                now=when,
+                seconds=seconds,
+            )
+            write_lease(scope, fresh)
+            renewed.append(fresh)
+
+        self._mutate(_apply)
+        return renewed[0]
+
+    def release_scope(
+        self, scope_id: str, *, generation: int, now: datetime | None = None
+    ) -> None:
+        """Give up a claim you hold, leaving the scope immediately claimable.
+
+        The lease is **expired, not deleted** — see `lease.release`. Deleting
+        would reset the generation, so this runner's own in-flight writes would
+        be accepted by the next holder.
+
+        Raises:
+            StaleGenerationError: Someone else holds it now, so there is
+                nothing of yours to release — and clearing theirs would hand
+                the scope to a third runner mid-walk.
+        """
+        when = now or datetime.now(UTC)
+
+        def _apply(envelope: dict[str, Any]) -> None:
+            scope = envelope["scopes"].get(scope_id)
+            if scope is None:
+                raise StaleGenerationError(
+                    scope_id, held=0, offered=generation, owner="nobody"
+                )
+            write_lease(
+                scope,
+                release(scope_id, read_lease(scope), generation=generation, now=when),
+            )
+
+        self._mutate(_apply)
+
+    def check_scope_generation(self, scope_id: str, generation: int) -> None:
+        """Raise unless ``generation`` currently holds this scope.
+
+        The read half of fencing, for a caller that wants to fail before doing
+        work rather than after. Every fenced *write* checks this itself.
+        """
+        check_generation(scope_id, self.get_lease(scope_id), generation)
 
     def delete_scope(self, scope_id: str) -> bool:
         """Remove a scope entirely. False if it was not there.

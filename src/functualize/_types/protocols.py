@@ -446,6 +446,21 @@ class EngineHost(Protocol):
         """Pop that surface again — tolerant of an already-empty stack."""
         ...
 
+    @property
+    def run_log(self) -> Any:
+        """The run-log subscriber, or None if nothing is collecting events.
+
+        `durable-run-layer`/T4. The engine buffers nothing itself: it pushes and
+        pops the run id so the subscriber can attribute an event, and asks the
+        host to flush when the run ends. `None` is the ordinary answer for a
+        bare engine in a test, and is what makes AC-6 true — a run with no
+        subscriber costs no additional write.
+
+        A property rather than a method because it is state the host holds, not
+        a question it answers.
+        """
+        ...
+
     def scope_for(self, scope_id: str) -> Any:
         """The `WorkflowScope` named by ``scope_id``, created if it is new.
 

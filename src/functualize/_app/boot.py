@@ -105,6 +105,25 @@ def init_observability(app: Any) -> None:
     app._middleware_stack = _MiddlewareStack()
     install_config_event_sink(app._event_bus)
 
+    # The run log (`durable-run-layer`/T4). Registered here because this is the
+    # cross-layer wiring point — `_events` does not know about the run store and
+    # must not, which is the same reason `install_config_event_sink` lives here.
+    #
+    # Subscribing is what turns the log on: with nothing subscribed the bus
+    # returns before it builds an event object, so a bare engine costs nothing
+    # (AC-6). The subscriber buffers and writes once per run, so no file lock
+    # lands on the emit path.
+    from functualize._events.run_log import install_run_log as _install_run_log
+
+    def _run_store_for_project() -> Any:
+        from pathlib import Path
+
+        from functualize._primitives.run_store import RunStore
+
+        return RunStore.for_project(Path.cwd())
+
+    app._run_log = _install_run_log(app._event_bus, _run_store_for_project)
+
     from functualize._events._catalog_entries import (
         get_framework_event_catalog,
     )
@@ -285,6 +304,7 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
     # Observability subsystem (lazy-initialized)
     app._observability_initialized = False
     app._event_bus = None
+    app._run_log = None
     app._middleware_stack = None
 
     # Plugin system registries

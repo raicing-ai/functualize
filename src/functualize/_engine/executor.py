@@ -38,6 +38,7 @@ from functualize._engine.resolution import ResolutionPlan, build_resolution_plan
 from functualize._engine.validation import ArgValidator, unexpected_keyword_error
 from functualize._engine.workflow_orchestrator import WorkflowOrchestrator
 from functualize._events import EventBus, HookEvent, HookRegistry
+from functualize._events.run_log import pop_run, push_run
 from functualize._primitives import DIRegistry, MissingProviderError
 from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
 from functualize._types import AmbiguousJobError, JobResult, RunStatus
@@ -804,6 +805,12 @@ class JobExecutionEngine:
         # and nothing reaps it — the lease that would is
         # durable-run-layer/T5, unbuilt, and `derived_state` has no
         # `abandoned` case. Found by an external review of the AFTER state.
+        # This thread is now executing `run_id`, which is how the run-log
+        # subscriber attributes an event to a run (`_events/run_log`). Pushed
+        # after the record is opened, so an unrecordable run pushes nothing and
+        # its events fall to the enclosing run rather than to a record that
+        # does not exist.
+        push_run(run_id)
         closed = False
         outcome = "failed"
         try:
@@ -832,6 +839,10 @@ class JobExecutionEngine:
             closed = True
             outcome = "completed" if result.status is RunStatus.SUCCESS else "failed"
         finally:
+            pop_run(run_id)
+            # The log's single write, at the end of the run that owns it — the
+            # buffering is what keeps a file lock off the emit path.
+            self._flush_run_log(run_id)
             if not closed:
                 self._close_run_record_failed(run_id)
             if owns_scope:
@@ -1019,6 +1030,17 @@ class JobExecutionEngine:
                 scope.close()
         except Exception:  # noqa: BLE001 - an observation is never worth a run
             logger.debug("could not close the run's scope", exc_info=True)
+
+    def _flush_run_log(self, run_id: str | None) -> None:
+        """Write this run's buffered events, if anything is collecting them.
+
+        `None` when no subscriber was installed — a bare engine in a test, or
+        an app booted without observability. That is AC-6: the log costs
+        nothing when nothing is listening.
+        """
+        subscriber = getattr(self.host, "run_log", None) if self.host else None
+        if subscriber is not None:
+            subscriber.close_run(run_id)
 
     def _close_run_record_failed(self, run_id: str | None) -> None:
         """Close a record whose run left `engine.run()` by raising.

@@ -3,7 +3,7 @@
 Gates were run at authoring time from the worktree root; `now:` is what each
 command returned on `8b18ee1`.
 
-## T1 · `StateStore.keys` takes a prefix
+## T1 · `StateStore.keys` takes a prefix [x] — shipped as a **glob**
 
 `[F]` `src/functualize/_engine/capabilities/state_store.py`
 
@@ -15,7 +15,7 @@ rg -c "def keys\(self, prefix" src/functualize/_engine/capabilities/state_store.
 ```
 now: `0` · after: `1`
 
-## T2 · `State` is durable — no in-memory store at all
+## T2 · `State` is durable — no in-memory store at all [x]
 
 `[F]` `src/functualize/_primitives/scope_format.py`,
 `src/functualize/_primitives/scope_store.py`,
@@ -57,7 +57,7 @@ test -f src/functualize/_engine/capabilities/state_store.py && echo present || e
 ```
 now: `present` · after: `deleted`
 
-## T3 · A workflow step's `rc.state` is the scope's store
+## T3 · A workflow step's `rc.state` is the scope's store [x]
 
 `[F]` `src/functualize/_engine/workflow_orchestrator.py`
 
@@ -69,7 +69,7 @@ rg -c "parent_scope" src/functualize/_engine/workflow_orchestrator.py
 ```
 now: `0` · after: `1`
 
-## T4 · `rc._cap` is the one resolver
+## T4 · `rc._cap` is the one resolver [x]
 
 `[F]` `src/functualize/_engine/capabilities/runcontext.py`
 
@@ -81,7 +81,7 @@ rg -c "_caps\.get|_cap\(" src/functualize/_engine/capabilities/runcontext.py
 ```
 now: `1` · after: `>1`
 
-## T5 · ADR-021 states the mechanism and its exemptions
+## T5 · ADR-021 states the mechanism and its exemptions [x]
 
 `[F]` `contributor/adr/021-capability-duality.md`, `.spec/CONSTITUTION.md`
 
@@ -96,7 +96,7 @@ test -f contributor/adr/021-capability-duality.md && echo exists || echo missing
 ```
 now: `missing` · after: `exists`
 
-## T6 · The tripwire
+## T6 · The tripwire [x]
 
 `[F]` `tests/integration/test_capability_duality.py`
 
@@ -108,7 +108,7 @@ uv run pytest tests/integration/test_capability_duality.py -q -p no:randomly 2>&
 ```
 now: `7 passed` · after: `>7 passed`
 
-## T7 · The example stops teaching the trap
+## T7 · The example stops teaching the trap [x]
 
 `[F]` `examples/standalone/composition_lab/jobs/pipeline.py`
 

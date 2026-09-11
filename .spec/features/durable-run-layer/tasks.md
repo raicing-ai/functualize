@@ -372,7 +372,7 @@ a bisect useless.
 
 ## Wave 3 — the event log
 
-### [ ] T4 · A subscriber persists events per run
+### [x] T4 · A subscriber persists events per run
 
 **Files:** `src/functualize/_events/run_log.py`, `src/functualize/_app/boot.py`,
 `tests/events/test_run_log.py`
@@ -383,15 +383,54 @@ Spec AC-4, AC-5, AC-6. Per-run ring cap (risk R-c).
 ```bash
 rg -c 'open\(|json.dump|write' src/functualize/_events/bus.py
 ```
-now: `0` · after: `0`
+now: `0` · after: **`0`** — invariant, and asserted from a test as well as here,
+so it cannot go green by the write merely moving somewhere equally wrong.
 
 **Test:** a run with no subscriber registered costs no additional write (AC-6).
+
+## The attribution problem, and why the answer is a thread-local
+
+An event carries `trace_id` and `span_id`, not a run id. The run id is known by
+`engine.run()`, and a job body emits from inside it — so the event belongs to
+**the innermost run active on the emitting thread**.
+
+Held in a thread-local stack that `engine.run()` pushes and pops. That looks
+backwards, since a `ContextVar` is the usual tool, and it is the wrong one here
+for the reason `RunContext._run_id` already records: `invoke_parallel` runs batch
+items on worker threads, and a `ContextVar` set in the parent is **not**
+inherited by a thread it did not create — the item would read an empty context
+and its events would be filed under nothing.
+
+The stack is correct for exactly the reason it is usually not: the push happens
+*on the thread that runs the job*, because `engine.run()` is what pushes and
+`invoke_parallel` calls it on the worker.
+
+Verified rather than argued: a fan-out of two items, each asserting its own
+event reached its own run's log.
+
+## Buffered, so no write lands on the emit path
+
+`RunStore.append_event` is a locked read-modify-write of the whole log; one per
+`emit` would put a file lock in the middle of every event a job raises. Events
+are buffered in memory and flushed once, in the same `finally` that closes the
+run record. Asserted as *store writes*, not as elapsed time — 50 events produce
+exactly one batched write, and zero before the run ends.
+
+The per-run cap (risk R-c) is applied **in memory**, so an over-long run costs
+nothing extra on disk either; it is not a trim applied after the fact. Its
+default is `EVENTS_PER_RUN_LIMIT`, read from the store rather than written twice
+— a buffer larger than the store's ring would write events the store discards
+on arrival.
+
+Events emitted outside any run — boot, discovery, CLI parsing — are dropped.
+They belong to the process, not a run, and inventing one would make the log
+claim something false.
 
 ---
 
 ## Wave 4 — the fencing token
 
-### [ ] T5 · `claim` / `renew` / `release`, with a monotonic generation
+### [x] T5 · `claim` / `renew` / `release`, with a monotonic generation
 
 **Files:** `src/functualize/_primitives/lease.py`,
 `src/functualize/_primitives/scope_store.py`, `tests/primitives/test_lease_fencing.py`
@@ -404,8 +443,45 @@ Spec AC-7. The lease lives **inside the scope record** (schema §4) — additive
 rg -n 'owner_id|locked_by|claimed_by|worker_id|runner_id|acquired_by|fencing|fence_token|heartbeat|expires_at' \
   src/functualize/ plugins/*/src/ | wc -l
 ```
-now: `3` *(all `plugins/functualize-aws/.../_session.py` — AWS credential expiry, unrelated)* ·
-after: `3` + the new lease module's own hits
+now: **`8`**, not the `3` recorded at authoring time · after: `32`
+
+The baseline moved under the task: `runner_identity` arrived with T1/T2, and
+the pattern's `runner_id` matches it. Re-measured rather than trusted —
+`plugins/functualize-aws/.../_session.py` still has exactly the 3 unrelated
+hits (AWS credential expiry); the other 5 are the run log's `runner` field.
+After: 24 new hits, 22 of them the lease module itself.
+
+## Two design errors, both caught by a test rather than by review
+
+**Releasing must expire the lease, not delete it.** The first implementation
+deleted, which looks tidier and hands out the fence it exists to raise: with the
+record gone the generation resets to 0, so the next claim is generation 1 again
+— and the releasing runner's own in-flight writes, carrying generation 1, would
+be accepted under a *different* holder's claim. Release now writes the same
+generation with an expiry of `now`: immediately claimable, and the next claim
+increments past it. `get_lease` also still answers "who held it last", which is
+the question asked right after something goes wrong.
+
+**Two racing claims produce one winner, not two generations.** The first test
+asserted both would succeed with generations 2 and 3. That was wrong about the
+guarantee: the read-modify-write happens inside the lock, so the loser sees the
+winner's *live* lease and is refused — a stronger outcome, and the one that
+actually closes 0.3.0's concurrent-`resume` limitation.
+
+## Risk R-a — the lock is not the mechanism
+
+`TestFencingHoldsWithoutLocking` replaces `file_lock` with a no-op and asserts
+every fencing property still holds. This is the test class that can tell a
+fencing design from an owner-plus-expiry one: with locking working the two
+behave identically, so any test that leaves it on is blind to the difference.
+
+It carries its own guard (`test_the_no_op_lock_is_really_in_effect`), because a
+patch that silently missed would leave three tests passing for the wrong reason
+— a green suite asserting the opposite of what it claims.
+
+Sabotage-verified twice, and each failed the right tests: making a reclaim reuse
+the generation failed 11 including all four no-locking tests; making release
+delete failed exactly the two that name it.
 
 **Test — the one that matters (risk R-a):** run the fencing check with locking **disabled
 entirely**; a stale generation must still be refused. **The lock is not the mechanism** —

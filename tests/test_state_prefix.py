@@ -98,7 +98,11 @@ class TestStatePrefixFilterCorrectness:
         assert sorted(result_empty) == sorted(result_no_arg)
         assert sorted(result_empty) == sorted(entries.keys())
 
-    @given(entries=state_entries, prefix=st.text(min_size=1, max_size=30))
+    # `prefix_strings`, not a bare `st.text()`. This test used one, so it could
+    # generate `*` — and `keys("*")` correctly returns every key, which is not
+    # "starts with `*`". It was a latent failure from the day `keys()` became a
+    # glob, waiting for hypothesis to try that one character; it did.
+    @given(entries=state_entries, prefix=prefix_strings.filter(bool))
     def test_prefix_filter_is_case_sensitive(
         self, entries: dict[str, object], prefix: str
     ) -> None:
