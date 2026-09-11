@@ -361,3 +361,91 @@ class TestTheSeamsThatBreak:
             "the failing step's own write was rolled back; state is not "
             "transactional and must not pretend to be"
         )
+
+
+class TestAPlainJobIsNotAWorkflow:
+    """A job that never walked a graph must not appear as a running workflow.
+
+    Every run gets a scope, because that is where `rc.state` lives, and the
+    record is written lazily on first store. So `func myjob` calling
+    `rc.state.set(...)` leaves a record — correctly — but it walked no graph,
+    has no steps, and nothing will ever mark it finished. Listed as a workflow
+    it was a phantom that could not be resumed and could not be purged, since
+    `workflow purge` refuses running scopes.
+    """
+
+    def test_a_job_that_never_touches_state_writes_no_record(
+        self, project: Path
+    ) -> None:
+        """Lazily written, so the common case costs nothing."""
+        from functualize._primitives.scope_store import ScopeStore
+
+        app = FunctualizeApp(name="plain")
+
+        def plain() -> str:
+            return "ok"
+
+        app.register_dynamic_job("plain", plain)
+        for _ in range(3):
+            assert (
+                app.execute(
+                    RunRequest(job_name="plain", surface="app.execute")
+                ).status.value
+                == "Success"
+            )
+
+        scopes = ScopeStore.beside_state(app.execution_engine._state_store().path)
+        assert scopes.scope_ids() == [], (
+            "three runs that stored nothing still wrote scope records"
+        )
+
+    def test_a_plain_jobs_state_is_not_listed_as_a_workflow(
+        self, project: Path
+    ) -> None:
+        from functualize._primitives.state_store import StateStore
+        from functualize.app.utils import list_scopes
+
+        app = FunctualizeApp(name="plain")
+
+        def writes(rc: RunContext) -> str:
+            rc.state.set("k", 1)
+            return "ok"
+
+        app.register_dynamic_job("writes", writes)
+        assert (
+            app.execute(
+                RunRequest(job_name="writes", surface="app.execute")
+            ).status.value
+            == "Success"
+        )
+
+        store = StateStore(app.execution_engine._state_store().path)
+        assert list_scopes(app, store) == [], (
+            "a plain job's state record was listed as a running workflow"
+        )
+
+    def test_a_real_workflow_is_still_listed(self, project: Path) -> None:
+        """The filter must not hide the thing the command exists for.
+
+        Without this the previous test passes by listing nothing at all.
+        """
+        from functualize._primitives.state_store import StateStore
+        from functualize.app.utils import list_scopes
+
+        app = FunctualizeApp(name="real")
+        _build(app)
+        assert (
+            app.execute(
+                RunRequest(
+                    job_name="pipeline",
+                    surface="app.execute",
+                    workflow_scope_id="listed",
+                )
+            ).status.value
+            == "Success"
+        )
+        store = StateStore(app.execution_engine._state_store().path)
+        rows = list_scopes(app, store, state="completed")
+        assert any(r["workflow_id"] == "listed" for r in rows), (
+            f"the real workflow vanished from the listing: {rows}"
+        )

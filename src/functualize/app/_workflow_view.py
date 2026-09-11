@@ -159,6 +159,21 @@ def list_scopes(
     explicit = state is not None
     rows: list[dict[str, Any]] = []
     for sid, scope in _scopes(store):
+        # A scope record with no workflow is not a workflow.
+        #
+        # Every run gets a scope, because that is where `rc.state` lives, and
+        # the record is written lazily the first time something stores a value.
+        # So a plain `func myjob` that calls `rc.state.set(...)` leaves a
+        # record — correctly, that is its state — but it never walked a graph,
+        # has no steps, and nothing will ever mark it finished. Listing it here
+        # showed a phantom "running workflow" that could not be resumed and
+        # could not be purged, because `workflow purge` refuses running scopes.
+        #
+        # `workflow` is set by the walk and by nothing else, so its absence is
+        # the honest discriminator. Filtered here rather than at write time:
+        # the record has to exist, it just is not a workflow.
+        if scope.get("workflow") is None:
+            continue
         if not explicit and scope.get("status") not in LIVE_STATUSES:
             continue
         if workflow_name is not None and scope.get("workflow") != workflow_name:
