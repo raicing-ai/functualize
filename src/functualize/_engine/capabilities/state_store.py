@@ -92,45 +92,56 @@ class StateStore:
             ) from e
         self._data[key] = value
 
-    def keys(self, prefix: str = "") -> list[str]:
-        """Stored key names, optionally filtered by ``prefix``.
+    def keys(self, pattern: str = "") -> list[str]:
+        """Stored key names, optionally filtered by a glob ``pattern``.
 
-        The prefix is what makes the documented namespacing convention work.
-        One store is shared by every job in a run, so two steps can pick the
-        same key name; the answer is a convention rather than a framework
-        namespace — a step writes ``state.set("fetch.count", n)`` and reads its
-        own back with ``state.keys("fetch.")``. That is one concept (a string)
-        instead of two (a string and a namespace API), and it is why this
-        parameter survived the deletion of the per-invocation ``State``.
+        One store is shared by every job in a run, so two jobs can pick the
+        same key name. The answer is a naming convention rather than a
+        framework namespace — a step writes ``state.set("fetch.rows", n)`` —
+        and this is how you read a namespace back::
 
-        **Include the separator in the prefix.** This is a plain
-        ``str.startswith``, not a namespace lookup, so the trailing ``"."`` is
-        the entire difference between a namespace and a substring::
+            state.set("fetch.rows", 1)
+            state.set("fetch.ms", 2)
+            state.set("fetchmeta.x", 3)
+            state.set("fetch.io.bytes", 4)
 
-            state.set("fetch.rows", 1); state.set("fetchmeta.x", 1)
+            state.keys("fetch.*")    # ['fetch.rows', 'fetch.ms'] — one level
+            state.keys("fetch.**")   # adds 'fetch.io.bytes' — all depths
+            state.keys("*.rows")     # ['fetch.rows'] — same leaf, any namespace
+            state.keys()             # everything
 
-            state.keys("fetch")     # ['fetch.rows', 'fetchmeta.x']  <- leaks
-            state.keys("fetch.")    # ['fetch.rows']
+        ``*`` stops at a ``.`` and ``**`` crosses it, so ``"fetch.*"`` cannot
+        match ``fetchmeta.x``: the literal dot has to match a real dot. That is
+        the point of using a pattern rather than a bare prefix, which is a
+        ``startswith`` and does silently pick up the neighbouring namespace.
 
-        A convention costs one concept instead of two; this is the bill for
-        that, and it is why the separator is shown in every example rather
-        than left to the reader.
+        **The matcher is the one the rest of the codebase already uses** —
+        `rc.events.on_event("job.*")` and perf-phase filtering call the same
+        function. A second glob implementation that agreed with this one today
+        is precisely the shape of divergence ADR-021 exists to prevent, so
+        there is one.
+
+        A pattern with no ``*`` keeps the older prefix meaning, which is what
+        makes ``keys("fetch.")`` still work. Prefer the explicit ``"fetch.*"``:
+        it says what it means, and it is the form without the sharp edge.
 
         Args:
-            prefix: Only keys starting with this are returned
-                (case-sensitive). The default ``""`` returns all of them.
+            pattern: A glob over key names, case-sensitive. ``""`` (the
+                default) returns every key.
 
         Returns:
             The matching keys, unordered.
 
         Raises:
-            TypeError: ``prefix`` is not a string.
+            TypeError: ``pattern`` is not a string.
         """
-        if not isinstance(prefix, str):
-            raise TypeError(f"prefix must be a str, got {type(prefix).__name__}")
-        if not prefix:
+        if not isinstance(pattern, str):
+            raise TypeError(f"pattern must be a str, got {type(pattern).__name__}")
+        if not pattern:
             return list(self._data.keys())
-        return [key for key in self._data if key.startswith(prefix)]
+        from functualize._events._pattern_matcher import matches_pattern
+
+        return [key for key in self._data if matches_pattern(key, pattern)]
 
     def clear(self) -> None:
         """Remove all stored state.

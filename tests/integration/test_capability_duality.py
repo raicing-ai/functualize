@@ -255,7 +255,7 @@ class TestStateCarriesAcrossOneRun:
 
         def s2(rc: RunContext) -> str:
             seen["step sees earlier step"] = rc.state.get("fetch.rows")
-            seen["prefix filter"] = rc.state.keys("fetch.")
+            seen["pattern filter"] = rc.state.keys("fetch.*")
             return "ok"
 
         @workflow(
@@ -289,7 +289,7 @@ class TestStateCarriesAcrossOneRun:
         """
         seen: dict[str, Any] = {}
         assert _run(self._app(seen), "flow").status.value == "Success"
-        assert seen["prefix filter"] == ["fetch.rows"]
+        assert seen["pattern filter"] == ["fetch.rows"]
 
     def test_two_runs_of_one_workflow_share_nothing(self) -> None:
         """The run is the boundary — the half that makes sharing safe."""
@@ -311,26 +311,54 @@ class TestStateCarriesAcrossOneRun:
         )
 
 
-class TestThePrefixConventionHasASharpEdge:
-    """`keys(prefix)` is `str.startswith`, so the separator is load-bearing.
+class TestKeysMatchesByGlob:
+    """`keys(pattern)` is a glob, and `*` stops at a `.`.
 
-    Choosing a convention over a namespace API costs one concept instead of
-    two, and this is the bill: `keys("fetch")` also matches `"fetchmeta.x"` —
-    another job's key. The docstring shows the separator in every example for
-    this reason, and this test is what keeps that claim true.
+    A bare prefix is a `startswith`, so `"fetch"` silently picks up
+    `"fetchmeta.x"` — a *different* job's namespace. That is bad enough on its
+    own; requiring a trailing dot to avoid it is worse, because the dot looks
+    like a typo rather than a rule. The pattern form says what it means.
     """
 
-    def test_the_separator_is_what_bounds_the_namespace(self) -> None:
+    def _store(self) -> Any:
         from functualize._engine.capabilities.state_store import StateStore
 
         store = StateStore()
-        for key in ("fetch.rows", "fetch.ms", "fetchmeta.x", "report.rows"):
+        for key in ("fetch.rows", "fetch.ms", "fetchmeta.x", "fetch.io.bytes"):
             store.set(key, 1)
+        return store
 
-        assert sorted(store.keys("fetch.")) == ["fetch.ms", "fetch.rows"]
-        assert "fetchmeta.x" in store.keys("fetch"), (
-            "if this ever stops being true, keys() has become a namespace "
-            "lookup and the docstring's warning is now wrong"
+    def test_one_star_does_not_cross_the_separator(self) -> None:
+        assert sorted(self._store().keys("fetch.*")) == ["fetch.ms", "fetch.rows"]
+
+    def test_one_star_cannot_reach_the_neighbouring_namespace(self) -> None:
+        """The whole reason for preferring the pattern over a prefix."""
+        assert "fetchmeta.x" not in self._store().keys("fetch.*")
+
+    def test_two_stars_cross_the_separator(self) -> None:
+        assert "fetch.io.bytes" in self._store().keys("fetch.**")
+
+    def test_a_pattern_can_match_a_leaf_across_namespaces(self) -> None:
+        store = self._store()
+        store.set("report.rows", 1)
+        assert sorted(store.keys("*.rows")) == ["fetch.rows", "report.rows"]
+
+    def test_the_matcher_is_the_one_the_event_bus_uses(self) -> None:
+        """One glob implementation, not two that agree today (ADR-021).
+
+        `rc.events.on_event("job.*")` and perf-phase filtering already call
+        this function; a second copy is the divergence this whole feature
+        exists to remove.
+        """
+        from functualize._events._pattern_matcher import matches_pattern
+
+        store = self._store()
+        # SIM118 reads `store.keys()` as a dict call and would have us drop
+        # it. `StateStore` is not a dict and defines no `__iter__`, so the
+        # suggested fix raises TypeError.
+        every_key = store.keys()  # noqa: SIM118
+        assert sorted(store.keys("fetch.*")) == sorted(
+            k for k in every_key if matches_pattern(k, "fetch.*")
         )
 
     def test_an_empty_prefix_returns_everything(self) -> None:
