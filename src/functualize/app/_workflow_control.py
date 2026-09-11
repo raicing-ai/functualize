@@ -449,6 +449,20 @@ def purge_scopes(
                 continue
         if store.delete_scope(sid):
             removed.append(sid)
+            # **Record first, then state.** T3 moved a run's job state out of
+            # the record and into its own file, so purging the record alone
+            # leaves a file nothing references and nothing will ever collect —
+            # `purge_scopes` walks records, so an orphaned state file is
+            # invisible to the only thing that could remove it.
+            #
+            # This order is the safe one and the reverse is not: a record
+            # pointing at state that is already gone reads as corruption, while
+            # a state file with no record reads as nothing at all. If the
+            # process dies between these two lines the result is the
+            # recoverable half.
+            discard = getattr(store, "discard_state", None)
+            if discard is not None:
+                discard(sid)
 
     return {
         "status": "purged",

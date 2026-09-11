@@ -89,20 +89,28 @@ class TestTheSuiteDoesNotWriteIntoTheRepository:
         result = _run_a_job_that_writes_state("state-lands-in-tmp")
         assert result.status.value == "Success"
 
-        sandbox_scopes = tmp_path.resolve() / ".functualize" / "scopes.json"
-        assert sandbox_scopes.exists(), (
-            f"no scopes.json under {tmp_path} — the run's state went neither "
-            f"to the repo nor to the sandbox"
+        sandbox_root = tmp_path.resolve() / ".functualize"
+        assert (sandbox_root / "scopes.json").exists(), (
+            f"no scopes.json under {tmp_path} — the run went neither to the "
+            f"repo nor to the sandbox"
         )
-        records = json.loads(sandbox_scopes.read_text()).get("scopes", {})
+        # The state itself is in `scope-state/<id>.json`, not in the record:
+        # `scope-record-lifecycle`/T3 moved it there so a write stops costing
+        # the whole project's history. This test read the record before that,
+        # and the move is exactly why it had to change.
+        state_files = sorted((sandbox_root / "scope-state").glob("*.json"))
+        assert state_files, (
+            f"no per-scope state file under {sandbox_root} — the run's state "
+            f"went somewhere else"
+        )
         written = [
             key
-            for record in records.values()
-            for key in (record.get("state") or {})
+            for path in state_files
+            for key in (json.loads(path.read_text()).get("state") or {})
             if key == "marker"
         ]
         assert written, (
-            f"the sandbox holds {len(records)} scope record(s) but none carries "
+            f"{len(state_files)} state file(s) in the sandbox but none carries "
             f"the key the job wrote"
         )
 

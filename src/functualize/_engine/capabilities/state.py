@@ -139,8 +139,14 @@ class ScopeBackedStateStore:
         self._scopes.clear_state(self._scope_id)
 
     def batch(self) -> Any:
-        """Hold the file lock across many writes."""
-        return self._scopes.batch()
+        """Hold **this scope's state** lock across many writes.
+
+        `state_batch`, not `ScopeStore.batch`. The two batch different files
+        since T3 moved job state out of the record, and returning the record
+        batch here held the wrong lock while every `set` inside wrote straight
+        through — so the block's all-or-nothing guarantee silently did nothing.
+        """
+        return self._scopes.state_batch(self._scope_id)
 
 
 class State:

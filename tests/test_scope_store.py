@@ -264,11 +264,21 @@ class TestBatchIsPerThread:
     owned one store. `invoke_parallel` gives all 32 workers the same
     `WorkflowScope` — so one `ScopeStore`, one `_batch` — and `_mutate` folded
     *any* write on the instance into whatever batch happened to be open. A
-    sibling thread's `set_state` joined another thread's transaction, returned
+    sibling thread's write joined another thread's transaction, returned
     successfully, and vanished when that transaction raised.
 
     Found by an external review of the AFTER state, which reproduced it as
     `clean batch exit : {"main": 1, "sibling": 2}` / `batch raises : {}`.
+
+    **Retargeted by `scope-record-lifecycle`/T3.** This was written with
+    `set_state`, because job state was then a section of the scope record and
+    `ScopeStore.batch` covered both. T3 moved state to a per-scope file with its
+    own lock, so a state write is no longer inside a *record* batch at all —
+    the original assertions became claims about two unrelated files. The
+    thread-locality property is unchanged and is what this still tests, now
+    through `record_step`, which is a record write. The state store's own
+    equivalent is
+    `tests/primitives/test_scope_state_store.py::TestBatching`.
     """
 
     def _run(self, tmp_path: Path, raise_inside: bool) -> dict:
@@ -280,14 +290,14 @@ class TestBatchIsPerThread:
 
         def sibling() -> None:
             started.wait(5)
-            store.set_state("s", "sibling", 2)
+            store.record_step("s", "sibling", {"status": "completed"})
             done.set()
 
         thread = threading.Thread(target=sibling)
         thread.start()
         try:
             with store.batch():
-                store.set_state("s", "main", 1)
+                store.record_step("s", "main", {"status": "completed"})
                 started.set()
                 done.wait(5)
                 if raise_inside:
@@ -295,16 +305,17 @@ class TestBatchIsPerThread:
         except RuntimeError:
             pass
         thread.join(5)
-        return ScopeStore(store.path).state_snapshot("s")
+        record = ScopeStore(store.path).get_scope("s") or {}
+        return record.get("steps") or {}
 
     def test_both_writes_land_on_a_clean_exit(self, tmp_path: Path) -> None:
-        assert self._run(tmp_path, raise_inside=False) == {"main": 1, "sibling": 2}
+        assert sorted(self._run(tmp_path, raise_inside=False)) == ["main", "sibling"]
 
     def test_a_siblings_write_survives_another_threads_failed_batch(
         self, tmp_path: Path
     ) -> None:
         """The lost write. This is the assertion that was false."""
-        assert self._run(tmp_path, raise_inside=True) == {"sibling": 2}
+        assert sorted(self._run(tmp_path, raise_inside=True)) == ["sibling"]
 
     def test_the_batching_threads_own_writes_are_still_discarded(
         self, tmp_path: Path

@@ -651,14 +651,35 @@ def _file_size(path: Path) -> str:
     growth legible: 2,188 records is a number, 1.6 MB is a problem.
     """
     try:
-        size = path.stat().st_size
+        return _file_size_of(path.stat().st_size)
     except OSError:
         return "absent"
+
+
+def _file_size_of(size: int) -> str:
+    """Format a byte count. Bytes, then KB, then MB."""
     if size < 1024:
         return f"{size} B"
     if size < 1024 * 1024:
         return f"{size / 1024:.0f} KB"
     return f"{size / (1024 * 1024):.1f} MB"
+
+
+def _dir_size(path: Path) -> str:
+    """``N files, <size>`` for a directory, or ``"empty"``.
+
+    The count matters as much as the total here: one file per run means the
+    file *count* is the record count, and a directory with thousands of small
+    files is a different problem from one large file.
+    """
+    try:
+        files = [p for p in path.iterdir() if p.is_file() and p.suffix == ".json"]
+    except OSError:
+        return "empty"
+    if not files:
+        return "empty"
+    total = sum(p.stat().st_size for p in files)
+    return f"{len(files)} file{'' if len(files) == 1 else 's'}, {_file_size_of(total)}"
 
 
 def _state_mode_line(mode: str, marker: Path | None) -> str:
@@ -833,6 +854,7 @@ def register_builtin_commands(cli_group: Any) -> None:
     @state_app.command("show")
     def state_show() -> None:
         """Show runtime state statistics."""
+        from functualize._primitives.scope_state_store import scope_state_dir
         from functualize.app.utils import (
             SCOPES_LIMIT,
             SCOPES_VERSION,
@@ -859,6 +881,12 @@ def register_builtin_commands(cli_group: Any) -> None:
                 f"Scopes: {len(store.scope_ids())} of {SCOPES_LIMIT} "
                 f"({_file_size(store.scopes_path)})"
             )
+            # The state directory is reported separately because T3 moved job
+            # state out of the record file. Reporting only `scopes.json` after
+            # that move would say "small" about the half that no longer grows
+            # while the half that does stayed invisible — the exact failure
+            # AC-4 exists to prevent, one file over.
+            click.echo(f"Scope state: {_dir_size(scope_state_dir(store.scopes_path))}")
         except ScopeStoreUnreadableError as exc:
             fault = exc
             found = exc.found_version

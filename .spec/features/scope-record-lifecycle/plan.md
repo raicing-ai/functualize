@@ -113,7 +113,32 @@ acceptable everywhere:
    instead of lifting the concept. Lifting it means touching all three stores,
    which belongs with `store-substrate`. Flagged rather than fixed.
 
-3. **`WorkflowScope.close()` remains the only terminal marker for a workflow**,
+3. **Two locks, and a caller can take them in either order.** Found by external
+   review after implementation (`.spec/reviews/scope-state-review.md` Q2.3), and
+   the strongest finding in it:
+
+   ```
+   T1: with state.batch():        # holds STATE lock
+           rc.track_phase(...)    # -> record write -> wants SCOPES lock
+   T2: with store.batch():        # holds SCOPES lock
+           store.set_state(...)   # -> wants STATE lock
+   ```
+
+   Both are reachable from user code, and neither lock can be dropped without
+   losing what it exists for. A global ordering cannot be imposed from inside
+   the store, because the *caller* chooses which batch to open first. Mitigated
+   rather than fixed: the record is ensured **before** the state lock is taken,
+   so the inversion needs a record write *inside* a state batch; and both locks
+   time out at 10 s and log audibly (`capability-duality`/T9), so this stalls
+   and says so rather than hanging. The real fix is one store with one lock,
+   which is smell #1's conclusion reached from a different direction.
+
+4. **A batch held across `invoke_parallel` deadlocks.** The lock is held for the
+   whole block, so every worker's `set` blocks on the holder while the holder
+   waits on the workers. Pre-existing — the record batch had the same shape —
+   but T3 moved which lock it is. Documented on `State.batch`, not prevented.
+
+5. **`WorkflowScope.close()` remains the only terminal marker for a workflow**,
    and workflows reach it through the walk while plain jobs reach it through
    `engine.run`'s `finally`. Two paths to one state. Acceptable because both are
    `finally`-guaranteed and both call the same method, but it is two places to

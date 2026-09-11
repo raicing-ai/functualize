@@ -58,7 +58,7 @@ grep -c "SCOPES_LIMIT" src/functualize/_primitives/scope_format.py
 ```
 now: `0` · after: `>= 2` (the constant and its use)
 
-## T3 · Job state moves to a per-scope file
+## T3 · Job state moves to a per-scope file [x]
 
 `[F]` `src/functualize/_primitives/scope_state_store.py`
 `src/functualize/_primitives/scope_store.py`
@@ -99,7 +99,23 @@ print(f'{big*1000:.2f}ms vs {small*1000:.2f}ms -> {big/small:.1f}x')
 "
 ```
 now: `116.4x` — measured here at authoring time on a 448 KB / 2,001-record
-file (`get` on the same file: `102.1x`) · after: `< 2.0x` (AC-1)
+file (`get` on the same file: `102.1x`) · after: **`0.86x` set, `1.13x` get**
+(AC-1 met)
+
+**Honest qualification, because the headline number hides a cost.** Those are
+*steady-state* figures — a write to a scope whose record already exists. The
+**first** write to a scope also creates its record, one whole-envelope write,
+measured at `13.3x` on a capped 113 KB / 500-record file. That is once per
+scope per process rather than once per operation, which is what AC-1 is about,
+but it is not zero and it is not what the headline says.
+
+It cannot simply be removed: `purge_scopes` walks *records*, so a state file
+with no record is state nothing can ever collect. The first attempt at T3 also
+probed the record on every access to migrate the old inline `state` section,
+which put the full cost back on every `set` (`17x`). That probe is gone — the
+Pre-Release Stance permits deleting rather than shimming — at the bounded price
+that a run *in flight across this change* resumes with empty state. Its step
+records, gates and position are untouched.
 
 The review's figure was 58 ms on 1,019 KB / 2,188 records; this one is 39 ms on
 448 KB because `ensure_scope` writes blank records while a real project's carry
@@ -120,7 +136,7 @@ uv run func builtin state show 2>&1 | grep -ci "scope"
 now: `1` — the line read `Scopes: 7`, a number with no ceiling and no size
 beside it · after: `Scopes: 7 of 500 (412 B)`
 
-## T5 · Purge removes a finished scope's state file with its record
+## T5 · Purge removes a finished scope's state file with its record [x]
 
 `[F]` `src/functualize/app/_workflow_control.py`
 `tests/core/test_purge_scopes_state.py`

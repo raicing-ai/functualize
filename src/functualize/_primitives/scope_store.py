@@ -41,6 +41,10 @@ from functualize._primitives.scope_format import (
     scopes_lock,
     update_scopes,
 )
+from functualize._primitives.scope_state_store import (
+    ScopeStateStore,
+    scope_state_path,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -110,6 +114,14 @@ class ScopeStore:
         #: it and nobody else's writes ride on it. The file lock still
         #: serialises the *commit* across threads and processes alike.
         self._local = threading.local()
+        #: Scopes whose record this instance has already ensured — see
+        #: `_state_store`. Process-local and advisory: a miss costs one
+        #: redundant idempotent write, never a wrong answer.
+        self._ensured: set[str] = set()
+        #: One `ScopeStateStore` per scope, because `batch()` keeps its open
+        #: payload on the instance. A fresh object per call would make a batch
+        #: block invisible to the writes inside it.
+        self._state_stores: dict[str, ScopeStateStore] = {}
 
     @property
     def _batch(self) -> dict[str, Any] | None:
@@ -235,64 +247,114 @@ class ScopeStore:
         record = scope.get("steps", {}).get(step_key)
         return record if isinstance(record, dict) else None
 
+    # ------------------------------------------------------------------
+    # Scopes: job state
+    #
+    # **Not in `scopes.json`.** Every method below delegates to a per-scope
+    # file (`scope-record-lifecycle`/T3). The state used to be a section of the
+    # scope record, which made one `set` parse and rewrite every record the
+    # project had ever made: 116x slower than an empty store at 2,001 records,
+    # and 58 ms per write on a real project's file. A per-run value belongs in
+    # a per-run file. It also gives each run its own lock, so two jobs sharing
+    # nothing no longer serialize on every write.
+    #
+    # These stay on `ScopeStore` rather than moving to the caller because the
+    # scope id is what names the file, and `ScopeStore` is what owns the
+    # mapping from an id to where its data lives.
+    # ------------------------------------------------------------------
+
+    def _state_store(self, scope_id: str, *, ensure: bool = True) -> ScopeStateStore:
+        """This scope's state file. Cheap: no read of ``scopes.json``.
+
+        **There is deliberately no migration of the old inline section.** The
+        first version of this read the scope record when the per-scope file was
+        absent, to carry forward state written before T3 — and that read cost
+        the whole envelope, leaving `set` at 17x instead of the 1.2x `get`
+        reached. A compatibility probe in the hot path reintroduced exactly the
+        cost this task removes.
+
+        The Pre-Release Stance (`.spec/CONSTITUTION.md`) is what makes dropping
+        it right rather than merely convenient: delete rather than shim. The
+        cost is real and bounded — a run that was *in flight* across this
+        change resumes with its state empty. Its step records, gates and
+        position are untouched, because those never moved.
+
+        **The record is ensured once per scope per process, and only for a
+        write.** State and records are separate files now, and the old
+        `set_state` created the record as a side effect of `setdefault`. Losing
+        that silently orphaned every state file: `purge_scopes` walks
+        *records*, so state with no record is state nothing can ever collect.
+        Ensuring it costs one whole-envelope write, so it happens on the first
+        *write* to a scope and never again — the memo keeps it off the hot
+        path, and ``ensure=False`` keeps a read of a scope that never ran from
+        minting one.
+
+        **The instance is cached**, which batching depends on: `_batch` lives
+        on the store object, so handing out a fresh one per call would mean a
+        `state_batch` block never saw its own writes.
+        """
+        if ensure and scope_id not in self._ensured:
+            # Idempotent, so a race between two threads writes the same record
+            # twice rather than two different ones. Marked before the call so a
+            # second thread does not queue behind the first to redo it.
+            self._ensured.add(scope_id)
+            self.ensure_scope(scope_id)
+        # `setdefault`, not get-then-set: two threads reaching a new scope id
+        # together both built a store and the loser's object was returned to
+        # its caller but never cached, so a batch opened on it was invisible to
+        # every later accessor — and two `ScopeStateStore` objects over one
+        # path self-deadlock on `flock` (review Q1.5, Q2.2).
+        return self._state_stores.setdefault(
+            scope_id, ScopeStateStore(scope_state_path(self._path, scope_id))
+        )
+
     def get_state(self, scope_id: str, key: str, default: Any = None) -> Any:
         """A value a job stored in this scope, or ``default``."""
-        scope = self.get_scope(scope_id)
-        if scope is None:
-            return default
-        state = scope.get("state")
-        if not isinstance(state, dict) or key not in state:
-            return default
-        return state[key]
+        return self._state_store(scope_id, ensure=False).get(key, default)
 
     def set_state(self, scope_id: str, key: str, value: Any) -> None:
         """Store one value in this scope.
 
-        Goes through ``_mutate``, so the envelope is re-read inside the lock
-        and two jobs writing different keys merge rather than clobber. A job
-        writing many keys should hold :meth:`batch` — every call here is one
-        lock-read-write cycle otherwise.
+        Re-reads inside the scope's own lock, so two jobs writing different
+        keys merge rather than clobber. A job writing many keys should hold
+        :meth:`state_batch` — every call here is one lock-read-write cycle.
         """
-
-        def _apply(envelope: dict[str, Any]) -> None:
-            scope = envelope["scopes"].setdefault(scope_id, _blank_scope())
-            scope.setdefault("state", {})[key] = value
-
-        self._mutate(_apply)
+        self._state_store(scope_id).set(key, value)
 
     def delete_state(self, scope_id: str, key: str) -> bool:
         """Remove one key. True when it was there."""
-        removed = [False]
-
-        def _apply(envelope: dict[str, Any]) -> None:
-            scope = envelope["scopes"].get(scope_id)
-            if scope is None:
-                return
-            state = scope.get("state")
-            if isinstance(state, dict) and key in state:
-                del state[key]
-                removed[0] = True
-
-        self._mutate(_apply)
-        return removed[0]
+        return self._state_store(scope_id).delete(key)
 
     def state_snapshot(self, scope_id: str) -> dict[str, Any]:
         """Every key this scope holds, as a plain dict."""
-        scope = self.get_scope(scope_id)
-        if scope is None:
-            return {}
-        state = scope.get("state")
-        return dict(state) if isinstance(state, dict) else {}
+        return self._state_store(scope_id, ensure=False).snapshot()
 
     def clear_state(self, scope_id: str) -> None:
         """Drop every key in this scope, leaving the scope itself."""
+        self._state_store(scope_id).clear()
 
-        def _apply(envelope: dict[str, Any]) -> None:
-            scope = envelope["scopes"].get(scope_id)
-            if scope is not None:
-                scope["state"] = {}
+    def state_batch(self, scope_id: str) -> Any:
+        """Hold this scope's state lock across many writes.
 
-        self._mutate(_apply)
+        Separate from :meth:`batch`, which batches *records*. The two files
+        have separate locks now, which is the point — batching one must not
+        hold the other.
+        """
+        return self._state_store(scope_id).batch()
+
+    def discard_state(self, scope_id: str) -> bool:
+        """Delete this scope's state file. True if there was one.
+
+        Called when the record is purged. Ordering matters and belongs to the
+        caller: the **record** goes first. The reverse leaves a record pointing
+        at state that is gone, which reads as corruption; this order leaves a
+        file nothing references, which reads as nothing at all.
+        """
+        # Through the cache, never a fresh object: a second `ScopeStateStore`
+        # over one path cannot see an open batch and deadlocks against the
+        # first on `flock` (review Q1.1, Q2.2). `ensure=False` so purging a
+        # scope cannot recreate the record purge just deleted.
+        return self._state_store(scope_id, ensure=False).discard()
 
     def record_branch(self, scope_id: str, source: str, target: str) -> None:
         """Record a chosen ``ConditionalEdge`` target on first evaluation.
@@ -420,6 +482,16 @@ class ScopeStore:
         self._mutate(_apply)
         return True
 
+    def _forget(self, scope_id: str) -> None:
+        """Drop cached knowledge of a scope whose record no longer exists.
+
+        `_ensured` says "this instance has already written this scope's
+        record". After `delete_scope` that is false, and leaving it set meant a
+        later `set_state` wrote a state file with **no record** — which
+        `purge_scopes` can never find, because it walks records (review Q1.4).
+        """
+        self._ensured.discard(scope_id)
+
     def delete_scope(self, scope_id: str) -> bool:
         """Remove a scope entirely. False if it was not there.
 
@@ -434,6 +506,7 @@ class ScopeStore:
             envelope["scopes"].pop(scope_id, None)
 
         self._mutate(_apply)
+        self._forget(scope_id)
         return True
 
     def set_position(self, scope_id: str, node: str | None) -> None:

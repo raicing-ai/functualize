@@ -120,7 +120,7 @@ rg -c "the trap this job pins" examples/standalone/composition_lab/jobs/pipeline
 ```
 now: `1` · after: `0`
 
-## T8 · One name per store
+## T8 · One name per store [deferred]
 
 `[F]` `src/functualize/_engine/capabilities/state_store.py`,
 `src/functualize/_primitives/state_store.py`, and their importers
@@ -153,7 +153,7 @@ rg -c "^class StateStore" src/functualize/_engine/capabilities/state_store.py sr
 ```
 now: `2` · after: `0`
 
-## T9 · The lock's timeout is not silent
+## T9 · The lock's timeout is not silent [x]
 
 `[F]` `src/functualize/_primitives/state_format.py`,
 `tests/primitives/test_store_concurrency.py`
@@ -172,7 +172,7 @@ rg -c "advisory: proceed" src/functualize/_primitives/state_format.py
 ```
 now: `1` · after: `1` (invariant — the behaviour stays; only its silence goes)
 
-## T10 · Tests must not write into the repository's state root
+## T10 · Tests must not write into the repository's state root [x]
 
 `[F]` `tests/conftest.py`
 
@@ -196,7 +196,7 @@ python3 -c "import pathlib,json; p=pathlib.Path('.functualize/scopes.json'); pri
 ```
 now: `> 0` after a suite run · after: `0`
 
-## T11 · `Prompt` is one class, reached two ways — and the injected one works
+## T11 · `Prompt` is one class, reached two ways — and the injected one works [x]
 
 `[F]` `src/functualize/_engine/capabilities/prompt.py`
 `src/functualize/_engine/capabilities/prompt_facade.py`
@@ -244,7 +244,7 @@ uv run pytest tests/integration/test_capability_duality.py -q -p no:randomly 2>&
 now: `26 passed` (Prompt not covered) · after: `> 26 passed` with Prompt in the
 registry-driven set
 
-## T12 · The framework namespace accessors go
+## T12 · The framework namespace accessors go [x]
 
 `[F]` `src/functualize/_engine/capabilities/protocols.py`
 `src/functualize/_engine/capabilities/state.py`

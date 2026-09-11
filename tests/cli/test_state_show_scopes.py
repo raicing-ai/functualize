@@ -67,6 +67,36 @@ class TestScopesAreReportedWithTheirCeiling:
             f"the file size is missing: {line!r}"
         )
 
+    def test_the_state_directory_is_reported_too(self, tmp_path: Path) -> None:
+        """T3 moved job state out of the record file.
+
+        Reporting only `scopes.json` after that move would say "small" about
+        the half that no longer grows, while the half that does stayed
+        invisible — AC-4's failure, one file over.
+        """
+        import json
+        import os
+
+        project = tmp_path / "with-state"
+        (project / ".functualize").mkdir(parents=True)
+        state_dir = project / ".functualize" / "scope-state"
+        state_dir.mkdir()
+        for i in range(3):
+            (state_dir / f"s-{i}.json").write_text(json.dumps({"state": {"k": i}}))
+
+        cwd = Path.cwd()
+        os.chdir(project)
+        try:
+            output = _show()
+        finally:
+            os.chdir(cwd)
+
+        line = next(
+            (ln for ln in output.splitlines() if ln.startswith("Scope state:")), ""
+        )
+        assert line, f"no 'Scope state:' line in:\n{output}"
+        assert "3 files" in line, f"file count missing or wrong: {line!r}"
+
     def test_an_absent_file_says_so_rather_than_erroring(self, tmp_path: Path) -> None:
         """`show` is what someone runs to find out what is wrong.
 

@@ -309,11 +309,17 @@ class TestOnlyTheMinterCloses:
         )
 
     @pytest.mark.parametrize("key", ["parent", "child"])
-    def test_both_runs_state_survives_in_one_record(self, key: str) -> None:
+    def test_both_runs_state_survives_in_one_scope(self, key: str) -> None:
         """Parent and child share the scope, so both writes are in it.
 
         Guards against the opposite over-correction: giving the child its own
         scope to keep it from closing the parent's.
+
+        Read through the store rather than out of the record: T3 moved job
+        state to a per-scope file, so `record["state"]` is no longer where it
+        lives. An earlier version of this test read the record and had to be
+        changed — which is the correct outcome, since the record is not the
+        contract, `state_snapshot` is.
         """
         app = FunctualizeApp(name="shared-record")
 
@@ -330,4 +336,6 @@ class TestOnlyTheMinterCloses:
         app.register_dynamic_job("parent", parent)
         app.execute(RunRequest(job_name="parent", surface="app.execute"))
 
-        assert key in (_only_record().get("state") or {})
+        scope_id = next(iter(_records()))
+        store = ScopeStore(resolve_scopes_path(Path.cwd()))
+        assert key in store.state_snapshot(scope_id)

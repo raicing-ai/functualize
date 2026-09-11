@@ -730,3 +730,58 @@ class TestAnInjectedPromptCanActuallyPrompt:
         assert outcome["raised"] is not None
         assert "destroy production?" in outcome["raised"]
         assert outcome["defaulted"] is False
+
+
+class TestStateBatchIsAllOrNothing:
+    """`state.batch()` discards its block on an exception.
+
+    Pinned because nothing caught it breaking. `scope-record-lifecycle`/T3
+    moved job state into a per-scope file; `ScopeBackedStateStore.batch` went
+    on returning `ScopeStore.batch`, which batches **records**. So the block
+    held the wrong file's lock and every `set` inside wrote straight through —
+    the documented guarantee ("an exception inside the block discards the
+    block's writes rather than persisting some of them") silently did nothing,
+    and no test noticed.
+
+    Asserted through the job-facing API rather than the store, because that is
+    where the promise is made.
+    """
+
+    def test_an_exception_inside_a_batch_discards_it(self) -> None:
+        app = FunctualizeApp(name="batch-discard")
+        seen: dict[str, Any] = {}
+
+        def j(rc: RunContext, state: State) -> str:
+            state.set("before", "kept")
+            try:
+                with state.batch():
+                    state.set("during", "discarded")
+                    raise RuntimeError("boom")
+            except RuntimeError:
+                pass
+            seen["final"] = state.to_dict()
+            return "ok"
+
+        app.register_dynamic_job("j", j)
+        assert _run(app, "j").status.value == "Success"
+
+        assert seen["final"] == {"before": "kept"}, (
+            "a failed batch persisted its writes — the block is not all-or-nothing"
+        )
+
+    def test_a_completed_batch_persists_every_write(self) -> None:
+        """The other half: discarding everything would also pass the test above."""
+        app = FunctualizeApp(name="batch-commit")
+        seen: dict[str, Any] = {}
+
+        def j(rc: RunContext, state: State) -> str:
+            with state.batch():
+                state.set("a", 1)
+                state.set("b", 2)
+            seen["final"] = state.to_dict()
+            return "ok"
+
+        app.register_dynamic_job("j", j)
+        assert _run(app, "j").status.value == "Success"
+
+        assert seen["final"] == {"a": 1, "b": 2}
