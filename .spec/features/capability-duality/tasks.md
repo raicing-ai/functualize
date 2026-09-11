@@ -95,6 +95,58 @@ rg -c "the trap this job pins" examples/standalone/composition_lab/jobs/pipeline
 ```
 now: `1` · after: `0`
 
+## T8 · One name per store
+
+`[F]` `src/functualize/_engine/capabilities/state_store.py`,
+`src/functualize/_primitives/state_store.py`, and their importers
+(28 files import the on-disk one, 13 the in-memory one)
+
+Five things wear the word "state" and two distinct classes are both called
+`StateStore`, sharing no code, no import and no behaviour — one is an
+in-memory dict behind `rc.state`, the other reads `state.json`. A reader who
+greps `StateStore` gets both.
+
+After T2 the job-facing store is the only thing a user touches, so it takes the
+short name:
+
+| holds | was | becomes |
+|---|---|---|
+| one invocation's dict | `capabilities.state.State` | *deleted* (T2) |
+| a run's shared keys, in memory — `rc.state` | `capabilities.state_store.StateStore` | `State` |
+| `state.json` — fingerprints, history, preconditions | `_primitives.state_store.StateStore` | `RuntimeStore` |
+| `scopes.json` | `ScopeStore` | unchanged |
+| `runs.json` | `RunStore` | unchanged |
+
+**The file name and `state_root` do not move.** `state.json`, `state_root`,
+`resolve_state_location` and `beside_state` are a user-visible path and a
+public constructor argument; renaming the *class* fixes the collision a reader
+actually hits, while renaming the *file* is a migration. Recorded as a decision
+rather than an omission — if the file is renamed later it is its own change.
+
+```
+rg -c "^class StateStore" src/functualize/_engine/capabilities/state_store.py src/functualize/_primitives/state_store.py | awk -F: '{s+=$2} END {print s}'
+```
+now: `2` · after: `0`
+
+## T9 · The lock's timeout is not silent
+
+`[F]` `src/functualize/_primitives/state_format.py`,
+`tests/primitives/test_store_concurrency.py`
+
+`_acquire_lock` returns **without the lock** after 10s — *"advisory: proceed
+rather than deadlock a build"*. That is the right default (a stuck lock must
+not wedge CI) and it is the one path where two writers can lose an update. It
+currently happens with no signal at all.
+
+Emit a warning when it gives up, and add the concurrency test the three stores
+never had: N threads and N processes writing distinct keys, then assert every
+key survived.
+
+```
+rg -c "advisory: proceed" src/functualize/_primitives/state_format.py
+```
+now: `1` · after: `1` (invariant — the behaviour stays; only its silence goes)
+
 ## Task Dependency Graph
 
 T1 and T5 touch no file any other task touches. T2 depends on T1 (it deletes
@@ -105,6 +157,6 @@ and of T2, but T6's assertions cover all three, and T7 documents T3's outcome.
 {"waves": [
   {"id": 0, "tasks": ["T1", "T5"]},
   {"id": 1, "tasks": ["T2", "T3", "T4"]},
-  {"id": 2, "tasks": ["T6", "T7"]}
+  {"id": 2, "tasks": ["T6", "T7", "T8", "T9"]}
 ]}
 ```
