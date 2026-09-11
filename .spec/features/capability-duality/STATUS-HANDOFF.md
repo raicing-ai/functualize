@@ -1,14 +1,27 @@
-# Handoff — capability-duality, paused 2026-09-11
+# Handoff — capability-duality
 
-**The branch is red: 36 failures.** Every one is attributable to T2 (durable
+**GREEN as of 2026-09-11.** `HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n
+auto -q` → **11,716 passed, 155 skipped, 0 failed**. ruff, `mypy` (348 files),
+`lint-imports` (7 contracts), and all four plugin suites pass. The section
+below is kept as the record of what was wrong and how it was found.
+
+---
+
+## The red, and how it was cleared (historical)
+
+**The branch was red: 36 failures.** Every one is attributable to T2 (durable
 state) and none were caught before commit, because the suites run during
 execution — `tests/context`, `tests/integration`, `tests/workflow`,
 `tests/core` — did not include these files. The lesson is the one already
 recorded on this branch and repeated here: *a refactor's blast radius is not
 the directory it edits.* Run the full suite before commit, not the neighbourhood.
 
-Last green gates: ruff, `mypy` (348 files), `lint-imports` (7 contracts).
-Last commit: `3633fcf`.
+**Root cause of the whole episode, worth keeping:** every one of the 36 was a
+`--run-slow` test. The suites run during execution used the default profile,
+which *skips* them; only the full suite passes the flag. So "I ran the
+neighbouring suites" was never the check it appeared to be. The rule that
+replaces it: **run the full suite with `--run-slow` before committing a
+refactor**, not the directory you edited.
 
 ## What is done
 
