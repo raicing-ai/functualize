@@ -479,14 +479,28 @@ def reclaim_scope(store: Any, scope_id: str) -> dict[str, Any]:
             f"{lease.expires_at}. Cancel it if the holder should stop.",
         )
 
+    # Claim, then **release**. Reclaiming is not "take this scope", it is
+    # "invalidate whoever had it and let someone start". Holding the lease here
+    # would leave the scope unavailable for the whole lease period to the very
+    # runner that is meant to pick it up — which is what happened: the resuming
+    # process could not claim and the workflow never advanced.
+    #
+    # Found by the crash-and-resume test, because it is the only one that goes
+    # on to *use* the scope. Every unit test for `reclaim` passed: they checked
+    # what the record said and stopped there.
+    #
+    # Releasing expires the lease in place and keeps the generation, so the dead
+    # holder's writes stay refused while the scope is immediately claimable.
     taken = store.claim_scope(scope_id, owner=runner_identity(), force=True)
+    store.release_scope(scope_id, generation=taken.generation)
     return {
         "status": "reclaimed",
         "workflow_id": scope_id,
         "generation": taken.generation,
         "message": (
             f"Reclaimed '{scope_id}' at generation {taken.generation}. "
-            f"Any write from the previous holder is now refused."
+            f"Any write from the previous holder is refused; the scope is "
+            f"ready to resume."
         ),
     }
 

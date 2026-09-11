@@ -120,9 +120,30 @@ class Step:
         job: The job to run — its registered name, or the decorated function
             itself. Nothing else: a step does not define behavior, it points
             at behavior that is already declared and independently runnable.
+        effecting: This step does something the world remembers — charges a
+            card, sends a mail, files a ticket. It must run **exactly once**
+            across a crash and a resume.
+
+            Default `False`, and that default is the honest one: the framework
+            cannot tell an effecting step from a pure one by looking at it, and
+            guessing wrong in this direction re-runs a refund. A step that says
+            nothing is replayed, which is the behaviour every workflow has had
+            until now.
+
+            What the flag buys is an **outbox**: the step's completion record is
+            committed in the same locked batch as the walk's position, so a
+            crash can leave the effect done and the record absent only if it
+            lands between the effect and a write that is itself atomic. See
+            `_engine/frontier.complete`.
+
+            > It does not make the effect itself transactional — nothing here
+            > can. It makes the *record* of the effect commit with the walk's
+            > progress, which is what a resume reads to decide whether to run
+            > the step again.
     """
 
     job: str | Callable[..., Any]
+    effecting: bool = False
 
     def __post_init__(self) -> None:
         if isinstance(self.job, str):

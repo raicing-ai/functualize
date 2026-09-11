@@ -48,14 +48,28 @@ class GraphModel:
         edges: ``{source: [targets]}`` — unconditional successors.
         conditional: ``{source: {choice_key: target}}`` — successors chosen at
             runtime from the source's result.
+        effecting: Node names declared `Step(..., effecting=True)`. A set, not
+            a flag on each node, because that is the question the walk asks:
+            *is this one of them?*
     """
 
     entry: str
     edges: Mapping[str, Sequence[str]] = field(default_factory=dict)
     conditional: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
+    effecting: frozenset[str] = field(default_factory=frozenset)
 
     def is_conditional(self, node: str) -> bool:
         return node in self.conditional
+
+    def is_effecting(self, node: str) -> bool:
+        """Does ``node`` do something the world remembers?
+
+        An effecting step must run exactly once across a crash and a resume;
+        a pure one is replayed. The default is pure, because the framework
+        cannot tell them apart by looking and guessing wrong in that direction
+        re-runs a refund.
+        """
+        return node in self.effecting
 
     def successors(self, node: str, choice: str | None = None) -> list[str]:
         """Successors of ``node``; ``choice`` selects a conditional target."""
@@ -205,6 +219,12 @@ class FrontierWalk:
                     "return_value_type": type_name,
                     "inputs": dict(inputs or {}),
                     "completed_at": completed_at,
+                    # Recorded on the step, not looked up from the declaration
+                    # on resume (`durable-run-layer`/T9). A resume may happen in
+                    # another process against a declaration that has since
+                    # changed; what mattered is what the step *was* when it ran.
+                    # The record is the only witness to that.
+                    "effecting": self._graph.is_effecting(node),
                 },
             )
 

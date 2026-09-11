@@ -687,7 +687,7 @@ warns about — failed 3 tests including the one named for the ordering.
 
 ## Wave 8 — exactly once
 
-### [ ] T9 · `Step.effecting` and the outbox
+### [x] T9 · `Step.effecting` and the outbox
 
 **Files:** `src/functualize/workflow/__init__.py`, `src/functualize/_engine/frontier.py`,
 `tests/integration/test_crash_and_resume.py`
@@ -698,6 +698,44 @@ already guarantees all-or-nothing (`scope_store.py:129-150`); this declares whic
 **Test — parity test 2, and it must be a real crash (risk R-f):** `kill -9` a runner
 mid-workflow; a new runner resumes from the last committed node; an **effecting** step's file
 has one line, not two. A unit test can fake this property; a real signal cannot.
+
+Done: `tests/integration/test_crash_and_resume.py` spawns a real subprocess,
+waits for it to announce the effect is done, and `SIGKILL`s it. A guard class
+asserts the exit code really was `-SIGKILL` — a `terminate()` would let a
+handler flush and the whole file would prove nothing.
+
+## `effecting` defaults to False, and that is the honest default
+
+The framework cannot tell an effecting step from a pure one by looking, and
+guessing wrong in this direction re-runs a refund. A step that says nothing is
+replayed — the behaviour every workflow has had until now (AC-15), asserted
+separately because the easy over-correction is to make *every* step run once.
+
+Recorded **on the step**, not looked up from the declaration at resume time: a
+resume may run in another process against a declaration that has since changed,
+and what matters is what the step was when it ran. The record is the only
+witness to that.
+
+## A real defect in `reclaim`, found only by using the scope afterwards
+
+`reclaim_scope` claimed the lease **and kept it**. So the scope was unavailable
+for the full lease period to the very runner meant to pick it up — the resuming
+process could not claim, and the workflow never advanced.
+
+Every unit test for `reclaim` passed. They checked what the record said and
+stopped there; this is the only test that goes on to *use* the scope. Reclaim
+now claims and immediately releases: the generation moves so the dead holder
+stays fenced, and the lease expires in place so the scope is claimable at once.
+
+## What the test fakes, and what it must not
+
+The crash is real. The **waiting** is not: a killed runner's lease is still live
+for its full duration, because nothing can distinguish "crashed" from "slow" —
+that is the design, and it means a real recovery either waits or cancels.
+Waiting 300 s in a test is absurd, and the expiry path itself is covered by
+`test_abandoned_and_reclaim.py`, so the lease is aged and the crash is not.
+
+Sabotage: recording `effecting: False` for every step failed the record test.
 
 ---
 

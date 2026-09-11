@@ -187,3 +187,41 @@ runs changes what the second one reads.
 **Not a defect on this branch.** If it fails *in isolation*, the cold/warm
 agreement has genuinely broken and this entry does not apply — that pair is a
 real defect this file's §2 was written about, not a flake.
+
+## 11 · `tests/tui_group_options/test_smartbar_roundtrip.py` — flaky under a **loaded** `-n 8`
+
+**Seen:** 2026-09-12, three failures in one full `--run-slow -n 8` run
+(`test_d6_panels_are_built_for_the_resolved_job`,
+`test_d7_readiness_is_evaluated_against_the_resolved_job`,
+`test_a_group_flag_after_the_job_is_not_ready`). The **immediately following**
+run of the same suite passed all three.
+
+**Not the usual xdist flake.** The file passes alone, and the whole
+`tui_group_options` directory passes under `-n 8` on its own:
+
+```
+uv run pytest tests/tui_group_options/test_smartbar_roundtrip.py -q   # 18 passed
+uv run pytest tests/tui_group_options/ -q -n 8                        # 67 passed
+```
+
+It fails only when the *rest of the suite* is running beside it.
+
+**Suspected cause, and the reason this entry exists rather than a fix.** These
+are Textual `run_test` tests that advance the app with `pilot.pause()`, which
+yields rather than sleeping a fixed time. `durable-run-layer`/T9 added
+`tests/integration/test_crash_and_resume.py`, which spawns **real subprocesses**
+that write a file and then block until killed. Under `-n 8` a worker running
+those alongside a worker running the TUI can starve the event loop the pilot is
+waiting on.
+
+`contributor/guides/steering_textual_tui.md` §"Never assert wall-clock timing"
+is the rule that keeps this rare; the pilot itself still depends on getting
+scheduled.
+
+**Discriminator.** If the same three fail twice in a row, or fail in isolation,
+it is not this — look for a real defect. Load-induced failures move around; on
+the run that produced this entry the next full run failed a *different* test
+(§10's discovery flake) and these three passed.
+
+**Not treated as green.** A run with these failing is a run to repeat, not to
+wave through.

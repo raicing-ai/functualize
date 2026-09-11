@@ -191,6 +191,13 @@ def graph_model_of(declaration: WorkflowDeclaration) -> GraphModel:
     """
     edges: dict[str, list[str]] = {}
     conditional: dict[str, dict[str, str]] = {}
+    # Names only: the walk asks "is this one of them?", never "what kind of node
+    # is this?" — the same reason the graph carries edges rather than `Step`s.
+    effecting = frozenset(
+        node.name
+        for node in declaration.nodes
+        if getattr(node, "effecting", False)
+    )
 
     for edge in declaration.edges:
         if isinstance(edge, ConditionalEdge):
@@ -204,6 +211,7 @@ def graph_model_of(declaration: WorkflowDeclaration) -> GraphModel:
         entry=declaration.entry or "",
         edges=edges,
         conditional=conditional,
+        effecting=effecting,
     )
 
 
