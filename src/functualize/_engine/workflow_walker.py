@@ -364,6 +364,14 @@ class WorkflowWalker:
             else:
                 ledger.executed.append(name)
             ledger.results[name] = run.value
+            # Say "still here" at every node boundary. Without this the lease
+            # becomes a step time limit: a step slower than the lease would see
+            # its own scope go claimable while it was still working.
+            #
+            # Between nodes rather than during one, because that is where the
+            # walk is between two committed states — and because nothing here
+            # can interrupt a step anyway (`exec_policy` §1).
+            self._walk.renew()
             pending.extend(self._advance(name, run.value, run.inputs))
 
         self._store.set_scope_status(self._scope_id, WalkState.COMPLETED)

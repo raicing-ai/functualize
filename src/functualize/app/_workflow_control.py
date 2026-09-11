@@ -491,16 +491,30 @@ def reclaim_scope(store: Any, scope_id: str) -> dict[str, Any]:
     #
     # Releasing expires the lease in place and keeps the generation, so the dead
     # holder's writes stay refused while the scope is immediately claimable.
+    previous_owner = lease.owner if lease is not None else None
     taken = store.claim_scope(scope_id, owner=runner_identity(), force=True)
     store.release_scope(scope_id, generation=taken.generation)
     return {
         "status": "reclaimed",
         "workflow_id": scope_id,
         "generation": taken.generation,
+        "previous_owner": previous_owner,
+        # **Says what was not done** (AC-12). A lapsed lease means that runner
+        # stopped *renewing*; nothing stopped the runner. Python cannot preempt
+        # a running function — `_engine/exec_policy` researched and rejected
+        # every mechanism that pretends otherwise — so a reclaim that reported
+        # "the old work was cancelled" would be the same lie in a new place: a
+        # caller who believes the work stopped may release a lock or delete a
+        # file the still-live runner is using.
+        "work_not_stopped": previous_owner is not None,
         "message": (
             f"Reclaimed '{scope_id}' at generation {taken.generation}. "
-            f"Any write from the previous holder is refused; the scope is "
-            f"ready to resume."
+            f"Writes from {previous_owner or 'any previous holder'} are now "
+            f"refused, but that runner was **not** stopped — it may still be "
+            f"executing. It cannot corrupt this scope; it can still touch "
+            f"anything outside it."
+            if previous_owner
+            else f"Reclaimed '{scope_id}' at generation {taken.generation}."
         ),
     }
 

@@ -141,6 +141,34 @@ class FrontierWalk:
         self._store.hold_scope_generation(self._scope_id, lease.generation)
         return int(lease.generation)
 
+    def renew(self) -> None:
+        """Extend this walk's claim. The generation does not move.
+
+        **The heartbeat, and without it the lease is a step time limit.** A walk
+        claims once and the lease runs for `DEFAULT_LEASE_SECONDS`; any step
+        slower than that would see its scope become claimable while it was
+        still working, and another runner could take it. Renewing between nodes
+        says "still here" — so the lease measures *silence*, not duration.
+
+        Moving the generation on renewal would be the opposite of the point: it
+        would fence this walk's own in-flight writes, so every heartbeat would
+        invalidate the work it exists to protect.
+
+        Best-effort. A renewal that fails means the scope has been taken, and
+        the next write will say so with the holder named — raising here would
+        report it in the middle of a step that is still running fine.
+        """
+        if self._generation is None:
+            return
+        from functualize._primitives.run_store import runner_identity
+
+        try:
+            self._store.renew_scope(
+                self._scope_id, owner=runner_identity(), generation=self._generation
+            )
+        except Exception:  # noqa: BLE001 - the next write reports it properly
+            logger.debug("could not renew the scope lease", exc_info=True)
+
     def release(self) -> None:
         """Give up the claim, leaving the scope immediately claimable.
 

@@ -521,7 +521,8 @@ Spec AC-8. `StaleGenerationError` names the current holder — **a count, never 
 ```bash
 rg -c 'generation' src/functualize/_engine/frontier.py
 ```
-now: `0` · after: `10`
+now: `0` · after: `14` — moved by T10's `renew`, which carries the generation it
+must **not** change.
 
 **Sabotage:** drop the generation check from one write path. Done, and it failed
 **7** tests including the enumeration one written for exactly this
@@ -741,7 +742,7 @@ Sabotage: recording `effecting: False` for every step failed the record test.
 
 ## Wave 9 — a timeout that does not lie
 
-### [ ] T10 · Step timeout = lease expiry
+### [x] T10 · Step timeout = lease expiry
 
 **Files:** `src/functualize/_engine/workflow_walker.py`,
 `tests/engine/test_timeout_is_lease_expiry.py`
@@ -756,12 +757,62 @@ Spec AC-12, AC-13.
 
 **Gate — the rejected mechanisms stay rejected**
 ```bash
-rg -c 'signal.alarm|SIGALRM|asyncio.wait_for' src/functualize/_engine/
+rg -c 'signal\.alarm\(|asyncio\.wait_for\(' src/functualize/_engine/
 ```
-now: `0` · after: `0`
+now: `0` · after: `0` — **invariant**, and narrowed to a *call* (trailing `(`).
+The gate as written matched `exec_policy`'s docstring, which names SIGALRM to
+explain why it is refused; the test enforcing this parses the AST instead.
 
 **Test:** an expired lease makes the scope claimable; the record reports the original work as
 possibly still running; nothing is killed.
+
+## The gap was renewal, not expiry
+
+Expiry already worked — a walk claimed once and the lease ran out. That is also
+why it was wrong: with nothing renewing, the lease was a **step time limit**. A
+step slower than `DEFAULT_LEASE_SECONDS` would watch its own scope go claimable
+while it was still working, and another runner could take it.
+
+`FrontierWalk.renew()` at each node boundary says "still here", so the lease
+measures **silence** rather than duration. Between nodes rather than during one,
+because that is where the walk sits between two committed states — and because
+nothing could interrupt a step anyway.
+
+Renewal deliberately does **not** move the generation: it would fence this
+walk's own in-flight writes, so every heartbeat would invalidate the work it
+exists to protect. It is also best-effort — a failed renewal means the scope was
+taken, and the next *write* reports that with the holder named, rather than
+raising in the middle of a step that is running perfectly well.
+
+## What the reclaim says it did not do
+
+A lapsed lease means that runner stopped *renewing*; **nothing stopped the
+runner**. `reclaim` now returns `work_not_stopped` and names the previous owner,
+because "something may still be running" is not actionable and a name is. The
+message says the old runner cannot corrupt this scope and can still touch
+anything outside it — which is the true and useful statement.
+
+## Two test failures of my own, both instructive
+
+**A gate that matched its own explanation.** `test_the_engine_uses_none_of_them`
+grepped `_engine/` for `SIGALRM` and failed — on `exec_policy`'s docstring,
+which exists to explain *why* SIGALRM is rejected. The same for `kill` in
+`lease.py`'s prose. Both now parse the AST and look for **calls**, with a guard
+asserting the walk finds any calls at all. This design is documented by
+describing the mechanisms it refuses, so text matching was never going to work.
+
+**A sabotage that changed nothing, correctly.** Deleting the walker's
+`self._walk.renew()` failed **zero** tests, because every test called
+`walk.renew()` directly. The method was correct and never exercised through the
+walk — the shape `wiring-discipline.md` exists for, and the lease would have
+expired under every long workflow with the unit tests green.
+`TestTheWalkActuallyRenews` closes it, and the same sabotage now fails.
+
+**And one process failure:** restoring that sabotage with `git checkout --
+frontier.py` deleted `renew()` itself, which was uncommitted. That is the exact
+hazard `wiring-discipline.md` §3 documents and the second time this branch has
+paid for it. Restore from the scratchpad copy with `install -m644`; never
+`git checkout` a file holding uncommitted work.
 
 ---
 
