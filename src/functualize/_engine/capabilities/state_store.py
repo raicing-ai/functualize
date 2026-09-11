@@ -92,9 +92,32 @@ class StateStore:
             ) from e
         self._data[key] = value
 
-    def keys(self) -> list[str]:
-        """Return list of currently stored key names."""
-        return list(self._data.keys())
+    def keys(self, prefix: str = "") -> list[str]:
+        """Stored key names, optionally filtered by ``prefix``.
+
+        The prefix is what makes the documented namespacing convention work.
+        One store is shared by every job in a run, so two steps can pick the
+        same key name; the answer is a convention rather than a framework
+        namespace — a step writes ``state.set("fetch.count", n)`` and reads its
+        own back with ``state.keys("fetch.")``. That is one concept (a string)
+        instead of two (a string and a namespace API), and it is why this
+        parameter survived the deletion of the per-invocation ``State``.
+
+        Args:
+            prefix: Only keys starting with this are returned
+                (case-sensitive). The default ``""`` returns all of them.
+
+        Returns:
+            The matching keys, unordered.
+
+        Raises:
+            TypeError: ``prefix`` is not a string.
+        """
+        if not isinstance(prefix, str):
+            raise TypeError(f"prefix must be a str, got {type(prefix).__name__}")
+        if not prefix:
+            return list(self._data.keys())
+        return [key for key in self._data if key.startswith(prefix)]
 
     def clear(self) -> None:
         """Remove all stored state.
