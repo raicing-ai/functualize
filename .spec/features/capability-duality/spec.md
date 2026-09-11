@@ -25,34 +25,32 @@ identically at the call site.
 
 ## B · The `State` finding
 
-Four paths, mapped by running each one:
+Four paths, mapped by running each one — see `research.md` §2 for the cause.
 
-| path | does state carry today? |
+| path | carried state before this feature? |
 |---|---|
-| `rc.invoke` parent ↔ children | **yes** |
+| `rc.invoke` parent ↔ children | yes |
 | `@workflow` step → next step | **no** |
 | `@workflow` step → epilogue | **no** |
 | `state: State` (DI), anywhere | **no** |
 
-`rc.state` returns the shared store only `if self._workflow_scope is not None`.
-`workflow_orchestrator.py:122` passes `workflow_scope_id` — a **string** — and
-never `parent_scope`, the **object**. So every step gets `_workflow_scope =
-None`, lazily builds a private `StateStore`, and writes into a store nothing
-reads. Silently, with no test and no doc describing the behaviour either way.
-
 `examples/standalone/composition_lab/jobs/pipeline.py` §8 documents the DI half
 as *"the trap this job pins"* and opens §9 with *"Three things are called
-state"*. That is a warning about a defect, not a design: the isolation is an
-artifact of `State` being a per-invocation dict that shares nothing, ever.
+state"*. That is a warning about a defect, not a design.
 
-The three things are real: `_primitives/state_store.StateStore` (JSON, on
-disk), `_engine/capabilities/state_store.StateStore` (in-memory, workflow
-scope), and `_engine/capabilities/state.State` (per-invocation dict).
+**Maintainer decisions, in the order they were taken.**
 
-**Decision (maintainer, 2026-09-11): one flat store per run.** No framework
-namespacing. A user who wants it writes `state.set("fetch.count", n)`, and that
-convention is documented rather than built. `keys(prefix)` is what makes it pay
-off, so the surviving class keeps that parameter.
+1. **One flat store per run.** No framework namespacing; a user who wants it
+   writes `state.set("fetch.count", n)`.
+2. **`keys()` matches by glob, not by prefix** — `keys("fetch.*")`. A bare
+   prefix leaks the neighbouring namespace, and requiring a trailing dot to
+   avoid that is worse DX than the leak. `research.md` §5.
+3. **No in-memory state tier at all.** The in-memory store existed as a
+   fallback for when no state plugin was installed, and a fallback that empties
+   on resume is unusable: the case you most need state in is the case that
+   loses it. `State` is backed by `ScopeStore`. `research.md` §6.
+4. **One name per store.** Five things wear the word "state" and two unrelated
+   classes are both `StateStore`. `research.md` §3, executed by T8.
 
 ## C · Acceptance criteria
 
@@ -60,10 +58,17 @@ off, so the surviving class keeps that parameter.
   by one step is readable by every later step and by the epilogue.
 - **AC-2** `state: State` and `rc.state` are the same object, in a workflow
   step and outside one.
-- **AC-3** `State` names exactly one class. The per-invocation dict is deleted,
-  not aliased (*Pre-Release Stance*: delete rather than shim).
-- **AC-4** `state.keys(prefix)` filters, so the documented `"fetch.count"`
-  convention is usable without a second API.
+- **AC-3** `State` names exactly one class, and it is **durable**. Both
+  in-memory classes are deleted, not aliased (*Pre-Release Stance*: delete
+  rather than shim).
+- **AC-4** `state.keys(pattern)` matches by glob using the codebase's existing
+  matcher, so `keys("fetch.*")` cannot reach `"fetchmeta.x"`.
+- **AC-4b** A workflow that blocks at a gate and is resumed **in a new
+  process** finds the state its earlier half wrote. This is the criterion the
+  in-memory store could never meet and the reason it is gone.
+- **AC-4c** The plugin seam survives: `WorkflowScope.replace_state_store` still
+  swaps in a `StateStoreProtocol` implementation, and
+  `functualize-state-sqlite` still works.
 - **AC-5** `rc[T]` and `T in rc` answer from the per-invocation capability map
   before the DI registry, so a capability the job is holding is never reported
   missing.
