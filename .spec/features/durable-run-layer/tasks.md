@@ -881,12 +881,44 @@ before the commit did.
 
 ## Wave 11 — the depth guard
 
-### [ ] T12 · `max_workflow_depth`
+### [x] T12 · `max_workflow_depth`
 
 **Files:** `src/functualize/_engine/workflow_validation.py`, `src/functualize/_types/errors.py`
 
 Spec AC-18, inherited **C9**. `WorkflowDepthExceededError` maps to an exit code through F2's
 outcome module — **no new exit code, no second vocabulary.**
+
+## A separate limit from `max_invoke_depth`, because they bound different things
+
+`max_invoke_depth` counts *any* nested call. This counts **workflows inside
+workflows**, and each of those costs a scope, a set of step records, an epilogue
+slot and a lease. A run can invoke deeply without nesting a single workflow, so
+one limit cannot serve both.
+
+Not hypothetical: a workflow that names itself as a step type-checks, boots, and
+produces one scope per level until the disk or the recursion limit gives out —
+and every one of those scopes is a record somebody has to clean up.
+
+## The depth is read from the scope id
+
+A nested workflow's scope is `f"{parent}::{step}"` (`workflow_orchestrator`), so
+the separators **are** the depth. Reading it there rather than threading a
+counter through the walk means the two cannot disagree — and a resumed walk in a
+fresh process has the id and nothing else.
+
+The check runs **before the graph check and before any work**, because the cost
+it bounds is the scope itself: a guard that writes a step record before refusing
+has bounded nothing. A test asserts no step ran and no record was written.
+
+The limit is a **ceiling, not an exclusive bound** — `max_workflow_depth=2`
+allows two levels. Asserted, because an off-by-one here is something a reader
+would otherwise have to discover from behaviour.
+
+**Gate**
+```bash
+rg -c 'workflow_depth' src/functualize/_engine/workflow_validation.py
+```
+now: `0` · after: `3`
 
 ---
 

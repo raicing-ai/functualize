@@ -202,6 +202,7 @@ def validate_workflow_declarations(app: Any = None, *, registry: Any = None) -> 
             else "Workflow nesting cycle detected."
         ) from exc
 
+
 # ----------------------------------------------------------------------
 # Source identity (`durable-run-layer`/T11)
 # ----------------------------------------------------------------------
@@ -259,3 +260,40 @@ class WorkflowGraphChangedError(Exception):
         self.scope_id = scope_id
         self.recorded = recorded
         self.current = current
+
+
+#: How deep a workflow may nest inside other workflows before it is refused.
+#:
+#: Distinct from `max_invoke_depth`, which bounds *any* nested call. This bounds
+#: **workflows inside workflows**, and each of those costs a scope, a set of
+#: step records, an epilogue slot and a lease. A run can invoke deeply without
+#: nesting a single workflow, so one limit cannot serve both.
+DEFAULT_MAX_WORKFLOW_DEPTH = 5
+
+
+def workflow_depth(scope_id: str) -> int:
+    """How many workflows deep ``scope_id`` sits. A top-level scope is 0.
+
+    Read from the id because that is where the nesting already lives: a nested
+    workflow's scope is `f"{parent}::{step}"` (`workflow_orchestrator`), so the
+    separators *are* the depth. Deriving it from the string rather than
+    threading a counter through the walk means the two cannot disagree — and
+    a resumed walk in a fresh process has the id and nothing else.
+    """
+    return scope_id.count("::")
+
+
+def check_workflow_depth(scope_id: str, limit: int | None = None) -> None:
+    """Refuse a workflow nested deeper than ``limit``.
+
+    Raises:
+        WorkflowDepthExceededError: The nesting exceeds the limit. An ordinary
+            refusal — it reaches a caller through the outcome module's existing
+            failure family, so there is no second exit-code vocabulary.
+    """
+    from functualize._types.errors import WorkflowDepthExceededError
+
+    ceiling = DEFAULT_MAX_WORKFLOW_DEPTH if limit is None else limit
+    depth = workflow_depth(scope_id)
+    if depth > ceiling:
+        raise WorkflowDepthExceededError(scope_id, depth, ceiling)

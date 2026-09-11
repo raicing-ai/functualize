@@ -33,6 +33,36 @@ class RecursionLimitError(Exception):
         )
 
 
+class WorkflowDepthExceededError(Exception):
+    """A workflow nested deeper than `general.max_workflow_depth` allows.
+
+    `durable-run-layer`/T12, inherited decision C9. A separate limit from
+    `max_invoke_depth`, because they bound different things: that one counts
+    *any* nested call, while this counts **workflows inside workflows** — each
+    of which owns a scope, a set of step records, an epilogue slot and a lease.
+    A run can legitimately invoke deeply without nesting a single workflow.
+
+    Unbounded nesting is not a hypothetical: a workflow that names itself as a
+    step type-checks, boots, and produces one scope per level until the disk
+    or the recursion limit runs out — and every one of those scopes is a record
+    somebody has to clean up.
+
+    **No new exit code.** It is an ordinary refusal and reaches a caller through
+    the outcome module's existing failure family, so there is one exit-code
+    vocabulary rather than two.
+    """
+
+    def __init__(self, scope_id: str, depth: int, limit: int) -> None:
+        super().__init__(
+            f"Workflow nesting is {depth} deep at '{scope_id}', and the limit "
+            f"is {limit}. Raise `general.max_workflow_depth` if this nesting "
+            f"is intended, or flatten the graph."
+        )
+        self.scope_id = scope_id
+        self.depth = depth
+        self.limit = limit
+
+
 class JobDependencyError(Exception):
     """Raised at boot when a job's ``Deps`` cannot be validated (§A.4):
     an unknown/unregistered dependency reference, or a dependency cycle.

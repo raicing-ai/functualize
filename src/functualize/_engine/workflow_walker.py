@@ -194,9 +194,7 @@ def graph_model_of(declaration: WorkflowDeclaration) -> GraphModel:
     # Names only: the walk asks "is this one of them?", never "what kind of node
     # is this?" — the same reason the graph carries edges rather than `Step`s.
     effecting = frozenset(
-        node.name
-        for node in declaration.nodes
-        if getattr(node, "effecting", False)
+        node.name for node in declaration.nodes if getattr(node, "effecting", False)
     )
 
     for edge in declaration.edges:
@@ -255,6 +253,7 @@ class WorkflowWalker:
         workflow_name: str | None = None,
         gate_registry: Any = None,
         prompt_gates: bool = False,
+        max_workflow_depth: int | None = None,
     ) -> None:
         self._declaration = declaration
         self._store = store
@@ -267,6 +266,9 @@ class WorkflowWalker:
         self._walk = FrontierWalk(self._graph, store, scope_id)
         self._gate_registry = gate_registry
         self._prompt_gates = prompt_gates
+        #: None means "the default" — resolved in `workflow_validation` rather
+        #: than here, so the number lives in one place.
+        self._max_workflow_depth = max_workflow_depth
 
     def run(self) -> WalkReport:
         """Walk to `END`, to a gate with no input, or to a failure.
@@ -286,6 +288,7 @@ class WorkflowWalker:
 
         self._walk.claim()
         try:
+            self._check_the_nesting_is_bounded()
             self._check_the_graph_has_not_changed()
             return self._run_walk()
         except StaleGenerationError:
@@ -304,6 +307,23 @@ class WorkflowWalker:
             return WalkReport(WalkOutcome.SUPERSEDED, self._scope_id)
         finally:
             self._walk.release()
+
+    def _check_the_nesting_is_bounded(self) -> None:
+        """Refuse a workflow nested deeper than the limit (T12, AC-18).
+
+        **Before the graph check and before any work**, because the cost this
+        bounds is the scope itself: a workflow that names itself as a step
+        type-checks, boots, and produces one scope per level until the disk
+        runs out. Checking after the first node would already have written one.
+
+        The depth is read from the scope id, where the nesting already lives —
+        a nested workflow's scope is `f"{parent}::{step}"`, so the separators
+        *are* the depth. A resumed walk in a fresh process has the id and
+        nothing else, and a threaded counter could disagree with it.
+        """
+        from functualize._engine.workflow_validation import check_workflow_depth
+
+        check_workflow_depth(self._scope_id, self._max_workflow_depth)
 
     def _check_the_graph_has_not_changed(self) -> None:
         """Refuse to advance a scope whose graph is not the one loaded (T11).
