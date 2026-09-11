@@ -41,7 +41,7 @@ from functualize._primitives.graph import descendants
 from functualize._types.workflow import AgentStep, ConditionalEdge, Gate, Step
 
 if TYPE_CHECKING:
-    from functualize._primitives.fresh_store import FreshStore
+    from functualize._primitives.scope_store import ScopeStore
     from functualize._types.protocols import AgentStepResult
     from functualize._types.workflow import WorkflowDeclaration, _EndSentinel
 
@@ -245,7 +245,7 @@ class WorkflowWalker:
     def __init__(
         self,
         declaration: WorkflowDeclaration,
-        store: FreshStore,
+        store: ScopeStore,
         scope_id: str,
         *,
         run_step: Callable[[str], Any],
@@ -650,7 +650,7 @@ class WorkflowWalker:
 
     def _fail(self, node: str, error: str) -> WalkReport:
         """Record a failed node and stop the walk."""
-        with self._store.scope_batch():
+        with self._store.batch():
             self._store.record_step(
                 self._scope_id,
                 _key(node),

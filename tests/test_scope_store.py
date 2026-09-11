@@ -1,7 +1,7 @@
 """ScopeStore: the accessors, and the two behaviours that are new.
 
 The accessors are a move — they behaved this way when they lived on
-``FreshStore``, and `tests/test_state_store.py` keeps proving that through the
+``ScopeStore``, and `tests/test_state_store.py` keeps proving that through the
 façade. What is new here is `batch()` and the fail-closed read reaching a
 caller.
 """

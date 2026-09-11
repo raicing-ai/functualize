@@ -26,7 +26,7 @@ from functualize._engine.workflow_validation import (
     graph_digest,
 )
 from functualize._engine.workflow_walker import WorkflowWalker
-from functualize._primitives.fresh_store import FreshStore
+from functualize._primitives.scope_store import ScopeStore
 from functualize._primitives.substrate import JsonFileSubstrate
 from functualize._types.workflow import (
     END,
@@ -68,11 +68,11 @@ def _rerouted() -> WorkflowDeclaration:
 
 
 @pytest.fixture
-def store(tmp_path: Path) -> FreshStore:
-    return FreshStore(JsonFileSubstrate(tmp_path))
+def store(tmp_path: Path) -> ScopeStore:
+    return ScopeStore(JsonFileSubstrate(tmp_path))
 
 
-def _walk(declaration: WorkflowDeclaration, store: FreshStore) -> WorkflowWalker:
+def _walk(declaration: WorkflowDeclaration, store: ScopeStore) -> WorkflowWalker:
     return WorkflowWalker(declaration, store, "wf", run_step=lambda name: name)
 
 
@@ -115,7 +115,7 @@ class TestResumeRefusesAChangedGraph:
     """AC-16, first half."""
 
     def test_a_second_walk_against_a_changed_graph_is_refused(
-        self, store: FreshStore
+        self, store: ScopeStore
     ) -> None:
         _walk(_two_steps(), store).run()
 
@@ -125,7 +125,7 @@ class TestResumeRefusesAChangedGraph:
         assert exc.value.recorded != exc.value.current
         assert exc.value.scope_id == "wf"
 
-    def test_the_refusal_names_both_digests(self, store: FreshStore) -> None:
+    def test_the_refusal_names_both_digests(self, store: ScopeStore) -> None:
         """ "Your workflow changed" is not an answer to "what changed"."""
         _walk(_two_steps(), store).run()
         with pytest.raises(WorkflowGraphChangedError) as exc:
@@ -135,7 +135,7 @@ class TestResumeRefusesAChangedGraph:
         assert exc.value.recorded in message
         assert exc.value.current in message
 
-    def test_the_refusal_destroys_nothing(self, store: FreshStore) -> None:
+    def test_the_refusal_destroys_nothing(self, store: ScopeStore) -> None:
         """Only *advancing* is refused. The records stay readable.
 
         A refusal that also cleared the scope would make the safety check more
@@ -151,7 +151,7 @@ class TestResumeRefusesAChangedGraph:
         assert after["steps"] == before["steps"]
         assert after["graph_digest"] == before["graph_digest"]
 
-    def test_the_same_graph_resumes_fine(self, store: FreshStore) -> None:
+    def test_the_same_graph_resumes_fine(self, store: ScopeStore) -> None:
         _walk(_two_steps(), store).run()
         _walk(_two_steps(), store).run()  # must not raise
 
@@ -164,7 +164,7 @@ class TestAnUnrelatedChangeInTheSameFileIsFine:
     file at all; the graph digest does not move unless the graph does.
     """
 
-    def test_an_unrelated_job_changing_does_not_refuse(self, store: FreshStore) -> None:
+    def test_an_unrelated_job_changing_does_not_refuse(self, store: ScopeStore) -> None:
         """The graph is identical; what the *steps do* is not part of it.
 
         A step names a job. Changing that job's body is exactly the edit people
@@ -198,7 +198,7 @@ class TestTheLegacyPath:
     """AC-17. A scope parked before this check existed must still resume."""
 
     def test_an_unrecorded_digest_resumes_and_is_recorded(
-        self, store: FreshStore
+        self, store: ScopeStore
     ) -> None:
         """Refusing here would strand every walk that was already waiting."""
         store.ensure_scope("wf", "demo")
@@ -210,7 +210,7 @@ class TestTheLegacyPath:
         assert store.get_graph_digest("wf") == graph_digest(_two_steps())
 
     def test_the_digest_is_written_once_and_not_overwritten(
-        self, store: FreshStore
+        self, store: ScopeStore
     ) -> None:
         """Or it would always agree with itself.
 

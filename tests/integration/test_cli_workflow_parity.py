@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from functualize._app.state import AppState
 from functualize._cli.builtins import register_builtin_commands
 from functualize.app.core import FunctualizeApp
-from functualize.app.utils import ExitCode, FreshStore
+from functualize.app.utils import ExitCode, ScopeStore
 from functualize.job import RunStatus
 from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, workflow
@@ -224,7 +224,7 @@ class TestCliDrivesABlockedWorkflow:
             )
         )
         assert _run_cli(app, ["builtin", "workflow", "cancel", "rel-1"]) == 0
-        scope = FreshStore.for_project(Path.cwd()).get_scope("rel-1")
+        scope = ScopeStore.for_project(Path.cwd()).get_scope("rel-1")
         assert scope is not None and scope["status"] == "cancelled"
 
     def test_show_of_unknown_scope_errors(self, app: FunctualizeApp) -> None:
@@ -264,7 +264,7 @@ class TestParityIsOneFunction:
         monkeypatch.setattr("functualize_mcp._workflow_tools.answer_gate", _spy)
 
         # MCP path.
-        provider = WorkflowToolProvider(app, store=FreshStore.for_project(Path.cwd()))
+        provider = WorkflowToolProvider(app, store=ScopeStore.for_project(Path.cwd()))
         await provider._answer_gate(
             {"environment": "prod", "replicas": 3},
             workflow_id="rel-1",
@@ -346,9 +346,9 @@ class TestTheTwoSurfacesReturnTheSameProjection:
         """`waiting` before the gate is answered, `ready` after — on both."""
         from functualize_mcp._workflow_tools import WorkflowToolProvider
 
-        from functualize.app.utils import FreshStore, deposit_gate_input
+        from functualize.app.utils import ScopeStore, deposit_gate_input
 
-        store = FreshStore.for_project(Path.cwd())
+        store = ScopeStore.for_project(Path.cwd())
         assert (await WorkflowToolProvider(blocked)._get_workflow_state("rel-1"))[
             "state"
         ] == "waiting"
@@ -405,7 +405,7 @@ class TestTheAnswerCommand:
         result = json.loads(capsys.readouterr().out)
         assert result["status"] == "answered"
 
-        store = FreshStore.for_project(Path.cwd())
+        store = ScopeStore.for_project(Path.cwd())
         assert store.get_gate("rel-1", "approval")["payload"]["replicas"] == 3
 
     def test_a_bare_word_stays_a_string(
@@ -467,7 +467,7 @@ class TestTheAnswerCommand:
         )
         assert code == 0
         assert json.loads(capsys.readouterr().out)["draft"] == {}
-        store = FreshStore.for_project(Path.cwd())
+        store = ScopeStore.for_project(Path.cwd())
         assert store.get_gate_draft("rel-1", "approval") is None
 
     def test_no_commit_holds_a_complete_draft(
@@ -491,7 +491,7 @@ class TestTheAnswerCommand:
         result = json.loads(capsys.readouterr().out)
         assert result["complete"] is True
         assert result["status"] == "drafted"
-        store = FreshStore.for_project(Path.cwd())
+        store = ScopeStore.for_project(Path.cwd())
         assert store.get_gate("rel-1", "approval")["payload"] is None
 
     def test_a_malformed_set_pair_is_a_usage_error(
@@ -567,7 +567,7 @@ class TestTheGateToolVerb:
         _run_cli(blocked, ["builtin", "workflow", "gate-tool", "rel-1", "build"])
         _run_cli(blocked, ["builtin", "workflow", "gate-tool", "rel-1", "build"])
 
-        store = FreshStore.for_project(Path.cwd())
+        store = ScopeStore.for_project(Path.cwd())
         assert len(store.get_tool_calls("rel-1")) == 2
         assert blocked.ran == ["build", "build"]  # type: ignore[attr-defined]
 

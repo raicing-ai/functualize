@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from functualize._primitives.fresh_store import FreshStore
+    from functualize._primitives.scope_store import ScopeStore
 
 __all__ = ["END", "FrontierWalk", "GraphModel", "WalkState"]
 
@@ -101,7 +101,7 @@ class FrontierWalk:
         scope_id: The scope these records belong to.
     """
 
-    def __init__(self, graph: GraphModel, store: FreshStore, scope_id: str) -> None:
+    def __init__(self, graph: GraphModel, store: ScopeStore, scope_id: str) -> None:
         self._graph = graph
         self._store = store
         self._scope_id = scope_id
@@ -138,7 +138,7 @@ class FrontierWalk:
             force=force,
         )
         self._generation = int(lease.generation)
-        self._store.hold_scope_generation(self._scope_id, lease.generation)
+        self._store.hold(self._scope_id, lease.generation)
         return int(lease.generation)
 
     def renew(self) -> None:
@@ -183,7 +183,7 @@ class FrontierWalk:
             logger.debug("could not release the scope lease", exc_info=True)
         finally:
             self._generation = None
-            self._store.hold_scope_generation(self._scope_id, None)
+            self._store.hold(self._scope_id, None)
 
     # ------------------------------------------------------------------
     # Walk control
@@ -195,7 +195,7 @@ class FrontierWalk:
         Resuming is *replay*: a scope with a persisted position resumes there
         rather than re-entering at the graph entry.
         """
-        with self._store.scope_batch():
+        with self._store.batch():
             self._store.ensure_scope(self._scope_id, workflow)
             position = self._store.get_position(self._scope_id)
             if position is not None:
@@ -235,7 +235,7 @@ class FrontierWalk:
         # in-memory — `classify_return_value` and the graph lookups touch no
         # disk — so the lock is held for microseconds. An exception in here
         # discards the node's writes rather than leaving two of three applied.
-        with self._store.scope_batch():
+        with self._store.batch():
             self._store.record_step(
                 self._scope_id,
                 step_key(node, args_hash),
@@ -295,7 +295,7 @@ class FrontierWalk:
         the declaration at call time, which has to import it anyway to run the
         job.
         """
-        with self._store.scope_batch():
+        with self._store.batch():
             self._store.set_position(self._scope_id, node)
             self._store.set_scope_status(self._scope_id, WalkState.BLOCKED)
             self._store.put_gate(

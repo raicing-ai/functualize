@@ -1,7 +1,7 @@
 """Tests for AI graceful degradation when State domain is absent or fails.
 
 Validates Requirements 25.1, 25.2, 25.3:
-- 25.1: Fall back to in-memory FreshStore when State domain not installed
+- 25.1: Fall back to in-memory ScopeStore when State domain not installed
 - 25.2: Emit boot-time warning about ephemeral data
 - 25.3: When State domain IS installed but fails at runtime, fail entirely
 """

@@ -114,9 +114,9 @@ class GateToolPolicy:
     @property
     def store(self) -> Any:
         if self._store is None:
-            from functualize._primitives.fresh_store import FreshStore
+            from functualize._primitives.scope_store import ScopeStore
 
-            self._store = FreshStore.for_project(Path.cwd())
+            self._store = ScopeStore.for_project(Path.cwd())
         return self._store
 
     def permitted(self, tool_name: str) -> bool:
@@ -412,8 +412,13 @@ def cancel_scope(store: Any, scope_id: str) -> dict[str, Any]:
     # `force` because cancelling is exactly the case where a live holder must
     # lose. It is the second of the two verbs allowed to use it; the other is
     # an explicit `reclaim`, where a human has decided the holder is gone.
-    _gen_of = getattr(store, "scope_generation", None)
-    previous = _gen_of(scope_id) if callable(_gen_of) else None
+    # Read directly. This was `getattr(store, "scope_generation", None)` with a
+    # `callable` guard, and when `store-substrate`/T3 renamed the method the
+    # guard turned a missing attribute into `previous = None` — the cancel
+    # silently stopped holding what it took and fenced itself out again. A
+    # defensive lookup against a type we control hides exactly the breakage it
+    # looks like it is protecting against.
+    previous = store.generation_for(scope_id)
     try:
         from functualize._primitives.run_store import runner_identity
 
@@ -425,7 +430,7 @@ def cancel_scope(store: Any, scope_id: str) -> dict[str, Any]:
         # carries whatever this store held before — which is now stale. Found
         # by the test for AC-10, where the CLI store and the walker's store are
         # deliberately the same object.
-        store.hold_scope_generation(scope_id, taken.generation)
+        store.hold(scope_id, taken.generation)
     except Exception:  # noqa: BLE001 - a store without leases still cancels
         logger.debug("could not take the lease before cancelling", exc_info=True)
 
@@ -435,8 +440,7 @@ def cancel_scope(store: Any, scope_id: str) -> dict[str, Any]:
         # Restore whatever this store was holding. Cancel borrows the lease to
         # make its own write land; it does not leave the caller's store fenced
         # to a generation the caller never claimed.
-        if hasattr(store, "hold_scope_generation"):
-            store.hold_scope_generation(scope_id, previous)
+        store.hold(scope_id, previous)
     return {
         "status": "cancelled",
         "workflow_id": scope_id,

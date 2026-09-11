@@ -402,7 +402,7 @@ class TestAPlainJobIsNotAWorkflow:
     def test_a_plain_jobs_state_is_not_listed_as_a_workflow(
         self, project: Path
     ) -> None:
-        from functualize._primitives.fresh_store import FreshStore
+        from functualize._primitives.scope_store import ScopeStore
         from functualize.app.utils import list_scopes
 
         app = FunctualizeApp(name="plain")
@@ -419,7 +419,7 @@ class TestAPlainJobIsNotAWorkflow:
             == "Success"
         )
 
-        store = FreshStore(app.execution_engine._state_store().substrate)
+        store = ScopeStore(app.execution_engine._state_store().substrate)
         assert list_scopes(app, store) == [], (
             "a plain job's state record was listed as a running workflow"
         )
@@ -429,7 +429,7 @@ class TestAPlainJobIsNotAWorkflow:
 
         Without this the previous test passes by listing nothing at all.
         """
-        from functualize._primitives.fresh_store import FreshStore
+        from functualize._primitives.scope_store import ScopeStore
         from functualize.app.utils import list_scopes
 
         app = FunctualizeApp(name="real")
@@ -444,7 +444,7 @@ class TestAPlainJobIsNotAWorkflow:
             ).status.value
             == "Success"
         )
-        store = FreshStore(app.execution_engine._state_store().substrate)
+        store = ScopeStore(app.execution_engine._state_store().substrate)
         rows = list_scopes(app, store, state="completed")
         assert any(r["workflow_id"] == "listed" for r in rows), (
             f"the real workflow vanished from the listing: {rows}"

@@ -41,7 +41,7 @@ from functualize.app.utils import (
 )
 from functualize.app.utils import (
     RUN_STATES,
-    FreshStore,
+    ScopeStore,
     answer_gate,
     call_gate_tool,
     cancel_scope,
@@ -132,7 +132,7 @@ class WorkflowToolProvider:
         self,
         app: Any,
         *,
-        store: FreshStore | None = None,
+        store: ScopeStore | None = None,
         run_store: Any | None = None,
     ) -> None:
         self._app = app
@@ -140,10 +140,10 @@ class WorkflowToolProvider:
         self._run_store = run_store
 
     @property
-    def store(self) -> FreshStore:
-        """The state store, resolved from the cwd on first use."""
+    def store(self) -> ScopeStore:
+        """The scope store, resolved from the cwd on first use."""
         if self._store is None:
-            self._store = FreshStore.for_project(Path.cwd())
+            self._store = ScopeStore.for_project(Path.cwd())
         return self._store
 
     @property

@@ -27,37 +27,37 @@ from pathlib import Path
 import pytest
 
 from functualize._engine.frontier import FrontierWalk, GraphModel
-from functualize._primitives.fresh_store import FreshStore
 from functualize._primitives.lease import DEFAULT_LEASE_SECONDS, is_expired
+from functualize._primitives.scope_store import ScopeStore
 from functualize._primitives.substrate import JsonFileSubstrate
 from functualize.app._workflow_control import reclaim_scope
 from functualize.app._workflow_view import derived_state
 
 
 @pytest.fixture
-def store(tmp_path: Path) -> FreshStore:
-    s = FreshStore(JsonFileSubstrate(tmp_path))
+def store(tmp_path: Path) -> ScopeStore:
+    s = ScopeStore(JsonFileSubstrate(tmp_path))
     s.ensure_scope("wf", "demo")
     s.set_scope_status("wf", "running")
     return s
 
 
-def _walk(store: FreshStore) -> FrontierWalk:
+def _walk(store: ScopeStore) -> FrontierWalk:
     return FrontierWalk(GraphModel(entry="n1"), store, "wf")
 
 
-def _age_the_lease(store: FreshStore, seconds: float) -> None:
+def _age_the_lease(store: ScopeStore, seconds: float) -> None:
     """Move the lease's expiry into the past by ``seconds``."""
     scope = store.get_scope("wf")
     past = (datetime.now(UTC) - timedelta(seconds=seconds)).isoformat()
     lease = {**scope["lease"], "expires_at": past}
-    store._scopes._mutate(  # noqa: SLF001
+    store._mutate(  # noqa: SLF001
         lambda env: env["scopes"]["wf"].__setitem__("lease", lease)
     )
 
 
 class TestSilenceIsWhatExpires:
-    def test_a_lapsed_lease_makes_the_scope_claimable(self, store: FreshStore) -> None:
+    def test_a_lapsed_lease_makes_the_scope_claimable(self, store: ScopeStore) -> None:
         walk = _walk(store)
         walk.claim()
         _age_the_lease(store, 60)
@@ -65,7 +65,7 @@ class TestSilenceIsWhatExpires:
         assert is_expired(store.get_lease("wf"), datetime.now(UTC))
         assert derived_state(store.get_scope("wf")) == "abandoned"
 
-    def test_renewing_keeps_the_scope(self, store: FreshStore) -> None:
+    def test_renewing_keeps_the_scope(self, store: ScopeStore) -> None:
         """The heartbeat, and the reason the lease is not a step time limit.
 
         Without renewal a step slower than `DEFAULT_LEASE_SECONDS` would watch
@@ -83,7 +83,7 @@ class TestSilenceIsWhatExpires:
         assert not is_expired(store.get_lease("wf"), datetime.now(UTC))
         assert derived_state(store.get_scope("wf")) == "running"
 
-    def test_renewal_does_not_move_the_generation(self, store: FreshStore) -> None:
+    def test_renewal_does_not_move_the_generation(self, store: ScopeStore) -> None:
         """Or every heartbeat would fence the work it exists to protect."""
         walk = _walk(store)
         generation = walk.claim()
@@ -91,7 +91,7 @@ class TestSilenceIsWhatExpires:
         assert store.get_lease("wf").generation == generation
 
     def test_renewing_after_being_superseded_does_not_raise(
-        self, store: FreshStore
+        self, store: ScopeStore
     ) -> None:
         """The next *write* reports it, with the holder named.
 
@@ -110,7 +110,7 @@ class TestSilenceIsWhatExpires:
         with pytest.raises(StaleGenerationError):
             store.record_step("wf", "n1", {"status": "success"})
 
-    def test_renewing_without_a_claim_is_harmless(self, store: FreshStore) -> None:
+    def test_renewing_without_a_claim_is_harmless(self, store: ScopeStore) -> None:
         _walk(store).renew()
 
 
@@ -133,7 +133,7 @@ class TestTheWalkActuallyRenews:
             WorkflowDeclaration,
         )
 
-        store = FreshStore(JsonFileSubstrate(tmp_path))
+        store = ScopeStore(JsonFileSubstrate(tmp_path))
         declaration = WorkflowDeclaration(
             nodes=(Step("a"), Step("b")),
             edges=(Edge(source="a", target="b"), Edge(source="b", target=END)),
@@ -171,7 +171,7 @@ class TestTheWalkActuallyRenews:
             WorkflowDeclaration,
         )
 
-        store = FreshStore(JsonFileSubstrate(tmp_path))
+        store = ScopeStore(JsonFileSubstrate(tmp_path))
         declaration = WorkflowDeclaration(
             nodes=(Step("a"),), edges=(Edge(source="a", target=END),)
         )
@@ -186,7 +186,7 @@ class TestItDoesNotClaimToStopTheWork:
     """AC-12. The part that makes this honest rather than a renamed lie."""
 
     def test_reclaim_reports_that_the_old_runner_was_not_stopped(
-        self, store: FreshStore
+        self, store: ScopeStore
     ) -> None:
         walk = _walk(store)
         walk.claim(owner="the-slow-one")
@@ -201,7 +201,7 @@ class TestItDoesNotClaimToStopTheWork:
         ].replace("**", "")
 
     def test_the_message_names_who_may_still_be_running(
-        self, store: FreshStore
+        self, store: ScopeStore
     ) -> None:
         """ "Something may still be running" is not actionable; a name is."""
         walk = _walk(store)
@@ -211,7 +211,7 @@ class TestItDoesNotClaimToStopTheWork:
         assert "host-7/pid-99" in reclaim_scope(store, "wf")["message"]
 
     def test_reclaiming_a_never_claimed_scope_claims_nothing_about_work(
-        self, store: FreshStore
+        self, store: ScopeStore
     ) -> None:
         """No previous holder means there is no live runner to warn about."""
         result = reclaim_scope(store, "wf")

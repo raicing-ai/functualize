@@ -19,8 +19,8 @@ from pathlib import Path
 
 import pytest
 
-from functualize._primitives.fresh_store import FreshStore
 from functualize._primitives.lease import DEFAULT_LEASE_SECONDS
+from functualize._primitives.scope_store import ScopeStore
 from functualize._primitives.substrate import JsonFileSubstrate
 from functualize.app._workflow_control import cancel_scope, purge_scopes, reclaim_scope
 from functualize.app._workflow_view import derived_state
@@ -29,40 +29,40 @@ PAST = datetime.now(UTC) - timedelta(seconds=DEFAULT_LEASE_SECONDS + 60)
 
 
 @pytest.fixture
-def store(tmp_path: Path) -> FreshStore:
-    s = FreshStore(JsonFileSubstrate(tmp_path))
+def store(tmp_path: Path) -> ScopeStore:
+    s = ScopeStore(JsonFileSubstrate(tmp_path))
     s.ensure_scope("wf", "demo")
     s.set_scope_status("wf", "running")
     return s
 
 
-def _expire_the_lease(store: FreshStore, scope_id: str = "wf") -> None:
+def _expire_the_lease(store: ScopeStore, scope_id: str = "wf") -> None:
     """Claim in the past, so the lease is already over."""
     store.claim_scope(scope_id, owner="dead-runner", seconds=1)
     scope = store.get_scope(scope_id)
     scope["lease"]["expires_at"] = PAST.isoformat()
     # Written back through the raw record: this is simulating a runner that
     # stopped, not an operation the system offers.
-    store._scopes._mutate(  # noqa: SLF001
+    store._mutate(  # noqa: SLF001
         lambda env: env["scopes"][scope_id].__setitem__("lease", scope["lease"])
     )
 
 
 class TestAbandonedIsDerived:
     def test_a_running_scope_with_a_lapsed_lease_reads_as_abandoned(
-        self, store: FreshStore
+        self, store: ScopeStore
     ) -> None:
         _expire_the_lease(store)
         assert derived_state(store.get_scope("wf")) == "abandoned"
 
     def test_a_running_scope_with_a_live_lease_reads_as_running(
-        self, store: FreshStore
+        self, store: ScopeStore
     ) -> None:
         store.claim_scope("wf", owner="alive")
         assert derived_state(store.get_scope("wf")) == "running"
 
     def test_a_running_scope_with_no_lease_reads_as_running(
-        self, store: FreshStore
+        self, store: ScopeStore
     ) -> None:
         """Absence of evidence is not evidence, and here it is the common case.
 
@@ -73,7 +73,7 @@ class TestAbandonedIsDerived:
         assert store.get_lease("wf") is None
         assert derived_state(store.get_scope("wf")) == "running"
 
-    def test_abandoned_is_tested_before_running(self, store: FreshStore) -> None:
+    def test_abandoned_is_tested_before_running(self, store: ScopeStore) -> None:
         """The ordering, asserted as a property rather than read off the source.
 
         With the branches the other way round the lapsed-lease case above would
@@ -89,7 +89,7 @@ class TestAbandonedIsDerived:
         )
 
     def test_a_terminal_status_wins_over_a_lapsed_lease(
-        self, store: FreshStore
+        self, store: ScopeStore
     ) -> None:
         """A finished scope is finished, whatever its lease says.
 
@@ -101,7 +101,7 @@ class TestAbandonedIsDerived:
         store.set_scope_status("wf", "completed")
         assert derived_state(store.get_scope("wf")) == "completed"
 
-    def test_a_blocked_scope_is_not_abandoned(self, store: FreshStore) -> None:
+    def test_a_blocked_scope_is_not_abandoned(self, store: ScopeStore) -> None:
         """Blocked is waiting on a *human*, not on a runner.
 
         A workflow parked at a gate has no runner to renew a lease, and calling
@@ -114,7 +114,7 @@ class TestAbandonedIsDerived:
 
 class TestReclaimIsExplicit:
     def test_reclaiming_an_abandoned_scope_moves_the_generation(
-        self, store: FreshStore
+        self, store: ScopeStore
     ) -> None:
         _expire_the_lease(store)
         before = store.get_lease("wf")
@@ -125,7 +125,7 @@ class TestReclaimIsExplicit:
         assert store.get_lease("wf").generation > before.generation
 
     def test_the_previous_holders_writes_are_then_refused(
-        self, store: FreshStore
+        self, store: ScopeStore
     ) -> None:
         """What reclaiming is *for*, rather than what it records."""
         from functualize._primitives.lease import StaleGenerationError
@@ -134,11 +134,11 @@ class TestReclaimIsExplicit:
         stale = store.get_lease("wf").generation
         reclaim_scope(store, "wf")
 
-        store.hold_scope_generation("wf", stale)
+        store.hold("wf", stale)
         with pytest.raises(StaleGenerationError):
             store.set_scope_status("wf", "completed")
 
-    def test_reclaiming_a_live_scope_is_refused(self, store: FreshStore) -> None:
+    def test_reclaiming_a_live_scope_is_refused(self, store: ScopeStore) -> None:
         """A live lease is not an abandoned scope — it is one someone is using.
 
         Cancel is the verb for taking a scope from a runner that is working;
@@ -150,10 +150,10 @@ class TestReclaimIsExplicit:
         assert result["error"] == "workflow_held"
         assert "busy" in result["message"]
 
-    def test_reclaiming_an_unknown_scope_is_refused(self, store: FreshStore) -> None:
+    def test_reclaiming_an_unknown_scope_is_refused(self, store: ScopeStore) -> None:
         assert reclaim_scope(store, "nope")["error"] == "workflow_not_found"
 
-    def test_reclaim_destroys_nothing(self, store: FreshStore) -> None:
+    def test_reclaim_destroys_nothing(self, store: ScopeStore) -> None:
         """AC-11's other half. Reclaiming a scope must leave the walk's work.
 
         Everything a resume needs — step records, the gate payload a human
@@ -174,7 +174,7 @@ class TestReclaimIsExplicit:
 
 
 class TestNothingReclaimsOnItsOwn:
-    def test_reading_a_scope_does_not_reclaim_it(self, store: FreshStore) -> None:
+    def test_reading_a_scope_does_not_reclaim_it(self, store: ScopeStore) -> None:
         """Derived on read, never repaired on read.
 
         An expired lease means *nothing has heard from that runner*, not *that
@@ -188,7 +188,7 @@ class TestNothingReclaimsOnItsOwn:
 
         assert store.get_lease("wf") == before, "reading the scope claimed it"
 
-    def test_purge_is_still_the_only_verb_that_deletes(self, store: FreshStore) -> None:
+    def test_purge_is_still_the_only_verb_that_deletes(self, store: ScopeStore) -> None:
         """An abandoned scope is not purgeable — it is not finished.
 
         Somebody has to decide what happened to it. Letting purge collect
@@ -200,7 +200,7 @@ class TestNothingReclaimsOnItsOwn:
         assert store.get_scope("wf") is not None
 
     def test_cancelling_an_abandoned_scope_makes_it_purgeable(
-        self, store: FreshStore
+        self, store: ScopeStore
     ) -> None:
         """The path out: a human says what happened, then it can be collected."""
         _expire_the_lease(store)

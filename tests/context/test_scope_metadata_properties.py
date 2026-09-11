@@ -1,6 +1,6 @@
-"""Property-based tests for FreshStore replacement and JobResult metadata.
+"""Property-based tests for ScopeStore replacement and JobResult metadata.
 
-Property 14: FreshStore replacement — new store used, no data migration
+Property 14: ScopeStore replacement — new store used, no data migration
 **Validates: Requirements 7.5**
 
 Property 21: JobResult metadata — maximum 64 keys enforced
@@ -85,17 +85,17 @@ class ConformingStore:
         self._data.clear()
 
 
-# --- Property 14: FreshStore replacement — new store used, no data migration ---
+# --- Property 14: ScopeStore replacement — new store used, no data migration ---
 
 
-# Feature: plugin-ecosystem-enablement, Property 14: FreshStore replacement
+# Feature: plugin-ecosystem-enablement, Property 14: ScopeStore replacement
 # For any WorkflowScope with state written to the original store, after
 # replace_state_store(new_store) is called with a protocol-conforming store,
 # all subsequent state operations SHALL use the new store, and the new store
 # SHALL NOT contain data from the previous store.
 # **Validates: Requirements 7.5**
 class TestStateStoreReplacement:
-    """Property 14: FreshStore replacement — new store used, no data migration."""
+    """Property 14: ScopeStore replacement — new store used, no data migration."""
 
     @given(
         scope_id=scope_ids,

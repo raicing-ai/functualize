@@ -885,7 +885,6 @@ class JobExecutionEngine:
         from functualize._engine.capabilities.state import ScopeBackedStateStore
         from functualize._engine.capabilities.workflow_scope import WorkflowScope
         from functualize._engine.workflow_runner import new_scope_id
-        from functualize._primitives.scope_store import ScopeStore
 
         # `new_scope_id`, not a second generator. There were two — `app.execute`
         # minted `<job>-<hex8>` and the workflow runner minted `<hex16>` — so
@@ -903,7 +902,7 @@ class JobExecutionEngine:
             scope = host_scope(scope_id)
             self._scopes[scope_id] = scope
             return scope
-        scopes = ScopeStore(self._state_store().substrate)
+        scopes = self._scope_store()
         scope = WorkflowScope(
             scope_id, state_store=ScopeBackedStateStore(scopes, scope_id)
         )
@@ -1014,9 +1013,8 @@ class JobExecutionEngine:
         if scope_id is None:
             return
         try:
-            from functualize._primitives.scope_store import ScopeStore
 
-            scopes = ScopeStore(self._state_store().substrate)
+            scopes = self._scope_store()
             record = scopes.get_scope(scope_id)
             if record is None:
                 # Nothing was ever written for this scope — a run that touched
@@ -1506,16 +1504,34 @@ class JobExecutionEngine:
         return result
 
     def _state_store(self) -> Any:
-        """The runtime state store, resolved the way `func state` resolves it.
+        """The **freshness ledger**, resolved the way `func builtin data` does.
 
         Built lazily and cached: most jobs never touch it, and resolving the
-        path walks the filesystem upward looking for `.functualize/`.
+        substrate walks the filesystem upward looking for `.functualize/`.
+
+        Fingerprints and the session precondition cache only. Scope records are
+        :meth:`_scope_store` — since `store-substrate`/T3 this object no longer
+        forwards to that one, so asking the wrong store is a type error rather
+        than a silent reach through a facade.
         """
         if self._workflow_state_store is None:
             from functualize._primitives.fresh_store import FreshStore
 
             self._workflow_state_store = FreshStore.for_project(self.fresh_root)
         return self._workflow_state_store
+
+    def _scope_store(self) -> Any:
+        """The **scope records**, on the same substrate as the ledger.
+
+        A method rather than a second cached attribute: `ScopeStore` is cheap to
+        build and carries per-scope fencing state, and sharing one instance
+        across unrelated callers is what made the parent's fence apply to a
+        child's scope in `durable-run-layer`/T6. The substrate is the thing
+        worth resolving once, and it already is.
+        """
+        from functualize._primitives.scope_store import ScopeStore
+
+        return ScopeStore(self._state_store().substrate)
 
     def _failure_before_execution(
         self,
@@ -2078,7 +2094,13 @@ class JobExecutionEngine:
     def _from_job_value(
         self, ref: Any, scope_id: str | None, expected_type: Any = None
     ) -> Any:
-        """The recorded value for one ``FromJob`` reference, or None."""
+        """The recorded value for one ``FromJob`` reference, or None.
+
+        Reads **both** stores, and that is the shape of the question rather
+        than a leftover: inside a walk the value is a step record, outside one
+        it is a fingerprint. `store-substrate`/T3 made the difference visible —
+        this used to be two calls on one facade.
+        """
         store = self._state_store()
         if store is None:
             return None
@@ -2086,7 +2108,7 @@ class JobExecutionEngine:
         from functualize._primitives.fingerprint import reusable_return_value
 
         if scope_id is not None:
-            scope = store.get_scope(scope_id)
+            scope = store.scopes.get_scope(scope_id)
             steps = (scope or {}).get("steps", {})
             for key, record in steps.items():
                 if key.split("::", 1)[0] == ref.name and isinstance(record, dict):

@@ -183,7 +183,7 @@ class WorkflowOrchestrator:
             )
 
         runner = WorkflowRunner(
-            self._engine._state_store(),
+            self._engine._scope_store(),
             run_step=run_step,
             scope_id=scope_id,
             gate_registry=self._engine._gate_registry,

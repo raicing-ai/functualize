@@ -43,7 +43,7 @@ from functualize import FunctualizeApp, RunContext
 from functualize._types.run_request import RunRequest
 from functualize._types.workflow import Edge, Step, WorkflowDeclaration, END
 from functualize._engine.workflow_walker import WorkflowWalker
-from functualize._primitives.fresh_store import FreshStore
+from functualize._primitives.scope_store import ScopeStore
 
 MARKER = Path(sys.argv[1])
 HANG = Path(sys.argv[2])
@@ -69,7 +69,7 @@ declaration = WorkflowDeclaration(
     edges=(Edge(source="charge", target="slow"), Edge(source="slow", target=END)),
 )
 
-store = FreshStore.for_project(Path.cwd())
+store = ScopeStore.for_project(Path.cwd())
 walk = WorkflowWalker(declaration, store, "crash-scope", run_step=_run_step,
                     workflow_name="flow")
 walk.run()
@@ -131,9 +131,9 @@ def _expire_the_dead_runners_lease(project: Path) -> None:
     """
     from datetime import UTC, datetime, timedelta
 
-    from functualize._primitives.fresh_store import FreshStore
+    from functualize._primitives.scope_store import ScopeStore
 
-    store = FreshStore.for_project(project)
+    store = ScopeStore.for_project(project)
     scope = store.get_scope("crash-scope")
     assert scope and scope.get("lease"), "the crashed runner left no lease"
     past = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
@@ -171,11 +171,11 @@ class TestAnEffectingStepRunsOnce:
         # exists. Its lease has to lapse before anyone may take it — see
         # `_expire_the_dead_runners_lease` for why that is faked and the crash
         # is not.
-        from functualize._primitives.fresh_store import FreshStore
+        from functualize._primitives.scope_store import ScopeStore
         from functualize.app._workflow_control import reclaim_scope
 
         _expire_the_dead_runners_lease(project)
-        store = FreshStore.for_project(project)
+        store = ScopeStore.for_project(project)
         assert reclaim_scope(store, "crash-scope")["status"] == "reclaimed"
 
         hang.unlink()
@@ -231,11 +231,11 @@ class TestAPureStepIsStillReplayed:
         _kill_hard(first)
         assert marker.read_text().count("charged") == 1
 
-        from functualize._primitives.fresh_store import FreshStore
+        from functualize._primitives.scope_store import ScopeStore
         from functualize.app._workflow_control import reclaim_scope
 
         _expire_the_dead_runners_lease(project)
-        reclaim_scope(FreshStore.for_project(project), "crash-scope")
+        reclaim_scope(ScopeStore.for_project(project), "crash-scope")
 
         hang.unlink()
         second = _spawn(runner, marker, hang, effecting=False)

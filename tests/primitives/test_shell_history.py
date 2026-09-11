@@ -18,7 +18,7 @@ import json
 import threading
 from pathlib import Path
 
-from functualize._primitives.fresh_store import FreshStore
+from functualize._primitives.scope_store import ScopeStore
 from functualize._primitives.shell_history import (
     SHELL_HISTORY_KEY,
     SHELL_HISTORY_LIMIT,
@@ -149,7 +149,7 @@ class TestItSitsBesideTheOtherStores:
         (tmp_path / ".functualize").mkdir()
         assert ShellHistoryStore.for_project(tmp_path).substrate.path_for(
             SHELL_HISTORY_KEY
-        ) == FreshStore.for_project(tmp_path).substrate.path_for(SHELL_HISTORY_KEY)
+        ) == ScopeStore.for_project(tmp_path).substrate.path_for(SHELL_HISTORY_KEY)
 
 
 class TestStateJsonNoLongerHoldsHistory:

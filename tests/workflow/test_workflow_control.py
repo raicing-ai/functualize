@@ -24,8 +24,8 @@ from functualize._app.state import AppState
 from functualize.app._workflow_control import guarded_execute
 from functualize.app.core import FunctualizeApp
 from functualize.app.utils import (
-    FreshStore,
     GateToolPolicy,
+    ScopeStore,
     advanceable_scopes,
     answer_gate,
     cancel_scope,
@@ -92,19 +92,19 @@ def app(project: Path, calls: list[str]) -> FunctualizeApp:
 
 
 @pytest.fixture
-def store(app: FunctualizeApp, project: Path, calls: list[str]) -> FreshStore:
+def store(app: FunctualizeApp, project: Path, calls: list[str]) -> ScopeStore:
     app.execute(
         RunRequest(job_name="release", surface="app.execute", workflow_scope_id="rel-1")
     )
     calls.clear()
-    return FreshStore.for_project(project)
+    return ScopeStore.for_project(project)
 
 
 class TestResumeAdvances:
     """AC-16. The verb this whole feature exists for."""
 
     def test_an_answered_scope_walks_to_completion(
-        self, app: FunctualizeApp, store: FreshStore, calls: list[str]
+        self, app: FunctualizeApp, store: ScopeStore, calls: list[str]
     ) -> None:
         answer_gate(app, store, "rel-1", "approve", {"approved": True})
 
@@ -114,7 +114,7 @@ class TestResumeAdvances:
         assert calls == ["deploy", "body"], "a step that had not run, ran"
 
     def test_it_can_answer_and_advance_in_one_call(
-        self, app: FunctualizeApp, store: FreshStore, calls: list[str]
+        self, app: FunctualizeApp, store: ScopeStore, calls: list[str]
     ) -> None:
         """The fusion that makes `--wf-resume --wf-input` worth having."""
         result = resume_scope(app, store, "rel-1", input={"approved": True})
@@ -123,7 +123,7 @@ class TestResumeAdvances:
         assert calls == ["deploy", "body"]
 
     def test_a_fused_answer_goes_through_the_same_validation(
-        self, app: FunctualizeApp, store: FreshStore, calls: list[str]
+        self, app: FunctualizeApp, store: ScopeStore, calls: list[str]
     ) -> None:
         result = resume_scope(app, store, "rel-1", input={"approved": "nope"})
 
@@ -131,7 +131,7 @@ class TestResumeAdvances:
         assert calls == [], "it walked on input the gate had not accepted"
 
     def test_an_incomplete_answer_does_not_advance_and_says_so(
-        self, app: FunctualizeApp, store: FreshStore, calls: list[str]
+        self, app: FunctualizeApp, store: ScopeStore, calls: list[str]
     ) -> None:
         """Advancing on a still-blocked gate would return the caller exactly
         where they started, with no explanation."""
@@ -142,24 +142,24 @@ class TestResumeAdvances:
         assert calls == []
 
     def test_a_completed_step_is_not_re_run(
-        self, app: FunctualizeApp, store: FreshStore, calls: list[str]
+        self, app: FunctualizeApp, store: ScopeStore, calls: list[str]
     ) -> None:
         resume_scope(app, store, "rel-1", input={"approved": True})
         assert "build" not in calls
 
     def test_it_carries_the_projection(
-        self, app: FunctualizeApp, store: FreshStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         result = resume_scope(app, store, "rel-1", input={"approved": True})
         assert result["scope"]["state"] == "completed"
 
     def test_an_unknown_scope_errors(
-        self, app: FunctualizeApp, store: FreshStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         assert resume_scope(app, store, "nope")["error"] == "workflow_not_found"
 
     def test_a_cancelled_scope_refuses(
-        self, app: FunctualizeApp, store: FreshStore, calls: list[str]
+        self, app: FunctualizeApp, store: ScopeStore, calls: list[str]
     ) -> None:
         """AC-5. Terminal means terminal."""
         cancel_scope(store, "rel-1")
@@ -172,7 +172,7 @@ class TestResumeAdvances:
 
 class TestRetryEpilogue:
     def test_it_clears_a_recorded_epilogue_so_the_body_runs_again(
-        self, app: FunctualizeApp, store: FreshStore, calls: list[str]
+        self, app: FunctualizeApp, store: ScopeStore, calls: list[str]
     ) -> None:
         """The sticky-body case: a walk that reached END and whose body then
         failed is `completed` with a failed epilogue, and without this it can
@@ -194,12 +194,12 @@ class TestAmbiguityNeverGuesses:
     """AC-17, AC-18."""
 
     def test_exactly_one_advanceable_scope_is_used(
-        self, app: FunctualizeApp, store: FreshStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         assert resolve_advanceable(store, None, "release") == "rel-1"
 
     def test_several_are_listed_never_picked(
-        self, app: FunctualizeApp, store: FreshStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         """Never "newest wins" — `blocked_at` resets on every re-block, so
         recency is not computable even if it were wanted."""
@@ -215,7 +215,7 @@ class TestAmbiguityNeverGuesses:
         assert sorted(result["candidates"]) == ["rel-1", "rel-2"]
 
     def test_none_names_the_survey_verb(
-        self, app: FunctualizeApp, store: FreshStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         cancel_scope(store, "rel-1")
         result = resolve_advanceable(store, None, "release")
@@ -223,7 +223,7 @@ class TestAmbiguityNeverGuesses:
         assert "workflow list" in result["message"]
 
     def test_an_unknown_id_errors_rather_than_creating_a_scope(
-        self, app: FunctualizeApp, store: FreshStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         """The phantom-run defect: `--scope-id <typo>` silently started a new
         run under the typo'd id, because the runner does
@@ -234,7 +234,7 @@ class TestAmbiguityNeverGuesses:
         assert "typo-id" not in store.scope_ids()
 
     def test_it_filters_by_workflow(
-        self, app: FunctualizeApp, store: FreshStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         store.ensure_scope("other-1", "something-else")
         assert advanceable_scopes(store, "release") == ["rel-1"]
@@ -246,7 +246,7 @@ class TestTheFunnelCannotBeBypassed:
     gate policy is theatre."""
 
     def test_resume_is_never_refused_by_the_gate_policy(
-        self, app: FunctualizeApp, store: FreshStore, calls: list[str]
+        self, app: FunctualizeApp, store: ScopeStore, calls: list[str]
     ) -> None:
         """The workflow's own continuation is exempt, deliberately.
 
@@ -303,7 +303,7 @@ class TestTheFunnelCannotBeBypassed:
         instance.execute(
             RunRequest(job_name="gated", surface="app.execute", workflow_scope_id="g-1")
         )
-        gated_store = FreshStore.for_project(project)
+        gated_store = ScopeStore.for_project(project)
         calls.clear()
 
         result = resume_scope(instance, gated_store, "g-1", input={"approved": True})
@@ -312,7 +312,7 @@ class TestTheFunnelCannotBeBypassed:
         assert calls == ["deploy", "body"]
 
     def test_a_gate_tool_call_is_governed(
-        self, app: FunctualizeApp, store: FreshStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         """What the policy is actually for: an actor running *other* jobs while
         a gate waits."""
@@ -335,7 +335,7 @@ class TestTheFunnelCannotBeBypassed:
         assert result["error"] == "tool_not_permitted"
 
     def test_a_refusal_is_raised_not_returned_from_guarded_execute(
-        self, app: FunctualizeApp, store: FreshStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         """So a caller that forgot to handle it fails loudly rather than
         running the job anyway."""
@@ -357,7 +357,7 @@ class TestTheFunnelCannotBeBypassed:
             )
 
     def test_no_policy_means_no_restriction(
-        self, app: FunctualizeApp, store: FreshStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         """Direct callers with no workflow state to consult must still work."""
         assert guarded_execute(app, store, "build", policy=None) is not None
@@ -365,7 +365,7 @@ class TestTheFunnelCannotBeBypassed:
 
 class TestPurge:
     def test_it_removes_finished_scopes(
-        self, app: FunctualizeApp, store: FreshStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         resume_scope(app, store, "rel-1", input={"approved": True})
 
@@ -375,7 +375,7 @@ class TestPurge:
         assert store.scope_ids() == []
 
     def test_it_refuses_to_touch_a_live_scope(
-        self, app: FunctualizeApp, store: FreshStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         """A hard delete with no backup, unlike `state clear --scopes` which
         moves the whole file aside. A mistyped filter must not be able to
@@ -384,12 +384,12 @@ class TestPurge:
         assert store.scope_ids() == ["rel-1"]
 
     def test_a_live_state_cannot_even_be_named(
-        self, app: FunctualizeApp, store: FreshStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         result = purge_scopes(store, state="waiting")
         assert result["error"] == "invalid_state"
 
-    def test_it_filters_by_state(self, app: FunctualizeApp, store: FreshStore) -> None:
+    def test_it_filters_by_state(self, app: FunctualizeApp, store: ScopeStore) -> None:
         resume_scope(app, store, "rel-1", input={"approved": True})
         app.execute(
             RunRequest(
@@ -402,7 +402,7 @@ class TestPurge:
         assert store.scope_ids() == ["rel-1"]
 
     def test_a_scope_with_no_timestamps_is_never_aged_out(
-        self, app: FunctualizeApp, store: FreshStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         """It cannot be aged, and treating it as infinitely old would purge
         exactly the records whose history is least known."""
@@ -412,7 +412,7 @@ class TestPurge:
         assert purge_scopes(store, older_than_days=0)["removed"] == []
 
     def test_a_recent_scope_survives_an_age_filter(
-        self, app: FunctualizeApp, store: FreshStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         resume_scope(app, store, "rel-1", input={"approved": True})
         assert purge_scopes(store, older_than_days=7)["removed"] == []
@@ -439,7 +439,7 @@ class TestTheControlVerbsNameTheirDoor:
     """
 
     def test_the_cli_resume_says_it_came_from_func_builtin(
-        self, app: FunctualizeApp, store: FreshStore, calls: list[str]
+        self, app: FunctualizeApp, store: ScopeStore, calls: list[str]
     ) -> None:
         captured: list[Any] = []
         original = app.execute
@@ -457,7 +457,7 @@ class TestTheControlVerbsNameTheirDoor:
         assert captured[0].surface == "func.builtin"
 
     def test_a_programmatic_resume_still_says_app_execute(
-        self, app: FunctualizeApp, store: FreshStore, calls: list[str]
+        self, app: FunctualizeApp, store: ScopeStore, calls: list[str]
     ) -> None:
         """The falsifier: the default must not have become the CLI's door."""
         captured: list[Any] = []

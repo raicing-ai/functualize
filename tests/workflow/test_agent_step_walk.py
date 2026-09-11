@@ -21,7 +21,7 @@ from functualize._app.state import AppState
 from functualize._engine.agent_step import (
     CliPromptExecutor as _CliPromptExecutor,
 )
-from functualize._primitives.fresh_store import FreshStore
+from functualize._primitives.scope_store import ScopeStore
 from functualize._types.enums import RunStatus
 from functualize._types.errors import AgentExecutorUnavailableError
 from functualize._types.interactivity import PromptRequest, PromptResponse
@@ -61,8 +61,8 @@ class _Surface:
         return PromptResponse(value=self.answer)
 
 
-def _store() -> FreshStore:
-    return FreshStore.for_project(Path.cwd())
+def _store() -> ScopeStore:
+    return ScopeStore.for_project(Path.cwd())
 
 
 def _single_agent_step_app(surface: _Surface) -> FunctualizeApp:

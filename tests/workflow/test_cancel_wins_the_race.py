@@ -24,15 +24,15 @@ import pytest
 
 from functualize._engine.frontier import FrontierWalk
 from functualize._engine.workflow_walker import WalkOutcome
-from functualize._primitives.fresh_store import FreshStore
 from functualize._primitives.lease import LeaseHeldError, StaleGenerationError
+from functualize._primitives.scope_store import ScopeStore
 from functualize._primitives.substrate import JsonFileSubstrate
 from functualize.app._workflow_control import cancel_scope
 
 
 @pytest.fixture
-def store(tmp_path: Path) -> FreshStore:
-    s = FreshStore(JsonFileSubstrate(tmp_path))
+def store(tmp_path: Path) -> ScopeStore:
+    s = ScopeStore(JsonFileSubstrate(tmp_path))
     s.ensure_scope("wf", "demo")
     s.set_scope_status("wf", "running")
     return s
@@ -42,7 +42,7 @@ class TestCancelWins:
     """AC-10. The record must say what the person who cancelled meant."""
 
     def test_cancel_supersedes_a_running_walks_generation(
-        self, store: FreshStore
+        self, store: ScopeStore
     ) -> None:
         """The mechanism, stated as the generation moving.
 
@@ -60,7 +60,7 @@ class TestCancelWins:
         )
 
     def test_the_walks_completion_stamp_is_refused_after_a_cancel(
-        self, store: FreshStore
+        self, store: ScopeStore
     ) -> None:
         """The consequence, asserted through the write the walk actually makes.
 
@@ -68,26 +68,26 @@ class TestCancelWins:
         to be the one that fails, not some proxy for it.
         """
         held = store.claim_scope("wf", owner="walker")
-        store.hold_scope_generation("wf", held.generation)
+        store.hold("wf", held.generation)
 
         cancel_scope(store, "wf")
 
         with pytest.raises(StaleGenerationError):
             store.set_scope_status("wf", "completed")
 
-    def test_the_record_still_says_cancelled(self, store: FreshStore) -> None:
+    def test_the_record_still_says_cancelled(self, store: ScopeStore) -> None:
         """End to end: after the race, what does a reader see?"""
         held = store.claim_scope("wf", owner="walker")
-        store.hold_scope_generation("wf", held.generation)
+        store.hold("wf", held.generation)
         cancel_scope(store, "wf")
 
         with pytest.raises(StaleGenerationError):
             store.set_scope_status("wf", "completed")
 
-        store.hold_scope_generation("wf", None)
+        store.hold("wf", None)
         assert store.get_scope("wf")["status"] == "cancelled"
 
-    def test_cancelling_an_unclaimed_scope_still_works(self, store: FreshStore) -> None:
+    def test_cancelling_an_unclaimed_scope_still_works(self, store: ScopeStore) -> None:
         """Most scopes have no lease — nothing has walked them yet.
 
         Taking a lease must not become a precondition for cancelling.
@@ -96,7 +96,7 @@ class TestCancelWins:
         assert store.get_scope("wf")["status"] == "cancelled"
 
     def test_cancelling_a_finished_scope_is_still_refused(
-        self, store: FreshStore
+        self, store: ScopeStore
     ) -> None:
         """The existing guard must survive the lease being added in front of it.
 
@@ -119,7 +119,7 @@ class TestCancelWins:
 class TestASecondWalkIsRefused:
     """AC-9 — the limitation 0.3.0 shipped knowingly."""
 
-    def test_a_second_claim_on_a_live_scope_is_refused(self, store: FreshStore) -> None:
+    def test_a_second_claim_on_a_live_scope_is_refused(self, store: ScopeStore) -> None:
         first = FrontierWalk.__new__(FrontierWalk)
         # Claim through the store directly: this asserts the store's refusal,
         # which is what both walks ultimately depend on.
@@ -129,7 +129,7 @@ class TestASecondWalkIsRefused:
         assert exc.value.owner == "runner-a", "the refusal must name the holder"
         assert first is not None  # keep the construction meaningful to a reader
 
-    def test_two_concurrent_resumes_leave_one_walker(self, store: FreshStore) -> None:
+    def test_two_concurrent_resumes_leave_one_walker(self, store: ScopeStore) -> None:
         """Two runners racing for one scope. Exactly one walks it.
 
         The scenario the whole feature exists for. Before the lease, both
@@ -161,7 +161,7 @@ class TestASecondWalkIsRefused:
         assert store.get_lease("wf").owner == won[0]
 
     def test_the_loser_cannot_write_even_if_it_proceeds(
-        self, store: FreshStore
+        self, store: ScopeStore
     ) -> None:
         """Defence in depth, and the part that does not depend on the lock.
 
@@ -172,13 +172,13 @@ class TestASecondWalkIsRefused:
         loser = store.claim_scope("wf", owner="a")
         store.claim_scope("wf", owner="b", force=True)
 
-        store.hold_scope_generation("wf", loser.generation)
+        store.hold("wf", loser.generation)
         with pytest.raises(StaleGenerationError):
             store.record_step("wf", "n1", {"status": "success"})
 
 
 class TestTheWalkReleasesWhatItTook:
-    def test_a_walk_that_raises_still_releases(self, store: FreshStore) -> None:
+    def test_a_walk_that_raises_still_releases(self, store: ScopeStore) -> None:
         """A crashed walk must not hold the scope until its lease expires.
 
         Otherwise one traceback costs everyone else a five-minute wait, and the
@@ -198,14 +198,14 @@ class TestTheWalkReleasesWhatItTook:
             "the scope was not claimable after the walk released it"
         )
 
-    def test_releasing_twice_is_harmless(self, store: FreshStore) -> None:
+    def test_releasing_twice_is_harmless(self, store: ScopeStore) -> None:
         """`run` releases in a `finally`; a caller may also release explicitly."""
         walk = FrontierWalk(_graph_stub(), store, "wf")
         walk.claim()
         walk.release()
         walk.release()  # must not raise
 
-    def test_releasing_without_claiming_is_harmless(self, store: FreshStore) -> None:
+    def test_releasing_without_claiming_is_harmless(self, store: ScopeStore) -> None:
         """A walk that failed to claim still runs its `finally`."""
         FrontierWalk(_graph_stub(), store, "wf").release()
 

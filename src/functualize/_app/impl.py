@@ -630,7 +630,6 @@ def create_workflow_scope(
     from functualize._engine.capabilities.state import ScopeBackedStateStore
     from functualize._engine.capabilities.workflow_scope import WorkflowScope
     from functualize._events.hooks import HookEvent
-    from functualize._primitives.scope_store import ScopeStore
 
     if scope_id in app._scope_registry:
         raise ValueError(f"Workflow scope '{scope_id}' already exists")
@@ -642,7 +641,7 @@ def create_workflow_scope(
     # The engine's own substrate, so a reader and a writer cannot disagree
     # about which project's documents these are — no second walk to keep in
     # agreement, and no way to give records one backend and state another.
-    scopes = ScopeStore(app.execution_engine._state_store().substrate)
+    scopes = app.execution_engine._scope_store()
     scope = WorkflowScope(
         scope_id,
         metadata=metadata,

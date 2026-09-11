@@ -521,8 +521,18 @@ Spec AC-8. `StaleGenerationError` names the current holder — **a count, never 
 ```bash
 rg -c 'generation' src/functualize/_engine/frontier.py
 ```
-now: `0` · after: `14` — moved by T10's `renew`, which carries the generation it
+now: `0` · after: `13` — moved by T10's `renew`, which carries the generation it
 must **not** change.
+
+**Re-measured 2026-09-12: 14 → 13, by a rename, not a regression.**
+`store-substrate`/T3 deleted `FreshStore`'s 33 forwarders, and two of them were
+the *renamed* ones: `hold_scope_generation` and `scope_generation` existed
+because on a store that also held fingerprints a bare `hold` or `generation_for`
+would not have said what it held. On `ScopeStore` they are `hold` and
+`generation_for`, and the word left one line of `frontier.py` with them.
+`tests/spec/test_task_gates_still_hold.py` caught the drift and this is the
+answer to it: the generation check is untouched, and its own gate — the one
+that counts `scope_id=` arguments to `_mutate` — is unchanged.
 
 **Sabotage:** drop the generation check from one write path. Done, and it failed
 **7** tests including the enumeration one written for exactly this

@@ -32,9 +32,9 @@ from functualize._engine.middleware import ExecutionMiddlewareChain
 from functualize._events.bus import EventBus
 from functualize._events.hooks import HookRegistry
 from functualize._primitives.di import DIRegistry
-from functualize._primitives.fresh_store import FreshStore
 from functualize._primitives.run_format import RUNS_KEY
 from functualize._primitives.run_store import RunStore
+from functualize._primitives.scope_store import ScopeStore
 from functualize._types.enums import RunStatus
 from functualize._types.run_request import RunRequest
 from functualize.app.utils import job_history
@@ -65,7 +65,7 @@ def engine(_project: Path) -> JobExecutionEngine:
 
 @pytest.fixture
 def runs(engine: JobExecutionEngine) -> RunStore:
-    return RunStore(FreshStore.for_project(engine.fresh_root).substrate)
+    return RunStore(ScopeStore.for_project(engine.fresh_root).substrate)
 
 
 class TestTheRecordOpensAndCloses:

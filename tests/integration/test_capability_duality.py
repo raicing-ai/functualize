@@ -373,7 +373,7 @@ class TestKeysMatchesByGlob:
 
         store = self._store(state)
         # SIM118 reads `store.keys()` as a dict call and would have us drop
-        # it. `FreshStore` is not a dict and defines no `__iter__`, so the
+        # it. `ScopeStore` is not a dict and defines no `__iter__`, so the
         # suggested fix raises TypeError.
         every_key = store.keys()  # noqa: SIM118
         assert sorted(store.keys("fetch.*")) == sorted(

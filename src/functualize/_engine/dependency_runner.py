@@ -75,7 +75,7 @@ class DependencyRunner:
         Reads the walk's step records — the same ones the walker replays from
         — so "already ran here" has one answer rather than one per consumer.
         """
-        store = self._engine._state_store()
+        store = self._engine._scope_store()
         if store is None:
             return False
         scope = store.get_scope(scope_id)

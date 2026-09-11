@@ -25,7 +25,7 @@ from functualize._engine.workflow_validation import (
     workflow_depth,
 )
 from functualize._engine.workflow_walker import WorkflowWalker
-from functualize._primitives.fresh_store import FreshStore
+from functualize._primitives.scope_store import ScopeStore
 from functualize._primitives.substrate import JsonFileSubstrate
 from functualize._types.errors import WorkflowDepthExceededError
 from functualize._types.workflow import END, Edge, Step, WorkflowDeclaration
@@ -38,8 +38,8 @@ def _graph() -> WorkflowDeclaration:
 
 
 @pytest.fixture
-def store(tmp_path: Path) -> FreshStore:
-    return FreshStore(JsonFileSubstrate(tmp_path))
+def store(tmp_path: Path) -> ScopeStore:
+    return ScopeStore(JsonFileSubstrate(tmp_path))
 
 
 class TestDepthComesFromTheScopeId:
@@ -104,7 +104,7 @@ class TestTheLimitRefuses:
 class TestTheWalkRefusesBeforeItWrites:
     """The check runs before any work, because the cost it bounds is the scope."""
 
-    def test_a_too_deep_walk_raises(self, store: FreshStore) -> None:
+    def test_a_too_deep_walk_raises(self, store: ScopeStore) -> None:
         walker = WorkflowWalker(
             _graph(),
             store,
@@ -115,7 +115,7 @@ class TestTheWalkRefusesBeforeItWrites:
         with pytest.raises(WorkflowDepthExceededError):
             walker.run()
 
-    def test_it_leaves_no_step_records_behind(self, store: FreshStore) -> None:
+    def test_it_leaves_no_step_records_behind(self, store: ScopeStore) -> None:
         """Checking after the first node would already have written one.
 
         The point of the limit is that each level costs a scope; a guard that
@@ -136,13 +136,13 @@ class TestTheWalkRefusesBeforeItWrites:
         scope = store.get_scope("a::b::c::d")
         assert not (scope or {}).get("steps"), "a step record was written"
 
-    def test_a_walk_within_the_limit_runs(self, store: FreshStore) -> None:
+    def test_a_walk_within_the_limit_runs(self, store: ScopeStore) -> None:
         walker = WorkflowWalker(
             _graph(), store, "a::b", run_step=lambda name: name, max_workflow_depth=2
         )
         assert walker.run().outcome.value == "completed"
 
-    def test_a_top_level_walk_is_unaffected(self, store: FreshStore) -> None:
+    def test_a_top_level_walk_is_unaffected(self, store: ScopeStore) -> None:
         """The overwhelmingly common case must not pay for the guard."""
         walker = WorkflowWalker(
             _graph(), store, "plain", run_step=lambda name: name, max_workflow_depth=0

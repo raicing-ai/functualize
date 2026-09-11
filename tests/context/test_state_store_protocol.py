@@ -2,7 +2,7 @@
 
 Validates:
 - Requirements 7.1: StateStoreProtocol is defined as runtime-checkable
-- Requirements 7.6: Existing in-memory FreshStore satisfies the protocol
+- Requirements 7.6: Existing in-memory ScopeStore satisfies the protocol
 - Requirements 11.1: PluginWithShutdown protocol is defined as runtime-checkable
 """
 
@@ -16,10 +16,10 @@ from tests.context.conftest import new_state_store
 
 
 class TestStateStoreProtocolCompliance:
-    """Verify the existing FreshStore satisfies StateStoreProtocol."""
+    """Verify the existing ScopeStore satisfies StateStoreProtocol."""
 
     def test_state_store_is_instance_of_protocol(self) -> None:
-        """FreshStore satisfies StateStoreProtocol via isinstance check.
+        """ScopeStore satisfies StateStoreProtocol via isinstance check.
 
         **Validates: Requirements 7.1, 7.6**
         """
@@ -44,7 +44,7 @@ class TestStateStoreProtocolCompliance:
         assert not isinstance(incomplete, StateStoreProtocol)
 
     def test_state_store_has_all_protocol_methods(self) -> None:
-        """FreshStore implements all methods defined in StateStoreProtocol.
+        """ScopeStore implements all methods defined in StateStoreProtocol.
 
         **Validates: Requirements 7.6**
         """
@@ -58,7 +58,7 @@ class TestStateStoreProtocolCompliance:
         assert callable(store.clear)
 
     def test_state_store_delete_method(self) -> None:
-        """FreshStore.delete removes a key, no-op for missing keys.
+        """ScopeStore.delete removes a key, no-op for missing keys.
 
         **Validates: Requirements 7.1**
         """
@@ -98,7 +98,7 @@ class TestStateStoreProtocolCompliance:
         ]
 
     def test_protocol_default_get_behavior(self) -> None:
-        """FreshStore.get with default value works per protocol contract.
+        """ScopeStore.get with default value works per protocol contract.
 
         **Validates: Requirements 7.1, 7.6**
         """

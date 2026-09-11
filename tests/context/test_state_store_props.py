@@ -1,4 +1,4 @@
-"""Property-based tests for FreshStore module.
+"""Property-based tests for ScopeStore module.
 
 Property 11: State_Store Keys and Clear Consistency
 **Validates: Requirements 6.5, 6.6**

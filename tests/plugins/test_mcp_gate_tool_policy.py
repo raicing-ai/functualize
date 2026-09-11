@@ -24,7 +24,7 @@ from pydantic import BaseModel
 
 from functualize._app.state import AppState
 from functualize.app.core import FunctualizeApp
-from functualize.app.utils import FreshStore
+from functualize.app.utils import ScopeStore
 from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, workflow
 
@@ -45,8 +45,8 @@ class Approval(BaseModel):
     approved: bool
 
 
-def _store() -> FreshStore:
-    return FreshStore.for_project(Path.cwd())
+def _store() -> ScopeStore:
+    return ScopeStore.for_project(Path.cwd())
 
 
 def _app(tools: list[str] | None, *, name: str = "release") -> FunctualizeApp:

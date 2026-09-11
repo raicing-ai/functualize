@@ -22,7 +22,7 @@ import pytest
 from functualize._engine.agent_step import AgentStepRegistry
 from functualize._engine.workflow_runner import WorkflowRunner
 from functualize._engine.workflow_walker import WalkOutcome
-from functualize._primitives.fresh_store import FreshStore
+from functualize._primitives.scope_store import ScopeStore
 from functualize._primitives.substrate import JsonFileSubstrate
 from functualize._types.errors import (
     AgentCapabilityRefusedError,
@@ -91,8 +91,8 @@ class _Recorder:
 
 
 @pytest.fixture
-def store(tmp_path: Path) -> FreshStore:
-    return FreshStore(JsonFileSubstrate(tmp_path))
+def store(tmp_path: Path) -> ScopeStore:
+    return ScopeStore(JsonFileSubstrate(tmp_path))
 
 
 def _registry(*executors: _Executor) -> AgentStepRegistry:
@@ -234,7 +234,7 @@ class TestAnExecutorThatCannotHonourTheStepIsRefused:
     """AC-5 and AC-6: refuse at validation, and say which capability."""
 
     def test_tools_against_an_executor_with_no_capabilities(
-        self, store: FreshStore
+        self, store: ScopeStore
     ) -> None:
         executor = _Executor("cli-prompt")
         recorder = _Recorder()
@@ -262,7 +262,7 @@ class TestAnExecutorThatCannotHonourTheStepIsRefused:
         assert store.get_scope(runner.scope_id) is None
 
     def test_a_budget_against_an_executor_that_cannot_preserve_it(
-        self, store: FreshStore
+        self, store: ScopeStore
     ) -> None:
         executor = _Executor("ai", frozenset({AgentCapability.ENFORCES_TOOL_ALLOWLIST}))
         runner = WorkflowRunner(
@@ -288,7 +288,7 @@ class TestAnExecutorThatCannotHonourTheStepIsRefused:
         assert caught.value.declared == (AgentCapability.ENFORCES_TOOL_ALLOWLIST,)
         assert store.get_scope(runner.scope_id) is None
 
-    def test_the_declared_capability_is_enough(self, store: FreshStore) -> None:
+    def test_the_declared_capability_is_enough(self, store: ScopeStore) -> None:
         """The control for both refusals: declaring it is not refused here."""
         registry = _registry(
             _Executor("ai", frozenset({AgentCapability.ENFORCES_TOOL_ALLOWLIST}))
@@ -312,7 +312,7 @@ class TestAStepWithNoExecutorIsRefused:
     """AC-7: name the package, and never substitute someone else."""
 
     def test_a_named_executor_nobody_registered_names_its_package(
-        self, store: FreshStore
+        self, store: ScopeStore
     ) -> None:
         runner = WorkflowRunner(
             store,
@@ -333,7 +333,7 @@ class TestAStepWithNoExecutorIsRefused:
         assert store.get_scope(runner.scope_id) is None
 
     def test_a_registered_executor_the_step_did_not_name_is_not_substituted(
-        self, store: FreshStore
+        self, store: ScopeStore
     ) -> None:
         """The refusal is not answered by the executor that *is* registered.
 
@@ -357,7 +357,7 @@ class TestAStepWithNoExecutorIsRefused:
 
         assert cli_prompt.calls == []
 
-    def test_no_executor_registered_at_all_refuses(self, store: FreshStore) -> None:
+    def test_no_executor_registered_at_all_refuses(self, store: ScopeStore) -> None:
         runner = WorkflowRunner(
             store, run_step=_Recorder(), agent_step_registry=_registry()
         )
@@ -375,7 +375,7 @@ class TestAStepWithNoExecutorIsRefused:
         assert caught.value.hint == ""
 
     def test_no_executor_named_where_two_are_registered_is_refused(
-        self, store: FreshStore
+        self, store: ScopeStore
     ) -> None:
         """ "The single registered one" is a unique answer, or it is a refusal."""
         runner = WorkflowRunner(
@@ -479,7 +479,7 @@ class TestAPreviouslyAnsweredCheckpoint:
         )
 
     def _run_one(
-        self, store: FreshStore, capability: frozenset[AgentCapability]
+        self, store: ScopeStore, capability: frozenset[AgentCapability]
     ) -> AgentStepContext:
         """First invocation: the agent answers the checkpoint, then the gate blocks."""
         executor = _Executor("agent-x", capability)
@@ -494,7 +494,7 @@ class TestAPreviouslyAnsweredCheckpoint:
         assert report.blocked_on == "approve"
         return executor.calls[0]
 
-    def test_the_checkpoint_was_answered_by_the_agent(self, store: FreshStore) -> None:
+    def test_the_checkpoint_was_answered_by_the_agent(self, store: ScopeStore) -> None:
         """The premise, asserted rather than assumed: without it the refusal
         below would be indistinguishable from a walk that never ran."""
         answered = self._run_one(
@@ -508,7 +508,7 @@ class TestAPreviouslyAnsweredCheckpoint:
         assert "apply::" not in scope["steps"]
 
     def test_the_protected_node_refuses_the_same_executor_on_resume(
-        self, store: FreshStore
+        self, store: ScopeStore
     ) -> None:
         self._run_one(store, frozenset({AgentCapability.ENFORCES_TOOL_ALLOWLIST}))
         # The same executor, declaring less: what an app that registered the
@@ -536,7 +536,7 @@ class TestAPreviouslyAnsweredCheckpoint:
         assert "apply::" not in scope["steps"]
 
     def test_a_capable_executor_resumes_the_same_scope_past_that_node(
-        self, store: FreshStore
+        self, store: ScopeStore
     ) -> None:
         """The control. Without it, the refusal above could be a walk that
         simply cannot resume, and the checkpoint's record would say nothing."""

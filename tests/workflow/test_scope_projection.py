@@ -23,7 +23,7 @@ from functualize._app.state import AppState
 from functualize.app._workflow_view import derived_state
 from functualize.app.core import FunctualizeApp
 from functualize.app.utils import (
-    FreshStore,
+    ScopeStore,
     describe_scope,
     list_scopes,
 )
@@ -121,7 +121,7 @@ class TestDescribeScope:
                 job_name="release", surface="app.execute", workflow_scope_id="rel-1"
             )
         )
-        store = FreshStore.for_project(project)
+        store = ScopeStore.for_project(project)
 
         view = describe_scope(app, store, "rel-1")
 
@@ -143,7 +143,7 @@ class TestDescribeScope:
     ) -> None:
         """None lets each surface pick its own exit code; an empty projection
         would read as 'a run with no steps'."""
-        store = FreshStore.for_project(project)
+        store = ScopeStore.for_project(project)
         assert describe_scope(app, store, "nope") is None
 
     def test_the_epilogue_is_carried(self, app: FunctualizeApp, project: Path) -> None:
@@ -153,7 +153,7 @@ class TestDescribeScope:
                 job_name="release", surface="app.execute", workflow_scope_id="rel-1"
             )
         )
-        store = FreshStore.for_project(project)
+        store = ScopeStore.for_project(project)
         assert "epilogue" in describe_scope(app, store, "rel-1")
 
 
@@ -166,7 +166,7 @@ class TestListScopes:
                 job_name="release", surface="app.execute", workflow_scope_id="rel-1"
             )
         )
-        store = FreshStore.for_project(project)
+        store = ScopeStore.for_project(project)
         store.ensure_scope("old", "release")
         store.set_scope_status("old", "completed")
 
@@ -178,7 +178,7 @@ class TestListScopes:
     ) -> None:
         """Asking for `completed` and receiving nothing would be a silently
         empty answer to a well-formed question."""
-        store = FreshStore.for_project(project)
+        store = ScopeStore.for_project(project)
         store.ensure_scope("old", "release")
         store.set_scope_status("old", "completed")
 
@@ -191,7 +191,7 @@ class TestListScopes:
                 job_name="release", surface="app.execute", workflow_scope_id="rel-1"
             )
         )
-        store = FreshStore.for_project(project)
+        store = ScopeStore.for_project(project)
         store.ensure_scope("other", "something-else")
 
         rows = list_scopes(app, store, workflow_name="release")
@@ -205,7 +205,7 @@ class TestListScopes:
                 job_name="release", surface="app.execute", workflow_scope_id="rel-1"
             )
         )
-        store = FreshStore.for_project(project)
+        store = ScopeStore.for_project(project)
 
         assert list_scopes(app, store, blocked_on="approve")
         assert list_scopes(app, store, blocked_on="nope") == []
@@ -225,6 +225,6 @@ class TestListScopes:
                 job_name="release", surface="app.execute", workflow_scope_id="rel-1"
             )
         )
-        store = FreshStore.for_project(project)
+        store = ScopeStore.for_project(project)
 
         assert list_scopes(app, store)[0] == describe_scope(app, store, "rel-1")

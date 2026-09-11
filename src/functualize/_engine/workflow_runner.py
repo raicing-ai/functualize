@@ -32,7 +32,7 @@ from functualize._types.errors import ScopeCancelledError
 
 if TYPE_CHECKING:
     from functualize._engine.agent_step import AgentStepRegistry
-    from functualize._primitives.fresh_store import FreshStore
+    from functualize._primitives.scope_store import ScopeStore
     from functualize._types.protocols import AgentStepResult
     from functualize._types.run_request import RunRequest
     from functualize._types.workflow import AgentStep, WorkflowDeclaration
@@ -109,7 +109,7 @@ class WorkflowRunner:
 
     def __init__(
         self,
-        store: FreshStore,
+        store: ScopeStore,
         *,
         run_step: Any,
         scope_id: str | None = None,

@@ -16,7 +16,7 @@ import pytest
 from pydantic import BaseModel
 
 from functualize._app.state import AppState
-from functualize._primitives.fresh_store import FreshStore
+from functualize._primitives.scope_store import ScopeStore
 from functualize._types.enums import RunStatus
 from functualize._types.from_job import FromJob
 from functualize._types.workflow import END, Edge, Gate, Step
@@ -49,10 +49,10 @@ class TripPreferences(BaseModel):
     budget: str = "mid"
 
 
-def _state_store() -> FreshStore:
+def _state_store() -> ScopeStore:
     from pathlib import Path
 
-    return FreshStore.for_project(Path.cwd())
+    return ScopeStore.for_project(Path.cwd())
 
 
 class TestWorkflowAsOrdinaryJob:
@@ -455,7 +455,7 @@ class TestPartIMatrixGxWxW:
 
         assert result.status is RunStatus.BLOCKED
 
-        scope = FreshStore.for_project(Path.cwd()).get_scope("G1") or {}
+        scope = ScopeStore.for_project(Path.cwd()).get_scope("G1") or {}
         assert scope.get("status") == "blocked"
         assert not (scope.get("steps") or {}), (
             "a blocked step must not be recorded as finished"
@@ -476,7 +476,7 @@ class TestPartIMatrixGxWxW:
             RunRequest(job_name="parent", surface="app.execute", workflow_scope_id="G2")
         )
 
-        store = FreshStore.for_project(Path.cwd())
+        store = ScopeStore.for_project(Path.cwd())
         children = [
             s
             for s in store.scope_ids()
@@ -497,7 +497,7 @@ class TestPartIMatrixGxWxW:
             is RunStatus.BLOCKED
         )
 
-        store = FreshStore.for_project(Path.cwd())
+        store = ScopeStore.for_project(Path.cwd())
         assert store.deposit_gate_payload("G3::child", "edit", {"ok": True})
 
         resumed = app.execute(
@@ -515,7 +515,7 @@ class TestPartIMatrixGxWxW:
             RunRequest(job_name="parent", surface="app.execute", workflow_scope_id="G4")
         )
 
-        store = FreshStore.for_project(Path.cwd())
+        store = ScopeStore.for_project(Path.cwd())
         parent_scope = store.get_scope("G4") or {}
         child_scope = store.get_scope("G4::child") or {}
 
@@ -606,7 +606,7 @@ class TestPartIMatrixGxD:
             ).status
             is RunStatus.BLOCKED
         )
-        FreshStore.for_project(Path.cwd()).deposit_gate_payload("X1", "g", {"ok": True})
+        ScopeStore.for_project(Path.cwd()).deposit_gate_payload("X1", "g", {"ok": True})
         calls.clear()
         app.execute(
             RunRequest(job_name="wf", surface="app.execute", workflow_scope_id="X1")
@@ -632,7 +632,7 @@ class TestPartIMatrixGxD:
         )
         time.sleep(0.02)
         (tmp_path / "src.txt").write_text("v2 CHANGED")
-        FreshStore.for_project(Path.cwd()).deposit_gate_payload("X2", "g", {"ok": True})
+        ScopeStore.for_project(Path.cwd()).deposit_gate_payload("X2", "g", {"ok": True})
         calls.clear()
 
         result = app.execute(
@@ -665,7 +665,7 @@ class TestPartIMatrixGxD:
         )
         time.sleep(0.02)
         (tmp_path / "src.txt").write_text("v2 CHANGED")
-        FreshStore.for_project(Path.cwd()).deposit_gate_payload("X3", "g", {"ok": True})
+        ScopeStore.for_project(Path.cwd()).deposit_gate_payload("X3", "g", {"ok": True})
         calls.clear()
 
         app.execute(
@@ -757,7 +757,7 @@ class TestPartIMatrixWxI:
             RunRequest(job_name="caller", surface="app.execute", workflow_scope_id="W2")
         )
 
-        store = FreshStore.for_project(Path.cwd())
+        store = ScopeStore.for_project(Path.cwd())
         workflows = {
             (store.get_scope(s) or {}).get("workflow") for s in store.scope_ids()
         }
@@ -833,7 +833,7 @@ class TestLiveStepValueFallback:
             RunRequest(job_name="wf", surface="app.execute", workflow_scope_id="L2")
         )
 
-        record = (FreshStore.for_project(Path.cwd()).get_scope("L2") or {})["steps"][
+        record = (ScopeStore.for_project(Path.cwd()).get_scope("L2") or {})["steps"][
             "open-handle::"
         ]
         assert record["status"] == "success"

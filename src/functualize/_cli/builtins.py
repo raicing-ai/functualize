@@ -874,7 +874,7 @@ def register_builtin_commands(cli_group: Any) -> None:
             # noticed until an external review measured the file. A number with
             # no ceiling beside it does not read as "getting full".
             click.echo(
-                f"Scopes: {len(store.scope_ids())} of {SCOPES_LIMIT} "
+                f"Scopes: {len(store.scopes.scope_ids())} of {SCOPES_LIMIT} "
                 f"— {store.scopes.describe()}"
             )
             # Scope state is reported separately because T3 moved job state
@@ -973,11 +973,12 @@ def register_builtin_commands(cli_group: Any) -> None:
         # command that resolves it.
         kept = None
         try:
-            kept = len(store.scope_ids())
+            kept = len(store.scopes.scope_ids())
         except ScopeStoreUnreadableError:
             kept = None
 
-        moved = store.clear(scopes=clear_scopes)
+        store.clear()
+        moved = store.scopes.clear() if clear_scopes else None
         click.echo("Cleared freshness verdicts and session state.")
 
         # Derived, like the freshness ledger — deleted rather than moved aside.
@@ -1055,9 +1056,9 @@ def register_builtin_commands(cli_group: Any) -> None:
         """
         from pathlib import Path
 
-        from functualize.app.utils import FreshStore
+        from functualize.app.utils import ScopeStore
 
-        return FreshStore.for_project(Path.cwd())
+        return ScopeStore.for_project(Path.cwd())
 
     @contextlib.contextmanager
     def _workflow_refusal() -> Any:

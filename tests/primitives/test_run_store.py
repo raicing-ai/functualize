@@ -19,7 +19,6 @@ from pathlib import Path
 
 import pytest
 
-from functualize._primitives.fresh_store import FreshStore
 from functualize._primitives.run_format import (
     EVENTS_PER_RUN_LIMIT,
     RUNS_FILENAME,
@@ -61,7 +60,7 @@ class TestTheEnvelope:
         This used to assert that two independent resolutions agreed. They no
         longer *can* disagree: there is one substrate and the stores are handed
         it, so what is left to check is that the sibling layout is unchanged
-        and that a `RunStore` and a `FreshStore` built for one project really
+        and that a `RunStore` and a `ScopeStore` built for one project really
         are built on the same object.
         """
         (tmp_path / ".functualize").mkdir()
@@ -71,7 +70,7 @@ class TestTheEnvelope:
         assert substrate.path_for(RUNS_KEY).parent == tmp_path / ".functualize"
         assert RunStore.for_project(tmp_path).substrate.path_for(
             RUNS_KEY
-        ) == FreshStore.for_project(tmp_path).substrate.path_for(RUNS_KEY)
+        ) == ScopeStore.for_project(tmp_path).substrate.path_for(RUNS_KEY)
 
 
 class TestTheReadRuleIsTheOppositeOfScopes:

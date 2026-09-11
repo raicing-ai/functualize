@@ -227,9 +227,9 @@ def _value(raw: Any) -> str | None:
 def _store(app: Any) -> Any:
     from pathlib import Path
 
-    from functualize.app.utils import FreshStore
+    from functualize.app.utils import ScopeStore
 
-    return FreshStore.for_project(Path.cwd())
+    return ScopeStore.for_project(Path.cwd())
 
 
 def _deposit(flags: dict[str, Any]) -> tuple[str | None, dict[str, Any]] | None | Any:

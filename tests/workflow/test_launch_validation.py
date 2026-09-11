@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from functualize._primitives.fresh_store import FreshStore
+from functualize._primitives.scope_store import ScopeStore
 from functualize._types.enums import RunStatus
 from functualize.app.core import request_for
 from functualize.types import RunRequest
@@ -75,7 +75,7 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """A project with one gated walk, with the cwd pointed at it.
 
     The engine resolves its state store from the working directory, so the
-    chdir is what makes `FreshStore.for_project(tmp_path)` below read the same
+    chdir is what makes `ScopeStore.for_project(tmp_path)` below read the same
     file the run wrote.
     """
     jobs = tmp_path / "jobs"
@@ -90,7 +90,7 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 def _scope(root: Path, scope_id: str) -> dict:
     """The persisted scope record, or an empty one if nothing was written."""
-    return FreshStore.for_project(root).get_scope(scope_id) or {}
+    return ScopeStore.for_project(root).get_scope(scope_id) or {}
 
 
 class TestTheGraphDoesNotRun:
@@ -216,7 +216,7 @@ class TestARefusedResumeDisturbsNothing:
         self, project: tuple[object, Path]
     ) -> None:
         app, root = project
-        store = FreshStore.for_project(root)
+        store = ScopeStore.for_project(root)
 
         assert (
             app.execute(
@@ -247,7 +247,7 @@ class TestARefusedResumeDisturbsNothing:
     ) -> None:
         """The refusal must not have consumed the approval it declined to use."""
         app, root = project
-        store = FreshStore.for_project(root)
+        store = ScopeStore.for_project(root)
 
         app.execute(
             RunRequest(job_name="walk", surface="app.execute", workflow_scope_id="a4b")
@@ -358,7 +358,7 @@ class TestANestedWorkflowIsUnaffected:
         self, nested: tuple[object, Path]
     ) -> None:
         app, root = nested
-        store = FreshStore.for_project(root)
+        store = ScopeStore.for_project(root)
 
         assert (
             app.execute(

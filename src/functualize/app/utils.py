@@ -57,6 +57,7 @@ from functualize._primitives.scope_format import (
     SCOPES_VERSION,
 )
 from functualize._primitives.scope_state_store import scope_state_key
+from functualize._primitives.scope_store import ScopeStore
 from functualize._primitives.shell_history import ShellHistoryStore
 from functualize._types.annotations import resolved_hints
 from functualize._types.descriptors import FieldDescriptor, GroupOptionsSpec
@@ -242,6 +243,7 @@ __all__ = [
     "resolve_fresh_location",
     "resolve_fresh_path",
     "FreshStore",
+    "ScopeStore",
     # The scope store's location and version, for `builtin state show` and
     # `builtin info`: a file whose path nothing reports is a file nobody finds.
     "RUN_STATES",

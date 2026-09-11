@@ -24,7 +24,7 @@ from functualize._engine.frontier import (
 )
 from functualize._engine.guards import GuardState, GuardVerdict
 from functualize._engine.scheduler import DepScheduler
-from functualize._primitives.fresh_store import FreshStore
+from functualize._primitives.scope_store import ScopeStore
 from functualize._primitives.substrate import JsonFileSubstrate
 
 # check ─┬─(ok)──→ deploy ──→ END
@@ -37,11 +37,11 @@ CONDITIONAL_GRAPH = GraphModel(
 
 
 @pytest.fixture
-def store(tmp_path) -> FreshStore:
-    return FreshStore(JsonFileSubstrate(tmp_path))
+def store(tmp_path) -> ScopeStore:
+    return ScopeStore(JsonFileSubstrate(tmp_path))
 
 
-def _walk(store: FreshStore, scope: str = "s1") -> FrontierWalk:
+def _walk(store: ScopeStore, scope: str = "s1") -> FrontierWalk:
     return FrontierWalk(CONDITIONAL_GRAPH, store, scope)
 
 
@@ -116,7 +116,7 @@ class TestD7cBlockedPersistence:
         walk.block("check", "approve", model="Approval")
 
         # A different process reads the same file.
-        reloaded = FreshStore(store.substrate)
+        reloaded = ScopeStore(store.substrate)
         assert reloaded.get_position("s1") == "check"
         assert reloaded.get_scope("s1")["status"] == WalkState.BLOCKED
 
@@ -129,7 +129,7 @@ class TestD7cBlockedPersistence:
             model="Approval",
             input_schema={"type": "object", "properties": {"ok": {"type": "boolean"}}},
         )
-        gate = FreshStore(store.substrate).get_gate("s1", "approve")
+        gate = ScopeStore(store.substrate).get_gate("s1", "approve")
         assert gate["model"] == "Approval"
         assert gate["input_schema"]["properties"]["ok"]["type"] == "boolean"
         assert gate["payload"] is None  # nothing deposited yet
@@ -140,9 +140,9 @@ class TestD7cBlockedPersistence:
         walk.block("check", "approve", model="Approval")
 
         # An MCP agent (another process) deposits the input.
-        FreshStore(store.substrate).deposit_gate_payload("s1", "approve", {"ok": True})
+        ScopeStore(store.substrate).deposit_gate_payload("s1", "approve", {"ok": True})
 
-        resumed = FrontierWalk(CONDITIONAL_GRAPH, FreshStore(store.substrate), "s1")
+        resumed = FrontierWalk(CONDITIONAL_GRAPH, ScopeStore(store.substrate), "s1")
         assert resumed.gate_payload("approve") == {"ok": True}
 
     def test_resume_continues_at_the_blocked_position(self, store) -> None:
@@ -151,7 +151,7 @@ class TestD7cBlockedPersistence:
         walk.complete("check", choice="ok")
         walk.block("deploy", "approve")
 
-        resumed = FrontierWalk(CONDITIONAL_GRAPH, FreshStore(store.substrate), "s1")
+        resumed = FrontierWalk(CONDITIONAL_GRAPH, ScopeStore(store.substrate), "s1")
         assert resumed.start() == ["deploy"]  # not back at the entry
 
 
@@ -175,7 +175,7 @@ class TestD7dPerScopeRecords:
         walk = _walk(store)
         walk.start()
         walk.complete("check", choice="ok", args_hash="h1")
-        resumed = FrontierWalk(CONDITIONAL_GRAPH, FreshStore(store.substrate), "s1")
+        resumed = FrontierWalk(CONDITIONAL_GRAPH, ScopeStore(store.substrate), "s1")
         assert resumed.should_replay_skip("check", "h1")
 
     def test_replay_does_not_skip_a_different_args_hash(self, store) -> None:
@@ -205,10 +205,10 @@ class TestD7dPerScopeRecords:
 
         # Replay: the condition now evaluates the OTHER way (clock, random,
         # changed file). The walk must still follow the branch it took.
-        resumed = FrontierWalk(CONDITIONAL_GRAPH, FreshStore(store.substrate), "s1")
+        resumed = FrontierWalk(CONDITIONAL_GRAPH, ScopeStore(store.substrate), "s1")
         assert resumed.complete("check", choice="fail") == ["deploy"]
 
     def test_epilogue_record_is_once_per_scope(self, store) -> None:
         store.record_epilogue("s1", {"status": "success", "return_value": 1})
         assert store.get_epilogue("s1")["return_value"] == 1
-        assert FreshStore(store.substrate).get_epilogue("s1") is not None
+        assert ScopeStore(store.substrate).get_epilogue("s1") is not None

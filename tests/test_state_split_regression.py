@@ -33,12 +33,12 @@ from functualize.workflow import END, Edge, Gate, Step, workflow
 def _blocked_run(root):
     """A blocked release pipeline holding a human's recorded approval."""
     store = FreshStore.for_project(root)
-    store.ensure_scope("rel-1", "release")
-    store.set_scope_status("rel-1", "blocked")
-    store.set_position("rel-1", "approve")
-    store.record_step("rel-1", "build::", {"status": "success", "return_value": "v2"})
-    store.record_branch("rel-1", "check", "deploy")
-    store.put_gate(
+    store.scopes.ensure_scope("rel-1", "release")
+    store.scopes.set_scope_status("rel-1", "blocked")
+    store.scopes.set_position("rel-1", "approve")
+    store.scopes.record_step("rel-1", "build::", {"status": "success", "return_value": "v2"})
+    store.scopes.record_branch("rel-1", "check", "deploy")
+    store.scopes.put_gate(
         "rel-1",
         "approve",
         {"model": "", "input_schema": {}, "payload": {"approved_by": "sam"}},
@@ -55,7 +55,7 @@ class TestVersionBumpNoLongerErasesRuns:
         store = _blocked_run(tmp_path)
         state_path = tmp_path / ".functualize" / FRESH_FILENAME
 
-        assert store.scope_ids() == ["rel-1"]
+        assert store.scopes.scope_ids() == ["rel-1"]
 
         # Bump the derived store's format version, exactly as a release would.
         raw = json.loads(state_path.read_text())
@@ -66,8 +66,8 @@ class TestVersionBumpNoLongerErasesRuns:
         # persist the empty envelope over the top of every scope.
         store.put_fingerprint("unrelated::h::checksum", {"n": 2})
 
-        assert store.scope_ids() == ["rel-1"]
-        gate = store.get_gate("rel-1", "approve")
+        assert store.scopes.scope_ids() == ["rel-1"]
+        gate = store.scopes.get_gate("rel-1", "approve")
         assert gate is not None
         assert gate["payload"] == {"approved_by": "sam"}
 
@@ -94,16 +94,16 @@ class TestVersionBumpNoLongerErasesRuns:
         state_path.write_text(json.dumps(raw))
         store.put_fingerprint("unrelated::h::checksum", {"n": 2})
 
-        scope = store.get_scope("rel-1")
+        scope = store.scopes.get_scope("rel-1")
         assert scope is not None
         assert scope["status"] == "blocked"
         assert scope["position"] == "approve"
         assert scope["workflow"] == "release"
-        assert store.get_step("rel-1", "build::") == {
+        assert store.scopes.get_step("rel-1", "build::") == {
             "status": "success",
             "return_value": "v2",
         }
-        assert store.get_branch("rel-1", "check") == "deploy"
+        assert store.scopes.get_branch("rel-1", "check") == "deploy"
 
 
 class TestClearNoLongerErasesRuns:
@@ -116,8 +116,8 @@ class TestClearNoLongerErasesRuns:
         store.clear()
 
         assert store.get_fingerprint("build::h::checksum") is None
-        assert store.scope_ids() == ["rel-1"]
-        gate = store.get_gate("rel-1", "approve")
+        assert store.scopes.scope_ids() == ["rel-1"]
+        gate = store.scopes.get_gate("rel-1", "approve")
         assert gate is not None
         assert gate["payload"] == {"approved_by": "sam"}
 
@@ -216,7 +216,7 @@ class TestBlockedRunResumesAcrossTheSplit:
         assert result.metadata.get("workflow_status") == "blocked"
 
         store = FreshStore.for_project(project)
-        scope = store.get_scope("rel-1")
+        scope = store.scopes.get_scope("rel-1")
         assert scope is not None
         assert scope["status"] == "blocked"
 
@@ -240,7 +240,7 @@ class TestBlockedRunResumesAcrossTheSplit:
         assert calls == ["build"], "the completed step re-executed on resume"
 
         store = FreshStore.for_project(project)
-        recorded = store.get_step("rel-1", "build::")
+        recorded = store.scopes.get_step("rel-1", "build::")
         assert recorded is not None
         assert recorded["status"] == "success"
         assert recorded["return_value"] == "artifact-v2"
@@ -254,7 +254,7 @@ class TestBlockedRunResumesAcrossTheSplit:
 
         store.clear()
 
-        scope = store.get_scope("rel-1")
+        scope = store.scopes.get_scope("rel-1")
         assert scope is not None
         assert scope["status"] == "blocked"
-        assert store.get_step("rel-1", "build::") is not None
+        assert store.scopes.get_step("rel-1", "build::") is not None

@@ -21,7 +21,7 @@ from functualize._app.state import AppState
 from functualize._primitives.substrate import JsonFileSubstrate
 from functualize.app._workflow_view import _topology
 from functualize.app.core import FunctualizeApp
-from functualize.app.utils import FreshStore
+from functualize.app.utils import ScopeStore
 from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, workflow
 
@@ -60,8 +60,8 @@ class Approval(BaseModel):
     approved: bool
 
 
-def _store() -> FreshStore:
-    return FreshStore.for_project(Path.cwd())
+def _store() -> ScopeStore:
+    return ScopeStore.for_project(Path.cwd())
 
 
 def _gated_app(calls: list[str] | None = None) -> FunctualizeApp:
@@ -935,9 +935,9 @@ class TestUnreadableScopeStore:
                 }
             )
         )
-        from functualize._primitives.fresh_store import FreshStore
+        from functualize._primitives.scope_store import ScopeStore
 
-        return FreshStore(JsonFileSubstrate(tmp_path))
+        return ScopeStore(JsonFileSubstrate(tmp_path))
 
     async def test_get_workflow_state_reports_the_fault(self, poisoned) -> None:
         provider = WorkflowToolProvider(_gated_app(), store=poisoned)
