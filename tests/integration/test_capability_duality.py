@@ -47,9 +47,11 @@ def state(tmp_path: Any) -> Any:
 
     No in-memory double. A double standing in for the production collaborator
     at the seam under test is exactly how `Perf` shipped unwired for its whole
-    life, and there is no performance argument for one here: measured, this
-    store costs **0.557 ms** per unbatched `set`, **0.091 ms** per `get`, and
-    1.1 ms for 100 sets inside `batch()`.
+    life, and a test pays little for the real thing: 0.557 ms per unbatched
+    `set` on an empty store. That is an **empty-store** figure, worth naming as
+    such — it was once used to defend the design itself, and on a real 1 MB
+    `scopes.json` the same `set` costs 58 ms
+    (`.spec/features/scope-record-lifecycle/`).
     """
     from functualize._engine.capabilities.state import ScopeBackedStateStore, State
     from functualize._primitives.scope_store import ScopeStore

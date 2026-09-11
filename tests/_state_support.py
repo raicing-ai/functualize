@@ -11,9 +11,14 @@ unwired for its entire life — every test that called `perf.mark()` called it o
 `NoopPerf`, which accepted everything silently, so nothing exercised the real
 one (ADR-021).
 
-There is no performance argument for a double either. Measured on this store:
-**0.557 ms** per unbatched `set`, **0.091 ms** per `get`, 1.1 ms for 100 sets
-inside `batch()`, 0.012 ms to construct one.
+There is no performance argument for a double either — but the numbers that
+show it are **empty-store** numbers, and saying so matters because they were
+once used to defend more than they can: 0.557 ms per unbatched ``set``,
+0.091 ms per ``get``, 1.1 ms for 100 sets in ``batch()``, 0.012 ms to
+construct. That is what a *test* pays, which is the relevant cost here. On a
+real project's 1 MB ``scopes.json`` the same ``set`` costs **58 ms**, because
+every state operation re-reads the whole file and the file has no cap — see
+`.spec/features/scope-record-lifecycle/`.
 """
 
 from __future__ import annotations
