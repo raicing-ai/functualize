@@ -36,6 +36,7 @@ from functualize import FunctualizeApp, RunContext
 from functualize._engine.capabilities.invoke import Invoke  # noqa: TC001
 from functualize._engine.capabilities.log import Log  # noqa: TC001
 from functualize._engine.capabilities.perf import Perf  # noqa: TC001
+from functualize._engine.capabilities.state import State  # noqa: TC001
 from functualize._events.perf import perf_timeline
 from functualize._types.run_request import RunRequest
 
@@ -458,3 +459,80 @@ class TestStateIsDurable:
 
         with pytest.raises(StateUnavailableError, match="outside a run"):
             State(None).set("k", "v")
+
+
+class TestSubscriptAccessFindsCapabilities:
+    """`rc[T]` and `T in rc` see what the job is holding.
+
+    Both consulted only the DI registry, where a per-invocation capability
+    never appears — so `rc[Log]` raised `MissingProviderError` and `Log in rc`
+    was False while a `log: Log` parameter had the object in hand. That is the
+    duality rule broken on the one accessor that is generic over every
+    capability (ADR-021).
+    """
+
+    def _seen(self) -> dict[str, Any]:
+        app = FunctualizeApp(name="subscript")
+        seen: dict[str, Any] = {}
+
+        def j(rc: RunContext, log: Log, state: State) -> str:
+            seen["rc[Log] is log"] = rc[Log] is log
+            seen["Log in rc"] = Log in rc
+            seen["rc[State] is state"] = rc[State] is state
+            seen["State in rc"] = State in rc
+            return "ok"
+
+        app.register_dynamic_job("j", j)
+        assert _run(app, "j").status.value == "Success"
+        return seen
+
+    def test_a_held_capability_is_found_by_subscript(self) -> None:
+        seen = self._seen()
+        assert seen["rc[Log] is log"] is True
+        assert seen["rc[State] is state"] is True
+
+    def test_a_held_capability_reports_as_present(self) -> None:
+        seen = self._seen()
+        assert seen["Log in rc"] is True
+        assert seen["State in rc"] is True
+
+    def test_an_unheld_type_still_reports_absent(self) -> None:
+        """The lookup must not become "yes" for everything.
+
+        Without this the previous two tests pass on a `__contains__` that
+        returns True unconditionally.
+        """
+        app = FunctualizeApp(name="subscript")
+        seen: dict[str, Any] = {}
+
+        class NotRegistered:
+            pass
+
+        def j(rc: RunContext) -> str:
+            seen["absent"] = NotRegistered in rc
+            return "ok"
+
+        app.register_dynamic_job("j", j)
+        assert _run(app, "j").status.value == "Success"
+        assert seen["absent"] is False
+
+    def test_a_job_that_never_asked_does_not_get_one(self) -> None:
+        """The map holds what the job declared, not every capability.
+
+        `_cap_or_none` never constructs — `Sources` and `Freshness` are
+        injected empty and completed after the pre-flight decision, so a
+        resolver that helpfully built one would hand back an empty map with no
+        error.
+        """
+        from functualize._engine.capabilities.sources import Sources
+
+        app = FunctualizeApp(name="subscript")
+        seen: dict[str, Any] = {}
+
+        def j(rc: RunContext) -> str:
+            seen["sources"] = Sources in rc
+            return "ok"
+
+        app.register_dynamic_job("j", j)
+        assert _run(app, "j").status.value == "Success"
+        assert seen["sources"] is False

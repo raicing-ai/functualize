@@ -407,10 +407,29 @@ class RunContext:
     def __getitem__(self, key: str) -> Any: ...
 
     def __getitem__(self, key: type | str | tuple[type, str]) -> Any:
+        """`rc[T]` — the run's instance of ``T``.
+
+        **The capability map first, the DI registry second** (ADR-021). A
+        per-invocation capability lives in the map and is never in the
+        registry, so consulting only the registry reported a capability the job
+        was *holding in its own hand* as missing: `rc[Log]` raised
+        `MissingProviderError` and `Log in rc` was False while a `log: Log`
+        parameter had the object.
+
+        A qualified or named lookup skips the map deliberately. There is no
+        "the" `Conn` when two are registered under different qualifiers, so
+        those forms are exactly the ones that must reach the registry and let
+        it answer — see ADR-021 for the classes that cannot share one object.
+        """
         from functualize._primitives.di import (
             AmbiguousProviderError,
             MissingProviderError,
         )
+
+        if isinstance(key, type):
+            found = self._cap_or_none(key)
+            if found is not None:
+                return found
 
         if self._di_registry is None:
             raise RuntimeError(
@@ -439,6 +458,14 @@ class RunContext:
             return self._di_registry.resolve(key)
 
     def __contains__(self, key: type | str) -> bool:
+        """`T in rc` — is ``T`` reachable from this run?
+
+        Same order as :meth:`__getitem__`, and for the same reason: a
+        capability in the map is reachable even though the registry has never
+        heard of it.
+        """
+        if isinstance(key, type) and self._cap_or_none(key) is not None:
+            return True
         if self._di_registry is None:
             return False
         if isinstance(key, str):
