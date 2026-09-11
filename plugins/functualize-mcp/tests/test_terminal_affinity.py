@@ -27,7 +27,9 @@ def commands():
     """
     app = FunctualizeApp(name="t")
     MCPAdapterPlugin()(app)
-    return {c.name: c for c in app.extensions.get_plugin_commands() if c.namespace == "mcp"}
+    return {
+        c.name: c for c in app.extensions.get_plugin_commands() if c.namespace == "mcp"
+    }
 
 
 def test_serve_owns_the_terminal(commands) -> None:

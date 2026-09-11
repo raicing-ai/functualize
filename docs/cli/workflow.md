@@ -45,6 +45,7 @@ func builtin workflow COMMAND [ARGS]...
 | `gate-tool <id> <tool>` | Run a tool a waiting gate offers |
 | `cancel <id>` | Cancel a scope — terminal |
 | `purge` | Delete finished scopes |
+| `reclaim <id>` | Take an abandoned scope so it can be resumed |
 
 ## Run states
 
@@ -56,6 +57,7 @@ gates, and it is what you filter on:
 | `waiting` | blocked, with a gate needing an answer |
 | `ready` | answered — needs `resume` |
 | `running` | executing now |
+| `abandoned` | nothing has heard from its runner — see below |
 | `completed` | done |
 | `stalled` | the walk finished but the workflow body failed |
 | `failed` | a step raised; `resume` re-runs it |
@@ -64,6 +66,62 @@ gates, and it is what you filter on:
 `ready` is exactly the set `resume` can advance without input, which is what a
 scheduler polls for. Without it, an answered scope read `blocked` with no
 pending gates and looked stuck.
+
+### `abandoned` — and what it does not claim
+
+A running walk holds a **lease** on its scope and renews it. If the runner
+stops — killed, crashed, machine gone — the lease lapses and nobody renews it.
+The scope's stored status is still `running`, because nothing reaps it, so
+without this state a dead run is indistinguishable from a live one.
+
+> **`abandoned` means "nothing has heard from that runner", not "that runner is
+> dead".** A long step on a machine with a slow clock looks exactly the same.
+> Treat it as a prompt to go and look, not as a verdict.
+
+That is why nothing happens automatically:
+
+- the state is derived **when you read**, and reading never repairs anything. A
+  read that quietly took the scope would make a slow step on a distant machine
+  lose its work to whoever glanced at a list.
+- `reclaim` is a verb you run, having looked.
+- an abandoned scope is **not purgeable** — it is not finished, and collecting
+  it would delete the evidence of whatever went wrong.
+
+A scope with **no** lease is not abandoned. Most have none: they were written by
+a plain job, or before leases existed.
+
+## `func builtin workflow reclaim`
+
+```
+func builtin workflow reclaim <workflow-id>
+```
+
+Takes an abandoned scope so someone else can resume it.
+
+**Nothing is destroyed.** Every step record, gate payload and position stays
+exactly where it was; only the lease's *generation* moves — which is what stops
+the previous holder writing if it ever comes back. A resume after a reclaim
+picks up where the walk stopped.
+
+Refused for a scope whose lease is still **live**: that is not an abandoned
+scope, it is one somebody is using. Use `cancel` to take a scope away from a
+runner that is working — that is what `cancel` is for, and it announces itself.
+
+```bash
+func builtin workflow list --state abandoned   # what stopped being heard from
+func builtin workflow reclaim rel-1            # take it
+func builtin workflow resume rel-1             # carry on
+```
+
+### Why the generation matters
+
+A lease with only an owner and an expiry would not be enough. Two machines
+disagree about the time, so each one's evidence that a lease has expired is its
+own clock. The generation needs no clock: every claim increments it, every write
+carries the one it was made under, and a write carrying an old generation is
+**refused** — even if the runner that made it still believes it holds the lease.
+
+That is what makes `cancel` and `reclaim` decisive rather than advisory.
 
 ## `func builtin workflow list`
 

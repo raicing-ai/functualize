@@ -625,7 +625,7 @@ now: `0` · after: `4`
 
 ## Wave 7 — a dead runner is visible
 
-### [ ] T8 · `abandoned`, and an explicit `reclaim`
+### [x] T8 · `abandoned`, and an explicit `reclaim`
 
 **Files:** `src/functualize/app/_workflow_view.py`, `src/functualize/app/_workflow_control.py`,
 `src/functualize/_cli/builtins.py`
@@ -636,7 +636,7 @@ Spec AC-11. Derived, not stored (decision **K4**, inherited **C2**).
 ```bash
 rg -c 'abandoned' src/functualize/app/_workflow_view.py
 ```
-now: `0` · after: `≥1`
+now: `0` · after: `4`
 
 > **Ordering is load-bearing** (schema §6): `abandoned` is tested **before** `running`, or a
 > dead runner's scope reports as live — which is the bug. The existing docstring already warns
@@ -644,6 +644,44 @@ now: `0` · after: `≥1`
 
 **Test:** nothing reclaims automatically and nothing deletes. `purge` stays the only
 destructive verb.
+
+## What "abandoned" can and cannot mean
+
+An expired lease means *nothing has heard from that runner* — **not** *that
+runner is dead*. A long step on a machine with a slow clock looks identical. So:
+
+* derived on read, **never repaired on read**. A read that quietly took the
+  scope would make a slow step on a distant machine lose its work to whoever
+  happened to look at a list.
+* `reclaim` is a verb a person runs, having looked.
+* an abandoned scope is **not purgeable** — it is not finished, and collecting
+  it would delete the evidence of the crash that produced it. The path out is
+  `cancel`, where a human says what happened, and then `purge`.
+
+**A scope with no lease is not abandoned.** Most have none — written by a plain
+job, or before leases existed — and calling those dead would make `abandoned`
+the answer for most of the file. Absence of evidence is not evidence, and here
+absence is the ordinary case rather than the suspicious one. That is the
+opposite of the call `_run_view._derive_state` makes for runs, and deliberately:
+there, a record with no end and a foreign runner is *unusual*, so
+over-reporting is the safer error.
+
+**`blocked` is not abandoned either.** A workflow parked at a gate is waiting on
+a human and has no runner to renew anything; reporting every gate as a failure
+would be worse than the bug this fixes.
+
+`reclaim` is **not destructive** — every step record, gate payload and position
+survives; only the generation moves, which is what stops the previous holder
+writing. It refuses a scope whose lease is still live, because that is not
+abandoned but in use: `cancel` is the verb for taking a scope from a runner that
+is working, and collapsing the two would remove the reason `cancel` announces
+itself.
+
+Three surfaces, verb for verb: `func builtin workflow reclaim`,
+`reclaim_workflow`, and the parity test extended to both.
+
+Sabotage: testing `abandoned` after `running` — the exact inversion schema §6
+warns about — failed 3 tests including the one named for the ordering.
 
 ---
 

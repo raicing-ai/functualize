@@ -161,6 +161,7 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
             ("gate-tool", "Run a tool a waiting gate offers"),
             ("cancel", "Cancel a workflow scope — terminal"),
             ("purge", "Delete finished scopes"),
+            ("reclaim", "Take an abandoned scope so it can be resumed"),
         ),
         requires_subcommand=True,
     ),
@@ -1102,6 +1103,7 @@ def register_builtin_commands(cli_group: Any) -> None:
     #: disagreeing about what "ambiguous" is worth.
     _workflow_exits = {
         "workflow_not_found": 1,
+        "workflow_held": 1,
         "gate_not_found": 1,
         "gate_not_answered": 1,
         "validation_error": 1,
@@ -1679,6 +1681,30 @@ def register_builtin_commands(cli_group: Any) -> None:
         click.echo(result["message"])
         for scope_id in result["removed"]:
             click.echo(f"  {scope_id}")
+
+    @workflow_app.command("reclaim")
+    @click.argument("workflow_id")
+    def workflow_reclaim(workflow_id: str) -> None:
+        """Take an abandoned scope so it can be resumed.
+
+        An abandoned scope is one whose runner stopped renewing its lease.
+        Nothing reclaims automatically: an expired lease means *nothing has
+        heard from that runner*, not *that runner is dead*, and a long step on
+        a machine with a slow clock looks identical.
+
+        Not destructive. Every step record, gate payload and position stays
+        where it is; only the generation moves, which is what stops the
+        previous holder writing.
+        """
+        from functualize.app._workflow_control import reclaim_scope
+
+        store = _workflow_store()
+        with _workflow_refusal():
+            result = reclaim_scope(store, workflow_id)
+        if "error" in result:
+            click.echo(f"Error: {result['message']}", err=True)
+            raise SystemExit(_workflow_exits.get(result["error"], 1))
+        click.echo(result["message"])
 
     _mount(builtin_app, workflow_app, "workflow")
 

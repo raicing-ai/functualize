@@ -171,13 +171,14 @@ class WorkflowToolProvider:
         mcp.add_tool(self._call_gate_tool)
         mcp.add_tool(self._cancel_workflow)
         mcp.add_tool(self._purge_workflows)
+        mcp.add_tool(self._reclaim_workflow)
         # The run log's read verbs (`durable-run-layer`/T3), verb for verb with
         # `func builtin run` and over the same projection — decision A3, pinned
         # by the parity test.
         mcp.add_tool(self._list_runs)
         mcp.add_tool(self._get_run)
         mcp.add_tool(self._get_run_events)
-        logger.info("WorkflowToolProvider: registered 11 workflow MCP tools")
+        logger.info("WorkflowToolProvider: registered 12 workflow MCP tools")
 
     # ------------------------------------------------------------------
     # Tools
@@ -456,6 +457,26 @@ class WorkflowToolProvider:
             if scope.get("status") in _LIVE_STATUSES
             for name, _ in _pending_gates(scope)
         ]
+
+    @_refuse_unreadable_scopes
+    async def _reclaim_workflow(self, workflow_id: str) -> dict[str, Any]:
+        from functualize.app.utils import reclaim_scope
+
+        return reclaim_scope(self.store, workflow_id)
+
+    _reclaim_workflow.__name__ = "reclaim_workflow"
+    _reclaim_workflow.__qualname__ = "reclaim_workflow"
+    _reclaim_workflow.__doc__ = (
+        "Take an abandoned workflow scope so it can be resumed. An abandoned "
+        "scope is one whose runner stopped renewing its lease. Nothing "
+        "reclaims automatically: an expired lease means nothing has heard from "
+        "that runner, not that the runner is dead, and a long step on a "
+        "machine with a slow clock looks the same. Not destructive — every "
+        "step record, gate payload and position stays; only the generation "
+        "moves, which is what stops the previous holder writing. Refused for a "
+        "scope whose lease is still live; use cancel_workflow to take one from "
+        "a runner that is working. Args: workflow_id — the scope identifier."
+    )
 
     # ------------------------------------------------------------------
     # The run log (`durable-run-layer`/T3)

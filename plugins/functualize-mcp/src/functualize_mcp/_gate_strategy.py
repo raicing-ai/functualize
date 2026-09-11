@@ -200,7 +200,9 @@ def register_ai_outbound_gate_strategy(app: Any) -> None:
 
     # Register gate preset
     # "ai_outbound" → ["ai_outbound", "prompt", "resolve"]
-    app.gates.register_gate_preset(AI_OUTBOUND_PRESET_NAME, AI_OUTBOUND_PRESET_STRATEGIES)
+    app.gates.register_gate_preset(
+        AI_OUTBOUND_PRESET_NAME, AI_OUTBOUND_PRESET_STRATEGIES
+    )
 
     logger.debug(
         "Registered '%s' gate strategy and preset.",

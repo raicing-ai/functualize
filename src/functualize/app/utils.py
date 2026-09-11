@@ -118,6 +118,7 @@ from functualize.app._workflow_control import (
     call_gate_tool,
     cancel_scope,
     purge_scopes,
+    reclaim_scope,
     resolve_advanceable,
     resume_scope,
 )
@@ -194,6 +195,7 @@ __all__ = [
     "call_gate_tool",
     "cancel_scope",
     "purge_scopes",
+    "reclaim_scope",
     "resolve_advanceable",
     "resume_scope",
     "gate_draft",

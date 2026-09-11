@@ -59,6 +59,7 @@ VERB_TO_TOOL = {
     "gate-tool": "call_gate_tool",
     "cancel": "cancel_workflow",
     "purge": "purge_workflows",
+    "reclaim": "reclaim_workflow",
 }
 
 #: Parameters that exist on one surface for a reason that is *about the

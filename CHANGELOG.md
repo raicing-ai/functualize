@@ -39,6 +39,50 @@ a live job on another machine reads as abandoned — which is the deliberate
 direction, because a misleading row gets re-checked while a dead run reported as
 `running` is hidden for ever.
 
+### Added — two runners can no longer walk one workflow
+
+0.3.0 shipped a known limitation: two `resume` invocations on the same scope
+both advanced it, each believing it was alone, interleaving two walks' decisions
+into one record. A running walk now holds a **lease** with a monotonically
+increasing generation, and every write to that scope carries the generation it
+was acquired under. A write carrying an old one is **refused, not merged**.
+
+The generation is the mechanism; the expiry only decides *when* someone may take
+over. A lease with just an owner and an expiry cannot work: two machines
+disagree about the time, so each one's evidence is its own clock.
+
+**`cancel` now wins against a running walk.** It did not before, and fencing
+alone would not have fixed it — the running walk holds the *current* generation,
+so its `COMPLETED` stamp is a legal write and lands on top of the cancellation.
+`cancel` takes the lease, so the walk's next write is refused and what the
+record says is what the person who cancelled meant.
+
+**A new derived state, `abandoned`**: a scope whose runner stopped renewing.
+Without it, a dead run and a live one are indistinguishable — both read
+`running` for ever, because nothing reaps them.
+
+> It means *nothing has heard from that runner*, not *that runner is dead*. A
+> long step on a machine with a slow clock looks the same. Nothing reclaims
+> automatically, reading never repairs, and an abandoned scope is not purgeable
+> — collecting it would delete the evidence of whatever went wrong.
+
+**`func builtin workflow reclaim <id>`** (and `reclaim_workflow` over MCP) takes
+an abandoned scope so it can be resumed. Not destructive: every step record,
+gate payload and position stays; only the generation moves. Refused for a scope
+whose lease is still live — that one is in use, and `cancel` is the verb for
+taking it.
+
+### Added — a run's events are persisted
+
+`EventBus` emitted and forgot; nothing wrote an event anywhere, so a run's
+account of itself lasted as long as the process. A subscriber now persists them
+per run, readable through `func builtin run show <id> --events` and
+`get_run_events`.
+
+The bus itself gains no file I/O and no write lands on the emit path: events are
+buffered and flushed once when the run ends. A run with nothing listening costs
+nothing.
+
 ### Changed — `state.json` is `fresh.json`, and `builtin state` is `builtin data`
 
 **Breaking, pre-release.** The word *state* meant three different things, and

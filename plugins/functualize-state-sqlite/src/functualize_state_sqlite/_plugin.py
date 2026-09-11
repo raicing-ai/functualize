@@ -198,7 +198,9 @@ class SQLiteStatePlugin:
                     description="Path to the SQLite database file.",
                 )
 
-            config = app.configuration.resolve_model("plugin.sqlite-state", _SqliteConfig)
+            config = app.configuration.resolve_model(
+                "plugin.sqlite-state", _SqliteConfig
+            )
             return config.db_path
         except Exception:
             # No config available — use default path

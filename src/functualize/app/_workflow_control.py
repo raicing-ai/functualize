@@ -444,6 +444,53 @@ def cancel_scope(store: Any, scope_id: str) -> dict[str, Any]:
     }
 
 
+def reclaim_scope(store: Any, scope_id: str) -> dict[str, Any]:
+    """Take an abandoned scope, so someone else can resume it.
+
+    **Explicit, and it has to be** (`durable-run-layer`/T8). A lease that
+    expired means *nothing has heard from that runner*, not *that runner is
+    dead* — a long step on a machine with a slow clock looks identical. So
+    nothing reclaims on a schedule and nothing reclaims on read; a person
+    decides, having looked.
+
+    It is also **not destructive**: reclaiming moves the generation and leaves
+    every step record, gate payload and position exactly where they were. That
+    is the difference between this and `purge`, which remains the only verb
+    that removes anything.
+
+    Refuses a scope whose lease is **live**, because that is not an abandoned
+    scope — it is one someone is using. Cancel is the verb for taking a scope
+    away from a runner that is working.
+    """
+    scope = store.get_scope(scope_id)
+    if scope is None:
+        return _error("workflow_not_found", f"No workflow scope '{scope_id}'.")
+
+    from datetime import UTC, datetime
+
+    from functualize._primitives.lease import is_expired, read_lease
+    from functualize._primitives.run_store import runner_identity
+
+    lease = read_lease(scope)
+    if lease is not None and not is_expired(lease, datetime.now(UTC)):
+        return _error(
+            "workflow_held",
+            f"Workflow '{scope_id}' is held by {lease.owner} until "
+            f"{lease.expires_at}. Cancel it if the holder should stop.",
+        )
+
+    taken = store.claim_scope(scope_id, owner=runner_identity(), force=True)
+    return {
+        "status": "reclaimed",
+        "workflow_id": scope_id,
+        "generation": taken.generation,
+        "message": (
+            f"Reclaimed '{scope_id}' at generation {taken.generation}. "
+            f"Any write from the previous holder is now refused."
+        ),
+    }
+
+
 def purge_scopes(
     store: Any, *, state: str | None = None, older_than_days: float | None = None
 ) -> dict[str, Any]:

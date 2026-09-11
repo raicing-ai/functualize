@@ -75,6 +75,31 @@ _JSON_TYPES = {
 }
 
 
+def _lease_has_lapsed(scope: dict[str, Any]) -> bool:
+    """Has this scope's runner stopped renewing?
+
+    `True` only when a lease exists and has expired. A scope with **no** lease
+    is not abandoned: it was written by a runner that predates leases, or by a
+    plain job that never claimed, and calling those dead would make `abandoned`
+    the answer for most of the file.
+
+    The judgement is deliberately conservative in the same direction as
+    `_run_view._derive_state`: over-reporting a live runner as abandoned is a
+    misleading row a human re-checks, while under-reporting is a dead scope
+    nobody ever notices. Here the conservative choice runs the other way —
+    absence of evidence is not evidence — because an absent lease is the
+    ordinary case rather than the suspicious one.
+    """
+    from datetime import UTC, datetime
+
+    from functualize._primitives.lease import is_expired, read_lease
+
+    lease = read_lease(scope)
+    if lease is None:
+        return False
+    return is_expired(lease, datetime.now(UTC))
+
+
 def derived_state(scope: dict[str, Any]) -> str:
     """The scope's *state*, derived from what the store already knows.
 
@@ -105,6 +130,19 @@ def derived_state(scope: dict[str, Any]) -> str:
         epilogue = scope.get("epilogue") or {}
         return "stalled" if epilogue.get("status") == "failed" else "completed"
     if status == "running":
+        # **Before the plain `running` branch, and that ordering is the whole
+        # point** (`durable-run-layer`/T8, schema §6). A scope whose runner died
+        # keeps `status: "running"` for ever, because nothing reaps it — and a
+        # reader cannot tell that from a run that is genuinely in progress. The
+        # lease is what distinguishes them: a live runner renews, a dead one
+        # stops. Testing `running` first would report every dead scope as live,
+        # which is the bug this exists to name.
+        #
+        # Derived, never stored (decision K4): no new field, no version bump,
+        # and no schedule. Nothing reclaims automatically — `reclaim` is a verb
+        # a person runs.
+        if _lease_has_lapsed(scope):
+            return "abandoned"
         return "running"
     if status == "blocked":
         return "waiting" if any(pending_gates(scope)) else "ready"

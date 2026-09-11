@@ -807,6 +807,7 @@ class TestRegistration:
             "call_gate_tool",
             "cancel_workflow",
             "purge_workflows",
+            "reclaim_workflow",
             # The run log's read verbs (`durable-run-layer`/T3). One provider
             # serves scopes and runs: a scope is a workflow's *position* and is
             # resumed, a run is one *execution* and is read afterwards.
