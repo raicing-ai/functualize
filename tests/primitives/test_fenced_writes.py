@@ -43,7 +43,7 @@ def _superseded(store: ScopeStore) -> int:
 class TestAStaleWriteIsRefused:
     def test_recording_a_step_is_refused(self, store: ScopeStore) -> None:
         stale = _superseded(store)
-        store.hold(stale)
+        store.hold("wf", stale)
 
         with pytest.raises(StaleGenerationError):
             store.record_step("wf", "n1", {"status": "success"})
@@ -55,17 +55,17 @@ class TestAStaleWriteIsRefused:
         sees a step the walk never took.
         """
         stale = _superseded(store)
-        store.hold(stale)
+        store.hold("wf", stale)
 
         with pytest.raises(StaleGenerationError):
             store.record_step("wf", "n1", {"status": "success"})
 
-        store.hold(None)
+        store.hold("wf", None)
         assert store.get_step("wf", "n1") is None
 
     def test_the_current_generation_writes_normally(self, store: ScopeStore) -> None:
         lease = store.claim_scope("wf", owner="a")
-        store.hold(lease.generation)
+        store.hold("wf", lease.generation)
         store.record_step("wf", "n1", {"status": "success"})
         assert store.get_step("wf", "n1") is not None
 
@@ -77,14 +77,14 @@ class TestAStaleWriteIsRefused:
         exactly the code that claimed.
         """
         store.claim_scope("wf", owner="someone-else")
-        assert store.generation is None
+        assert store.generation_for("wf") is None
         store.record_step("wf", "n1", {"status": "success"})
         assert store.get_step("wf", "n1") is not None
 
     def test_the_refusal_names_the_current_holder(self, store: ScopeStore) -> None:
         """The question on hitting this is always *who has it now*."""
         stale = _superseded(store)
-        store.hold(stale)
+        store.hold("wf", stale)
 
         with pytest.raises(StaleGenerationError) as exc:
             store.set_position("wf", "n2")
@@ -183,7 +183,7 @@ class TestEveryWritePathIsFenced:
         skips `_mutate`, which only running it can show.
         """
         stale = _superseded(store)
-        store.hold(stale)
+        store.hold("wf", stale)
         with pytest.raises(StaleGenerationError):
             getattr(store, method)("wf", *args)
 
@@ -193,7 +193,7 @@ class TestFencingInsideABatch:
         """The walk writes in batches, so an unfenced batch would be a hole
         exactly where the walk lives."""
         stale = _superseded(store)
-        store.hold(stale)
+        store.hold("wf", stale)
 
         with pytest.raises(StaleGenerationError), store.batch():
             store.record_step("wf", "n1", {"status": "success"})
@@ -205,7 +205,7 @@ class TestFencingInsideABatch:
         being fenced, which is the partial record the refusal exists to prevent.
         """
         lease = store.claim_scope("wf", owner="a")
-        store.hold(lease.generation)
+        store.hold("wf", lease.generation)
         store.record_step("wf", "before", {"status": "success"})
 
         store.claim_scope("wf", owner="b", force=True)
@@ -213,7 +213,7 @@ class TestFencingInsideABatch:
         with pytest.raises(StaleGenerationError), store.batch():
             store.record_step("wf", "during", {"status": "success"})
 
-        store.hold(None)
+        store.hold("wf", None)
         assert store.get_step("wf", "before") is not None
         assert store.get_step("wf", "during") is None
 
@@ -227,10 +227,65 @@ class TestTheCheckIsInsideTheLock:
         The check runs against the envelope the write is about to modify.
         """
         lease = store.claim_scope("wf", owner="a")
-        store.hold(lease.generation)
+        store.hold("wf", lease.generation)
 
         # The walk has read and decided. Now someone else takes the scope.
         store.claim_scope("wf", owner="b", force=True)
 
         with pytest.raises(StaleGenerationError):
             store.record_step("wf", "n1", {"status": "success"})
+
+
+class TestTheFenceIsPerScopeNotPerStore:
+    """A nested workflow claims its own scope through the *same* store object.
+
+    The first implementation held one generation for the whole store. It looked
+    simpler and broke nested workflows outright: the parent's hold fenced every
+    write the child made to a **different** scope, so the child could not even
+    create its own record — `ensure_scope` was refused.
+
+    Caught by `test_a_nested_workflow_still_owns_its_own_scope`, four tests
+    away in the integration suite. These are the unit-level statements of the
+    same property, so the next person to reach for one value per store fails
+    here first.
+    """
+
+    def test_holding_one_scope_does_not_fence_another(self, store: ScopeStore) -> None:
+        store.ensure_scope("other")
+        parent = store.claim_scope("wf", owner="parent")
+        store.hold("wf", parent.generation)
+
+        # The child's own scope has no hold, so its writes go through.
+        store.ensure_scope("other", "child-workflow")
+        store.record_step("other", "n1", {"status": "success"})
+
+        assert store.get_scope("other")["workflow"] == "child-workflow"
+
+    def test_two_scopes_hold_independent_generations(self, store: ScopeStore) -> None:
+        store.ensure_scope("other")
+        outer = store.claim_scope("wf", owner="parent")
+        inner = store.claim_scope("other", owner="child")
+        store.hold("wf", outer.generation)
+        store.hold("other", inner.generation)
+
+        store.record_step("wf", "a", {"status": "success"})
+        store.record_step("other", "b", {"status": "success"})
+
+        assert store.generation_for("wf") == outer.generation
+        assert store.generation_for("other") == inner.generation
+
+    def test_releasing_one_leaves_the_other_held(self, store: ScopeStore) -> None:
+        """A child walk finishing must not unfence its parent."""
+        store.ensure_scope("other")
+        outer = store.claim_scope("wf", owner="parent")
+        inner = store.claim_scope("other", owner="child")
+        store.hold("wf", outer.generation)
+        store.hold("other", inner.generation)
+
+        store.hold("other", None)
+
+        assert store.generation_for("other") is None
+        assert store.generation_for("wf") == outer.generation, (
+            "the child releasing cleared the parent's fence — the parent's "
+            "writes would stop being checked mid-walk"
+        )

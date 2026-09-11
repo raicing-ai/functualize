@@ -101,20 +101,18 @@ class FreshStore:
             return
         update_fresh(self._path, mutate)
 
-    def hold_scope_generation(self, generation: int | None) -> None:
-        """Fence every scope write through this store to ``generation``.
+    def hold_scope_generation(self, scope_id: str, generation: int | None) -> None:
+        """Fence writes to ``scope_id`` through this store to ``generation``.
 
         Forwarded to the scope store, which is where the check lives
-        (`durable-run-layer`/T6). `None` turns fencing off — the state every
-        store starts in, because a store that is not driving a walk holds no
-        lease and must not be refused.
+        (`durable-run-layer`/T6). Per scope, because a nested workflow claims
+        its own scope through this same object.
         """
-        self._scopes.hold(generation)
+        self._scopes.hold(scope_id, generation)
 
-    @property
-    def scope_generation(self) -> int | None:
-        """The generation this store's scope writes carry, or None."""
-        return self._scopes.generation
+    def scope_generation(self, scope_id: str) -> int | None:
+        """The generation this store's writes to ``scope_id`` carry, or None."""
+        return self._scopes.generation_for(scope_id)
 
     @contextmanager
     def scope_batch(self) -> Iterator[FreshStore]:

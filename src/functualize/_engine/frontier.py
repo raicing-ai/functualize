@@ -99,9 +99,7 @@ class FrontierWalk:
     # The lease (`durable-run-layer`/T5, T6)
     # ------------------------------------------------------------------
 
-    def claim(
-        self, *, owner: str | None = None, force: bool = False
-    ) -> int:
+    def claim(self, *, owner: str | None = None, force: bool = False) -> int:
         """Take the scope, and fence every write this walk makes.
 
         Returns the generation claimed. After this, a write from *any* other
@@ -126,7 +124,7 @@ class FrontierWalk:
             force=force,
         )
         self._generation = int(lease.generation)
-        self._store.hold_scope_generation(lease.generation)
+        self._store.hold_scope_generation(self._scope_id, lease.generation)
         return int(lease.generation)
 
     def release(self) -> None:
@@ -143,7 +141,7 @@ class FrontierWalk:
             logger.debug("could not release the scope lease", exc_info=True)
         finally:
             self._generation = None
-            self._store.hold_scope_generation(None)
+            self._store.hold_scope_generation(self._scope_id, None)
 
     # ------------------------------------------------------------------
     # Walk control

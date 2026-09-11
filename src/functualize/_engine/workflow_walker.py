@@ -27,6 +27,7 @@ reaches ``END`` — is not here; it belongs to the workflow *job*, not the walk.
 
 from __future__ import annotations
 
+import logging
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -52,6 +53,9 @@ __all__ = [
     "WorkflowWalker",
     "graph_model_of",
 ]
+
+
+logger = logging.getLogger(__name__)
 
 
 class StepBlocked(Exception):  # noqa: N818 — deliberately not an "Error"
@@ -103,6 +107,12 @@ class WalkOutcome(Enum):
     COMPLETED = "completed"
     BLOCKED = "blocked"
     FAILED = "failed"
+    #: The scope was taken from this walk while it was running — cancelled, or
+    #: reclaimed by another runner (`durable-run-layer`/T7). Distinct from
+    #: FAILED, because nothing about the *work* went wrong: this walk simply no
+    #: longer owns the scope, and reporting it as a failure would send someone
+    #: looking for a bug in their job.
+    SUPERSEDED = "superseded"
 
 
 @dataclass(frozen=True)
@@ -251,7 +261,43 @@ class WorkflowWalker:
         self._prompt_gates = prompt_gates
 
     def run(self) -> WalkReport:
-        """Walk to `END`, to a gate with no input, or to a failure."""
+        """Walk to `END`, to a gate with no input, or to a failure.
+
+        **Holds a lease for the duration** (`durable-run-layer`/T7). Claiming is
+        what closes the concurrent-`resume` limitation 0.3.0 shipped knowingly:
+        a second walk on the same scope is refused here rather than advancing it
+        in parallel, and even if it somehow got past this, every write it made
+        would be fenced by its stale generation (T6).
+
+        Released in a `finally`, so a scope is claimable again the moment the
+        walk stops — including when it stops by raising. A walk that ended
+        without releasing would hold the scope until its lease expired, which
+        turns a crash into a five-minute wait for everyone else.
+        """
+        from functualize._primitives.lease import StaleGenerationError
+
+        self._walk.claim()
+        try:
+            return self._run_walk()
+        except StaleGenerationError:
+            # Someone took the scope while this walk was running — `cancel`
+            # does exactly that (AC-10). The walk stops where it is; it does
+            # **not** stamp a terminal status, because the holder that took the
+            # scope has already recorded what it wanted the scope to say.
+            #
+            # This is how cancel *wins* rather than merely arriving first. The
+            # fence alone would not do it: this walk's generation is current
+            # until something supersedes it, so its COMPLETED stamp would
+            # happily overwrite the cancellation.
+            logger.info(
+                "workflow scope %s was taken while walking; stopping", self._scope_id
+            )
+            return WalkReport(WalkOutcome.SUPERSEDED, self._scope_id)
+        finally:
+            self._walk.release()
+
+    def _run_walk(self) -> WalkReport:
+        """The walk itself. See `run` for the lease that wraps it."""
         self._walk.start(self._workflow_name)
 
         entry = self._declaration.entry

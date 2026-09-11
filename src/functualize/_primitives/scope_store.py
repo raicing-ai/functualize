@@ -133,9 +133,12 @@ class ScopeStore:
         #: payload on the instance. A fresh object per call would make a batch
         #: block invisible to the writes inside it.
         self._state_stores: dict[str, ScopeStateStore] = {}
-        #: The lease generation every write must carry, or None when this
-        #: store is not driving a walk. See `hold`.
-        self._generation: int | None = None
+        #: The generation each *claimed scope*'s writes must carry. Keyed by
+        #: scope id, not one value for the store: a nested workflow claims its
+        #: own scope through the **same** store object, and a single value made
+        #: the parent's hold fence the child's writes to a different scope —
+        #: the child could not even create its record. See `hold`.
+        self._generations: dict[str, int] = {}
 
     @property
     def _batch(self) -> dict[str, Any] | None:
@@ -197,9 +200,12 @@ class ScopeStore:
         """
 
         def _guarded(envelope: dict[str, Any]) -> None:
-            if self._generation is not None and scope_id is not None:
+            held = self._generations.get(scope_id) if scope_id is not None else None
+            if held is not None and scope_id is not None:
                 check_generation(
-                    scope_id, read_lease(envelope["scopes"].get(scope_id)), self._generation
+                    scope_id,
+                    read_lease(envelope["scopes"].get(scope_id)),
+                    held,
                 )
             mutate(envelope)
 
@@ -208,24 +214,28 @@ class ScopeStore:
             return
         update_scopes(self._path, _guarded)
 
-    def hold(self, generation: int | None) -> None:
-        """Fence every subsequent write on this store to ``generation``.
+    def hold(self, scope_id: str, generation: int | None) -> None:
+        """Fence writes **to ``scope_id``** on this store to ``generation``.
 
-        Set by a walk once it has claimed the scope. `None` turns fencing off,
-        which is the state every store starts in: a store that is not driving a
-        walk — the CLI reading records, a purge, a plugin — has no lease and
-        must not be refused.
+        Set by a walk once it has claimed that scope. `None` forgets the hold,
+        which is the state every scope starts in: a store not driving a walk —
+        the CLI reading records, a purge, a plugin — has no lease and must not
+        be refused.
 
-        **Per instance, not per thread.** A walk owns its scope for the length
-        of the walk, and the object driving it is the one holding the lease. A
-        parallel batch item does not walk, so it does not hold one.
+        **Per scope, not per store.** A single value looked simpler and was
+        wrong: a nested workflow claims its own scope through the *same* store
+        object, so the parent's hold fenced every write the child made to a
+        different scope — the child could not create its own record at all.
+        Caught by `test_a_nested_workflow_still_owns_its_own_scope`.
         """
-        self._generation = generation
+        if generation is None:
+            self._generations.pop(scope_id, None)
+        else:
+            self._generations[scope_id] = generation
 
-    @property
-    def generation(self) -> int | None:
-        """The generation this store's writes carry, or None if unfenced."""
-        return self._generation
+    def generation_for(self, scope_id: str) -> int | None:
+        """The generation this store's writes to ``scope_id`` carry, or None."""
+        return self._generations.get(scope_id)
 
     @contextmanager
     def batch(self) -> Iterator[ScopeStore]:

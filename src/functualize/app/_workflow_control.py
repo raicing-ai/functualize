@@ -31,6 +31,7 @@ MCP cannot do.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -59,6 +60,9 @@ __all__ = [
 
 if TYPE_CHECKING:
     from functualize._types.run_request import RunSurface
+
+
+logger = logging.getLogger(__name__)
 
 
 def _canonical(name: str) -> str:
@@ -398,7 +402,41 @@ def cancel_scope(store: Any, scope_id: str) -> dict[str, Any]:
         return _error(
             "workflow_not_active", f"Workflow '{scope_id}' is already {status}."
         )
-    store.set_scope_status(scope_id, "cancelled")
+    # **Take the lease first** (`durable-run-layer`/T7, AC-10). Setting the
+    # status alone does not cancel a walk that is already running: that walk
+    # holds the current generation, so its own COMPLETED stamp is a legal write
+    # and overwrites this one. Forcing a claim supersedes it — its next write is
+    # refused, it stops where it is, and this cancellation is what the record
+    # says.
+    #
+    # `force` because cancelling is exactly the case where a live holder must
+    # lose. It is the second of the two verbs allowed to use it; the other is
+    # an explicit `reclaim`, where a human has decided the holder is gone.
+    _gen_of = getattr(store, "scope_generation", None)
+    previous = _gen_of(scope_id) if callable(_gen_of) else None
+    try:
+        from functualize._primitives.run_store import runner_identity
+
+        taken = store.claim_scope(
+            scope_id, owner=f"cancel/{runner_identity()}", force=True
+        )
+        # Hold what was just taken. Without this the cancel fences **itself**
+        # out: claiming moved the generation, and the status write below still
+        # carries whatever this store held before — which is now stale. Found
+        # by the test for AC-10, where the CLI store and the walker's store are
+        # deliberately the same object.
+        store.hold_scope_generation(scope_id, taken.generation)
+    except Exception:  # noqa: BLE001 - a store without leases still cancels
+        logger.debug("could not take the lease before cancelling", exc_info=True)
+
+    try:
+        store.set_scope_status(scope_id, "cancelled")
+    finally:
+        # Restore whatever this store was holding. Cancel borrows the lease to
+        # make its own write land; it does not leave the caller's store fenced
+        # to a generation the caller never claimed.
+        if hasattr(store, "hold_scope_generation"):
+            store.hold_scope_generation(scope_id, previous)
     return {
         "status": "cancelled",
         "workflow_id": scope_id,

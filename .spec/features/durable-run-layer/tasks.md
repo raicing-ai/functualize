@@ -439,11 +439,29 @@ Spec AC-7. The lease lives **inside the scope record** (schema §4) — additive
 `SCOPES_VERSION` bump, the same judgement 0.3.0 made for `draft`.
 
 **Gate — there is nothing like this today (narrowed; see header)**
+**Rewritten to a stable form.** The gate as authored counted every hit of a
+broad pattern across `src/`, which is a *snapshot*, not a property: T6 added
+fencing call sites and the count moved from 32 to 39, so the recorded `after:`
+went stale within a day and `tests/spec/test_task_gates_still_hold.py` caught
+it — which is that test working exactly as intended.
+
+What the gate meant is "there was nothing like this, and now there is, and the
+one pre-existing match is unrelated". That is expressible as a number which does
+not move when this feature grows:
+
 ```bash
-rg -n 'owner_id|locked_by|claimed_by|worker_id|runner_id|acquired_by|fencing|fence_token|heartbeat|expires_at' \
-  src/functualize/ plugins/*/src/ | wc -l
+rg -c 'def check_generation' src/functualize/_primitives/lease.py
 ```
-now: **`8`**, not the `3` recorded at authoring time · after: `32`
+now: `0` — the file did not exist · after: `1`
+
+The fencing check itself, named once. It does not move as the feature grows
+(T6 added call *sites*, not a second definition), and it is not satisfied
+before the work — the two properties the broad count had neither of.
+
+For the record, since the original gate's point was that nothing like this
+existed: the only pre-existing matches for its pattern are **3** in
+`plugins/functualize-aws/.../_session.py`, AWS credential expiry, unrelated and
+untouched.
 
 The baseline moved under the task: `runner_identity` arrived with T1/T2, and
 the pattern's `runner_id` matches it. Re-measured rather than trusted —
@@ -492,7 +510,7 @@ platforms with neither `fcntl` nor `msvcrt`.
 
 ## Wave 5 — every scope write is fenced
 
-### [ ] T6 · Writes carry a generation; stale writes are refused
+### [x] T6 · Writes carry a generation; stale writes are refused
 
 **Files:** `src/functualize/_primitives/scope_store.py`, `src/functualize/_engine/frontier.py`,
 `src/functualize/_types/errors.py`
@@ -503,16 +521,48 @@ Spec AC-8. `StaleGenerationError` names the current holder — **a count, never 
 ```bash
 rg -c 'generation' src/functualize/_engine/frontier.py
 ```
-now: `0` · after: `≥1`
+now: `0` · after: `10`
 
-**Sabotage:** drop the generation check from one write path; T7's concurrent-resume test must
-fail. **Commit before sabotaging.**
+**Sabotage:** drop the generation check from one write path. Done, and it failed
+**7** tests including the enumeration one written for exactly this
+(`test_every_scope_write_passes_its_scope_id_to_mutate`).
+
+## The check is in `_mutate`, not on the write methods
+
+Eleven methods write to a scope record. Putting the check on each fences them
+all today and misses the twelfth, added next month by someone who has not read
+this file — the failure mode the capability tripwire exists for, one layer
+down. One check in `_mutate` means a write path added tomorrow is fenced the
+day it is written.
+
+It runs **inside the lock**, against the envelope the write is about to modify.
+Checking beforehand leaves open exactly the window that matters: the walk reads,
+decides, and writes, and a claim landing between the read and the write would
+pass a check made at decision time.
+
+Three methods stay unfenced, each with its reason in the test's `UNFENCED` map:
+the lease verbs, because claiming is how a runner *obtains* a generation.
+`TestEveryWritePathIsFenced` enumerates the store rather than listing methods,
+so the exemptions are visible and a new writer is covered automatically.
+
+## A process failure worth recording
+
+The first sabotage run reported **0 failures**, and the conclusion I drew from
+it — "the tests do not catch this" — was wrong. The sabotage had not applied:
+the script located the end of `record_step` with `s.index("    def ", i)`, which
+matched the **nested** `def _apply(` and sliced away the very line it meant to
+edit.
+
+*A description of a thing is not the thing*, applied to sabotage itself. A
+sabotage run must assert the sabotage exists before its result means anything;
+the redone version does (`assert old in s` plus an explicit print), and then
+failed the 7 tests above.
 
 ---
 
 ## Wave 6 — the two symptoms of one bug
 
-### [ ] T7 · The walk holds a lease; cancel wins; a second resume is refused
+### [x] T7 · The walk holds a lease; cancel wins; a second resume is refused
 
 **Files:** `src/functualize/_engine/workflow_walker.py`,
 `src/functualize/_engine/workflow_runner.py`, `src/functualize/app/_workflow_control.py`,
@@ -527,9 +577,49 @@ rg -c 'scope\["status"\]|get_scope_status' src/functualize/_engine/workflow_walk
 now: `0` · after: `≥1`, **or** the equivalent generation check on every write
 
 **Test (AC-10):** cancel a scope **while its walk is running**; the cancel stands and is not
-overwritten by the walk's subsequent `COMPLETED` stamp (`workflow_walker.py:347`).
+overwritten by the walk's subsequent `COMPLETED` stamp.
 **Test (AC-9):** two concurrent `resume` invocations on one scope — one advances, the other is
 refused with the holder named. *This is the limitation 0.3.0 shipped knowingly.*
+
+## Fencing alone does not make cancel win
+
+The finding that shaped this task. A cancel writes `status: cancelled`; the walk
+then reaches END and writes `status: completed` — and **that write is legal**,
+because the walk holds the current generation. Nothing is stale about it. T6's
+fence does not help, and a test that only asserted "the fence exists" would have
+passed while cancel silently lost.
+
+So `cancel_scope` **takes the lease** (`force=True`, the second of the two verbs
+allowed to). The walk's next write is then refused, it stops where it is, and
+what the record says is what the person who cancelled meant.
+
+The walk gains a third outcome for this, `SUPERSEDED`, distinct from `FAILED`:
+nothing about the work went wrong, and reporting a failure would send someone
+looking for a bug in their job.
+
+## A bug in the cancel itself, found by its own test
+
+`cancel_scope` fenced **itself** out. Claiming moved the generation, and its own
+`set_scope_status` still carried what the store held before — now stale. The
+cancel took the lease and was then refused its own write.
+
+Surfaced because the AC-10 test deliberately uses one store object for both the
+CLI and the walker. Fixed by holding the generation just taken, and restoring
+the caller's previous hold in a `finally`: cancel *borrows* the lease to make
+its write land, and does not leave the caller's store fenced to a generation the
+caller never claimed.
+
+## The walk releases in a `finally`
+
+A crashed walk that kept its lease would hold the scope until expiry — turning
+one traceback into a five-minute wait for everyone else, on a scope owned by a
+process that is gone.
+
+**Gate**
+```bash
+rg -c 'StaleGenerationError|SUPERSEDED' src/functualize/_engine/workflow_walker.py
+```
+now: `0` · after: `4`
 
 ---
 
