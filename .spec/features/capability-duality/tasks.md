@@ -196,6 +196,54 @@ python3 -c "import pathlib,json; p=pathlib.Path('.functualize/scopes.json'); pri
 ```
 now: `> 0` after a suite run · after: `0`
 
+## T11 · `Prompt` is one class, reached two ways — and the injected one works
+
+`[F]` `src/functualize/_engine/capabilities/prompt.py`
+`src/functualize/_engine/capabilities/prompt_facade.py`
+`src/functualize/_engine/capabilities/runcontext.py`
+`src/functualize/testing/doubles.py`
+`tests/app/test_facade_accessors.py`
+`tests/integration/test_capability_duality.py`
+
+Opened as Q-3 ("`Prompt` and `Sources` bypass the capability map — exempt, or
+fix?"), which recorded an external reviewer's finding that the two doors showed
+*no observable divergence*. **That was wrong, and the error was the one the
+Constitution names: a description of a thing is not the thing.** The reviewer
+read `prompt_facade.py` and `prompt.py`, saw both reach a collector, and did not
+run either.
+
+Run, with a collector registered and answering:
+
+```
+rc.prompts.confirm("go?")  -> True      (collector called)
+p.confirm("go?")           -> raises InputNotAvailable
+```
+
+`CAPABILITY = CapabilitySpec(factory=lambda ctx: Prompt())` built the DI object
+with `_provider=None`, and nothing ever bound one. **A job written
+`def j(p: Prompt)` could not prompt at all** — not a drift between two doors,
+one door bricked. Same shape as the `Perf` stub in T5: a factory returning the
+unwired form of a capability whose real wiring lives elsewhere.
+
+`PromptFacade` is deleted and its implementation becomes `Prompt`: call-time
+collector resolution (a surface pushed *after* DI resolution must still answer),
+`source_job` stamping, and the required/default policy that makes a missing
+collector raise instead of fabricating an answer. `rc.prompts` resolves through
+the caps map like `rc.state`, so the two doors are one object and the
+registry-driven tripwire holds them.
+
+`Sources` is **not** part of this. It has no second door: `rc.discovery` is
+`DiscoveryFacade` (`get_job_schema` / `list_jobs` — registry introspection) and
+`RunContext` has no `sources` accessor at all. Giving it an `rc_accessor` would
+*create* a door rather than consolidate one, so it stays single-door and the
+tripwire correctly skips it.
+
+```
+uv run pytest tests/integration/test_capability_duality.py -q -p no:randomly 2>&1 | tail -3
+```
+now: `26 passed` (Prompt not covered) · after: `> 26 passed` with Prompt in the
+registry-driven set
+
 ## Task Dependency Graph
 
 T1 and T5 touch no file any other task touches. T2 depends on T1 (it deletes
@@ -206,6 +254,7 @@ and of T2, but T6's assertions cover all three, and T7 documents T3's outcome.
 {"waves": [
   {"id": 0, "tasks": ["T1", "T5"]},
   {"id": 1, "tasks": ["T2", "T3", "T4"]},
-  {"id": 2, "tasks": ["T6", "T7", "T8", "T9", "T10"]}
+  {"id": 2, "tasks": ["T6", "T7", "T8", "T9", "T10"]},
+  {"id": 3, "tasks": ["T11"]}
 ]}
 ```

@@ -29,7 +29,7 @@ from functualize._app.hooks_facade import HooksFacade
 from functualize._app.workflow_facade import WorkflowScopeFacade
 from functualize._engine.capabilities.discovery_facade import DiscoveryFacade
 from functualize._engine.capabilities.observability_facade import ObservabilityFacade
-from functualize._engine.capabilities.prompt_facade import PromptFacade
+from functualize._engine.capabilities.prompt import Prompt
 from functualize._engine.capabilities.runcontext import RunContext
 from functualize._engine.capabilities.wiring_facade import WiringFacade
 from functualize.app.core import FunctualizeApp
@@ -45,7 +45,7 @@ _APP_FACADES = [
 
 _RC_FACADES = [
     ("events", ObservabilityFacade),
-    ("prompts", PromptFacade),
+    ("prompts", Prompt),
     ("discovery", DiscoveryFacade),
     ("wiring", WiringFacade),
 ]
@@ -158,7 +158,6 @@ def test_every_facade_class_is_named_here() -> None:
         "di_facade",
         "workflow_facade",
         "observability_facade",
-        "prompt_facade",
         "discovery_facade",
         "wiring_facade",
     }

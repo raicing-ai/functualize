@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from functualize._engine.capabilities.observability_facade import (
         ObservabilityFacade,
     )
-    from functualize._engine.capabilities.prompt_facade import PromptFacade
+    from functualize._engine.capabilities.prompt import Prompt
     from functualize._engine.capabilities.state import State
     from functualize._engine.capabilities.wiring_facade import WiringFacade
     from functualize._engine.capabilities.workflow import WorkflowTracker
@@ -208,7 +208,7 @@ class RunContext:
         self._discovery: DiscoveryFacade | None = None
         self._wiring: WiringFacade | None = None
         self._events: ObservabilityFacade | None = None
-        self._prompts: PromptFacade | None = None
+        self._prompts: Prompt | None = None
 
     def _derive(self, **overrides: Any) -> RunContext:
         """A copy of this context with ``overrides`` applied.
@@ -247,13 +247,28 @@ class RunContext:
         return RunContext(**fields)
 
     @property
-    def prompts(self) -> PromptFacade:
-        """`rc.prompts` — ask the person on the other end, if there is one."""
-        if self._prompts is None:
-            from functualize._engine.capabilities.prompt_facade import PromptFacade
+    def prompts(self) -> Prompt:
+        """`rc.prompts` — ask the person on the other end, if there is one.
 
-            self._prompts = PromptFacade(self)
-        return self._prompts
+        The **same object** a `prompt: Prompt` parameter receives (ADR-021).
+        Resolved through the capability map so the two doors cannot drift; the
+        fallback below builds one only for a context with no map at all.
+        """
+        from functualize._engine.capabilities.prompt import Prompt as _Prompt
+
+        shared = self._cap_or_none(_Prompt)
+        if shared is not None:
+            return cast("Prompt", shared)
+        if self._prompts is not None:
+            return self._prompts
+        built = _Prompt(_rc=self)
+        # Cached in both places, as `rc.state` is and for the same reason: the
+        # map is what makes the two doors one object, the attribute is what
+        # makes two `rc.prompts` reads one object where there is no map.
+        if self._caps is not None:
+            self._caps[_Prompt] = built
+        self._prompts = built
+        return built
 
     @property
     def events(self) -> ObservabilityFacade:

@@ -36,6 +36,7 @@ from functualize import FunctualizeApp, RunContext
 from functualize._engine.capabilities.invoke import Invoke  # noqa: TC001
 from functualize._engine.capabilities.log import Log  # noqa: TC001
 from functualize._engine.capabilities.perf import Perf  # noqa: TC001
+from functualize._engine.capabilities.prompt import Prompt  # noqa: TC001
 from functualize._engine.capabilities.state import State  # noqa: TC001
 from functualize._events.perf import perf_timeline
 from functualize._types.run_request import RunRequest
@@ -584,8 +585,10 @@ class TestTheDualityRuleIsEnforcedByTheRegistry:
         specs = self._specs()
         seen: dict[str, bool] = {}
 
-        def j(rc: RunContext, log: Log, state: State, inv: Invoke) -> str:
-            injected = {Log: log, State: state, Invoke: inv}
+        def j(
+            rc: RunContext, log: Log, state: State, inv: Invoke, prompt: Prompt
+        ) -> str:
+            injected = {Log: log, State: state, Invoke: inv, Prompt: prompt}
             for spec in specs:
                 if not spec.shared_with_rc:
                     continue
@@ -624,3 +627,106 @@ class TestTheDualityRuleIsEnforcedByTheRegistry:
             "allowed, but ADR-021 requires a recorded reason — update this "
             "test with it when one is added"
         )
+
+
+class TestAnInjectedPromptCanActuallyPrompt:
+    """The `prompt: Prompt` door reaches the live collector (T11).
+
+    Identity is not enough here. Before this task the two doors were two
+    classes, and the injected one was **inert** — its registry factory was
+    ``lambda ctx: Prompt()``, so ``_provider`` was ``None`` forever and every
+    call raised `InputNotAvailable` while ``rc.prompts`` answered from the same
+    registered surface. An identity check alone would have gone on passing if
+    someone reconnected the two objects without reconnecting the collector, so
+    this asserts the *answer*, through a collector that records being called.
+    """
+
+    class _Recorder:
+        """A headless surface that can collect — the minimum a prompt needs."""
+
+        needs_terminal = False
+
+        def __init__(self, answer: Any) -> None:
+            self.answer = answer
+            self.asked: list[str] = []
+
+        def collect(self, request: Any) -> Any:
+            from functualize._types.interactivity import PromptResponse
+
+            self.asked.append(request.question)
+            return PromptResponse(value=self.answer, source="recorder")
+
+    def test_both_doors_reach_the_registered_collector(self) -> None:
+        app = FunctualizeApp(name="prompting")
+        recorder = self._Recorder(True)
+        app._surfaces.append(recorder)
+        answers: dict[str, Any] = {}
+
+        def j(rc: RunContext, prompt: Prompt) -> str:
+            answers["rc"] = rc.prompts.confirm("through rc?")
+            answers["di"] = prompt.confirm("through di?")
+            return "ok"
+
+        app.register_dynamic_job("j", j)
+        assert _run(app, "j").status.value == "Success"
+
+        assert answers == {"rc": True, "di": True}
+        assert recorder.asked == ["through rc?", "through di?"], (
+            "the collector was not consulted by both doors — one of them "
+            "answered from somewhere else"
+        )
+
+    def test_a_collector_pushed_after_di_resolution_still_answers(self) -> None:
+        """Resolution is per call, not per construction.
+
+        DI runs before the orchestrator pushes anything, so a `Prompt` that
+        bound its collector at construction would miss the surface that owns
+        the terminal — which is the usual case, not an edge one.
+        """
+        app = FunctualizeApp(name="late-push")
+        late = self._Recorder("blue")
+        seen: dict[str, Any] = {}
+
+        def j(prompt: Prompt) -> str:
+            # Nothing could collect when `prompt` was built.
+            app._surfaces.append(late)
+            seen["answer"] = prompt.choice("colour?", ["red", "blue"])
+            return "ok"
+
+        app.register_dynamic_job("j", j)
+        assert _run(app, "j").status.value == "Success"
+
+        assert seen["answer"] == "blue"
+        assert late.asked == ["colour?"]
+
+    def test_asking_where_nothing_can_answer_raises_rather_than_defaults(
+        self,
+    ) -> None:
+        """A required prompt with no collector is an error, not a `False`.
+
+        Silently defaulting is how a non-interactive run appears to have been
+        confirmed. This is the guarantee `rc.prompts` always had and the
+        injected `Prompt` now shares.
+        """
+        from functualize._types.interactivity import InputNotAvailable
+
+        app = FunctualizeApp(name="nobody-home")
+        outcome: dict[str, Any] = {}
+
+        def j(prompt: Prompt) -> str:
+            try:
+                prompt.confirm("destroy production?", destructive=True)
+            except InputNotAvailable as exc:
+                outcome["raised"] = str(exc)
+            else:
+                outcome["raised"] = None
+            # An explicit default is the way to say what non-interactive means.
+            outcome["defaulted"] = prompt.confirm("proceed?", default=False)
+            return "ok"
+
+        app.register_dynamic_job("j", j)
+        assert _run(app, "j").status.value == "Success"
+
+        assert outcome["raised"] is not None
+        assert "destroy production?" in outcome["raised"]
+        assert outcome["defaulted"] is False
