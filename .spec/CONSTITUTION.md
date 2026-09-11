@@ -54,6 +54,7 @@ Users import from public folders. Contributors work in internal folders. The `_c
 
 ### DI + RunContext Duality
 - The DI registry and RunContext resolve from the **same underlying capability map** — they are two access paths, not competing systems.
+  The mechanism, and the five classes of capability that legitimately cannot share one object (qualified providers, factory-scoped providers, exclusive resources, pre-flight-bound capabilities, app-scoped singletons), are in `contributor/adr/021-capability-duality.md`. It is enforced by a test parametrized over `CAPABILITY_SPECS`, not by this line — the rule was prose for its whole life and five of six capabilities violated it.
 - Jobs may declare dependencies via type-annotated params (DI) OR receive `RunContext` (facade) OR both (hybrid). All three are first-class.
 - The DI registry is **populated at boot and frozen before execution** (`REGISTRY_FROZEN` event). No runtime mutations.
 - Framework capabilities (`Log`, `Invoke`, `Prompt`, `Perf`, `State`, `JobContext`) are per-invocation. Plugin capabilities are app-scoped singletons or per-invocation factories.
