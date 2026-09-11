@@ -156,6 +156,87 @@ now: `passing` · after: `passing`, with the four new verbs enumerated
 
 ---
 
+### [ ] T3b · Derive `history` from the run log, then rename `state.json`
+
+**Files:** `src/functualize/_primitives/state_format.py`,
+`src/functualize/_primitives/state_store.py`,
+`src/functualize/_engine/executor.py`, `src/functualize/_cli/builtins.py`,
+`src/functualize/app/_run_view.py`, and the `state_root` call sites
+(19 refs) plus the docs naming `state.json` (25 refs)
+
+**Added 2026-09-11 from `capability-duality`. Held for this task deliberately:
+the rename is only correct *after* the history question is decided, and this is
+where it gets decided.**
+
+#### Why the name is now wrong
+
+The word "state" means three different things, and `capability-duality` made
+that worse by moving job-written state into `scopes.json`:
+
+| to a job author | `rc.state.set(...)` | → `scopes.json` |
+| to the file | fingerprints, history, session preconditions | → `state.json` |
+| to the CLI | `func builtin state` | → **both** |
+
+The live trap: a user who writes `rc.state.set(...)` and then runs
+`func builtin state clear` clears fingerprints and history — **not their
+data**. Their data needs `state clear --scopes`. One word, two files, opposite
+outcomes.
+
+#### Why the rename waits on the history decision
+
+`state.json` holds three things. Two are freshness verdicts — fingerprints, and
+session precondition results — and one is not: `history`, a 200-entry ring of
+what the user launched.
+
+`runs.json` (T1/T2) already records **every** run with parentage, of which
+`history` is a strict subset carrying less information. `_records_history`
+keeps only `invoke_depth == 0` plus top-level parallel items; the run log keeps
+those *and* the nested ones, *and* who invoked them.
+
+So the order is:
+
+1. **Derive** `history` from `runs.json` in this task's projection, and delete
+   the ring from `state_format`. `func builtin history` becomes a view over the
+   run log rather than a second record — which is this feature's own thesis
+   (one projection, thin callers) applied to the one place it was not.
+2. **Then** rename. With `history` gone the file holds only freshness verdicts,
+   and `fresh.json` stops being an approximation and becomes the definition.
+
+Renaming first would leave a `history` key inside a file called `fresh.json` —
+a worse lie than the one being fixed.
+
+#### Names considered
+
+- **`fresh.json`** — chosen, *after* step 1. Names the meaning, and after the
+  history move it covers the whole file.
+- `hash.json` — rejected. Names the mechanism rather than the meaning, and only
+  fingerprints are hashes; precondition results are not.
+- `state.json` — rejected. Its only argument is incumbency, and it is the
+  source of the three-way collision above.
+
+#### Carry with it
+
+`state_root` → `fresh_root`, `resolve_state_location`, `beside_state`, and the
+`func builtin state` group. The `--scopes` flag disappears with the rename: the
+scope file gets its own verb rather than being a flag on someone else's.
+
+**Migration:** `state.json` is a user-visible path in a released version, so
+this needs a read-both / write-new pass or an explicit "delete it" note in the
+changelog. Pre-release stance permits the latter; say which, in the commit.
+
+**Gate**
+```bash
+rg -c '"state\.json"' src/functualize/_primitives/state_format.py
+```
+now: `1` · after: `0`
+
+```bash
+rg -c '"history"' src/functualize/_primitives/state_format.py
+```
+now: `2` · after: `0`
+
+---
+
 ## Wave 3 — the event log
 
 ### [ ] T4 · A subscriber persists events per run
@@ -412,7 +493,7 @@ Known hazards on this branch, all observed at least once — check for them spec
   "waves": [
     {"id": 0, "tasks": ["T1"]},
     {"id": 1, "tasks": ["T2"]},
-    {"id": 2, "tasks": ["T3"]},
+    {"id": 2, "tasks": ["T3", "T3b"]},
     {"id": 3, "tasks": ["T4"]},
     {"id": 4, "tasks": ["T5"]},
     {"id": 5, "tasks": ["T6"]},

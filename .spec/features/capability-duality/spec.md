@@ -89,9 +89,12 @@ state"*. That is a warning about a defect, not a design.
 
 ## D · Out of scope
 
-- Renaming `_primitives/state_store.StateStore` (the on-disk one). It is a
-  different layer with a different job; the collision is a naming annoyance,
-  not a correctness defect, and folding it in triples the blast radius.
+- Renaming `_primitives/state_store.StateStore` (the on-disk one). T8 renames
+  the *classes*, which is the collision a reader hits. Renaming the **file**
+  `state.json` is held for `durable-run-layer`/T3b, written up there: it is
+  only correct after `history` is derived from the run log, and that is decided
+  in T3. Renaming first would leave a `history` key in a file called
+  `fresh.json`.
 - `copy_context()` for `trace_id` across `invoke_parallel`. A real defect found
   in the same audit, but it is an observability fix on a different axis — its
   own task list.
