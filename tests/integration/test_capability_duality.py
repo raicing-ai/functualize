@@ -40,6 +40,22 @@ from functualize._events.perf import perf_timeline
 from functualize._types.run_request import RunRequest
 
 
+@pytest.fixture
+def state(tmp_path: Any) -> Any:
+    """A real `State`, over a real ``scopes.json``.
+
+    No in-memory double. A double standing in for the production collaborator
+    at the seam under test is exactly how `Perf` shipped unwired for its whole
+    life, and there is no performance argument for one here: measured, this
+    store costs **0.557 ms** per unbatched `set`, **0.091 ms** per `get`, and
+    1.1 ms for 100 sets inside `batch()`.
+    """
+    from functualize._engine.capabilities.state import ScopeBackedStateStore, State
+    from functualize._primitives.scope_store import ScopeStore
+
+    return State(ScopeBackedStateStore(ScopeStore(tmp_path / "scopes.json"), "s"))
+
+
 def _run(app: FunctualizeApp, name: str) -> Any:
     """Execute through the public entry point, as every surface does."""
     return app.execute(RunRequest(job_name=name, surface="app.execute"))
@@ -320,30 +336,28 @@ class TestKeysMatchesByGlob:
     like a typo rather than a rule. The pattern form says what it means.
     """
 
-    def _store(self) -> Any:
-        from functualize._engine.capabilities.state_store import StateStore
+    def _store(self, state: Any) -> Any:
+        with state.batch():
+            for key in ("fetch.rows", "fetch.ms", "fetchmeta.x", "fetch.io.bytes"):
+                state.set(key, 1)
+        return state
 
-        store = StateStore()
-        for key in ("fetch.rows", "fetch.ms", "fetchmeta.x", "fetch.io.bytes"):
-            store.set(key, 1)
-        return store
+    def test_one_star_does_not_cross_the_separator(self, state: Any) -> None:
+        assert sorted(self._store(state).keys("fetch.*")) == ["fetch.ms", "fetch.rows"]
 
-    def test_one_star_does_not_cross_the_separator(self) -> None:
-        assert sorted(self._store().keys("fetch.*")) == ["fetch.ms", "fetch.rows"]
-
-    def test_one_star_cannot_reach_the_neighbouring_namespace(self) -> None:
+    def test_one_star_cannot_reach_the_neighbouring_namespace(self, state: Any) -> None:
         """The whole reason for preferring the pattern over a prefix."""
-        assert "fetchmeta.x" not in self._store().keys("fetch.*")
+        assert "fetchmeta.x" not in self._store(state).keys("fetch.*")
 
-    def test_two_stars_cross_the_separator(self) -> None:
-        assert "fetch.io.bytes" in self._store().keys("fetch.**")
+    def test_two_stars_cross_the_separator(self, state: Any) -> None:
+        assert "fetch.io.bytes" in self._store(state).keys("fetch.**")
 
-    def test_a_pattern_can_match_a_leaf_across_namespaces(self) -> None:
-        store = self._store()
+    def test_a_pattern_can_match_a_leaf_across_namespaces(self, state: Any) -> None:
+        store = self._store(state)
         store.set("report.rows", 1)
         assert sorted(store.keys("*.rows")) == ["fetch.rows", "report.rows"]
 
-    def test_the_matcher_is_the_one_the_event_bus_uses(self) -> None:
+    def test_the_matcher_is_the_one_the_event_bus_uses(self, state: Any) -> None:
         """One glob implementation, not two that agree today (ADR-021).
 
         `rc.events.on_event("job.*")` and perf-phase filtering already call
@@ -352,7 +366,7 @@ class TestKeysMatchesByGlob:
         """
         from functualize._events._pattern_matcher import matches_pattern
 
-        store = self._store()
+        store = self._store(state)
         # SIM118 reads `store.keys()` as a dict call and would have us drop
         # it. `StateStore` is not a dict and defines no `__iter__`, so the
         # suggested fix raises TypeError.
@@ -361,10 +375,86 @@ class TestKeysMatchesByGlob:
             k for k in every_key if matches_pattern(k, "fetch.*")
         )
 
-    def test_an_empty_prefix_returns_everything(self) -> None:
-        from functualize._engine.capabilities.state_store import StateStore
+    def test_an_empty_pattern_returns_everything(self, state: Any) -> None:
+        state.set("a", 1)
+        state.set("b.c", 2)
+        assert sorted(state.keys()) == ["a", "b.c"]
 
-        store = StateStore()
-        store.set("a", 1)
-        store.set("b.c", 2)
-        assert sorted(store.keys()) == ["a", "b.c"]
+
+class TestStateIsDurable:
+    """State survives the process. The in-memory store never could.
+
+    `WorkflowScope` held the old store and `app._scope_registry` holds the
+    scopes, and that registry is reset to `{}` at boot — so a workflow that
+    blocked at a gate and resumed *in a new process* came back with its step
+    records intact (those live in `scopes.json`) and its state silently empty.
+    State was the one thing that did not survive, which is the least defensible
+    split available, and it is why there is no in-memory tier now.
+    """
+
+    def test_a_value_written_in_one_process_is_read_in_the_next(
+        self, tmp_path: Any
+    ) -> None:
+        import subprocess
+        import sys
+        import textwrap
+
+        (tmp_path / ".functualize").mkdir()
+        program = tmp_path / "prog.py"
+        program.write_text(
+            textwrap.dedent("""
+                import sys
+                from functualize import FunctualizeApp, RunContext
+                from functualize._types.run_request import RunRequest
+
+                app = FunctualizeApp(name="probe")
+
+                def writer(rc: RunContext) -> str:
+                    rc.state.set("fetch.rows", 500)
+                    return "ok"
+
+                def reader(rc: RunContext) -> str:
+                    print("READ:", rc.state.get("fetch.rows"))
+                    return "ok"
+
+                app.register_dynamic_job("writer", writer)
+                app.register_dynamic_job("reader", reader)
+                app.execute(RunRequest(
+                    job_name=sys.argv[1],
+                    surface="app.execute",
+                    workflow_scope_id="shared-scope",
+                ))
+            """)
+        )
+
+        def run(job: str) -> str:
+            done = subprocess.run(
+                [sys.executable, str(program), job],
+                cwd=tmp_path,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            assert done.returncode == 0, done.stderr[-800:]
+            return done.stdout
+
+        run("writer")
+        assert "READ: 500" in run("reader"), (
+            "a second process did not see the first one's write — state is "
+            "back to being per-process, which is the defect this replaced"
+        )
+        assert (tmp_path / ".functualize" / "scopes.json").exists()
+
+    def test_state_without_a_scope_says_so_instead_of_pretending(self) -> None:
+        """No silent in-memory stand-in — an error naming the cause.
+
+        A stand-in would accept writes nothing will ever read, which is the
+        failure mode being removed rather than relocated.
+        """
+        from functualize._engine.capabilities.state import (
+            State,
+            StateUnavailableError,
+        )
+
+        with pytest.raises(StateUnavailableError, match="outside a run"):
+            State(None).set("k", "v")

@@ -442,6 +442,21 @@ class FunctualizeApp:
 
         return _file_source_infos(self)
 
+    def scope_for(self, scope_id: str) -> Any:
+        """The scope named by ``scope_id``, created and announced if new.
+
+        The engine's seam onto scope creation (`EngineHost.scope_for`). It goes
+        through `create_workflow_scope`, so the `ON_SCOPE_CREATED` hook fires
+        and the registry is populated exactly as it did when `execute()` minted
+        scopes itself — the difference is that *every* door now reaches it,
+        including the CLI, which calls `engine.run()` directly and therefore
+        never ran a line of `execute()`.
+        """
+        existing = self._scope_registry.get(scope_id)
+        if existing is not None:
+            return existing
+        return self.workflows.create_workflow_scope(scope_id)
+
     def execute(self, request: RunRequest) -> JobResult:
         """Execute a job — the single surface-facing entry.
 
@@ -476,10 +491,6 @@ class FunctualizeApp:
         Returns:
             JobResult with status, duration, return value, and metadata.
         """
-        from uuid import uuid4
-
-        job_name = request.job_name
-        scope_id = request.workflow_scope_id
         group_option_values = (
             dict(request.group_option_values)
             if request.group_option_values is not None
@@ -487,23 +498,16 @@ class FunctualizeApp:
         )
         kwargs = dict(request.kwargs)
 
-        # Determine scope: explicit or auto-generated
-        if scope_id is not None:
-            # Use explicit scope — reuse if exists, create if not
-            if scope_id in self._scope_registry:
-                scope = self._scope_registry[scope_id]
-            else:
-                scope = self.workflows.create_workflow_scope(scope_id)
-        else:
-            # Auto-generate scope ID
-            auto_id = f"{job_name}-{uuid4().hex[:8]}"
-            scope = self.workflows.create_workflow_scope(auto_id)
-
+        # **No scope minted here.** `engine.run()` does it, because that is
+        # where every run passes and this method is not: the CLI calls
+        # `execution_engine.run()` directly, so a job launched from the command
+        # line got no scope at all. That was invisible while `rc.state` handed
+        # out a private dict and became a hard failure the moment state was made
+        # durable — the same entrypoint divergence, found again, in the one
+        # place still doing work the engine should own.
         return self._execution_engine.run(
             request.replace(
                 kwargs=kwargs,
-                parent_scope=scope,
-                workflow_scope_id=scope.scope_id,
                 group_option_values=group_option_values,
             )
         )

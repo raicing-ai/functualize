@@ -237,6 +237,9 @@ class JobExecutionEngine:
         # Dependency scheduling, the sibling subject (T7).
         self._dependency_runner = DependencyRunner(self)
         self._workflow_state_store: Any = None
+        #: Scopes this process has already built, by id, so two runs
+        #: naming one scope share it rather than racing on the file.
+        self._scopes: dict[str, Any] = {}
         self._preflight_pipeline: Any = None
         self._job_graph: Any = None
         self._exec_policy_impl: Any = None
@@ -773,6 +776,7 @@ class JobExecutionEngine:
         surface is what distinguishes them: see :meth:`_records_history`.
         """
         job = self.get_job(request.job_name)
+        request = self._ensure_scope(request)
         kwargs = self._request_kwargs(request, job)
         run_id = self._open_run_record(request, kwargs)
         result = self._execute_lifecycle(
@@ -800,6 +804,67 @@ class JobExecutionEngine:
         if self._records_history(request):
             self._record_history(request.job_name, kwargs, result)
         return result
+
+    def _ensure_scope(self, request: RunRequest) -> RunRequest:
+        """Give this run a scope if it arrived without one.
+
+        **Here, because this is where every run passes.** `app.execute` used to
+        do it, and the CLI does not go through `app.execute` — it calls
+        `engine.run()` directly (`app/adapters/click_params.py`). So a job
+        launched from the command line had no scope at all, which was invisible
+        while `rc.state` silently handed out a private dict and became a hard
+        failure the moment state was made durable. That is the entrypoint
+        divergence this whole roadmap exists to close, found by a test that ran
+        the same job through two doors.
+
+        A nested run keeps whatever its parent gave it: a workflow step, a
+        dependency and an `rc.invoke` child all share the run's scope, and a
+        parallel item shares the object while `nested_request` withholds the
+        *id* so it does not share step records.
+        """
+        if request.parent_scope is not None:
+            return request
+        try:
+            scope = self._scope_for(request)
+        except Exception:  # noqa: BLE001 - a missing scope must not kill a run
+            logger.debug("could not build a workflow scope", exc_info=True)
+            return request
+        return request.replace(parent_scope=scope, workflow_scope_id=scope.scope_id)
+
+    def _scope_for(self, request: RunRequest) -> Any:
+        """The scope named by the request, reused if this process has it.
+
+        Reuse is what makes two runs with the same ``workflow_scope_id`` share
+        state in-process; the store is durable either way, so a third process
+        naming the same id reads the same records off disk.
+        """
+        from functualize._engine.capabilities.state import ScopeBackedStateStore
+        from functualize._engine.capabilities.workflow_scope import WorkflowScope
+        from functualize._engine.workflow_runner import new_scope_id
+        from functualize._primitives.scope_store import ScopeStore
+
+        # `new_scope_id`, not a second generator. There were two — `app.execute`
+        # minted `<job>-<hex8>` and the workflow runner minted `<hex16>` — so
+        # the id a user was told to resume with depended on which door started
+        # the run. One generator, one shape.
+        scope_id = request.workflow_scope_id or new_scope_id(request.job_name)
+        existing = self._scopes.get(scope_id)
+        if existing is not None:
+            return existing
+        # The host owns which scopes exist and announces new ones. Only when
+        # there is no host — a bare engine in a test — does the engine build
+        # one itself, and then it is the same durable shape.
+        host_scope = getattr(self.host, "scope_for", None)
+        if host_scope is not None:
+            scope = host_scope(scope_id)
+            self._scopes[scope_id] = scope
+            return scope
+        scopes = ScopeStore.beside_state(self._state_store().path)
+        scope = WorkflowScope(
+            scope_id, state_store=ScopeBackedStateStore(scopes, scope_id)
+        )
+        self._scopes[scope_id] = scope
+        return scope
 
     def _open_run_record(
         self, request: RunRequest, kwargs: dict[str, Any]

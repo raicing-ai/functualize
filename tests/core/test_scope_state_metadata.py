@@ -25,6 +25,7 @@ from functualize.job._protocols import StateStoreProtocol
 from functualize.job._workflow_scope import WorkflowScope
 from functualize.job.context import InvalidStateTransitionError, RunContext, RunStatus
 from tests._support.engine_run import run_job
+from tests.context.conftest import new_state_store
 
 # --- Helpers ---
 
@@ -161,14 +162,14 @@ class TestReplaceStateStore:
 
     def test_replace_with_conforming_store(self) -> None:
         """Replacing with a conforming store succeeds."""
-        scope = WorkflowScope("test")
+        scope = WorkflowScope("test", state_store=new_state_store("test"))
         new_store = ConformingStore()
         scope.replace_state_store(new_store)
         assert scope.state_store is new_store
 
     def test_replace_uses_new_store_for_operations(self) -> None:
         """After replacement, state operations use the new store."""
-        scope = WorkflowScope("test")
+        scope = WorkflowScope("test", state_store=new_state_store("test"))
         # Write to original store
         scope.state_store.set("old_key", "old_value")
 
@@ -184,14 +185,14 @@ class TestReplaceStateStore:
 
     def test_replace_non_conforming_raises_type_error(self) -> None:
         """Non-conforming store raises TypeError with missing methods."""
-        scope = WorkflowScope("test")
+        scope = WorkflowScope("test", state_store=new_state_store("test"))
 
         with pytest.raises(TypeError, match="Missing methods"):
             scope.replace_state_store(NonConformingStore())
 
     def test_replace_non_conforming_lists_missing_methods(self) -> None:
         """TypeError message lists the specific missing methods."""
-        scope = WorkflowScope("test")
+        scope = WorkflowScope("test", state_store=new_state_store("test"))
 
         with pytest.raises(TypeError) as exc_info:
             scope.replace_state_store(NonConformingStore())
@@ -208,7 +209,7 @@ class TestReplaceStateStore:
 
     def test_replace_on_closed_scope_raises_invalid_state_transition(self) -> None:
         """Replacing on closed scope raises InvalidStateTransitionError."""
-        scope = WorkflowScope("test")
+        scope = WorkflowScope("test", state_store=new_state_store("test"))
         scope.close()
 
         with pytest.raises(InvalidStateTransitionError, match="closed"):
@@ -216,7 +217,7 @@ class TestReplaceStateStore:
 
     def test_replace_no_data_migration(self) -> None:
         """Data from old store is NOT migrated to new store."""
-        scope = WorkflowScope("test")
+        scope = WorkflowScope("test", state_store=new_state_store("test"))
         scope.state_store.set("key1", "value1")
         scope.state_store.set("key2", "value2")
 
@@ -225,12 +226,15 @@ class TestReplaceStateStore:
 
         assert new_store.to_dict() == {}
 
-    def test_in_memory_state_store_satisfies_protocol(self) -> None:
-        """The existing in-memory StateStore satisfies StateStoreProtocol."""
-        from functualize.job._state_store import StateStore
+    def test_the_default_store_satisfies_the_protocol(self) -> None:
+        """The durable default is a `StateStoreProtocol`, like any plugin's.
 
-        store = StateStore()
-        assert isinstance(store, StateStoreProtocol)
+        Was `test_in_memory_state_store_satisfies_protocol`. The in-memory
+        store is gone — it silently emptied on resume — and the protocol is
+        unchanged, which is what keeps `functualize-state-sqlite` working
+        across the swap (ADR-021).
+        """
+        assert isinstance(new_state_store(), StateStoreProtocol)
 
 
 # --- JobResult metadata tests ---

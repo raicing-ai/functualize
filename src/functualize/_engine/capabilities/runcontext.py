@@ -29,7 +29,7 @@ if TYPE_CHECKING:
         ObservabilityFacade,
     )
     from functualize._engine.capabilities.prompt_facade import PromptFacade
-    from functualize._engine.capabilities.state_store import StateStore
+    from functualize._engine.capabilities.state import State
     from functualize._engine.capabilities.wiring_facade import WiringFacade
     from functualize._engine.capabilities.workflow import WorkflowTracker
     from functualize._engine.capabilities.workflow_scope import WorkflowScope
@@ -144,7 +144,6 @@ class RunContext:
         metadata: dict[str, Any] | None = None,
         *,
         plugin_configs: dict[str, BaseModel] | None = None,
-        state_store: StateStore | None = None,
         resources: dict[str, Any] | None = None,
         perf_timeline: PerfTimeline | None = None,
         _workflow_scope: WorkflowScope | None = None,
@@ -169,7 +168,11 @@ class RunContext:
         self._metadata.setdefault("duration", None)
         self._job_config: Any = None
         self._plugin_configs: dict[str, BaseModel] | None = plugin_configs
-        self._state_store: StateStore | None = state_store
+        self._state: State | None = None
+        #: Deliberately absent. `rc.state` resolves through the capability
+        #: map and the scope; a per-context store parameter was a third way to
+        #: obtain one, used only by tests, and three doors onto one fact is
+        #: what ADR-021 exists to remove.
         self._resources: dict[str, Any] | None = resources
         self._perf_timeline: PerfTimeline | None = perf_timeline
         self._workflow_scope: WorkflowScope | None = _workflow_scope
@@ -227,7 +230,6 @@ class RunContext:
             "logger": self._logger,
             "metadata": self._metadata,
             "plugin_configs": self._plugin_configs,
-            "state_store": self._state_store,
             "resources": self._resources,
             "perf_timeline": self._perf_timeline,
             "_workflow_scope": self._workflow_scope,
@@ -468,6 +470,19 @@ class RunContext:
 
     # --- Logging ---
 
+    def _cap_or_none(self, cap_type: type) -> Any | None:
+        """This run's instance of ``cap_type``, or None.
+
+        The one lookup behind every `rc.X` that has a capability underneath it
+        (ADR-021). It **never constructs**: `Sources` and `Freshness` are
+        injected empty and completed after the pre-flight decision, so a
+        resolver that helpfully built one would hand back an empty map with no
+        error.
+        """
+        if self._caps is None:
+            return None
+        return self._caps.get(cap_type)
+
     def _log_sink(self) -> Log | None:
         """Return the job's own Log capability, or None when it has none.
 
@@ -520,16 +535,32 @@ class RunContext:
     # --- State Store ---
 
     @property
-    def state(self) -> StateStore:
-        if self._workflow_scope is not None:
-            return cast("StateStore", self._workflow_scope.state_store)
-        if self._state_store is None:
-            from functualize._engine.capabilities.state_store import (
-                StateStore as _StateStore,
-            )
+    def state(self) -> State:
+        """`rc.state` — the run's shared, durable key-value store.
 
-            self._state_store = _StateStore()
-        return self._state_store
+        The **same object** a `state: State` parameter receives (ADR-021).
+        Resolved through the capability map so the two doors cannot drift; the
+        scope is consulted only to build one when the job declared no `state:`
+        parameter and nothing has therefore materialised it yet.
+        """
+        from functualize._engine.capabilities.state import State as _State
+
+        cached = self._cap_or_none(_State)
+        if cached is not None:
+            return cast("State", cached)
+        if self._state is not None:
+            return self._state
+        scope = self._workflow_scope
+        built = _State(scope.state_store if scope is not None else None)
+        # Cached in both places on purpose. The caps map is the shared one, and
+        # is what makes `rc.state` and a `state:` parameter one object; the
+        # attribute covers a context built with no map at all, where two calls
+        # to `rc.state` must still be the same object rather than two views
+        # that happen to agree.
+        if self._caps is not None:
+            self._caps[_State] = built
+        self._state = built
+        return built
 
     # --- Job Schema ---
 

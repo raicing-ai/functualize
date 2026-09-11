@@ -1,12 +1,12 @@
-"""Property-based tests for StateStore scope determines visibility.
+"""Property-based tests for type(new_state_store()) scope determines visibility.
 
 Property 10: State_Store Scope Determines Visibility
 **Validates: Requirements 6.3, 6.4**
 
 Verifies that:
-- When two references share the same StateStore (via WorkflowScope),
+- When two references share the same type(new_state_store()) (via WorkflowScope),
   state written by one is visible to the other.
-- When each reference has its own independent StateStore (standalone),
+- When each reference has its own independent type(new_state_store()) (standalone),
   state does not leak between separate instances.
 - State persistence through a shared scope: store → retrieve cycle works
   across multiple access points.
@@ -15,8 +15,8 @@ Verifies that:
 from hypothesis import given
 from hypothesis import strategies as st
 
-from functualize.job._state_store import StateStore
 from functualize.job._workflow_scope import WorkflowScope
+from tests.context.conftest import new_state_store
 
 # --- Strategies ---
 
@@ -50,7 +50,7 @@ scope_ids = st.text(
 
 
 # Feature: enriched-runcontext, Property 10: State_Store Scope Determines Visibility
-# When two access points share the same StateStore via WorkflowScope, state written
+# When two access points share the same type(new_state_store()) via WorkflowScope, state written
 # by one is visible to the other. When standalone StateStores are used, state does
 # not leak between separate instances. Store → retrieve cycle works across multiple
 # access points sharing a scope.
@@ -115,8 +115,8 @@ class TestStateStoreScopeDeterminesVisibility:
 
         **Validates: Requirements 6.4**
         """
-        store_a = StateStore()
-        store_b = StateStore()
+        store_a = new_state_store()
+        store_b = new_state_store()
 
         # Write different data to each
         for key, value in items_a.items():
@@ -168,7 +168,9 @@ class TestStateStoreScopeDeterminesVisibility:
         scope = WorkflowScope(scope_id)
 
         # Simulate multiple access points (different "job" references)
-        access_points: list[StateStore] = [scope.state_store for _ in range(3)]
+        access_points: list[type(new_state_store())] = [
+            scope.state_store for _ in range(3)
+        ]
 
         # Each access point writes a portion of the items
         for i, (key, value) in enumerate(items):

@@ -11,7 +11,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from functualize.job._state_store import StateStore
+from functualize._engine.capabilities.state import ScopeBackedStateStore
 from functualize.job._workflow_scope import WorkflowScope
 from functualize.job.context import InvalidStateTransitionError
 
@@ -73,7 +73,7 @@ class TestWorkflowScopeLifecycle:
 
         assert scope.closed is False
         assert scope.scope_id == scope_id
-        assert isinstance(scope.state_store, StateStore)
+        assert isinstance(scope.state_store, ScopeBackedStateStore)
         assert scope.state_store.keys() == []
 
     @given(

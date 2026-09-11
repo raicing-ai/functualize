@@ -446,6 +446,20 @@ class EngineHost(Protocol):
         """Pop that surface again — tolerant of an already-empty stack."""
         ...
 
+    def scope_for(self, scope_id: str) -> Any:
+        """The `WorkflowScope` named by ``scope_id``, created if it is new.
+
+        The engine mints a scope for every run that arrives without one, which
+        is where state lives — but *which* scope objects exist, and the
+        `ON_SCOPE_CREATED` hook that announces a new one, are the host's
+        business. Minting behind the host's back skipped the hook and left the
+        app's registry empty, so a plugin watching for scopes saw none.
+
+        Idempotent by id: asking twice returns the same object, which is what
+        lets two runs naming one scope share it in-process.
+        """
+        ...
+
 
 class AgentCapability(StrEnum):
     """A constraint an executor promises it can enforce on a step's behalf.

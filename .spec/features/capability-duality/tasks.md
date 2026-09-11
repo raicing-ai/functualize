@@ -47,10 +47,15 @@ so two writers merge), and two runs share nothing (different scope ids).
 `WorkflowScope.replace_state_store` **stays** — a plugin swapping in SQLite is
 still supported. What changes is the default it replaces.
 
+**Gate corrected during execution, disclosed per the Constitution.** The first
+form counted `^class State`, which also matches `StateUnavailableError` — it
+returned 2 after the work was correctly done, so it measured the wrong thing.
+The honest gate is that the in-memory module is gone:
+
 ```
-rg -c "^class State" src/functualize/_engine/capabilities/state.py src/functualize/_engine/capabilities/state_store.py 2>/dev/null | awk -F: '{s+=$2} END {print s+0}'
+test -f src/functualize/_engine/capabilities/state_store.py && echo present || echo deleted
 ```
-now: `2` · after: `1`
+now: `present` · after: `deleted`
 
 ## T3 · A workflow step's `rc.state` is the scope's store
 
@@ -167,6 +172,30 @@ rg -c "advisory: proceed" src/functualize/_primitives/state_format.py
 ```
 now: `1` · after: `1` (invariant — the behaviour stays; only its silence goes)
 
+## T10 · Tests must not write into the repository's state root
+
+`[F]` `tests/conftest.py`
+
+The state root is an upward walk from the working directory, so any test that
+does not `chdir` writes into the **repo's** `.functualize/`. Measured on this
+worktree mid-feature: `scopes.json` 359 KB, `runs.json` 261 KB, `state.json`
+51 KB, all of it test residue. It is gitignored, so nothing was committed — but
+it makes tests order-dependent, and it produced a real failure here
+(`test_full_orchestration_flow` read `invocation=4` on its first invocation
+because three earlier runs of the same test had left a counter behind).
+
+This is older and wider than this feature — `runs.json` residue predates it —
+but durable state makes every run write, so it stops being a curiosity. It is
+also the most likely explanation for `.spec/KNOWN-RED.md` §10, a cache-path
+flake under `-n auto`.
+
+An autouse fixture pointing the state root at `tmp_path` unless a test opts out.
+
+```
+python3 -c "import pathlib,json; p=pathlib.Path('.functualize/scopes.json'); print(len(json.loads(p.read_text()).get('scopes',{})) if p.exists() else 0)"
+```
+now: `> 0` after a suite run · after: `0`
+
 ## Task Dependency Graph
 
 T1 and T5 touch no file any other task touches. T2 depends on T1 (it deletes
@@ -177,6 +206,6 @@ and of T2, but T6's assertions cover all three, and T7 documents T3's outcome.
 {"waves": [
   {"id": 0, "tasks": ["T1", "T5"]},
   {"id": 1, "tasks": ["T2", "T3", "T4"]},
-  {"id": 2, "tasks": ["T6", "T7", "T8", "T9"]}
+  {"id": 2, "tasks": ["T6", "T7", "T8", "T9", "T10"]}
 ]}
 ```

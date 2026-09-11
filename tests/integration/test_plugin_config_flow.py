@@ -26,6 +26,7 @@ from functualize.app.config import JobSources
 from functualize.app.core import FunctualizeApp
 from functualize.job._workflow_scope import WorkflowScope
 from functualize.job.context import inject_resource
+from tests.context.conftest import new_state_store
 
 runner = CliRunner()
 
@@ -400,7 +401,7 @@ class TestMiddlewareChainIntegration:
 
             def state_reader(rc: RunContext):
                 '''A job that reads state set by middleware.'''
-                val = rc.state.get("middleware_key", str)
+                val = rc.state.get("middleware_key")
                 print(f"state_val={val}")
             """)
         )
@@ -557,7 +558,7 @@ class TestWorkflowScopeSharedState:
 
     @patch("functualize._plugins.loader.entry_points")
     def test_workflow_scope_state_shared_between_jobs(
-        self, mock_entry_points: Any, tmp_path: Path
+        self, mock_entry_points: Any, tmp_path: Path, capsys: Any
     ) -> None:
         """State stored via WorkflowScope persists across separate job RunContexts."""
         mock_entry_points.return_value = []
@@ -586,7 +587,7 @@ class TestWorkflowScopeSharedState:
 
             def job_b(rc: RunContext):
                 '''Second job - reads state.'''
-                val = rc.state.get("counter", int)
+                val = rc.state.get("counter")
                 print(f"job_b_read={val}")
             """)
         )
@@ -609,18 +610,30 @@ class TestWorkflowScopeSharedState:
         app.hooks.register_run_middleware(scope_middleware)
 
         # Execute job_a - writes state
-        result_a = runner.invoke(app.cli_command, ["job_a"])
-        assert result_a.exit_code == 0
-        assert "job_a_wrote=42" in result_a.output
+        # **One scope, named.** Two bare CLI invocations are two runs and
+        # share nothing — that is the boundary state is scoped to, not a
+        # defect. The old form of this test shared a store because a middleware
+        # injected one; naming the scope is how a user actually says "these
+        # two belong together".
+        from functualize._types.run_request import RunRequest
 
-        # Execute job_b - should read state from shared scope
-        result_b = runner.invoke(app.cli_command, ["job_b"])
-        assert result_b.exit_code == 0
-        assert "job_b_read=42" in result_b.output
+        def _run(job: str) -> Any:
+            return app.execute(
+                RunRequest(
+                    job_name=job,
+                    surface="app.execute",
+                    workflow_scope_id="shared-workflow",
+                )
+            )
+
+        assert _run("job_a").status.value == "Success"
+        assert "job_a_wrote=42" in capsys.readouterr().out
+        assert _run("job_b").status.value == "Success"
+        assert "job_b_read=42" in capsys.readouterr().out
 
     @patch("functualize._plugins.loader.entry_points")
     def test_workflow_scope_close_prevents_mutation(
-        self, mock_entry_points: Any, tmp_path: Path
+        self, mock_entry_points: Any, tmp_path: Path, capsys: Any
     ) -> None:
         """After closing a WorkflowScope, state mutation raises error."""
         mock_entry_points.return_value = []
@@ -651,16 +664,21 @@ class TestWorkflowScopeSharedState:
         scope.state_store.set("pre_close", "data")
         scope.close()
 
-        # Register middleware that injects the closed scope's state store
-        def closed_scope_middleware(rc: Any) -> Generator[None]:
-            rc._state_store = scope.state_store
-            yield
+        # Run *in* that scope, by naming it. The old form of this test set
+        # `rc._state_store` from a middleware; that attribute is gone, and
+        # poking a private field was never the behaviour under test anyway —
+        # what matters is that a job running in a closed scope cannot write.
+        from functualize._types.run_request import RunRequest
 
-        app.hooks.register_run_middleware(closed_scope_middleware)
-
-        result = runner.invoke(app.cli_command, ["write_closed"])
-        assert result.exit_code == 0
-        assert "WRITE_BLOCKED:InvalidStateTransitionError" in result.output
+        result = app.execute(
+            RunRequest(
+                job_name="write_closed",
+                surface="app.execute",
+                workflow_scope_id="closed-workflow",
+            )
+        )
+        assert result.status.value == "Success", result.exception
+        assert "WRITE_BLOCKED:InvalidStateTransitionError" in capsys.readouterr().out
 
     @patch("functualize._plugins.loader.entry_points")
     def test_workflow_scope_metadata_accessible(
@@ -683,7 +701,9 @@ class TestWorkflowScopeSharedState:
 
     def test_workflow_scope_state_accumulates_across_invocations(self) -> None:
         """WorkflowScope state accumulates correctly across multiple calls."""
-        scope = WorkflowScope("accumulate-scope")
+        scope = WorkflowScope(
+            "accumulate-scope", state_store=new_state_store("accumulate-scope")
+        )
         store = scope.state_store
 
         # Simulate multiple job invocations writing different keys
@@ -711,9 +731,23 @@ class TestCombinedPluginMiddlewareScopeFlow:
         ConfigurationFacade, "resolve_model", side_effect=_resolve_model_from_defaults
     )
     def test_full_orchestration_flow(
-        self, _mock_resolve: Any, mock_entry_points: Any, tmp_path: Path
+        self,
+        _mock_resolve: Any,
+        mock_entry_points: Any,
+        tmp_path: Path,
+        capsys: Any,
+        monkeypatch: Any,
     ) -> None:
-        """Full flow: plugin config + middleware resource injection + scope state."""
+        """Full flow: plugin config + middleware resource injection + scope state.
+
+        `chdir` into the temp project, because the state root is resolved by an
+        upward walk from the working directory: without it this test wrote its
+        scope into the *repository's* `.functualize/scopes.json` and read back
+        the counter left by the previous run — `invocation=4` on a first
+        invocation. The leak is older and wider than this test; see the
+        capability-duality task list.
+        """
+        monkeypatch.chdir(tmp_path)
         plugin = _make_plugin(
             name="notifier",
             version="1.0.0",
@@ -742,7 +776,7 @@ class TestCombinedPluginMiddlewareScopeFlow:
                 print(f"http_client={client}")
 
                 # Read and write state
-                prev = rc.state.get("invocation_count", int)
+                prev = rc.state.get("invocation_count")
                 new_count = (prev or 0) + 1
                 rc.state.set("invocation_count", new_count)
                 print(f"invocation={new_count}")
@@ -753,28 +787,36 @@ class TestCombinedPluginMiddlewareScopeFlow:
             name="testapp", job_sources=JobSources(directories=[str(jobs_dir)])
         )
 
-        # Create a workflow scope for shared state
-        scope = app.workflows.create_workflow_scope("orchestration-flow")
-
-        # Register middleware: inject resource + attach scope state store
+        # Middleware still injects the resource; it no longer reaches into
+        # `rc._state_store`, which is gone. State is reached by naming the
+        # scope, which is the user-facing way to say "these runs belong
+        # together" (ADR-021).
         def orchestration_middleware(rc: Any) -> Generator[None]:
             inject_resource(rc, "http_client", "httpx-session-mock")
-            rc._state_store = scope.state_store
             yield
 
         app.hooks.register_run_middleware(orchestration_middleware)
 
-        # First invocation
-        result1 = runner.invoke(app.cli_command, ["full_flow"])
-        assert result1.exit_code == 0
-        assert "notif_url=https://default.hook" in result1.output
-        assert "http_client=httpx-session-mock" in result1.output
-        assert "invocation=1" in result1.output
+        from functualize._types.run_request import RunRequest
 
-        # Second invocation - state persists via scope
-        result2 = runner.invoke(app.cli_command, ["full_flow"])
-        assert result2.exit_code == 0
-        assert "invocation=2" in result2.output
+        def _run() -> Any:
+            return app.execute(
+                RunRequest(
+                    job_name="full_flow",
+                    surface="app.execute",
+                    workflow_scope_id="orchestration-flow",
+                )
+            )
+
+        assert _run().status.value == "Success"
+        first = capsys.readouterr().out
+        assert "notif_url=https://default.hook" in first
+        assert "http_client=httpx-session-mock" in first
+        assert "invocation=1" in first
+
+        # Second run in the same scope — the counter carries.
+        assert _run().status.value == "Success"
+        assert "invocation=2" in capsys.readouterr().out
 
     @patch("functualize._plugins.loader.entry_points")
     def test_legacy_plugin_loads_without_config(

@@ -8,7 +8,6 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from functualize._config.job_config import JobConfigView
-from functualize.job._state_store import StateStore
 from functualize.job.context import RunContext
 
 
@@ -233,16 +232,16 @@ class TestWithPluginConfig:
 
     def test_new_context_shares_state_store(self, mock_config, mock_logger):
         """The new RunContext shares the same state_store reference."""
-        store = StateStore()
         rc = RunContext(
             name="test",
             config=mock_config,
             logger=mock_logger,
             plugin_configs={"plugin.notifications": SamplePluginConfig()},
-            state_store=store,
         )
         new_rc = rc.wiring.with_plugin_config("plugin.notifications", timeout=99)
-        assert new_rc._state_store is store
+        # `_state_store` is gone; the derived context shares the *scope*,
+        # which is where the store now lives (ADR-021).
+        assert new_rc._workflow_scope is rc._workflow_scope
 
 
 class TestConstructorNewParams:
@@ -259,17 +258,6 @@ class TestConstructorNewParams:
         )
         assert rc.wiring.get_plugin_config("section").timeout == 30
 
-    def test_state_store_param(self, mock_config, mock_logger):
-        """state_store kwarg is stored for later use."""
-        store = StateStore()
-        rc = RunContext(
-            name="test",
-            config=mock_config,
-            logger=mock_logger,
-            state_store=store,
-        )
-        assert rc._state_store is store
-
     def test_resources_param(self, mock_config, mock_logger):
         """resources kwarg is stored for later use."""
         resources = {"db": "fake-client"}
@@ -283,7 +271,6 @@ class TestConstructorNewParams:
 
     def test_all_new_params_together(self, mock_config, mock_logger):
         """All new params work together."""
-        store = StateStore()
         configs = {"section": SamplePluginConfig()}
         resources = {"db": "client"}
         rc = RunContext(
@@ -291,9 +278,7 @@ class TestConstructorNewParams:
             config=mock_config,
             logger=mock_logger,
             plugin_configs=configs,
-            state_store=store,
             resources=resources,
         )
         assert rc._plugin_configs is configs
-        assert rc._state_store is store
         assert rc._resources is resources

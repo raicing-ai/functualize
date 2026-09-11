@@ -40,9 +40,20 @@ if TYPE_CHECKING:
 __all__ = ["WorkflowRun", "WorkflowRunner", "new_scope_id"]
 
 
-def new_scope_id() -> str:
-    """A fresh scope identifier for one workflow invocation."""
-    return uuid.uuid4().hex[:16]
+def new_scope_id(job_name: str | None = None) -> str:
+    """A fresh scope identifier for one run.
+
+    Named after the job when the caller knows it — ``deploy-8f3c1a2b`` — because
+    this id is what a human is handed to resume with, and a bare hex string
+    tells them nothing about which workflow they are resuming.
+
+    **One generator.** There were two: this one minted ``<hex16>`` and
+    `app.execute` minted ``<job>-<hex8>``, so the id a user was told to type
+    depended on which door started the run. Two test suites each asserted a
+    different shape, which is how a divergence survives.
+    """
+    tail = uuid.uuid4().hex[:8]
+    return f"{job_name}-{tail}" if job_name else uuid.uuid4().hex[:16]
 
 
 @dataclass(frozen=True)

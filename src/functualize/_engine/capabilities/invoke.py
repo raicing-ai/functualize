@@ -670,16 +670,34 @@ class WiredInvoke(Invoke):
                 )
 
             try:
-                # Surface `invoke.parallel` (contracts §5). The explicit
-                # `None` scope below is the deliberate behaviour spec AC-17
-                # pins: parallel jobs are independent — no shared scope.
+                # Surface `invoke.parallel` (contracts §5).
+                #
+                # **The scope object travels; the scope id does not.** An
+                # earlier spec pinned "parallel jobs are independent — no
+                # shared scope" and implemented it by passing
+                # `parent_scope=None`, which conflated two things that
+                # capability-duality/T3 had to separate anyway: the *id* names
+                # which step records and gates a walk replays, and the *object*
+                # is where the run's shared state lives. Independence is about
+                # the records — two batch items must not memoize each other's
+                # steps or resume into one another's gates — and it is fully
+                # preserved by `nested_request` resetting `workflow_scope_id`,
+                # which it does by default.
+                #
+                # Withholding the object as well meant a batch item had nowhere
+                # to write. Under the old in-memory store that was invisible:
+                # the item got a private dict, wrote to it, and the data went
+                # nowhere with no error. Once state became durable the same
+                # code raised instead — which is the bug becoming honest, not a
+                # new one. A batch item is part of the run the user started, so
+                # it stores state there.
                 result = self._engine.run(
                     nested_request(
                         self._parent_request,
                         job_name=job_name,
                         surface=self._parallel_item_surface,
                         kwargs=kwargs,
-                        parent_scope=None,  # Independent — no shared scope
+                        parent_scope=self._workflow_scope,
                         # Independent *scopes*, one parent *run*: the batch
                         # items are the children the run log most needs to
                         # place, and they run on worker threads where a

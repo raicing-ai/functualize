@@ -627,12 +627,26 @@ def create_workflow_scope(
     Raises:
         ValueError: If scope_id already exists.
     """
+    from functualize._engine.capabilities.state import ScopeBackedStateStore
     from functualize._engine.capabilities.workflow_scope import WorkflowScope
     from functualize._events.hooks import HookEvent
+    from functualize._primitives.scope_store import ScopeStore
 
     if scope_id in app._scope_registry:
         raise ValueError(f"Workflow scope '{scope_id}' already exists")
-    scope = WorkflowScope(scope_id, metadata=metadata)
+    # The durable default. The scope's own records already live in
+    # `scopes.json`; its state joins them there rather than in a dict that
+    # `_scope_registry = {}` at boot would drop — which is what made a resumed
+    # run come back with its step records intact and its state silently empty.
+    #
+    # The same upward walk the engine uses, so a reader and a writer cannot
+    # disagree about which project's file this is.
+    scopes = ScopeStore.beside_state(app.execution_engine._state_store().path)
+    scope = WorkflowScope(
+        scope_id,
+        metadata=metadata,
+        state_store=ScopeBackedStateStore(scopes, scope_id),
+    )
     app._scope_registry[scope_id] = scope
 
     hooks = app._hook_registry._global_hooks.get(HookEvent.ON_SCOPE_CREATED, [])

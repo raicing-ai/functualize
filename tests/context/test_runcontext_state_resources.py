@@ -20,13 +20,13 @@ from unittest.mock import MagicMock
 import pytest
 
 from functualize._config.job_config import JobConfigView
-from functualize.job._state_store import StateStore
 from functualize.job.context import (
     InvalidStateTransitionError,
     RunContext,
     RunStatus,
     inject_resource,
 )
+from tests.context.conftest import new_state_store
 
 
 @pytest.fixture
@@ -50,44 +50,53 @@ def rc(mock_config, mock_logger):
 
 
 class TestStateProperty:
-    """Tests for RunContext.state property."""
+    """`rc.state` — the run's durable store.
 
-    def test_state_returns_state_store(self, rc):
-        """Accessing .state returns a StateStore instance."""
-        assert isinstance(rc.state, StateStore)
+    Rewritten when the in-memory tier was removed. The old contract was "a
+    lazily-allocated per-context `StateStore`", which is precisely the
+    behaviour that made a resumed run come back empty. The new one is: `State`,
+    backed by the run's scope, and the *same object* a `state: State` parameter
+    receives (ADR-021).
+    """
 
-    def test_state_lazily_created(self, mock_config, mock_logger):
-        """StateStore is not allocated until first access."""
-        run_ctx = RunContext(name="test", config=mock_config, logger=mock_logger)
-        # Before access, _state_store is None
-        assert run_ctx._state_store is None
-        # After access, it's created
-        _ = run_ctx.state
-        assert run_ctx._state_store is not None
+    def test_state_returns_the_state_capability(self, rc):
+        from functualize._engine.capabilities.state import State
+
+        assert isinstance(rc.state, State)
 
     def test_state_same_instance_on_repeated_access(self, rc):
-        """Repeated access returns the same StateStore instance."""
-        s1 = rc.state
-        s2 = rc.state
-        assert s1 is s2
+        """Repeated access is one object, not one per call."""
+        assert rc.state is rc.state
 
-    def test_state_with_provided_store(self, mock_config, mock_logger):
-        """If state_store is provided in constructor, it is used."""
-        store = StateStore()
-        store.set("key", "value")
+    def test_state_is_functional_when_the_context_has_a_scope(
+        self, mock_config, mock_logger
+    ):
+        from functualize._engine.capabilities.workflow_scope import WorkflowScope
+
+        scope = WorkflowScope("s", state_store=new_state_store("s"))
         run_ctx = RunContext(
             name="test",
             config=mock_config,
             logger=mock_logger,
-            state_store=store,
+            _workflow_scope=scope,
         )
-        assert run_ctx.state is store
-        assert run_ctx.state.get("key", str) == "value"
+        run_ctx.state.set("counter", 42)
+        assert run_ctx.state.get("counter") == 42
 
-    def test_state_is_functional(self, rc):
-        """StateStore operations work through the property."""
-        rc.state.set("counter", 42)
-        assert rc.state.get("counter", int) == 42
+    def test_a_context_with_no_scope_says_so_rather_than_pretending(
+        self, mock_config, mock_logger
+    ):
+        """No silent stand-in.
+
+        A context built outside the engine has no scope and therefore nowhere
+        durable to write. It raises on first use rather than accepting writes
+        nothing will ever read — the failure this whole change removed.
+        """
+        from functualize._engine.capabilities.state import StateUnavailableError
+
+        run_ctx = RunContext(name="test", config=mock_config, logger=mock_logger)
+        with pytest.raises(StateUnavailableError):
+            run_ctx.state.set("k", "v")
 
 
 class TestResourcesProperty:

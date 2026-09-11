@@ -11,7 +11,7 @@ import pytest
 from hypothesis import assume, given
 from hypothesis import strategies as st
 
-from functualize.job._state_store import StateStore
+from tests.context.conftest import new_state_store
 
 # --- Strategies ---
 
@@ -61,7 +61,7 @@ class TestStateStoreKeysAndClearConsistency:
 
         **Validates: Requirements 6.5**
         """
-        store = StateStore()
+        store = new_state_store()
         for key, value in items.items():
             store.set(key, value)
 
@@ -84,7 +84,7 @@ class TestStateStoreKeysAndClearConsistency:
 
         **Validates: Requirements 6.6**
         """
-        store = StateStore()
+        store = new_state_store()
         for key, value in items.items():
             store.set(key, value)
 
@@ -115,7 +115,7 @@ class TestStateStoreKeysAndClearConsistency:
 
         **Validates: Requirements 6.5**
         """
-        store = StateStore()
+        store = new_state_store()
         for key, value in items.items():
             store.set(key, value)
 
@@ -140,8 +140,8 @@ class TestStateStoreKeysAndClearConsistency:
 
         **Validates: Requirements 6.5**
         """
-        store1 = StateStore()
-        store2 = StateStore()
+        store1 = new_state_store()
+        store2 = new_state_store()
 
         # Insert in original order
         for key, value in items:
@@ -194,7 +194,7 @@ class TestStateStoreTypedGet:
 
         **Validates: Requirements 6.7**
         """
-        store = StateStore()
+        store = new_state_store()
         store.set(key, value)
         assert store.get(key, str) == value
 
@@ -204,7 +204,7 @@ class TestStateStoreTypedGet:
 
         **Validates: Requirements 6.7**
         """
-        store = StateStore()
+        store = new_state_store()
         store.set(key, value)
         assert store.get(key, int) == value
 
@@ -214,7 +214,7 @@ class TestStateStoreTypedGet:
 
         **Validates: Requirements 6.7**
         """
-        store = StateStore()
+        store = new_state_store()
         store.set(key, value)
         assert store.get(key, float) == value
 
@@ -224,7 +224,7 @@ class TestStateStoreTypedGet:
 
         **Validates: Requirements 6.7**
         """
-        store = StateStore()
+        store = new_state_store()
         store.set(key, value)
         assert store.get(key, bool) == value
 
@@ -234,7 +234,7 @@ class TestStateStoreTypedGet:
 
         **Validates: Requirements 6.7**
         """
-        store = StateStore()
+        store = new_state_store()
         store.set(key, value)
         assert store.get(key, list) == value
 
@@ -244,7 +244,7 @@ class TestStateStoreTypedGet:
 
         **Validates: Requirements 6.7**
         """
-        store = StateStore()
+        store = new_state_store()
         store.set(key, value)
         assert store.get(key, dict) == value
 
@@ -261,7 +261,7 @@ class TestStateStoreTypedGet:
 
         **Validates: Requirements 6.7**
         """
-        store = StateStore()
+        store = new_state_store()
         store.set(key, value)
 
         with pytest.raises(TypeError, match=key) as exc_info:
@@ -284,7 +284,7 @@ class TestStateStoreTypedGet:
 
         **Validates: Requirements 6.7**
         """
-        store = StateStore()
+        store = new_state_store()
         store.set(key, value)
 
         with pytest.raises(TypeError, match=key) as exc_info:
@@ -307,7 +307,7 @@ class TestStateStoreTypedGet:
 
         **Validates: Requirements 6.7**
         """
-        store = StateStore()
+        store = new_state_store()
         store.set(key, value)
 
         with pytest.raises(TypeError, match=key) as exc_info:
@@ -328,7 +328,7 @@ class TestStateStoreTypedGet:
 
         **Validates: Requirements 6.7**
         """
-        store = StateStore()
+        store = new_state_store()
         result = store.get(key, type_param)
         assert result is None
 
@@ -346,7 +346,7 @@ class TestStateStoreTypedGet:
         """
         assume(key != other_key)
 
-        store = StateStore()
+        store = new_state_store()
         store.set(other_key, "placeholder")
 
         result = store.get(key, type_param)

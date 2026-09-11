@@ -12,7 +12,7 @@ from typing import Any
 
 from functualize._types.protocols import PluginWithShutdown
 from functualize.job._protocols import StateStoreProtocol
-from functualize.job._state_store import StateStore
+from tests.context.conftest import new_state_store
 
 
 class TestStateStoreProtocolCompliance:
@@ -23,7 +23,7 @@ class TestStateStoreProtocolCompliance:
 
         **Validates: Requirements 7.1, 7.6**
         """
-        store = StateStore()
+        store = new_state_store()
         assert isinstance(store, StateStoreProtocol)
 
     def test_protocol_is_runtime_checkable(self) -> None:
@@ -48,7 +48,7 @@ class TestStateStoreProtocolCompliance:
 
         **Validates: Requirements 7.6**
         """
-        store = StateStore()
+        store = new_state_store()
         # Verify all protocol methods exist and are callable
         assert callable(store.get)
         assert callable(store.set)
@@ -64,7 +64,7 @@ class TestStateStoreProtocolCompliance:
 
         **Validates: Requirements 7.1**
         """
-        store = StateStore()
+        store = new_state_store()
         store.set("key", "value")
         assert store.get("key") == "value"
         store.delete("key")
@@ -77,8 +77,8 @@ class TestStateStoreProtocolCompliance:
 
         **Validates: Requirements 7.1**
         """
-        store = StateStore()
-        store._set_job_state("job_a", "counter", 42)
+        store = new_state_store()
+        store.set("job_a.counter", 42)
         assert store.get_job_state("job_a", "counter") == 42
         assert store.get_job_state("job_a", "missing", "default") == "default"
         assert store.get_job_state("nonexistent_job", "key") is None
@@ -88,10 +88,10 @@ class TestStateStoreProtocolCompliance:
 
         **Validates: Requirements 7.1**
         """
-        store = StateStore()
+        store = new_state_store()
         assert store.list_job_namespaces() == []
-        store._set_job_state("job_a", "key", "value")
-        store._set_job_state("job_b", "key", "value")
+        store.set("job_a.key", "value")
+        store.set("job_b.key", "value")
         namespaces = store.list_job_namespaces()
         assert sorted(namespaces) == ["job_a", "job_b"]
 
@@ -100,22 +100,11 @@ class TestStateStoreProtocolCompliance:
 
         **Validates: Requirements 7.1, 7.6**
         """
-        store = StateStore()
+        store = new_state_store()
         store.set("exists", "hello")
         assert store.get("exists") == "hello"
         assert store.get("missing") is None
         assert store.get("missing", "fallback") == "fallback"
-
-    def test_backward_compatible_typed_get(self) -> None:
-        """StateStore.get still supports typed get for backward compatibility.
-
-        **Validates: Requirements 7.6**
-        """
-        store = StateStore()
-        store.set("name", "alice")
-        # Old-style typed get still works
-        assert store.get("name", str) == "alice"
-        assert store.get("missing_key", str) is None
 
 
 class TestPluginWithShutdownProtocol:
