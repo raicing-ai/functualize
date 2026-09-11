@@ -210,6 +210,19 @@ change*, *middle man*, *primitive obsession* — rather than describing a proble
 in your own adjectives. A named smell is one two readers of the same diagram
 agree about; "this feels tangled" is not.
 
+**The catalogue is not in this repository.** Measured: none of those six names
+appears anywhere in `.claude/skills/python-design-patterns/`, which covers KISS,
+separation of concerns, single responsibility, God-class decomposition and
+composition over inheritance — principles, not a smell catalogue. All six come
+from a **user-level** skill (here, `coding__design-patterns-refactoring`, which
+carries the Refactoring.Guru catalogue).
+
+So if the available-skills listing offers no refactoring catalogue, say so in
+`plan.md` and name the smells as precisely as you can from the principles the
+in-repo skill does cover. Do **not** silently invent names that look
+catalogue-shaped — a fabricated term is worse than a plain description, because
+it reads as agreed vocabulary when nobody else uses it.
+
 ### Code smells: three points, not one
 
 The gate touches smells at three distinct moments, and skipping any one of them
