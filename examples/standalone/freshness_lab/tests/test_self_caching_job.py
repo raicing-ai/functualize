@@ -83,9 +83,7 @@ def lab(tmp_path: Path) -> Lab:
 
 def token(proc: subprocess.CompletedProcess[str], marker: str) -> str:
     """The `built=<token>` a marker line published — the build's identity."""
-    line = next(
-        line for line in proc.stdout.splitlines() if line.startswith(marker)
-    )
+    line = next(line for line in proc.stdout.splitlines() if line.startswith(marker))
     return line.split("built=")[1].split()[0]
 
 
@@ -101,7 +99,9 @@ class TestTheJobThatDecides:
         assert artifact["total"] == 27
         assert artifact["built"] == token(proc, "BUILT")
 
-    def test_a_fresh_run_enters_the_body_and_returns_the_artifact(self, lab: Lab) -> None:
+    def test_a_fresh_run_enters_the_body_and_returns_the_artifact(
+        self, lab: Lab
+    ) -> None:
         built = lab.ok("lab", "report")
         warm = lab.ok("lab", "report")
 

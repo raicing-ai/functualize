@@ -191,7 +191,7 @@ timeout = 60
 engine = "shell"
 description = "inv.parallel runs N children; each child's State is its OWN, and the parent sees none of it (guide §5.1)"
 command = "cd examples/standalone/composition_lab && func lab fanout"
-expected = { exit_code = 0, stdout_contains = "FANOUT n=2 statuses=['Success', 'Success'] parent_state=None" }
+expected = { exit_code = 0, stdout_contains = "FANOUT n=2 statuses=['Success', 'Success'] produced=['worker.a', 'worker.b']" }
 timeout = 90
 
 [[steps]]
@@ -311,7 +311,7 @@ timeout = 90
 [[steps]]
 engine = "shell"
 description = "block -> answer -> resume completes the SAME scope, on the app surface (the original defect: scope addressing was a `func`-only pre-command global, so this walk could never finish)"
-command = '''cd examples/standalone/composition_lab && out=$(python main.py lab release 2>&1); id=$(printf '%s\n' "$out" | sed -n "s/.*scope '\([0-9a-f]*\)'.*/\1/p" | head -1); echo "scope=$id" && python main.py builtin workflow answer "$id" approval-gate --input '{"note":"ok"}' && python main.py lab release --wf-resume "$id"'''
+command = '''cd examples/standalone/composition_lab && out=$(python main.py lab release 2>&1); id=$(printf '%s\n' "$out" | sed -n "s/.*scope '\([A-Za-z0-9._-]*\)'.*/\1/p" | head -1); echo "scope=$id" && python main.py builtin workflow answer "$id" approval-gate --input '{"note":"ok"}' && python main.py lab release --wf-resume "$id"'''
 expected = { exit_code = 0, stdout_contains = "RELEASE complete" }
 timeout = 120
 

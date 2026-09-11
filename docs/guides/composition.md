@@ -52,7 +52,7 @@ Start here. Find the sentence that matches what you are trying to do.
 |---|---|
 | re-globbing your own `Fingerprint(sources=...)` in the body | two statements of one intent drift; use `Sources` |
 | `subprocess.run` | `Shell` gives you secret redaction, streaming, retry and a `FakeShell` for tests |
-| a module-level global | `State` for one invocation; a file for across runs |
+| a module-level global | `State` for one run; a file for across runs |
 | `print()` for machine output | `out.emit()` honours `--emit-format`; `print` does not |
 | `sys.exit(1)` in a guard | `Precondition` refuses with exit **3**, which a caller can tell from a crash |
 | a sentinel file you check by hand | `Guards(status=...)`, which ANDs with staleness (§3, R10a) |
@@ -243,23 +243,37 @@ costs an afternoon. See
 [`contributor/reference/pitfalls.md`](https://github.com/raicing-ai/functualize/blob/master/contributor/reference/pitfalls.md)
 for the full list.
 
-### 5.1 Three things are called "state"; one persists
+### 5.1 `State` belongs to the run, not to the job
 
-| Name | Import | Scope | Persists? |
+| Name | Import | Scope | Survives a resume? |
 |---|---|---|---|
-| `State` (capability) | `functualize.job` | one invocation | **no** |
-| `StateStore` (scope) | internal | one `WorkflowScope` | no |
-| `StateStore` (runtime) | `functualize.app.utils` | the project | **yes** — `.functualize/state.json` |
+| `State` | `functualize.job` | **one run** — every job in it shares one store | **yes** — it lives in the run's scope record |
+| runtime store | `functualize.app.utils` | the project | yes — fingerprints, history, the precondition cache |
 
-`lab fanout` pins it: two children each set `state["slot"]`, and the parent
-reads `None`.
+`State` used to be per-invocation and in memory, which made it useless for the
+case you most need a store in: a workflow that blocks at a gate and resumes in a
+new process came back with its step records intact and its state silently empty.
+It is the run's store now, so a later step reads what an earlier one wrote, and
+a resume finds both.
+
+`lab fanout` pins it. The batch's items write into the run's store — which is
+what lets the parent read what they produced:
 
 ```
 $ func lab fanout
-WORKER slot=a state=a
-WORKER slot=b state=b
-FANOUT n=2 statuses=['Success', 'Success'] parent_state=None
+WORKER slot=a wrote worker.a
+WORKER slot=b wrote worker.b
+FANOUT n=2 statuses=['Success', 'Success'] produced=['worker.a', 'worker.b']
 ```
+
+One flat key space per run, so **name the key after the writer**. Two jobs
+writing `"count"` is last-write-wins; `"fetch.count"` and `"report.count"` are
+not, and `state.keys("fetch.*")` reads one namespace back — `*` stops at the
+dot, so it cannot reach `fetchmeta.x`.
+
+A fresh run is a fresh scope, so `State` carries nothing from one run to the
+next. `lab counter` shows the alternative: a number that must climb across runs
+lives in a file the job owns.
 
 ### 5.2 A refusal is not a failure, and not a skip
 

@@ -264,7 +264,7 @@ class TestTheGatedWalk:
     GATE = "approval-gate"
 
     def _scope_of(self, proc: subprocess.CompletedProcess[str]) -> str:
-        match = re.search(r"scope '([0-9a-f]+)'", Lab.both(proc))
+        match = re.search(r"scope '([\w.-]+)'", Lab.both(proc))
         assert match, Lab.both(proc)
         return match.group(1)
 
@@ -279,7 +279,7 @@ class TestTheGatedWalk:
         # It must also name the command that *finishes* the run. With no
         # pre-command flag to fall back on, "re-run the command you remember"
         # is gone, so exit 5 carries the whole continuation.
-        assert re.search(r"lab release --wf-resume [0-9a-f]+", out), out
+        assert re.search(r"lab release --wf-resume [\w.-]+", out), out
         assert "--wf-input" in out, out
 
     def test_a_recorded_answer_lets_the_same_walk_finish(self, lab: Lab) -> None:

@@ -106,7 +106,9 @@ the framework underneath.
 - [ ] `func lab verify` exits **3** with `declared sources resolved to no files`
 - [ ] `rm build/report.md` makes `lab report` run again with inputs unchanged
 - [ ] `func --emit-format json lab emit` prints JSON; `func lab emit --emit-format json` errors
-- [ ] `func lab fanout` reports `parent_state=None`
+- [ ] `func lab fanout` reports `produced=['worker.a', 'worker.b']` —
+      the batch's items write into the run's store, which is what lets the
+      parent read what they produced
 - [ ] `func lab bundle` twice: the second is fresh, because `dist/*.tar.gz` matches
 - [ ] `func --force lab --strict bundle` re-runs and reports `strict=True`
 - [ ] `LAB__STRICT=true func check signoff` reports `strict=True` — the flag is

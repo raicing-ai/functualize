@@ -43,8 +43,7 @@ ARTIFACT = Path("build/report.json")
 def _counts(sources: Sources) -> dict[str, int]:
     """Words per declared input — read through ``Sources``, not re-globbed."""
     return {
-        path: len(Path(path).read_text().split())
-        for path in sorted(sources.keys())
+        path: len(Path(path).read_text().split()) for path in sorted(sources.keys())
     }
 
 
