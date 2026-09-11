@@ -83,6 +83,20 @@ indistinguishable from an oversight.
    refusal is reachable by a test. A port member nothing honours is a gate that
    cannot fail, which is what T7 would have discovered first.
 
+### Sabotage
+
+Eight sabotages, each asserted to have applied before its result was read:
+`expect` ignored (3 fail), revision constant (3), acquisition unsorted (2),
+`lock` holding only the first key (2), traversal allowed (5), unreadable
+degrading to None (3), missing reading as empty (1), `write` taking the lock
+again (1).
+
+The ordering one was **inert on the first pass** — a liveness test cannot fail
+here, because `file_lock` gives up after ten seconds and proceeds rather than
+deadlocking, so an inverted pair stalls and loses a write instead of hanging.
+Replaced with an assertion on the acquisition order itself, which is what
+sorting actually guarantees.
+
 `write` deliberately does **not** take the lock: `file_lock` opens a fresh
 descriptor and `flock`s it, so a nested acquire inside a caller that already
 holds the key spins the full ten-second timeout, warns that writes can now be

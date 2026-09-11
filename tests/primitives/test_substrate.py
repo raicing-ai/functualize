@@ -25,12 +25,14 @@ from __future__ import annotations
 
 import json
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from functualize._primitives import substrate as substrate_module
 from functualize._primitives.substrate import JsonFileSubstrate
 from functualize._types.errors import SubstrateUnreadableError
 from functualize._types.protocols import Stored, StoreSubstrate
@@ -291,7 +293,7 @@ class TestLockSpansKeys:
                 assert substrate.path_for(key).with_suffix(".json.lock").exists()
 
     def test_keys_are_acquired_in_a_stable_order(
-        self, substrate: JsonFileSubstrate
+        self, substrate: JsonFileSubstrate, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Sorted, so the many-lock implementation cannot deadlock against itself.
 
@@ -299,26 +301,55 @@ class TestLockSpansKeys:
         one order. It does **not** help against a caller that takes one lock,
         does something, then takes another — that inversion is only removed by a
         substrate with a single lock, which is what this port makes possible.
+
+        Asserted on the acquisition *order* rather than by racing two threads,
+        because the race cannot fail here: `file_lock` gives up after ten
+        seconds and proceeds, so an inverted pair stalls and loses a write
+        instead of hanging. A timing assertion on that would be flaky, and a
+        liveness assertion passes whether or not the keys are sorted — measured:
+        deleting the `sorted()` failed nothing.
         """
-        done = threading.Event()
+        asked: list[str] = []
+        real = substrate_module.file_lock
 
-        def forwards() -> None:
-            with substrate.lock("a", "b"):
+        @contextmanager
+        def spy(path: Path | str, timeout: float = 10.0) -> Iterator[None]:
+            asked.append(Path(path).name)
+            with real(path, timeout):
+                yield
+
+        monkeypatch.setattr(substrate_module, "file_lock", spy)
+
+        with substrate.lock("b", "a", "c"):
+            pass
+
+        assert asked == ["a.json", "b.json", "c.json"], (
+            f"keys were acquired in the order given, not sorted: {asked}"
+        )
+
+    def test_the_same_set_acquires_alike_whatever_the_order_asked(
+        self, substrate: JsonFileSubstrate, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The property sorting exists for, stated as the equality it is."""
+        runs: list[list[str]] = []
+        real = substrate_module.file_lock
+
+        @contextmanager
+        def spy(path: Path | str, timeout: float = 10.0) -> Iterator[None]:
+            runs[-1].append(Path(path).name)
+            with real(path, timeout):
+                yield
+
+        monkeypatch.setattr(substrate_module, "file_lock", spy)
+
+        for order in (("scopes", "scope-state/x"), ("scope-state/x", "scopes")):
+            runs.append([])
+            with substrate.lock(*order):
                 pass
 
-        def backwards() -> None:
-            with substrate.lock("b", "a"):
-                pass
-            done.set()
-
-        first = threading.Thread(target=forwards)
-        second = threading.Thread(target=backwards)
-        first.start()
-        second.start()
-        first.join(timeout=20)
-        second.join(timeout=20)
-
-        assert done.is_set(), "two callers locking the same pair deadlocked"
+        assert runs[0] == runs[1], (
+            f"two callers locking the same pair disagreed on the order: {runs}"
+        )
 
     def test_locking_nothing_is_allowed(self, substrate: JsonFileSubstrate) -> None:
         """A store batching zero keys should not have to special-case it."""
