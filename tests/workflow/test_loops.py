@@ -1,6 +1,6 @@
 """A cycle in a step graph is refused at declaration, not run once in silence.
 
-`workflow-graph-semantics`/T1. Spec AC-3.
+`workflow-graph-semantics`/T1 and T2. Spec AC-1, AC-2, AC-3, AC-4.
 
 **What this changes.** A declared cycle used to be *accepted*. The walk prunes
 nodes it has already visited, so the second pass was dropped with no message at
@@ -368,7 +368,7 @@ def store(tmp_path) -> ScopeStore:
 
 
 class TestTheIterationKeyingIsRightBothWays:
-    """**Both failure modes are silent**, so they are asserted in one body.
+    """AC-1 and AC-2, in one body. **Both failure modes are silent.**
 
     Key `visited` by node alone and a loop's second pass is pruned — which
     looks exactly like a loop condition that was false. Key it by iteration

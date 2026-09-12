@@ -75,12 +75,11 @@ The repository is a **uv workspace** with multiple packages:
 functualize/                          ← Root workspace
 ├── src/functualize/                  ← Core framework
 ├── plugins/
-│   ├── functualize-state/            ← Domain SDK: StateBackend, ExecutionStore
 │   ├── functualize-ai/               ← Domain SDK: AI capability
 │   ├── functualize-tasks/            ← Domain SDK: Tasks capability
 │   ├── functualize-ai-pydantic/      ← Implementation: PydanticAI + LiteLLM
-│   ├── functualize-state-sqlite/     ← Implementation: SQLite persistence
-│   ├── functualize-tasks-local/      ← Implementation: StateBackend-backed tasks
+│   ├── functualize-state-sqlite/     ← Storage: a SQLite StoreSubstrate
+│   ├── functualize-tasks-local/      ← Implementation: tasks on the project substrate
 │   ├── functualize-mcp/              ← Delivery: MCP adapter (FastMCP)
 │   ├── functualize-http/             ← Delivery: HTTP adapter
 │   ├── functualize-lambda/           ← Delivery: AWS Lambda adapter
@@ -644,7 +643,7 @@ Examples of *using* a specific first-party plugin belong in that plugin's own fo
 
 1. **Include a test file** (`test_*.py`) proving the example works (interactive TUI scenarios document manual steps instead)
 2. **Include a `README.md`** explaining the use case and how to run
-3. **Keep dependencies minimal** — Use testing doubles (MockAI, InMemoryState) instead of real backends
+3. **Keep dependencies minimal** — Use testing doubles (MockAI, MockTasks) instead of real backends
 4. **Keep tests green** — Run `uv run pytest examples/ -v` before submitting (requires `uv sync --all-packages`). CI runs this too, in the `examples` job, so a broken example fails the pull request.
 
 ### Running Example Tests

@@ -1,14 +1,14 @@
 [project]
-name = "functualize-state-memory-ttl"
+name = "functualize-state-memory"
 version = "0.1.0"
-description = "Example plugin: In-memory state backend with TTL support"
+description = "Example plugin: an in-memory StoreSubstrate"
 requires-python = ">=3.11"
 dependencies = [
-    "functualize-state",
+    "functualize",
 ]
 
 [project.entry-points."functualize.state_providers"]
-memory-ttl = "functualize_state_memory:MemoryTTLPlugin"
+memory = "functualize_state_memory:MemoryStatePlugin"
 
 [build-system]
 requires = ["hatchling"]
@@ -18,4 +18,4 @@ build-backend = "hatchling.build"
 packages = ["src/functualize_state_memory"]
 
 [tool.uv.sources]
-functualize-state = { path = "../../../plugins/functualize-state", editable = true }
+functualize = { path = "../../..", editable = true }

@@ -415,7 +415,7 @@ Each plugin directory contains its own `pyproject.toml` with entry point declara
 | `functualize-http` | HTTP delivery adapter plugin for functualize using asyncio |
 | `functualize-lambda` | AWS Lambda adapter plugin for functualize - supports fat and thin Lambda deployment patterns |
 | `functualize-mcp` | MCP delivery adapter plugin for functualize — exposes jobs as MCP tools via FastMCP |
-| `functualize-state` | State Domain SDK providing protocols for state persistence and execution tracking |
+| `functualize-state-sqlite` | Installs a SQLite `StoreSubstrate`, so every store keeps its documents in one database |
 | `functualize-tasks` | Tasks Domain SDK for functualize — task management capabilities |
 | `functualize-tasks-local` | Local state-backed task storage plugin for functualize |
 | `functualize-flow-viz` | Inline flow visualization plugin for functualize job execution |

@@ -1,38 +1,62 @@
-"""Plugin boot class for the Memory TTL state backend.
+"""Plugin boot class for the in-memory substrate.
 
-This class is discovered via the entry point and called with
-the FunctualizeApp instance during boot. It registers the
-backend implementation with the DI registry.
+Discovered through the ``functualize.state_providers`` entry point and called
+with the app at boot. It registers **one** thing — the substrate — and every
+store follows, because there is one place that decides where documents live.
+
+This used to register a `StateBackend` into the DI registry, which is a seam
+that no longer exists: `contributor/adr/022` records why a backend-agnostic
+key-value domain was retired. The shape here mirrors
+`functualize-state-sqlite`'s plugin exactly, which is the point — a substrate
+in a dict and a substrate in a database are installed the same way.
 """
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
-from functualize_state_memory._backend import MemoryTTLBackend
+from functualize_state_memory._backend import MemorySubstrate
+
+__all__ = ["MemoryStatePlugin"]
+
+logger = logging.getLogger(__name__)
 
 
-class MemoryTTLPlugin:
-    """Plugin boot class — registered via functualize.state_providers entry point.
+class MemoryStatePlugin:
+    """Installs a :class:`MemorySubstrate` as the app's substrate at boot.
 
-    Entry point configuration in pyproject.toml:
+    Entry point configuration in pyproject.toml::
+
         [project.entry-points."functualize.state_providers"]
-        memory-ttl = "functualize_state_memory:MemoryTTLPlugin"
+        memory-ttl = "functualize_state_memory:MemoryStatePlugin"
     """
 
-    name = "state-memory-ttl"
-    domain = "state"
+    name: str = "state-memory"
+    version: str = "0.2.0"
+    description: str = "Keeps this project's runtime state in memory"
+
+    def __init__(self) -> None:
+        self._substrate: MemorySubstrate | None = None
+
+    @property
+    def substrate(self) -> MemorySubstrate | None:
+        """The substrate this plugin installed, or None before APP_READY."""
+        return self._substrate
 
     def __call__(self, app: Any) -> None:
-        """Boot the plugin — register MemoryTTLBackend with DI.
+        from functualize._events.hooks import HookEvent
 
-        Args:
-            app: The FunctualizeApp instance.
+        app.hook_registry.register_global(HookEvent.APP_READY, self._on_app_ready)
+
+    def _on_app_ready(self, app: Any) -> None:
+        """Choose the substrate once, before anything has resolved one.
+
+        `APP_READY` and not later: the engine resolves its substrate lazily, on
+        the first store access, and installing after that is **refused** rather
+        than half-applied — some of a run's documents in one backend and some in
+        another is the state the substrate seam exists to make unreachable.
         """
-        from functualize_state import StateBackend
-
-        # Read TTL from config (default: 1 hour)
-        default_ttl = 3600.0  # Could read from app config
-
-        backend = MemoryTTLBackend(default_ttl=default_ttl)
-        app.di.provide(StateBackend, backend)
+        self._substrate = MemorySubstrate()
+        app.substrate = self._substrate
+        logger.debug("state-memory installed an in-memory substrate")

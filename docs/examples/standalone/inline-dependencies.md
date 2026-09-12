@@ -9,7 +9,7 @@ Jobs that use Domain SDK packages (state, tasks) directly in a single script fil
 ## Running
 
 ```bash
-pip install "functualize[cli]" functualize-state functualize-tasks
+pip install "functualize[cli]" functualize-tasks
 cd examples/standalone/showcase
 func scripts/data_processor.py process --input-path ./sample.csv --format json
 func scripts/data_processor.py summarize --input-path ./sample.csv
@@ -18,8 +18,11 @@ func scripts/data_processor.py summarize --input-path ./sample.csv
 ## Key Concepts
 
 - **Multiple jobs per file** — `func` discovers all job functions in a single script
-- **`InMemoryState`** — Use the State SDK testing double for script-local persistence
-- **`StateNamespace`** — Prefix-scoped isolation for state keys
+- **A module-level dict** — script-local, and gone with the process. There
+  was a `functualize-state` SDK offering this behind a protocol; it was retired
+  (`contributor/adr/022`) because a backend-agnostic key-value protocol can only
+  offer the intersection of every backend. Durable state belongs to a *run*
+  (`rc.state`) or to a workflow scope.
 - **`MockTasks`** — Track tasks within a script without a database
 - **Shared module state** — Jobs in the same file can share state objects
 

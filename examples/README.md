@@ -56,7 +56,7 @@ Full applications using `FunctualizeApp`:
 
 Create your own plugins for the functualize ecosystem:
 
-- **custom_state_backend** — Implement the `StateBackend` protocol
+- **custom_state_backend** — Implement the `StoreSubstrate` port
 - **custom_adapter** — Implement the `AdapterPlugin` protocol
 - **file_based_plugin** — Zero-packaging plugin in `.functualize/plugins/`
 

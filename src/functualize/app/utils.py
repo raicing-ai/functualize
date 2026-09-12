@@ -22,6 +22,13 @@ from typing import Any
 from pydantic import TypeAdapter, ValidationError
 
 from functualize._config.merge import merge_config_layers
+
+# `workflow-graph-semantics`/T6. Core ships a notifier and registers none; this
+# is how somebody reaches it to register it. Without the re-export the claim in
+# `_engine/notify.LogNotifier`'s docstring — that "no notifier registered" is a
+# state a user can leave without installing a package — would be false, because
+# the only way to import it would be through `_engine`.
+from functualize._engine.notify import LogNotifier
 from functualize._primitives.agent_epilog import (
     agent_epilog,
     write_agent_epilog,
@@ -210,6 +217,7 @@ __all__ = [
     "job_history",
     "run_events",
     "run_tree",
+    "LogNotifier",
     "derived_state",
     "describe_scope",
     "walk_is_live",

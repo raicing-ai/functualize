@@ -33,7 +33,7 @@ Delivery-adapter projects live with their plugins:
 
 Create your own plugins and adapters for the ecosystem.
 
-- [Custom State Backend](plugins/custom-state-backend.md) — Implement the `StateBackend` protocol with TTL support.
+- [Custom Substrate](plugins/custom-state-backend.md) — Implement the `StoreSubstrate` port: bring your own storage.
 - [Custom Adapter](plugins/custom-adapter.md) — Implement the `AdapterPlugin` protocol for webhook delivery.
 - [File-Based Plugin](plugins/file-based-plugin.md) — Zero packaging: a single `.py` file in `.functualize/plugins/`.
 
