@@ -33,7 +33,6 @@ from __future__ import annotations
 import functools
 import logging
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from functualize.app.utils import (
@@ -143,7 +142,7 @@ class WorkflowToolProvider:
     def store(self) -> ScopeStore:
         """The scope store, resolved from the cwd on first use."""
         if self._store is None:
-            self._store = ScopeStore.for_project(Path.cwd())
+            self._store = ScopeStore(self._app.execution_engine.substrate)
         return self._store
 
     @property
@@ -158,7 +157,7 @@ class WorkflowToolProvider:
         if self._run_store is None:
             from functualize._primitives.run_store import RunStore
 
-            self._run_store = RunStore.for_project(Path.cwd())
+            self._run_store = RunStore(self._app.execution_engine.substrate)
         return self._run_store
 
     def register_tools(self, mcp: Any) -> None:

@@ -431,22 +431,66 @@ The tools also register **unconditionally** now. They used to appear only if
 `functualize-state` was importable, so on an ordinary install they were simply
 absent and the absence looked like a missing feature.
 
-## T7 · A gate survives a machine with no shared disk
+## T7 · A gate survives a machine with no shared disk — [x]
 
-`[F]` `tests/integration/test_substrate_durability.py` (new)
-
-**The criterion the feature exists for, and the easiest to fake.** Swapping the
-substrate in one process proves nothing — the objects are still shared. Two
-processes, no shared disk, substrate configured to something neither owns:
-block at a gate in one, resume in the other.
-
-`tests/integration/test_capability_duality.py::TestStateIsDurable` already does
-the two-process trick for files and is the pattern to copy.
+`[F]` `tests/integration/test_substrate_durability.py` (new),
+`src/functualize/_cli/builtins.py`,
+`src/functualize/app/_workflow_control.py`,
+`src/functualize/app/adapters/workflow_flags.py`,
+`plugins/functualize-mcp/src/functualize_mcp/_workflow_tools.py`
 
 ```
-uv run pytest tests/integration/test_substrate_durability.py -q
+uv run pytest tests/integration/test_substrate_durability.py --run-slow -q
 ```
-now: `no such file` · after: passing
+now: passing (4 tests) · before: `no such file`
+
+### What "no shared disk" means on one machine
+
+Two processes with **different working directories and different
+`.functualize/` directories**, joined only by the substrate. The framework's own
+file layout is what a resumed run used to depend on; if any of it still carried
+the state, the second worker would find nothing, because it is looking
+elsewhere.
+
+Not claimed: that a *remote* substrate works. SQLite is a local file. This shows
+the store stack is substrate-addressed, which is the prerequisite.
+
+The falsifier is its own test: after a full block-and-resume, neither worker's
+`.functualize/` may hold `fresh.json`, `scopes.json`, `runs.json`,
+`shell-history.json` or a `scope-state/` directory. `cache.json` is explicitly
+allowed — the discovery cache is derived from that checkout's own sources and
+has always been per-worker. An assertion of "no `.json` at all" failed on it and
+would have said nothing true.
+
+### It found four stores still reading the filesystem
+
+This is what T7 is for, and it earned its place immediately. T5 wired the
+*engine* to the host's substrate but left four app-layer stores resolving
+`for_project(Path.cwd())`:
+
+| site | symptom |
+|---|---|
+| `workflow_flags._store` | `--wf-resume <id>` → "No workflow scope" for an id that existed |
+| `_workflow_control.WorkflowControl.store` | `advanceable_scopes`, `cancel`, `purge` blind to the database |
+| `_cli/builtins._workflow_store` | `builtin workflow list` empty |
+| MCP `_workflow_tools` | the same, over MCP |
+
+All four now take the app's substrate. Three CLI commands gained
+`@click.pass_context` to reach the app, which is how the other subcommands
+already do it.
+
+### Recorded, not fixed: a lockless backend needs a retry loop
+
+The stores do `with lock(key): read; mutate; write(...)` and **ignore what
+`write` returns**, which is correct while `lock` provides exclusion. A backend
+that cannot lock — DynamoDB, S3 — would make `lock` a no-op and rely on
+`expect`, and then a `False` return means "someone else wrote, re-read and
+retry" and nothing retries.
+
+Not in scope here: SQLite locks, so no shipped implementation exercises it, and
+inventing the loop now would be a retry path with no failing caller — the
+gate-that-cannot-fail shape this branch keeps deleting. It belongs with the
+first lockless substrate, and is written down so that feature starts from it.
 
 ## T8 · The default is invisible, proved by swapping it
 

@@ -1047,18 +1047,22 @@ def register_builtin_commands(cli_group: Any) -> None:
         "argument_not_permitted": int(ExitCode.USAGE),
     }
 
-    def _workflow_store() -> Any:
+    def _workflow_store(ctx: Any) -> Any:
         """The store the `builtin workflow` subcommands read.
 
         One place, so an unreadable scope store refuses identically for
         `list`, `show`, `resume` and `cancel` — the alternative is four
-        opinions about the same file.
-        """
-        from pathlib import Path
+        opinions about the same records.
 
+        **From the app's substrate, never from the cwd** (`store-substrate`/T7).
+        Resolving independently meant that with a database plugin installed the
+        CLI read `.functualize/scopes.json` while the run wrote to SQLite, so
+        `workflow list` was empty and `--wf-resume` refused an id that existed.
+        Caught by the no-shared-disk test, which is what it is for.
+        """
         from functualize.app.utils import ScopeStore
 
-        return ScopeStore.for_project(Path.cwd())
+        return ScopeStore(_workflow_app_ref(ctx).execution_engine.substrate)
 
     @contextlib.contextmanager
     def _workflow_refusal() -> Any:
@@ -1169,7 +1173,7 @@ def register_builtin_commands(cli_group: Any) -> None:
         from functualize.app.utils import list_scopes
 
         app = _workflow_app_ref(ctx)
-        store = _workflow_store()
+        store = _workflow_store(ctx)
         with _workflow_refusal():
             items = list_scopes(
                 app,
@@ -1218,7 +1222,7 @@ def register_builtin_commands(cli_group: Any) -> None:
 
         app = _workflow_app_ref(ctx)
         with _workflow_refusal():
-            detail = describe_scope(app, _workflow_store(), workflow_id)
+            detail = describe_scope(app, _workflow_store(ctx), workflow_id)
         if detail is None:
             click.echo(f"Error: no workflow scope '{workflow_id}'.", err=True)
             raise SystemExit(1)
@@ -1334,7 +1338,7 @@ def register_builtin_commands(cli_group: Any) -> None:
         from functualize.app.utils import answer_gate, gate_draft
 
         app = _workflow_app_ref(ctx)
-        store = _workflow_store()
+        store = _workflow_store(ctx)
 
         values = _parse_set(set_pairs)
         if input_json is not None:
@@ -1436,7 +1440,7 @@ def register_builtin_commands(cli_group: Any) -> None:
         from functualize.app.utils import resume_scope
 
         app = _workflow_app_ref(ctx)
-        store = _workflow_store()
+        store = _workflow_store(ctx)
 
         payload = None
         if input_json is not None:
@@ -1538,7 +1542,7 @@ def register_builtin_commands(cli_group: Any) -> None:
         from functualize.app.utils import GateToolPolicy, call_gate_tool
 
         app = _workflow_app_ref(ctx)
-        store = _workflow_store()
+        store = _workflow_store(ctx)
         try:
             args = json.loads(args_json)
         except json.JSONDecodeError as exc:
@@ -1568,12 +1572,13 @@ def register_builtin_commands(cli_group: Any) -> None:
 
     @workflow_app.command("cancel")
     @click.argument("workflow_id")
-    def workflow_cancel(workflow_id: str) -> None:
+    @click.pass_context
+    def workflow_cancel(ctx: click.Context, workflow_id: str) -> None:
         """Cancel a workflow scope. Terminal — it cannot be resumed."""
         from functualize.app.utils import cancel_scope
 
         with _workflow_refusal():
-            result = cancel_scope(_workflow_store(), workflow_id)
+            result = cancel_scope(_workflow_store(ctx), workflow_id)
         if "error" in result:
             click.echo(f"Error: {result['message']}", err=True)
             raise SystemExit(_workflow_exits.get(result["error"], 1))
@@ -1591,7 +1596,10 @@ def register_builtin_commands(cli_group: Any) -> None:
         metavar="DAYS",
         help="Only scopes whose newest recorded result is older.",
     )
-    def workflow_purge(state: str | None, older_than: float | None) -> None:
+    @click.pass_context
+    def workflow_purge(
+        ctx: click.Context, state: str | None, older_than: float | None
+    ) -> None:
         """Delete finished workflow scopes.
 
         Never touches a running, waiting or ready scope, and --state cannot
@@ -1602,7 +1610,7 @@ def register_builtin_commands(cli_group: Any) -> None:
 
         with _workflow_refusal():
             result = purge_scopes(
-                _workflow_store(), state=state, older_than_days=older_than
+                _workflow_store(ctx), state=state, older_than_days=older_than
             )
         if "error" in result:
             click.echo(f"Error: {result['message']}", err=True)
@@ -1613,7 +1621,8 @@ def register_builtin_commands(cli_group: Any) -> None:
 
     @workflow_app.command("reclaim")
     @click.argument("workflow_id")
-    def workflow_reclaim(workflow_id: str) -> None:
+    @click.pass_context
+    def workflow_reclaim(ctx: click.Context, workflow_id: str) -> None:
         """Take an abandoned scope so it can be resumed.
 
         An abandoned scope is one whose runner stopped renewing its lease.
@@ -1627,7 +1636,7 @@ def register_builtin_commands(cli_group: Any) -> None:
         """
         from functualize.app._workflow_control import reclaim_scope
 
-        store = _workflow_store()
+        store = _workflow_store(ctx)
         with _workflow_refusal():
             result = reclaim_scope(store, workflow_id)
         if "error" in result:

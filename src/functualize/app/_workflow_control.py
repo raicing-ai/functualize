@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from functualize._types.errors import ScopeCancelledError
@@ -113,10 +112,16 @@ class GateToolPolicy:
 
     @property
     def store(self) -> Any:
+        """The scope records, **on the app's substrate**.
+
+        Resolved through the engine rather than from the cwd: with a database
+        plugin installed, a store resolved here independently would read the
+        filesystem while the run wrote to the database (`store-substrate`/T7).
+        """
         if self._store is None:
             from functualize._primitives.scope_store import ScopeStore
 
-            self._store = ScopeStore.for_project(Path.cwd())
+            self._store = ScopeStore(self._app.execution_engine.substrate)
         return self._store
 
     def permitted(self, tool_name: str) -> bool:
