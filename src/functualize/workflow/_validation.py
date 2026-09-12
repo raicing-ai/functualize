@@ -8,6 +8,7 @@ halfway through a walk:
 - edges whose source or target names no node
 - conditional targets naming no node
 - a **cycle in the step graph** with no declared bound
+- edges, loops and failure routes whose target names no node
 
 Resolving `Step` job refs against the registry and detecting cycles *between
 nested workflows* both need the boot-time registry and live in discovery, not
@@ -27,6 +28,7 @@ from functualize._types.workflow import (
     Edge,
     Gate,
     Loop,
+    OnFailure,
     Step,
     _EndSentinel,
 )
@@ -36,7 +38,7 @@ _NODE_TYPES = (Step, Gate, AgentStep)
 
 def _validate_workflow_graph(
     nodes: Sequence[Step | Gate | AgentStep],
-    edges: Sequence[Edge | ConditionalEdge | Loop],
+    edges: Sequence[Edge | ConditionalEdge | Loop | OnFailure],
 ) -> None:
     """Validate the workflow graph structure at decoration time.
 
@@ -69,10 +71,10 @@ def _validate_workflow_graph(
         node_names.add(name)
 
     for edge in edges:
-        if not isinstance(edge, (Edge, ConditionalEdge, Loop)):
+        if not isinstance(edge, (Edge, ConditionalEdge, Loop, OnFailure)):
             raise TypeError(
-                f"Workflow edges must be Edge, ConditionalEdge or Loop "
-                f"objects, got {type(edge).__name__}"
+                f"Workflow edges must be Edge, ConditionalEdge, Loop or "
+                f"OnFailure objects, got {type(edge).__name__}"
             )
         if edge.source not in node_names:
             raise ValueError(f"Edge source '{edge.source}' not found in steps")
@@ -89,6 +91,9 @@ def _validate_workflow_graph(
         elif isinstance(edge, Loop):
             if edge.target not in node_names:
                 raise ValueError(f"Loop target '{edge.target}' not found in steps")
+        elif isinstance(edge, OnFailure):
+            if not _is_end(edge.target) and edge.target not in node_names:
+                raise ValueError(f"OnFailure target '{edge.target}' not found in steps")
         elif not _is_end(edge.target) and edge.target not in node_names:
             raise ValueError(f"Edge target '{edge.target}' not found in steps")
 
@@ -100,12 +105,22 @@ def _is_end(target: str | _EndSentinel) -> bool:
     return target is END or isinstance(target, _EndSentinel)
 
 
-def _targets_of(edge: Edge | ConditionalEdge | Loop) -> list[str]:
+def _targets_of(edge: Edge | ConditionalEdge | Loop | OnFailure) -> list[str]:
     """Every node an edge can lead to, END excluded.
 
     END terminates, so it is not a vertex: including it would make every graph
     that ends look like it has an extra sink and would not change any answer.
     """
+    if isinstance(edge, OnFailure):
+        # **A failure route is not a cycle edge**, and that is a decision
+        # rather than an oversight. A recovery path that returns to the node it
+        # is recovering *from* is a retry, and a retry declared this way is
+        # bounded by nothing — but it is also not a path the walk can take
+        # twice: the failure route is recorded on first evaluation and read on
+        # replay, so the second arrival reads the record and does not route
+        # again. Counting it as a cycle would refuse the ordinary
+        # "on failure, go back and clean up" shape for a loop that cannot run.
+        return []
     if isinstance(edge, Loop):
         # **Not a cycle edge.** A `Loop` is the declaration that this repetition
         # is bounded, so excluding it from the search is the whole mechanism:
@@ -117,7 +132,9 @@ def _targets_of(edge: Edge | ConditionalEdge | Loop) -> list[str]:
     return [] if _is_end(edge.target) else [str(edge.target)]
 
 
-def _find_cycle(edges: Sequence[Edge | ConditionalEdge | Loop]) -> list[str] | None:
+def _find_cycle(
+    edges: Sequence[Edge | ConditionalEdge | Loop | OnFailure],
+) -> list[str] | None:
     """One cycle in the step graph as a node path, or None.
 
     Iterative depth-first search with an explicit stack: a workflow graph is
@@ -165,7 +182,9 @@ def _find_cycle(edges: Sequence[Edge | ConditionalEdge | Loop]) -> list[str] | N
     return None
 
 
-def _refuse_unbounded_cycle(edges: Sequence[Edge | ConditionalEdge | Loop]) -> None:
+def _refuse_unbounded_cycle(
+    edges: Sequence[Edge | ConditionalEdge | Loop | OnFailure],
+) -> None:
     """Refuse a graph that can return to a node it has already run.
 
     **This is a breaking change, and the point of it is that it is loud.**

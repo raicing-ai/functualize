@@ -40,17 +40,20 @@ from functualize._engine.frontier import FrontierWalk, GraphModel, WalkState, st
 from functualize._engine.loop_state import current_iteration, iteration_step_key
 from functualize._primitives.graph import descendants
 from functualize._types.workflow import (
+    END,
     AgentStep,
     ConditionalEdge,
     Gate,
     Loop,
+    OnFailure,
     Step,
+    _EndSentinel,
 )
 
 if TYPE_CHECKING:
     from functualize._primitives.scope_store import ScopeStore
     from functualize._types.protocols import AgentStepResult
-    from functualize._types.workflow import WorkflowDeclaration, _EndSentinel
+    from functualize._types.workflow import WorkflowDeclaration
 
 __all__ = [
     "StepBlocked",
@@ -171,6 +174,12 @@ class _NodeRun:
     value: Any
     inputs: dict[str, Any] | None = None
     replayed: bool = False
+    #: Where a **failed** node's declared `OnFailure` sends the walk, or None.
+    #:
+    #: Carried on the run rather than routed inside the handler because the
+    #: loop owns what goes on the queue — a handler that queued its own
+    #: successor would be a second place deciding where the walk goes next.
+    failure_route: str | None = None
 
 
 @dataclass
@@ -458,6 +467,15 @@ class WorkflowWalker:
             # walk is between two committed states — and because nothing here
             # can interrupt a step anyway (`exec_policy` §1).
             self._walk.renew()
+            if run.failure_route is not None:
+                # A routed failure does not advance the frontier: the node did
+                # not succeed, so nothing downstream of it is unblocked. Only
+                # the declared route is queued, and the step keeps its `failed`
+                # record so a resume replays to the same place.
+                self._record_routed_failure(name)
+                if run.failure_route != _ROUTED_TO_END:
+                    pending.append((run.failure_route, iteration))
+                continue
             pending.extend(
                 (nxt, iteration) for nxt in self._advance(name, run.value, run.inputs)
             )
@@ -481,6 +499,67 @@ class WorkflowWalker:
     # ------------------------------------------------------------------
     # Loops
     # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # Failure routing
+    # ------------------------------------------------------------------
+
+    def _record_routed_failure(self, name: str) -> None:
+        """Record the node as failed, without marking the scope failed.
+
+        The step record still says `failed` — it is what happened, and a
+        resume replays to exactly this node. What does *not* happen is the
+        scope status change: the walk is continuing down a declared route, and
+        a workflow that recovers is not a failed workflow.
+        """
+        self._store.record_step(
+            self._scope_id,
+            self._key(name),
+            {"status": "failed", "return_value": None, "completed_at": _now()},
+        )
+
+    def _failure_route(self, name: str, exc: BaseException) -> str | None:
+        """Where ``name``'s failure goes, or None to stop the walk.
+
+        None is the answer for every node that declares no `OnFailure`, which
+        is every node in every workflow written before this — and the comment
+        on the `except` that calls this still reads *"a step failure stops the
+        walk"*, because for them it does.
+
+        **The chosen route is recorded and read back**, never re-evaluated.
+        That is the property `_choice_for` already holds for `ConditionalEdge`,
+        extended rather than reinvented, and the reason is sharper here: a
+        failure predicate is exactly the kind that pages somebody, so calling
+        it again on replay would page them again for a decision already made.
+
+        Recorded under the node's name in the same branch record a conditional
+        uses, so one resume reads one fact — a second store of routes would be
+        a second thing to keep in agreement.
+
+        Returns:
+            The node to continue at; :data:`_ROUTED_TO_END` when the failure is
+            routed to `END`; or None when nothing routed it and the walk should
+            stop. **Three answers, not two** — "routed, and the route was to
+            finish" and "no route" are different, and collapsing them made a
+            declared `OnFailure(..., target=END)` fail the walk.
+        """
+        recorded = self._store.get_branch(self._scope_id, _failure_branch(name))
+        if recorded is not None:
+            return str(recorded)
+
+        for edge in self._declaration.outgoing(name):
+            if not isinstance(edge, OnFailure):
+                continue
+            if edge.when is not None and not edge.when(exc):
+                continue
+            target = _ROUTED_TO_END if _is_end(edge.target) else str(edge.target)
+            self._store.record_branch(self._scope_id, _failure_branch(name), target)
+            return target
+
+        # Nothing routed it. **Not recorded**: a node with no `OnFailure` has
+        # made no decision, and writing "no route" for it would put a fact in
+        # the store that a later declaration change should be free to alter.
+        return None
 
     def _key(self, name: str) -> str:
         """Step-record key for ``name`` on the pass the walk is currently on.
@@ -645,7 +724,10 @@ class WorkflowWalker:
                 results=ledger.results,
             )
         except Exception as exc:  # a step failure stops the walk
-            return self._fail(name, f"{type(exc).__name__}: {exc}")
+            routed = self._failure_route(name, exc)
+            if routed is None:
+                return self._fail(name, f"{type(exc).__name__}: {exc}")
+            return _NodeRun(None, failure_route=routed)
         if isinstance(outcome, StepOutcome):
             return _NodeRun(outcome.value, inputs=outcome.inputs)
         return _NodeRun(outcome)
@@ -852,3 +934,32 @@ def _gate_strategy_list(gate: Gate, prompt_gates: bool) -> list[str] | None:
     if declared is not None:
         return [declared]  # unknown strategy → try it, fall through to block
     return ["prompt", "resolve"] if prompt_gates else None
+
+
+#: Recorded when an `OnFailure` routes to `END`.
+#:
+#: A sentinel string rather than `None`, because the branch record has to tell
+#: "this failure was routed, and the route was to finish" apart from "no route
+#: was ever recorded" — and a resume reads that record instead of calling the
+#: predicate again. Collapsing the two made a declared `OnFailure(target=END)`
+#: fail the walk, which the test for it caught.
+#:
+#: A NUL prefix so it cannot collide with a node name: node names are
+#: identifier-ish, and nothing that reaches a graph can contain one.
+_ROUTED_TO_END = "\x00end"
+
+
+def _failure_branch(name: str) -> str:
+    """The branch-record key a node's failure route is stored under.
+
+    Namespaced away from the node's own name so a node that has *both* a
+    `ConditionalEdge` and an `OnFailure` keeps two distinct records — one for
+    which branch it took when it succeeded, one for where it went when it did
+    not.
+    """
+    return f"{name}\x00onfailure"
+
+
+def _is_end(target: str | _EndSentinel) -> bool:
+    """True if a route target is the END sentinel rather than a node name."""
+    return target is END or isinstance(target, _EndSentinel)

@@ -50,6 +50,7 @@ __all__ = [
     "Edge",
     "Gate",
     "Loop",
+    "OnFailure",
     "IMPLIED_CAPABILITIES",
     "Step",
     "Tool",
@@ -479,6 +480,40 @@ class Edge:
         # Endpoints name nodes, and node names are canonical — so an edge
         # written `Edge("travel_plan", "book")` must land on the same strings
         # `Step.name` produces, or validation rejects a graph that is correct.
+        object.__setattr__(self, "source", _job_ref_name(self.source))
+        if isinstance(self.target, str):
+            object.__setattr__(self, "target", _job_ref_name(self.target))
+
+
+@dataclass(frozen=True)
+class OnFailure:
+    """Where control goes when a step raises.
+
+    Without one, a raising step stops the walk and the scope is marked
+    ``failed`` — that is the behaviour every workflow has today and `OnFailure`
+    does not change it. It adds a *declared* alternative, and only for the node
+    it names.
+
+    Attributes:
+        source: The node whose failure this routes.
+        target: Where to continue, or ``END`` to finish the walk without
+            marking it failed — a cleanup path that succeeds is a success.
+        when: Called with the exception the step raised; routing requires a
+            true answer. `None` routes every failure, which is the honest
+            spelling of a catch-all.
+
+    **The chosen route is recorded and read back on replay**, never
+    re-evaluated — the property `ConditionalEdge` already has, for a sharper
+    reason. `_choice_for` puts it as *"calling it and discarding the answer
+    would still run whatever side effects it has"*, and a failure predicate is
+    exactly the kind that pages somebody.
+    """
+
+    source: str
+    target: str | _EndSentinel = field(default_factory=lambda: END)
+    when: Callable[[BaseException], bool] | None = None
+
+    def __post_init__(self) -> None:
         object.__setattr__(self, "source", _job_ref_name(self.source))
         if isinstance(self.target, str):
             object.__setattr__(self, "target", _job_ref_name(self.target))

@@ -195,7 +195,7 @@ than restarting. The iteration is part of the step key (F5's record), so replay 
 
 ## Wave 2 — failure becomes an edge
 
-### [ ] T3 · `OnFailure`, with the recorded-route property
+### [x] T3 · `OnFailure`, with the recorded-route property
 
 **Files:** `src/functualize/workflow/__init__.py`,
 `src/functualize/_engine/workflow_walker.py`,
@@ -208,16 +208,70 @@ Spec AC-5, AC-6, AC-7. Today there is one `except`, one exit
 ```bash
 rg -c 'a step failure stops the walk' src/functualize/_engine/workflow_walker.py
 ```
-now: `1` · after: `1` — **the comment stays true for the undeclared case**, which is AC-6
+now: `1` · after: `1` — **invariant**: the comment stays true for the undeclared
+case, which is AC-6. Flagged as one because
+`tests/spec/test_task_gates_still_hold.py` rejects a gate whose `now` already
+equals its `after` unless it says why, and this one caught it.
 
-**Test (AC-6):** without an `OnFailure`, a raising step stops the walk and marks the scope
-`failed` — **unchanged**. Write this first; it is the regression gate.
+It is also a **weak** gate on its own — it counts a comment, which can be
+deleted while the behaviour stays and kept while the behaviour changes. The
+gate that measures the work:
 
-**Test (AC-7, risk R-c):** a failure predicate is evaluated **exactly once** across a resume.
-The route is recorded on first evaluation and **read** on replay — the property
-`workflow_walker.py:412-417` already establishes for `ConditionalEdge`, extended rather than
-reinvented, because *"calling it and discarding the answer would still run whatever side
-effects it has"* and a failure predicate is exactly the kind that pages.
+```bash
+rg -c "def _failure_route|_ROUTED_TO_END|isinstance\(edge, OnFailure\)" src/functualize/_engine/workflow_walker.py
+```
+now: `6` · before: `0`
+
+**Test (AC-6):** `TestAnUndeclaredFailureIsUnchanged`, six cases, **written and
+run before any implementation existed** and passing against the unmodified
+walker. That is the regression gate: a failure-routing feature that quietly
+changes the undeclared case has broken every workflow that exists, invisibly —
+the walk would carry on somewhere instead of stopping.
+
+**Test (AC-7):** `TestTheRouteIsRecordedNotReEvaluated`. The route is recorded on
+first evaluation and read on replay, extending `_choice_for`'s property rather
+than reinventing it. The reason is sharper here: re-evaluating on every resume
+pages somebody again for a decision already made.
+
+`END` and "never decided" are recorded **distinctly** (`_ROUTED_TO_END`, a
+NUL-prefixed sentinel). Collapsing them made a declared
+`OnFailure(target=END)` fail the walk — caught by its own test.
+
+**The validator sees `OnFailure`.** `TestTheValidatorSeesOnFailure` calls
+`_validate_workflow_graph` directly, because T2 found that every other test in
+these files hands a `WorkflowDeclaration` straight to the walker and never
+reaches validation at all. A failure route backwards is deliberately **not** a
+cycle: it can only be taken once, since it is recorded on first evaluation and
+read on replay, so counting it would refuse the ordinary *"on failure, go back
+and clean up"* shape for a loop that cannot run.
+
+### Sabotage
+
+Eight, each asserted to have applied first. All bite.
+
+| sabotage | result |
+|---|---|
+| every failure routes, declared or not | 1 failed |
+| the route is re-evaluated on replay | 1 failed |
+| the route is never recorded | 1 failed |
+| routed-to-END collapses into no-route | 1 failed |
+| a routed failure also takes the success path | 1 failed |
+| a routed failure still fails the scope | 1 failed |
+| the validator ignores an `OnFailure` target | 1 failed |
+| a failure route counts as a cycle edge | 1 failed |
+
+Script: `.spec/features/workflow-graph-semantics/sabotage-t3.py`.
+
+**"A routed failure still fails the scope" was inert twice**, and the reason is
+worth keeping. The scope status is rewritten by whatever the walk does next —
+`completed` at the end, `blocked` at a gate — so marking it failed at the moment
+of routing is invisible to any assertion made *after* the walk.
+
+It is not harmless: a crash in that window leaves the scope reading `failed`,
+and `advanceable_scopes` does not offer a failed scope for resume, so a workflow
+that was recovering becomes unresumable. The test that catches it has the
+**recovery step read the store as it runs**, which is the only place the window
+is observable.
 
 ---
 

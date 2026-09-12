@@ -222,6 +222,7 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "FromStep",
         "Gate",
         "Loop",
+        "OnFailure",
         "Step",
         # A node performed by an agent rather than by a registered job
         # (agent-step-port F6).
