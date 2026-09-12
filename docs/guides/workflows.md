@@ -328,6 +328,80 @@ Resuming a paused workflow replays it with memoization:
 | Deposited gate inputs | Stable |
 | `Deps` edges | Stale deps re-run (correctness) |
 
+### Where a paused workflow actually lives
+
+A gate pauses a run and waits for a person. Everything the resumed run needs —
+which steps completed, which branch the walk took, where it stopped, and the
+values the person deposited — is in a **scope record**, and that record has to
+still be there when somebody comes back.
+
+By default it is a file: `.functualize/scopes.json` in your project, with each
+run's job state beside it in `.functualize/scope-state/`. That is the right
+default and it is fine on a laptop or a long-lived build server.
+
+**It is not fine anywhere the filesystem does not outlive the process**, and
+that is most places you would deploy this:
+
+| Where | What happens with the default |
+|---|---|
+| AWS Lambda, Cloud Run, Cloud Functions | the container is gone; the paused run is gone with it |
+| A container that is rebuilt or rescheduled | same, unless `.functualize/` is a mounted volume |
+| More than one worker behind a load balancer | the gate is answered on the worker that happens to receive the request, which is usually not the one holding the record |
+| CI, per-job runners | every run starts from nothing, so a gate can be reached but never answered |
+
+The symptom is specific and easy to misread: the run blocks at exit code 5 and
+prints a `--wf-resume <id>` instruction, and that command then reports **"No
+workflow scope"** — because the process being asked never had the record.
+
+### Configuring a durable store
+
+Install a substrate plugin. The store that ships is SQLite:
+
+```bash
+pip install functualize-state-sqlite
+```
+
+With it installed, every runtime document — scope records, job state, the
+freshness ledger, the run log — goes to one database instead of one directory.
+Point it wherever your processes can all reach:
+
+```toml
+# .functualize.toml
+[plugin.sqlite-state]
+db_path = "/mnt/shared/functualize/state.db"
+```
+
+`func builtin data show` reports where each one actually is, which is the
+command to run when a resume cannot find its scope.
+
+**It moves all of them, or none.** There is no way to keep scope records in the
+database and their job state on disk: a resumed run would come back with its
+steps intact and its variables empty, which is the failure this arrangement
+exists to prevent.
+
+### Writing your own
+
+A substrate is six methods — `read`, `write`, `lock`, `clear`, `delete`,
+`describe` — over documents named by string keys. Implement
+`functualize._types.protocols.StoreSubstrate` and install it from a plugin's
+`APP_READY` hook:
+
+```python
+def _on_app_ready(self, app):
+    app.substrate = MySubstrate(...)
+```
+
+Two things a backend without a shared filesystem must get right:
+
+- **`lock(*keys)` may be a no-op.** If your backend cannot offer mutual
+  exclusion, say so by doing nothing, and rely on the next point.
+- **`write(key, payload, expect=revision)` returns `False`** when the stored
+  revision has moved. That is a compare-and-swap, and it is what a backend uses
+  instead of a lock. A caller that gets `False` must re-read and retry.
+
+See `contributor/adr/022-storage-is-a-substrate-not-a-key-value-domain.md` for
+why this is a document port rather than a key-value protocol.
+
 ---
 
 ## MCP Integration

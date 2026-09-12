@@ -543,18 +543,42 @@ pins the env-var name and the marker registration, because a typo in either
 would silently stop the second run from skipping anything and it would then fail
 for the wrong reason.
 
-## T9 · Say so in the docs
+## T9 · Say so in the docs — [x]
 
-`[F]` `docs/guides/deployment.md`, `docs/guides/workflows.md`
+`[F]` `docs/guides/workflows.md`, `docs/guides/hosting.md`
 
-Gates need a durable store; here is how to configure one; the filesystem
-default is fine on a laptop and not on Lambda. Currently **nothing** in `docs/`
-says this.
+There is no `docs/guides/deployment.md` and never was. The two places a reader
+actually arrives at this question are **workflows.md**, where they learn a gate
+pauses a run, and **hosting.md**, which is written for someone shipping a
+distribution and therefore deciding where their users' state lives.
 
 ```
 rg -cl "durable.*store|persistent filesystem|serverless.*resume" docs/ | wc -l
 ```
-now: `0` · after: `> 0`
+now: `2` · before: `0`
+
+### What each says
+
+`workflows.md` gains *Where a paused workflow actually lives*: the default is a
+file, a table of the four places that default fails (Lambda, a rescheduled
+container, several workers, CI), the exact symptom — exit 5, a `--wf-resume`
+instruction, then "No workflow scope" — how to install and point the SQLite
+substrate, and the six methods a substrate needs including the two things a
+lockless backend must get right.
+
+`hosting.md` gains the question a distributor has to answer before shipping:
+does the filesystem your users run on outlive the process? With the distinction
+that decides it — fingerprints and run history are derived and cost a rebuild;
+a scope record holds what a human deposited at a gate — and the escape for
+distributions whose jobs declare no `Gate`, for which none of it applies.
+
+### The gate is a keyword proxy, and it showed
+
+`hosting.md` said all of this and the gate still counted it as `0`, because
+"durable" and "store" had landed on different lines and `rg` is line-based. The
+sentence was reflowed rather than padded with the phrase — but it is worth
+recording that this gate measures *wording on one line*, not whether the
+documentation makes the point. A reader replacing it should check the prose.
 
 ## Task Dependency Graph
 

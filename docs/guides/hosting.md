@@ -189,6 +189,54 @@ setting looks exactly like a setting with no effect.
 
 ---
 
+## Where your users' runtime state lives
+
+Your distribution inherits functualize's default: a `.functualize/` directory in
+whatever project the user is standing in, holding the freshness ledger, the run
+log, and — the part that matters — **workflow scope records**, which are what a
+paused `@workflow` is resumed from.
+
+Fingerprints and run history are derived. Losing them costs a rebuild and some
+`builtin history` output. A scope record is not derived: it holds the values a
+human deposited at a gate, so losing one spends somebody's approval on a run
+that no longer exists.
+
+So the question to answer before you ship is **whether the filesystem your users
+run on outlives the process**. If your distribution runs on a laptop or a
+long-lived build machine, the default is correct and you need do nothing. If it
+runs somewhere ephemeral or horizontally scaled — serverless, a rescheduled
+container, several workers behind a load balancer — then a paused workflow
+cannot be resumed without a durable store, because the process asked to resume
+it never had the record.
+
+Two things to do about it:
+
+1. **Depend on a substrate plugin** and let it be installed alongside you:
+
+   ```toml
+   dependencies = ["functualize", "functualize-state-sqlite"]
+   ```
+
+   Then point it somewhere shared, in your own config defaults:
+
+   ```toml
+   [plugin.sqlite-state]
+   db_path = "/var/lib/yourapp/state.db"
+   ```
+
+2. **Tell your users where it went.** `yourapp builtin data show` reports the
+   location of every runtime document, and it is the first command to run when
+   a resume reports "No workflow scope".
+
+If your jobs never declare a `@workflow` with a `Gate`, none of this applies:
+everything else in the store is recomputable and a fresh container simply does
+the work again.
+
+See [Workflows → Where a paused workflow actually lives](workflows.md) for the
+failure modes in detail and for writing a substrate against another backend.
+
+---
+
 ## Related
 
 - **[Jobs and Auto-Discovery](jobs-discovery.md)** — supplying your own pre-import filter when the `require_*` settings cannot describe your jobs
