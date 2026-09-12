@@ -21,7 +21,7 @@ import ast
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import pytest  # noqa: TC002 - MonkeyPatch is used at runtime
+import pytest
 
 from functualize._primitives import substrate as substrate_module
 from functualize._primitives.fresh_store import FreshStore
@@ -159,6 +159,7 @@ class TestThereIsOnlyOneDecision:
 
 
 class TestTheChoiceIsNotCached:
+    @pytest.mark.json_substrate
     def test_two_projects_get_two_substrates(self, tmp_path: Path) -> None:
         """A cache keyed by path would be module-level mutable state, and worse.
 

@@ -36,7 +36,9 @@ def _blocked_run(root):
     store.scopes.ensure_scope("rel-1", "release")
     store.scopes.set_scope_status("rel-1", "blocked")
     store.scopes.set_position("rel-1", "approve")
-    store.scopes.record_step("rel-1", "build::", {"status": "success", "return_value": "v2"})
+    store.scopes.record_step(
+        "rel-1", "build::", {"status": "success", "return_value": "v2"}
+    )
     store.scopes.record_branch("rel-1", "check", "deploy")
     store.scopes.put_gate(
         "rel-1",
@@ -50,6 +52,7 @@ def _blocked_run(root):
 class TestVersionBumpNoLongerErasesRuns:
     """§1.1 of the spec, verbatim. AC-3."""
 
+    @pytest.mark.json_substrate
     def test_a_derived_version_bump_leaves_the_run_intact(self, tmp_path) -> None:
         (tmp_path / ".functualize").mkdir()
         store = _blocked_run(tmp_path)
@@ -71,6 +74,7 @@ class TestVersionBumpNoLongerErasesRuns:
         assert gate is not None
         assert gate["payload"] == {"approved_by": "sam"}
 
+    @pytest.mark.json_substrate
     def test_the_derived_state_is_still_discarded_as_designed(self, tmp_path) -> None:
         """The old rule is correct *for derived data* and must survive."""
         (tmp_path / ".functualize").mkdir()
@@ -84,6 +88,7 @@ class TestVersionBumpNoLongerErasesRuns:
 
         assert store.get_fingerprint("build::h::checksum") is None
 
+    @pytest.mark.json_substrate
     def test_the_whole_walk_state_survives_not_just_the_payload(self, tmp_path) -> None:
         (tmp_path / ".functualize").mkdir()
         store = _blocked_run(tmp_path)
@@ -123,18 +128,21 @@ class TestClearNoLongerErasesRuns:
 
 
 class TestTheTwoFilesAreReallySeparate:
+    @pytest.mark.json_substrate
     def test_scopes_are_not_written_into_the_state_file(self, tmp_path) -> None:
         (tmp_path / ".functualize").mkdir()
         _blocked_run(tmp_path)
         raw = json.loads((tmp_path / ".functualize" / FRESH_FILENAME).read_text())
         assert "scopes" not in raw
 
+    @pytest.mark.json_substrate
     def test_fingerprints_are_not_written_into_the_scope_file(self, tmp_path) -> None:
         (tmp_path / ".functualize").mkdir()
         _blocked_run(tmp_path)
         raw = json.loads((tmp_path / ".functualize" / SCOPES_FILENAME).read_text())
         assert set(raw) == {"format_version", "scopes"}
 
+    @pytest.mark.json_substrate
     def test_the_two_versions_are_independent(self, tmp_path) -> None:
         (tmp_path / ".functualize").mkdir()
         _blocked_run(tmp_path)
@@ -220,6 +228,7 @@ class TestBlockedRunResumesAcrossTheSplit:
         assert scope is not None
         assert scope["status"] == "blocked"
 
+    @pytest.mark.json_substrate
     def test_the_blocked_scope_lives_in_the_scope_file(self, app, project) -> None:
         _resume_release(app)
         raw = json.loads((project / ".functualize" / SCOPES_FILENAME).read_text())

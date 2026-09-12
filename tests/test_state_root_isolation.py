@@ -79,6 +79,7 @@ class TestTheSuiteDoesNotWriteIntoTheRepository:
             f"state root (tests/conftest.py::_isolate_state_root)"
         )
 
+    @pytest.mark.json_substrate
     def test_the_state_actually_went_somewhere(self, tmp_path: Path) -> None:
         """Redirected, not discarded.
 
@@ -115,6 +116,7 @@ class TestTheSuiteDoesNotWriteIntoTheRepository:
             f"the key the job wrote"
         )
 
+    @pytest.mark.json_substrate
     def test_each_test_gets_its_own_root(self, tmp_path: Path) -> None:
         """Isolation is per test, which is the part that fixes ordering.
 
@@ -138,6 +140,7 @@ class TestTheSuiteDoesNotWriteIntoTheRepository:
 class TestTheOptOutWorks:
     """`real_state_root` returns a test to the real upward walk."""
 
+    @pytest.mark.json_substrate
     @pytest.mark.real_state_root
     def test_marked_tests_resolve_to_the_real_root(self) -> None:
         """For a test whose subject *is* the upward walk.

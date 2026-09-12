@@ -176,6 +176,7 @@ markers = [
     "integration: marks tests as integration tests (test plugin loading and cross-module interactions)",
     "perf_budget: marks wall-clock startup budget assertions (skipped under coverage or xdist; see tests/perf/conftest.py)",
     "real_state_root: opts out of the autouse state-root sandbox, for a test whose subject is the path resolution itself (see tests/conftest.py::_isolate_state_root)",
+    "json_substrate: the subject is JsonFileSubstrate itself — a path, a file size, or a hand-written JSON fixture — so it is skipped when FUNCTUALIZE_TEST_SUBSTRATE names another backend (see tests/conftest.py::_alternate_substrate)",
 ]
 
 [tool.ruff]

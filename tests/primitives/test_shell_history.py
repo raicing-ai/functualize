@@ -18,6 +18,8 @@ import json
 import threading
 from pathlib import Path
 
+import pytest
+
 from functualize._primitives.scope_store import ScopeStore
 from functualize._primitives.shell_history import (
     SHELL_HISTORY_KEY,
@@ -122,6 +124,7 @@ class TestConcurrentShells:
 
 
 class TestItSitsBesideTheOtherStores:
+    @pytest.mark.json_substrate
     def test_the_path_is_the_state_files_sibling(self, tmp_path: Path) -> None:
         """Derived from one upward walk, never a second one.
 
@@ -136,6 +139,7 @@ class TestItSitsBesideTheOtherStores:
         assert shell.parent == state.parent
         assert shell.name == "shell-history.json"
 
+    @pytest.mark.json_substrate
     def test_it_shares_the_substrate_with_the_other_stores(
         self, tmp_path: Path
     ) -> None:

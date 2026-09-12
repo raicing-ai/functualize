@@ -52,6 +52,7 @@ class TestTheDraftSlot:
         store.put_gate_draft("rel-1", "approve", {"reason": "ok"})
         assert store.get_gate_draft("rel-1", "approve")["values"] == {"reason": "ok"}
 
+    @pytest.mark.json_substrate
     def test_clearing_removes_the_key(self, store: ScopeStore, tmp_path: Path) -> None:
         """Absent and "no draft" are the same fact; two spellings for it is how
         a reader ends up checking only one."""
@@ -109,6 +110,7 @@ class TestDeleteScope:
     def test_deleting_an_absent_scope_is_false(self, store: ScopeStore) -> None:
         assert store.delete_scope("nope") is False
 
+    @pytest.mark.json_substrate
     def test_it_is_a_hard_delete_with_no_backup(
         self, store: ScopeStore, tmp_path: Path
     ) -> None:
@@ -121,6 +123,7 @@ class TestDeleteScope:
 
 
 class TestTheFormatVersionIsUnchanged:
+    @pytest.mark.json_substrate
     def test_adding_a_draft_does_not_bump_the_version(
         self, store: ScopeStore, tmp_path: Path
     ) -> None:

@@ -224,4 +224,3 @@ class TestTheStateDomainProbeIsGone:
         import functualize_ai._state_fallback as module
 
         assert not hasattr(module, "is_state_domain_available")
-

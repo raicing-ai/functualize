@@ -307,6 +307,75 @@ def _reset_entry_point_cache() -> Iterator[None]:
     clear_entry_point_cache()
 
 
+#: The substrate every store resolves under, when asked to use another one.
+#:
+#: `store-substrate`/T8. Set `FUNCTUALIZE_TEST_SUBSTRATE=sqlite` and the whole
+#: suite runs against `SQLiteSubstrate` instead of `JsonFileSubstrate`. That
+#: second run is this feature's **sabotage step**: if the suite only passes on
+#: files, something still reaches through the port, and the failures name it.
+#:
+#: SQLite rather than a pure in-memory stand-in, because a large part of this
+#: suite spawns subprocesses — a second process cannot see another's
+#: dictionaries, so every one of those tests would fail for a reason that says
+#: nothing about the port.
+_ALTERNATE_SUBSTRATE = os.environ.get("FUNCTUALIZE_TEST_SUBSTRATE", "").strip()
+
+
+@pytest.fixture(autouse=True)
+def _alternate_substrate(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[None]:
+    """Redirect the one substrate decision, when asked to.
+
+    Patched at `JsonFileSubstrate.for_project` — inside the decision rather
+    than at its name — because that is where a configured backend actually
+    lands, and because the stores import `substrate_for_project` by name so
+    rebinding the module attribute would not reach them.
+
+    One database per resolved root, so two stores in one project share it and
+    two projects do not.
+    """
+    if _ALTERNATE_SUBSTRATE != "sqlite":
+        yield
+        return
+
+    if request.node.get_closest_marker("json_substrate"):
+        pytest.skip(
+            "this test is about JsonFileSubstrate — it names a path, a file "
+            "size or a hand-written JSON fixture, so it cannot be true of "
+            "another backend and its failure would say nothing about the port"
+        )
+
+    import sys as _sys
+
+    _sys.path.insert(
+        0,
+        str(
+            Path(__file__).resolve().parent.parent
+            / "plugins"
+            / "functualize-state-sqlite"
+            / "src"
+        ),
+    )
+    from functualize_state_sqlite.substrate import SQLiteSubstrate
+
+    from functualize._primitives import substrate as substrate_module
+
+    real = substrate_module.JsonFileSubstrate.for_project
+    made: dict[str, object] = {}
+
+    def _sqlite_for_project(cls: object, start: object) -> object:
+        root = real(start).root
+        return made.setdefault(str(root), SQLiteSubstrate(root / "state.db"))
+
+    monkeypatch.setattr(
+        substrate_module.JsonFileSubstrate,
+        "for_project",
+        classmethod(_sqlite_for_project),
+    )
+    yield
+
+
 @pytest.fixture(autouse=True)
 def _restore_environ() -> Iterator[None]:
     """Give every test back the environment it started with.

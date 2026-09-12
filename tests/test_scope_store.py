@@ -44,6 +44,7 @@ class TestLocation:
         fresh = FreshStore.for_project(tmp_path)
         assert fresh.scopes.substrate is fresh.substrate
 
+    @pytest.mark.json_substrate
     def test_for_project_resolves_like_the_state_file(self, tmp_path) -> None:
         (tmp_path / ".functualize").mkdir()
         substrate = ScopeStore.for_project(tmp_path).substrate

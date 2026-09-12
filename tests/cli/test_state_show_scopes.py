@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
 from functualize._primitives.scope_format import SCOPES_LIMIT
@@ -30,6 +31,7 @@ def _show() -> str:
 
 
 class TestScopesAreReportedWithTheirCeiling:
+    @pytest.mark.json_substrate
     def test_the_line_carries_count_cap_and_size(self, tmp_path: Path) -> None:
         """All three, because each answers a different question.
 
@@ -67,6 +69,7 @@ class TestScopesAreReportedWithTheirCeiling:
             f"the file size is missing: {line!r}"
         )
 
+    @pytest.mark.json_substrate
     def test_the_state_directory_is_reported_too(self, tmp_path: Path) -> None:
         """T3 moved job state out of the record file.
 

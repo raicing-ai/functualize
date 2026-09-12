@@ -17,6 +17,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from functualize import FunctualizeApp
 from functualize._config.chain import ResolutionChain
 from functualize.app.config import ConfigSources, JobSources, PluginSources
@@ -41,6 +43,7 @@ def _app() -> FunctualizeApp:
     )
 
 
+@pytest.mark.json_substrate
 def test_a_run_writes_its_state_under_the_projects_root(
     tmp_path: Path, monkeypatch: Any
 ) -> None:

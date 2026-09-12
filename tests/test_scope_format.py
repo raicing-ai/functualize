@@ -87,6 +87,7 @@ class TestEnvelope:
 
 
 class TestLocation:
+    @pytest.mark.json_substrate
     def test_scopes_file_is_the_state_file_sibling(self, tmp_path) -> None:
         """One upward walk, one answer — the two files can never land in
         different directories or different modes."""
@@ -97,6 +98,7 @@ class TestLocation:
         assert state.name == FRESH_FILENAME
         assert scopes.name == SCOPES_FILENAME
 
+    @pytest.mark.json_substrate
     def test_sibling_rule_holds_in_standalone_mode(self, tmp_path) -> None:
         """No .functualize/ — both fall back to the XDG cache, together."""
         assert (

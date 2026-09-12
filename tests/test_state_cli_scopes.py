@@ -73,6 +73,7 @@ class TestClearKeepsRuns:
     """AC-7, AC-8. Clearing stale fingerprints used to destroy every blocked
     run, under help text naming only "fingerprints, history"."""
 
+    @pytest.mark.json_substrate
     def test_clear_keeps_scopes_and_says_so(self, cli_run, project) -> None:
         result = cli_run(["builtin", "data", "clear"], cwd=project)
         assert result.exit_code == 0
@@ -80,6 +81,7 @@ class TestClearKeepsRuns:
         assert "Kept 1 workflow scope" in result.stdout
         assert "--scopes" in result.stdout
 
+    @pytest.mark.json_substrate
     def test_the_blocked_run_is_still_there_afterwards(self, cli_run, project) -> None:
         cli_run(["builtin", "data", "clear"], cwd=project)
         listed = cli_run(["builtin", "workflow", "list"], cwd=project)
@@ -90,11 +92,13 @@ class TestClearKeepsRuns:
         raw = json.loads((project / ".functualize" / SCOPES_FILENAME).read_text())
         assert raw["scopes"]["rel-1"]["gates"]["approve"]["payload"] == {"by": "sam"}
 
+    @pytest.mark.json_substrate
     def test_derived_state_really_is_cleared(self, cli_run, project) -> None:
         cli_run(["builtin", "data", "clear"], cwd=project)
         raw = json.loads((project / ".functualize" / FRESH_FILENAME).read_text())
         assert raw["fingerprints"] == {}
 
+    @pytest.mark.json_substrate
     def test_singular_and_plural_are_both_right(self, cli_run, project) -> None:
         raw = json.loads((project / ".functualize" / SCOPES_FILENAME).read_text())
         raw["scopes"]["rel-2"] = dict(raw["scopes"]["rel-1"])
@@ -106,6 +110,7 @@ class TestClearKeepsRuns:
 class TestClearWithScopes:
     """AC-9. The deliberate discard, and it stays recoverable."""
 
+    @pytest.mark.json_substrate
     def test_scopes_flag_clears_them_and_reports_where_they_went(
         self, cli_run, project
     ) -> None:
@@ -114,6 +119,7 @@ class TestClearWithScopes:
         assert "Cleared 1 workflow scope" in result.stdout
         assert "Moved aside to:" in result.stdout
 
+    @pytest.mark.json_substrate
     def test_a_discarded_run_is_moved_aside_not_deleted(self, cli_run, project) -> None:
         cli_run(["builtin", "data", "clear", "--scopes"], cwd=project)
         backup = project / ".functualize" / (SCOPES_FILENAME + ".bak")
@@ -143,6 +149,7 @@ class TestHelpNamesWhatItTouches:
 class TestShowReportsBothStores:
     """AC-11."""
 
+    @pytest.mark.json_substrate
     def test_show_reports_the_scope_path_and_version(self, cli_run, project) -> None:
         result = cli_run(["builtin", "data", "show"], cwd=project)
         assert result.exit_code == 0
@@ -158,6 +165,7 @@ class TestShowReportsBothStores:
 class TestUnreadableStoreRefuses:
     """AC-4, AC-6. Never an empty list and exit 0."""
 
+    @pytest.mark.json_substrate
     def test_workflow_list_refuses_with_exit_2(self, cli_run, project) -> None:
         _poison(project)
         result = cli_run(["builtin", "workflow", "list"], cwd=project)
@@ -171,11 +179,13 @@ class TestUnreadableStoreRefuses:
         assert "hunter2-SECRET" not in result.stderr
         assert "hunter2-SECRET" not in result.stdout
 
+    @pytest.mark.json_substrate
     def test_the_refusal_names_the_escape_hatch(self, cli_run, project) -> None:
         _poison(project)
         result = cli_run(["builtin", "workflow", "list"], cwd=project)
         assert "func builtin data clear --scopes" in result.stderr
 
+    @pytest.mark.json_substrate
     @pytest.mark.parametrize(
         "argv",
         [
@@ -191,6 +201,7 @@ class TestUnreadableStoreRefuses:
         _poison(project)
         assert cli_run(argv, cwd=project).exit_code == 2
 
+    @pytest.mark.json_substrate
     def test_refusing_is_repeatable_and_leaves_the_file(self, cli_run, project) -> None:
         """If the read moved the file aside, run two would find nothing, read
         it as "no scopes", and start the workflow over."""
@@ -204,6 +215,7 @@ class TestUnreadableStoreRefuses:
 class TestShowDiagnosesRatherThanDies:
     """R-b: `show` is the command someone runs to find out what is wrong."""
 
+    @pytest.mark.json_substrate
     def test_show_still_reports_every_other_statistic(self, cli_run, project) -> None:
         _poison(project)
         result = cli_run(["builtin", "data", "show"], cwd=project)
@@ -215,12 +227,14 @@ class TestShowDiagnosesRatherThanDies:
         assert "Fingerprints:" in result.stdout
         assert "Freshness path:" in result.stdout
 
+    @pytest.mark.json_substrate
     def test_show_renders_the_scope_line_as_the_fault(self, cli_run, project) -> None:
         _poison(project)
         result = cli_run(["builtin", "data", "show"], cwd=project)
         assert "unreadable" in result.stdout
         assert "found version 99" in result.stdout
 
+    @pytest.mark.json_substrate
     def test_show_still_exits_2(self, cli_run, project) -> None:
         _poison(project)
         assert cli_run(["builtin", "data", "show"], cwd=project).exit_code == 2
@@ -236,6 +250,7 @@ class TestEscapeHatchWorksOnAnUnreadableStore:
         assert result.exit_code == 0
         assert cli_run(["builtin", "workflow", "list"], cwd=project).exit_code == 0
 
+    @pytest.mark.json_substrate
     def test_clear_without_scopes_says_it_could_not_read_them(
         self, cli_run, project
     ) -> None:
@@ -286,6 +301,7 @@ class TestRunningAWorkflowJobRefuses:
     def wf_project(self, project_tree):
         return project_tree(jobs={"release.py": WORKFLOW_JOB})
 
+    @pytest.mark.json_substrate
     def test_cold_cache_refuses(self, cli_run, wf_project) -> None:
         """First invocation in a project: the eager path in click_params."""
         (wf_project / ".functualize").mkdir(exist_ok=True)
@@ -294,6 +310,7 @@ class TestRunningAWorkflowJobRefuses:
         assert result.exit_code == 2
         assert "cannot be read" in result.stderr
 
+    @pytest.mark.json_substrate
     def test_warm_cache_refuses_too(self, cli_run, wf_project) -> None:
         """Second invocation: the lazy path in lazy_command, built from the
         cached descriptor. This is the one a sabotage check found uncovered."""

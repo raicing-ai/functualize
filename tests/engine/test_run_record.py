@@ -115,6 +115,7 @@ class TestTheRecordOpensAndCloses:
         surfaces = [r["surface"] for r in runs.recent_runs()]
         assert surfaces == ["mcp.tool", "func.job"], "newest first"
 
+    @pytest.mark.json_substrate
     def test_no_argument_values_reach_the_record(
         self, engine: JobExecutionEngine, runs: RunStore
     ) -> None:

@@ -54,6 +54,7 @@ class TestTheEnvelope:
         assert data["format_version"] == RUNS_VERSION
         assert set(data) == {"format_version", "runs", "events"}
 
+    @pytest.mark.json_substrate
     def test_the_documents_share_one_substrate(self, tmp_path: Path) -> None:
         """One upward walk, one root — they cannot land in different modes.
 

@@ -21,6 +21,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from functualize import FunctualizeApp, RunContext
 from functualize._engine.capabilities.state import State  # noqa: TC001
 from functualize._primitives.run_format import RUNS_KEY
@@ -51,6 +53,7 @@ def _run_one(job_name: str, fn: Any) -> None:
 
 
 class TestEveryRunRecordNamesItsScope:
+    @pytest.mark.json_substrate
     def test_a_stateful_run_names_a_scope_that_exists(self) -> None:
         def stateful(rc: RunContext, state: State) -> str:
             state.set("k", 1)
@@ -65,6 +68,7 @@ class TestEveryRunRecordNamesItsScope:
             "this run wrote state, so its scope must have a record on disk"
         )
 
+    @pytest.mark.json_substrate
     def test_a_stateless_run_names_a_scope_with_no_record(self) -> None:
         """The dangling case, asserted deliberately rather than tolerated.
 
@@ -90,6 +94,7 @@ class TestEveryRunRecordNamesItsScope:
             "the growth scope-record-lifecycle removes"
         )
 
+    @pytest.mark.json_substrate
     def test_resolving_an_unrecorded_scope_id_is_an_answer_not_an_error(
         self,
     ) -> None:
@@ -109,6 +114,7 @@ class TestEveryRunRecordNamesItsScope:
         store = ScopeStore.for_project(Path.cwd())
         assert store.get_scope(scope_id) is None
 
+    @pytest.mark.json_substrate
     def test_a_child_run_names_the_same_scope_as_its_parent(self) -> None:
         """Uniform means uniform — a nested run is in its parent's scope.
 

@@ -33,6 +33,7 @@ def store(tmp_path) -> FreshStore:
 
 
 class TestConstruction:
+    @pytest.mark.json_substrate
     def test_for_project_resolves_beside_cache(self, tmp_path) -> None:
         (tmp_path / ".functualize").mkdir()
         store = FreshStore.for_project(tmp_path)

@@ -46,6 +46,7 @@ def _only_record() -> dict[str, Any]:
 class TestAPlainJobsScopeIsFinished:
     """The defect AC-3 names: a non-workflow run left its record running."""
 
+    @pytest.mark.json_substrate
     def test_a_successful_run_leaves_a_completed_record(self) -> None:
         app = FunctualizeApp(name="finishes")
 
@@ -63,6 +64,7 @@ class TestAPlainJobsScopeIsFinished:
 
         assert _only_record()["status"] == "completed"
 
+    @pytest.mark.json_substrate
     def test_a_failing_run_leaves_a_failed_record(self) -> None:
         """Failure is terminal too — otherwise a crashed run is immortal.
 
@@ -81,6 +83,7 @@ class TestAPlainJobsScopeIsFinished:
 
         assert _only_record()["status"] == "failed"
 
+    @pytest.mark.json_substrate
     def test_a_finished_record_is_purgeable(self) -> None:
         """The consequence AC-3 exists for, asserted end to end.
 
@@ -106,6 +109,7 @@ class TestAPlainJobsScopeIsFinished:
         assert report.get("removed"), f"purge removed nothing: {report}"
         assert _records() == {}
 
+    @pytest.mark.json_substrate
     def test_a_run_that_touches_no_state_writes_no_record(self) -> None:
         """Nothing is created just so it can be marked finished.
 
@@ -152,6 +156,7 @@ class TestALiveScopeIsNeverFinished:
             rc._workflow_scope.scope_id, "blocked"
         )
 
+    @pytest.mark.json_substrate
     def test_a_blocked_record_survives_the_run_ending(self) -> None:
         app = FunctualizeApp(name="blocked-survives")
 
@@ -168,6 +173,7 @@ class TestALiveScopeIsNeverFinished:
             "the run ended and overwrote a blocked scope — the resume point is gone"
         )
 
+    @pytest.mark.json_substrate
     def test_a_blocked_scopes_state_is_still_writable(self) -> None:
         """Not sealed either. `close()` seals the store; blocked must not.
 
@@ -243,6 +249,7 @@ class TestANamedScopeBelongsToItsCaller:
             "closed by the run that used it"
         )
 
+    @pytest.mark.json_substrate
     def test_a_named_scope_is_left_running_for_its_caller_to_finish(
         self,
     ) -> None:
@@ -273,6 +280,7 @@ class TestANamedScopeBelongsToItsCaller:
 class TestOnlyTheMinterCloses:
     """A nested run must not finish a scope its parent still owns."""
 
+    @pytest.mark.json_substrate
     def test_an_invoked_child_leaves_the_parents_scope_running(self) -> None:
         """The child ends first; the parent is still working.
 
@@ -309,6 +317,7 @@ class TestOnlyTheMinterCloses:
             "have shown up as a sealed store above"
         )
 
+    @pytest.mark.json_substrate
     @pytest.mark.parametrize("key", ["parent", "child"])
     def test_both_runs_state_survives_in_one_scope(self, key: str) -> None:
         """Parent and child share the scope, so both writes are in it.

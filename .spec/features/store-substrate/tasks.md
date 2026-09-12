@@ -492,19 +492,56 @@ inventing the loop now would be a retry path with no failing caller — the
 gate-that-cannot-fail shape this branch keeps deleting. It belongs with the
 first lockless substrate, and is written down so that feature starts from it.
 
-## T8 · The default is invisible, proved by swapping it
+## T8 · The default is invisible, proved by swapping it — [x]
 
-`[F]` `tests/conftest.py`, `tests/integration/test_substrate_durability.py`
-
-The whole suite passes unchanged on `JsonFileSubstrate`, and passes again with
-an in-memory substrate wired in. **That second run is this feature's sabotage
-step**: if the suite only passes on files, something still reaches through the
-port.
+`[F]` `tests/conftest.py`, `pyproject.toml`,
+`tests/spec/test_the_port_is_not_leaked.py` (new), and 9 test modules
 
 ```
-FUNCTUALIZE_SUBSTRATE=memory uv run pytest tests/ -q
+FUNCTUALIZE_TEST_SUBSTRATE=sqlite uv run pytest tests/ -q -n 8
 ```
-now: `n/a` · after: passing
+now: `10462 passed, 1664 skipped, 0 failed` · before: `n/a`
+
+Default run, unchanged: `10539 passed, 1587 skipped`.
+
+### SQLite, not an in-memory stand-in
+
+The task said in-memory. A large part of this suite **spawns subprocesses**, and
+a second process cannot see another's dictionaries — every one of those tests
+would have failed for a reason that says nothing about the port, and the run
+would have been unreadable. SQLite is a genuinely different backend with a
+different lock model, a different revision scheme and no `path_for`, and it
+survives a subprocess. It is the stronger check, not the weaker one.
+
+### First measurement: 76 failures, and none of them a leak
+
+Every failure fell into one of two shapes, both in *tests*:
+
+| shape | count | why it is not a leak |
+|---|---|---|
+| `'SQLiteSubstrate' has no attribute 'path_for'` | 25 | the test asks the substrate for a path — `JsonFileSubstrate`'s own affordance |
+| a hand-written `scopes.json` fixture, or asserting a `.json` exists | ~44 | the test *is* the filesystem layout |
+
+No production code reaches through the port. That claim is made where it can be
+observed rather than inferred, in
+`test_sqlite_substrate.py::test_no_store_asks_the_substrate_for_a_path`, which
+wraps a substrate so `path_for`, `root` and `path` raise and then drives all
+three stores.
+
+### The exemption is per test, and bounded
+
+Marking the nine whole files exempted **113 tests to silence 69** — 44 of them
+would have passed. An exemption that covers more than it needs is where a real
+leak goes to hide, so `json_substrate` is applied to exactly the 69 tests that
+fail under another backend.
+
+`tests/spec/test_the_port_is_not_leaked.py` keeps it honest two ways: a ceiling
+that has to be raised in a diff, and a check that every marked file actually
+*names* a path, a store filename or `JsonFileSubstrate` — a marker on a test
+that mentions none of them is either unnecessary or hiding something. It also
+pins the env-var name and the marker registration, because a typo in either
+would silently stop the second run from skipping anything and it would then fail
+for the wrong reason.
 
 ## T9 · Say so in the docs
 
