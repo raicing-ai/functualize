@@ -560,18 +560,121 @@ next suite run took 3:37 instead of 2:32 because of them.
 
 ## Wave 6 — checkpoint
 
-### [ ] T7 · Feature gate, and the set's last gate
+### [x] T7 · Feature gate, and the set's last gate
 
-- `uv run ruff check src/ tests/ plugins/`, `ruff format --check`
-- `uv run mypy src/`
-- `uv run lint-imports`
-- `HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto`
-- `uv run pytest examples/`
-- **all six pi-workflows parity tests pass** — 1 and 6 already did; 2 and 3 from F5; 4 from F6;
-  5 from this feature
-- AC-1…AC-14 each named to a test
-- orphan scan over every added symbol
-- T5's sabotage, **committing before it**
+- [x] `uv run ruff check src/ tests/ plugins/ examples/`, `ruff format --check` —
+      clean, 1,426 files
+- [x] `uv run mypy src/` — **355 files**, no issues
+- [x] `uv run lint-imports` — **7 kept, 0 broken**
+- [x] `HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto` — **12,142 passed,
+      155 skipped**. Found a latent flake; see below
+- [x] `FUNCTUALIZE_TEST_SUBSTRATE=sqlite` — **10,630 passed, 0 failed**
+- [x] all 12 plugin suites, one package at a time — green, 426 tests
+- [x] `uv run pytest examples/` — **204 passed**, from **2 collection errors and
+      4 failures**. This is the item that earned its place; see below
+- [x] all six pi-workflows parity tests pass — run together, 75 passed:
+      **1** `tests/integration/test_mcp_workflow_loop_e2e.py` (already, 0.3.0) ·
+      **2** `tests/integration/test_crash_and_resume.py` (F5) ·
+      **3** `tests/workflow/test_source_identity.py` (F5) ·
+      **4** `tests/workflow/test_agent_step_refusals.py` (F6) ·
+      **5** `tests/workflow/test_watch_stream.py` (this feature) ·
+      **6** `tests/test_state_split_regression.py` (already, `24c5cc0`)
+- [x] AC-1…AC-14 each named to a test — every one appears in **this feature's own**
+      test files, not merely somewhere under `tests/`; see below
+- [x] orphan scan over all 58 added symbols — one genuine finding, fixed
+- [x] sabotages: T4's 12, T5's 12, T6's 12. All 36 bite. Committed before each
+
+## `pytest examples/` is why a gate runs commands nobody runs per task
+
+It found **six breaks, none of them this feature's**, all from
+`store-substrate` — which assessed a blast radius of five plugins and did not
+look at `examples/` or `docs/`:
+
+- `examples/plugins/custom_state_backend` implemented `StateBackend`, a protocol
+  T5/T6 deleted, and failed at **collection**. Ported to a `StoreSubstrate` —
+  a better example than the one it replaces, because "bring your own storage"
+  is exactly what the substrate seam had no worked example of.
+- `examples/standalone/showcase` imported `InMemoryState`. It is now a dict, and
+  nothing was lost: the example never demonstrated cross-process state.
+- `examples/quickstart/step7_workflow` called three `FreshStore` methods that
+  went with T3's 33 forwarders.
+- README, `docs/guides/domain-sdks.md`, `docs/guides/plugins.md`,
+  `docs/contributing.md` and four more pages described a package that no longer
+  exists.
+- Two example lockfiles pinned an editable path into the deleted directory.
+
+`durable-run-layer`/T13 recorded the same lesson about `lint-imports` — *"a check
+that only runs at a feature boundary will always find things late"* — and this is
+the second instance. `pytest examples/` and `lint-imports` belong in the per-task
+loop; `ruff + mypy + pytest tests/` is not the set.
+
+## The AC map, and why "it appears in tests/" was not good enough
+
+`rg -c "AC-n" tests/` returns 7–19 hits for every n, because nine features'
+specs all number from 1. Scoped to this feature's own files the map is:
+
+| AC | Test file |
+|---|---|
+| 1, 2 | `test_loops.py::TestTheIterationKeyingIsRightBothWays` (one body — both failure modes are silent) |
+| 3, 4 | `test_loops.py` |
+| 5, 6, 7 | `test_failure_routing.py` |
+| 8, 9 | `test_typed_step_outcomes.py` |
+| 10, 11, 12 | `test_watch_stream.py` |
+| 13 | `test_notify.py` **and** `test_notify_exactly_once.py` (the crash half) |
+| 14 | `test_notify.py::TestToIsOpaque` |
+
+AC-1 and AC-2 were **unlabelled** until this gate — the tests existed and the
+file said "Spec AC-3". Labelled now, which is the difference between a map and a
+claim.
+
+## The orphan scan found one thing, and it was real
+
+58 symbols added across T1–T6. Twenty had no production caller outside their own
+file; nineteen are module-private helpers called within their module, which is
+what a private helper is.
+
+The twentieth: **`LogNotifier` was unreachable.** Core "ships a notifier and
+registers none" so that a user can leave that state without installing a
+package — and the only import path was `functualize._engine.notify`. The claim
+in its own docstring was false. Re-exported through `app/utils.py`, the corridor
+`_cli` and plugins already use.
+
+**Recorded, not fixed:** `Stored` and `StoreSubstrate` have no public re-export
+at all, so `functualize-state-sqlite` and the ported example both import them
+from `_types.protocols`. A port a plugin cannot reach publicly is a gap in
+`store-substrate`; the example matches the shipped plugin rather than inventing
+a third way.
+
+## A flake the sweep surfaced
+
+`tests/test_schema_extractor_properties.py` failed once in two `--run-slow` runs
+with `ValueError: invalid enum member name(s) 'mro'`. The generator draws
+lowercase identifiers, `mro` is a legal draw, and `EnumType` refuses it at class
+construction — so the test failed for a reason that is about `enum`, not about
+schema extraction. Filtered in `_make_enum` rather than by narrowing a regex
+every other property in the file shares.
+
+## Gates that moved, and why each was replaced rather than adjusted
+
+Four recorded gates drifted while this feature ran, and **three of them were
+moved by prose**:
+
+| Gate | Was | Now | Cause |
+|---|---|---|---|
+| `durable-run-layer`/T6 | `rg -c 'generation' frontier.py` = 13 | `self\._generation|generation=` = 7 | a rename, then T4's docstrings |
+| `durable-run-layer`/T8 | `rg -c 'abandoned' _workflow_view.py` = 4 | the derivation = 3 | T5's `walk_is_live` had to say how it differs |
+| `workflow-graph-semantics`/T4 | `'"success"|"failed"'` in frontier = 2 | `== "success"` in `_engine/` = 0 | the recorded gate's correct *direction* was unknowable |
+| `workflow-graph-semantics`/T6 | `rg -c 'PROVIDERS'` in the test = ≥3 | `table="..._PROVIDERS"` = 3 | counts the word, 11 → 12 for one sentence |
+
+`agent-step-port`/T2's is the fifth and the exception: it counts every provider
+table in `src/` and moved 2 → 3 because T6 added one. That gate is **working** —
+the count is what made the addition visible — so its `after:` was updated with
+the reason rather than the gate replaced.
+
+> The pattern is one hazard, seen five times on one branch: **a gate that counts
+> a word counts the explanation too.** Every replacement above counts the
+> mechanism instead — a call, an assignment, a field the parametrization reads —
+> and none of them can be satisfied by writing about it.
 
 ---
 
