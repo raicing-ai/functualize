@@ -7,7 +7,9 @@ An entry is one or more (old, new) pairs — some properties can only be removed
 at two sites at once, which T2 learned the hard way.
 """
 
+import os
 import pathlib
+import signal
 import subprocess
 
 F = pathlib.Path("src/functualize/_engine/frontier.py")
@@ -107,16 +109,25 @@ for label, path, *edits in SABOTAGES:
         body = body.replace(old, new)
     path.write_text(body)
     try:
+        # Its own process group, so a timeout can kill the **whole** tree.
+        # `subprocess.run`'s timeout kills the direct child, which is `uv`;
+        # pytest is its grandchild and survives, and three sweeps left hung
+        # runs eating the machine for half an hour each.
+        proc = subprocess.Popen(
+            ["uv", "run", "pytest", *TESTS, "-q", "-p", "no:randomly", "-x"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            start_new_session=True,
+        )
         try:
-            r = subprocess.run(
-                ["uv", "run", "pytest", *TESTS, "-q", "-p", "no:randomly", "-x"],
-                capture_output=True, text=True, timeout=180)
+            out, _ = proc.communicate(timeout=180)
         except subprocess.TimeoutExpired:
-            print(f"{label:44s} -> HUNG (>180s)", flush=True)
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            proc.communicate()
+            print(f"{label:44s} -> HUNG (>180s, killed)", flush=True)
             continue
-        tail = [line for line in r.stdout.strip().splitlines()
+        tail = [line for line in out.strip().splitlines()
                 if "passed" in line or "failed" in line or "error" in line]
-        print(f"{label:44s} -> {tail[-1] if tail else r.stdout.strip()[-140:]}",
+        print(f"{label:44s} -> {tail[-1] if tail else out.strip()[-140:]}",
               flush=True)
     finally:
         path.write_text(original)

@@ -44,6 +44,7 @@ if TYPE_CHECKING:
     from functualize._discovery.registry import JobRegistry
     from functualize._engine.agent_step import AgentStepRegistry
     from functualize._engine.executor import JobExecutionEngine
+    from functualize._engine.notify import NotifierRegistry
     from functualize._engine.result import JobResult
     from functualize._events.bus import EventBus
     from functualize._events.hooks import HookRegistry
@@ -117,6 +118,7 @@ class FunctualizeApp:
     _di_registry: DIRegistry
     _gate_registry: GateRegistry
     _agent_step_registry: AgentStepRegistry
+    _notifier_registry: NotifierRegistry
     _domain_registry: DomainRegistry
     _execution_engine: JobExecutionEngine
     _resolution_pipeline: ResolutionPipeline

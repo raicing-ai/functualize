@@ -57,6 +57,7 @@ if TYPE_CHECKING:
 
     from functualize._types.descriptors import JobDescriptor, RegisteredJob
     from functualize._types.run_request import RunRequest
+    from functualize._types.workflow import Notification
 
 
 @runtime_checkable
@@ -606,6 +607,37 @@ class AgentStepResult:
 
 
 @runtime_checkable
+class Notifier(Protocol):
+    """Protocol for delivering a workflow `Notify`.
+
+    Registered by an app method — ``app.extensions.register_notifier`` — and
+    **never auto-discovered**, for `AgentStepExecutor`'s reason: auto-discovery
+    is how a surface acquires behaviour nobody declared, and this one sends
+    something to a human.
+
+    **Two members, and that is the point.** A name to be resolved by, and one
+    call that delivers. No acknowledgement, no result, no retry policy and no
+    routing — `to` arrives exactly as it was declared and this port never looks
+    inside it. The moment it does, the port owns a broker (**N8**).
+
+    ``deliver`` may raise; the walk logs it and carries on. A notification that
+    could not be sent must not turn a workflow that succeeded into one that
+    failed, and it must not stop the walk it is reporting on.
+
+    Implementations are checked with ``isinstance``; ``issubclass`` raises
+    ``TypeError`` on this Protocol, because ``name`` is a data member.
+    """
+
+    #: The name a `Notify` refers to this notifier by, and the key it is looked
+    #: up under in ``_engine.notify_providers.NOTIFY_PROVIDERS``.
+    name: str
+
+    def deliver(self, notification: Notification) -> None:
+        """Send ``notification`` to its declared target."""
+        ...
+
+
+@runtime_checkable
 class AgentStepExecutor(Protocol):
     """Protocol for running a workflow step by delegating it to an agent.
 
@@ -821,6 +853,7 @@ __all__ = [
     # Protocols
     "AdapterPlugin",
     "AgentStepExecutor",
+    "Notifier",
     "EngineHost",
     "FormatProvider",
     "JobProvider",

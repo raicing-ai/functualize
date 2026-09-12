@@ -256,6 +256,7 @@ def build_engine(host: EngineHost) -> JobExecutionEngine:
         # this line would have dropped agent-step dispatch silently — the
         # engine would build, boot, and refuse every `AgentStep` as unknown.
         agent_step_registry=app._agent_step_registry,
+        notifier_registry=app._notifier_registry,
         config_view_factory=_config_view_factory,
         config_resolver=resolve_job_config,
     )
@@ -326,6 +327,14 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
     from functualize._engine.agent_step import AgentStepRegistry as _AgentStepRegistry
 
     app._agent_step_registry = _AgentStepRegistry()
+
+    # Notifiers (`workflow-graph-semantics`/T6). Same door, same reason, and
+    # core registers **nothing** into it — a default registration makes the
+    # refusal unreachable, and a workflow whose "page the on-call on failure"
+    # quietly became a debug line is worse than one that refuses to start.
+    from functualize._engine.notify import NotifierRegistry as _NotifierRegistry
+
+    app._notifier_registry = _NotifierRegistry()
 
     # Observability subsystem (lazy-initialized)
     app._observability_initialized = False
@@ -536,6 +545,14 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     from functualize._engine.agent_step import AgentStepRegistry as _AgentStepRegistry
 
     app._agent_step_registry = _AgentStepRegistry()
+
+    # Notifiers (`workflow-graph-semantics`/T6). Same door, same reason, and
+    # core registers **nothing** into it — a default registration makes the
+    # refusal unreachable, and a workflow whose "page the on-call on failure"
+    # quietly became a debug line is worse than one that refuses to start.
+    from functualize._engine.notify import NotifierRegistry as _NotifierRegistry
+
+    app._notifier_registry = _NotifierRegistry()
 
     # Observability subsystem (lazy-initialized)
     app._observability_initialized = False

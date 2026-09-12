@@ -203,6 +203,7 @@ class WorkflowOrchestrator:
             # itself decides whether the emit costs anything: with nothing
             # subscribed it returns before building an event.
             emit=self._engine._event_bus.emit,
+            notifiers=self._engine._notifier_registry,
         )
         run = runner.prelude(job_name, declaration)
         if run.should_run_body:

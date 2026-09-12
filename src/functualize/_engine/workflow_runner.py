@@ -118,6 +118,7 @@ class WorkflowRunner:
         agent_step_registry: AgentStepRegistry | None = None,
         request: RunRequest | None = None,
         emit: Any = None,
+        notifiers: Any = None,
     ) -> None:
         self._store = store
         self._run_step = run_step
@@ -126,6 +127,10 @@ class WorkflowRunner:
         #: which has the engine; the walker has neither and must not acquire
         #: one to be observable.
         self._emit = emit
+        #: The app's `NotifierRegistry`, or None for a runner built by hand.
+        #: None means a declared `Notify` is neither checked nor delivered,
+        #: which is the state every test that does not care about one is in.
+        self._notifiers = notifiers
         self._scope_id = scope_id or new_scope_id()
         self._gate_registry = gate_registry
         self._prompt_gates = prompt_gates
@@ -162,6 +167,8 @@ class WorkflowRunner:
                 and a fourth surface away from being wrong.
             AgentExecutorUnavailableError: The graph declares an agent step
                 with no executor to run it.
+            NotifierUnavailableError: The graph declares a notification with no
+                notifier to deliver it.
             AgentCapabilityRefusedError: An agent step requires something its
                 executor cannot honour.
         """
@@ -178,6 +185,11 @@ class WorkflowRunner:
         # it mid-walk would have performed the earlier nodes' side effects
         # first.
         self._agent_step_registry.check(declaration)
+        # Beside the agent-step check and for its reason: a declaration nobody
+        # can deliver must fail before the walk, not at the end of a run that
+        # has already done its work.
+        if self._notifiers is not None:
+            self._notifiers.check(declaration)
 
         report = WorkflowWalker(
             declaration,
@@ -189,6 +201,7 @@ class WorkflowRunner:
             gate_registry=self._gate_registry,
             prompt_gates=self._prompt_gates,
             emit=self._emit,
+            notifiers=self._notifiers,
         ).run()
 
         if report.outcome is not WalkOutcome.COMPLETED:

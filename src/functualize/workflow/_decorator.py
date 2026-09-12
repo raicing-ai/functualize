@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any
 
-from functualize._types.workflow import WorkflowDeclaration
+from functualize._types.workflow import Notify, WorkflowDeclaration
 from functualize.workflow._validation import _validate_workflow_graph
 
 if TYPE_CHECKING:
@@ -29,6 +29,7 @@ def workflow(
     *,
     steps: Sequence[Step | Gate | AgentStep],
     edges: Sequence[Edge | ConditionalEdge],
+    notify: Sequence[Notify] = (),
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator registering a function as a declarative workflow.
 
@@ -41,6 +42,12 @@ def workflow(
             (pauses for input), or `AgentStep` (delegates to a registered
             agent executor).
         edges: List of Edge or ConditionalEdge objects defining connections.
+        notify: Notifications to fire when the walk ends in a declared state.
+            A separate argument rather than an entry in ``edges``: a `Notify`
+            has no source and no target in the graph — it is about the walk's
+            outcome, not about control moving between nodes — and putting it
+            there would make every edge consumer test for a kind that has
+            neither.
 
     Returns:
         A decorator that attaches the workflow definition to the function.
@@ -51,8 +58,10 @@ def workflow(
         ValueError: If the graph contains duplicate node names or unknown
             node references in edges.
     """
-    _validate_workflow_graph(steps, edges)
-    declaration = WorkflowDeclaration(nodes=tuple(steps), edges=tuple(edges))
+    _validate_workflow_graph(steps, edges, notify)
+    declaration = WorkflowDeclaration(
+        nodes=tuple(steps), edges=tuple(edges), notify=tuple(notify)
+    )
 
     def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
         fn.__functualize_workflow__ = declaration  # type: ignore[attr-defined]

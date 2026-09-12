@@ -25,6 +25,7 @@ if TYPE_CHECKING:
         AgentStepExecutor,
         JobProvider,
         JobTransform,
+        Notifier,
     )
     from functualize.app.core import FunctualizeApp
 
@@ -112,6 +113,29 @@ class ExtensionsFacade:
         from functualize._app.impl import register_agent_step_executor
 
         register_agent_step_executor(self._app, executor)
+
+    def register_notifier(self, notifier: Notifier) -> None:
+        """Register a notifier that delivers ``Notify`` declarations.
+
+        Registered, never auto-discovered: a workflow that declares a
+        notification reaches a deliverer because a package registered one.
+
+        Core registers none by default, so a `Notify` fails at validation until
+        something does — deliberately. A notification that silently went
+        nowhere would be indistinguishable from one that worked, until the day
+        it mattered.
+
+        Args:
+            notifier: An implementation of `Notifier` — a ``name`` and
+                ``deliver(notification)``.
+
+        Raises:
+            TypeError: ``notifier`` does not satisfy `Notifier`.
+            ValueError: Its name is empty or already registered.
+        """
+        from functualize._app.impl import register_notifier
+
+        register_notifier(self._app, notifier)
 
     @property
     def extension_state(self) -> dict[str, Any]:

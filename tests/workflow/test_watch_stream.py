@@ -105,6 +105,121 @@ def _nodes(events: list[dict[str, Any]]) -> list[str]:
 
 
 # ----------------------------------------------------------------------
+# The two properties that make a watch *terminate*, and they come first
+# because of what breaking them does.
+#
+# Neither fails a test when it breaks — both **hang** every test that watches
+# anything, and a sweep that times out names no property at all. A cursor that
+# does not move re-yields the whole log for ever; a scope that always looks
+# live is waited on for ever. So each is asserted here, as directly as it can
+# be, before anything that calls `watch_scope` on a real walk: under `-x` the
+# run stops at the assertion that says which one broke.
+# ----------------------------------------------------------------------
+
+
+class TestTheCursorMovesForward:
+    """`after` is a cursor, and asked of the store rather than of the watcher.
+
+    Deliberately *not* through `watch_scope`: the failure this catches is the
+    one that makes `watch_scope` never return, so a test that had to run it to
+    completion could not report it.
+    """
+
+    def test_events_after_a_sequence_exclude_it(self, store: ScopeStore) -> None:
+        store.ensure_scope("s1", "demo")
+        for name in ("a", "b", "c"):
+            store.append_event("s1", {"event": f"workflow.step.{name}"})
+
+        assert [e["seq"] for e in store.events_for("s1")] == [1, 2, 3]
+        assert [e["seq"] for e in store.events_for("s1", after=2)] == [3]
+        assert store.events_for("s1", after=3) == []
+
+    def test_the_sequence_never_restarts(self, store: ScopeStore) -> None:
+        """What lets a watcher resume without comparing timestamps — which two
+        processes on two clocks cannot do reliably."""
+        store.ensure_scope("s1", "demo")
+        first = [store.append_event("s1", {"event": "workflow.step.start"})]
+        first.append(store.append_event("s1", {"event": "workflow.step.end"}))
+        assert first == [1, 2]
+
+
+# ----------------------------------------------------------------------
+# AC-12 — parked, not running
+# ----------------------------------------------------------------------
+
+
+class TestAParkedScopeSaysSo:
+    def test_a_scope_nobody_holds_is_not_live(self, store: ScopeStore) -> None:
+        store.ensure_scope("s1", "demo")
+        assert walk_is_live(store.get_scope("s1")) is False
+
+    def test_a_held_scope_is_live(self, store: ScopeStore) -> None:
+        store.ensure_scope("s1", "demo")
+        store.claim_scope("s1", owner="me")
+        assert walk_is_live(store.get_scope("s1")) is True
+
+    def test_a_lapsed_lease_is_not_live(self, store: ScopeStore) -> None:
+        """The difference from `_lease_has_lapsed`, which this must not be.
+
+        That helper answers "was this abandoned", and treats an absent lease as
+        no. This one answers "is anybody walking it", and both an expired lease
+        and an absent one mean no.
+        """
+        store.ensure_scope("s1", "demo")
+        store.claim_scope("s1", owner="dead", seconds=1)
+        scope = store.get_scope("s1")
+        past = (datetime.now(UTC) - timedelta(seconds=600)).isoformat()
+        lease = {**scope["lease"], "expires_at": past}
+        store._mutate(  # noqa: SLF001
+            lambda env: env["scopes"]["s1"].__setitem__("lease", lease)
+        )
+        assert walk_is_live(store.get_scope("s1")) is False
+
+    def test_watching_a_parked_scope_returns_instead_of_waiting(
+        self, store: ScopeStore, bus: EventBus
+    ) -> None:
+        """The reason AC-12 is a requirement and not a nicety.
+
+        A released lease is *expired in place*, so every finished scope looks
+        the same as an abandoned one. Without this, `watch` on a workflow that
+        ended an hour ago would print its history and then hang for ever.
+        """
+        _walk(store, bus)
+        naps: list[float] = []
+        seen = list(watch_scope(store, "s1", sleep=naps.append))
+        assert seen, "the finished walk's history was not rendered"
+        assert naps == [], f"it slept waiting for a walk nobody is running: {naps}"
+
+    def test_a_live_scope_is_waited_on(self, store: ScopeStore, bus: EventBus) -> None:
+        """The other direction: a held scope is followed, not abandoned early.
+
+        A watcher that returned the moment the log went quiet would stop
+        between two steps of a slow workflow, which is when someone is most
+        likely to be watching it.
+        """
+        _walk(store, bus)
+        store.claim_scope("s1", owner="still-here")
+
+        naps: list[float] = []
+        seen = list(
+            watch_scope(
+                store,
+                "s1",
+                timeout=1.0,
+                sleep=naps.append,
+                # Time moves only once something has waited, so the timeout
+                # cannot fire before the wait it is meant to bound.
+                clock=lambda: 99.0 if naps else 0.0,
+            )
+        )
+        assert seen
+        assert naps, "a live scope was not waited on"
+
+    def test_a_vanished_scope_ends_the_watch(self, store: ScopeStore) -> None:
+        assert list(watch_scope(store, "gone", sleep=lambda _: None)) == []
+
+
+# ----------------------------------------------------------------------
 # AC-11 — the walker emits, and that is the only source
 # ----------------------------------------------------------------------
 
@@ -230,8 +345,13 @@ class TestNothingIsInferred:
     def test_an_event_without_a_scope_is_dropped(
         self, store: ScopeStore, bus: EventBus
     ) -> None:
+        """Dropped, not filed under a placeholder.
+
+        Asserting on one scope id would pass however the event were misfiled;
+        the store's whole index is what shows that nothing was written at all.
+        """
         bus.emit("workflow.walk.start", resource="nowhere")
-        assert store.get_scope("s1") is None
+        assert store.scope_ids() == []
 
 
 # ----------------------------------------------------------------------
@@ -275,13 +395,15 @@ class TestWatchFollows:
         assert seqs == list(range(1, len(seqs) + 1))
 
 
-# ----------------------------------------------------------------------
-# AC-12 — parked, not running
-# ----------------------------------------------------------------------
-
-
 class TestTheWiringIsReal:
     """The one test that would fail if nothing were connected.
+
+    **Last in the file deliberately.** It types the command with no
+    `--timeout`, which is how it proves AC-12 — a parked scope ends the watch
+    rather than waiting on a walk nobody is running. Sabotage `walk_is_live` and
+    this hangs instead of failing, so the cheap property tests above it have to
+    run first: under `-x` the sweep stops at the named assertion, which says
+    *which* property broke. A run that hangs says nothing.
 
     Every other test in this file hands `bus.emit` to the walker by hand and
     installs the subscriber by hand, so all of them would still pass with the
@@ -383,74 +505,3 @@ class TestTheWiringIsReal:
         assert "walk.start" in out, out
         assert "build" in out, out
         assert "walk.end" in out, out
-
-
-class TestAParkedScopeSaysSo:
-    def test_a_scope_nobody_holds_is_not_live(self, store: ScopeStore) -> None:
-        store.ensure_scope("s1", "demo")
-        assert walk_is_live(store.get_scope("s1")) is False
-
-    def test_a_held_scope_is_live(self, store: ScopeStore) -> None:
-        store.ensure_scope("s1", "demo")
-        store.claim_scope("s1", owner="me")
-        assert walk_is_live(store.get_scope("s1")) is True
-
-    def test_a_lapsed_lease_is_not_live(self, store: ScopeStore) -> None:
-        """The difference from `_lease_has_lapsed`, which this must not be.
-
-        That helper answers "was this abandoned", and treats an absent lease as
-        no. This one answers "is anybody walking it", and both an expired lease
-        and an absent one mean no.
-        """
-        store.ensure_scope("s1", "demo")
-        store.claim_scope("s1", owner="dead", seconds=1)
-        scope = store.get_scope("s1")
-        past = (datetime.now(UTC) - timedelta(seconds=600)).isoformat()
-        lease = {**scope["lease"], "expires_at": past}
-        store._mutate(  # noqa: SLF001
-            lambda env: env["scopes"]["s1"].__setitem__("lease", lease)
-        )
-        assert walk_is_live(store.get_scope("s1")) is False
-
-    def test_watching_a_parked_scope_returns_instead_of_waiting(
-        self, store: ScopeStore, bus: EventBus
-    ) -> None:
-        """The reason AC-12 is a requirement and not a nicety.
-
-        A released lease is *expired in place*, so every finished scope looks
-        the same as an abandoned one. Without this, `watch` on a workflow that
-        ended an hour ago would print its history and then hang for ever.
-        """
-        _walk(store, bus)
-        naps: list[float] = []
-        seen = list(watch_scope(store, "s1", sleep=naps.append))
-        assert seen, "the finished walk's history was not rendered"
-        assert naps == [], f"it slept waiting for a walk nobody is running: {naps}"
-
-    def test_a_live_scope_is_waited_on(self, store: ScopeStore, bus: EventBus) -> None:
-        """The other direction: a held scope is followed, not abandoned early.
-
-        A watcher that returned the moment the log went quiet would stop
-        between two steps of a slow workflow, which is when someone is most
-        likely to be watching it.
-        """
-        _walk(store, bus)
-        store.claim_scope("s1", owner="still-here")
-
-        naps: list[float] = []
-        seen = list(
-            watch_scope(
-                store,
-                "s1",
-                timeout=1.0,
-                sleep=naps.append,
-                # Time moves only once something has waited, so the timeout
-                # cannot fire before the wait it is meant to bound.
-                clock=lambda: 99.0 if naps else 0.0,
-            )
-        )
-        assert seen
-        assert naps, "a live scope was not waited on"
-
-    def test_a_vanished_scope_ends_the_watch(self, store: ScopeStore) -> None:
-        assert list(watch_scope(store, "gone", sleep=lambda _: None)) == []

@@ -44,11 +44,25 @@ _SRC = _ROOT / "src" / "functualize"
 #: lazily on purpose, so hoisting the import to save a line would trade boot
 #: time for a budget number.
 #:
+#: **302 → 303, 2026-09-12** (`workflow-graph-semantics`/T6). `FunctualizeApp`
+#: gained `_notifier_registry`, beside `_agent_step_registry` and for the same
+#: reason: the registry has to exist before the engine is constructed, because
+#: `app.extensions.register_notifier` is a door a plugin may reach before boot
+#: finishes. The two cheaper answers were tried first and neither applies — the
+#: member is a bare annotation, so there is no body to move, and grouping it
+#: with `_agent_step_registry` behind a "registries" facade is a refactor of
+#: eleven call sites for one line, which trades a real seam for a number.
+#:
+#: The alternative considered and rejected: hanging the registry off the engine
+#: and reaching it through a public `engine.register_notifier`. It saves the
+#: line and costs the consistency — one port on the app, its twin on the
+#: engine, with no reason a reader could find except this ceiling.
+#:
 #: No headroom added on top. A tight ceiling that is raised to exactly what fits
 #: still binds the next addition; one raised to the next round number does not.
 _BUDGETS: list[tuple[str, str, int]] = [
     ("_engine/capabilities/runcontext.py", "RunContext", 500),
-    ("app/core.py", "FunctualizeApp", 302),
+    ("app/core.py", "FunctualizeApp", 303),
 ]
 
 

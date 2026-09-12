@@ -82,6 +82,15 @@ _TABLES: tuple[ProviderTable, ...] = (
         core="CORE_EXECUTORS",
         hint="missing_executor_hint",
     ),
+    # The third table (`workflow-graph-semantics`/T6), and the one this file's
+    # opening paragraph was written for: it joined a list and inherited every
+    # check below without a line of it being copied.
+    ProviderTable(
+        module="functualize._engine.notify_providers",
+        table="NOTIFY_PROVIDERS",
+        core="CORE_NOTIFIERS",
+        hint="missing_notifier_hint",
+    ),
 )
 
 _TABLE_IDS = [table.table for table in _TABLES]

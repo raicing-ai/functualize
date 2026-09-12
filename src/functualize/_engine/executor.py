@@ -205,6 +205,7 @@ class JobExecutionEngine:
         fresh_root: Path | None = None,
         gate_registry: Any = None,
         agent_step_registry: Any = None,
+        notifier_registry: Any = None,
         config_view_factory: Callable[..., Any] | None = None,
         config_resolver: Callable[..., Any] | None = None,
     ) -> None:
@@ -218,6 +219,7 @@ class JobExecutionEngine:
         self._explicit_state_root = fresh_root
         self._gate_registry = gate_registry
         self._agent_step_registry = agent_step_registry
+        self._notifier_registry = notifier_registry
         self._registered_jobs: dict[str, RegisteredJob] = {}
         self._resolution_plan_cache: dict[int, ResolutionPlan] = {}
         # {id(function): ((param_name, GroupOptions subclass), ...)} — usually

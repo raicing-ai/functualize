@@ -848,6 +848,24 @@ def register_agent_step_executor(app: Any, executor: Any) -> None:
     app._agent_step_registry.register(executor)
 
 
+def register_notifier(app: Any, notifier: Any) -> None:
+    """Register a notifier on ``app``.
+
+    Registered, never auto-discovered, for `register_agent_step_executor`'s
+    reason and one of its own: this is the port that tells a human something,
+    and a deliverer nobody chose is how a page becomes a log line.
+
+    Args:
+        app: The FunctualizeApp instance.
+        notifier: A `Notifier` — a `name` and `deliver(notification)`.
+
+    Raises:
+        TypeError: ``notifier`` does not satisfy `Notifier`.
+        ValueError: Its name is already registered, or empty.
+    """
+    app._notifier_registry.register(notifier)
+
+
 # ─── Configuration Model Resolution ─────────────────────────────────────
 
 

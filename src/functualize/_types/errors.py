@@ -342,6 +342,73 @@ class ScopeCancelledError(Exception):
         )
 
 
+class NotifierUnavailableError(Exception):
+    """Raised at validation when a `Notify` has no notifier to deliver it.
+
+    A refusal, not a degradation, and the reason is sharper here than for an
+    agent step: the point of a notification is that somebody finds out. A
+    declaration that quietly delivered nowhere would be indistinguishable from
+    one that worked, until the day it mattered.
+
+    Raised **before the walk**, in `WorkflowRunner.prelude`, so it fires when
+    nothing has happened yet. Discovering at the end of a long run that its
+    "page the on-call on failure" was never deliverable is the one moment the
+    fault is least recoverable.
+
+    Attributes:
+        to: The declared target, so the message names *which* notification.
+            Reported as written; nothing here interprets it.
+        provider: The notifier the declaration named, or None when it named
+            none and one could not be identified.
+        registered: The notifier names that *are* registered, sorted.
+        hint: How to make it available, as the install clause from
+            ``_engine.notify_providers.NOTIFY_PROVIDERS``. Empty for a core
+            name — core registers no notifier by default, so a missing ``log``
+            is a registration nobody made, not a package to install.
+    """
+
+    def __init__(
+        self,
+        to: str,
+        provider: str | None = None,
+        *,
+        registered: Sequence[str] = (),
+        hint: str = "",
+    ) -> None:
+        self.to = to
+        self.provider = provider
+        self.registered = tuple(registered)
+        self.hint = hint
+        super().__init__(self._message())
+
+    def _message(self) -> str:
+        # Three situations, for `AgentExecutorUnavailableError`'s reason: one
+        # sentence covering "named one that is missing" and "named none" prints
+        # a contradiction on the case a user is most likely to hit.
+        if self.provider is not None:
+            wanted = f"names notifier {self.provider!r}, which is not registered"
+            known = (
+                f" (registered: {', '.join(self.registered)})"
+                if self.registered
+                else " (no notifier is registered at all)"
+            )
+        elif self.registered:
+            wanted = (
+                f"names no notifier and {len(self.registered)} are registered, "
+                "so which one should deliver it cannot be identified"
+            )
+            known = f" (registered: {', '.join(self.registered)})"
+        else:
+            wanted = "has no notifier registered for it"
+            known = " (no notifier is registered at all)"
+        remedy = f" {self.hint.capitalize()}." if self.hint else ""
+        return (
+            f"The notification to {self.to!r} {wanted}{known}.{remedy} "
+            "Register one with app.extensions.register_notifier, or remove the "
+            "Notify — a notification nobody delivers is worse than none."
+        )
+
+
 class AgentExecutorUnavailableError(Exception):
     """Raised at validation when an agent step has no executor to run it.
 

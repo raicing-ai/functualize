@@ -1165,6 +1165,7 @@ def prelude_refusal() -> Iterator[None]:
     from functualize._types.errors import (
         AgentCapabilityRefusedError,
         AgentExecutorUnavailableError,
+        NotifierUnavailableError,
     )
     from functualize.app.utils import ScopeCancelledError, ScopeStoreUnreadableError
 
@@ -1173,7 +1174,15 @@ def prelude_refusal() -> Iterator[None]:
     except (ScopeStoreUnreadableError, ScopeCancelledError) as exc:
         click.echo(f"Error: {exc}", err=True)
         raise SystemExit(ExitCode.USAGE) from exc
-    except (AgentExecutorUnavailableError, AgentCapabilityRefusedError) as exc:
+    except (
+        AgentExecutorUnavailableError,
+        AgentCapabilityRefusedError,
+        # `workflow-graph-semantics`/T6, joining this arm rather than getting
+        # its own: it is the same kind of answer — the declaration asked for
+        # something no registration can supply, so nothing ran and nothing
+        # failed. A refusal (3), not an error (1).
+        NotifierUnavailableError,
+    ) as exc:
         click.echo(f"Error: {exc}", err=True)
         raise SystemExit(ExitCode.REFUSED) from exc
 

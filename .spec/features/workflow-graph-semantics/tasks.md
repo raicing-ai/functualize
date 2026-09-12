@@ -462,11 +462,16 @@ and all 12 bite. **Commit before sabotaging.**
 
 ## Wave 5 — notify, exactly once
 
-### [ ] T6 · `Notify` on F5's outbox
+### [x] T6 · `Notify` on F5's outbox
 
-**Files:** `src/functualize/workflow/__init__.py`,
-`src/functualize/_engine/agent_providers.py`,
-`tests/integration/test_notify_exactly_once.py`
+**Files:** `src/functualize/workflow/{__init__,_decorator,_validation}.py`,
+`src/functualize/_types/{workflow,protocols,errors}.py`,
+`src/functualize/_engine/notify_providers.py` (new) *(deviation, below)*,
+`src/functualize/_engine/notify.py` (new),
+`src/functualize/_engine/{workflow_walker,workflow_runner,workflow_orchestrator,executor}.py`,
+`src/functualize/_app/{boot,impl,extensions_facade}.py`, `src/functualize/app/core.py`,
+`tests/workflow/test_notify.py` (new),
+`tests/integration/test_notify_exactly_once.py` (new)
 
 Spec AC-13, AC-14. An **effect**, so it rides F5's outbox.
 
@@ -474,17 +479,76 @@ Spec AC-13, AC-14. An **effect**, so it rides F5's outbox.
 joining the parametrized provider-table test F6 introduced, so a third table extends a list
 rather than copying a file.
 
+**Deviation: the table got its own module.** The plan put `NOTIFY_PROVIDERS` in
+`_engine/agent_providers.py`. An executor runs a step and a notifier delivers an
+effect; they share a *shape*, not a subject, and a table about notifications
+inside a file whose docstring is entirely about agent executors is one nobody
+looking for it would find. It costs nothing: `test_provider_tables.py`
+**discovers** tables by scanning `src/` and refuses any that has not joined its
+list, so a third module inherits every check with a four-line entry — which is
+the property that file's opening paragraph was written to defend, exercised
+here for the first time.
+
 **Gate — the tables share one test**
 ```bash
 rg -c 'PROVIDERS' tests/gate/test_provider_tables.py
 ```
-now: `file absent` *(F6 creates it)* · after: `≥3` *(strategy, executor, notify)*
+recorded `now: file absent · after: ≥3`, and **superseded**: it counts every
+line that mentions the word, prose included — it was `11` before this task and
+is `12` after, which is one sentence, not one table. The same shape that moved
+`durable-run-layer`/T6 and T8 on this branch.
+
+Replaced with a count of the entries themselves:
+```bash
+rg -c 'table="[A-Z_]+_PROVIDERS"' tests/gate/test_provider_tables.py
+```
+now: `2` · after: `3` — strategy, executor, notify. It counts the field the
+parametrization reads, so a table described in a comment does not satisfy it,
+and `test_every_provider_table_in_src_is_listed_here` independently fails if a
+fourth table appears in `src/` without joining.
 
 **Test (AC-13):** a declared notification fires **exactly once** across a `kill -9` — a real
 signal, as F5's parity test 2 does. A unit test can fake exactly-once; a real crash cannot.
+Done: the first runner blocks at a gate, delivers, and hangs **inside the
+notifier**; it is SIGKILLed; the resumed walk replays to the same gate, reaches
+the same `blocked` status, and stays quiet. The evidence is a file the notifier
+appends to, so the count is deliveries and not bookkeeping. Verified to bite —
+with the "already recorded" check removed the log reads `blocked\nblocked\n`.
+
+Two guards beside it, because "notified once" is also true of a resumed runner
+that crashed on startup or never reached the gate: one asserts the resumed scope
+really is `blocked` at `approval`, and one asserts a fresh scope *is* notified.
+
+**The outbox rule, and the direction it fails in.** The record that a
+notification fired is committed **before** the provider is called, so a crash
+inside a delivery loses one and can never repeat one. Asymmetric on purpose: a
+resumed workflow must not page the on-call again for a failure they have already
+seen. Recorded in the scope's **branch** store, where `OnFailure` already keeps
+its chosen route (T3) — one place a resume reads one kind of fact, *this scope
+decided this once*, rather than a second store to keep in agreement. Keyed by
+the declaration's content, not its index, so adding a second `Notify` cannot
+make the first fire again.
+
+**Nothing is registered by default.** Core ships `LogNotifier` and registers it
+nowhere — `_app.boot`'s decision for the `cli-prompt` executor, made again: a
+default registration makes the refusal unreachable, and a workflow whose "page
+the on-call on failure" quietly became a debug line is worse than one that
+refuses to start. `NotifierRegistry.check` runs in `WorkflowRunner.prelude`,
+before the walk, so a declaration nobody can deliver fails when nothing has
+happened yet.
+
+**`FunctualizeApp`'s facade budget 302 → 303**, for `_notifier_registry`, with
+the reason and the two rejected cheaper answers in `tests/test_facade_loc_limits.py`.
 
 > **Not a bus and not a broker** — **N8**. *"The moment `to` becomes load-bearing routing, you
 > own a broker."* No retries, no fan-out, no dead-letter queue (risk R-f).
+> `TestToIsOpaque` is what keeps them out: six declared targets — an address, a
+> channel, a URL with a query string, a comma-separated list, a template-looking
+> string, one with padding — each arrives byte for byte, and `"a,b"` is **one**
+> target. There is nowhere for a routing rule to attach itself without that
+> failing first.
+
+**Sabotage:** N edits, `sabotage-t6.py`.
 
 ---
 

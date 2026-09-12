@@ -28,6 +28,7 @@ from functualize._types.workflow import (
     Edge,
     Gate,
     Loop,
+    Notify,
     OnFailure,
     Step,
     _EndSentinel,
@@ -39,6 +40,7 @@ _NODE_TYPES = (Step, Gate, AgentStep)
 def _validate_workflow_graph(
     nodes: Sequence[Step | Gate | AgentStep],
     edges: Sequence[Edge | ConditionalEdge | Loop | OnFailure],
+    notify: Sequence[Notify] = (),
 ) -> None:
     """Validate the workflow graph structure at decoration time.
 
@@ -46,6 +48,11 @@ def _validate_workflow_graph(
         nodes: Workflow nodes — `Step` (runs a job), `Gate` (pauses), or
             `AgentStep` (delegates to a registered agent executor).
         edges: `Edge` / `ConditionalEdge` connections between nodes.
+        notify: `Notify` declarations. Only their **type** is checked here;
+            `Notify.__post_init__` has already refused an unknown state or an
+            empty target, and whether a notifier exists to deliver one needs
+            the live registry — the same split that sends `AgentStep` executor
+            resolution to `_engine.notify`.
 
     Raises:
         TypeError: If a list entry is not a workflow node or edge type.
@@ -96,6 +103,13 @@ def _validate_workflow_graph(
                 raise ValueError(f"OnFailure target '{edge.target}' not found in steps")
         elif not _is_end(edge.target) and edge.target not in node_names:
             raise ValueError(f"Edge target '{edge.target}' not found in steps")
+
+    for declared in notify:
+        if not isinstance(declared, Notify):
+            raise TypeError(
+                f"Workflow notifications must be Notify objects, "
+                f"got {type(declared).__name__}"
+            )
 
     _refuse_unbounded_cycle(edges)
 

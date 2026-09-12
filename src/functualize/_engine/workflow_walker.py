@@ -53,6 +53,8 @@ from functualize._types.workflow import (
     ConditionalEdge,
     Gate,
     Loop,
+    Notification,
+    Notify,
     OnFailure,
     Step,
     _EndSentinel,
@@ -286,6 +288,7 @@ class WorkflowWalker:
         prompt_gates: bool = False,
         max_workflow_depth: int | None = None,
         emit: Callable[..., None] | None = None,
+        notifiers: Any = None,
     ) -> None:
         self._declaration = declaration
         self._store = store
@@ -299,6 +302,7 @@ class WorkflowWalker:
         self._gate_registry = gate_registry
         self._prompt_gates = prompt_gates
         self._emit = emit
+        self._notifiers = notifiers
         #: None means "the default" — resolved in `workflow_validation` rather
         #: than here, so the number lives in one place.
         self._max_workflow_depth = max_workflow_depth
@@ -330,6 +334,7 @@ class WorkflowWalker:
             self._say(
                 "walk.end", node=report.failed_node or "", outcome=report.outcome.value
             )
+            self._notify(report)
             return report
         except StaleGenerationError:
             # Someone took the scope while this walk was running — `cancel`
@@ -905,6 +910,51 @@ class WorkflowWalker:
             blocked_at=_now(),
         )
 
+    def _notify(self, report: WalkReport) -> None:
+        """Fire the declared notifications for the status the walk ended in.
+
+        **The outbox, applied to an effect that is not a step.** The record
+        that a notification fired is committed *before* the provider is called,
+        so a crash can lose one and can never send one twice — at-most-once, in
+        the direction that matters: a resumed workflow must not page the
+        on-call again for a failure they have already seen. That is
+        `Step(effecting=True)`'s rule, with the same asymmetry and the same
+        reason.
+
+        Recorded in the scope's **branch** store, where `OnFailure` already
+        keeps its chosen route (T3): one place a resume reads one kind of fact
+        — *this scope decided this once* — rather than a second store to keep
+        in agreement. Namespaced with a NUL, so it cannot collide with a node.
+
+        Read from the store rather than from the report, because the scope
+        status is what a `Notify` declares on and what the walk actually wrote;
+        `WalkOutcome` is a different vocabulary and `FAILED` covers both a
+        failure and a cancellation.
+
+        Still inside the lease — `run` releases in a `finally` after this — so a
+        walk that no longer owns the scope cannot mark a notification sent on
+        somebody else's behalf.
+        """
+        if self._notifiers is None or not self._declaration.notify:
+            return
+        scope = self._store.get_scope(self._scope_id) or {}
+        status = str(scope.get("status") or "")
+        for declared in self._declaration.notifications_for(status):
+            key = _notify_key(declared)
+            if self._store.get_branch(self._scope_id, key) is not None:
+                continue
+            self._store.record_branch(self._scope_id, key, "sent")
+            self._notifiers.deliver(
+                declared,
+                Notification(
+                    to=declared.to,
+                    scope_id=self._scope_id,
+                    workflow=self._workflow_name or scope.get("workflow"),
+                    status=status,
+                    node=report.failed_node or report.blocked_on or None,
+                ),
+            )
+
     def _say(self, action: str, **payload: Any) -> None:
         """Emit one walk event, or do nothing when nothing is wired.
 
@@ -1074,6 +1124,17 @@ _SCOPE_STATUS_FOR: dict[str, str] = {
     StepStatus.FAILED: "failed",
     StepStatus.CANCELLED: "cancelled",
 }
+
+
+def _notify_key(declared: Notify) -> str:
+    """The branch-record key one notification's delivery is recorded under.
+
+    NUL-namespaced away from node names for `_failure_branch`'s reason, and
+    keyed by the declaration's **content** rather than its position: a workflow
+    that gains a second `Notify` must not make the first one fire again by
+    shifting an index.
+    """
+    return f"\x00notify\x00{declared.key}"
 
 
 def _failure_branch(name: str) -> str:

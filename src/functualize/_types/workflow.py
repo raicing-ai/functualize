@@ -50,6 +50,8 @@ __all__ = [
     "Edge",
     "Gate",
     "Loop",
+    "Notification",
+    "Notify",
     "OnFailure",
     "IMPLIED_CAPABILITIES",
     "Step",
@@ -771,6 +773,96 @@ def _node_kind(node: Step | Gate | AgentStep) -> str:
     raise TypeError(f"Unknown workflow node type {type(node).__name__!r}")
 
 
+#: Scope statuses a `Notify` may fire on.
+#:
+#: The statuses the **walk writes**, not the richer set
+#: `app/_workflow_view.derived_state` computes for display. `_types` imports
+#: nothing internal, so reading the derived vocabulary here is not available —
+#: and copying it would be a fifth spelling of a list that must agree exactly
+#: (`contributor/reference/pitfalls.md` §6). What a walk ends in is what a
+#: notification can be about, and those are these four.
+_VALID_NOTIFY_STATES: frozenset[str] = frozenset(
+    {"completed", "failed", "blocked", "cancelled"}
+)
+
+
+@dataclass(frozen=True)
+class Notify:
+    """Tell somebody when a walk ends in a given state.
+
+    An **effect**, and it rides the same outbox rule as `Step(effecting=True)`:
+    the record that it fired is committed before the provider is called, so a
+    crash can lose a notification but can never send it twice. At-most-once, in
+    the direction that matters — a resumed workflow must not page the on-call
+    again for a failure they have already seen.
+
+    > **Not a bus and not a broker.** ``to`` is opaque to the engine: it is
+    > handed to the provider verbatim and nothing here parses, matches or routes
+    > on it. The moment ``to`` becomes load-bearing routing, you own a broker —
+    > and then retries, fan-out and a dead-letter queue follow, none of which
+    > this is. A target, and an effect.
+
+    Attributes:
+        on: The scope status to fire on — one of `_VALID_NOTIFY_STATES`.
+        to: Where the notification goes, in whatever spelling the provider
+            understands. An address, a channel, a task list, a URL.
+        provider: Which registered notifier delivers it. None means the single
+            registered one, and is an error when there is more than one — a
+            notification that silently picked a deliverer would be the worst
+            kind of working.
+    """
+
+    on: str
+    to: str
+    provider: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.on not in _VALID_NOTIFY_STATES:
+            raise ValueError(
+                f"Notify `on` must be one of {sorted(_VALID_NOTIFY_STATES)}, "
+                f"got {self.on!r}"
+            )
+        if not isinstance(self.to, str) or not self.to.strip():
+            raise ValueError("Notify `to` must be a non-empty string")
+        if self.provider is not None and not self.provider.strip():
+            raise ValueError("Notify `provider` must be a non-empty string or None")
+
+    @property
+    def key(self) -> str:
+        """What "this notification already fired" is recorded under.
+
+        The declaration's own content, not its position in a list: a workflow
+        that gains a second `Notify` must not make the first one fire again by
+        shifting its index.
+        """
+        return f"{self.on}\x00{self.provider or ''}\x00{self.to}"
+
+
+@dataclass(frozen=True)
+class Notification:
+    """What a notifier is handed. A target, and what happened.
+
+    Five fields and no envelope. There is no message id, no correlation key, no
+    priority and no retry count, because each of those is the first field of a
+    broker and this is not one (**N8**). A provider that needs an id makes one;
+    a provider that needs a retry owns it.
+
+    Attributes:
+        to: The declaration's ``to``, **verbatim**. Never parsed here.
+        scope_id: The walk this is about.
+        workflow: The job name, when the scope records one.
+        status: The scope status that fired it.
+        node: Where the walk stopped, when it stopped somewhere — the failed
+            node, or the gate it is blocked at. None for a walk that finished.
+    """
+
+    to: str
+    scope_id: str
+    workflow: str | None
+    status: str
+    node: str | None = None
+
+
 @dataclass(frozen=True)
 class WorkflowDeclaration:
     """The frozen graph attached by ``@workflow`` (mirrors ``JobDeclaration``).
@@ -782,10 +874,20 @@ class WorkflowDeclaration:
 
     nodes: tuple[Step | Gate | AgentStep, ...] = ()
     edges: tuple[Edge | ConditionalEdge, ...] = ()
+    #: Notifications to fire when the walk ends. **Not in `edges`**: a `Notify`
+    #: has no source and no target in the graph — it is about the walk's
+    #: outcome, not about control moving from one node to another — and putting
+    #: it there would make every edge consumer test for a kind that has neither.
+    notify: tuple[Notify, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "nodes", tuple(self.nodes))
         object.__setattr__(self, "edges", tuple(self.edges))
+        object.__setattr__(self, "notify", tuple(self.notify))
+
+    def notifications_for(self, status: str) -> tuple[Notify, ...]:
+        """Every declared notification that fires on ``status``."""
+        return tuple(item for item in self.notify if item.on == status)
 
     @property
     def entry(self) -> str | None:

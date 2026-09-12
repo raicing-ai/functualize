@@ -223,6 +223,11 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "Gate",
         "Loop",
         "OnFailure",
+        # A notification on a walk's outcome, and what its deliverer is handed
+        # (workflow-graph-semantics T6). `Notification` is public because a
+        # `Notifier` implementation has to name the type it receives.
+        "Notification",
+        "Notify",
         "Step",
         # A node performed by an agent rather than by a registered job
         # (agent-step-port F6).

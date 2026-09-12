@@ -48,7 +48,16 @@ tables**, so a third table joins a list rather than copying a file (risk R-e, `p
 ```bash
 rg -n '^[A-Z_]+_PROVIDERS' src/functualize/ | wc -l
 ```
-now: `1` *(`_gate/_strategy.py:40`)* · after: `2`
+now: `1` *(`_gate/_strategy.py:40`)* · after: `3`
+
+**Re-measured 2026-09-12: 2 → 3, by an addition, not a regression.**
+`workflow-graph-semantics`/T6 added `NOTIFY_PROVIDERS` (`_engine/notify_providers.py`),
+the third table. The gate counts *every* provider table in `src/`, so it moves
+whenever one is added — and that is what made this addition visible rather than
+silent, which is worth more than a number that never changes. T2's own claim is
+untouched: `EXECUTOR_PROVIDERS` exists, and `tests/gate/test_provider_tables.py`
+now parametrizes over three tables instead of copying a file for each — the
+property T2 was for, exercised for the first time.
 
 **Gate — core still imports no plugin**
 ```bash
