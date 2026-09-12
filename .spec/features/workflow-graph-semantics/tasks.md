@@ -548,7 +548,13 @@ the reason and the two rejected cheaper answers in `tests/test_facade_loc_limits
 > target. There is nowhere for a routing rule to attach itself without that
 > failing first.
 
-**Sabotage:** N edits, `sabotage-t6.py`.
+**Sabotage:** 12 edits, `sabotage-t6.py`. All 12 bite, the crash test included.
+
+**A sweep fix that belongs here.** The T4 and T5 scripts now run pytest in its
+own process group and `killpg` it on timeout. `subprocess.run`'s timeout kills
+the direct child, which is `uv`; pytest is its **grandchild** and survived — three
+T5 sweeps left hung runs eating the machine for twenty minutes each, and the
+next suite run took 3:37 instead of 2:32 because of them.
 
 ---
 
