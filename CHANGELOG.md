@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — a cycle in a workflow graph is refused instead of run once
+
+**Breaking.** A `@workflow` whose edges form a cycle now raises
+`WorkflowDeclarationError` at decoration time, naming the cycle.
+
+It used to be accepted. The walk prunes nodes it has already visited, so the
+second pass was dropped with no message — a loop that never looped, which is
+indistinguishable from a loop whose condition was false. The declaration said
+one thing, the run did another, and nothing said so. Nothing validated it
+either: the existing guard covers cycles *between nested workflows*, not edges
+inside one graph.
+
+```
+Workflow graph has a cycle with no declared bound: check -> work -> check.
+```
+
+Diamonds and conditionals whose branches rejoin are unaffected — reaching a node
+twice by different paths is not a cycle, and refusing that would break the most
+common non-linear graph there is.
+
+If you have a graph that relies on the old behaviour, it was running once:
+remove the edge that closes the cycle. An explicit bounded repetition is coming
+in the same release.
+
 ### Added — the run log is readable
 
 Every execution has been recorded since 0.3.0 and read by nothing. `runs.json`

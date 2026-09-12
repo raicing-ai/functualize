@@ -7,9 +7,10 @@ Run gates from the worktree root.
 
 ## Wave 0 — the breaking change, alone and first
 
-### [ ] T1 · An unbounded cycle is refused at declaration
+### [x] T1 · An unbounded cycle is refused at declaration
 
-**Files:** `src/functualize/workflow/_validation.py`, `tests/workflow/test_loops.py`
+**Files:** `src/functualize/workflow/_validation.py`,
+`tests/workflow/test_loops.py` (new), `CHANGELOG.md`
 
 Spec AC-3. Today `_engine/workflow_validation.py:184-185` guards **workflow-to-workflow**
 nesting cycles only — *"ordinary jobs terminate a chain and are already cycle-checked as
@@ -19,14 +20,41 @@ silently runs once.
 This changes "silently wrong" to "loudly refused". The message names the cycle and the fix
 (declare a `Loop` with a bound). **Breaking** — CHANGELOG entry (risk R-g).
 
-**Gate**
+**Gate — the recorded one was wrong, and could not fail**
 ```bash
 rg -c 'cycle' src/functualize/workflow/_validation.py
 ```
-now: `0` *(the nesting guard lives in `_engine/workflow_validation.py`, not here)* · after: `≥1`
+recorded `now: 0`; it actually returned **1**, and that hit was the module
+docstring saying *"detecting workflow-nesting cycles … live in discovery, not
+here"*. The gate matching its own explanation — the first hazard this feature's
+own audit table names. It now returns 19, and would have returned ≥1 for a
+comment alone.
 
-**Test:** a graph with a cycle and no `Loop` raises `WorkflowDeclarationError` at boot, naming
-the cycle.
+Replaced with a count of the code that does it:
+```bash
+rg -c "def _find_cycle|def _refuse_unbounded_cycle" src/functualize/workflow/_validation.py
+```
+now: `2` · before: `0`. Deleting either function turns it red; no docstring can
+satisfy it.
+
+**Test:** `tests/workflow/test_loops.py`, 16 cases. Half of them build **legal**
+graphs, which is not padding: a cycle check that also refused a diamond, or a
+conditional whose branches rejoin, would be worse than no check — those are the
+ordinary way to write a graph and the refusal would arrive at import time for a
+correct declaration. The three-state colouring exists for exactly that, and
+`test_a_diamond` is what would catch a plain visited-set.
+
+**Breaking change:** recorded in `CHANGELOG.md` under Unreleased, with the
+symptom, the message, what is *not* affected, and the remedy — the graph was
+running once, so the edge that closes the cycle was never doing anything.
+
+**Measured:** nothing in the repository declared a cycle. Full suite 10,555
+passed, unchanged.
+
+`Loop` does not exist yet (T2), so the message says "declare the repetition with
+an explicit bound" rather than naming a type nobody can import. Marked
+`# TRANSITIONAL(workflow-graph-semantics/T2)` at the refusal, which says to
+update the wording and not the rule when `Loop` lands.
 
 > First and alone deliberately: landing it **before** loops exist makes the refusal
 > unambiguous — there is no way to satisfy it except by declaring a bound, which is the intent.
