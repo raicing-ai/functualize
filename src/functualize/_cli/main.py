@@ -1718,15 +1718,37 @@ def _handle_single_file(
     # can cross-call within the same file.
     _register_single_file_peers(file_path, target_fn, app, module_name=file_path.stem)
 
-    # The target itself, under the exact name the command carries. The peer
-    # loop above skips it deliberately, and before run-request-entry/T11 that
-    # was fine: the click command held the function. `engine.run()` resolves by
-    # *name*, so an unregistered target now fails with "not found in engine
-    # registry" — which is precisely the class of bug the one-entry rule
-    # exists to make impossible to have twice.
-    if app.get_job(function_name) is None:
+    # The target itself. The peer loop above skips it deliberately, and before
+    # `run-request-entry`/T11 that was fine: the click command held the
+    # function. `engine.run()` resolves by **name**, so an unregistered target
+    # now fails with "not found in engine registry".
+    #
+    # **The guard is on identity, not on the name being free**, and that
+    # distinction cost a working example. This app still discovers the
+    # surrounding project, so a file whose function shares a name with a
+    # project job found that job already registered, skipped registering its
+    # own, and ran *somebody else's* under the name the user typed. Measured on
+    # `examples/standalone/showcase`, where `scripts/hello.py` and
+    # `jobs/surfaces.py` both define `greet`:
+    #
+    #     func scripts/hello.py greet --name World
+    #     TypeError: greet() got an unexpected keyword argument 'enthusiasm'
+    #
+    # — the entry that ran carried a different config class, so the flags never
+    # collapsed into a model. Silent in the other direction: two jobs with
+    # compatible signatures would simply have run the wrong one.
+    #
+    # The file the user named wins, under a file-qualified identity when the
+    # bare one is taken. Only the registry key moves — the command keeps its
+    # spelling, and a job with no collision keeps its config prefix too, so
+    # nothing changes for the case that was already right.
+    existing = app.get_job(function_name)
+    run_name = function_name
+    if existing is not None and existing.function is not target_fn:
+        run_name = f"{file_path.stem}.{function_name}"
+    if app.get_job(run_name) is None:
         app.register_dynamic_job(
-            name=function_name,
+            name=run_name,
             function=target_fn,
             config_class=_detect_config_class(target_fn),
         )
@@ -1739,7 +1761,10 @@ def _handle_single_file(
     )
 
     command = create_job_click_command(
-        name=function_name or "",
+        # The identity the engine runs, which is file-qualified when the bare
+        # name belongs to a neighbouring job; `command_name` keeps the spelling
+        # the user typed.
+        name=run_name or "",
         function=target_fn,
         app=app,
         command_name=function_name,

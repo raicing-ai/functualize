@@ -142,16 +142,37 @@ class TestTheOptOutWorks:
 
     @pytest.mark.json_substrate
     @pytest.mark.real_state_root
-    def test_marked_tests_resolve_to_the_real_root(self) -> None:
+    def test_marked_tests_resolve_to_the_real_root(self, tmp_path: Path) -> None:
         """For a test whose subject *is* the upward walk.
 
         Asserted so the escape hatch is known to work before anyone needs it —
         an opt-out nobody has exercised is an opt-out that silently does
         nothing.
+
+        **Two assertions, because the checkout may or may not have a
+        `.functualize/`.** It is gitignored, so a developer's tree has one and a
+        fresh CI clone does not — and without one the real walk correctly falls
+        through to the standalone cache path. Asserting the repo path
+        unconditionally made this pass locally and fail on every clean clone,
+        for a reason about the checkout rather than about the marker.
+
+        What the marker actually promises is *not the sandbox*, and that holds
+        either way. Where the repo does have a state root, the stronger equality
+        is asserted too — and that is the half a developer's run checks.
         """
         resolved = (
             JsonFileSubstrate.for_project(_REPO_ROOT).path_for(SCOPES_KEY).resolve()
         )
-        assert resolved == _REPO_SCOPES.resolve(), (
-            f"the marker did not restore the real walk: got {resolved}"
+
+        # The falsifier, and it is not trivial: with the fixture active,
+        # `_scoped` returns this test's own `tmp_path/.functualize` for *any*
+        # start directory. Landing outside it is true only because the marker
+        # took the patch off.
+        assert not resolved.is_relative_to(tmp_path.resolve()), (
+            f"the marker did not restore the real walk: got {resolved}, which "
+            f"is still inside this test's sandbox at {tmp_path}"
         )
+        if _REPO_SCOPES.parent.exists():
+            assert resolved == _REPO_SCOPES.resolve(), (
+                f"the marker restored a walk, but not the real one: got {resolved}"
+            )

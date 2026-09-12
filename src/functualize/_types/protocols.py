@@ -679,9 +679,9 @@ class AgentStepExecutor(Protocol):
             The step's result.
 
         Raises:
-            Any exception to fail the step. How a failure is routed around a
-            step is not this port's business, and no exception here is
-            answered by asking a human instead.
+            Exception: Any exception fails the step. How a failure is routed
+                around a step is not this port's business, and no exception
+                here is answered by asking a human instead.
         """
         ...
 

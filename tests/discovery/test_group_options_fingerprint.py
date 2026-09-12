@@ -156,33 +156,42 @@ def test_every_in_tree_reader_passes_one(project_tree) -> None:
     and that is a source-level fact no runtime assertion reaches — so it is
     checked here, over the whole tree, rather than per call site.
     """
-    import subprocess
+    # **Python, not `rg`.** This used to shell out, and CI has no ripgrep — so
+    # it raised `FileNotFoundError` there and the invariant was checked only on
+    # a developer's machine, which is the half of "everywhere" that matters
+    # least. A skip would have been worse: a source-level rule that silently
+    # stops being enforced is the shape this test exists to prevent.
+    import re
 
-    roots = ["src/functualize", "plugins"]
-    out = subprocess.run(
-        [
-            "rg",
-            "-U",
-            "--no-heading",
-            "-n",
-            r"read_group_options_from_cache\(\s*[^)]*?discovery_hash=None",
-            *roots,
-        ],
-        capture_output=True,
-        text=True,
+    root = Path(__file__).resolve().parents[2]
+    sources = [
+        path
+        for folder in ("src/functualize", "plugins")
+        for path in sorted((root / folder).rglob("*.py"))
+    ]
+
+    stated_none = re.compile(
+        r"read_group_options_from_cache\(\s*[^)]*?discovery_hash=None"
     )
-    assert out.stdout == "", (
+    offenders = [
+        f"{path.relative_to(root)}"
+        for path in sources
+        if stated_none.search(path.read_text(encoding="utf-8"))
+    ]
+    assert not offenders, (
         "An in-tree reader states `discovery_hash=None`, which skips the "
-        "fingerprint check as surely as omitting it used to:\n" + out.stdout
+        "fingerprint check as surely as omitting it used to:\n" + "\n".join(offenders)
     )
 
-    calls = subprocess.run(
-        ["rg", "--no-heading", "-n", r"read_group_options_from_cache\(", *roots],
-        capture_output=True,
-        text=True,
-    )
     # The definition lives in the same tree it is searched over.
-    sites = [ln for ln in calls.stdout.splitlines() if "def read_group" not in ln]
+    sites = [
+        f"{path.relative_to(root)}:{number}: {line.strip()}"
+        for path in sources
+        for number, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1
+        )
+        if "read_group_options_from_cache(" in line and "def read_group" not in line
+    ]
     # Five readers: four in core, one in the MCP plugin. The count is asserted
     # so a sixth arrives with this test in hand rather than silently.
     assert len(sites) == 5, (

@@ -16,6 +16,7 @@ that breaks the completion on purpose.
 from __future__ import annotations
 
 import hashlib
+import inspect
 import textwrap
 from collections.abc import Generator
 from pathlib import Path
@@ -279,8 +280,27 @@ class TestTheDocstringExampleRuns:
 
     @staticmethod
     def _snippet() -> str:
-        """The indented code block from `Freshness.__doc__`."""
-        doc = Freshness.__doc__ or ""
+        """The indented code block from `Freshness.__doc__`.
+
+        **`inspect.cleandoc` first, and that is not tidiness.** Python 3.13
+        strips a docstring's common leading whitespace at compile time and 3.11
+        does not, so `__doc__` is a *different string* on the two. Dedenting the
+        extracted block cannot repair it: the block's own first line has already
+        lost its margin to the partition, so `dedent` finds a common prefix of
+        zero and strips nothing, and the snippet compiles to
+        `IndentationError: unexpected indent` on line 2.
+
+        Measured on the same docstring and the same function:
+
+            3.13: '@job(...)\ndef build(...)'      compiles
+            3.11: '@job(...)\n    def build(...)'  SyntaxError
+
+        So this passed on the developer's 3.13 and failed on CI's 3.11 for a
+        reason about how a docstring is *stored*, not about the example it
+        checks. `cleandoc` normalizes both — it is the function that knows a
+        docstring's first line is indented differently from the rest.
+        """
+        doc = inspect.cleandoc(Freshness.__doc__ or "")
         _, _, after = doc.partition("like every other capability::")
         block, _, _ = after.partition("\n\n``decides=True``")
         return textwrap.dedent(block).strip()

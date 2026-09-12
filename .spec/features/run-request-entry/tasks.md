@@ -588,6 +588,48 @@ whatever you suspected.
 
 Checkpoints get their own wave — they depend on all prior work.
 
+### [x] T21 · A single file's job must beat a project job of the same name
+
+**Files:** `src/functualize/_cli/main.py`,
+`tests/cli/test_single_file_name_collision.py` (new)
+
+**Post-gate, and it is this feature's defect.** Found by
+`workflow-graph-semantics`/T7 running `clean-clone-examples`, a command nobody
+runs per task — the README line for `examples/standalone/showcase`:
+
+```
+func scripts/hello.py greet --name World
+TypeError: greet() got an unexpected keyword argument 'enthusiasm'
+```
+
+AC-2 made `engine.run()` resolve a job **by name**, and T11 stopped the click
+command carrying the function. `_handle_single_file` registers the named
+function so the lookup finds it — guarded by `if app.get_job(name) is None`,
+*the name being free*. But the app single-file mode builds still discovers the
+surrounding project, so a file whose function shares a name with a project job
+found that job already registered, skipped registering its own, and **ran
+somebody else's under the name the user typed**.
+
+The guard now tests **identity**, not availability: when the bare name belongs
+to a different function, the target is registered under `<file stem>.<name>`
+and the click command runs that identity while keeping its spelling. Only the
+colliding case moves — the registry key is also the env and config prefix, and
+qualifying it unconditionally would silently relocate where every single-file
+job reads its settings.
+
+**The traceback was luck, and the test says so.** The two `greet`s happened to
+declare different config classes, so the flags never collapsed into a model and
+the call failed loudly. Two with compatible signatures would have run the wrong
+one in silence and printed a plausible answer —
+`test_it_is_not_merely_that_the_command_succeeds` is that case, and it exits
+**0** without the fix. Both regression tests verified to bite.
+
+**Left open, recorded rather than fixed:** `_register_single_file_peers` has the
+same guard shape for a file's *other* functions, so `rc.invoke("peer")` from a
+single-file job can still reach a project job of that name. Narrower — it needs
+a cross-call, not just an invocation — and it is not what any published command
+does, so it is not fixed under a gate that was already closed.
+
 ## AC → test, all twenty
 
 Every criterion named to the thing that would catch its regression. A criterion
