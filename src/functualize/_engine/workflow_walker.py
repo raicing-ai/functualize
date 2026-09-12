@@ -497,11 +497,22 @@ class WorkflowWalker:
     def _resume_iteration(self) -> int:
         """The iteration this walk is entering, derived from the records.
 
-        A resumed walk in a fresh process has the step records and nothing
-        else, so the iteration is read back out of them rather than carried
-        alongside — the same argument `workflow_depth` makes for reading
-        nesting out of a scope id: two sources for one fact can disagree, and
-        the derived one cannot be the wrong one.
+        Derived rather than carried alongside — the same argument
+        `workflow_depth` makes for reading nesting out of a scope id: a resumed
+        walk in a fresh process has the records and nothing else, and two
+        sources for one fact can disagree.
+
+        **This is an optimization, not a correctness requirement**, and saying
+        so is the honest version. Starting every resumed walk at 0 produces the
+        same executions, because replay skips finished work anyway — measured:
+        replacing this with `return 0` failed no test, which is what sent
+        anyone to look. What it changes is how much replaying happens first: a
+        loop resumed at iteration 900 of 1000 otherwise re-reads 900
+        iterations' records before reaching live work, on every resume.
+
+        The property that survives is therefore about *replay*, and that is
+        what `test_a_resume_does_not_replay_iterations_it_has_finished` asserts
+        — not that the loop continues, which replay guarantees on its own.
 
         Zero when the graph has no loop, which is every graph that existed
         before this feature.

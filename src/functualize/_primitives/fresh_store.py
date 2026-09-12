@@ -62,7 +62,6 @@ from functualize._primitives.substrate import substrate_for_project
 from functualize._types.errors import SubstrateUnreadableError
 
 if TYPE_CHECKING:
-
     from functualize._types.protocols import StoreSubstrate
 
 

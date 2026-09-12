@@ -63,7 +63,7 @@ update the wording and not the rule when `Loop` lands.
 
 ## Wave 1 — the dangerous edit
 
-### [~] T2 · `Loop`, iteration identity, and the `visited` keying — **code landed, verification incomplete**
+### [x] T2 · `Loop`, iteration identity, and the `visited` keying
 
 **Files:** `src/functualize/workflow/__init__.py`,
 `src/functualize/_engine/loop_state.py`,
@@ -77,11 +77,16 @@ default.
 ```bash
 rg -c 'visited' src/functualize/_engine/workflow_walker.py
 ```
-now: `7` · before: `3`. Keyed by `(node, iteration)` — declaration at `:379`,
-test at `:390`, add at `:406`.
+now: `4` · before: `3`. Keyed by `(node, iteration)`.
 
-**Status: stopped mid-verification at the user's request.** What is done and
-what is not is in `.spec/HANDOFF.md`; read it before continuing.
+**`7` was written here from memory and was wrong** — the hazard this branch has
+now hit about six times, and the reason every gate value is supposed to be
+measured before it is written. It is `4`.
+
+A word count is a weak gate either way: it would stay green for a `visited`
+keyed any way at all. What actually holds the property is
+`test_the_loop_repeats_and_the_join_still_runs_once_per_pass`, and the sabotage
+table below is the evidence that it can fail.
 
 #### What landed
 
@@ -113,6 +118,57 @@ This is exactly what the task warned about — *"two separate tests can both pas
 while the keying is wrong in a third way"* — and it was only visible because the
 graph under test is a loop **containing** a diamond and both properties are
 asserted in one body.
+
+#### Sabotage — seven, and three were inert until they were fixed
+
+| sabotage | result |
+|---|---|
+| `visited` keyed by node alone | 1 failed |
+| `visited` keyed by iteration alone | 1 failed |
+| the iteration is a cursor, not queued work | 1 failed |
+| the record key ignores the iteration | 1 failed |
+| resume always restarts at iteration 0 | 1 failed |
+| the bound is not enforced | walk stops terminating |
+| `Loop` edges count as cycle edges again | 1 failed |
+
+Script: `.spec/features/workflow-graph-semantics/sabotage-t2.py`. Three of these
+were **inert on the first sweep**, and each was a real finding rather than a
+formality:
+
+1. **`Loop` counting as a cycle edge again broke nothing.** Nothing tested that
+   a `Loop` makes a cycle legal — the loop tests drive the walker with a
+   `WorkflowDeclaration` directly, which bypasses validation, and the cycle
+   tests use plain `Edge`s. The one line the feature rests on was unverified.
+   `TestALoopIsWhatMakesACycleLegal` now covers it, including the falsifier
+   beside it (the same graph with a plain `Edge` is still refused) and that one
+   `Loop` does not exempt a *second* unbounded cycle in the same graph.
+
+2. **`_resume_iteration` could return 0 and nothing failed.** Probed rather than
+   assumed: the executions are identical, because **replay already skips
+   finished work**. What differs is the replaying — `replayed=('approve',
+   'approve')` derived, versus `('work', 'approve', 'approve', 'approve')` at
+   zero. So it is an *optimization*, and the test asserted the wrong thing. The
+   AC-4 test now pins "a resume does not replay iterations it has finished";
+   "the loop finishes across a resume" is kept as a separate case precisely
+   because it passes either way, and folding the two together is what hid this.
+
+3. **The cursor sabotage was inert twice, in two different ways.** Mutating
+   `self._iteration` at the back-edge is overwritten by the next dequeue;
+   taking `max(cursor, queued)` at the dequeue is saved by FIFO ordering. The
+   property is *the iteration travels with the work*, and removing it takes
+   two sites at once — which the sweep script now supports.
+
+#### A limitation found while probing, pinned rather than shipped quietly
+
+**A gate inside a loop is answered once and reused for every later pass.** Gate
+payloads are keyed by gate *name*, not by name and iteration, so an approval
+inside a retry loop is not asked again. Very likely not what an author expects.
+
+Asserted in `test_a_gate_inside_a_loop_is_answered_once_for_every_pass` rather
+than fixed: iteration-keyed gates change the deposit vocabulary that
+`--wf-input`, the MCP `answer_gate` tool and the scope record all share, which
+is wider than T2 owns. That test is what will fail when it is done, and it
+should be **changed** then, not deleted.
 
 #### Known simplification, recorded not guessed at
 

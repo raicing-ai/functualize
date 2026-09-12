@@ -1015,7 +1015,6 @@ class JobExecutionEngine:
         if scope_id is None:
             return
         try:
-
             scopes = self._scope_store()
             record = scopes.get_scope(scope_id)
             if record is None:

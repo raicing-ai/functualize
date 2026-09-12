@@ -185,6 +185,77 @@ class TestTheRefusalIsUsable:
         assert "run once" in str(exc.value)
 
 
+class TestALoopIsWhatMakesACycleLegal:
+    """The mechanism, which nothing tested until a sabotage said so.
+
+    `Loop` works by being **excluded from the cycle search**: what is left must
+    be acyclic. Every other test in this file either builds a graph out of
+    plain `Edge`s and checks it is refused, or drives the walker directly with
+    a `WorkflowDeclaration` — which bypasses validation entirely. So making
+    `Loop` count as a cycle edge again broke nothing, and the one line the
+    feature rests on was unverified.
+    """
+
+    def test_a_loop_bounded_cycle_is_accepted(self) -> None:
+        _validate_workflow_graph(
+            _steps("work", "check"),
+            [
+                Edge(source="work", target="check"),
+                Loop(source="check", target="work", max_iterations=3),
+                Edge(source="check", target=END),
+            ],
+        )
+
+    def test_the_same_graph_with_a_plain_edge_is_refused(self) -> None:
+        """The falsifier, beside it — otherwise the test above passes for a
+        graph that was never cyclic in the first place."""
+        with pytest.raises(WorkflowDeclarationError):
+            _validate_workflow_graph(
+                _steps("work", "check"),
+                [
+                    Edge(source="work", target="check"),
+                    Edge(source="check", target="work"),
+                    Edge(source="check", target=END),
+                ],
+            )
+
+    def test_a_self_loop_is_accepted_when_bounded(self) -> None:
+        _validate_workflow_graph(
+            _steps("work"),
+            [
+                Loop(source="work", target="work", max_iterations=2),
+                Edge(source="work", target=END),
+            ],
+        )
+
+    def test_a_second_unbounded_cycle_is_still_refused(self) -> None:
+        """One `Loop` does not make the whole graph exempt.
+
+        The bound applies to the edge that carries it, not to the declaration —
+        otherwise adding a legitimate loop anywhere would silence the check
+        everywhere else in the same workflow.
+        """
+        with pytest.raises(WorkflowDeclarationError) as exc:
+            _validate_workflow_graph(
+                _steps("work", "check", "x", "y"),
+                [
+                    Edge(source="work", target="check"),
+                    Loop(source="check", target="work", max_iterations=3),
+                    Edge(source="x", target="y"),
+                    Edge(source="y", target="x"),
+                ],
+            )
+        assert "x" in str(exc.value) and "y" in str(exc.value)
+
+    def test_a_loop_target_must_name_a_node(self) -> None:
+        """Same check every other edge gets. A `Loop` is not a way past it."""
+        with pytest.raises(ValueError, match="Loop target"):
+            _validate_workflow_graph(
+                _steps("work"),
+                [Loop(source="work", target="nowhere", max_iterations=2)],
+            )
+
+
 class TestLegalGraphsStillPass:
     """The half that stops the check from being worse than nothing."""
 
@@ -461,37 +532,80 @@ class TestResumeContinuesTheIteration:
             ),
         )
 
-    def test_a_second_walk_does_not_restart_at_iteration_zero(
+    def test_a_resume_does_not_replay_iterations_it_has_finished(
         self, store: ScopeStore
     ) -> None:
-        """The property, stated as the count across two walks.
+        """The property the derivation actually provides.
 
-        A resumed walk that restarted the iteration would replay the first
-        pass's records, see them `success`, and skip straight out — so the loop
-        would run once no matter how many times it was resumed. That is the
-        original defect, reappearing at the process boundary.
+        **The obvious assertion is the wrong one.** "The loop continues after a
+        resume" holds whether or not the iteration is derived, because replay
+        already skips finished work — measured: replacing `_resume_iteration`
+        with `return 0` produced identical executions and failed no test, which
+        is how this test came to be rewritten.
+
+        What the derivation changes is how much replaying happens before the
+        walk reaches live work. Resumed at 0, the walk replays every finished
+        iteration first; a loop resumed at iteration 900 of 1000 would re-read
+        900 iterations' records on every resume.
         """
         runner = _Recorder()
         first = WorkflowWalker(self._gated_loop(), store, "s1", run_step=runner).run()
         assert first.outcome is WalkOutcome.BLOCKED, first
 
         store.deposit_gate_payload("s1", "approve", {"text": "go"})
-        ran_before_resume = runner.count("work")
-
-        # A *new* walker over a *new* store object: the only thing carried
-        # across is what is in the records, which is the point.
         resumed = WorkflowWalker(
-            self._gated_loop(),
-            ScopeStore(store.substrate),
-            "s1",
-            run_step=runner,
+            self._gated_loop(), ScopeStore(store.substrate), "s1", run_step=runner
         ).run()
 
-        assert resumed.outcome in {WalkOutcome.BLOCKED, WalkOutcome.COMPLETED}
-        assert runner.count("work") > ran_before_resume, (
-            f"the resumed walk re-read iteration 0's records and skipped the "
-            f"body — `work` ran {runner.count('work')} times across both "
-            f"walks, the same as before the resume. Calls: {runner.calls}"
+        assert "work" not in resumed.replayed, (
+            f"the resumed walk replayed the loop body it had already finished, "
+            f"so it restarted at iteration 0: replayed={resumed.replayed}"
+        )
+
+    def test_the_loop_still_finishes_across_the_resume(self, store: ScopeStore) -> None:
+        """Correctness, stated separately from the optimization above.
+
+        Kept apart deliberately: this one passes with or without the
+        derivation, and folding the two together is what hid the fact that the
+        derivation was untested.
+        """
+        runner = _Recorder()
+        WorkflowWalker(self._gated_loop(), store, "s1", run_step=runner).run()
+        store.deposit_gate_payload("s1", "approve", {"text": "go"})
+        resumed = WorkflowWalker(
+            self._gated_loop(), ScopeStore(store.substrate), "s1", run_step=runner
+        ).run()
+
+        assert resumed.outcome is WalkOutcome.COMPLETED, resumed
+        assert runner.count("work") == 3
+
+    def test_a_gate_inside_a_loop_is_answered_once_for_every_pass(
+        self, store: ScopeStore
+    ) -> None:
+        """**A known limitation, pinned so it is not discovered by accident.**
+
+        Gate payloads are keyed by gate *name*, not by name and iteration. So a
+        gate inside a loop is answered once and every later pass reads that
+        same answer rather than pausing again — which is very likely not what
+        someone writing an approval inside a retry loop expects.
+
+        Asserted rather than fixed: iteration-keyed gates change the deposit
+        vocabulary that `--wf-input`, the MCP `answer_gate` tool and the scope
+        record all share, which is a wider change than T2 owns. This test is
+        what will fail when that is done, and it should be *changed* then, not
+        deleted.
+        """
+        runner = _Recorder()
+        WorkflowWalker(self._gated_loop(), store, "s1", run_step=runner).run()
+        store.deposit_gate_payload("s1", "approve", {"text": "go"})
+
+        resumed = WorkflowWalker(
+            self._gated_loop(), ScopeStore(store.substrate), "s1", run_step=runner
+        ).run()
+
+        assert resumed.outcome is WalkOutcome.COMPLETED, (
+            "the loop paused again at the gate — which is arguably right, but "
+            "it is not what this build does, and the change is bigger than T2"
         )
 
     def test_each_iteration_gets_its_own_record(self, store: ScopeStore) -> None:

@@ -28,14 +28,27 @@ SABOTAGES = [
     ("visited keyed by iteration alone", W,
      "            if (name, iteration) in visited:",
      "            if any(i == iteration for _, i in visited):"),
-    ("the iteration is a cursor, not queued work", W,
-     "            back = self._loop_back(name, run.value, iteration)\n"
-     "            if back is not None:\n"
-     "                pending.append((back, iteration + 1))",
-     "            back = self._loop_back(name, run.value, iteration)\n"
-     "            if back is not None:\n"
-     "                pending.append((back, self._iteration + 1))\n"
-     "                self._iteration += 1"),
+    # The bug this design removed: the iteration as a **cursor** the loop
+    # advances, so a node dequeued afterwards reads the advanced value rather
+    # than the one it was queued with. A diamond join is queued once per
+    # branch, so its two arrivals get different iterations and the second is
+    # not pruned — the join runs twice in one pass.
+    #
+    # **Two sites, because one is not enough.** Two single-site attempts were
+    # inert: mutating `self._iteration` at the back-edge is overwritten by the
+    # very next dequeue, and taking `max(cursor, queued)` at the dequeue is
+    # saved by FIFO ordering. The property is "the iteration travels with the
+    # work", and removing it means the dequeue must ignore what was queued
+    # *and* the back-edge must advance the cursor.
+    ("the iteration is a cursor, not queued work", W, [
+        ("            name, iteration = pending.popleft()\n"
+         "            self._iteration = iteration",
+         "            name, _queued = pending.popleft()\n"
+         "            iteration = self._iteration"),
+        ("                pending.append((back, iteration + 1))",
+         "                pending.append((back, iteration + 1))\n"
+         "                self._iteration = iteration + 1"),
+    ]),
     ("the record key ignores the iteration", L,
      '    return str(step_key(name, "" if iteration == 0 else f"loop{iteration}"))',
      '    return str(step_key(name, ""))'),
@@ -52,10 +65,21 @@ SABOTAGES = [
      "        # **Not a cycle edge.**"),
 ]
 
-for label, path, old, new in SABOTAGES:
+for label, path, *edits in SABOTAGES:
+    # An entry is one or more (old, new) pairs. Some properties can only be
+    # removed at two sites at once — the iteration travelling with the queued
+    # work is one, and a single-site version of it was inert because the
+    # design had already made that unreachable.
+    pairs = edits[0] if isinstance(edits[0], list) else [tuple(edits)]
     original = path.read_text()
-    assert original.count(old) == 1, f"{label}: sabotage did not apply ({original.count(old)})"
-    path.write_text(original.replace(old, new, 1))
+    body = original
+    for old, new in pairs:
+        assert body.count(old) == 1, (
+            f"{label}: sabotage did not apply ({body.count(old)} matches for "
+            f"{old[:60]!r})"
+        )
+        body = body.replace(old, new, 1)
+    path.write_text(body)
     try:
         try:
             r = subprocess.run(
