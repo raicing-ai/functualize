@@ -25,8 +25,21 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
+from functualize._engine.frontier import step_key
+from functualize._engine.loop_state import iteration_step_key
+from functualize._engine.workflow_walker import WalkOutcome, WorkflowWalker
+from functualize._primitives.scope_store import ScopeStore
+from functualize._primitives.substrate import JsonFileSubstrate
 from functualize._types.errors import WorkflowDeclarationError
-from functualize._types.workflow import END, ConditionalEdge, Edge, Gate, Step
+from functualize._types.workflow import (
+    END,
+    ConditionalEdge,
+    Edge,
+    Gate,
+    Loop,
+    Step,
+    WorkflowDeclaration,
+)
 from functualize.workflow._validation import _validate_workflow_graph
 
 
@@ -257,3 +270,277 @@ class TestLegalGraphsStillPass:
                     Edge(source="y", target="x"),
                 ],
             )
+
+
+# ---------------------------------------------------------------------------
+# T2 — the walk itself
+# ---------------------------------------------------------------------------
+
+
+class _Recorder:
+    """Counts how many times each step ran."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def __call__(self, name: str) -> str:
+        self.calls.append(name)
+        return name
+
+    def count(self, name: str) -> int:
+        return self.calls.count(name)
+
+
+@pytest.fixture
+def store(tmp_path) -> ScopeStore:
+    return ScopeStore(JsonFileSubstrate(tmp_path))
+
+
+class TestTheIterationKeyingIsRightBothWays:
+    """**Both failure modes are silent**, so they are asserted in one body.
+
+    Key `visited` by node alone and a loop's second pass is pruned — which
+    looks exactly like a loop condition that was false. Key it by iteration
+    alone and a diamond join runs once per branch — which looks exactly like a
+    flaky step. Two separate tests can both pass while the keying is wrong in a
+    third way, so the graph below is a loop **containing** a diamond and the
+    assertions are made together.
+
+        entry ──► fan ──┬─► left ──┐
+                        └─► right ─┴─► join ──(Loop ×3)──► fan
+    """
+
+    @staticmethod
+    def _graph() -> WorkflowDeclaration:
+        return WorkflowDeclaration(
+            nodes=(Step("fan"), Step("left"), Step("right"), Step("join")),
+            edges=(
+                Edge(source="fan", target="left"),
+                Edge(source="fan", target="right"),
+                Edge(source="left", target="join"),
+                Edge(source="right", target="join"),
+                Loop(source="join", target="fan", max_iterations=3),
+                Edge(source="join", target=END),
+            ),
+        )
+
+    def test_the_loop_repeats_and_the_join_still_runs_once_per_pass(
+        self, store: ScopeStore
+    ) -> None:
+        runner = _Recorder()
+
+        report = WorkflowWalker(self._graph(), store, "s1", run_step=runner).run()
+
+        assert report.outcome is WalkOutcome.COMPLETED, report
+        assert runner.count("join") == 3, (
+            f"the join ran {runner.count('join')} times for 3 iterations — "
+            f"once per branch means `visited` lost the node half of its key; "
+            f"once in total means it lost the iteration half and the loop "
+            f"never looped. Calls: {runner.calls}"
+        )
+        assert runner.count("fan") == 3, (
+            f"the loop body ran {runner.count('fan')} times, not 3 — a second "
+            f"pass was pruned, which is indistinguishable from a condition "
+            f"that was false. Calls: {runner.calls}"
+        )
+        assert runner.count("left") == runner.count("right") == 3
+
+
+class TestTheBound:
+    @staticmethod
+    def _counting(max_iterations: int) -> WorkflowDeclaration:
+        return WorkflowDeclaration(
+            nodes=(Step("work"),),
+            edges=(
+                Loop(source="work", target="work", max_iterations=max_iterations),
+                Edge(source="work", target=END),
+            ),
+        )
+
+    @pytest.mark.parametrize("bound", [1, 2, 5])
+    def test_the_body_runs_exactly_the_bound(
+        self, bound: int, store: ScopeStore
+    ) -> None:
+        """`max_iterations` counts the first pass, and means *at most*."""
+        runner = _Recorder()
+        WorkflowWalker(self._counting(bound), store, "s1", run_step=runner).run()
+        assert runner.count("work") == bound
+
+    def test_a_bound_of_one_is_a_body_that_does_not_repeat(
+        self, store: ScopeStore
+    ) -> None:
+        """Legal, and occasionally what someone wants while switching it off."""
+        runner = _Recorder()
+        WorkflowWalker(self._counting(1), store, "s1", run_step=runner).run()
+        assert runner.count("work") == 1
+
+    def test_there_is_no_default(self) -> None:
+        """Every value anyone would pick as a default is wrong for somebody.
+
+        Too low truncates work silently; too high turns a runaway condition
+        into an outage rather than a quick refusal. Writing the number is the
+        point of the type.
+        """
+        with pytest.raises(TypeError):
+            Loop(source="a", target="b")  # type: ignore[call-arg]
+
+    def test_zero_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="at least 1"):
+            Loop(source="a", target="b", max_iterations=0)
+
+    def test_the_bound_wins_over_a_condition_that_never_stops(
+        self, store: ScopeStore
+    ) -> None:
+        """Checked before the condition, so a runaway costs a pass, not an outage."""
+        runner = _Recorder()
+        graph = WorkflowDeclaration(
+            nodes=(Step("work"),),
+            edges=(
+                Loop(
+                    source="work",
+                    target="work",
+                    max_iterations=4,
+                    condition=lambda _value: True,
+                ),
+                Edge(source="work", target=END),
+            ),
+        )
+        WorkflowWalker(graph, store, "s1", run_step=runner).run()
+        assert runner.count("work") == 4
+
+
+class TestTheCondition:
+    def test_a_false_condition_leaves_the_loop_early(self, store: ScopeStore) -> None:
+        runner = _Recorder()
+        graph = WorkflowDeclaration(
+            nodes=(Step("work"),),
+            edges=(
+                Loop(
+                    source="work",
+                    target="work",
+                    max_iterations=9,
+                    condition=lambda _value: len(runner.calls) < 2,
+                ),
+                Edge(source="work", target=END),
+            ),
+        )
+        WorkflowWalker(graph, store, "s1", run_step=runner).run()
+        assert runner.count("work") == 2
+
+    def test_it_is_given_the_sources_return_value(self, store: ScopeStore) -> None:
+        """Same argument a `ConditionalEdge` condition receives."""
+        seen: list[object] = []
+        graph = WorkflowDeclaration(
+            nodes=(Step("work"),),
+            edges=(
+                Loop(
+                    source="work",
+                    target="work",
+                    max_iterations=2,
+                    condition=lambda value: seen.append(value) or False,
+                ),
+                Edge(source="work", target=END),
+            ),
+        )
+        WorkflowWalker(graph, store, "s1", run_step=lambda n: f"{n}-value").run()
+        assert seen == ["work-value"]
+
+
+class TestResumeContinuesTheIteration:
+    """AC-4. The iteration is derived from the records, so a fresh process
+    resumes where the last one stopped rather than at the first pass."""
+
+    @staticmethod
+    def _gated_loop() -> WorkflowDeclaration:
+        return WorkflowDeclaration(
+            nodes=(Step("work"), Gate(name="approve", awaits=_Ask)),
+            edges=(
+                Edge(source="work", target="approve"),
+                Loop(source="approve", target="work", max_iterations=3),
+                Edge(source="approve", target=END),
+            ),
+        )
+
+    def test_a_second_walk_does_not_restart_at_iteration_zero(
+        self, store: ScopeStore
+    ) -> None:
+        """The property, stated as the count across two walks.
+
+        A resumed walk that restarted the iteration would replay the first
+        pass's records, see them `success`, and skip straight out — so the loop
+        would run once no matter how many times it was resumed. That is the
+        original defect, reappearing at the process boundary.
+        """
+        runner = _Recorder()
+        first = WorkflowWalker(self._gated_loop(), store, "s1", run_step=runner).run()
+        assert first.outcome is WalkOutcome.BLOCKED, first
+
+        store.deposit_gate_payload("s1", "approve", {"text": "go"})
+        ran_before_resume = runner.count("work")
+
+        # A *new* walker over a *new* store object: the only thing carried
+        # across is what is in the records, which is the point.
+        resumed = WorkflowWalker(
+            self._gated_loop(),
+            ScopeStore(store.substrate),
+            "s1",
+            run_step=runner,
+        ).run()
+
+        assert resumed.outcome in {WalkOutcome.BLOCKED, WalkOutcome.COMPLETED}
+        assert runner.count("work") > ran_before_resume, (
+            f"the resumed walk re-read iteration 0's records and skipped the "
+            f"body — `work` ran {runner.count('work')} times across both "
+            f"walks, the same as before the resume. Calls: {runner.calls}"
+        )
+
+    def test_each_iteration_gets_its_own_record(self, store: ScopeStore) -> None:
+        """Which is what makes the derivation possible.
+
+        One record per node would make the second pass a replay of the first,
+        and there would be nothing in the store to read the iteration back out
+        of.
+        """
+        WorkflowWalker(
+            TestTheBound._counting(3), store, "s1", run_step=lambda n: n
+        ).run()
+
+        assert store.get_step("s1", iteration_step_key("work", 0)) is not None
+        assert store.get_step("s1", iteration_step_key("work", 1)) is not None
+        assert store.get_step("s1", iteration_step_key("work", 2)) is not None
+
+    def test_iteration_zero_is_keyed_exactly_as_before(self) -> None:
+        """So a graph with no `Loop` writes the records it always wrote.
+
+        Nothing is migrated, and a workflow that never loops cannot notice this
+        feature happened.
+        """
+        assert iteration_step_key("work", 0) == step_key("work", "")
+
+
+class TestAGraphWithNoLoopIsUntouched:
+    def test_the_records_are_the_ones_it_always_wrote(self, store: ScopeStore) -> None:
+        graph = WorkflowDeclaration(
+            nodes=(Step("a"), Step("b")),
+            edges=(Edge(source="a", target="b"), Edge(source="b", target=END)),
+        )
+        WorkflowWalker(graph, store, "s1", run_step=lambda n: n).run()
+
+        for name in ("a", "b"):
+            assert store.get_step("s1", step_key(name, "")) is not None
+
+    def test_a_diamond_join_still_runs_once(self, store: ScopeStore) -> None:
+        """The property the `visited` set existed for, with no loop in sight."""
+        runner = _Recorder()
+        graph = WorkflowDeclaration(
+            nodes=(Step("fan"), Step("left"), Step("right"), Step("join")),
+            edges=(
+                Edge(source="fan", target="left"),
+                Edge(source="fan", target="right"),
+                Edge(source="left", target="join"),
+                Edge(source="right", target="join"),
+                Edge(source="join", target=END),
+            ),
+        )
+        WorkflowWalker(graph, store, "s1", run_step=runner).run()
+        assert runner.count("join") == 1

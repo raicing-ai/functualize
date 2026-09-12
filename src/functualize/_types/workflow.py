@@ -49,6 +49,7 @@ __all__ = [
     "ConditionalEdge",
     "Edge",
     "Gate",
+    "Loop",
     "IMPLIED_CAPABILITIES",
     "Step",
     "Tool",
@@ -481,6 +482,57 @@ class Edge:
         object.__setattr__(self, "source", _job_ref_name(self.source))
         if isinstance(self.target, str):
             object.__setattr__(self, "target", _job_ref_name(self.target))
+
+
+@dataclass(frozen=True)
+class Loop:
+    r"""A back-edge that closes a cycle, **with the bound that makes it legal**.
+
+    A cycle declared with ordinary :class:`Edge`\ s is refused at decoration
+    time (`workflow-graph-semantics`/T1), because the walk prunes nodes it has
+    already visited and such a graph therefore ran its cycle exactly once, in
+    silence. `Loop` is the declaration that says *how many times*, which is the
+    one thing the graph could not previously express.
+
+    ``max_iterations`` has **no default** on purpose. Every value anyone would
+    pick as one is wrong for somebody: too low silently truncates work, too
+    high turns a runaway condition into a long outage instead of a quick
+    refusal. Writing the bound is the point of the type.
+
+    Attributes:
+        source: The node the back-edge leaves — the end of the repeated body.
+        target: The node it returns to — the start of the repeated body.
+        max_iterations: How many times the body may run in total, counting the
+            first pass. `1` is a body that never repeats, which is legal and
+            occasionally what a caller wants while they are switching it off.
+        condition: Called with the source node's return value; going round
+            again requires a true answer. `None` means "always, until the
+            bound", which is the honest spelling of a fixed repeat.
+    """
+
+    source: str
+    target: str
+    max_iterations: int
+    condition: Callable[..., bool] | None = None
+
+    def __post_init__(self) -> None:
+        # Same canonicalization as `Edge`: endpoints name nodes, and node names
+        # are canonical.
+        object.__setattr__(self, "source", _job_ref_name(self.source))
+        object.__setattr__(self, "target", _job_ref_name(self.target))
+        if not isinstance(self.max_iterations, int) or isinstance(
+            self.max_iterations, bool
+        ):
+            raise TypeError(
+                f"Loop max_iterations must be an int, got "
+                f"{type(self.max_iterations).__name__}"
+            )
+        if self.max_iterations < 1:
+            raise ValueError(
+                f"Loop max_iterations must be at least 1, got "
+                f"{self.max_iterations}. A bound of 0 would declare a body that "
+                f"cannot run, which is a graph with the edge deleted."
+            )
 
 
 @dataclass(frozen=True)

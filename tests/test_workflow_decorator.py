@@ -237,5 +237,5 @@ class TestValidateWorkflowGraph:
 
     def test_non_edge_entry_rejected(self) -> None:
         """A stray value in the edge list is a mistake, not a silent no-op."""
-        with pytest.raises(TypeError, match="must be Edge or ConditionalEdge"):
+        with pytest.raises(TypeError, match="must be Edge, ConditionalEdge or Loop"):
             _validate_workflow_graph([Step("a")], [("a", "b")])  # type: ignore[list-item]

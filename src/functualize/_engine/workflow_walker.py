@@ -37,8 +37,15 @@ from typing import TYPE_CHECKING, Any
 
 from functualize._engine.frontier import END as _FRONTIER_END
 from functualize._engine.frontier import FrontierWalk, GraphModel, WalkState, step_key
+from functualize._engine.loop_state import current_iteration, iteration_step_key
 from functualize._primitives.graph import descendants
-from functualize._types.workflow import AgentStep, ConditionalEdge, Gate, Step
+from functualize._types.workflow import (
+    AgentStep,
+    ConditionalEdge,
+    Gate,
+    Loop,
+    Step,
+)
 
 if TYPE_CHECKING:
     from functualize._primitives.scope_store import ScopeStore
@@ -269,6 +276,9 @@ class WorkflowWalker:
         #: None means "the default" — resolved in `workflow_validation` rather
         #: than here, so the number lives in one place.
         self._max_workflow_depth = max_workflow_depth
+        #: Which pass of a `Loop` the walk is on. Zero for every graph
+        #: that declares none, which is every graph before T2.
+        self._iteration = 0
 
     def run(self) -> WalkReport:
         """Walk to `END`, to a gate with no input, or to a failure.
@@ -369,17 +379,37 @@ class WorkflowWalker:
             self._store.set_scope_status(self._scope_id, WalkState.COMPLETED)
             return WalkReport(WalkOutcome.COMPLETED, self._scope_id)
 
-        pending: deque[str] = deque([entry])
-        visited: set[str] = set()
+        # **Keyed by node and iteration**, not by node
+        # (`workflow-graph-semantics`/T2). Both failure modes here are silent,
+        # which is why the test asserts them in one body: keyed by node alone,
+        # a loop's second pass is pruned and looks like a condition that was
+        # false; keyed by iteration alone, a diamond join runs once per branch
+        # and looks like a flaky step.
+        # **The iteration travels with the queued work**, not as a cursor the
+        # loop advances. A diamond join is queued once per branch, and a cursor
+        # incremented when the loop's source finished would give the join's two
+        # arrivals different iterations — so the second would not be pruned and
+        # the join would run twice in one pass. Measured, not reasoned about:
+        # that was the first version, and `test_the_loop_repeats_and_the_join_
+        # still_runs_once_per_pass` caught it.
+        start = self._resume_iteration()
+        pending: deque[tuple[str, int]] = deque([(entry, start)])
+        visited: set[tuple[str, int]] = set()
         ledger = _Ledger()
 
         deferrals = 0
         while pending:
-            name = pending.popleft()
-            # A diamond join is reached once per branch but must run once.
-            if name in visited:
+            name, iteration = pending.popleft()
+            self._iteration = iteration
+            # A diamond join is reached once per branch but must run once —
+            # *per iteration*. Two arrivals in one pass share an iteration and
+            # the second is pruned; the next time round the loop the pair is
+            # new and is not.
+            if (name, iteration) in visited:
                 continue
-            if deferrals <= len(pending) and not self._ready(name, pending):
+            if deferrals <= len(pending) and not self._ready(
+                name, deque(queued for queued, _ in pending)
+            ):
                 # A join whose other branch is still in flight. Breadth-first
                 # order is not a topological order — on an asymmetric diamond
                 # (a→b→c→join vs d→join) the short branch would otherwise run
@@ -389,11 +419,11 @@ class WorkflowWalker:
                 # deferred once with nothing running in between, they are
                 # waiting on each other (a cycle), and one edge out of order
                 # beats spinning forever.
-                pending.append(name)
+                pending.append((name, iteration))
                 deferrals += 1
                 continue
             deferrals = 0
-            visited.add(name)
+            visited.add((name, iteration))
 
             node = self._declaration.node(name)
             if node is None:
@@ -428,7 +458,12 @@ class WorkflowWalker:
             # walk is between two committed states — and because nothing here
             # can interrupt a step anyway (`exec_policy` §1).
             self._walk.renew()
-            pending.extend(self._advance(name, run.value, run.inputs))
+            pending.extend(
+                (nxt, iteration) for nxt in self._advance(name, run.value, run.inputs)
+            )
+            back = self._loop_back(name, run.value, iteration)
+            if back is not None:
+                pending.append((back, iteration + 1))
 
         self._store.set_scope_status(self._scope_id, WalkState.COMPLETED)
         return WalkReport(
@@ -442,6 +477,78 @@ class WorkflowWalker:
     # ------------------------------------------------------------------
     # One handler per node kind
     # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # Loops
+    # ------------------------------------------------------------------
+
+    def _key(self, name: str) -> str:
+        """Step-record key for ``name`` on the pass the walk is currently on.
+
+        Iteration 0 is the key this node has always had, so a graph with no
+        `Loop` is byte-identical in the store.
+        """
+        return iteration_step_key(name, self._iteration)
+
+    def _loops(self) -> tuple[Loop, ...]:
+        """Every `Loop` edge in the declaration."""
+        return tuple(e for e in self._declaration.edges if isinstance(e, Loop))
+
+    def _resume_iteration(self) -> int:
+        """The iteration this walk is entering, derived from the records.
+
+        A resumed walk in a fresh process has the step records and nothing
+        else, so the iteration is read back out of them rather than carried
+        alongside — the same argument `workflow_depth` makes for reading
+        nesting out of a scope id: two sources for one fact can disagree, and
+        the derived one cannot be the wrong one.
+
+        Zero when the graph has no loop, which is every graph that existed
+        before this feature.
+        """
+        loops = self._loops()
+        if not loops:
+            return 0
+        # The furthest any loop has got. A graph with two loops sharing one
+        # counter is a known simplification — see `_loop_back`.
+        return max(
+            current_iteration(
+                self._store, self._scope_id, loop.target, loop.max_iterations
+            )
+            for loop in loops
+        )
+
+    def _loop_back(self, name: str, value: Any, iteration: int) -> str | None:
+        """The node to return to, or None to carry on out of the loop.
+
+        Three things stop a loop, and the order matters:
+
+        1. **No `Loop` leaves this node** — nothing to decide.
+        2. **The bound is reached.** Checked before the condition, so a
+           runaway condition costs one extra pass rather than an outage, and
+           so the bound means what a reader thinks it means: *at most* this
+           many.
+        3. **The condition says no.** Called with the source node's return
+           value, exactly as `ConditionalEdge` is.
+
+        **One counter for the whole walk**, which is a simplification worth
+        naming: two loops in one graph advance the same iteration, so an inner
+        loop's passes also count against an outer one's `visited` keys. It is
+        correct — nothing runs twice with one key, and nothing legal is pruned
+        — but the iteration numbers in the records will read oddly for nested
+        loops. A per-loop counter is the honest fix and needs a second identity
+        on the record; no shipped graph nests loops, so it is recorded rather
+        than guessed at.
+        """
+        for loop in self._loops():
+            if loop.source != name:
+                continue
+            if iteration + 1 >= loop.max_iterations:
+                return None
+            if loop.condition is not None and not loop.condition(value):
+                return None
+            return str(loop.target)
+        return None
 
     def _service_gate(
         self,
@@ -506,7 +613,7 @@ class WorkflowWalker:
         ledger: _Ledger,
     ) -> _NodeRun | WalkReport:
         """A step: replay its recorded value, or run the job it names."""
-        record = self._store.get_step(self._scope_id, _key(name))
+        record = self._store.get_step(self._scope_id, self._key(name))
         if record is not None and record.get("status") == "success":
             return _NodeRun(record.get("return_value"), replayed=True)
         try:
@@ -544,7 +651,7 @@ class WorkflowWalker:
         ``WorkflowRunner.prelude``, before this walk started — so a missing
         executor cannot reach here, and nothing is resolved twice.
         """
-        record = self._store.get_step(self._scope_id, _key(name))
+        record = self._store.get_step(self._scope_id, self._key(name))
         if record is not None and record.get("status") == "success":
             return _NodeRun(record.get("return_value"), replayed=True)
         if self._run_agent_step is None:
@@ -611,6 +718,7 @@ class WorkflowWalker:
         return self._walk.complete(
             name,
             choice=self._choice_for(name, value),
+            args_hash=_iteration_hash(self._iteration),
             return_value=value,
             inputs=inputs,
             completed_at=_now(),
@@ -653,7 +761,7 @@ class WorkflowWalker:
         with self._store.batch():
             self._store.record_step(
                 self._scope_id,
-                _key(node),
+                self._key(node),
                 {"status": "failed", "return_value": None, "completed_at": _now()},
             )
             self._store.set_position(self._scope_id, node)
@@ -666,12 +774,25 @@ class WorkflowWalker:
         )
 
 
+def _iteration_hash(iteration: int) -> str:
+    """The args-hash component that separates one loop pass from the next.
+
+    Empty at iteration 0, so a workflow with no `Loop` writes exactly the
+    records it wrote before this feature and nothing is migrated.
+    """
+    return "" if iteration == 0 else f"loop{iteration}"
+
+
 def _key(name: str) -> str:
-    """Step-record key for a node.
+    """Step-record key for a node on the first iteration.
 
     The args hash is empty because a `Step` takes no arguments — it names a
     registered job and that job's own declaration supplies everything else
     (§A.7). Matrix instances differ by *name*, not by args.
+
+    Loop iterations differ by args hash, which is why
+    :meth:`WorkflowWalker._key` exists beside this: the walk knows which pass
+    it is on, and a module-level function cannot.
     """
     return step_key(name, "")
 

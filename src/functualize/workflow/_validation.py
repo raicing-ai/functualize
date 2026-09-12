@@ -26,6 +26,7 @@ from functualize._types.workflow import (
     ConditionalEdge,
     Edge,
     Gate,
+    Loop,
     Step,
     _EndSentinel,
 )
@@ -35,7 +36,7 @@ _NODE_TYPES = (Step, Gate, AgentStep)
 
 def _validate_workflow_graph(
     nodes: Sequence[Step | Gate | AgentStep],
-    edges: Sequence[Edge | ConditionalEdge],
+    edges: Sequence[Edge | ConditionalEdge | Loop],
 ) -> None:
     """Validate the workflow graph structure at decoration time.
 
@@ -68,10 +69,10 @@ def _validate_workflow_graph(
         node_names.add(name)
 
     for edge in edges:
-        if not isinstance(edge, (Edge, ConditionalEdge)):
+        if not isinstance(edge, (Edge, ConditionalEdge, Loop)):
             raise TypeError(
-                f"Workflow edges must be Edge or ConditionalEdge objects, "
-                f"got {type(edge).__name__}"
+                f"Workflow edges must be Edge, ConditionalEdge or Loop "
+                f"objects, got {type(edge).__name__}"
             )
         if edge.source not in node_names:
             raise ValueError(f"Edge source '{edge.source}' not found in steps")
@@ -85,6 +86,9 @@ def _validate_workflow_graph(
                         f"ConditionalEdge target '{target}' "
                         f"(key='{key}') not found in steps"
                     )
+        elif isinstance(edge, Loop):
+            if edge.target not in node_names:
+                raise ValueError(f"Loop target '{edge.target}' not found in steps")
         elif not _is_end(edge.target) and edge.target not in node_names:
             raise ValueError(f"Edge target '{edge.target}' not found in steps")
 
@@ -96,18 +100,24 @@ def _is_end(target: str | _EndSentinel) -> bool:
     return target is END or isinstance(target, _EndSentinel)
 
 
-def _targets_of(edge: Edge | ConditionalEdge) -> list[str]:
+def _targets_of(edge: Edge | ConditionalEdge | Loop) -> list[str]:
     """Every node an edge can lead to, END excluded.
 
     END terminates, so it is not a vertex: including it would make every graph
     that ends look like it has an extra sink and would not change any answer.
     """
+    if isinstance(edge, Loop):
+        # **Not a cycle edge.** A `Loop` is the declaration that this repetition
+        # is bounded, so excluding it from the search is the whole mechanism:
+        # what is left must be acyclic, and a graph whose only back-edge is a
+        # `Loop` passes while the same graph with a plain `Edge` does not.
+        return []
     if isinstance(edge, ConditionalEdge):
         return [str(t) for t in edge.targets.values() if not _is_end(t)]
     return [] if _is_end(edge.target) else [str(edge.target)]
 
 
-def _find_cycle(edges: Sequence[Edge | ConditionalEdge]) -> list[str] | None:
+def _find_cycle(edges: Sequence[Edge | ConditionalEdge | Loop]) -> list[str] | None:
     """One cycle in the step graph as a node path, or None.
 
     Iterative depth-first search with an explicit stack: a workflow graph is
@@ -155,7 +165,7 @@ def _find_cycle(edges: Sequence[Edge | ConditionalEdge]) -> list[str] | None:
     return None
 
 
-def _refuse_unbounded_cycle(edges: Sequence[Edge | ConditionalEdge]) -> None:
+def _refuse_unbounded_cycle(edges: Sequence[Edge | ConditionalEdge | Loop]) -> None:
     """Refuse a graph that can return to a node it has already run.
 
     **This is a breaking change, and the point of it is that it is loud.**
@@ -168,12 +178,10 @@ def _refuse_unbounded_cycle(edges: Sequence[Edge | ConditionalEdge]) -> None:
     The message names the cycle it found, because a reader's next act is to go
     and look at it.
 
-    # TRANSITIONAL(workflow-graph-semantics/T2): the message tells the reader
-    # to declare a bound, and `Loop` is what will carry one. It does not exist
-    # yet — T2 adds it. Landing the refusal first is deliberate: while there is
-    # no way to satisfy it except by removing the cycle, nobody can mistake it
-    # for a lint that has an escape hatch. Update the wording, not the rule,
-    # when `Loop` lands.
+    The remedy names :class:`Loop`, which is the edge type that carries a
+    bound. T1 landed this refusal *before* `Loop` existed, deliberately — while
+    the only way to satisfy it was to delete the edge, nobody could mistake it
+    for a lint with an escape hatch.
     """
     cycle = _find_cycle(edges)
     if cycle is None:
@@ -184,6 +192,7 @@ def _refuse_unbounded_cycle(edges: Sequence[Edge | ConditionalEdge]) -> None:
         f"A cycle used to be accepted and then run once, silently, because the "
         f"walk prunes nodes it has already visited — so a loop that never "
         f"looped looked the same as a condition that was false.\n"
-        f"Either remove the edge that closes the cycle, or declare the "
-        f"repetition with an explicit bound."
+        f"Either remove the edge that closes the cycle, or declare it as a "
+        f"Loop with an explicit bound: "
+        f"Loop(source={cycle[-2]!r}, target={cycle[-1]!r}, max_iterations=...)."
     )

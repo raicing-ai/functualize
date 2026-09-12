@@ -63,7 +63,7 @@ update the wording and not the rule when `Loop` lands.
 
 ## Wave 1 — the dangerous edit
 
-### [ ] T2 · `Loop`, iteration identity, and the `visited` keying
+### [~] T2 · `Loop`, iteration identity, and the `visited` keying — **code landed, verification incomplete**
 
 **Files:** `src/functualize/workflow/__init__.py`,
 `src/functualize/_engine/loop_state.py`,
@@ -77,8 +77,52 @@ default.
 ```bash
 rg -c 'visited' src/functualize/_engine/workflow_walker.py
 ```
-now: `3` *(`:227` declaration, `:237` test, `:238` add)* · after: `≥3`, keyed by node **and**
-iteration
+now: `7` · before: `3`. Keyed by `(node, iteration)` — declaration at `:379`,
+test at `:390`, add at `:406`.
+
+**Status: stopped mid-verification at the user's request.** What is done and
+what is not is in `.spec/HANDOFF.md`; read it before continuing.
+
+#### What landed
+
+- `Loop(source, target, max_iterations, condition=None)` in `_types/workflow.py`,
+  exported from `functualize.workflow`. `max_iterations` has no default and
+  refuses `0`.
+- `_engine/loop_state.py` — `iteration_step_key` and `current_iteration`. The
+  iteration is **derived from the step records**, never carried alongside, the
+  same argument `workflow_depth` makes for reading nesting out of a scope id: a
+  resumed walk in a fresh process has the records and nothing else, and a
+  counter beside them could disagree.
+- Iteration 0 keys byte-identically to before, so a graph with no `Loop` writes
+  exactly the records it always wrote. Nothing is migrated.
+- The validator excludes `Loop` from the cycle search, which is the whole
+  mechanism: a graph whose only back-edge is a `Loop` passes, and the same graph
+  with a plain `Edge` does not.
+
+#### The bug the combined test caught
+
+The first version advanced the iteration as a **cursor** when the loop's source
+finished. A diamond join is queued once per branch, so its two arrivals got
+different iterations, the second was not pruned, and the join ran twice in one
+pass — call order `fan left right join join fan left right join`.
+
+Fixed by making the iteration travel **with the queued work**: `pending` holds
+`(node, iteration)` pairs and the back-edge queues `(target, iteration + 1)`.
+
+This is exactly what the task warned about — *"two separate tests can both pass
+while the keying is wrong in a third way"* — and it was only visible because the
+graph under test is a loop **containing** a diamond and both properties are
+asserted in one body.
+
+#### Known simplification, recorded not guessed at
+
+**One iteration counter for the whole walk.** Two loops in one graph advance the
+same counter, so an inner loop's passes also count against an outer one's
+`visited` keys. Nothing runs twice under one key and nothing legal is pruned, so
+it is correct — but iteration numbers in the records read oddly for nested
+loops. A per-loop counter needs a second identity on the record; no shipped
+graph nests loops, so it is named in `_loop_back`'s docstring rather than
+guessed at.
 
 > **Both failure modes here are silent** (risk R-a). Getting the keying wrong one way runs a
 > diamond join twice — which looks like a flaky step. The other way leaves a loop running once
