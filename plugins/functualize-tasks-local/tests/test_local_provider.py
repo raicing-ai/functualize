@@ -1,26 +1,34 @@
 """Functional tests for LocalTaskProvider.
 
 Tests local store/retrieve tasks, list filtering, and state persistence
-via InMemoryState fixture.
+via a TaskDocument on a temporary substrate.
 """
 
 from __future__ import annotations
 
 import pytest
-from functualize_state import InMemoryState
 from functualize_tasks import TaskLink, TaskNotFoundError, TaskStatus
 from functualize_tasks_local import LocalTaskProvider
+from functualize_tasks_local._provider import TaskDocument
+
+from functualize._primitives.substrate import JsonFileSubstrate
 
 
 @pytest.fixture
-def backend() -> InMemoryState:
-    """Provide a fresh InMemoryState backend for each test."""
-    return InMemoryState()
+def backend(tmp_path) -> TaskDocument:
+    """A real task store in a throwaway directory.
+
+    `TaskDocument` went with `functualize-state` (`store-substrate`/T6). The
+    replacement is the real thing rather than a second double: the provider's
+    whole job is to survive a restart, and a double that cannot be restarted
+    cannot show that.
+    """
+    return TaskDocument(JsonFileSubstrate(tmp_path))
 
 
 @pytest.fixture
-def provider(backend: InMemoryState) -> LocalTaskProvider:
-    """Provide a LocalTaskProvider backed by InMemoryState."""
+def provider(backend: TaskDocument) -> LocalTaskProvider:
+    """Provide a LocalTaskProvider backed by TaskDocument."""
     return LocalTaskProvider(backend=backend)
 
 

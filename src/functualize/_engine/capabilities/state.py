@@ -25,10 +25,11 @@ resume (same scope id, same record), it is concurrency-safe (``update_scopes``
 re-reads inside the lock, so two writers merge instead of clobbering), and two
 runs of one workflow share nothing (different scope ids).
 
-**The plugin seam is unchanged.** `StateStoreProtocol` is still the contract and
-`WorkflowScope.replace_state_store` still swaps in an implementation —
-``functualize-state-sqlite`` among them. What changed is the default it
-replaces.
+**There is one seam, and it is not here** (`store-substrate`/T5, AC-5). A
+plugin that wants a database supplies a :class:`StoreSubstrate`; it does not
+swap a key-value store in underneath one scope. Two seams at two levels is what
+made the split-brain in that feature's spec §D reachable, and keeping the lower
+one "for compatibility" would reintroduce it.
 """
 
 from __future__ import annotations
@@ -39,10 +40,6 @@ from typing import TYPE_CHECKING, Any
 from functualize._engine.capabilities.spec import CapabilitySpec
 
 if TYPE_CHECKING:
-    # Annotation-only: every annotation here is a string under
-    # `from __future__ import annotations`, and nothing in this module does an
-    # isinstance against the protocol.
-    from functualize._engine.capabilities.protocols import StateStoreProtocol
     from functualize._primitives.scope_store import ScopeStore
 
 __all__ = ["ScopeBackedStateStore", "State", "StateUnavailableError"]
@@ -59,12 +56,13 @@ class StateUnavailableError(RuntimeError):
 
 
 class ScopeBackedStateStore:
-    """The default `StateStoreProtocol` — one scope's slice of ``scopes.json``.
+    """One scope's slice of the scope records. **The only implementation.**
 
-    Satisfies the same protocol `functualize-state-sqlite` implements, so
-    `WorkflowScope.replace_state_store` swaps this out unchanged. It is what
-    the in-memory store used to be, minus the part where it lost everything on
-    resume.
+    It used to be "the default one", swappable through
+    `WorkflowScope.replace_state_store`. That second seam is gone: a plugin
+    that wants a database supplies a substrate, and this class then reads and
+    writes through it like everything else. It is what the in-memory store used
+    to be, minus the part where it lost everything on resume.
 
     **Job namespaces are a key convention, not a mechanism.** The run shares one
     flat key space; `set("fetch.rows", …)` is all a namespace is. T12 removed
@@ -170,10 +168,10 @@ class State:
 
     __slots__ = ("_backend",)
 
-    def __init__(self, backend: StateStoreProtocol | None) -> None:
+    def __init__(self, backend: ScopeBackedStateStore | None) -> None:
         self._backend = backend
 
-    def _bound(self) -> StateStoreProtocol:
+    def _bound(self) -> ScopeBackedStateStore:
         if self._backend is None:
             raise StateUnavailableError(
                 "State has no backing store. Every run the engine starts has a "

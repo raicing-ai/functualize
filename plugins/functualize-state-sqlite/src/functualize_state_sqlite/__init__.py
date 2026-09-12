@@ -1,13 +1,14 @@
-"""Functualize State SQLite Plugin - SQLite-backed state persistence and execution tracking."""
+"""SQLite-backed runtime state for functualize.
 
-from functualize_state_sqlite._backend import SQLiteStateBackend
-from functualize_state_sqlite._execution_store import SQLiteExecutionStore
+One substrate, installed at boot. See `substrate.py` for why this replaced a
+key-value `StateBackend`, and `contributor/adr/022` for why that idea is
+retired rather than deferred.
+"""
+
 from functualize_state_sqlite._plugin import SQLiteStatePlugin
-from functualize_state_sqlite.plugin import ExecutionStatePlugin
+from functualize_state_sqlite.substrate import SQLiteSubstrate
 
 __all__ = [
-    "ExecutionStatePlugin",
-    "SQLiteExecutionStore",
-    "SQLiteStateBackend",
     "SQLiteStatePlugin",
+    "SQLiteSubstrate",
 ]

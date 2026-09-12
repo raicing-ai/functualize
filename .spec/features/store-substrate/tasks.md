@@ -301,39 +301,135 @@ The first is what AC-4 forbids and it is caught by redirecting the decision's
 all (they import the function by name), and patching each store's own binding
 would assert exactly the convention this feature replaced.
 
-## T5 · The second seam is deleted
+## T5 · The second seam is deleted — [x]
 
 `[F]` `src/functualize/_engine/capabilities/protocols.py` (deleted),
+`src/functualize/job/_protocols.py` (deleted),
 `src/functualize/_engine/capabilities/workflow_scope.py`,
 `src/functualize/_engine/capabilities/state.py`,
-`plugins/functualize-state-sqlite/`
+`src/functualize/_types/protocols.py`, `src/functualize/app/core.py`,
+`src/functualize/_app/impl.py`, `src/functualize/_engine/executor.py`,
+`plugins/functualize-state-sqlite/` (rewritten),
+`tests/core/test_scope_state_metadata.py`,
+`tests/context/test_state_store_protocol.py` (deleted),
+`tests/test_facade_loc_limits.py`
 
-`StateStoreProtocol` and `WorkflowScope.replace_state_store` go. One seam, at
-the substrate. Two seams at two levels is what produced the split-brain; keeping
-the old one "for compatibility" reintroduces it (*Pre-Release Stance*).
-
-`functualize-state-sqlite` is rewritten as a substrate, not a KV store — which
-is what it was trying to be.
+`StateStoreProtocol` and `WorkflowScope.replace_state_store` are gone. One seam,
+at the substrate.
 
 ```
 rg -c "replace_state_store|StateStoreProtocol" src/ plugins/ -g '*.py' | awk -F: '{s+=$2} END {print s+0}'
 ```
-now: `28` · after: `0`
+now: `4` · before: `28` — **and all four are prose**, in docstrings explaining
+the deletion. The same failure this branch has now hit three times: a grep
+answered by the sentence describing the thing. Measured properly by AST —
+attribute accesses, names and defs — it is **0**:
 
-## T6 · `functualize-state` is removed, and the reason recorded
+```
+python3 -c "import ast,pathlib; …"   # see tests/spec/, same shape as the
+                                     # SIGALRM and kill gates
+```
 
-`[F]` `plugins/functualize-state/` (deleted), `contributor/adr/022-*.md`,
-`examples/plugins/custom_state_backend/`, `docs/examples/plugins/`
+### How a plugin installs a backend now
 
-Retired, not expanded — spec §B. The ADR records *why*, because a
-backend-agnostic KV protocol is an idea that gets re-proposed: it can only
-offer the intersection of every backend, which is worth least exactly where the
-database is worth most.
+`EngineHost.substrate`, set at `APP_READY`. The engine prefers the host's and
+otherwise resolves the filesystem default — one member, chosen once, and every
+store follows.
+
+`_primitives` could not have discovered it: `substrate_for_project` may not
+import `_plugins` or `_config`, they are peer layers. So the composition root
+chooses and the engine is handed the answer, exactly as `fresh_root` works.
+
+Installing **after** the engine has resolved one is refused rather than
+half-applied (`_app/impl.py::install_substrate`), because a late install leaves
+some of a run's documents in one backend and some in the other — the split
+brain arriving through a different door.
+
+### The facade tripwire caught the addition
+
+`FunctualizeApp` went 9 executable lines over its 300 budget. Moving the
+setter's guard to `_app/impl.py` took it to +2; the budget was then raised to
+**302**, deliberately, in `tests/test_facade_loc_limits.py` with the reason —
+which is the third answer that file's own failure message names. No headroom
+added: a tight ceiling raised to exactly what fits still binds the next
+addition.
+
+### `functualize-state-sqlite` is now a substrate
+
+`SQLiteSubstrate` — one table, six methods — plus a plugin that installs it.
+Deleted with the KV design: `_backend.py`, `_execution_store.py`,
+`sqlite_backend.py`, `state_store.py`, `tracker.py`, `_migrations.py`,
+`plugin.py` and three test modules.
+
+It is the first implementation that makes the port a port rather than an
+interface drawn round one class, and two of its properties are tested as
+behaviour:
+
+- **One lock.** A transaction covers every key, so the two orders that
+  deadlock a per-file substrate both complete. `JsonFileSubstrate` can only
+  sort within one `lock()` call, which does not help a caller that takes one
+  lock, does something, and takes another.
+- **Compare-and-swap with no lock held.** Two threads racing one revision:
+  exactly one wins. On the filesystem `expect` is only exact under the
+  caller's `flock`.
+
+`tests/…/test_sqlite_substrate.py::test_no_store_asks_the_substrate_for_a_path`
+wraps the substrate so `path_for`, `root` and `path` raise, then drives all
+three stores. A store reaching for a filesystem detail would work on a laptop
+and fail on any backend without one — the failure this feature exists to
+prevent, arriving at the last moment.
+
+## T6 · `functualize-state` is removed, and the reason recorded — [x]
+
+`[F]` `plugins/functualize-state/` (deleted),
+`plugins/functualize-tasks-local/` (ported),
+`plugins/functualize-mcp/src/functualize_mcp/_history_tools.py` (ported),
+`plugins/functualize-ai/src/functualize_ai/_state_fallback.py`,
+`pyproject.toml`, `plugins/*/pyproject.toml`,
+`src/functualize/_cli/data/plugin_catalog.toml`,
+`src/functualize/_cli/builtins.py`, `src/functualize/_cli/scaffold/cli.py`,
+`contributor/adr/022-*.md`, and 9 test modules
 
 ```
 test -d plugins/functualize-state && echo present || echo removed
 ```
-now: `present` · after: `removed`
+now: `removed` · before: `present`
+
+### The blast radius was five plugins, not one
+
+The recorded `[F]` named the package, an ADR and one example. Measured, five
+plugins imported `functualize_state`, and only two of those imports were the
+optional probes the task assumed:
+
+| plugin | what it used | what happened |
+|---|---|---|
+| `functualize-tasks-local` | `StateBackend`, at import time | **ported** — tasks live in one substrate document |
+| `functualize-mcp` | `ExecutionStore` | **ported** — the tools read the run log |
+| `functualize-ai` | an import probe | probe deleted; it would have answered "no" forever |
+| `functualize-ai-pydantic` | an import probe | same |
+| `functualize-state-sqlite` | the whole domain | rewritten by T5 |
+
+Plus nine test modules, the plugin catalog, two `pip install` hints and three
+`pyproject.toml` files.
+
+### The MCP port is the argument for the deletion, in code
+
+`get_job_history` could not ask the `ExecutionStore` for recent executions —
+the protocol had no such method — so it probed for four
+(`get_all_executions`, `get_recent_executions`, `get_session_executions` with
+an empty session, then with the app's session) and took whichever the installed
+backend happened to have. Its tests used a fake implementing all four, so they
+were more capable than any real backend and could not say which path an install
+would take.
+
+That is what "the intersection of every backend" costs: a caller guessing at
+five shapes because the contract cannot express the question. The run log
+answers it in one call, and the MCP surface and `func builtin history` now
+report one set of facts instead of two.
+
+The tools also register **unconditionally** now. They used to appear only if
+`functualize-state` was importable, so on an ordinary install they were simply
+absent and the absence looked like a missing feature.
 
 ## T7 · A gate survives a machine with no shared disk
 

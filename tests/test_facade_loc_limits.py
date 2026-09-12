@@ -34,9 +34,21 @@ _SRC = _ROOT / "src" / "functualize"
 #: the number the maintainer chose after the arithmetic showed 308 was the floor
 #: with every movable body already gone, and it can only be met by *grouping
 #: members*, which is the property worth defending.
+#:
+#: **300 → 302, 2026-09-12** (`store-substrate`/T5). `FunctualizeApp` gained
+#: `substrate`, a new `EngineHost` member: a plugin installs a database there
+#: and every store follows. Raised deliberately, which is the third answer this
+#: file's failure message names, because the two cheaper ones were tried first
+#: — the setter's guard is already in `_app/impl.py::install_substrate` (moving
+#: it is what took this from +9 to +2), and `core.py` imports from `impl`
+#: lazily on purpose, so hoisting the import to save a line would trade boot
+#: time for a budget number.
+#:
+#: No headroom added on top. A tight ceiling that is raised to exactly what fits
+#: still binds the next addition; one raised to the next round number does not.
 _BUDGETS: list[tuple[str, str, int]] = [
     ("_engine/capabilities/runcontext.py", "RunContext", 500),
-    ("app/core.py", "FunctualizeApp", 300),
+    ("app/core.py", "FunctualizeApp", 302),
 ]
 
 

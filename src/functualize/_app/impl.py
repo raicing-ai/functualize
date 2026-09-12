@@ -1523,3 +1523,31 @@ def get_job(app: Any, name: str) -> JobDescriptor | None:
     except KeyError:
         return None
     return descriptor
+
+
+def install_substrate(app: Any, substrate: Any) -> None:
+    """Set the app's substrate, refusing once the engine has resolved one.
+
+    `store-substrate`/T5. A plugin installs a database at `APP_READY`, which is
+    before the engine touches a store — the engine resolves lazily, on the first
+    store access, which happens during a run.
+
+    Installing later is **refused** rather than allowed to half-apply. The
+    engine holds what it resolved, so a late install would leave some of a run's
+    documents in one backend and some in the other: exactly the split brain
+    spec AC-4 says must be unreachable, arriving through a different door.
+
+    Lives here rather than on the facade because the refusal is real logic and
+    `FunctualizeApp` has an executable-line budget that `test_facade_loc_limits`
+    enforces — which is how this landed here: the guard pushed the facade nine
+    lines over and the tripwire said so.
+    """
+    engine = getattr(app, "_execution_engine", None)
+    if engine is not None and getattr(engine, "_substrate", None) is not None:
+        raise RuntimeError(
+            "the substrate is already in use by this app's engine; installing "
+            "another now would leave some of a run's documents in one backend "
+            "and some in the other. Set it during boot — a plugin's APP_READY "
+            "hook is the intended place."
+        )
+    app._substrate = substrate

@@ -1,207 +1,113 @@
-"""SQLite State Plugin — DI registration and scope lifecycle integration.
+"""The plugin: install a SQLite substrate, and nothing else.
 
-Registers SQLiteStateBackend as StateBackend and SQLiteExecutionStore as
-ExecutionStore with the DI registry via app.di.provide(). Hooks into
-ON_SCOPE_CREATED to replace the scope's in-memory state with persistent
-SQLite-backed storage.
+`store-substrate`/T5, T6.
 
-Registered via entry point `functualize.state_providers` with name "sqlite".
+This used to be three things at once — a `StateBackend`, an `ExecutionStore`,
+and a per-scope key-value store swapped in at `ON_SCOPE_CREATED`. All three are
+gone, and the reason is the same one in all three cases: they were a *second*
+storage vocabulary sitting beside the framework's own.
+
+- The scope store swap happened one level below the real seam, so a scope could
+  keep its job state in SQLite while the records describing it stayed on the
+  filesystem. A resumed run then found its steps and not its variables.
+- `StateBackend` and `ExecutionStore` were a backend-agnostic key-value
+  protocol, which can only offer the intersection of every backend — worth
+  least exactly where having a database is worth most. `contributor/adr/022`
+  records that argument so it is not re-proposed.
+
+What is left is one line of work: choose the substrate. Every store follows,
+because there is one place that decides and one object handed to all of them.
 """
 
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
-from functualize_state import ExecutionStore, StateBackend
-
-from functualize_state_sqlite._backend import SQLiteStateBackend
-from functualize_state_sqlite._execution_store import SQLiteExecutionStore
-from functualize_state_sqlite.sqlite_backend import SQLiteBackend
-from functualize_state_sqlite.state_store import SQLiteStateStore
+from functualize_state_sqlite.substrate import SQLiteSubstrate
 
 __all__ = ["SQLiteStatePlugin"]
 
 logger = logging.getLogger(__name__)
 
+#: Where the database goes when nothing configures it. Beside the project's
+#: other runtime state, so `func builtin data clear` and a `.gitignore` that
+#: already covers `.functualize/` keep working.
+DEFAULT_DB_NAME = "state.db"
+
 
 class SQLiteStatePlugin:
-    """Plugin that registers SQLite-backed StateBackend and ExecutionStore.
-
-    At boot time (APP_READY), creates SQLiteStateBackend and SQLiteExecutionStore
-    instances sharing the same database path, and registers them with the DI
-    registry via app.di.provide().
-
-    When a WorkflowScope is created, replaces its in-memory state store with
-    a persistent SQLiteStateStore backed by the shared SQLiteBackend.
-
-    Implements the plugin callable protocol expected by functualize's plugin
-    discovery system.
-    """
+    """Installs a :class:`SQLiteSubstrate` as the app's substrate at boot."""
 
     name: str = "sqlite-state"
-    version: str = "0.1.0"
-    description: str = "SQLite-backed StateBackend and ExecutionStore provider"
+    version: str = "0.2.0"
+    description: str = "Keeps this project's runtime state in SQLite"
 
     def __init__(self) -> None:
-        self._backend: SQLiteStateBackend | None = None
-        self._execution_store: SQLiteExecutionStore | None = None
-        self._scope_backend: SQLiteBackend | None = None
-        self._app: Any = None
+        self._substrate: SQLiteSubstrate | None = None
 
     @property
-    def backend(self) -> SQLiteStateBackend | None:
-        """The SQLiteStateBackend instance (available after APP_READY)."""
-        return self._backend
-
-    @property
-    def execution_store(self) -> SQLiteExecutionStore | None:
-        """The SQLiteExecutionStore instance (available after APP_READY)."""
-        return self._execution_store
+    def substrate(self) -> SQLiteSubstrate | None:
+        """The substrate this plugin installed, or None before APP_READY."""
+        return self._substrate
 
     def __call__(self, app: Any) -> None:
-        """Register the plugin with the application instance.
-
-        Hooks into APP_READY for initialization and DI registration,
-        and ON_SCOPE_CREATED for scope state replacement.
-        """
-        self._app = app
-        hook_registry = app.hook_registry
-
         from functualize._events.hooks import HookEvent
 
-        # APP_READY: initialize backend, execution store, and register with DI
-        hook_registry.register_global(HookEvent.APP_READY, self._on_app_ready)
-
-        # ON_SCOPE_CREATED: replace scope state with SQLite-backed store
-        hook_registry.register_global(
-            HookEvent.ON_SCOPE_CREATED, self._on_scope_created
-        )
-
-    def on_shutdown(self, app: Any) -> None:
-        """Close database connections on application shutdown."""
-        if self._backend is not None:
-            try:
-                self._backend.close()
-                logger.debug("SQLiteStatePlugin: SQLiteStateBackend closed.")
-            except Exception as e:
-                logger.error("SQLiteStatePlugin: Error closing backend: %s", e)
-            finally:
-                self._backend = None
-
-        if self._execution_store is not None:
-            try:
-                self._execution_store.close()
-                logger.debug("SQLiteStatePlugin: SQLiteExecutionStore closed.")
-            except Exception as e:
-                logger.error("SQLiteStatePlugin: Error closing execution store: %s", e)
-            finally:
-                self._execution_store = None
-
-        if self._scope_backend is not None:
-            try:
-                self._scope_backend.close()
-                logger.debug("SQLiteStatePlugin: scope SQLiteBackend closed.")
-            except Exception as e:
-                logger.error("SQLiteStatePlugin: Error closing scope backend: %s", e)
-            finally:
-                self._scope_backend = None
-
-    # ─── Hook Handlers ────────────────────────────────────────────────
+        app.hook_registry.register_global(HookEvent.APP_READY, self._on_app_ready)
 
     def _on_app_ready(self, app: Any) -> None:
-        """Initialize SQLite instances and register with DI registry.
+        """Choose the substrate, once, before anything has resolved one.
 
-        Creates SQLiteStateBackend and SQLiteExecutionStore sharing the same
-        database path, runs schema migrations, and registers both with the
-        app's DI registry as their respective protocol types.
+        `APP_READY` is the right moment and not an arbitrary one: the engine
+        resolves its substrate lazily, on the first store access, which happens
+        during a run. Installing later is **refused** by the app rather than
+        allowed to half-apply — some of a run's documents in one backend and
+        some in the other is exactly the state this feature exists to make
+        unreachable.
 
-        Also initializes the scope-level SQLiteBackend (old-style) for use
-        in ON_SCOPE_CREATED to replace scope state stores.
+        A failure to install is logged and left alone. The app then uses the
+        filesystem default, which is a working program with a note in the log
+        rather than a boot that dies over a storage preference.
         """
         try:
-            # Resolve db_path from config if available
-            db_path = self._resolve_db_path(app)
-
-            # Initialize the scope-level backend (old-style) first.
-            # This uses the composite-key state table (scope_id, job_namespace, key)
-            # which is the format SQLiteStateStore expects.
-            # It owns the primary database file.
-            scope_db_path = db_path
-            self._scope_backend = SQLiteBackend(db_path=scope_db_path)
-            self._scope_backend.initialize()
-
-            # Create the protocol-conforming StateBackend and ExecutionStore.
-            # These share the same database as the scope backend. The
-            # SQLiteStateBackend uses a separate table name to avoid conflicts
-            # with the old-style composite-key state table.
-            self._backend = SQLiteStateBackend(db_path=str(self._scope_backend.db_path))
-            self._execution_store = SQLiteExecutionStore(
-                db_path=str(self._scope_backend.db_path)
+            self._substrate = SQLiteSubstrate(self._db_path(app))
+            app.substrate = self._substrate
+        except Exception:
+            logger.exception(
+                "sqlite-state could not install its substrate; this project "
+                "will use the filesystem default"
             )
-
-            # Run schema migrations
-            from functualize_state_sqlite._migrations import migrate
-
-            migrate(self._scope_backend.connection)
-
-            # Register with DI registry via app.di.provide()
-            app.di.provide(StateBackend, self._backend)
-            app.di.provide(ExecutionStore, self._execution_store)
-
-            logger.debug(
-                "SQLiteStatePlugin: Registered StateBackend and ExecutionStore (db=%s)",
-                self._scope_backend.db_path,
-            )
-        except Exception as e:
-            logger.error("SQLiteStatePlugin: Failed to initialize: %s", e)
-
-    def _on_scope_created(self, scope: Any) -> None:
-        """Replace the scope's in-memory state store with SQLite-backed state.
-
-        Creates a SQLiteStateStore scoped to the workflow scope's ID, backed
-        by the shared SQLiteBackend (old-style) that uses the composite-key
-        state table for proper namespace isolation per scope.
-        """
-        if self._scope_backend is None:
             return
+        logger.debug("sqlite-state installed a substrate at %s", self._substrate.path)
 
-        try:
-            scope_id = scope.scope_id if hasattr(scope, "scope_id") else str(id(scope))
+    def _db_path(self, app: Any) -> Path:
+        """``plugin.sqlite-state.db_path``, or beside the project's other state.
 
-            sqlite_store = SQLiteStateStore(
-                backend=self._scope_backend,
-                scope_id=scope_id,
-                job_namespace="__scope__",
-            )
-            scope.replace_state_store(sqlite_store)
-            logger.debug(
-                "SQLiteStatePlugin: Replaced state store for scope '%s'",
-                scope_id,
-            )
-        except Exception as e:
-            logger.error("SQLiteStatePlugin: Error in ON_SCOPE_CREATED handler: %s", e)
-
-    # ─── Internal Helpers ─────────────────────────────────────────────
-
-    def _resolve_db_path(self, app: Any) -> str | None:
-        """Resolve database path from app configuration.
-
-        Returns None to use the default path if no configuration is found.
+        Resolved from :attr:`fresh_root` rather than the cwd, so a later
+        ``chdir`` cannot move a run's database out from under it — the same
+        rule the filesystem substrate follows.
         """
+        configured = self._configured_path(app)
+        if configured:
+            return Path(configured)
+        return Path(app.fresh_root) / ".functualize" / DEFAULT_DB_NAME
+
+    @staticmethod
+    def _configured_path(app: Any) -> str | None:
         try:
             from pydantic import BaseModel, Field
 
             class _SqliteConfig(BaseModel):
                 db_path: str | None = Field(
                     default=None,
-                    description="Path to the SQLite database file.",
+                    description="Where this project's SQLite state lives.",
                 )
 
-            config = app.configuration.resolve_model(
+            resolved = app.configuration.resolve_model(
                 "plugin.sqlite-state", _SqliteConfig
             )
-            return config.db_path
+            return resolved.db_path
         except Exception:
-            # No config available — use default path
             return None

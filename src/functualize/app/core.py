@@ -190,6 +190,9 @@ class FunctualizeApp:
         # is what stops three call sites from answering the same question
         # differently (see `contributor/architecture/run-model/05-engine-seal.md` §C).
         self._state_root = Path.cwd()
+        #: Installed by a plugin at boot; None means the filesystem
+        #: default. See the :attr:`substrate` property.
+        self._substrate: Any = None
         #: Set by boot_standard once `general.max_invoke_depth` resolves.
         self._resolved_max_invoke_depth: int | None = None
 
@@ -310,6 +313,28 @@ class FunctualizeApp:
         jobs = self.job_registry._registered_jobs
         if jobs.get(current.name) is current:
             jobs[current.name] = replacement
+
+    @property
+    def substrate(self) -> Any:
+        """Where this project's documents live, or None for the default.
+
+        The :class:`~functualize._types.protocols.EngineHost` member a plugin
+        sets to install a database (`store-substrate`/T5). None — the ordinary
+        case — means the engine resolves the filesystem default from
+        :attr:`fresh_root`.
+
+        A plain attribute rather than a registry: there is exactly one, it is
+        chosen once at boot, and a second one is the split brain this feature
+        exists to make unreachable.
+        """
+        return self._substrate
+
+    @substrate.setter
+    def substrate(self, value: Any) -> None:
+        """Install a substrate. **Boot only, and before the engine resolves one.**"""
+        from functualize._app.impl import install_substrate
+
+        install_substrate(self, value)
 
     @property
     def fresh_root(self) -> Path:

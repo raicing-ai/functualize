@@ -1509,16 +1509,20 @@ class JobExecutionEngine:
     def substrate(self) -> Any:
         """Where this project's documents live. **Resolved once per engine.**
 
-        The one decision (`substrate_for_project`) made once and held, so a run
-        that touches the freshness ledger, the scope records, the state inside
-        them and the run log walks the filesystem upward for `.functualize/`
-        one time instead of five — and, when a configured substrate arrives,
-        cannot be told a different answer halfway through a run.
+        The host's, when it has one — that is where a plugin installs a
+        database (`EngineHost.substrate`). Otherwise the one decision,
+        `substrate_for_project`, resolved from :attr:`fresh_root`.
+
+        Either way it is resolved **once and held**, so a run that touches the
+        freshness ledger, the scope records, the state inside them and the run
+        log walks the filesystem upward for `.functualize/` one time instead of
+        five — and cannot be told a different answer halfway through.
         """
         if self._substrate is None:
             from functualize._primitives.substrate import substrate_for_project
 
-            self._substrate = substrate_for_project(self.fresh_root)
+            chosen = getattr(self.host, "substrate", None)
+            self._substrate = chosen or substrate_for_project(self.fresh_root)
         return self._substrate
 
     def _state_store(self) -> Any:

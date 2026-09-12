@@ -1,7 +1,7 @@
 """Local Tasks Plugin — DI registration.
 
 Registers LocalTaskProvider as TaskProvider with the DI registry via
-app.di.provide(). Uses the active StateBackend for task storage with
+app.di.provide(). Uses the app's substrate for task storage with
 keys prefixed ``tasks:``.
 
 Registered via entry point ``functualize.tasks_providers`` with name "local".
@@ -12,10 +12,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from functualize_state import StateBackend
 from functualize_tasks import TaskProvider
 
-from functualize_tasks_local._provider import LocalTaskProvider
+from functualize_tasks_local._provider import LocalTaskProvider, TaskDocument
 
 __all__ = ["LocalTasksPlugin"]
 
@@ -23,11 +22,11 @@ logger = logging.getLogger(__name__)
 
 
 class LocalTasksPlugin:
-    """Plugin that registers a local StateBackend-backed TaskProvider.
+    """Plugin that registers a local substrate-backed TaskProvider.
 
-    At boot time (APP_READY), resolves the active StateBackend from the DI
-    registry, creates a LocalTaskProvider wrapping it, and registers the
-    provider as the TaskProvider implementation via app.di.provide().
+    At boot time (APP_READY), takes the app's substrate, wraps it in a
+    `TaskDocument`, and registers a `LocalTaskProvider` over that as the
+    TaskProvider implementation via app.di.provide().
 
     Implements the plugin callable protocol expected by functualize's plugin
     discovery system.
@@ -57,22 +56,21 @@ class LocalTasksPlugin:
     def _on_app_ready(self, app: Any) -> None:
         """Initialize LocalTaskProvider and register with DI registry.
 
-        Resolves the StateBackend from the DI registry and creates a
-        LocalTaskProvider backed by it. Registers the provider as
-        TaskProvider via app.di.provide().
+        Backed by the **app's own substrate** (`store-substrate`/T6), not by a
+        `StateBackend` resolved from DI. That protocol is retired, and with it
+        the failure it allowed: tasks written while a database plugin was
+        installed were invisible to a reader without one, because the two
+        answered "where does state live" separately.
         """
         try:
-            # Resolve the active StateBackend from DI
-            backend = app.resolve(StateBackend)
-
-            # Create local provider backed by the state backend
+            backend = TaskDocument(app.execution_engine.substrate)
             self._provider = LocalTaskProvider(backend=backend)
 
             # Register as TaskProvider
             app.di.provide(TaskProvider, self._provider)
 
             logger.debug(
-                "LocalTasksPlugin: Registered TaskProvider (state-backed, "
+                "LocalTasksPlugin: Registered TaskProvider (substrate-backed, "
                 "prefix='tasks:')"
             )
         except Exception as e:

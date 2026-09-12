@@ -51,13 +51,6 @@ recommended = true
 # ── Domains: the capability protocols jobs are written against ───────────────
 
 [[plugin]]
-name = "state"
-distribution = "functualize-state"
-group = "functualize.domains"
-description = "State persistence and execution tracking protocols"
-recommended = true
-
-[[plugin]]
 name = "tasks"
 distribution = "functualize-tasks"
 group = "functualize.domains"

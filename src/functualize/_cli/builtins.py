@@ -2285,7 +2285,7 @@ def register_builtin_commands(cli_group: Any) -> None:
             click.echo("No domains discovered.")
             click.echo("")
             click.echo("Install a domain SDK package to get started:")
-            click.echo("  pip install functualize-state")
+            click.echo("  pip install functualize-state-sqlite")
             click.echo("  pip install functualize-ai")
             click.echo("  pip install functualize-tasks")
             return

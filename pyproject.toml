@@ -95,7 +95,6 @@ cli = [
 ]
 all = [
     "functualize[cli]",
-    "functualize-state",
     "functualize-state-sqlite",
     "functualize-http",
     "functualize-lambda",
@@ -139,7 +138,6 @@ functualize-http = { workspace = true }
 functualize-inline = { workspace = true }
 functualize-flow-viz = { workspace = true }
 functualize-lambda = { workspace = true }
-functualize-state = { workspace = true }
 functualize-ai = { workspace = true }
 functualize-ai-pydantic = { workspace = true }
 functualize-tasks = { workspace = true }

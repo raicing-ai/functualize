@@ -397,6 +397,27 @@ class EngineHost(Protocol):
         ...
 
     @property
+    def substrate(self) -> StoreSubstrate | None:
+        """Where this project's documents live, or None for the default.
+
+        The **one** place a configured backend is chosen
+        (`store-substrate`/T5). A plugin that wants a database sets this at
+        boot and every store the engine builds follows, so scope records and
+        the job state inside them cannot end up in different backends.
+
+        None means "resolve the filesystem default from :attr:`fresh_root`",
+        which is what an app with no such plugin does. It is not an error and
+        not a missing feature — it is the ordinary case.
+
+        Deliberately **here rather than discovered by `_primitives`**. The one
+        decision lives in `substrate_for_project`, which may not import
+        `_plugins` or `_config` — they are peer layers. So the composition
+        root chooses, and the engine is handed the answer, the same way
+        :attr:`fresh_root` works.
+        """
+        ...
+
+    @property
     def fresh_root(self) -> Path:
         """Where this project's derived run state (fingerprints, history,
         workflow scopes) lives.

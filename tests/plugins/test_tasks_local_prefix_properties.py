@@ -11,11 +11,27 @@ without the `tasks:` prefix SHALL be created by any task operation.
 
 from __future__ import annotations
 
-from functualize_state.testing import InMemoryState
 from functualize_tasks import TaskLink, TaskStatus
 from functualize_tasks_local import LocalTaskProvider
+from functualize_tasks_local._provider import TaskDocument
 from hypothesis import given
 from hypothesis import strategies as st
+
+from functualize._primitives.substrate import JsonFileSubstrate
+
+
+def _document() -> TaskDocument:
+    """A task store in a throwaway directory.
+
+    `InMemoryState` is gone with `functualize-state` (`store-substrate`/T6).
+    The replacement is the real thing over a temporary substrate rather than a
+    second in-memory double: the provider's whole job is to survive a restart,
+    and a double that cannot be restarted cannot show that.
+    """
+    import tempfile
+
+    return TaskDocument(JsonFileSubstrate(tempfile.mkdtemp()))
+
 
 # --- Strategies ---
 
@@ -67,7 +83,7 @@ class TestTasksLocalPrefixStorage:
 
         **Validates: Requirements 14.1, 26.2**
         """
-        backend = InMemoryState()
+        backend = _document()
         provider = LocalTaskProvider(backend=backend)
 
         provider.add(title, linked_to=linked_to)
@@ -85,7 +101,7 @@ class TestTasksLocalPrefixStorage:
 
         **Validates: Requirements 14.1, 26.2**
         """
-        backend = InMemoryState()
+        backend = _document()
         provider = LocalTaskProvider(backend=backend)
 
         for title in titles:
@@ -106,7 +122,7 @@ class TestTasksLocalPrefixStorage:
 
         **Validates: Requirements 14.1, 26.2**
         """
-        backend = InMemoryState()
+        backend = _document()
         provider = LocalTaskProvider(backend=backend)
 
         task_id = provider.add(title)
@@ -125,7 +141,7 @@ class TestTasksLocalPrefixStorage:
 
         **Validates: Requirements 14.1, 26.2**
         """
-        backend = InMemoryState()
+        backend = _document()
         provider = LocalTaskProvider(backend=backend)
 
         task_id = provider.add(title)
@@ -149,7 +165,7 @@ class TestTasksLocalPrefixStorage:
 
         **Validates: Requirements 14.1, 26.2**
         """
-        backend = InMemoryState()
+        backend = _document()
         provider = LocalTaskProvider(backend=backend)
 
         task_id = provider.add(title, linked_to=linked_to)
@@ -179,7 +195,7 @@ class TestTasksLocalPrefixStorage:
 
         **Validates: Requirements 14.1, 26.2**
         """
-        backend = InMemoryState()
+        backend = _document()
         provider = LocalTaskProvider(backend=backend)
 
         task_id = provider.add(title)

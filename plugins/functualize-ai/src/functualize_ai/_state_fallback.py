@@ -99,12 +99,13 @@ def resolve_ai_state_backend(
     fall back to an ephemeral in-memory store.
 
     Args:
-        state_backend: A StateBackend instance if the State domain is installed
-            and has provided one, or None if State domain is absent.
+        state_backend: A backend the app provided, or None when it has none.
+            It used to mean "is the `functualize-state` domain installed",
+            which `store-substrate`/T6 retired; it now means what it says.
 
     Returns:
         A state backend (either StrictStateBackendWrapper or EphemeralStateBackend)
-        suitable for use with StateNamespace.
+        suitable for the AI plugin's own prefixed keys.
 
     Side Effects:
         Emits a WARNING log when falling back to ephemeral storage.
@@ -116,21 +117,3 @@ def resolve_ai_state_backend(
     # State domain NOT installed — fall back to ephemeral in-memory store
     logger.warning(_EPHEMERAL_WARNING)
     return EphemeralStateBackend()
-
-
-def is_state_domain_available() -> bool:
-    """Check if the functualize-state package is importable.
-
-    This is a simple availability check — it doesn't verify that a real
-    StateBackend provider (e.g., functualize-state-sqlite) is actually
-    registered. That check happens at boot time via the DI registry.
-
-    Returns:
-        True if functualize_state can be imported, False otherwise.
-    """
-    try:
-        import functualize_state  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
