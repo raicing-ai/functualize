@@ -1,160 +1,151 @@
-# Handoff
+# Handoff — `feat/run-model`, 2026-09-12
 
-For whoever picks this up next. Written 2026-09-11 by the session that did the
-work below.
+Stopped at the user's request part-way through `workflow-graph-semantics`/T2.
+**Read this before touching anything**, then delete it when T2 closes.
 
-Worktree: `/home/viltohmyst/code/raicing-ai/functualize/.worktrees/pi-parity`,
-branch `feat/run-model`. **Never `cd` to the parent checkout** — it is a git
-worktree and another session may be live in it.
+Worktree: `.worktrees/pi-parity`. Branch: `feat/run-model`. Tree is clean.
+Head: `2f44f66`.
 
 ---
 
-## 1. Read these first, in this order
+## Where the roadmap stands
 
-| file | why |
+| Feature | State |
 |---|---|
-| `.spec/STATE.md` | the live task board — what is done, in flight, next (gitignored) |
-| `.spec/OPEN-QUESTIONS.md` | **Q-1…Q-4 are unanswered and block nothing, but each could reverse a decision** |
-| `.spec/features/capability-duality/STATUS-HANDOFF.md` | what the last feature did and the two process failures it produced |
-| `.spec/reviews/omp-after-review-TRIAGE.md` | an external review's 12 findings and what happened to each |
-| `.spec/PR-NOTES.md` | one commit carries more than its message says; the PR body must explain it |
-| `contributor/adr/021-capability-duality.md` | the mechanism everything here is built on |
+| `capability-duality` | done, 12/12 |
+| `durable-run-layer` | done, 14/14 |
+| `scope-record-lifecycle` | done, 6/6 |
+| **`store-substrate`** | **done, 9/9** — fully verified, see below |
+| **`workflow-graph-semantics`** | **T1 done. T2 code landed, verification incomplete. T3–T7 not started.** |
+
+No PR yet; the plan is one PR after the whole roadmap executes.
+
+### Last full verification (at `949789a`, before T1)
+
+- `uv run pytest tests/ --run-slow -q -n 8` → **11,971 passed, 155 skipped**
+- All 12 plugin suites pass, run one package at a time
+- `FUNCTUALIZE_TEST_SUBSTRATE=sqlite uv run pytest tests/ -q -n 8` → **10,462
+  passed, 0 failed** (the alternate-substrate run, `store-substrate`/T8)
+- `ruff`, `mypy` (352 files), `lint-imports` (7 contracts) all clean
+
+At head (`2f44f66`) the fast suite was **10,568 passed** and `mypy` /
+`lint-imports` were clean, but `--run-slow` has **not** been run since T1 landed.
 
 ---
 
-## 2. Verification — the part that bit me twice
+## T2 — exactly what is left
 
-**There are three suites and they cannot be collected together.** Saying
-"green" after one of them is how I reported green while `examples/` had been
-red for hours.
+### Done
 
-```bash
-HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto -q      # 11,731 / 155 skipped
-HYPOTHESIS_PROFILE=ci uv run pytest examples -q                # 201
-HYPOTHESIS_PROFILE=ci uv run pytest plugins/<pkg>/tests -q     # one package at a time
-uv run ruff check src/ tests/ && uv run mypy src/ && uv run lint-imports
-```
+`Loop`, `_engine/loop_state.py`, the `(node, iteration)` keying, the validator
+change, and `tests/workflow/test_loops.py` (31 tests, all passing). The detail
+is in `.spec/features/workflow-graph-semantics/tasks.md` under T2, including the
+cursor-versus-queued-work bug the combined test caught and the one-counter
+simplification that is recorded rather than fixed.
 
-- **`--run-slow` is not optional.** The default profile skips those tests. All
-  36 failures I once had to clean up were slow tests my targeted runs never saw.
-- One known flake: `.spec/KNOWN-RED.md` §10, `test_parse_failure_persists.py`
-  under `-n auto`. Passes serially. Check before blaming yourself.
+### Not done — do these first
 
-**Three process rules learned the hard way, all mine:**
+1. **Finish the sabotage sweep.** The script is at
+   `.spec/features/workflow-graph-semantics/sabotage-t2.py` — copied out of
+   session scratch so it survives. Run it from the worktree root. It asserts
+   each sabotage **applied** before reading the result, which matters: a
+   sabotage that silently fails to apply reads as "the tests do not catch
+   this", and that happened once on this branch.
 
-1. **Commit before sabotaging.** `git checkout -- <file>` reverts *everything*
-   uncommitted in that file. I lost a finished fix this way. To restore from a
-   scratch copy use `install -m644` — this shell aliases `cp` to `cp -i` and the
-   prompt wins over your `-f`.
-2. **Never `git add -A` here.** Another agent's uncommitted work got swept into
-   my commit (`5511bf0`). Stage the paths you edited.
-3. **Use heredocs for commit messages.** Backticks in a `-m` string get
-   command-substituted and words vanish from the message. I did this twice.
+   One of seven ran before the stop:
 
----
+   | sabotage | result |
+   |---|---|
+   | `visited` keyed by node alone | **6 failed** ✓ |
+   | `visited` keyed by iteration alone | not run |
+   | the iteration is a cursor, not queued work | not run |
+   | the record key ignores the iteration | not run |
+   | resume always restarts at iteration 0 | not run |
+   | the bound is not enforced | not run |
+   | `Loop` edges count as cycle edges again | not run |
 
-## 3. What is done
+   Any that fails **0 tests** is a finding, not a formality — three inert
+   sabotages were found on this branch and each was a real gap or a stale claim.
 
-`capability-duality` — T1–T7, T9 done; **T8 deferred, T10 next**. The feature's
-own `STATUS-HANDOFF.md` has the detail. In one line: `rc.X` and `x: X` are one
-object per run, `State` is durable and lives in the run's scope record, the
-scope is minted where every run passes (`engine.run`, not `app.execute` — the
-CLI never went through the latter), and a registry-driven test enforces all of
-it.
+2. **`--run-slow` and the plugin suites**, which have not run since T1.
 
-`durable-run-layer` — T1, T2 only. The run log exists; **nothing reads it yet**.
+3. **The alternate-substrate run** (`FUNCTUALIZE_TEST_SUBSTRATE=sqlite`). T1 and
+   T2 touch the walker and the step-record key, which is exactly the surface
+   that run exercises.
 
----
+4. **Record T2's gate value** in `tasks.md` — it is written (`now: 7`) but
+   re-measure rather than trusting it; gate numbers written from memory have
+   been wrong about five times on this branch and
+   `tests/spec/test_task_gates_still_hold.py` caught every one.
 
-## 4. What to do next, in the order I would do it
-
-### T10 — tests write into the *repository's* state root
-Smallest and it makes everything after it less confusing. The state root is an
-upward walk from cwd, so any test that does not `chdir` writes into the real
-`.functualize/`. Measured mid-feature: `scopes.json` 359 KB, `runs.json` 261 KB
-of test residue. Gitignored, so nothing is committed — but it makes tests
-order-dependent, and it produced a real failure (`invocation=4` on a first
-invocation). An autouse fixture pointing the state root at `tmp_path` unless a
-test opts out. Gate is in `capability-duality/tasks.md` T10.
-
-**Do this before concluding any flake is a flake.**
-
-### `scope-record-lifecycle` — the biggest real problem on the branch
-`.spec/features/scope-record-lifecycle/spec.md`. Specified, not started, no
-approach chosen.
-
-Putting job state in the scope record made every `rc.state` operation
-**O(project age)**: 58 ms per `set` on a real 1 MB `scopes.json` against 0.28 ms
-on an empty one. `scopes.json` is the only one of the three stores with no cap;
-every operation re-reads the whole file; and a plain job's record is written
-`status: "running"` and never marked terminal, so `purge_scopes` can never
-remove it and `list_scopes` hides it. Four options are recorded; pick with the
-architecture gate, not from the list.
-
-**I defended the original design with an empty-store measurement.** Do not
-repeat that: measure against a file with a few thousand records.
-
-### `durable-run-layer` T3 onward
-T3 is the projection and the read verbs — **API first, CLI as a consumer** is
-the maintainer's explicit choice: `app.runs.get(id)` returns the typed record
-and `func builtin why` formats what it returns, computing nothing of its own.
-T3b (held, written up in that feature's `tasks.md`) derives `history` from the
-run log and then renames `state.json` → `fresh.json`. T5–T8 are the lease and
-its fencing token.
-
-### `store-substrate` — held, and correctly so
-`.spec/features/store-substrate/`. Three methods, not eighty-nine, because the
-store classes touch a file zero times already. Sequenced after T3b and the
-lease. Its motivation is a correctness one: `lambda` is a declared surface and a
-gate cannot be resumed there today.
+5. **Mark T2 `[x]`** once the above pass. It is currently `[~]`.
 
 ---
 
-## 5. The workflow changed under you
+## T3–T7, unstarted
 
-`.claude/rules/spec-workflow.md` now opens the **Plan** phase with an
-architecture gate: map with all three retrieval tools, read the codemaps, draw
-BEFORE and AFTER, iterate against `spec.md`, name code smells at three points,
-and write a required `## Surviving smells` section. Constitution *Forbidden
-Patterns* are blockers there, not accepted compromises.
+Read `.spec/features/workflow-graph-semantics/tasks.md`. Its own Wave Audit
+table lists the hazards to check for, and all four have occurred on this branch.
 
-**The smell catalogue is not in this repository.** None of *feature envy*,
-*middle man*, *shotgun surgery* etc. appears in
-`.claude/skills/python-design-patterns/`; they come from a per-user skill. If
-your environment has no refactoring catalogue, say so in `plan.md` and describe
-the problem from the principles the in-repo skill does cover. Do not invent
-catalogue-shaped names.
-
----
-
-## 6. Tooling that looks broken and is not
-
-- **`zg` (zvec-grep)** is not on the default PATH. It is at
-  `/home/viltohmyst/.local/share/mise/installs/node/24.14.1/bin/zg`, or
-  `mise which zg`. Its MCP server is usually refused. Always pass the absolute
-  worktree root — without one it silently adopts the parent checkout's index.
-  A refresh takes ~20 s. The subcommand is `zg query`, not `zg search`.
-- **serena** must be activated by absolute path; every checkout shares the name
-  `functualize`, so a bare name binds to the wrong one.
-- **graphify** `get_neighbors` is MCP-only (`graphify explain "X"` is the CLI).
-  The committed graph is **126 commits stale** — good for relationship shape,
-  unreliable for line numbers.
-- **`omp`** is at `~/.bun/bin/omp`. `--model commandcode-2/deepseek/deepseek-v4-flash`
-  works; the `:max` tier is rate-limited until ~2026-09-13.
+- **T3** `OnFailure` — failure becomes an edge. The regression gate (*without*
+  an `OnFailure`, a raising step still stops the walk and marks the scope
+  `failed`) is to be written **first**.
+- **T4** `timed_out`, `cancelled`, `TERMINAL_SUCCESS` — replay-skip keys on a
+  named set, not the literal `"success"`.
+- **T5** step-level events and `watch`. Sabotage: remove the emit calls; `watch`
+  must **stop updating**, not fall back to polling.
+- **T6** `Notify` on the effects outbox, exactly once across a real `kill -9`.
+- **T7** feature gate.
 
 ---
 
-## 7. Where I would be most careful
+## Things that will bite you
 
-1. **Q-1 is a real fork.** I made `invoke_parallel` items share the run's state,
-   which overturns a numbered requirement (21.5) whose source document no longer
-   exists in the repo. It is a one-line reversal and a test pins the hazard
-   either way. Read Q-1 before building on the current behaviour.
-2. **`WorkflowScope.close()` has no production caller** (Q-2). That is a fourth
-   instance of the shape `contributor/guides/wiring-discipline.md` exists for,
-   and I added to it. Either wire it or delete it — but it is the same question
-   as `scope-record-lifecycle`'s "when is a non-workflow scope finished", so
-   answer them together.
-3. **The run log records `job`, not `job_name`.** I nearly reported a product
-   gap that was my own key mismatch. Check the record shape in
-   `_primitives/run_store.py` before concluding a field is missing.
+**Recorded gates on this branch rot, and several were already false.** Four were
+found stale while executing `store-substrate`:
+
+- `store-substrate`/T4's counted three symbols earlier tasks had renamed or
+  deleted, so it returned `0` *before* the task ran.
+- `store-substrate`/T5's grep was satisfied by four docstrings *explaining* the
+  deletion.
+- `workflow-graph-semantics`/T1's was recorded `0` and actually returned `1`,
+  and that hit was the module docstring saying the check lives elsewhere.
+- `durable-run-layer`/T6's drifted 14→13 from a rename in T3.
+
+**Measure every gate before writing `now:`.** Where a grep can be satisfied by
+prose, replace it with an AST walk — and give the walk a guard that it found
+anything at all, or it becomes a gate that cannot fail.
+
+**Commit before sabotaging.** `git checkout -- <file>` reverts everything
+uncommitted in that file; this branch has paid for that twice.
+
+**`uv sync --all-packages` drops the dev extras** and Textual goes with them,
+which surfaces as ~20 unrelated TUI autocomplete failures. Use
+`uv sync --all-extras` to restore.
+
+**The TUI smartbar tests flake under load** at `-n 8` (`.spec/KNOWN-RED.md` §11).
+Rerun in isolation before believing one; a *different* test failing on the
+second run means load, not a break.
+
+---
+
+## Open items carried forward, not lost
+
+- **A lockless substrate needs a retry loop.** The stores do
+  `with lock(key): read; mutate; write(...)` and ignore what `write` returns,
+  which is correct while `lock` provides exclusion. A backend that cannot lock —
+  DynamoDB, S3 — makes `lock` a no-op and relies on `expect`, and then a `False`
+  return means "re-read and retry" and nothing retries. Not built: SQLite locks,
+  so no shipped implementation exercises it, and a retry path with no failing
+  caller is the gate-that-cannot-fail shape. Recorded under
+  `store-substrate`/T7; it belongs with the first lockless substrate.
+- **No AWS substrate exists.** The user asked about S3/DynamoDB and a
+  localstack-style emulator; the answer is that only SQLite was built, and they
+  chose to finish the roadmap first.
+- **One inert sabotage, deliberately left.** Caching the engine's `ScopeStore`
+  fails nothing, because `durable-run-layer`/T6 keyed fencing per scope. The
+  stale safety claim was deleted from `_scope_store()`'s docstring rather than a
+  test invented for a hazard that no longer exists.
+- **`FunctualizeApp`'s facade budget is 302**, raised from 300 for
+  `EngineHost.substrate`, with the reason in `tests/test_facade_loc_limits.py`.
+  No headroom was added, so the next addition trips it.
