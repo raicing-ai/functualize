@@ -60,6 +60,7 @@ VERB_TO_TOOL = {
     "cancel": "cancel_workflow",
     "purge": "purge_workflows",
     "reclaim": "reclaim_workflow",
+    "watch": "watch_workflow",
 }
 
 #: Parameters that exist on one surface for a reason that is *about the
@@ -80,6 +81,11 @@ SURFACE_ONLY = {
     # `get_gate_draft` is `answer --show`. A tool that changed nothing but was
     # spelled as the mutating verb would be a trap for an agent.
     "--show",
+    # `watch --timeout` is how long a *terminal* holds the line open. A tool
+    # call returns; an agent follows a walk by calling `watch_workflow` again
+    # with the `next` it was given, and `limit` bounds the page instead. The
+    # verb is the same; only the way each surface can wait differs.
+    "--timeout",
 }
 
 #: MCP tools with no CLI verb of their own, each folded into a CLI *option*.

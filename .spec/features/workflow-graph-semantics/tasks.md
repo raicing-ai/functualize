@@ -360,43 +360,103 @@ child was cancelled is a parent someone retries, and every retry re-enters the
 child and re-raises the same cancellation.
 `test_resuming_the_parent_is_refused_as_cancelled` is the consequence.
 
-**Sabotage:** 11 edits, `sabotage-t4.py`. All 11 bite.
+**Sabotage:** 12 edits, `sabotage-t4.py`. All 12 bite.
 
-**Measured:** 10,653 passed on the fast suite; `ruff`, `mypy` (352 files),
+**Measured:** 10,630 passed on the fast suite; `ruff`, `mypy` (352 files),
 `lint-imports` (7 contracts) clean.
 
 ---
 
 ## Wave 4 — the walker speaks, and something listens
 
-### [ ] T5 · Emit step-level events, and `watch`
+### [x] T5 · Emit step-level events, and `watch`
 
 **Files:** `src/functualize/_engine/workflow_walker.py`,
 `src/functualize/_cli/builtins.py`,
 `plugins/functualize-mcp/src/functualize_mcp/_workflow_tools.py`,
-`tests/workflow/test_watch_stream.py`
+`tests/workflow/test_watch_stream.py`,
+plus the transport this needed and the file list did not name *(deviation, below)*:
+`src/functualize/_events/walk_log.py` (new),
+`src/functualize/_primitives/scope_store.py`,
+`src/functualize/_primitives/scope_format.py`,
+`src/functualize/app/_workflow_view.py`,
+`src/functualize/_engine/{workflow_runner,workflow_orchestrator}.py`,
+`src/functualize/_app/boot.py`
 
 Spec AC-10, AC-11, AC-12. pi-workflows parity test **5**.
+
+**Deviation: emitting was the small half.** The task named the walker and the two
+surfaces, which is where the *visible* work is. What it did not name is that
+nothing could carry an event from one to the other. `RunLogSubscriber` **buffers
+a run's events and writes them once, when the run ends** — correct for its job,
+and exactly wrong for watching: a log flushed at the end arrives too late for
+anybody following a walk that is still going, so a watcher would see nothing and
+then everything. Live and buffered are incompatible, so this is a second
+subscriber (`_events/walk_log.py`) writing **through**, onto the **scope** rather
+than the run because a scope is advanced by several runs across a resume.
+`durable-run-layer`'s AC-5 is honoured rather than worked around: `bus.py` gains
+no file I/O, the walker does no writing, persistence stays a subscriber.
 
 **Gate — the walker is silent today**
 ```bash
 rg -c 'emit\(' src/functualize/_engine/workflow_walker.py
 ```
-now: `0` · after: `≥1`
+now: `0` · after: `1`. One call, in `_say`, which is the point: every emit site
+goes through one guard, so "nobody is watching" is answered once.
+
+**Gate — and it is called from more than one place**
+```bash
+rg -c '_say\(' src/functualize/_engine/workflow_walker.py
+```
+now: `0` · after: `6`. The definition and five sites — the walk's start and end,
+a node's start, and a node's end on both the ordinary and the stopped path. The
+first gate alone would be satisfied by a `_say` nothing called.
 
 **Gate — MCP stays verb for verb**
 ```bash
 uv run pytest tests/workflow/test_workflow_surface_parity.py -q
 ```
-now: `passing` · after: `passing`, with `watch_workflow` enumerated
+now: `passing` · after: `passing`, with `watch_workflow` enumerated. That test
+reads both surfaces live, so adding the CLI verb alone fails it; `watch` →
+`watch_workflow` is registered in `VERB_TO_TOOL`, and `--timeout` is recorded in
+`SURFACE_ONLY` with its reason — a terminal can hold a line open and a tool call
+returns, so the tool pages with `limit` and `next` instead.
 
 **Test (AC-12):** `watch` on a scope with **no live lease** reports it parked, not running.
 This is the assertion that could not be written before F5 —
 `app/_workflow_view.py:93-97` says why: *"a resumed walk reports `blocked` for its whole
-duration… live-versus-parked needs a lease."*
+duration… live-versus-parked needs a lease."* `walk_is_live` is that sentence
+answered, and it is **stricter than `_lease_has_lapsed`** on purpose: that helper
+reads an absent lease as "not abandoned", which is right for it; here an absent
+lease means nobody is walking this, and a watcher that waited on one would wait
+for ever. Without it, `watch` on a workflow that finished an hour ago prints its
+history and hangs — a released lease is *expired in place*, so every finished
+scope looks exactly like an abandoned one.
 
-**Sabotage (risk R-e):** remove the emit calls; `watch` must **stop updating**, not fall back
-to polling the store in a loop. **Commit before sabotaging.**
+**AC-11, stated exactly.** *"The walker emits step-level events"* — yes,
+and `watch_scope` yields only what was emitted; nothing compares two readings of
+the record and infers a transition, which is the shape that cannot tell a step
+that **ran** from one that was **replayed**, misses anything that starts and
+finishes inside one read, and on a loop cannot tell the second pass from the
+first. Three properties a diff cannot supply, each with a test.
+
+*"nothing polls the store in a loop to render"* — the renderer does not, and the
+transport does: `watch_scope` asks for "everything after seq N" on an interval.
+There is no blocking read over a document substrate and there must not be one
+over a substrate that is a table or an object store. Recorded as a deviation
+rather than claimed as satisfied: what survives is the half the risk is about,
+and the sabotage is what proves it survived.
+
+**The test that would fail if none of this were connected.** Every unit test
+here hands `bus.emit` to the walker and installs the subscriber by hand, so all
+of them pass with the *engine* wired to nothing — the walker emitting into a bus
+the application never built. `TestTheWiringIsReal` runs a real `@workflow`
+through `app.execute` and then types the command. Verified by cutting
+`emit=self._engine._event_bus.emit` to `None`: 2 failed, 19 passed.
+
+**Sabotage (risk R-e):** 12 edits, `sabotage-t5.py`. Includes the one the risk
+names — `watch` falling back to describing the record when the log is empty —
+and all 12 bite. **Commit before sabotaging.**
 
 ---
 

@@ -658,11 +658,24 @@ now: `0` · after: `4`
 
 Spec AC-11. Derived, not stored (decision **K4**, inherited **C2**).
 
-**Gate**
+**Gate — the recorded one counted a word, and prose moved it**
 ```bash
 rg -c 'abandoned' src/functualize/app/_workflow_view.py
 ```
-now: `0` · after: `4`
+recorded `now: 0 · after: 4`, and is **superseded** by the one below. It counts
+the *word* anywhere in the file. `workflow-graph-semantics`/T5 added
+`walk_is_live`, whose docstring has to say how it differs from this — an absent
+lease is "not abandoned" here and "nobody is walking it" there — and the gate
+went to `5` for a sentence. The same shape as T6's above, and the second time
+prose has moved a gate on this branch.
+
+Replaced with a count of the derivation itself:
+```bash
+rg -c 'return "abandoned"|def _lease_has_lapsed|_lease_has_lapsed\(' src/functualize/app/_workflow_view.py
+```
+now: `0` · after: `3`. Measured at `d4bf896~1` (before T8) and at HEAD. The
+helper, its one call, and the branch it feeds — delete any of them and this goes
+red; explain them and it does not move.
 
 > **Ordering is load-bearing** (schema §6): `abandoned` is tested **before** `running`, or a
 > dead runner's scope reports as live — which is the bug. The existing docstring already warns

@@ -130,6 +130,26 @@ def init_observability(app: Any) -> None:
 
     app._run_log = _install_run_log(app._event_bus, _run_store_for_project)
 
+    # The walk log is a *second* subscriber, not a flag on the first, and
+    # `_events/walk_log.py` opens with why: the run log buffers and flushes when
+    # a run ends, which is exactly too late for anyone watching a walk that is
+    # still going. It writes through instead, onto the scope rather than the
+    # run, because a scope is advanced by several runs across a resume.
+    from functualize._events.walk_log import install_walk_log as _install_walk_log
+
+    def _scope_store_for_project() -> Any:
+        """The walk log, on the **engine's** substrate — `_run_store_for_project`'s
+        reason, and the same store the walk itself writes its steps to, so an
+        event and the step it describes cannot land in different backends."""
+        from functualize._primitives.scope_store import ScopeStore
+
+        return ScopeStore(app.execution_engine.substrate)
+
+    # The return is discarded: unlike the run log, nothing calls back into
+    # this subscriber — it has no buffer to flush and no run to close — and the
+    # bus holds the reference that keeps it alive.
+    _install_walk_log(app._event_bus, _scope_store_for_project)
+
     from functualize._events._catalog_entries import (
         get_framework_event_catalog,
     )

@@ -156,6 +156,7 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
         (
             ("list", "Survey workflow scopes, with filters"),
             ("show", "Show one scope in full — graph, results, gates"),
+            ("watch", "Follow a scope's graph as the walk advances it"),
             ("answer", "Record input for a gate — partial, whole, or corrected"),
             ("resume", "Advance a scope, optionally answering a gate first"),
             ("gate-tool", "Run a tool a waiting gate offers"),
@@ -1075,6 +1076,29 @@ def register_builtin_commands(cli_group: Any) -> None:
             click.echo(f"Error: {exc}", err=True)
             raise SystemExit(ExitCode.USAGE) from exc
 
+    def _render_walk_event(event: dict[str, Any]) -> str:
+        """One walk event as a line.
+
+        Renders the event's own fields and nothing else — no lookup of the
+        scope to fill in what the event did not say. An event that carries no
+        node is a walk-level one, and printing it without a node is the honest
+        rendering; going to find one would be the reconstruction AC-11 rules
+        out, arrived at by the back door.
+        """
+        payload = event.get("payload") or {}
+        name = str(event.get("event", "")).removeprefix("workflow.")
+        node = payload.get("node") or ""
+        outcome = payload.get("outcome") or ""
+        iteration = payload.get("iteration")
+        parts = [f"{int(event.get('seq', 0)):>4}", f"{name:<10}"]
+        if node:
+            parts.append(str(node))
+        if iteration:
+            parts.append(f"(pass {int(iteration) + 1})")
+        if outcome:
+            parts.append(f"-> {outcome}")
+        return "  ".join(parts)
+
     def _render_scope(detail: dict[str, Any]) -> None:
         """One scope as text — the same projection `--format json` emits.
 
@@ -1569,6 +1593,99 @@ def register_builtin_commands(cli_group: Any) -> None:
             click.echo(
                 f"{result['tool']}: {result['status']} -> {result['return_value']!r}"
             )
+
+    @workflow_app.command("watch")
+    @click.argument("workflow_id")
+    @click.option(
+        "--format",
+        "fmt",
+        type=click.Choice(["text", "json"]),
+        default="text",
+        help="Render each event as a line, or as newline-delimited JSON.",
+    )
+    @click.option(
+        "--after",
+        "after",
+        type=int,
+        default=0,
+        metavar="SEQ",
+        help="Resume a watch: only events after this sequence number.",
+    )
+    @click.option(
+        "--timeout",
+        "timeout",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="Give up after this long with no event. Default: wait while held.",
+    )
+    @click.pass_context
+    def workflow_watch(
+        ctx: click.Context,
+        workflow_id: str,
+        fmt: str,
+        after: int,
+        timeout: float | None,
+    ) -> None:
+        """Follow a workflow scope's graph as it advances.
+
+        Renders what the **walker emitted** — never a description reconstructed
+        by re-reading the record, which cannot tell a step that ran from one
+        that was replayed and misses anything that started and finished between
+        two readings.
+
+        Reports the scope **parked** when nobody holds its lease, rather than
+        waiting for a walk that is not running (spec AC-12). That is also how it
+        terminates on a finished scope: the log drains, the lease is not held,
+        and it returns having printed everything that happened.
+
+        `--format json` emits one object per line, so it pipes.
+        """
+        import json
+
+        from functualize.app.utils import derived_state, walk_is_live, watch_scope
+
+        store = _workflow_store(ctx)
+        with _workflow_refusal():
+            scope = store.get_scope(workflow_id)
+        if scope is None:
+            click.echo(f"Error: no workflow scope '{workflow_id}'.", err=True)
+            raise SystemExit(1)
+
+        live = walk_is_live(scope)
+        state = derived_state(scope)
+        if fmt == "json":
+            click.echo(
+                json.dumps(
+                    {
+                        "scope": workflow_id,
+                        "state": state,
+                        "watching": "live" if live else "parked",
+                    }
+                )
+            )
+        else:
+            click.echo(
+                f"{workflow_id}  {state}  "
+                f"({'live' if live else 'parked'} — following events)"
+            )
+
+        seq = after
+        with _workflow_refusal():
+            for event in watch_scope(store, workflow_id, after=after, timeout=timeout):
+                seq = int(event.get("seq", seq))
+                if fmt == "json":
+                    click.echo(json.dumps(event))
+                else:
+                    click.echo(_render_walk_event(event))
+
+        with _workflow_refusal():
+            final = store.get_scope(workflow_id)
+        state = derived_state(final) if final else "gone"
+        if fmt == "json":
+            click.echo(json.dumps({"scope": workflow_id, "state": state, "seq": seq}))
+        else:
+            click.echo(f"{workflow_id}  {state}  (seq {seq})")
 
     @workflow_app.command("cancel")
     @click.argument("workflow_id")

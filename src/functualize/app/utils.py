@@ -129,8 +129,11 @@ from functualize.app._workflow_resume import deposit_gate_input, pending_gates
 from functualize.app._workflow_view import (
     LIVE_STATUSES,
     WORKFLOW_STATES,
+    derived_state,
     describe_scope,
     list_scopes,
+    walk_is_live,
+    watch_scope,
 )
 from functualize.app.config import JobSources
 
@@ -207,7 +210,10 @@ __all__ = [
     "job_history",
     "run_events",
     "run_tree",
+    "derived_state",
     "describe_scope",
+    "walk_is_live",
+    "watch_scope",
     "list_runs",
     "list_scopes",
     "LIVE_STATUSES",

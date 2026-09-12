@@ -44,6 +44,7 @@ from functualize.app.utils import (
     answer_gate,
     call_gate_tool,
     cancel_scope,
+    derived_state,
     describe_run,
     describe_scope,
     gate_draft,
@@ -55,6 +56,7 @@ from functualize.app.utils import (
     resume_scope,
     run_events,
     run_tree,
+    walk_is_live,
 )
 from functualize.app.utils import (
     GateToolPolicy as _GateToolPolicy,
@@ -163,6 +165,7 @@ class WorkflowToolProvider:
     def register_tools(self, mcp: Any) -> None:
         """Register the workflow tools with a FastMCP server instance."""
         mcp.add_tool(self._get_workflow_state)
+        mcp.add_tool(self._watch_workflow)
         mcp.add_tool(self._list_workflows)
         mcp.add_tool(self._answer_gate)
         mcp.add_tool(self._get_gate_draft)
@@ -177,7 +180,7 @@ class WorkflowToolProvider:
         mcp.add_tool(self._list_runs)
         mcp.add_tool(self._get_run)
         mcp.add_tool(self._get_run_events)
-        logger.info("WorkflowToolProvider: registered 12 workflow MCP tools")
+        logger.info("WorkflowToolProvider: registered 13 workflow MCP tools")
 
     # ------------------------------------------------------------------
     # Tools
@@ -196,6 +199,43 @@ class WorkflowToolProvider:
         "Inspect one workflow scope: its graph, which steps have completed, "
         "where the walk stopped, and any gates awaiting input. "
         "Args: workflow_id — the scope identifier."
+    )
+
+    @_refuse_unreadable_scopes
+    async def _watch_workflow(
+        self, workflow_id: str, after: int = 0, limit: int = 100
+    ) -> dict[str, Any]:
+        """A bounded page of what the walk emitted, plus whether it is live.
+
+        **A page, not a stream** — the one place this tool and `workflow watch`
+        differ, and the difference is about the surfaces rather than the verb: a
+        terminal can hold a line open, a tool call returns. An agent follows the
+        same walk by calling again with the `next` it was given, which is what
+        `seq` is for, and `live` tells it whether calling again will ever
+        produce anything.
+        """
+        scope = self.store.get_scope(workflow_id)
+        if scope is None:
+            return _error("workflow_not_found", f"No workflow scope '{workflow_id}'.")
+        events = self.store.events_for(workflow_id, after=after)[: max(1, limit)]
+        return {
+            "workflow_id": workflow_id,
+            "state": derived_state(scope),
+            "live": walk_is_live(scope),
+            "events": events,
+            "next": int(events[-1].get("seq", after)) if events else after,
+        }
+
+    _watch_workflow.__name__ = "watch_workflow"
+    _watch_workflow.__qualname__ = "watch_workflow"
+    _watch_workflow.__doc__ = (
+        "Follow one workflow scope's graph as it advances: a bounded page of "
+        "the events the walker emitted, in sequence order. Args: workflow_id — "
+        "the scope; after — the last seq already seen, 0 for the beginning; "
+        "limit — at most this many events. Call again with the returned `next` "
+        "to continue. `live` is false when nobody holds the scope's lease, "
+        "which means it is parked and no further events will arrive until "
+        "somebody resumes it."
     )
 
     @_refuse_unreadable_scopes

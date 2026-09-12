@@ -199,6 +199,10 @@ class WorkflowOrchestrator:
             # in this file never matched a sentence that described them
             # instead.)
             prompt_gates=(request.prompt_gates if request is not None else False),
+            # What a watcher follows (`workflow-graph-semantics`/T5). The bus
+            # itself decides whether the emit costs anything: with nothing
+            # subscribed it returns before building an event.
+            emit=self._engine._event_bus.emit,
         )
         run = runner.prelude(job_name, declaration)
         if run.should_run_body:

@@ -801,6 +801,11 @@ class TestRegistration:
 
         assert registered == [
             "get_workflow_state",
+            # A bounded page of what the walk emitted, plus whether anybody is
+            # holding it (`workflow-graph-semantics`/T5). Beside `show` rather
+            # than with the run verbs: it reads a *scope's* log, which outlives
+            # the several runs that advance it.
+            "watch_workflow",
             "list_workflows",
             "answer_gate",
             "get_gate_draft",

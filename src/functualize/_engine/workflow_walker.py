@@ -264,6 +264,13 @@ class WorkflowWalker:
             gates always block.
         prompt_gates: When True, gates without an explicit strategy attempt
             prompt-before-block resolution.
+        emit: The event bus's `emit`, or None. **The walk's only observation
+            channel** (`workflow-graph-semantics`/T5): a watcher renders what
+            this emits and nothing else, rather than re-reading the scope and
+            working out what must have changed. None is the ordinary state for
+            a walker built in a test, and the bus itself returns before
+            building an event when nothing is subscribed — so a walk nobody is
+            watching costs one attribute check per node.
     """
 
     def __init__(
@@ -278,6 +285,7 @@ class WorkflowWalker:
         gate_registry: Any = None,
         prompt_gates: bool = False,
         max_workflow_depth: int | None = None,
+        emit: Callable[..., None] | None = None,
     ) -> None:
         self._declaration = declaration
         self._store = store
@@ -290,6 +298,7 @@ class WorkflowWalker:
         self._walk = FrontierWalk(self._graph, store, scope_id)
         self._gate_registry = gate_registry
         self._prompt_gates = prompt_gates
+        self._emit = emit
         #: None means "the default" — resolved in `workflow_validation` rather
         #: than here, so the number lives in one place.
         self._max_workflow_depth = max_workflow_depth
@@ -317,7 +326,11 @@ class WorkflowWalker:
         try:
             self._check_the_nesting_is_bounded()
             self._check_the_graph_has_not_changed()
-            return self._run_walk()
+            report = self._run_walk()
+            self._say(
+                "walk.end", node=report.failed_node or "", outcome=report.outcome.value
+            )
+            return report
         except StaleGenerationError:
             # Someone took the scope while this walk was running — `cancel`
             # does exactly that (AC-10). The walk stops where it is; it does
@@ -331,6 +344,10 @@ class WorkflowWalker:
             logger.info(
                 "workflow scope %s was taken while walking; stopping", self._scope_id
             )
+            # No `walk.end` here, deliberately. The scope belongs to whoever
+            # took it; appending to its log would be a write from a holder that
+            # has been fenced, and the event would claim this walk decided
+            # something about a scope it no longer owns.
             return WalkReport(WalkOutcome.SUPERSEDED, self._scope_id)
         finally:
             self._walk.release()
@@ -390,6 +407,7 @@ class WorkflowWalker:
     def _run_walk(self) -> WalkReport:
         """The walk itself. See `run` for the lease that wraps it."""
         self._walk.start(self._workflow_name)
+        self._say("walk.start", node=self._declaration.entry or "")
 
         entry = self._declaration.entry
         if entry is None:  # an empty graph is already at its end
@@ -459,9 +477,27 @@ class WorkflowWalker:
                     name, f"no handler for node kind {type(node).__name__!r}"
                 )
 
+            self._say("step.start", node=name, iteration=iteration)
             run = handler(self, node, name, ledger)
             if isinstance(run, WalkReport):
+                # Blocked or failed. The *step* is reported here, beside every
+                # other step outcome, rather than at each of the places that
+                # can produce one — a watcher that had to learn a second shape
+                # for "this node stopped" would render the common case and miss
+                # the two that matter.
+                self._say(
+                    "step.end",
+                    node=name,
+                    iteration=iteration,
+                    outcome=run.outcome.value,
+                )
                 return run
+            self._say(
+                "step.end",
+                node=name,
+                iteration=iteration,
+                outcome="replayed" if run.replayed else "executed",
+            )
             if run.replayed:
                 ledger.replayed.append(name)
             else:
@@ -867,6 +903,33 @@ class WorkflowWalker:
                 for spec in gate.tool_specs()
             ],
             blocked_at=_now(),
+        )
+
+    def _say(self, action: str, **payload: Any) -> None:
+        """Emit one walk event, or do nothing when nothing is wired.
+
+        **The walk's only observation channel** (spec AC-11). Everything a
+        watcher renders arrives this way: nothing re-reads the scope record and
+        works out what must have changed, because a difference between two
+        snapshots is a guess about what happened between them — it cannot tell
+        a node that ran from one that was replayed, and it misses anything that
+        started and finished inside one read.
+
+        Two cheap exits, in order. `self._emit is None` is the ordinary state
+        of a walker built in a test. Past it, the bus returns before it builds
+        an event object when nothing is subscribed, which is what makes a walk
+        nobody is watching cost an attribute check per node.
+
+        Named `_say` rather than `_emit` so the method and the attribute it
+        guards are not one underscore apart.
+        """
+        if self._emit is None:
+            return
+        self._emit(
+            f"workflow.{action}",
+            resource=self._workflow_name or self._scope_id,
+            scope_id=self._scope_id,
+            **payload,
         )
 
     def _cancelled(self, node: str, stopped: ScopeCancelledError) -> WalkReport:

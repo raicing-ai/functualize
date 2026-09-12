@@ -44,6 +44,7 @@ from functualize._primitives.lease import (
     write_lease,
 )
 from functualize._primitives.scope_format import (
+    EVENTS_PER_SCOPE_LIMIT,
     SCOPES_KEY,
     SCOPES_VERSION,
     empty_scopes,
@@ -99,6 +100,14 @@ def _blank_scope() -> dict[str, Any]:
         #: Namespaced under the scope, so two runs of one workflow share
         #: nothing and a resumed run finds what its earlier half wrote.
         "state": {},
+        #: What the walk emitted, in order, for a watcher to follow.
+        #:
+        #: On the scope rather than in the run log because the two answer
+        #: different questions and have different lifetimes: a run log is
+        #: flushed when its run ends, which is exactly too late for anyone
+        #: watching a walk that is still going, and a scope outlives the
+        #: several runs that advance it across a resume.
+        "events": [],
     }
 
 
@@ -370,6 +379,70 @@ class ScopeStore:
             scope["steps"][step_key] = record
 
         self._mutate(_apply, scope_id=scope_id)
+
+    # ------------------------------------------------------------------
+    # Scopes: the walk's event log (`workflow-graph-semantics`/T5)
+    # ------------------------------------------------------------------
+
+    def append_event(self, scope_id: str, event: dict[str, Any]) -> int:
+        """Append one event to a scope's log, returning its sequence number.
+
+        ``seq`` is assigned here and is monotonic per scope, so a watcher
+        replays in order **without comparing timestamps** — which two processes
+        on two clocks cannot do reliably. It is also what makes following the
+        log a *resumable* read: a watcher asks for everything after the last
+        number it saw, rather than re-reading and diffing.
+
+        The mirror of `RunStore.append_event`, and deliberately so, but written
+        **through** rather than buffered. The run log buffers because a job body
+        can emit thousands of events and a lock per emit would land on the hot
+        path; a walk emits a handful per node and is already taking one lock per
+        node to record the step. Buffering here would also defeat the point: a
+        log flushed when the walk ends cannot be watched while it runs.
+        """
+        seq_box: list[int] = [0]
+
+        def _apply(envelope: dict[str, Any]) -> None:
+            scope = envelope["scopes"].setdefault(scope_id, _blank_scope())
+            entries = scope.get("events")
+            if not isinstance(entries, list):
+                entries = []
+                scope["events"] = entries
+            seq = (
+                max(
+                    (e.get("seq", 0) for e in entries if isinstance(e, dict)), default=0
+                )
+                + 1
+            )
+            seq_box[0] = seq
+            entries.append({**event, "seq": seq})
+            if len(entries) > EVENTS_PER_SCOPE_LIMIT:
+                del entries[: len(entries) - EVENTS_PER_SCOPE_LIMIT]
+
+        self._mutate(_apply, scope_id=scope_id)
+        return seq_box[0]
+
+    def events_for(self, scope_id: str, *, after: int = 0) -> list[dict[str, Any]]:
+        """A scope's events in sequence order, those after ``after`` only.
+
+        ``after`` is the last sequence number the caller has already seen, so
+        the natural loop is *ask, render, remember* — never *read everything and
+        work out what is new*. A watcher that re-derived the difference would be
+        reconstructing transitions rather than following them, which is the
+        shape spec AC-11 rules out.
+        """
+        scope = self.get_scope(scope_id)
+        entries = scope.get("events") if scope else None
+        if not isinstance(entries, list):
+            return []
+        return sorted(
+            (
+                e
+                for e in entries
+                if isinstance(e, dict) and int(e.get("seq", 0)) > after
+            ),
+            key=lambda e: int(e.get("seq", 0)),
+        )
 
     def get_step(self, scope_id: str, step_key: str) -> dict[str, Any] | None:
         """Return a recorded step result for this scope, or None."""

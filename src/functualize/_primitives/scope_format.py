@@ -143,6 +143,15 @@ TERMINAL_SCOPE_STATUSES = frozenset({"completed", "failed", "cancelled"})
 #: hold the same horizon.
 SCOPES_LIMIT = 500
 
+#: Ring cap on the events one scope keeps.
+#:
+#: A scope's event log is what `func builtin workflow watch` follows, and a walk
+#: emits a handful per node — so this bounds a *long* workflow, not a chatty
+#: one. Matched to `EVENTS_PER_RUN_LIMIT` for the same reason `SCOPES_LIMIT`
+#: matches `RUNS_LIMIT`: two logs with different horizons disagree about what
+#: happened, and the reader has no way to know which one was trimmed.
+EVENTS_PER_SCOPE_LIMIT = 500
+
 
 def _trim(envelope: dict[str, Any]) -> None:
     """Evict the oldest **finished** scopes until the file fits the cap.

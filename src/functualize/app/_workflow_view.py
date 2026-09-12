@@ -39,6 +39,8 @@ __all__ = [
     "derived_state",
     "list_scopes",
     "tool_summaries",
+    "walk_is_live",
+    "watch_scope",
 ]
 
 #: Scope statuses that can still accept input or make progress.
@@ -98,6 +100,97 @@ def _lease_has_lapsed(scope: dict[str, Any]) -> bool:
     if lease is None:
         return False
     return is_expired(lease, datetime.now(UTC))
+
+
+def walk_is_live(scope: dict[str, Any] | None) -> bool:
+    """Is a runner holding this scope **right now**?
+
+    The live-versus-parked fact `derived_state`'s own docstring says it cannot
+    supply: *"a resumed walk reports `blocked` for its whole duration…
+    live-versus-parked needs a lease."* Spec AC-12 is that sentence answered.
+
+    Stricter than `not _lease_has_lapsed`, and the difference is the point. That
+    helper treats an **absent** lease as "not abandoned", which is right for it:
+    a scope written by a plain job that never claimed must not be called dead.
+    Here the question is the other one — *is someone walking this?* — and the
+    answer for a scope nobody holds is no, whether the lease expired or was
+    never taken. A watcher that waited on an absent lease would wait for ever.
+    """
+    from datetime import UTC, datetime
+
+    from functualize._primitives.lease import is_expired, read_lease
+
+    if not scope:
+        return False
+    lease = read_lease(scope)
+    return lease is not None and not is_expired(lease, datetime.now(UTC))
+
+
+def watch_scope(
+    store: Any,
+    scope_id: str,
+    *,
+    after: int = 0,
+    poll_seconds: float = 0.25,
+    timeout: float | None = None,
+    sleep: Any = None,
+    clock: Any = None,
+) -> Iterator[dict[str, Any]]:
+    """Yield a scope's walk events as the walk emits them, then stop.
+
+    **What a watcher renders comes from here and nowhere else** (spec AC-11).
+    Every record yielded is one the walker emitted; nothing in this function
+    compares two readings of the scope and infers a transition between them.
+    That distinction is the whole of R-e, and it is what the sabotage tests:
+    with the walker's emit calls removed this yields nothing at all, rather than
+    quietly falling back to describing the record.
+
+    It does *ask* the store for "everything after `seq`", repeatedly, and that
+    is a poll — there is no blocking read over a document substrate, and there
+    must not be one over a substrate that is a table or an object store. The
+    property that matters survives it: the transport asks by sequence number,
+    so it never has to work out what is new, and the renderer is fed events
+    rather than differences.
+
+    Stops, in this order:
+
+    - the log is drained **and** nobody holds the lease — `walk_is_live` is
+      false, so nothing more will arrive and waiting is waiting for ever;
+    - the scope has gone (purged under the watcher);
+    - ``timeout`` seconds have passed since the last event.
+
+    Args:
+        after: The last sequence number the caller has already seen. Resuming a
+            watch is passing this back, which is what `seq` is for.
+        poll_seconds: How long to wait before asking again, when the log is
+            drained and the walk is still live.
+        timeout: Give up after this long without a new event. None waits as
+            long as the lease is held.
+        sleep: Injected for tests, which must not spend real seconds proving
+            that a loop terminates. Defaults to `time.sleep`.
+        clock: Monotonic seconds, injected for the same reason.
+    """
+    import time
+
+    sleep = sleep or time.sleep
+    clock = clock or time.monotonic
+
+    seen = after
+    quiet_since = clock()
+    while True:
+        events = store.events_for(scope_id, after=seen)
+        if events:
+            for event in events:
+                seen = max(seen, int(event.get("seq", seen)))
+                yield event
+            quiet_since = clock()
+            continue
+        scope = store.get_scope(scope_id)
+        if not walk_is_live(scope):
+            return
+        if timeout is not None and clock() - quiet_since >= timeout:
+            return
+        sleep(poll_seconds)
 
 
 def derived_state(scope: dict[str, Any]) -> str:

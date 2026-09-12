@@ -117,9 +117,15 @@ class WorkflowRunner:
         prompt_gates: bool = False,
         agent_step_registry: AgentStepRegistry | None = None,
         request: RunRequest | None = None,
+        emit: Any = None,
     ) -> None:
         self._store = store
         self._run_step = run_step
+        #: The event bus's `emit`, handed to the walker. Passed through rather
+        #: than reached for: the runner is constructed by the orchestrator,
+        #: which has the engine; the walker has neither and must not acquire
+        #: one to be observable.
+        self._emit = emit
         self._scope_id = scope_id or new_scope_id()
         self._gate_registry = gate_registry
         self._prompt_gates = prompt_gates
@@ -182,6 +188,7 @@ class WorkflowRunner:
             workflow_name=job_name,
             gate_registry=self._gate_registry,
             prompt_gates=self._prompt_gates,
+            emit=self._emit,
         ).run()
 
         if report.outcome is not WalkOutcome.COMPLETED:
