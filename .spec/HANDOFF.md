@@ -1,10 +1,9 @@
 # Handoff — `feat/run-model`, 2026-09-12
 
-Stopped at the user's request part-way through `workflow-graph-semantics`/T2.
-**Read this before touching anything**, then delete it when T2 closes.
+`workflow-graph-semantics`/T2 is **closed**. What remains is T3–T7; the
+hazards section below is the durable half of this file.
 
 Worktree: `.worktrees/pi-parity`. Branch: `feat/run-model`. Tree is clean.
-Head: `2f44f66`.
 
 ---
 
@@ -16,69 +15,47 @@ Head: `2f44f66`.
 | `durable-run-layer` | done, 14/14 |
 | `scope-record-lifecycle` | done, 6/6 |
 | **`store-substrate`** | **done, 9/9** — fully verified, see below |
-| **`workflow-graph-semantics`** | **T1 done. T2 code landed, verification incomplete. T3–T7 not started.** |
+| **`workflow-graph-semantics`** | **T1, T2 done and verified. T3–T7 not started.** |
 
 No PR yet; the plan is one PR after the whole roadmap executes.
 
-### Last full verification (at `949789a`, before T1)
+### Last full verification (at `5d4799b`, T2 closed)
 
-- `uv run pytest tests/ --run-slow -q -n 8` → **11,971 passed, 155 skipped**
+- `uv run pytest tests/ --run-slow -q -n 8` → **12,009 passed, 155 skipped**
+- `FUNCTUALIZE_TEST_SUBSTRATE=sqlite` → **10,500 passed, 0 failed**
 - All 12 plugin suites pass, run one package at a time
-- `FUNCTUALIZE_TEST_SUBSTRATE=sqlite uv run pytest tests/ -q -n 8` → **10,462
-  passed, 0 failed** (the alternate-substrate run, `store-substrate`/T8)
-- `ruff`, `mypy` (352 files), `lint-imports` (7 contracts) all clean
+- `ruff`, `ruff format --check`, `mypy` (352 files), `lint-imports` (7
+  contracts) clean
+- T2's seven sabotages all bite
+  (`.spec/features/workflow-graph-semantics/sabotage-t2.py`)
 
-At head (`2f44f66`) the fast suite was **10,568 passed** and `mypy` /
-`lint-imports` were clean, but `--run-slow` has **not** been run since T1 landed.
+A package-build test failed twice on one run with `Request failed after 3
+retries` and passed on a rerun — network, not code. Rerun before believing one.
 
 ---
 
-## T2 — exactly what is left
+## What T2 turned up, since it changes how to approach T3–T7
 
-### Done
+Three of seven sabotages were **inert on the first sweep**, and none was a
+formality:
 
-`Loop`, `_engine/loop_state.py`, the `(node, iteration)` keying, the validator
-change, and `tests/workflow/test_loops.py` (31 tests, all passing). The detail
-is in `.spec/features/workflow-graph-semantics/tasks.md` under T2, including the
-cursor-versus-queued-work bug the combined test caught and the one-counter
-simplification that is recorded rather than fixed.
+- **Nothing tested the one line `Loop` rests on.** The loop tests drive the
+  walker with a `WorkflowDeclaration`, which bypasses validation entirely, and
+  the cycle tests use plain `Edge`s — so making `Loop` count as a cycle edge
+  again broke nothing. **T3–T7 will have the same blind spot**: a test that
+  builds a declaration directly never exercises `_validate_workflow_graph`.
+- **An optimization was mistaken for correctness.** `_resume_iteration` could
+  return `0` with identical executions, because replay already skips finished
+  work. The AC-4 test was asserting something replay guaranteed on its own.
+  Probe before assuming which half of a pair does the work.
+- **A sabotage can be inert two different ways in a row.** The cursor one
+  needed two sites edited at once; the sweep script supports that now.
 
-### Not done — do these first
-
-1. **Finish the sabotage sweep.** The script is at
-   `.spec/features/workflow-graph-semantics/sabotage-t2.py` — copied out of
-   session scratch so it survives. Run it from the worktree root. It asserts
-   each sabotage **applied** before reading the result, which matters: a
-   sabotage that silently fails to apply reads as "the tests do not catch
-   this", and that happened once on this branch.
-
-   One of seven ran before the stop:
-
-   | sabotage | result |
-   |---|---|
-   | `visited` keyed by node alone | **6 failed** ✓ |
-   | `visited` keyed by iteration alone | not run |
-   | the iteration is a cursor, not queued work | not run |
-   | the record key ignores the iteration | not run |
-   | resume always restarts at iteration 0 | not run |
-   | the bound is not enforced | not run |
-   | `Loop` edges count as cycle edges again | not run |
-
-   Any that fails **0 tests** is a finding, not a formality — three inert
-   sabotages were found on this branch and each was a real gap or a stale claim.
-
-2. **`--run-slow` and the plugin suites**, which have not run since T1.
-
-3. **The alternate-substrate run** (`FUNCTUALIZE_TEST_SUBSTRATE=sqlite`). T1 and
-   T2 touch the walker and the step-record key, which is exactly the surface
-   that run exercises.
-
-4. **Record T2's gate value** in `tasks.md` — it is written (`now: 7`) but
-   re-measure rather than trusting it; gate numbers written from memory have
-   been wrong about five times on this branch and
-   `tests/spec/test_task_gates_still_hold.py` caught every one.
-
-5. **Mark T2 `[x]`** once the above pass. It is currently `[~]`.
+Also pinned rather than fixed: **a gate inside a loop is answered once and
+reused for every later pass**, because gate payloads are keyed by name and not
+by name and iteration. `test_a_gate_inside_a_loop_is_answered_once_for_every_
+pass` is what will fail when that changes, and it should be *changed* then, not
+deleted.
 
 ---
 
