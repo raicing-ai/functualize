@@ -277,31 +277,93 @@ is observable.
 
 ## Wave 3 — two more outcomes, and a set instead of a literal
 
-### [ ] T4 · `timed_out`, `cancelled`, and `TERMINAL_SUCCESS`
+### [x] T4 · `timed_out`, `cancelled`, and `TERMINAL_SUCCESS`
 
 **Files:** `src/functualize/_engine/frontier.py`,
-`src/functualize/_engine/workflow_walker.py`
+`src/functualize/_engine/workflow_walker.py`,
+`src/functualize/_engine/dependency_runner.py` *(deviation, below)*,
+`tests/workflow/test_typed_step_outcomes.py` (new)
 
 Spec AC-8, AC-9. Decision **L3** — copy pi-workflows' vocabulary rather than invent a third.
 
-**Gate — the literals today**
+**Deviation from the file list, recorded rather than done quietly.**
+`dependency_runner._scope_step_succeeded` is a *fourth* replay-skip, and its own
+docstring is the argument for including it: *"the same ones the walker replays
+from — so 'already ran here' has one answer rather than one per consumer."* Left
+comparing the literal, it would be the second consumer with its own spelling,
+which is exactly the drift AC-9 names. It is inside the gate's scope
+(`src/functualize/_engine/`) even though the task's `**Files:**` line predated
+knowing it existed.
+
+**Gate — the recorded one measured the wrong direction**
 ```bash
 rg -c '"success"|"failed"' src/functualize/_engine/frontier.py
 ```
-now: `2` · after: outcomes drawn from a named set, not compared as literals
+recorded `now: 2`, and **superseded**. It counts the literals anywhere in the
+file, and after this task they legitimately go *up*, not down: the vocabulary
+has to be spelled somewhere, and that somewhere is `StepStatus`. A gate whose
+correct direction is unknowable measures nothing. (Re-measured before replacing:
+it returned `2`, as recorded.)
 
-**Gate — replay-skip stops matching a string**
+Replaced with a count of the thing that must disappear — the comparison, not the
+string:
 ```bash
-rg -c 'TERMINAL_SUCCESS' src/functualize/_engine/
+rg -c '== "success"' src/functualize/_engine/
 ```
-now: `0` · after: `≥2` *(the definition and the replay-skip)*
+now: `4` · after: `0`. Four sites: `frontier.should_replay_skip`, both walker
+service handlers, and `dependency_runner._scope_step_succeeded`.
+
+**Gate — replay-skip asks the set**
+```bash
+rg -c 'in TERMINAL_SUCCESS' src/functualize/_engine/
+```
+now: `0` · after: `4`. The membership test, not the name: a bare `TERMINAL_SUCCESS`
+count is satisfied by the sentence explaining it, which is how
+`durable-run-layer`/T6's gate drifted twice (fixed in the same commit — see that
+task).
 
 > A future outcome must not silently become replayable by matching a string comparison nobody
 > revisited. That is the whole reason for the named set.
 
+**AC-9 cannot be proved by behaviour, and the tests say so.** With one member,
+`status in TERMINAL_SUCCESS` and `status == "success"` agree on every input that
+exists — the difference appears the day a second success-like outcome is added,
+which is the day nobody re-reads the comparison. So the set membership is pinned
+**structurally** (`TestNoConsumerSpellsTheOutcomeItself`, an AST walk over the
+three consumer modules with a guard that it found real code), and the behaviour
+of each outcome is pinned beside it. Claiming a behavioural test for this would
+have been the gate-that-cannot-fail shape wearing a test's clothes.
+
 **Test (risk R-d):** `timed_out` is produced **only** by F5's lease expiry. F5's AC-13 grep test
 already forbids `SIGALRM`, daemon-thread kills and `asyncio.wait_for` by name; this feature must
-not reintroduce them.
+not reintroduce them. Honoured, and it decided the design: nothing can preempt a
+running step, so the runner that overran is by definition not the one that can
+write the fact down. `FrontierWalk.claim` records it — whoever **takes the scope
+over** notes the step that went silent.
+
+**What "abandoned" is, and the regression that decides it.** Two facts, not one:
+the scope still says `running`, **and** the lease has expired. `lease.release`
+expires a lease *in place* rather than deleting it (deleting would reset the
+generation and hand out the fence it exists to raise), so "the lease is expired"
+is true of every scope that ever finished. A check reading only the lease marks
+the gate node of **every resumed workflow** as timed out.
+`test_a_clean_release_is_not_a_timeout` is that test, and sabotage 6 is the edit
+it catches. The pair is the same one `_workflow_view.derived_state` already
+joins, read rather than reinvented.
+
+**`cancelled` is not routable, and the `except` order is what enforces it.**
+`ScopeCancelledError` is caught **before** the broad arm, so `OnFailure` (T3)
+never sees it: a declared route recovers from a failure, and a human stopping a
+workflow is not a failure to recover from. The step outcome and the scope status
+move together through `_SCOPE_STATUS_FOR` — a parent left `failed` because its
+child was cancelled is a parent someone retries, and every retry re-enters the
+child and re-raises the same cancellation.
+`test_resuming_the_parent_is_refused_as_cancelled` is the consequence.
+
+**Sabotage:** 11 edits, `sabotage-t4.py`. All 11 bite.
+
+**Measured:** 10,653 passed on the fast suite; `ruff`, `mypy` (352 files),
+`lint-imports` (7 contracts) clean.
 
 ---
 

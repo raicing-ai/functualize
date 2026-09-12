@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from functualize._engine.frontier import TERMINAL_SUCCESS
 from functualize._types import JobResult, RunStatus
 from functualize._types.run_request import nested_request
 
@@ -74,6 +75,9 @@ class DependencyRunner:
 
         Reads the walk's step records — the same ones the walker replays from
         — so "already ran here" has one answer rather than one per consumer.
+        That is also why it asks :data:`TERMINAL_SUCCESS` rather than comparing
+        the string: one answer means one *definition*, and a second consumer
+        spelling the outcome itself is how the two drift apart.
         """
         store = self._engine._scope_store()
         if store is None:
@@ -81,7 +85,7 @@ class DependencyRunner:
         scope = store.get_scope(scope_id)
         for key, record in ((scope or {}).get("steps") or {}).items():
             if key.split("::", 1)[0] == node and isinstance(record, dict):
-                return bool(record.get("status") == "success")
+                return bool(record.get("status") in TERMINAL_SUCCESS)
         return False
 
     def run_for(

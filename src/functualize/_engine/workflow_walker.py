@@ -36,9 +36,17 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from functualize._engine.frontier import END as _FRONTIER_END
-from functualize._engine.frontier import FrontierWalk, GraphModel, WalkState, step_key
+from functualize._engine.frontier import (
+    TERMINAL_SUCCESS,
+    FrontierWalk,
+    GraphModel,
+    StepStatus,
+    WalkState,
+    step_key,
+)
 from functualize._engine.loop_state import current_iteration, iteration_step_key
 from functualize._primitives.graph import descendants
+from functualize._types.errors import ScopeCancelledError
 from functualize._types.workflow import (
     END,
     AgentStep,
@@ -515,7 +523,11 @@ class WorkflowWalker:
         self._store.record_step(
             self._scope_id,
             self._key(name),
-            {"status": "failed", "return_value": None, "completed_at": _now()},
+            {
+                "status": StepStatus.FAILED,
+                "return_value": None,
+                "completed_at": _now(),
+            },
         )
 
     def _failure_route(self, name: str, exc: BaseException) -> str | None:
@@ -704,7 +716,7 @@ class WorkflowWalker:
     ) -> _NodeRun | WalkReport:
         """A step: replay its recorded value, or run the job it names."""
         record = self._store.get_step(self._scope_id, self._key(name))
-        if record is not None and record.get("status") == "success":
+        if record is not None and record.get("status") in TERMINAL_SUCCESS:
             return _NodeRun(record.get("return_value"), replayed=True)
         try:
             outcome = self._run_step(name)
@@ -723,6 +735,12 @@ class WorkflowWalker:
                 blocked_on=blocked.blocked_on,
                 results=ledger.results,
             )
+        except ScopeCancelledError as stopped:
+            # **Before** the broad arm, which is what keeps a cancellation out
+            # of `OnFailure`'s reach. A declared route recovers from a failure;
+            # a human stopping a workflow is not a failure to recover from, and
+            # routing past it would let a graph walk on through the stop.
+            return self._cancelled(name, stopped)
         except Exception as exc:  # a step failure stops the walk
             routed = self._failure_route(name, exc)
             if routed is None:
@@ -745,7 +763,7 @@ class WorkflowWalker:
         executor cannot reach here, and nothing is resolved twice.
         """
         record = self._store.get_step(self._scope_id, self._key(name))
-        if record is not None and record.get("status") == "success":
+        if record is not None and record.get("status") in TERMINAL_SUCCESS:
             return _NodeRun(record.get("return_value"), replayed=True)
         if self._run_agent_step is None:
             # A walker built by hand with no executor door. Refused rather than
@@ -758,6 +776,8 @@ class WorkflowWalker:
             )
         try:
             result = self._run_agent_step(node)
+        except ScopeCancelledError as stopped:
+            return self._cancelled(name, stopped)
         except Exception as exc:  # an executor failure stops the walk
             return self._fail(name, f"{type(exc).__name__}: {exc}")
         return _NodeRun(result.value)
@@ -849,16 +869,47 @@ class WorkflowWalker:
             blocked_at=_now(),
         )
 
-    def _fail(self, node: str, error: str) -> WalkReport:
-        """Record a failed node and stop the walk."""
+    def _cancelled(self, node: str, stopped: ScopeCancelledError) -> WalkReport:
+        """Stop because a human did, and say so on the record.
+
+        A step reaches this when the workflow it names was cancelled —
+        `WorkflowRunner.prelude` refuses a cancelled scope, and the orchestrator
+        re-raises the step's own exception rather than a wrapper, so the
+        refusal arrives here intact.
+
+        Recorded as a failure it was indistinguishable from a bug in the job,
+        and `ScopeCancelledError`'s own docstring says there is no `--force`
+        and no un-cancel — so the retry it invited could never work.
+        """
+        return self._fail(node, str(stopped), status=StepStatus.CANCELLED)
+
+    def _fail(
+        self, node: str, error: str, *, status: str = StepStatus.FAILED
+    ) -> WalkReport:
+        """Record a stopped node and stop the walk.
+
+        The step outcome and the scope status move together, through
+        :data:`_SCOPE_STATUS_FOR`. They have to: a scope left `failed` because
+        its child was cancelled is a scope someone will retry, and every retry
+        re-enters the child and re-raises the same cancellation. An outcome
+        with no scope meaning — `timed_out`, which is recorded by whoever takes
+        a scope over and is not a verdict on the workflow — cannot reach here,
+        and the mapping raises rather than inventing one.
+
+        The `WalkOutcome` stays `FAILED` either way, and deliberately: the walk
+        did not reach its end, which is what that enum reports, and every
+        surface turns a non-completed walk into a non-zero run. *Why* it
+        stopped is on the step and on the scope, which is where both a human
+        and a resume look.
+        """
         with self._store.batch():
             self._store.record_step(
                 self._scope_id,
                 self._key(node),
-                {"status": "failed", "return_value": None, "completed_at": _now()},
+                {"status": status, "return_value": None, "completed_at": _now()},
             )
             self._store.set_position(self._scope_id, node)
-            self._store.set_scope_status(self._scope_id, "failed")
+            self._store.set_scope_status(self._scope_id, _SCOPE_STATUS_FOR[status])
         return WalkReport(
             WalkOutcome.FAILED,
             self._scope_id,
@@ -947,6 +998,19 @@ def _gate_strategy_list(gate: Gate, prompt_gates: bool) -> list[str] | None:
 #: A NUL prefix so it cannot collide with a node name: node names are
 #: identifier-ish, and nothing that reaches a graph can contain one.
 _ROUTED_TO_END = "\x00end"
+
+#: The scope status a *stopped* step implies.
+#:
+#: A table rather than reusing the step outcome directly, even though these two
+#: happen to be spelled the same in both vocabularies. `StepStatus` and the
+#: scope's statuses are separate on purpose (`frontier.StepStatus`), and an
+#: outcome with no scope meaning must raise here rather than quietly becoming
+#: one — `timed_out` is recorded by whoever takes a scope over, which is not a
+#: verdict on the workflow and has no business stamping it.
+_SCOPE_STATUS_FOR: dict[str, str] = {
+    StepStatus.FAILED: "failed",
+    StepStatus.CANCELLED: "cancelled",
+}
 
 
 def _failure_branch(name: str) -> str:

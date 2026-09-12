@@ -33,7 +33,14 @@ if TYPE_CHECKING:
 
     from functualize._primitives.scope_store import ScopeStore
 
-__all__ = ["END", "FrontierWalk", "GraphModel", "WalkState"]
+__all__ = [
+    "END",
+    "TERMINAL_SUCCESS",
+    "FrontierWalk",
+    "GraphModel",
+    "StepStatus",
+    "WalkState",
+]
 
 # Terminal sentinel: an edge to END finishes the walk rather than naming a node.
 END = "__end__"
@@ -89,6 +96,43 @@ class WalkState:
     COMPLETED = "completed"
 
 
+class StepStatus:
+    """Outcome markers for one **step record**.
+
+    A third vocabulary, deliberately: `WalkState` says what a *scope* is doing
+    and `RunStatus` says how a *job run* ended. A step is neither. Collapsing
+    any two of them would make the widest one win, and the three answer
+    different questions to different readers.
+
+    `timed_out` and `cancelled` are copied from pi-workflows rather than
+    invented (decision **L3**). Both already happened before this existed and
+    both were written down as `failed`, which is how someone ends up debugging
+    a job that did nothing wrong.
+    """
+
+    SUCCESS = "success"
+    FAILED = "failed"
+    #: The scope went claimable while this step still held it. There is no
+    #: preemption anywhere in this codebase — `_engine/exec_policy` refused
+    #: every mechanism that could deliver one — so a step's only budget is its
+    #: lease, and the only party that can record the expiry is whoever takes
+    #: the scope over. See `FrontierWalk._note_the_step_that_went_silent`.
+    TIMED_OUT = "timed_out"
+    #: A human stopped it. Terminal by design and **not** a failure: recorded
+    #: as one, it invites exactly the retry that can never succeed.
+    CANCELLED = "cancelled"
+
+
+#: The outcomes a replay may skip over.
+#:
+#: A *set*, not the literal `"success"`, so that adding an outcome is a
+#: decision taken here rather than one that falls out of a string comparison
+#: nobody re-read (spec AC-9). With one member the two spellings agree on every
+#: input that exists today, which is the point: the difference appears on the
+#: day it matters, and by then the comparison is already right.
+TERMINAL_SUCCESS: frozenset[str] = frozenset({StepStatus.SUCCESS})
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -131,6 +175,11 @@ class FrontierWalk:
         from functualize._primitives.run_store import runner_identity
 
         self._store.ensure_scope(self._scope_id)
+        # Read before claiming, write after. The question is about the state
+        # the *previous* holder left, and claiming overwrites the lease that
+        # answers it; the write waits until this walk holds the generation
+        # that fences it.
+        silent = self._step_that_went_silent()
         lease = self._store.claim_scope(
             self._scope_id,
             owner=owner or runner_identity(),
@@ -139,7 +188,74 @@ class FrontierWalk:
         )
         self._generation = int(lease.generation)
         self._store.hold(self._scope_id, lease.generation)
+        if silent is not None:
+            self._record_timed_out(silent)
         return int(lease.generation)
+
+    def _step_that_went_silent(self) -> str | None:
+        """The node this scope was on when its holder stopped reporting.
+
+        None unless the scope is **abandoned**, which is two facts and not one:
+        the status still says `running`, and the lease has expired. Both are
+        needed. `lease.release` expires a lease *in place* rather than deleting
+        it — deleting would reset the generation and hand out the fence it
+        exists to raise — so "the lease is expired" is true of every scope that
+        ever finished, and a check reading only that would call the gate node
+        of every resumed workflow timed out. A walk that stopped cleanly
+        stamped `blocked`, `completed` or `failed` first; only one that stopped
+        without stamping anything leaves `running` behind.
+
+        These are the same two facts `_workflow_view.derived_state` already
+        joins to report `abandoned`, read here rather than a third rule
+        invented beside them.
+
+        A step that already reported is left alone: `failed` is that step's own
+        account of itself, and replacing it with `timed_out` would swap the
+        reason for the observation that it stopped — which is true of every
+        failure ever recorded.
+        """
+        from datetime import UTC, datetime
+
+        from functualize._primitives.lease import is_expired, read_lease
+
+        scope = self._store.get_scope(self._scope_id)
+        if not scope or scope.get("status") != WalkState.RUNNING:
+            return None
+        lease = read_lease(scope)
+        if lease is None or not is_expired(lease, datetime.now(UTC)):
+            return None
+        position = scope.get("position")
+        if not isinstance(position, str) or not position:
+            return None
+        if self._store.get_step(self._scope_id, step_key(position, "")) is not None:
+            return None
+        return position
+
+    def _record_timed_out(self, node: str) -> None:
+        """Write the one thing a taken-over scope can honestly say.
+
+        Nothing preempts a running step — `_engine/exec_policy` researched and
+        rejected every mechanism that could, and
+        `tests/engine/test_timeout_is_lease_expiry` holds this codebase to it.
+        So a step's only budget is its lease, expiring is the only way it can
+        be exceeded, and the runner that overran is by definition not the one
+        that can write it down.
+
+        Recorded at the iteration-0 key. A step that went silent on a later
+        loop pass is under a different key and gets no record, which is an
+        under-report rather than a wrong one: the pass is re-run either way,
+        because nothing about it is terminal-success.
+        """
+        self._store.record_step(
+            self._scope_id,
+            step_key(node, ""),
+            {
+                "status": StepStatus.TIMED_OUT,
+                "return_value": None,
+                "return_value_reusable": False,
+                "completed_at": "",
+            },
+        )
 
     def renew(self) -> None:
         """Extend this walk's claim. The generation does not move.
@@ -212,7 +328,7 @@ class FrontierWalk:
         args_hash: str = "",
         return_value: Any = None,
         inputs: Mapping[str, Any] | None = None,
-        status: str = "success",
+        status: str = StepStatus.SUCCESS,
         completed_at: str = "",
     ) -> list[str]:
         """Record ``node`` as finished and expand the frontier past it.
@@ -329,9 +445,14 @@ class FrontierWalk:
 
         Resume re-invokes the workflow; a step that already succeeded here must
         not run twice.
+
+        Asks :data:`TERMINAL_SUCCESS` rather than comparing the string, so a
+        step recorded `failed`, `timed_out` or `cancelled` runs again — and so
+        that the day a second success-like outcome exists, it becomes
+        replayable by a decision instead of by a comparison nobody re-read.
         """
         record = self._store.get_step(self._scope_id, step_key(node, args_hash))
-        return bool(record and record.get("status") == "success")
+        return bool(record and record.get("status") in TERMINAL_SUCCESS)
 
     # ------------------------------------------------------------------
     # Internals

@@ -517,22 +517,37 @@ platforms with neither `fcntl` nor `msvcrt`.
 
 Spec AC-8. `StaleGenerationError` names the current holder — **a count, never content**.
 
-**Gate**
+**Gate — the recorded one counted a word, and the word drifted twice**
 ```bash
 rg -c 'generation' src/functualize/_engine/frontier.py
 ```
-now: `0` · after: `13` — moved by T10's `renew`, which carries the generation it
-must **not** change.
+recorded `now: 0 · after: 13`, and is **superseded** by the one below. It counts
+the *word* `generation` anywhere in the file, prose included, so every sentence
+explaining the fence satisfied it and every edit near it moved it:
 
-**Re-measured 2026-09-12: 14 → 13, by a rename, not a regression.**
-`store-substrate`/T3 deleted `FreshStore`'s 33 forwarders, and two of them were
-the *renamed* ones: `hold_scope_generation` and `scope_generation` existed
-because on a store that also held fingerprints a bare `hold` or `generation_for`
-would not have said what it held. On `ScopeStore` they are `hold` and
-`generation_for`, and the word left one line of `frontier.py` with them.
-`tests/spec/test_task_gates_still_hold.py` caught the drift and this is the
-answer to it: the generation check is untouched, and its own gate — the one
-that counts `scope_id=` arguments to `_mutate` — is unchanged.
+- **14 → 13 (2026-09-12, a rename).** `store-substrate`/T3 deleted `FreshStore`'s
+  33 forwarders, two of them the *renamed* ones: `hold_scope_generation` and
+  `scope_generation` existed because on a store that also held fingerprints a
+  bare `hold` or `generation_for` would not have said what it held. On
+  `ScopeStore` they are `hold` and `generation_for`, and the word left one line
+  of `frontier.py` with them.
+- **13 → 15 (2026-09-12, prose).** `workflow-graph-semantics`/T4 added
+  `_step_that_went_silent` and `_record_timed_out`, whose docstrings mention the
+  generation twice. Nothing about the fence changed. The gate moved because
+  someone explained it — *a description of a thing is not the thing*, arriving
+  from the other direction.
+
+Replaced with a count of the mechanism, which no docstring can reach:
+```bash
+rg -c 'self\._generation|generation=' src/functualize/_engine/frontier.py
+```
+now: `0` · after: `7`. Measured at `057e802~1` (before T6) and at HEAD. These
+are the two things the fence *is* — the generation this walk holds, and the
+generation every write carries — so deleting the check turns it red, and
+writing about it does not.
+
+The generation check itself is untouched by either drift, and its own gate —
+the one that counts `scope_id=` arguments to `_mutate` — is unchanged.
 
 **Sabotage:** drop the generation check from one write path. Done, and it failed
 **7** tests including the enumeration one written for exactly this
