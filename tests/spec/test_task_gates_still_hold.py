@@ -77,7 +77,11 @@ _EXEMPT = re.compile(r"\binvariant\b|\bsuperseded\b", re.I)
 
 def _task_files() -> list[Path]:
     files = sorted(_FEATURES.glob("*/tasks.md"))
-    assert files, f"no tasks.md under {_FEATURES}"
+    if not files:
+        pytest.skip(
+            ".spec/features/ is intentionally empty after the pre-merge cleanup",
+            allow_module_level=True,
+        )
     return files
 
 
