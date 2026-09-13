@@ -24,7 +24,7 @@ Property 6: Parallel execution preserves input order
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -36,6 +36,9 @@ from functualize._engine.errors import JobNotFoundError
 from functualize._engine.result import JobResult, RegisteredJob
 from functualize._types.enums import RunStatus
 from functualize.job._invoke import Invoke
+
+if TYPE_CHECKING:
+    from functualize.types import RunRequest
 
 # =============================================================================
 # Strategies
@@ -389,23 +392,14 @@ class TestConfigModelFieldExtraction:
         expected_kwargs = config.model_dump()
 
         # Use the wired engine capability to verify kwarg passing
-        registered_jobs = {
-            "test-job": RegisteredJob(
-                name="test-job",
-                function=lambda rc: rc,
-                config_class=None,
-                group=None,
-                module_path="test",
-                job_directory=None,
-            ),
-        }
-        invoke_cap, engine = _make_wired_invoke(registered_jobs)
+        invoke_cap, engine = _make_wired_invoke()
 
-        # Mock engine.execute to capture what kwargs are passed
-        captured_kwargs: dict[str, Any] = {}
+        # Mock engine.run to capture what request is passed
+        captured_request: RunRequest | None = None
 
-        def mock_execute(**call_kwargs):
-            captured_kwargs.update(call_kwargs)
+        def mock_run(request: RunRequest):
+            nonlocal captured_request
+            captured_request = request
             return JobResult(
                 status=RunStatus.SUCCESS,
                 duration_ms=1.0,
@@ -413,7 +407,7 @@ class TestConfigModelFieldExtraction:
                 exception=None,
             )
 
-        engine.execute.side_effect = mock_execute
+        engine.run.side_effect = mock_run
 
         # The wired invoke doesn't have config param directly — it goes through
         # RunContext. Let's test the stub Invoke's config extraction logic instead.
@@ -531,7 +525,7 @@ class TestInvokeAlwaysReturnsJobResult:
             exception=None,
             metadata={},
         )
-        engine.execute.return_value = expected_result
+        engine.run.return_value = expected_result
 
         result = invoke_cap(job_name)
 
@@ -574,7 +568,7 @@ class TestInvokeAlwaysReturnsJobResult:
             exception=err,
             metadata={},
         )
-        engine.execute.return_value = expected_result
+        engine.run.return_value = expected_result
 
         result = invoke_cap(job_name)
 
@@ -635,16 +629,16 @@ class TestParallelExecutionPreservesInputOrder:
 
         engine.get_job.side_effect = get_job_side_effect
 
-        def execute_side_effect(**kwargs):
+        def run_side_effect(request):
             return JobResult(
                 status=RunStatus.SUCCESS,
                 duration_ms=1.0,
-                return_value=f"result-{kwargs['job_name']}",
+                return_value=f"result-{request.job_name}",
                 exception=None,
-                job_name=kwargs["job_name"],
+                job_name=request.job_name,
             )
 
-        engine.execute.side_effect = execute_side_effect
+        engine.run.side_effect = run_side_effect
         engine._hook_registry._global_hooks = {}
 
         invoke_cap = WiredInvoke(
@@ -693,16 +687,16 @@ class TestParallelExecutionPreservesInputOrder:
 
         engine.get_job.side_effect = get_job_side_effect
 
-        def execute_side_effect(**kwargs):
+        def run_side_effect(request):
             return JobResult(
                 status=RunStatus.SUCCESS,
                 duration_ms=1.0,
-                return_value=f"result-{kwargs['job_name']}",
+                return_value=f"result-{request.job_name}",
                 exception=None,
-                job_name=kwargs["job_name"],
+                job_name=request.job_name,
             )
 
-        engine.execute.side_effect = execute_side_effect
+        engine.run.side_effect = run_side_effect
         engine._hook_registry._global_hooks = {}
 
         invoke_cap = WiredInvoke(

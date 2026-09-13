@@ -19,6 +19,7 @@ scan; it just stops being invisible.
 
 from __future__ import annotations
 
+import json
 import textwrap
 from pathlib import Path
 
@@ -26,6 +27,7 @@ import pytest
 
 from functualize._discovery.cached_provider import CachedDirectoryScanProvider
 from functualize._discovery.providers import DirectoryScanProvider
+from functualize._primitives.cache_format import CACHE_FILENAME, CACHE_VERSION
 from functualize._primitives.pre_filter import (
     ASTModulePreFilter,
     DecoratorModulePreFilter,
@@ -288,9 +290,14 @@ class TestACleanTreeReportsNothing:
 
 
 class TestTheListIsPerScan:
-    """A cached or lazy boot that imported nothing reports no failures. Stated
-    as an assertion so a stale report cannot appear — and so the limitation is
-    visible rather than discovered in production."""
+    """What one pass reports, and what the next one reports.
+
+    The list is per-scan — a boot that reads nothing reports nothing — which is
+    stated as an assertion so a stale report cannot appear. A module that
+    *failed* is the other case, and both failure kinds repeat: an import
+    failure leaves no cache entry, and a parse failure leaves none the filter
+    can trust, so the second pass tries again and says so again
+    (adjacent-defects/T13)."""
 
     def test_the_cached_provider_records_on_a_cold_pass(self, tmp_path: Path) -> None:
         from functualize._primitives.locator import ResourceLocator
@@ -322,20 +329,22 @@ class TestTheListIsPerScan:
         provider.list_jobs()
         assert [f.module for f in provider.discovery_failures] == ["importer"]
 
-    def test_a_cached_pre_filter_decision_reports_nothing_on_the_second_pass(
+    def test_a_parse_failure_survives_the_cached_pre_filter_decision(
         self, tmp_path: Path
     ) -> None:
-        """The blind spot, stated rather than discovered in production.
+        """The blind spot this test used to pin, now closed (adjacent-defects/T13).
 
         `_should_import_with_cache` persists **negative** decisions keyed by
-        mtime, so a file rejected at the parse stage is judged once and skipped
-        thereafter — and a skipped file records nothing. The list answers "what
-        did *this* pass fail to read", and a pass that re-read nothing failed
-        at nothing.
+        mtime, and it used to persist one for a file the filter could not
+        *read* — the parse stage answers ``False`` for a `SyntaxError` exactly
+        as it does for "nothing to import here". The second pass then reused
+        that decision, never re-read the file, and reported nothing, while a
+        module that failed to *import* repeated every pass because no cache
+        entry exists for it.
 
-        A standing inventory of broken files would be a different feature: it
-        would have to survive the cache, which means writing the failure into
-        the cache entry. That is deliberately not what this is.
+        A decision the filter could not reach is no longer cached, so the file
+        is re-read and re-reported. The list still answers "what did *this*
+        pass fail to read" — a pass now fails to read it again.
         """
         from functualize._discovery.cached_provider import CachedDirectoryScanProvider
         from functualize._primitives.locator import ResourceLocator
@@ -352,7 +361,7 @@ class TestTheListIsPerScan:
         assert [f.error_type for f in provider.discovery_failures] == ["SyntaxError"]
 
         provider.list_jobs()
-        assert provider.discovery_failures == []
+        assert [f.error_type for f in provider.discovery_failures] == ["SyntaxError"]
 
     def test_a_repeat_scan_replaces_rather_than_appends(self, tmp_path: Path) -> None:
         """`DirectoryScanProvider` memoizes, so this asserts the list does not
@@ -423,3 +432,94 @@ class TestTheJobNameCollisionRecord:
         ).as_dict()
         assert set(payload) == {"module", "path", "error_type", "message"}
         assert all(isinstance(v, str) for v in payload.values())
+
+
+class TestTheUpgradePathFromAPoisonedCache:
+    """`CACHE_VERSION` 20 → 21, and why the bump is load-bearing.
+
+    `adjacent-defects/T13` stopped *writing* the poisoned decision: a module the
+    filter could not read is no longer recorded as "nothing to import here".
+    That fixes every cache written from now on and does nothing at all for the
+    one already on disk, which is honoured on its own terms — the entry's shape
+    never changed, so `from_dict` reads it happily and `discovery_hash` matches.
+    Every user upgrading from 0.3.0 kept the blind spot, `cache clear` included,
+    because a rewritten cache reproduces whatever the *reader* still trusts.
+
+    Nothing in the feature said so. The reviewer found it by asking what a cache
+    written by the *previous* build does — a question no test asks, because a
+    test builds its fixture with the code under test and therefore only ever
+    sees the new shape.
+
+    Two assertions, and the first is what gives the second teeth: the poisoned
+    decision really does suppress the failure, so a revert of the bump fails
+    here rather than passing quietly.
+    """
+
+    @staticmethod
+    def _poison(cache_file: Path, broken_py: Path, *, version: int) -> None:
+        """Write the decision a pre-T13 build would have persisted."""
+        data = json.loads(cache_file.read_text(encoding="utf-8"))
+        data["version"] = version
+        data["pre_filter_decisions"][str(broken_py)] = {
+            "source_file": str(broken_py),
+            "eligible": False,
+            "source_mtime": broken_py.stat().st_mtime,
+        }
+        cache_file.write_text(json.dumps(data), encoding="utf-8")
+
+    @staticmethod
+    def _cache_dir(tmp_path: Path) -> Path:
+        return tmp_path / ".functualize"
+
+    def _scan(self, jobs: Path, tmp_path: Path) -> list[str]:
+        """One scan against a cache this test can read back and edit.
+
+        The locator is pointed at an explicit directory for both halves, so the
+        file the provider writes is the file the poison is injected into — the
+        default resolution would put it somewhere this test cannot name.
+        """
+        from functualize._primitives.locator import ResourceLocator
+        from functualize._primitives.pre_filter import ASTModulePreFilter
+
+        cache_dir = self._cache_dir(tmp_path)
+        locator = (
+            ResourceLocator().search_explicit(cache_dir).write_to_explicit(cache_dir)
+        )
+        provider = CachedDirectoryScanProvider(
+            [str(jobs)],
+            locator,
+            pre_filter=ASTModulePreFilter(),
+            project_root=tmp_path,
+        )
+        provider.list_jobs()
+        return [f.error_type for f in provider.discovery_failures]
+
+    @pytest.fixture
+    def poisoned(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        """A warm cache, plus the entry the old build would have left in it."""
+        monkeypatch.chdir(tmp_path)
+        jobs = _tree(tmp_path, good=GOOD, broken=SYNTAX_ERROR)
+        assert self._scan(jobs, tmp_path) == ["SyntaxError"]
+        return jobs
+
+    def test_the_old_decision_really_does_suppress_the_failure(
+        self, tmp_path: Path, poisoned: Path
+    ) -> None:
+        """The falsifier. Without this the version assertion below could pass
+        for the wrong reason — a cache nobody was reading anyway."""
+        cache_file = self._cache_dir(tmp_path) / CACHE_FILENAME
+        self._poison(cache_file, poisoned / "broken.py", version=CACHE_VERSION)
+        assert self._scan(poisoned, tmp_path) == []
+
+    def test_a_version_20_cache_does_not_reach_it(
+        self, tmp_path: Path, poisoned: Path
+    ) -> None:
+        """The bump. Same poisoned entry, stamped as 0.3.0 wrote it."""
+        cache_file = self._cache_dir(tmp_path) / CACHE_FILENAME
+        self._poison(cache_file, poisoned / "broken.py", version=20)
+        assert self._scan(poisoned, tmp_path) == ["SyntaxError"]
+
+    def test_the_bump_actually_happened(self) -> None:
+        """A guard against the two tests above agreeing by both being stale:
+        20 must be *behind* the current version, not equal to it."""
+        assert CACHE_VERSION > 20

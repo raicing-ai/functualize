@@ -50,6 +50,10 @@ def discover_ai_providers() -> dict[str, importlib.metadata.EntryPoint]:
     Returns:
         Dictionary mapping provider names to their entry points.
     """
+    # Deliberate exception to the `functualize._primitives` entry-point cache:
+    # this package is published standalone (pyproject declares pydantic and
+    # functualize-state, not functualize), so it cannot import the internal
+    # helper without acquiring an undeclared dependency on functualize core.
     eps = importlib.metadata.entry_points(group=ENTRY_POINT_GROUP)
     return {ep.name: ep for ep in eps}
 
@@ -197,7 +201,7 @@ def resolve_ai_provider(
     if config is None:
         if app is not None and hasattr(app, "resolve_model"):
             try:
-                config = app.resolve_model("ai", AIConfig)
+                config = app.configuration.resolve_model("ai", AIConfig)
             except Exception:
                 # Config section may not exist; use defaults
                 config = AIConfig()

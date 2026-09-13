@@ -115,7 +115,7 @@ class TestInteractivityPluginRegistrationRejectsNonConforming:
         plugin = _make_nonconforming_plugin(missing)
 
         with pytest.raises(TypeError, match="Surface protocol"):
-            app.register_surface(plugin)
+            app.extensions.register_surface(plugin)
 
     @given(missing=missing_members_subsets)
     def test_error_message_indicates_required_protocols(
@@ -131,7 +131,7 @@ class TestInteractivityPluginRegistrationRejectsNonConforming:
         with pytest.raises(
             TypeError, match="handle_event.*collect|collect.*handle_event"
         ):
-            app.register_surface(plugin)
+            app.extensions.register_surface(plugin)
 
     @given(name=plugin_names)
     def test_conforming_plugin_does_not_raise(self, name: str) -> None:
@@ -143,7 +143,7 @@ class TestInteractivityPluginRegistrationRejectsNonConforming:
         plugin = _make_conforming_plugin(name)
 
         # Should not raise
-        app.register_surface(plugin)
+        app.extensions.register_surface(plugin)
         assert plugin in app._surfaces
 
 
@@ -173,7 +173,7 @@ class TestPluginInstanceRegistry:
 
         # Each plugin is retrievable by its name
         for name, expected_plugin in plugins.items():
-            result = app.get_plugin(name)
+            result = app.extensions.get_plugin(name)
             assert result is expected_plugin
 
     @given(
@@ -208,7 +208,7 @@ class TestPluginInstanceRegistry:
 
         # Lookup of unregistered name raises KeyError
         with pytest.raises(KeyError) as exc_info:
-            app.get_plugin(unregistered_name)
+            app.extensions.get_plugin(unregistered_name)
 
         # Error message includes the registered names
         error_message = str(exc_info.value)
@@ -233,4 +233,4 @@ class TestPluginInstanceRegistry:
             altered = name.swapcase()
             if altered not in names and altered != name:
                 with pytest.raises(KeyError):
-                    app.get_plugin(altered)
+                    app.extensions.get_plugin(altered)

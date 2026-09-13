@@ -10,11 +10,12 @@ from __future__ import annotations
 import concurrent.futures
 import logging
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from functualize._engine.capabilities.spec import CapabilitySpec
+from functualize._types.run_request import nested_request
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -25,6 +26,8 @@ if TYPE_CHECKING:
     from functualize._gate._registry import GateRegistry
     from functualize._gate._strategy import GateStrategy
     from functualize._types.descriptors import JobDescriptor, JobResult
+    from functualize._types.enums import RunStatus
+    from functualize._types.run_request import RunSurface
     from functualize.job._workflow_scope import WorkflowScope
 
 logger = logging.getLogger(__name__)
@@ -42,8 +45,15 @@ class ParallelObserver(Protocol):
         """Called on the worker thread before the job runs."""
         ...
 
-    def release(self, job_name: str, *, failed: bool) -> None:
-        """Called on the same thread once it has, however it ended."""
+    def release(self, job_name: str, *, status: RunStatus) -> None:
+        """Called on the same thread once it has, however it ended.
+
+        The **status**, not a verdict on it. Whether a given status counts as a
+        failure is a question about the boundary being crossed, and the observer
+        is the one that knows which boundary it is rendering for — so it asks
+        `functualize.types.is_failure` with its own family rather than being
+        told an answer computed under someone else's.
+        """
         ...
 
 
@@ -93,6 +103,7 @@ class Invoke:
         force_gate: bool = False,
         gate_strategy: GateStrategy | str | list[GateStrategy | str] | None = None,
         timeout: float | None = None,
+        group_option_values: Mapping[str, Any] | None = None,
         **kwargs: Any,
     ) -> JobResult:
         """Invoke a job by name or function reference.
@@ -269,17 +280,62 @@ class WiredInvoke(Invoke):
         gate_registry: GateRegistry | None = None,
         invoke_depth: int = 0,
         max_invoke_depth: int = 10,
+        parallel_item_surface: RunSurface = "invoke.parallel",
+        parent_request: Any = None,
+        parent_run_id: str | None = None,
         workflow_scope: WorkflowScope | None = None,
         cwd: Path | None = None,
         run_context: Any | None = None,
+        caps: dict[type, Any] | None = None,
     ) -> None:
         self._engine = execution_engine
         self._gate_registry = gate_registry
         self._invoke_depth = invoke_depth
         self._max_invoke_depth = max_invoke_depth
+        # Which door the *items* of a `parallel()` batch came through. A job
+        # calling `rc.invoke_parallel` fans out from inside a run, so its items
+        # are `invoke.parallel`; `app.execute_parallel` — the seam for callers
+        # that are not themselves jobs, `func builtin parallel` above all — is
+        # the user launching those jobs, so its items are `app.parallel`.
+        #
+        # Depth cannot tell the two apart: a top-level job's RunContext and a
+        # standalone `WiredInvoke` both sit at depth 0, so both put their items
+        # at depth 1. That is what made `func builtin parallel a b` invisible to
+        # `func builtin history` (STATUS #5) with no depth rule able to fix it.
+        self._parallel_item_surface: RunSurface = parallel_item_surface
+        # The request that asked for the run this capability belongs to. Its
+        # delivery inputs travel to every child; see `JobExecutionEngine._nested`.
+        self._parent_request: Any = parent_request
+        #: The run that owns this capability — the parent of everything it
+        #: invokes, including a parallel batch's items.
+        self._parent_run_id: str | None = parent_run_id
         self._workflow_scope = workflow_scope
         self._cwd = cwd
-        self._rc = run_context
+        #: The run context this capability belongs to, for the INVOKE_* hooks.
+        #:
+        #: Two doors build a `WiredInvoke` and only one of them has a
+        #: RunContext to hand: `rc._get_invoke()` passes itself, while the DI
+        #: factory runs *during* parameter resolution, where the RunContext may
+        #: not exist yet — a job writing `def j(inv: Invoke, rc: RunContext)`
+        #: resolves `inv` first. So the DI door passes the live `caps` map and
+        #: the lookup happens when a hook fires, by which time the map is
+        #: filled. `TTY.ctx` resolves the same fact the same way and for the
+        #: same reason; this was the one capability that captured it eagerly,
+        #: so every INVOKE_START/END/FAILURE hook reached through a `inv:
+        #: Invoke` parameter received `None` as its parent.
+        self._explicit_rc = run_context
+        self._caps = caps
+
+    @property
+    def _rc(self) -> Any | None:
+        """The RunContext for this execution, or None outside a job."""
+        if self._explicit_rc is not None:
+            return self._explicit_rc
+        if self._caps is None:
+            return None
+        from functualize._engine.capabilities.runcontext import RunContext
+
+        return self._caps.get(RunContext)
 
     def __call__(
         self,
@@ -291,6 +347,7 @@ class WiredInvoke(Invoke):
         force_gate: bool = False,
         gate_strategy: GateStrategy | str | list[GateStrategy | str] | None = None,
         timeout: float | None = None,
+        group_option_values: Mapping[str, Any] | None = None,
         **kwargs: Any,
     ) -> JobResult:
         """Invoke a job by name or function reference (engine-wired).
@@ -398,15 +455,28 @@ class WiredInvoke(Invoke):
         parent_scope = self._workflow_scope
 
         def _do_execute() -> JobResult:
-            return self._engine.execute(
-                job_name=job_name,
-                function=registered_job.function,
-                config_class=registered_job.config_class,
-                kwargs=kwargs,
-                parent_scope=parent_scope,
-                invoke_depth=child_depth,
-                cwd=self._cwd,
-                job_directory=registered_job.job_directory,
+            # Surface `invoke` (contracts §5). parent_scope is carried
+            # unchanged: a child joins the parent's workflow scope.
+            return self._engine.run(
+                nested_request(
+                    self._parent_request,
+                    job_name=job_name,
+                    surface="invoke",
+                    kwargs=kwargs,
+                    # `None` means **inherit** — the behaviour every call had
+                    # before this parameter existed, and what a call that says
+                    # nothing still gets. A mapping overrides for this one call
+                    # (AC-7, AC-8; STATUS #17). It is a *control input*, so it
+                    # rides its own field rather than `kwargs`, where it would
+                    # arrive at the child as a job argument literally named
+                    # `group_option_values`.
+                    group_option_values=group_option_values,
+                    parent_scope=parent_scope,
+                    invoke_depth=child_depth,
+                    parent_run_id=self._parent_run_id,
+                    cwd=self._cwd,
+                    job_directory=registered_job.job_directory,
+                )
             )
 
         if timeout is not None:
@@ -536,26 +606,31 @@ class WiredInvoke(Invoke):
                 return outcome
             finally:
                 if observer is not None:
-                    observer.release(job_name, failed=_is_failure(outcome))
-
-        def _is_failure(outcome: tuple[int, JobResult] | None) -> bool:
-            """Whether a finished job counts as failed, for the *reader*.
-
-            `None` means `_run` raised, which nothing below is supposed to do —
-            treated as failure so an unexpected escape is still surfaced rather
-            than quietly logged as a clean run. BLOCKED and SKIPPED are not
-            failures: the job did what it was asked to (`RunStatus.resumable`
-            exists for exactly this distinction) and marking them `::error::`
-            in a CI log would cry wolf.
-            """
-            if outcome is None:
-                return True
-            status = outcome[1].status
-            return status not in (
-                RunStatus.SUCCESS,
-                RunStatus.SKIPPED,
-                RunStatus.BLOCKED,
-            )
+                    # The **status**, not a verdict on it. Deciding here would
+                    # be the engine making a delivery decision: this callback is
+                    # reached only through an observer, the only observer is
+                    # `_cli/parallel_output.py`, and the thing it controls is a
+                    # `::error::` annotation in a CI log. An engine function
+                    # whose sole purpose is to answer a CLI question.
+                    #
+                    # It had its own copy of the not-a-failure set, and the copy
+                    # disagreed with the one `func builtin parallel` uses for
+                    # its exit code — so a batch where a job paused at a gate
+                    # exited 5 *and* logged no `::error::` for the job that
+                    # paused. Two answers about BLOCKED inside one command,
+                    # which is the divergence this feature exists to end.
+                    #
+                    # `None` means `_run` raised, which nothing below is
+                    # supposed to do. It is reported as UNKNOWN rather than
+                    # swallowed, and every family reads UNKNOWN as a failure.
+                    observer.release(
+                        job_name,
+                        status=(
+                            outcome[1].status
+                            if outcome is not None
+                            else RunStatus.UNKNOWN
+                        ),
+                    )
 
         def _run(
             index: int,
@@ -595,15 +670,43 @@ class WiredInvoke(Invoke):
                 )
 
             try:
-                result = self._engine.execute(
-                    job_name=job_name,
-                    function=registered_job.function,
-                    config_class=registered_job.config_class,
-                    kwargs=kwargs,
-                    parent_scope=None,  # Independent — no shared scope
-                    invoke_depth=child_depth,
-                    cwd=self._cwd,
-                    job_directory=registered_job.job_directory,
+                # Surface `invoke.parallel` (contracts §5).
+                #
+                # **The scope object travels; the scope id does not.** An
+                # earlier spec pinned "parallel jobs are independent — no
+                # shared scope" and implemented it by passing
+                # `parent_scope=None`, which conflated two things that
+                # capability-duality/T3 had to separate anyway: the *id* names
+                # which step records and gates a walk replays, and the *object*
+                # is where the run's shared state lives. Independence is about
+                # the records — two batch items must not memoize each other's
+                # steps or resume into one another's gates — and it is fully
+                # preserved by `nested_request` resetting `workflow_scope_id`,
+                # which it does by default.
+                #
+                # Withholding the object as well meant a batch item had nowhere
+                # to write. Under the old in-memory store that was invisible:
+                # the item got a private dict, wrote to it, and the data went
+                # nowhere with no error. Once state became durable the same
+                # code raised instead — which is the bug becoming honest, not a
+                # new one. A batch item is part of the run the user started, so
+                # it stores state there.
+                result = self._engine.run(
+                    nested_request(
+                        self._parent_request,
+                        job_name=job_name,
+                        surface=self._parallel_item_surface,
+                        kwargs=kwargs,
+                        parent_scope=self._workflow_scope,
+                        # Independent *scopes*, one parent *run*: the batch
+                        # items are the children the run log most needs to
+                        # place, and they run on worker threads where a
+                        # ContextVar would be empty.
+                        parent_run_id=self._parent_run_id,
+                        invoke_depth=child_depth,
+                        cwd=self._cwd,
+                        job_directory=registered_job.job_directory,
+                    )
                 )
                 return (index, result)
             except Exception as e:
@@ -706,10 +809,12 @@ class WiredInvoke(Invoke):
     def schema(self, job_or_fn: str | Callable[..., Any]) -> JobDescriptor:
         """Retrieve the JobDescriptor for a job by name or function reference."""
         job_name = self._resolve_job_name(job_or_fn)
-        # Look up descriptor via the engine's app reference if available
-        app = getattr(self._engine, "_app", None)
-        if app is not None:
-            return cast("JobDescriptor", app.job_registry.get_descriptor(job_name))
+        # The descriptor belongs to the host: asked for, not reached through.
+        host = self._engine.host
+        if host is not None:
+            descriptor = host.get_descriptor(job_name)
+            if descriptor is not None:
+                return descriptor
         # Fallback: construct a minimal descriptor from RegisteredJob
         registered_job = self._engine.get_job(job_name)
         from functualize._types.descriptors import JobDescriptor as _JobDescriptor
@@ -817,15 +922,30 @@ def _make_invoke(ctx: Any) -> WiredInvoke:
     return WiredInvoke(
         execution_engine=ctx.engine,
         gate_registry=ctx.engine._gate_registry,
+        # `ctx` is a CapabilityContext; the ExecutionContext — and the request
+        # that asked for this run — is one hop in at `ctx.context`. Reading
+        # `ctx.request` returns None and the children silently take defaults,
+        # which is how `--emit-format none` stopped reaching an invoked child.
+        parent_request=getattr(ctx.context, "request", None),
+        # Same hop, same reason: the run that owns this capability is the parent
+        # of everything it invokes. Read off the ExecutionContext rather than a
+        # `ContextVar`, because `parallel` hands items to worker threads where a
+        # context variable would be empty — and those items are exactly the
+        # children the run log most needs to place.
+        parent_run_id=getattr(ctx.context, "run_id", None),
         invoke_depth=ctx.context.invoke_depth,
-        max_invoke_depth=ctx.engine._max_invoke_depth,
+        max_invoke_depth=ctx.engine.max_invoke_depth,
         workflow_scope=ctx.context.parent_scope,
         cwd=ctx.context.cwd,
+        # Lazily, not `ctx.context.capabilities`: this factory runs while that
+        # map is still being filled, and the RunContext may land after it.
+        caps=ctx.caps,
     )
 
 
 CAPABILITY = CapabilitySpec(
     name="Invoke",
+    rc_accessor="_get_invoke",
     type=Invoke,
     factory=_make_invoke,
 )

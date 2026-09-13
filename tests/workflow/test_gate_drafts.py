@@ -20,11 +20,12 @@ from pydantic import BaseModel, Field
 from functualize._app.state import AppState
 from functualize.app.core import FunctualizeApp
 from functualize.app.utils import (
-    StateStore,
+    ScopeStore,
     answer_gate,
     gate_draft,
     resolve_gate,
 )
+from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, workflow
 
 
@@ -77,16 +78,18 @@ def app(project: Path) -> FunctualizeApp:
 
 
 @pytest.fixture
-def store(app: FunctualizeApp, project: Path) -> StateStore:
-    app.execute("release", scope_id="rel-1")
-    return StateStore.for_project(project)
+def store(app: FunctualizeApp, project: Path) -> ScopeStore:
+    app.execute(
+        RunRequest(job_name="release", surface="app.execute", workflow_scope_id="rel-1")
+    )
+    return ScopeStore.for_project(project)
 
 
 class TestPartialAnswers:
     """AC-11."""
 
     def test_an_incomplete_draft_is_stored_and_the_gate_stays_unanswered(
-        self, app: FunctualizeApp, store: StateStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         result = answer_gate(app, store, "rel-1", "approve", {"approved": True})
 
@@ -95,7 +98,7 @@ class TestPartialAnswers:
         assert store.get_gate("rel-1", "approve")["payload"] is None
 
     def test_it_says_what_is_missing_not_merely_that_something_is(
-        self, app: FunctualizeApp, store: StateStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         result = answer_gate(app, store, "rel-1", "approve", {"approved": True})
 
@@ -104,7 +107,7 @@ class TestPartialAnswers:
         assert "reason" in result["message"]
 
     def test_two_actors_fill_different_fields(
-        self, app: FunctualizeApp, store: StateStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         """The story the draft exists for."""
         answer_gate(app, store, "rel-1", "approve", {"approved": True})
@@ -115,7 +118,7 @@ class TestPartialAnswers:
         assert store.get_gate("rel-1", "approve")["payload"]["reason"] == "signed off"
 
     def test_replace_discards_the_accumulated_draft(
-        self, app: FunctualizeApp, store: StateStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         answer_gate(app, store, "rel-1", "approve", {"approved": True})
         result = answer_gate(
@@ -124,14 +127,14 @@ class TestPartialAnswers:
         assert result["draft"] == {"reason": "x"}
 
     def test_unset_removes_a_field(
-        self, app: FunctualizeApp, store: StateStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         answer_gate(app, store, "rel-1", "approve", {"approved": True})
         result = answer_gate(app, store, "rel-1", "approve", unset=["approved"])
         assert result["draft"] == {}
 
     def test_clear_discards_everything(
-        self, app: FunctualizeApp, store: StateStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         answer_gate(app, store, "rel-1", "approve", {"approved": True})
         result = answer_gate(app, store, "rel-1", "approve", clear=True)
@@ -142,7 +145,7 @@ class TestAutoCommit:
     """AC-12, AC-13."""
 
     def test_a_complete_draft_answers_the_gate_in_one_call(
-        self, app: FunctualizeApp, store: StateStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         """The existing one-shot flow must be unchanged."""
         result = answer_gate(
@@ -153,7 +156,7 @@ class TestAutoCommit:
         assert store.get_gate("rel-1", "approve")["payload"] is not None
 
     def test_the_payload_is_the_validated_dump(
-        self, app: FunctualizeApp, store: StateStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         """AC-10's invariant, on the draft path too — a defaulted field must be
         present, or the strategy path and this one diverge again."""
@@ -166,14 +169,14 @@ class TestAutoCommit:
         assert store.get_gate("rel-1", "approve")["payload"]["reviewers"] == 1
 
     def test_committing_clears_the_draft(
-        self, app: FunctualizeApp, store: StateStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         answer_gate(app, store, "rel-1", "approve", {"approved": True})
         answer_gate(app, store, "rel-1", "approve", {"reason": "ok"})
         assert store.get_gate_draft("rel-1", "approve") is None
 
     def test_no_commit_leaves_a_complete_draft_uncommitted(
-        self, app: FunctualizeApp, store: StateStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         """For the case where a second actor must review before the gate opens."""
         result = answer_gate(
@@ -190,7 +193,7 @@ class TestAutoCommit:
         assert store.get_gate("rel-1", "approve")["payload"] is None
 
     def test_an_invalid_draft_never_commits(
-        self, app: FunctualizeApp, store: StateStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         result = answer_gate(
             app, store, "rel-1", "approve", {"approved": "nope", "reason": "x"}
@@ -205,7 +208,7 @@ class TestReopen:
     """AC-14."""
 
     def test_a_gate_still_parked_at_can_be_reopened(
-        self, app: FunctualizeApp, store: StateStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         answer_gate(
             app, store, "rel-1", "approve", {"approved": True, "reason": "typo"}
@@ -219,12 +222,16 @@ class TestReopen:
         assert store.get_gate("rel-1", "approve")["payload"]["reason"] == "corrected"
 
     def test_a_gate_the_walk_has_passed_refuses(
-        self, app: FunctualizeApp, store: StateStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         """The walker records the gate as replayed and advances past it, so the
         answer already produced the results recorded after it."""
         answer_gate(app, store, "rel-1", "approve", {"approved": True, "reason": "ok"})
-        app.execute("release", scope_id="rel-1")  # walk past the gate
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-1"
+            )
+        )  # walk past the gate
 
         result = answer_gate(
             app, store, "rel-1", "approve", {"reason": "x"}, reopen=True
@@ -233,23 +240,27 @@ class TestReopen:
         assert result["error"] == "gate_already_consumed"
 
     def test_the_refusal_names_the_position(
-        self, app: FunctualizeApp, store: StateStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         """So the refusal is checkable rather than merely asserted."""
         answer_gate(app, store, "rel-1", "approve", {"approved": True, "reason": "ok"})
-        app.execute("release", scope_id="rel-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-1"
+            )
+        )
 
         result = answer_gate(app, store, "rel-1", "approve", reopen=True)
         assert "position" in result
 
     def test_reopening_an_unanswered_gate_errors(
-        self, app: FunctualizeApp, store: StateStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         result = answer_gate(app, store, "rel-1", "approve", reopen=True)
         assert result["error"] == "gate_not_answered"
 
     def test_answering_an_answered_gate_without_reopen_refuses(
-        self, app: FunctualizeApp, store: StateStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         """Not a silent overwrite: an answered gate is out of the pending set on
         every surface, so a caller editing it is working from a stale view."""
@@ -263,7 +274,7 @@ class TestTheDraftReport:
     """AC-15."""
 
     def test_it_reports_every_field(
-        self, app: FunctualizeApp, store: StateStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         answer_gate(app, store, "rel-1", "approve", {"approved": True})
 
@@ -277,7 +288,7 @@ class TestTheDraftReport:
         assert report["answered"] is False
 
     def test_missing_and_invalid_come_from_the_commit_paths_own_errors(
-        self, app: FunctualizeApp, store: StateStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         """So --show cannot describe a draft the commit would treat differently."""
         answer_gate(app, store, "rel-1", "approve", {"reviewers": "not-a-number"})
@@ -292,31 +303,35 @@ class TestJointAddressing:
     and each referred the caller to the other."""
 
     def test_both_identifiers_are_accepted(
-        self, app: FunctualizeApp, store: StateStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         assert resolve_gate(store, "rel-1", "approve") == ("rel-1", "approve")
 
     def test_the_gate_may_be_omitted_when_unambiguous(
-        self, app: FunctualizeApp, store: StateStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         assert resolve_gate(store, "rel-1", None) == ("rel-1", "approve")
 
     def test_the_scope_may_be_omitted_when_unambiguous(
-        self, app: FunctualizeApp, store: StateStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         assert resolve_gate(store, None, "approve") == ("rel-1", "approve")
 
     def test_neither_is_needed_when_there_is_exactly_one(
-        self, app: FunctualizeApp, store: StateStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         assert resolve_gate(store, None, None) == ("rel-1", "approve")
 
     def test_several_candidates_are_listed_never_guessed(
-        self, app: FunctualizeApp, store: StateStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         """Never "newest wins" — `blocked_at` resets on every re-block, so it
         is not computable anyway."""
-        app.execute("release", scope_id="rel-2")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-2"
+            )
+        )
 
         result = resolve_gate(store, None, "approve")
 
@@ -324,13 +339,13 @@ class TestJointAddressing:
         assert {c["workflow_id"] for c in result["candidates"]} == {"rel-1", "rel-2"}
 
     def test_no_candidates_names_the_survey_verb(
-        self, app: FunctualizeApp, store: StateStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         result = resolve_gate(store, None, "nope")
         assert result["error"] == "gate_not_found"
         assert "workflow list" in result["message"]
 
     def test_an_unknown_scope_is_not_found(
-        self, app: FunctualizeApp, store: StateStore
+        self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
         assert resolve_gate(store, "nope", None)["error"] == "workflow_not_found"

@@ -21,12 +21,12 @@ from typing import TYPE_CHECKING, Any
 import click
 
 from functualize.app.adapters.click_params import (
-    _force_requested,
     build_click_params_from_descriptor,
 )
 
 if TYPE_CHECKING:
     from functualize._types.descriptors import JobDescriptor
+    from functualize._types.run_request import RunSurface
 
 
 def make_lazy_command(
@@ -35,6 +35,10 @@ def make_lazy_command(
     *,
     command_name: str | None = None,
     group_option_values: dict[str, Any] | None = None,
+    surface: RunSurface,
+    prompt_gates: bool | None = None,
+    output_format: str | None = None,
+    force: bool | None = None,
 ) -> click.Command:
     """Build a ``click.Command`` from cached schema — no module import needed.
 
@@ -84,55 +88,20 @@ def make_lazy_command(
         # crash mid-run with a signal-handler traceback. Read from the cached
         # descriptor flag, so this costs no import on the warm path.
         if getattr(descriptor, "requires_tty", False):
-            from functualize._engine.capabilities.tty import terminal_available
+            from functualize.app.adapters.surface_gate import (
+                refuse_without_terminal,
+            )
 
-            if not terminal_available():
-                print(
-                    f"Error: '{descriptor.name}' needs an interactive terminal "
-                    f"(it declares `tty: TTY`). Run it from `func` at a real "
-                    f"TTY — it cannot run over a pipe, in CI, or under MCP.",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
-
-        engine = app.execution_engine
-        try:
-            entry = engine.materialize_job(descriptor.name)
-        except KeyError:
-            # Descriptor not registered with this app's engine — legacy
-            # direct-import path (adapter used standalone).
-            from functualize._discovery.lazy_wrapper import _detect_config_class
-
-            try:
-                module = importlib.import_module(descriptor.module_path)
-            except Exception as exc:
-                print(
-                    f"Error: Failed to import module '{descriptor.module_path}': {exc}",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
-            func = getattr(module, descriptor.func_name)
-            config_class = _detect_config_class(func)
-        except JobMaterializationError as exc:
-            print(f"Error: {exc}", file=sys.stderr)
-            sys.exit(1)
-        else:
-            func = entry.function
-            config_class = entry.config_class
-
+            # Was `sys.exit(1)` here and `SystemExit(ExitCode.REFUSED)` on the
+            # eager path — the same refusal reporting two codes depending on
+            # whether the cache was warm (pitfalls.md §23).
+            refuse_without_terminal(descriptor.name)
         # A job that declares `live: Live` renders into a rich stdout surface
         # for direct `func <job>` runs: push a StdoutSurface for the duration so
         # live.add(construct) binds to its live zone (and it supersedes a stray
         # self-rendering surface). Falls back to a no-op when the [cli] extra
         # (rich) is absent — the job then runs with Live degraded, never broken.
-        #
-        # A job that declares no `live: Live` still needs the surface when a
-        # plugin registered an ambient construct eligible for it (otherwise the
-        # construct has nothing to render into), or when an explicit STDOUT
-        # preference (@surface_hint / the tui.default_surface setting) asks for
-        # the rich stdout branch. With none of those this is exactly the old
-        # `uses_live` gate, so plain `func <job>` output is unchanged. Shared
-        # with create_job_click_command via adapters/surface_gate.py.
+        # Shared with create_job_click_command via adapters/surface_gate.py.
         from functualize.app.adapters.surface_gate import wants_stdout_surface
 
         live_ctx: Any = contextlib.nullcontext()
@@ -144,37 +113,74 @@ def make_lazy_command(
 
                 live_ctx = stdout_live_session(app, descriptor)
 
-        # Both dispatch paths, one contract (pitfalls.md §23). The eager path
-        # in click_params wraps its execute the same way; handling this in only
-        # one of them is how cold boot and warm boot came to disagree before.
-        from functualize.app.adapters.click_params import scope_store_refusal
+        from functualize.app.adapters.click_params import (
+            deliver_job_result,
+            prelude_refusal,
+        )
 
-        with live_ctx, scope_store_refusal():
-            result = engine.execute(
+        engine = app.execution_engine
+        try:
+            engine.materialize_job(descriptor.name)
+        except KeyError:
+            # The descriptor is not registered with this app's engine — the
+            # legacy direct-import path, where the adapter is used standalone.
+            # `engine.run()` resolves by *name*, so the job has to exist in the
+            # registry before it can be asked for: import the module, build the
+            # entry, register it, and then take the one entry like everybody
+            # else. Before T11 this branch called the engine's deleted
+            # name-and-function entry directly, which is precisely the second
+            # door the feature exists to remove.
+            from functualize._discovery.lazy_wrapper import _detect_config_class
+            from functualize._types.descriptors import RegisteredJob
+
+            try:
+                module = importlib.import_module(descriptor.module_path)
+            except Exception as exc:
+                print(
+                    f"Error: Failed to import module '{descriptor.module_path}': {exc}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            func = getattr(module, descriptor.func_name)
+            engine.register_job(
+                RegisteredJob(
+                    name=descriptor.name,
+                    function=func,
+                    config_class=_detect_config_class(func),
+                    group=getattr(descriptor, "group", None),
+                    module_path=descriptor.module_path,
+                    job_directory=getattr(descriptor, "job_directory", None),
+                )
+            )
+        except JobMaterializationError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        # One contract, one entry — the same request the eager path in
+        # click_params builds, handed to the same `engine.run()`
+        # (`pitfalls.md` §23: two dispatch paths, one result-handling
+        # contract). Neither path holds a job function any more.
+        from functualize.app.adapters._request_builder import build_request
+
+        with live_ctx, prelude_refusal():
+            request = build_request(
                 job_name=descriptor.name,
-                function=func,
-                config_class=config_class,
                 kwargs=kwargs,
                 group_option_values=dict(group_option_values)
                 if group_option_values
                 else None,
                 workflow_scope_id=scope_id,
-                force=_force_requested(app),
+                surface=surface,
+                prompt_gates=prompt_gates,
+                output_format=output_format,
+                force=force,
+                app=app,
             )
-
-        # Through the same boundary the eager path uses. This wrapper used to
-        # return the JobResult and inspect nothing, so on warm boot — which is
-        # every invocation after the first — a job that raised exited 0 in
-        # silence, a gate pause exited 0 instead of 5, and a refusal exited 0
-        # instead of 3. The exit-code table is a contract with scripts; it held
-        # only on a project's very first run.
-        from functualize.app.adapters.click_params import deliver_job_result
+            result = engine.run(request)
 
         return deliver_job_result(result, descriptor.name, app)
 
     params = build_click_params_from_descriptor(descriptor)
-    # The cached descriptor already records the `@workflow` topology (v10), so
-    # the warm path can tell which jobs need the option without importing the
     # module — which is the whole point of the descriptor.
     if getattr(descriptor, "workflow", None) is not None:
         from functualize.app.adapters.workflow_flags import workflow_flag_params

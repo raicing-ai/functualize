@@ -57,7 +57,7 @@ class TestMarkPrefixingCorrectness:
         timeline = PerfTimeline(enabled=True)
         rc = _make_run_context(job_name, timeline)
 
-        rc.perf_mark(mark_name)
+        rc.events.perf_mark(mark_name)
 
         report = timeline.report()
         recorded_names = [name for name, _ in report.marks]
@@ -77,7 +77,7 @@ class TestMarkPrefixingCorrectness:
         timeline = PerfTimeline(enabled=True)
         rc = _make_run_context(job_name, timeline)
 
-        rc.perf_mark_start(mark_name)
+        rc.events.perf_mark_start(mark_name)
 
         report = timeline.report()
         recorded_names = [name for name, _ in report.marks]
@@ -97,7 +97,7 @@ class TestMarkPrefixingCorrectness:
         timeline = PerfTimeline(enabled=True)
         rc = _make_run_context(job_name, timeline)
 
-        rc.perf_mark_end(mark_name)
+        rc.events.perf_mark_end(mark_name)
 
         report = timeline.report()
         recorded_names = [name for name, _ in report.marks]

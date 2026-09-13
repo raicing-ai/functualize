@@ -165,7 +165,7 @@ def _has_config_declaration(plugin: Any) -> bool:
 def _resolve_plugin_config(plugin: Any, app: Any) -> Any:
     """Resolve a plugin's config model through the app's Resolution_Chain.
 
-    Uses the same `app.resolve_model()` mechanism used by the framework
+    Uses the same `app.configuration.resolve_model()` mechanism used by the framework
     for job configs, ensuring identical resolution semantics.
 
     Args:
@@ -177,7 +177,7 @@ def _resolve_plugin_config(plugin: Any, app: Any) -> Any:
     """
     section: str = plugin.config_section
     model_cls: type[Any] = plugin.config_model
-    return app.resolve_model(section, model_cls)
+    return app.configuration.resolve_model(section, model_cls)
 
 
 # --- Topological Sort ---
@@ -666,7 +666,8 @@ class PluginLoader:
 
         Resolution order:
         1. Try [tool.functualize] plugins_directories from app._resolution_chain
-        2. Fall back to convention directory: .functualize/plugins/ in CWD
+        2. Fall back to convention directory: .functualize/plugins/ in CWD,
+           unless the app's ``PluginSources.ambient_directory`` is False
         3. Return empty list if neither is available
 
         Args:
@@ -688,7 +689,15 @@ class PluginLoader:
             except Exception:
                 logger.debug("Could not resolve plugins_directories from config")
 
-        # Convention fallback: .functualize/plugins/ in CWD
+        # Convention fallback: .functualize/plugins/ in CWD.
+        #
+        # Implicit, so a caller that asked for one file rather than a project
+        # can decline it (`PluginSources.ambient_directory`). The config-read
+        # above is unaffected — a declared directory stays declared.
+        sources = getattr(app, "_plugin_sources", None)
+        if sources is not None and not getattr(sources, "ambient_directory", True):
+            return []
+
         convention = Path.cwd() / ".functualize" / "plugins"
         if convention.is_dir():
             return [str(convention)]

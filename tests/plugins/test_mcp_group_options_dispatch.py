@@ -12,9 +12,12 @@ schema alone cannot tell the two kinds of argument apart at call time.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from functualize_mcp._server import _execute_job
+
+if TYPE_CHECKING:
+    from functualize.types import RunRequest
 
 
 class _RecordingApp:
@@ -23,14 +26,10 @@ class _RecordingApp:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, Any], dict[str, Any] | None]] = []
 
-    def execute(
-        self,
-        job_name: str,
-        *,
-        group_option_values: dict[str, Any] | None = None,
-        **kwargs: Any,
-    ) -> Any:
-        self.calls.append((job_name, kwargs, group_option_values))
+    def execute(self, request: RunRequest) -> Any:
+        self.calls.append(
+            (request.job_name, request.kwargs, request.group_option_values)
+        )
         return type(
             "Result",
             (),

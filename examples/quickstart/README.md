@@ -8,7 +8,7 @@ Working examples for each step in the [README Quick Start](../../README.md#quick
 |-----------|-------------|-------------|
 | `step1_basic/` | Step 1 | Run a Python script — basic RunContext, rc.log() |
 | `step2_config/` | Step 2 | Typed configuration — Pydantic models, config resolution |
-| `step3_invoke/` | Step 3 | Invoke + phase tracking — rc.invoke(), rc.track_phase() |
+| `step3_invoke/` | Step 3 | Invoke + phase tracking — rc.invoke(), rc.events.track_phase() |
 | `step4_tui/` | Step 4 | Browse and run jobs interactively — the inline TUI (bare `func`) |
 | `step5_ai/` | Step 5 | AI with structured output — ai.complete() + response_model (MockAI, no keys) |
 | `step6_mcp/` | Step 6 | Expose jobs to AI agents — `@job(visibility=...)` + `func mcp serve` |

@@ -27,22 +27,43 @@ reaches ``END`` — is not here; it belongs to the workflow *job*, not the walk.
 
 from __future__ import annotations
 
+import logging
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from functualize._engine.frontier import END as _FRONTIER_END
-from functualize._engine.frontier import FrontierWalk, GraphModel, WalkState, step_key
+from functualize._engine.frontier import (
+    TERMINAL_SUCCESS,
+    FrontierWalk,
+    GraphModel,
+    StepStatus,
+    WalkState,
+    step_key,
+)
+from functualize._engine.loop_state import current_iteration, iteration_step_key
 from functualize._primitives.graph import descendants
-from functualize._types.workflow import ConditionalEdge, Gate
+from functualize._types.errors import ScopeCancelledError
+from functualize._types.workflow import (
+    END,
+    AgentStep,
+    ConditionalEdge,
+    Gate,
+    Loop,
+    Notification,
+    Notify,
+    OnFailure,
+    Step,
+    _EndSentinel,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from functualize._primitives.state_store import StateStore
-    from functualize._types.workflow import WorkflowDeclaration, _EndSentinel
+    from functualize._primitives.scope_store import ScopeStore
+    from functualize._types.protocols import AgentStepResult
+    from functualize._types.workflow import WorkflowDeclaration
 
 __all__ = [
     "StepBlocked",
@@ -52,6 +73,9 @@ __all__ = [
     "WorkflowWalker",
     "graph_model_of",
 ]
+
+
+logger = logging.getLogger(__name__)
 
 
 class StepBlocked(Exception):  # noqa: N818 — deliberately not an "Error"
@@ -103,6 +127,12 @@ class WalkOutcome(Enum):
     COMPLETED = "completed"
     BLOCKED = "blocked"
     FAILED = "failed"
+    #: The scope was taken from this walk while it was running — cancelled, or
+    #: reclaimed by another runner (`durable-run-layer`/T7). Distinct from
+    #: FAILED, because nothing about the *work* went wrong: this walk simply no
+    #: longer owns the scope, and reporting it as a failure would send someone
+    #: looking for a bug in their job.
+    SUPERSEDED = "superseded"
 
 
 @dataclass(frozen=True)
@@ -141,6 +171,42 @@ class WalkReport:
         return self.outcome is WalkOutcome.COMPLETED
 
 
+@dataclass(frozen=True)
+class _NodeRun:
+    """What servicing one node produced, for the loop's common tail.
+
+    A handler either returns one of these — the node ran (or replayed) and the
+    walk continues past it — or a `WalkReport`, which means the node ended the
+    walk. That is the whole contract between the loop and a node kind, and it
+    is why adding a kind does not touch the loop.
+    """
+
+    value: Any
+    inputs: dict[str, Any] | None = None
+    replayed: bool = False
+    #: Where a **failed** node's declared `OnFailure` sends the walk, or None.
+    #:
+    #: Carried on the run rather than routed inside the handler because the
+    #: loop owns what goes on the queue — a handler that queued its own
+    #: successor would be a second place deciding where the walk goes next.
+    failure_route: str | None = None
+
+
+@dataclass
+class _Ledger:
+    """The walk's running account: what ran, what replayed, what it produced.
+
+    One object rather than three arguments, because a handler that ends the
+    walk (a block, a nested block) has to carry the account *as it stands* into
+    the report it builds. Handing over the lists themselves would make that a
+    copy the loop could later diverge from.
+    """
+
+    executed: list[str] = field(default_factory=list)
+    replayed: list[str] = field(default_factory=list)
+    results: dict[str, Any] = field(default_factory=dict)
+
+
 def graph_model_of(declaration: WorkflowDeclaration) -> GraphModel:
     """Compile a declaration into the shared graph model (§A.7 one-engine rule).
 
@@ -151,6 +217,11 @@ def graph_model_of(declaration: WorkflowDeclaration) -> GraphModel:
     """
     edges: dict[str, list[str]] = {}
     conditional: dict[str, dict[str, str]] = {}
+    # Names only: the walk asks "is this one of them?", never "what kind of node
+    # is this?" — the same reason the graph carries edges rather than `Step`s.
+    effecting = frozenset(
+        node.name for node in declaration.nodes if getattr(node, "effecting", False)
+    )
 
     for edge in declaration.edges:
         if isinstance(edge, ConditionalEdge):
@@ -164,6 +235,7 @@ def graph_model_of(declaration: WorkflowDeclaration) -> GraphModel:
         entry=declaration.entry or "",
         edges=edges,
         conditional=conditional,
+        effecting=effecting,
     )
 
 
@@ -185,58 +257,199 @@ class WorkflowWalker:
             makes an invocation a *resume*.
         run_step: Executes one `Step` by its node name and returns its value.
             Raising marks the step — and the walk — failed.
+        run_agent_step: Executes one `AgentStep`. The *runner* supplies it,
+            having already chosen and checked the executor against the step's
+            requirements; a walker built without one refuses an agent step
+            rather than recording a step that silently did nothing.
         workflow_name: Job name recorded on the scope, for observers.
         gate_registry: Resolution dispatch for gates. When None (default),
             gates always block.
         prompt_gates: When True, gates without an explicit strategy attempt
             prompt-before-block resolution.
+        emit: The event bus's `emit`, or None. **The walk's only observation
+            channel** (`workflow-graph-semantics`/T5): a watcher renders what
+            this emits and nothing else, rather than re-reading the scope and
+            working out what must have changed. None is the ordinary state for
+            a walker built in a test, and the bus itself returns before
+            building an event when nothing is subscribed — so a walk nobody is
+            watching costs one attribute check per node.
     """
 
     def __init__(
         self,
         declaration: WorkflowDeclaration,
-        store: StateStore,
+        store: ScopeStore,
         scope_id: str,
         *,
         run_step: Callable[[str], Any],
+        run_agent_step: Callable[[AgentStep], AgentStepResult] | None = None,
         workflow_name: str | None = None,
         gate_registry: Any = None,
         prompt_gates: bool = False,
+        max_workflow_depth: int | None = None,
+        emit: Callable[..., None] | None = None,
+        notifiers: Any = None,
     ) -> None:
         self._declaration = declaration
         self._store = store
         self._scope_id = scope_id
         self._run_step = run_step
+        self._run_agent_step = run_agent_step
         self._workflow_name = workflow_name
         self._graph = graph_model_of(declaration)
         self._predecessors = self._build_predecessors(declaration)
         self._walk = FrontierWalk(self._graph, store, scope_id)
         self._gate_registry = gate_registry
         self._prompt_gates = prompt_gates
+        self._emit = emit
+        self._notifiers = notifiers
+        #: None means "the default" — resolved in `workflow_validation` rather
+        #: than here, so the number lives in one place.
+        self._max_workflow_depth = max_workflow_depth
+        #: Which pass of a `Loop` the walk is on. Zero for every graph
+        #: that declares none, which is every graph before T2.
+        self._iteration = 0
 
     def run(self) -> WalkReport:
-        """Walk to `END`, to a gate with no input, or to a failure."""
+        """Walk to `END`, to a gate with no input, or to a failure.
+
+        **Holds a lease for the duration** (`durable-run-layer`/T7). Claiming is
+        what closes the concurrent-`resume` limitation 0.3.0 shipped knowingly:
+        a second walk on the same scope is refused here rather than advancing it
+        in parallel, and even if it somehow got past this, every write it made
+        would be fenced by its stale generation (T6).
+
+        Released in a `finally`, so a scope is claimable again the moment the
+        walk stops — including when it stops by raising. A walk that ended
+        without releasing would hold the scope until its lease expired, which
+        turns a crash into a five-minute wait for everyone else.
+        """
+        from functualize._primitives.lease import StaleGenerationError
+
+        self._walk.claim()
+        try:
+            self._check_the_nesting_is_bounded()
+            self._check_the_graph_has_not_changed()
+            report = self._run_walk()
+            self._say(
+                "walk.end", node=report.failed_node or "", outcome=report.outcome.value
+            )
+            self._notify(report)
+            return report
+        except StaleGenerationError:
+            # Someone took the scope while this walk was running — `cancel`
+            # does exactly that (AC-10). The walk stops where it is; it does
+            # **not** stamp a terminal status, because the holder that took the
+            # scope has already recorded what it wanted the scope to say.
+            #
+            # This is how cancel *wins* rather than merely arriving first. The
+            # fence alone would not do it: this walk's generation is current
+            # until something supersedes it, so its COMPLETED stamp would
+            # happily overwrite the cancellation.
+            logger.info(
+                "workflow scope %s was taken while walking; stopping", self._scope_id
+            )
+            # No `walk.end` here, deliberately. The scope belongs to whoever
+            # took it; appending to its log would be a write from a holder that
+            # has been fenced, and the event would claim this walk decided
+            # something about a scope it no longer owns.
+            return WalkReport(WalkOutcome.SUPERSEDED, self._scope_id)
+        finally:
+            self._walk.release()
+
+    def _check_the_nesting_is_bounded(self) -> None:
+        """Refuse a workflow nested deeper than the limit (T12, AC-18).
+
+        **Before the graph check and before any work**, because the cost this
+        bounds is the scope itself: a workflow that names itself as a step
+        type-checks, boots, and produces one scope per level until the disk
+        runs out. Checking after the first node would already have written one.
+
+        The depth is read from the scope id, where the nesting already lives —
+        a nested workflow's scope is `f"{parent}::{step}"`, so the separators
+        *are* the depth. A resumed walk in a fresh process has the id and
+        nothing else, and a threaded counter could disagree with it.
+        """
+        from functualize._engine.workflow_validation import check_workflow_depth
+
+        check_workflow_depth(self._scope_id, self._max_workflow_depth)
+
+    def _check_the_graph_has_not_changed(self) -> None:
+        """Refuse to advance a scope whose graph is not the one loaded (T11).
+
+        On first entry the digest is *recorded*; on every later entry it is
+        *compared*. Resuming against a changed graph would replay step records
+        against a different shape — a node that no longer exists, an edge that
+        now leads elsewhere, a gate whose answer has no step left to feed.
+
+        The digest is of the **graph projection**, never the file (decision K3,
+        risk R-g). A file digest refuses a resume when a docstring changes or an
+        unrelated job in the same module is edited, which is not a safety
+        property — it is a permanent annoyance that teaches people to bypass
+        the check.
+
+        Nothing is destroyed by the refusal: the records stay, the scope stays
+        readable, and only *advancing* stops.
+        """
+        from functualize._engine.workflow_validation import (
+            WorkflowGraphChangedError,
+            graph_digest,
+        )
+
+        current = graph_digest(self._declaration)
+        if not current:
+            return
+        recorded = self._store.get_graph_digest(self._scope_id)
+        if not recorded:
+            # First entry, or a scope parked before this check existed — the
+            # legacy-mapping path (AC-17). Record and proceed; refusing here
+            # would strand every walk that was already waiting.
+            self._store.set_graph_digest(self._scope_id, current)
+            return
+        if recorded != current:
+            raise WorkflowGraphChangedError(self._scope_id, recorded, current)
+
+    def _run_walk(self) -> WalkReport:
+        """The walk itself. See `run` for the lease that wraps it."""
         self._walk.start(self._workflow_name)
+        self._say("walk.start", node=self._declaration.entry or "")
 
         entry = self._declaration.entry
         if entry is None:  # an empty graph is already at its end
             self._store.set_scope_status(self._scope_id, WalkState.COMPLETED)
             return WalkReport(WalkOutcome.COMPLETED, self._scope_id)
 
-        pending: deque[str] = deque([entry])
-        visited: set[str] = set()
-        executed: list[str] = []
-        replayed: list[str] = []
-        results: dict[str, Any] = {}
+        # **Keyed by node and iteration**, not by node
+        # (`workflow-graph-semantics`/T2). Both failure modes here are silent,
+        # which is why the test asserts them in one body: keyed by node alone,
+        # a loop's second pass is pruned and looks like a condition that was
+        # false; keyed by iteration alone, a diamond join runs once per branch
+        # and looks like a flaky step.
+        # **The iteration travels with the queued work**, not as a cursor the
+        # loop advances. A diamond join is queued once per branch, and a cursor
+        # incremented when the loop's source finished would give the join's two
+        # arrivals different iterations — so the second would not be pruned and
+        # the join would run twice in one pass. Measured, not reasoned about:
+        # that was the first version, and `test_the_loop_repeats_and_the_join_
+        # still_runs_once_per_pass` caught it.
+        start = self._resume_iteration()
+        pending: deque[tuple[str, int]] = deque([(entry, start)])
+        visited: set[tuple[str, int]] = set()
+        ledger = _Ledger()
 
-        step_inputs: dict[str, dict[str, Any]] = {}
         deferrals = 0
         while pending:
-            name = pending.popleft()
-            # A diamond join is reached once per branch but must run once.
-            if name in visited:
+            name, iteration = pending.popleft()
+            self._iteration = iteration
+            # A diamond join is reached once per branch but must run once —
+            # *per iteration*. Two arrivals in one pass share an iteration and
+            # the second is pruned; the next time round the loop the pair is
+            # new and is not.
+            if (name, iteration) in visited:
                 continue
-            if deferrals <= len(pending) and not self._ready(name, pending):
+            if deferrals <= len(pending) and not self._ready(
+                name, deque(queued for queued, _ in pending)
+            ):
                 # A join whose other branch is still in flight. Breadth-first
                 # order is not a topological order — on an asymmetric diamond
                 # (a→b→c→join vs d→join) the short branch would otherwise run
@@ -246,11 +459,11 @@ class WorkflowWalker:
                 # deferred once with nothing running in between, they are
                 # waiting on each other (a cycle), and one edge out of order
                 # beats spinning forever.
-                pending.append(name)
+                pending.append((name, iteration))
                 deferrals += 1
                 continue
             deferrals = 0
-            visited.add(name)
+            visited.add((name, iteration))
 
             node = self._declaration.node(name)
             if node is None:
@@ -258,100 +471,357 @@ class WorkflowWalker:
                 # declaration changed under a live scope rather than a typo.
                 return self._fail(name, f"unknown node {name!r} in the graph")
 
-            if isinstance(node, Gate):
-                payload = self._walk.gate_payload(node.name)
-                blocked_reason = ""
-                if payload is None:
-                    strategies = _gate_strategy_list(node, self._prompt_gates)
-                    if strategies is not None and self._gate_registry is not None:
-                        from functualize._types.errors import GateResolutionError
+            # The table *is* the dispatch: the loop never asks what kind of
+            # node it is holding, and a fourth kind is a handler registered in
+            # `_NODE_HANDLERS` rather than an edit here. A kind with no handler
+            # is refused by name, never run as whichever of the others it most
+            # resembles.
+            handler = _NODE_HANDLERS.get(type(node))
+            if handler is None:
+                return self._fail(
+                    name, f"no handler for node kind {type(node).__name__!r}"
+                )
 
-                        try:
-                            model = self._gate_registry.resolve_gate(
-                                node.awaits,
-                                gate_strategy=strategies,
-                                gate_name=node.name,
-                            )
-                            payload = model.model_dump()
-                            self._walk.block(
-                                node.name,
-                                node.name,
-                                model=getattr(node.awaits, "__name__", ""),
-                                input_schema=node.awaits.model_json_schema(),
-                                tools=[
-                                    {"tool": spec.name, "bound": sorted(spec.bound)}
-                                    for spec in node.tool_specs()
-                                ],
-                                blocked_at=_now(),
-                            )
-                            self._store.deposit_gate_payload(
-                                self._scope_id, node.name, payload
-                            )
-                        except GateResolutionError as exc:
-                            # Every rung of the ladder failed. That is a block,
-                            # not a crash — but "blocked on triage" alone reads
-                            # identically to a gate waiting by design, so carry
-                            # the reason. `last_error` names the unregistered
-                            # strategies and the package each one needs
-                            # (`_gate/_strategy.STRATEGY_PROVIDERS`), which is
-                            # the difference between "wait for a human" and
-                            # "pip install functualize-ai".
-                            blocked_reason = exc.last_error
-                if payload is None:
-                    self._block(node)
-                    return WalkReport(
-                        WalkOutcome.BLOCKED,
-                        self._scope_id,
-                        tuple(executed),
-                        tuple(replayed),
-                        blocked_reason=blocked_reason,
-                        blocked_on=node.name,
-                        results=results,
-                    )
-                value: Any = payload
-                replayed.append(name)
+            self._say("step.start", node=name, iteration=iteration)
+            run = handler(self, node, name, ledger)
+            if isinstance(run, WalkReport):
+                # Blocked or failed. The *step* is reported here, beside every
+                # other step outcome, rather than at each of the places that
+                # can produce one — a watcher that had to learn a second shape
+                # for "this node stopped" would render the common case and miss
+                # the two that matter.
+                self._say(
+                    "step.end",
+                    node=name,
+                    iteration=iteration,
+                    outcome=run.outcome.value,
+                )
+                return run
+            self._say(
+                "step.end",
+                node=name,
+                iteration=iteration,
+                outcome="replayed" if run.replayed else "executed",
+            )
+            if run.replayed:
+                ledger.replayed.append(name)
             else:
-                record = self._store.get_step(self._scope_id, _key(name))
-                if record is not None and record.get("status") == "success":
-                    value = record.get("return_value")
-                    replayed.append(name)
-                else:
-                    try:
-                        outcome = self._run_step(name)
-                    except StepBlocked as blocked:
-                        # A nested workflow stopped at a gate. The parent
-                        # blocks *here*, without recording the step as
-                        # finished, so resuming the child and re-entering
-                        # replays up to this node and carries on.
-                        self._store.set_position(self._scope_id, name)
-                        self._store.set_scope_status(self._scope_id, WalkState.BLOCKED)
-                        return WalkReport(
-                            WalkOutcome.BLOCKED,
-                            self._scope_id,
-                            tuple(executed),
-                            tuple(replayed),
-                            blocked_on=blocked.blocked_on,
-                            results=results,
-                        )
-                    except Exception as exc:  # a step failure stops the walk
-                        return self._fail(name, f"{type(exc).__name__}: {exc}")
-                    if isinstance(outcome, StepOutcome):
-                        value, step_inputs[name] = outcome.value, outcome.inputs
-                    else:
-                        value = outcome
-                    executed.append(name)
-
-            results[name] = value
-            pending.extend(self._advance(name, value, step_inputs.get(name, {})))
+                ledger.executed.append(name)
+            ledger.results[name] = run.value
+            # Say "still here" at every node boundary. Without this the lease
+            # becomes a step time limit: a step slower than the lease would see
+            # its own scope go claimable while it was still working.
+            #
+            # Between nodes rather than during one, because that is where the
+            # walk is between two committed states — and because nothing here
+            # can interrupt a step anyway (`exec_policy` §1).
+            self._walk.renew()
+            if run.failure_route is not None:
+                # A routed failure does not advance the frontier: the node did
+                # not succeed, so nothing downstream of it is unblocked. Only
+                # the declared route is queued, and the step keeps its `failed`
+                # record so a resume replays to the same place.
+                self._record_routed_failure(name)
+                if run.failure_route != _ROUTED_TO_END:
+                    pending.append((run.failure_route, iteration))
+                continue
+            pending.extend(
+                (nxt, iteration) for nxt in self._advance(name, run.value, run.inputs)
+            )
+            back = self._loop_back(name, run.value, iteration)
+            if back is not None:
+                pending.append((back, iteration + 1))
 
         self._store.set_scope_status(self._scope_id, WalkState.COMPLETED)
         return WalkReport(
             WalkOutcome.COMPLETED,
             self._scope_id,
-            tuple(executed),
-            tuple(replayed),
-            results=results,
+            tuple(ledger.executed),
+            tuple(ledger.replayed),
+            results=ledger.results,
         )
+
+    # ------------------------------------------------------------------
+    # One handler per node kind
+    # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # Loops
+    # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # Failure routing
+    # ------------------------------------------------------------------
+
+    def _record_routed_failure(self, name: str) -> None:
+        """Record the node as failed, without marking the scope failed.
+
+        The step record still says `failed` — it is what happened, and a
+        resume replays to exactly this node. What does *not* happen is the
+        scope status change: the walk is continuing down a declared route, and
+        a workflow that recovers is not a failed workflow.
+        """
+        self._store.record_step(
+            self._scope_id,
+            self._key(name),
+            {
+                "status": StepStatus.FAILED,
+                "return_value": None,
+                "completed_at": _now(),
+            },
+        )
+
+    def _failure_route(self, name: str, exc: BaseException) -> str | None:
+        """Where ``name``'s failure goes, or None to stop the walk.
+
+        None is the answer for every node that declares no `OnFailure`, which
+        is every node in every workflow written before this — and the comment
+        on the `except` that calls this still reads *"a step failure stops the
+        walk"*, because for them it does.
+
+        **The chosen route is recorded and read back**, never re-evaluated.
+        That is the property `_choice_for` already holds for `ConditionalEdge`,
+        extended rather than reinvented, and the reason is sharper here: a
+        failure predicate is exactly the kind that pages somebody, so calling
+        it again on replay would page them again for a decision already made.
+
+        Recorded under the node's name in the same branch record a conditional
+        uses, so one resume reads one fact — a second store of routes would be
+        a second thing to keep in agreement.
+
+        Returns:
+            The node to continue at; :data:`_ROUTED_TO_END` when the failure is
+            routed to `END`; or None when nothing routed it and the walk should
+            stop. **Three answers, not two** — "routed, and the route was to
+            finish" and "no route" are different, and collapsing them made a
+            declared `OnFailure(..., target=END)` fail the walk.
+        """
+        recorded = self._store.get_branch(self._scope_id, _failure_branch(name))
+        if recorded is not None:
+            return str(recorded)
+
+        for edge in self._declaration.outgoing(name):
+            if not isinstance(edge, OnFailure):
+                continue
+            if edge.when is not None and not edge.when(exc):
+                continue
+            target = _ROUTED_TO_END if _is_end(edge.target) else str(edge.target)
+            self._store.record_branch(self._scope_id, _failure_branch(name), target)
+            return target
+
+        # Nothing routed it. **Not recorded**: a node with no `OnFailure` has
+        # made no decision, and writing "no route" for it would put a fact in
+        # the store that a later declaration change should be free to alter.
+        return None
+
+    def _key(self, name: str) -> str:
+        """Step-record key for ``name`` on the pass the walk is currently on.
+
+        Iteration 0 is the key this node has always had, so a graph with no
+        `Loop` is byte-identical in the store.
+        """
+        return iteration_step_key(name, self._iteration)
+
+    def _loops(self) -> tuple[Loop, ...]:
+        """Every `Loop` edge in the declaration."""
+        return tuple(e for e in self._declaration.edges if isinstance(e, Loop))
+
+    def _resume_iteration(self) -> int:
+        """The iteration this walk is entering, derived from the records.
+
+        Derived rather than carried alongside — the same argument
+        `workflow_depth` makes for reading nesting out of a scope id: a resumed
+        walk in a fresh process has the records and nothing else, and two
+        sources for one fact can disagree.
+
+        **This is an optimization, not a correctness requirement**, and saying
+        so is the honest version. Starting every resumed walk at 0 produces the
+        same executions, because replay skips finished work anyway — measured:
+        replacing this with `return 0` failed no test, which is what sent
+        anyone to look. What it changes is how much replaying happens first: a
+        loop resumed at iteration 900 of 1000 otherwise re-reads 900
+        iterations' records before reaching live work, on every resume.
+
+        The property that survives is therefore about *replay*, and that is
+        what `test_a_resume_does_not_replay_iterations_it_has_finished` asserts
+        — not that the loop continues, which replay guarantees on its own.
+
+        Zero when the graph has no loop, which is every graph that existed
+        before this feature.
+        """
+        loops = self._loops()
+        if not loops:
+            return 0
+        # The furthest any loop has got. A graph with two loops sharing one
+        # counter is a known simplification — see `_loop_back`.
+        return max(
+            current_iteration(
+                self._store, self._scope_id, loop.target, loop.max_iterations
+            )
+            for loop in loops
+        )
+
+    def _loop_back(self, name: str, value: Any, iteration: int) -> str | None:
+        """The node to return to, or None to carry on out of the loop.
+
+        Three things stop a loop, and the order matters:
+
+        1. **No `Loop` leaves this node** — nothing to decide.
+        2. **The bound is reached.** Checked before the condition, so a
+           runaway condition costs one extra pass rather than an outage, and
+           so the bound means what a reader thinks it means: *at most* this
+           many.
+        3. **The condition says no.** Called with the source node's return
+           value, exactly as `ConditionalEdge` is.
+
+        **One counter for the whole walk**, which is a simplification worth
+        naming: two loops in one graph advance the same iteration, so an inner
+        loop's passes also count against an outer one's `visited` keys. It is
+        correct — nothing runs twice with one key, and nothing legal is pruned
+        — but the iteration numbers in the records will read oddly for nested
+        loops. A per-loop counter is the honest fix and needs a second identity
+        on the record; no shipped graph nests loops, so it is recorded rather
+        than guessed at.
+        """
+        for loop in self._loops():
+            if loop.source != name:
+                continue
+            if iteration + 1 >= loop.max_iterations:
+                return None
+            if loop.condition is not None and not loop.condition(value):
+                return None
+            return str(loop.target)
+        return None
+
+    def _service_gate(
+        self,
+        node: Gate,
+        name: str,
+        ledger: _Ledger,
+    ) -> _NodeRun | WalkReport:
+        """A gate: replay its deposited payload, resolve it, or block here."""
+        payload = self._walk.gate_payload(node.name)
+        blocked_reason = ""
+        if payload is None:
+            strategies = _gate_strategy_list(node, self._prompt_gates)
+            if strategies is not None and self._gate_registry is not None:
+                from functualize._types.errors import GateResolutionError
+
+                try:
+                    model = self._gate_registry.resolve_gate(
+                        node.awaits,
+                        gate_strategy=strategies,
+                        gate_name=node.name,
+                    )
+                    payload = model.model_dump()
+                    self._walk.block(
+                        node.name,
+                        node.name,
+                        model=getattr(node.awaits, "__name__", ""),
+                        input_schema=node.awaits.model_json_schema(),
+                        tools=[
+                            {"tool": spec.name, "bound": sorted(spec.bound)}
+                            for spec in node.tool_specs()
+                        ],
+                        blocked_at=_now(),
+                    )
+                    self._store.deposit_gate_payload(self._scope_id, node.name, payload)
+                except GateResolutionError as exc:
+                    # Every rung of the ladder failed. That is a block,
+                    # not a crash — but "blocked on triage" alone reads
+                    # identically to a gate waiting by design, so carry
+                    # the reason. `last_error` names the unregistered
+                    # strategies and the package each one needs
+                    # (`_gate/_strategy.STRATEGY_PROVIDERS`), which is
+                    # the difference between "wait for a human" and
+                    # "pip install functualize-ai".
+                    blocked_reason = exc.last_error
+        if payload is None:
+            self._block(node)
+            return WalkReport(
+                WalkOutcome.BLOCKED,
+                self._scope_id,
+                tuple(ledger.executed),
+                tuple(ledger.replayed),
+                blocked_reason=blocked_reason,
+                blocked_on=node.name,
+                results=ledger.results,
+            )
+        return _NodeRun(payload, replayed=True)
+
+    def _service_step(
+        self,
+        node: Step,
+        name: str,
+        ledger: _Ledger,
+    ) -> _NodeRun | WalkReport:
+        """A step: replay its recorded value, or run the job it names."""
+        record = self._store.get_step(self._scope_id, self._key(name))
+        if record is not None and record.get("status") in TERMINAL_SUCCESS:
+            return _NodeRun(record.get("return_value"), replayed=True)
+        try:
+            outcome = self._run_step(name)
+        except StepBlocked as blocked:
+            # A nested workflow stopped at a gate. The parent
+            # blocks *here*, without recording the step as
+            # finished, so resuming the child and re-entering
+            # replays up to this node and carries on.
+            self._store.set_position(self._scope_id, name)
+            self._store.set_scope_status(self._scope_id, WalkState.BLOCKED)
+            return WalkReport(
+                WalkOutcome.BLOCKED,
+                self._scope_id,
+                tuple(ledger.executed),
+                tuple(ledger.replayed),
+                blocked_on=blocked.blocked_on,
+                results=ledger.results,
+            )
+        except ScopeCancelledError as stopped:
+            # **Before** the broad arm, which is what keeps a cancellation out
+            # of `OnFailure`'s reach. A declared route recovers from a failure;
+            # a human stopping a workflow is not a failure to recover from, and
+            # routing past it would let a graph walk on through the stop.
+            return self._cancelled(name, stopped)
+        except Exception as exc:  # a step failure stops the walk
+            routed = self._failure_route(name, exc)
+            if routed is None:
+                return self._fail(name, f"{type(exc).__name__}: {exc}")
+            return _NodeRun(None, failure_route=routed)
+        if isinstance(outcome, StepOutcome):
+            return _NodeRun(outcome.value, inputs=outcome.inputs)
+        return _NodeRun(outcome)
+
+    def _service_agent(
+        self,
+        node: AgentStep,
+        name: str,
+        ledger: _Ledger,
+    ) -> _NodeRun | WalkReport:
+        """An agent step: replay its recorded value, or delegate to an executor.
+
+        The executor was chosen and checked against the step's requirements in
+        ``WorkflowRunner.prelude``, before this walk started — so a missing
+        executor cannot reach here, and nothing is resolved twice.
+        """
+        record = self._store.get_step(self._scope_id, self._key(name))
+        if record is not None and record.get("status") in TERMINAL_SUCCESS:
+            return _NodeRun(record.get("return_value"), replayed=True)
+        if self._run_agent_step is None:
+            # A walker built by hand with no executor door. Refused rather than
+            # skipped: a step that silently records nothing is worse than one
+            # that says why it did not run.
+            return self._fail(
+                name,
+                "no agent step executor is reachable from this walk "
+                "(WorkflowRunner supplies the registered one)",
+            )
+        try:
+            result = self._run_agent_step(node)
+        except ScopeCancelledError as stopped:
+            return self._cancelled(name, stopped)
+        except Exception as exc:  # an executor failure stops the walk
+            return self._fail(name, f"{type(exc).__name__}: {exc}")
+        return _NodeRun(result.value)
 
     # ------------------------------------------------------------------
     # Internals
@@ -402,6 +872,7 @@ class WorkflowWalker:
         return self._walk.complete(
             name,
             choice=self._choice_for(name, value),
+            args_hash=_iteration_hash(self._iteration),
             return_value=value,
             inputs=inputs,
             completed_at=_now(),
@@ -439,16 +910,119 @@ class WorkflowWalker:
             blocked_at=_now(),
         )
 
-    def _fail(self, node: str, error: str) -> WalkReport:
-        """Record a failed node and stop the walk."""
-        with self._store.scope_batch():
+    def _notify(self, report: WalkReport) -> None:
+        """Fire the declared notifications for the status the walk ended in.
+
+        **The outbox, applied to an effect that is not a step.** The record
+        that a notification fired is committed *before* the provider is called,
+        so a crash can lose one and can never send one twice — at-most-once, in
+        the direction that matters: a resumed workflow must not page the
+        on-call again for a failure they have already seen. That is
+        `Step(effecting=True)`'s rule, with the same asymmetry and the same
+        reason.
+
+        Recorded in the scope's **branch** store, where `OnFailure` already
+        keeps its chosen route (T3): one place a resume reads one kind of fact
+        — *this scope decided this once* — rather than a second store to keep
+        in agreement. Namespaced with a NUL, so it cannot collide with a node.
+
+        Read from the store rather than from the report, because the scope
+        status is what a `Notify` declares on and what the walk actually wrote;
+        `WalkOutcome` is a different vocabulary and `FAILED` covers both a
+        failure and a cancellation.
+
+        Still inside the lease — `run` releases in a `finally` after this — so a
+        walk that no longer owns the scope cannot mark a notification sent on
+        somebody else's behalf.
+        """
+        if self._notifiers is None or not self._declaration.notify:
+            return
+        scope = self._store.get_scope(self._scope_id) or {}
+        status = str(scope.get("status") or "")
+        for declared in self._declaration.notifications_for(status):
+            key = _notify_key(declared)
+            if self._store.get_branch(self._scope_id, key) is not None:
+                continue
+            self._store.record_branch(self._scope_id, key, "sent")
+            self._notifiers.deliver(
+                declared,
+                Notification(
+                    to=declared.to,
+                    scope_id=self._scope_id,
+                    workflow=self._workflow_name or scope.get("workflow"),
+                    status=status,
+                    node=report.failed_node or report.blocked_on or None,
+                ),
+            )
+
+    def _say(self, action: str, **payload: Any) -> None:
+        """Emit one walk event, or do nothing when nothing is wired.
+
+        **The walk's only observation channel** (spec AC-11). Everything a
+        watcher renders arrives this way: nothing re-reads the scope record and
+        works out what must have changed, because a difference between two
+        snapshots is a guess about what happened between them — it cannot tell
+        a node that ran from one that was replayed, and it misses anything that
+        started and finished inside one read.
+
+        Two cheap exits, in order. `self._emit is None` is the ordinary state
+        of a walker built in a test. Past it, the bus returns before it builds
+        an event object when nothing is subscribed, which is what makes a walk
+        nobody is watching cost an attribute check per node.
+
+        Named `_say` rather than `_emit` so the method and the attribute it
+        guards are not one underscore apart.
+        """
+        if self._emit is None:
+            return
+        self._emit(
+            f"workflow.{action}",
+            resource=self._workflow_name or self._scope_id,
+            scope_id=self._scope_id,
+            **payload,
+        )
+
+    def _cancelled(self, node: str, stopped: ScopeCancelledError) -> WalkReport:
+        """Stop because a human did, and say so on the record.
+
+        A step reaches this when the workflow it names was cancelled —
+        `WorkflowRunner.prelude` refuses a cancelled scope, and the orchestrator
+        re-raises the step's own exception rather than a wrapper, so the
+        refusal arrives here intact.
+
+        Recorded as a failure it was indistinguishable from a bug in the job,
+        and `ScopeCancelledError`'s own docstring says there is no `--force`
+        and no un-cancel — so the retry it invited could never work.
+        """
+        return self._fail(node, str(stopped), status=StepStatus.CANCELLED)
+
+    def _fail(
+        self, node: str, error: str, *, status: str = StepStatus.FAILED
+    ) -> WalkReport:
+        """Record a stopped node and stop the walk.
+
+        The step outcome and the scope status move together, through
+        :data:`_SCOPE_STATUS_FOR`. They have to: a scope left `failed` because
+        its child was cancelled is a scope someone will retry, and every retry
+        re-enters the child and re-raises the same cancellation. An outcome
+        with no scope meaning — `timed_out`, which is recorded by whoever takes
+        a scope over and is not a verdict on the workflow — cannot reach here,
+        and the mapping raises rather than inventing one.
+
+        The `WalkOutcome` stays `FAILED` either way, and deliberately: the walk
+        did not reach its end, which is what that enum reports, and every
+        surface turns a non-completed walk into a non-zero run. *Why* it
+        stopped is on the step and on the scope, which is where both a human
+        and a resume look.
+        """
+        with self._store.batch():
             self._store.record_step(
                 self._scope_id,
-                _key(node),
-                {"status": "failed", "return_value": None, "completed_at": _now()},
+                self._key(node),
+                {"status": status, "return_value": None, "completed_at": _now()},
             )
             self._store.set_position(self._scope_id, node)
-            self._store.set_scope_status(self._scope_id, "failed")
+            self._store.set_scope_status(self._scope_id, _SCOPE_STATUS_FOR[status])
         return WalkReport(
             WalkOutcome.FAILED,
             self._scope_id,
@@ -457,18 +1031,60 @@ class WorkflowWalker:
         )
 
 
+def _iteration_hash(iteration: int) -> str:
+    """The args-hash component that separates one loop pass from the next.
+
+    Empty at iteration 0, so a workflow with no `Loop` writes exactly the
+    records it wrote before this feature and nothing is migrated.
+    """
+    return "" if iteration == 0 else f"loop{iteration}"
+
+
 def _key(name: str) -> str:
-    """Step-record key for a node.
+    """Step-record key for a node on the first iteration.
 
     The args hash is empty because a `Step` takes no arguments — it names a
     registered job and that job's own declaration supplies everything else
     (§A.7). Matrix instances differ by *name*, not by args.
+
+    Loop iterations differ by args hash, which is why
+    :meth:`WorkflowWalker._key` exists beside this: the walk knows which pass
+    it is on, and a module-level function cannot.
     """
     return step_key(name, "")
 
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+#: One node kind's handler: the walker, the node, its graph key, the ledger.
+#:
+#: The node is ``Any`` because each handler narrows it to its own kind — the
+#: table is keyed by class and the loop hands the node straight through.
+_NodeHandler = Callable[[WorkflowWalker, Any, str, _Ledger], _NodeRun | WalkReport]
+
+#: The node dispatch: node class → the handler that services it.
+#:
+#: This table replaced the type test that used to sit inside the walk loop,
+#: asking whether each node was a gate and treating everything else as a step
+#: (AC-10). The loop now looks a node's class up here and never asks what kind
+#: it is holding, so a fourth node kind is a handler plus a row **here** — not
+#: an edit to the walk's mechanics, which are load-bearing for diamond joins and
+#: for resume. A class absent from the table is refused by name.
+#:
+#: "Here", not everywhere: two other places also enumerate the node kinds —
+#: `workflow/_validation.py::_NODE_TYPES` and `_types/workflow.py::_node_kind`.
+#: The claim above was written as though this table were the only one, which it
+#: is not (asp A-1). What keeps the three from drifting is
+#: `tests/workflow/test_node_kind_registries_agree.py`, which asserts they name
+#: the same set in both directions, so a fourth kind added to one of them fails
+#: until it reaches the other two.
+_NODE_HANDLERS: dict[type, _NodeHandler] = {
+    Gate: WorkflowWalker._service_gate,
+    Step: WorkflowWalker._service_step,
+    AgentStep: WorkflowWalker._service_agent,
+}
 
 
 def _gate_strategy_list(gate: Gate, prompt_gates: bool) -> list[str] | None:
@@ -482,3 +1098,56 @@ def _gate_strategy_list(gate: Gate, prompt_gates: bool) -> list[str] | None:
     if declared is not None:
         return [declared]  # unknown strategy → try it, fall through to block
     return ["prompt", "resolve"] if prompt_gates else None
+
+
+#: Recorded when an `OnFailure` routes to `END`.
+#:
+#: A sentinel string rather than `None`, because the branch record has to tell
+#: "this failure was routed, and the route was to finish" apart from "no route
+#: was ever recorded" — and a resume reads that record instead of calling the
+#: predicate again. Collapsing the two made a declared `OnFailure(target=END)`
+#: fail the walk, which the test for it caught.
+#:
+#: A NUL prefix so it cannot collide with a node name: node names are
+#: identifier-ish, and nothing that reaches a graph can contain one.
+_ROUTED_TO_END = "\x00end"
+
+#: The scope status a *stopped* step implies.
+#:
+#: A table rather than reusing the step outcome directly, even though these two
+#: happen to be spelled the same in both vocabularies. `StepStatus` and the
+#: scope's statuses are separate on purpose (`frontier.StepStatus`), and an
+#: outcome with no scope meaning must raise here rather than quietly becoming
+#: one — `timed_out` is recorded by whoever takes a scope over, which is not a
+#: verdict on the workflow and has no business stamping it.
+_SCOPE_STATUS_FOR: dict[str, str] = {
+    StepStatus.FAILED: "failed",
+    StepStatus.CANCELLED: "cancelled",
+}
+
+
+def _notify_key(declared: Notify) -> str:
+    """The branch-record key one notification's delivery is recorded under.
+
+    NUL-namespaced away from node names for `_failure_branch`'s reason, and
+    keyed by the declaration's **content** rather than its position: a workflow
+    that gains a second `Notify` must not make the first one fire again by
+    shifting an index.
+    """
+    return f"\x00notify\x00{declared.key}"
+
+
+def _failure_branch(name: str) -> str:
+    """The branch-record key a node's failure route is stored under.
+
+    Namespaced away from the node's own name so a node that has *both* a
+    `ConditionalEdge` and an `OnFailure` keeps two distinct records — one for
+    which branch it took when it succeeded, one for where it went when it did
+    not.
+    """
+    return f"{name}\x00onfailure"
+
+
+def _is_end(target: str | _EndSentinel) -> bool:
+    """True if a route target is the END sentinel rather than a node name."""
+    return target is END or isinstance(target, _EndSentinel)

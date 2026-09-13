@@ -226,12 +226,22 @@ class TestSudo:
                 value = "from-config" if key == "sudo_password" else None
                 return type("R", (), {"value": value})()
 
+        class _Host:
+            """The host surface this needs: a chain to resolve against.
+
+            The engine reads it through its host; it used to be handed one and
+            have it written into later (`run-model/05-engine-seal.md`).
+            """
+
+            def resolution_chain(self):
+                return _Chain()
+
         engine = JobExecutionEngine(
             di_registry=MagicMock(),
             hook_registry=HookRegistry(),
             middleware_chain=MagicMock(has_middleware=False),
             event_bus=EventBus(),
-            resolution_chain=_Chain(),
+            host=_Host(),
         )
         pw = engine._resolve_sudo_password()
         assert isinstance(pw, Secret)

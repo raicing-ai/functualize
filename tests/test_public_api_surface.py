@@ -28,6 +28,7 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "workflow",
         "Step",
         "Gate",
+        "AgentStep",
         "Edge",
         "ConditionalEdge",
         "END",
@@ -66,6 +67,10 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         # reads what the freshness check already resolved instead of restating
         # the glob (ADR-012).
         "Sources",
+        # The verdict that same check produced, so a job can act on its own
+        # freshness instead of restating its own staleness check (F9).
+        "Freshness",
+        "FreshnessVerdict",
         "JobContext",
         "JobConfigView",
         "TTY",
@@ -150,11 +155,37 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "FormatProvider",
         "ThemeProvider",
         "VaultKeyProvider",
+        # The agent step port (agent-step-port F6): one Protocol a plugin
+        # implements, plus the capability flags it declares and the payload
+        # types it is handed and returns.
+        "AgentStepExecutor",
+        "AgentCapability",
+        "AgentStepContext",
+        "AgentStepResult",
         "discover_domains",
         "scan_domain_providers",
         "validate_extension_id",
     },
     "functualize.types": {
+        # The outcome authority (run-outcome-authority F2 T1/T2).
+        "ExitCode",
+        "exit_code_for_status",
+        "Family",
+        "is_failure",
+        "report_line",
+        "status_from_wire",
+        "wire_value",
+        # The request a run is made from (run-request-entry F1 T1).
+        "RunRequest",
+        "RunSurface",
+        # The wire envelope's one parser. HTTP and Lambda held byte-identical
+        # copies differing only in the `surface` literal, and MCP restated the
+        # shape in prose at both its doors — one contract in four places, its
+        # breaking change documented four times, three citations wrong (rre
+        # F12). Public because all four callers live outside core.
+        "request_from_envelope",
+        "MissingValueError",
+        "RUN_SURFACES",
         "JobResult",
         "JobDescriptor",
         "FieldDescriptor",
@@ -169,6 +200,16 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         # The one RunStatus -> HTTP table, beside RunStatus itself, so a
         # trigger plugin consumes it instead of writing a second opinion.
         "http_status_for_status",
+        # Flag vocabulary and alias matching (run-outcome-authority F2 T8).
+        "GLOBAL_OPTIONS_ALWAYS_VALUE",
+        "GLOBAL_OPTIONS_OPTIONAL_VALUE",
+        "OPTIONAL_VALUE_VALID_SET",
+        "GLOBAL_OPTIONS_WITH_VALUE",
+        "GLOBAL_BOOL_FLAGS",
+        "flag_aliases",
+        "negative_aliases",
+        "match_group_flag",
+        "negative_flag_for",
     },
     "functualize.workflow": {
         # A gate offers jobs; Tool narrows which of their arguments the
@@ -180,7 +221,17 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "END",
         "FromStep",
         "Gate",
+        "Loop",
+        "OnFailure",
+        # A notification on a walk's outcome, and what its deliverer is handed
+        # (workflow-graph-semantics T6). `Notification` is public because a
+        # `Notifier` implementation has to name the type it receives.
+        "Notification",
+        "Notify",
         "Step",
+        # A node performed by an agent rather than by a registered job
+        # (agent-step-port F6).
+        "AgentStep",
         "_EndSentinel",
     },
     "functualize.testing": {
@@ -357,6 +408,35 @@ class TestCrossPackageConsistency:
         assert top.Edge is wf_mod.Edge
         assert top.ConditionalEdge is wf_mod.ConditionalEdge
         assert top.END is wf_mod.END
+
+    def test_every_node_kind_reaches_the_root_facade(self) -> None:
+        """The three node kinds travel together, or the facade teaches a
+        vocabulary the framework does not have.
+
+        `AgentStep` reached `functualize.workflow` and stopped there, so
+        `from functualize import Gate` worked and `from functualize import
+        AgentStep` raised — for a node kind the same `@workflow` graph
+        declares beside the other two (asp M-5). Derived from
+        `functualize.workflow`'s own list rather than restated, so a fourth
+        node kind fails here until it is exported too.
+        """
+        top = _import_module("functualize")
+        wf_mod = _import_module("functualize.workflow")
+
+        node_kinds = {
+            name for name in wf_mod.__all__ if name in {"Step", "Gate", "AgentStep"}
+        }
+        assert node_kinds == {"Step", "Gate", "AgentStep"}, (
+            f"functualize.workflow's node kinds changed: {sorted(node_kinds)}. "
+            f"Update this set and the root facade together."
+        )
+        missing = [name for name in node_kinds if not hasattr(top, name)]
+        assert not missing, (
+            f"node kinds declared in functualize.workflow but not importable "
+            f"from functualize: {missing}"
+        )
+        for name in node_kinds:
+            assert getattr(top, name) is getattr(wf_mod, name)
 
     def test_functualize_gate_symbols_match(self) -> None:
         """GateStrategy, GateResolver, GateContext identity with functualize._gate."""

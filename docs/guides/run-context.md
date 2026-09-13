@@ -160,10 +160,10 @@ from functualize.types import RunStatus
 
 def my_job(rc: RunContext) -> None:
     # Status starts as RUNNING
-    rc.track_run_status(RunStatus.SUCCESS)
+    rc.events.track_run_status(RunStatus.SUCCESS)
 
     # This would raise InvalidStateTransitionError:
-    # rc.track_run_status(RunStatus.FAILURE)
+    # rc.events.track_run_status(RunStatus.FAILURE)
 ```
 
 ## Logging
@@ -216,19 +216,19 @@ from functualize.types import RunStatus
 
 def etl_job(rc: RunContext) -> None:
     # Start the extract phase
-    rc.track_phase("extract", "Fetching data from API")
+    rc.events.track_phase("extract", "Fetching data from API")
     data = fetch_data()
-    rc.track_phase("extract", "Extracted 1000 records", RunStatus.SUCCESS)
+    rc.events.track_phase("extract", "Extracted 1000 records", RunStatus.SUCCESS)
 
     # Start the transform phase
-    rc.track_phase("transform", "Applying transformations")
+    rc.events.track_phase("transform", "Applying transformations")
     transformed = transform(data)
-    rc.track_phase("transform", "Transformed 1000 records", RunStatus.SUCCESS)
+    rc.events.track_phase("transform", "Transformed 1000 records", RunStatus.SUCCESS)
 
     # Start the load phase
-    rc.track_phase("load", "Writing to database")
+    rc.events.track_phase("load", "Writing to database")
     load(transformed)
-    rc.track_phase("load", "Loaded 1000 records", RunStatus.SUCCESS)
+    rc.events.track_phase("load", "Loaded 1000 records", RunStatus.SUCCESS)
 ```
 
 Key behaviors:
@@ -297,23 +297,23 @@ JOB_GROUP = "data_sync"
 def sync(rc: RunContext) -> None:
     """Synchronize data from external API to local database."""
     # Track extraction step
-    rc.track_phase("extract", "Fetching records from API")
+    rc.events.track_phase("extract", "Fetching records from API")
     records = fetch_from_api()
-    rc.track_phase("extract", f"Fetched {len(records)} records", RunStatus.SUCCESS)
+    rc.events.track_phase("extract", f"Fetched {len(records)} records", RunStatus.SUCCESS)
 
     # Track validation step
-    rc.track_phase("validate", "Validating record schemas")
+    rc.events.track_phase("validate", "Validating record schemas")
     valid_records = validate(records)
-    rc.track_phase(
+    rc.events.track_phase(
         "validate",
         f"Validated {len(valid_records)}/{len(records)} records",
         RunStatus.SUCCESS,
     )
 
     # Track load step
-    rc.track_phase("load", "Writing to database")
+    rc.events.track_phase("load", "Writing to database")
     write_to_db(valid_records)
-    rc.track_phase("load", f"Loaded {len(valid_records)} records", RunStatus.SUCCESS)
+    rc.events.track_phase("load", f"Loaded {len(valid_records)} records", RunStatus.SUCCESS)
 
     rc.log("Data sync completed successfully")
 ```
@@ -342,7 +342,7 @@ If `sync` raises an exception:
 
 The `RunContext` provides methods for collecting user input during job execution via the interactivity system's `PromptCollector` protocol. See the [Interactivity Guide](interactivity.md) for the full architecture.
 
-### `rc.prompt(request)`
+### `rc.prompts.ask(request)`
 
 The low-level method that accepts a `PromptRequest` and returns a `PromptResponse`:
 
@@ -359,7 +359,7 @@ def my_job(rc: RunContext) -> None:
         ],
         default="staging",
     )
-    response = rc.prompt(request)
+    response = rc.prompts.ask(request)
     rc.log(f"Deploying to {response.value}")
 ```
 
@@ -369,11 +369,11 @@ If no `PromptCollector` is available and `required=True` with no default, raises
 
 Three convenience methods handle common prompting patterns:
 
-#### `rc.prompt_confirm(question, *, destructive=False, default=None)`
+#### `rc.prompts.confirm(question, *, destructive=False, default=None)`
 
 ```python
 def deploy_job(rc: RunContext) -> None:
-    if not rc.prompt_confirm("Deploy to production?", destructive=True):
+    if not rc.prompts.confirm("Deploy to production?", destructive=True):
         rc.log("Deployment cancelled")
         return
     # proceed with deployment...
@@ -381,11 +381,11 @@ def deploy_job(rc: RunContext) -> None:
 
 Returns `True` if confirmed, `False` if denied or cancelled.
 
-#### `rc.prompt_choice(question, choices, *, default=None)`
+#### `rc.prompts.choice(question, choices, *, default=None)`
 
 ```python
 def my_job(rc: RunContext) -> None:
-    env = rc.prompt_choice(
+    env = rc.prompts.choice(
         "Select environment",
         ["development", "staging", "production"],
         default="staging",
@@ -395,11 +395,11 @@ def my_job(rc: RunContext) -> None:
 
 Returns the selected value as a string.
 
-#### `rc.prompt_text(question, *, default=None, secret=False, placeholder=None, validator=None)`
+#### `rc.prompts.text(question, *, default=None, secret=False, placeholder=None, validator=None)`
 
 ```python
 def auth_job(rc: RunContext) -> None:
-    token = rc.prompt_text(
+    token = rc.prompts.text(
         "Enter API token",
         secret=True,
         placeholder="sk-...",
@@ -410,14 +410,14 @@ Returns the user's text input as a string.
 
 ## Custom Event Emission
 
-### `rc.emit(event_name, resource="", **payload)`
+### `rc.events.emit(event_name, resource="", **payload)`
 
 Emit a custom structured event to the `EventBus` and every registered `Surface`:
 
 ```python
 def etl_job(rc: RunContext) -> None:
     records = fetch_data()
-    rc.emit(
+    rc.events.emit(
         "etl.extract.complete",
         resource="customer_table",
         record_count=len(records),
@@ -458,7 +458,7 @@ Returns a `JobResult` with status, duration, return value, and any exception.
 
 ### `rc.invoke_parallel(jobs)`
 
-Invoke multiple jobs concurrently (1-32 jobs). Each child gets an independent `RunContext` with its own `StateStore`:
+Invoke multiple jobs concurrently (1-32 jobs). Each child gets an independent `RunContext` with its own `FreshStore`:
 
 ```python
 def fan_out(rc: RunContext) -> None:
@@ -484,13 +484,13 @@ def fan_out(rc: RunContext) -> None:
 
 ## Job Introspection
 
-### `rc.get_job_schema(job_name)`
+### `rc.discovery.get_job_schema(job_name)`
 
 Introspect a registered job's `JobDescriptor` at runtime:
 
 ```python
 def dynamic_orchestrator(rc: RunContext) -> None:
-    schema = rc.get_job_schema("data-sync")
+    schema = rc.discovery.get_job_schema("data-sync")
     rc.log(f"Job group: {schema.group}")
     rc.log(f"Config fields: {list(schema.config_schema.model_fields.keys())}")
 ```

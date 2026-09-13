@@ -30,6 +30,7 @@ from pydantic import BaseModel
 
 from functualize._types.enums import RunStatus
 from functualize.app import FunctualizeApp
+from functualize.app.core import request_for
 from functualize.workflow import END, Edge, Gate, Step, workflow
 
 if TYPE_CHECKING:
@@ -69,7 +70,7 @@ def _app(strategy: str | None, *, register_boom: str | None = None) -> Functuali
     app.register_dynamic_job("prepare", prepare)
     app.register_dynamic_job("review", review)
     if register_boom is not None:
-        app.register_gate_strategy(register_boom, _Boom())
+        app.gates.register_gate_strategy(register_boom, _Boom())
     return app
 
 
@@ -77,26 +78,26 @@ class TestAnUnregisteredStrategyBlocks:
     """The defect. Before this, `execute()` raised `ValueError`."""
 
     def test_it_blocks_instead_of_raising(self) -> None:
-        result = _app("ai_inbound").execute("review")
+        result = _app("ai_inbound").execute(request_for("review"))
         assert result.status is RunStatus.BLOCKED
 
     def test_the_block_stays_resumable(self) -> None:
         """A block that cannot be resumed is a failure wearing the wrong
         name — the whole reason this is a block and not an error."""
-        result = _app("ai_inbound").execute("review")
+        result = _app("ai_inbound").execute(request_for("review"))
         assert result.status.resumable
         assert result.metadata["blocked_on"] == "triage"
 
     def test_the_reason_names_the_missing_plugin(self) -> None:
         """`blocked_on: triage` alone reads identically to a gate waiting by
         design. Which package to install is the missing half."""
-        result = _app("ai_inbound").execute("review")
+        result = _app("ai_inbound").execute(request_for("review"))
         reason = result.metadata["blocked_reason"]
         assert "ai_inbound" in reason
         assert "functualize-ai" in reason
 
     def test_the_body_did_not_run(self) -> None:
-        assert _app("ai_inbound").execute("review").return_value is None
+        assert _app("ai_inbound").execute(request_for("review")).return_value is None
 
 
 class TestTheAlreadyCorrectCasesStayCorrect:
@@ -112,7 +113,7 @@ class TestTheAlreadyCorrectCasesStayCorrect:
         ],
     )
     def test_it_blocks(self, strategy: str | None, boom: str | None) -> None:
-        result = _app(strategy, register_boom=boom).execute("review")
+        result = _app(strategy, register_boom=boom).execute(request_for("review"))
         assert result.status is RunStatus.BLOCKED
         assert result.metadata["blocked_on"] == "triage"
 
@@ -122,14 +123,14 @@ class TestTheReasonIsOnlyThereWhenThereIsOne:
     would make every consumer guard for it."""
 
     def test_a_gate_waiting_by_design_carries_no_reason(self) -> None:
-        result = _app(None).execute("review")
+        result = _app(None).execute(request_for("review"))
         assert result.status is RunStatus.BLOCKED
         assert "blocked_reason" not in result.metadata
 
     def test_ai_outbound_carries_no_reason(self) -> None:
         """`ai_outbound` blocks by policy, not by failure — the walker never
         even builds a strategy list for it, so there is nothing to report."""
-        result = _app("ai_outbound").execute("review")
+        result = _app("ai_outbound").execute(request_for("review"))
         assert "blocked_reason" not in result.metadata
 
     def test_a_registered_resolver_produces_no_install_hint(self) -> None:
@@ -143,7 +144,9 @@ class TestTheReasonIsOnlyThereWhenThereIsOne:
         would be more diagnostic than last is a pre-existing question about
         that field, not about this task.
         """
-        result = _app("ai_inbound", register_boom="ai_inbound").execute("review")
+        result = _app("ai_inbound", register_boom="ai_inbound").execute(
+            request_for("review")
+        )
         reason = result.metadata["blocked_reason"]
         assert reason
         assert "functualize-ai" not in reason
@@ -153,7 +156,7 @@ class TestTheReasonIsOnlyThereWhenThereIsOne:
         """The pre-existing key keeps its meaning, which is what makes
         `blocked_reason` additive rather than a change."""
         for strategy in (None, "ai_inbound", "ai_outbound"):
-            result = _app(strategy).execute("review")
+            result = _app(strategy).execute(request_for("review"))
             assert result.metadata["blocked_on"] == "triage"
 
 
@@ -168,7 +171,7 @@ class TestTheWalkReportCarriesIt:
         # decides whether the key is published at all.
         assert WalkReport(WalkOutcome.BLOCKED, "s").blocked_reason == ""
 
-        result = _app("ai_inbound").execute("review")
+        result = _app("ai_inbound").execute(request_for("review"))
         assert result.metadata["blocked_reason"]
 
 
@@ -184,7 +187,7 @@ class TestTheLambdaSurfaceNoLongerReadsItAsSuccess:
         assert http_status_for_status(RunStatus.BLOCKED) != 200
 
     def test_the_status_table_covers_the_result_this_task_produces(self) -> None:
-        result: Any = _app("ai_inbound").execute("review")
+        result: Any = _app("ai_inbound").execute(request_for("review"))
         from functualize._types.http_status import http_status_for_status
 
         assert http_status_for_status(result.status) != 200

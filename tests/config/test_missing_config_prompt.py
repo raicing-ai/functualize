@@ -36,7 +36,7 @@ from functualize._types.interactivity import (
     PromptRequest,
     PromptResponse,
 )
-from functualize.app.core import FunctualizeApp
+from functualize.app.core import FunctualizeApp, request_for
 from functualize.job import RunStatus
 
 
@@ -119,7 +119,7 @@ def _app(config_class: type = NeedsCity, collector: object | None = None):
 
     app.register_dynamic_job("report", report, config_class=config_class)
     if collector is not None:
-        app.register_surface(collector)
+        app.extensions.register_surface(collector)
     return app
 
 
@@ -130,7 +130,7 @@ class TestNoSurfaceToAsk:
         """The regression guard. A typed substitute loses the field-level panel
         and the config-source hint — a strictly worse error on the path that
         users hit most."""
-        result = _app().execute("report")
+        result = _app().execute(request_for("report"))
 
         assert result.status is RunStatus.FAILURE
         assert isinstance(result.exception, ValidationError)
@@ -141,7 +141,7 @@ class TestNoSurfaceToAsk:
         If this ever blocks, the test suite hangs rather than fails — which is
         precisely what the feature must never do to a CI job.
         """
-        assert _app().execute("report").status is RunStatus.FAILURE
+        assert _app().execute(request_for("report")).status is RunStatus.FAILURE
 
     def test_the_job_body_never_runs(self) -> None:
         app = FunctualizeApp(name="cfgtest")
@@ -152,14 +152,14 @@ class TestNoSurfaceToAsk:
             return "never"
 
         app.register_dynamic_job("report", report, config_class=NeedsCity)
-        app.execute("report")
+        app.execute(request_for("report"))
 
         assert ran == []
 
 
 class TestAskingWhenSomethingCanAnswer:
     def test_a_missing_field_is_collected_and_the_job_runs(self) -> None:
-        result = _app(collector=_Collector("Kyoto")).execute("report")
+        result = _app(collector=_Collector("Kyoto")).execute(request_for("report"))
 
         assert result.status is RunStatus.SUCCESS
         assert "Kyoto" in str(result.return_value)
@@ -169,7 +169,7 @@ class TestAskingWhenSomethingCanAnswer:
         is what tells the user which config block they are filling in."""
         collector = _Collector("Kyoto")
 
-        _app(collector=collector).execute("report")
+        _app(collector=collector).execute(request_for("report"))
 
         question = collector.requests[0].question
         assert "city" in question
@@ -182,7 +182,7 @@ class TestAskingWhenSomethingCanAnswer:
         AppState.reset()
         collector = _Collector("unused")
 
-        result = _app(collector=collector).execute("report")
+        result = _app(collector=collector).execute(request_for("report"))
 
         assert result.status is RunStatus.SUCCESS
         assert collector.requests == []
@@ -193,14 +193,14 @@ class TestAskingWhenSomethingCanAnswer:
         this a secret" is how a masked field gets shoulder-surfed."""
         collector = _Collector("sk-live-1234")
 
-        _app(NeedsSecret, collector=collector).execute("report")
+        _app(NeedsSecret, collector=collector).execute(request_for("report"))
 
         assert collector.requests[0].intent is PromptIntent.SECRET_INPUT
 
     def test_a_non_secret_field_is_collected_as_plain_text(self) -> None:
         collector = _Collector("Kyoto")
 
-        _app(collector=collector).execute("report")
+        _app(collector=collector).execute(request_for("report"))
 
         assert collector.requests[0].intent is PromptIntent.TEXT_INPUT
 
@@ -212,7 +212,9 @@ class TestWhatIsNotWorthAsking:
         question whose answer they already gave."""
         collector = _Collector("5")
 
-        result = _app(NeedsPositive, collector=collector).execute("report", days=-1)
+        result = _app(NeedsPositive, collector=collector).execute(
+            request_for("report", days=-1)
+        )
 
         assert result.status is RunStatus.FAILURE
         assert collector.requests == []
@@ -228,7 +230,7 @@ class TestWhatIsNotWorthAsking:
         """
         collector = _Collector("localhost")
 
-        result = _app(NeedsNested, collector=collector).execute("report")
+        result = _app(NeedsNested, collector=collector).execute(request_for("report"))
 
         assert result.status is RunStatus.FAILURE
         assert collector.requests == []
@@ -239,7 +241,9 @@ class TestWhatIsNotWorthAsking:
         anyway."""
         collector = _Collector("localhost")
 
-        result = _app(NeedsNested, collector=collector).execute("report", db={})
+        result = _app(NeedsNested, collector=collector).execute(
+            request_for("report", db={})
+        )
 
         assert result.status is RunStatus.FAILURE
         assert collector.requests == []
@@ -249,7 +253,7 @@ class TestWhatIsNotWorthAsking:
         (`tags: list[str]`)."""
         collector = _Collector("a,b")
 
-        result = _app(NeedsTags, collector=collector).execute("report")
+        result = _app(NeedsTags, collector=collector).execute(request_for("report"))
 
         assert result.status is RunStatus.FAILURE
         assert collector.requests == []
@@ -262,7 +266,7 @@ class TestWhatIsStillWorthAsking:
     def test_an_int_is_promptable_because_pydantic_coerces_it(self) -> None:
         collector = _Collector("7")
 
-        result = _app(NeedsPositive, collector=collector).execute("report")
+        result = _app(NeedsPositive, collector=collector).execute(request_for("report"))
 
         assert result.status is RunStatus.SUCCESS
         assert "days=7" in str(result.return_value)
@@ -273,7 +277,9 @@ class TestWhatIsStillWorthAsking:
         has no default."""
         collector = _Collector("Kyoto")
 
-        result = _app(NeedsOptionalCity, collector=collector).execute("report")
+        result = _app(NeedsOptionalCity, collector=collector).execute(
+            request_for("report")
+        )
 
         assert result.status is RunStatus.SUCCESS
         assert collector.requests != []
@@ -284,7 +290,7 @@ class TestDeclining:
         """Pressing enter did not supply the value. Proceeding would fail later
         and further from the cause; re-asking would trap the user in a prompt
         they cannot escape."""
-        result = _app(collector=_Collector("")).execute("report")
+        result = _app(collector=_Collector("")).execute(request_for("report"))
 
         assert result.status is RunStatus.FAILURE
         assert isinstance(result.exception, MissingValueError)
@@ -292,7 +298,7 @@ class TestDeclining:
     def test_the_user_is_asked_exactly_once(self) -> None:
         collector = _Collector("")
 
-        _app(collector=collector).execute("report")
+        _app(collector=collector).execute(request_for("report"))
 
         assert len(collector.requests) == 1
 
@@ -301,7 +307,7 @@ class TestDeclining:
         field-level error is the more useful outcome."""
         collector = _Collector("not-a-number", "12")
 
-        result = _app(NeedsPositive, collector=collector).execute("report")
+        result = _app(NeedsPositive, collector=collector).execute(request_for("report"))
 
         assert result.status is RunStatus.FAILURE
         assert len(collector.requests) == 1

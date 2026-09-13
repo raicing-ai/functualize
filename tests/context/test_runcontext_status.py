@@ -48,11 +48,22 @@ ALL_STATUSES = list(RunStatus)
 # Terminal states: cannot be transitioned from. Written out rather than imported
 # so this file states the contract independently of the implementation; the guard
 # test below asserts the two agree.
+#
+# **REFUSED was missing here**, and that is the whole value of writing it out —
+# and the whole way writing it out can fail. The implementation had two copies
+# of this set, one module apart: `_engine/capabilities/workflow.py` included
+# REFUSED and `_engine/capabilities/runcontext.py` did not. This list mirrored
+# the one *without* it and then asserted agreement, so the guard below could
+# never make them converge; it certified the defect instead. An independent
+# statement of the contract is only independent if it is written from the
+# contract rather than from the code it is guarding. Found by adversarial
+# review; the two implementations are now one `RunStatus.terminal`.
 TERMINAL_STATUSES = [
     RunStatus.SUCCESS,
     RunStatus.FAILURE,
     RunStatus.CANCELLED,
     RunStatus.TIMEOUT,
+    RunStatus.REFUSED,
 ]
 
 # Everything else is non-terminal, derived so that a new RunStatus member is
@@ -73,10 +84,65 @@ def test_terminal_statuses_match_the_engine_definition() -> None:
 
     Without this, the parametrized cases below could drift from the
     implementation and keep passing while covering the wrong states.
+
+    Compared against **`RunStatus.terminal`**, the definition, rather than
+    against a module's copy of it. The previous version compared against
+    `_engine/capabilities/runcontext.py`'s literal — which was one of two
+    disagreeing literals, and the wrong one — so this assertion held while the
+    engine as a whole did not agree with itself.
     """
     from functualize._engine.capabilities.runcontext import _TERMINAL_STATES
 
-    assert set(TERMINAL_STATUSES) == set(_TERMINAL_STATES)
+    definition = {status for status in RunStatus if status.terminal}
+    assert set(TERMINAL_STATUSES) == definition
+    assert set(_TERMINAL_STATES) == definition
+
+
+def test_only_one_module_defines_which_states_are_terminal() -> None:
+    """The property that stops the two copies coming back.
+
+    Both engine modules asked the same question and answered it separately, and
+    the answers differed by REFUSED for long enough that a test was written
+    against the wrong one. A literal set of `RunStatus` members outside
+    `_types/` is how that starts again.
+    """
+    import ast
+    import pathlib
+
+    src = pathlib.Path(__file__).resolve().parents[2] / "src" / "functualize"
+    offenders: list[str] = []
+    for path in sorted((src / "_engine").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign):
+                continue
+            named_terminal = any(
+                isinstance(t, ast.Name) and "TERMINAL" in t.id.upper()
+                for t in node.targets
+            )
+            if not named_terminal:
+                continue
+            # The **value** decides, not the name: `active_terminal` in
+            # `surface_routing.py` is a TTY, which the name alone cannot tell
+            # apart from a terminal *state*.
+            members = [
+                sub
+                for sub in ast.walk(node.value)
+                if isinstance(sub, ast.Attribute)
+                and isinstance(sub.value, ast.Name)
+                and sub.value.id == "RunStatus"
+            ]
+            if not members:
+                continue
+            # A comprehension over `RunStatus` is derivation, not a copy.
+            if any(isinstance(sub, ast.comprehension) for sub in ast.walk(node.value)):
+                continue
+            offenders.append(f"{path.relative_to(src).as_posix()}:{node.lineno}")
+
+    assert not offenders, (
+        "a module writes out its own terminal-state set instead of asking "
+        f"`RunStatus.terminal`: {offenders}"
+    )
 
 
 def test_status_partition_covers_every_run_status() -> None:
@@ -107,8 +173,8 @@ class TestSetRunStatusUpdatesProperty:
         **Validates: Requirements 8.2**
         """
         rc = make_run_context()
-        rc.set_run_status(target_status)
-        assert rc.run_status == target_status
+        rc.events.set_run_status(target_status)
+        assert rc.events.run_status == target_status
 
     @pytest.mark.parametrize("target_status", NON_TERMINAL_STATUSES)
     def test_set_run_status_updates_to_non_terminal(
@@ -119,8 +185,8 @@ class TestSetRunStatusUpdatesProperty:
         **Validates: Requirements 8.2**
         """
         rc = make_run_context()
-        rc.set_run_status(target_status)
-        assert rc.run_status == target_status
+        rc.events.set_run_status(target_status)
+        assert rc.events.run_status == target_status
 
 
 class TestRunningToTerminalSucceeds:
@@ -133,10 +199,10 @@ class TestRunningToTerminalSucceeds:
         **Validates: Requirements 8.2**
         """
         rc = make_run_context()
-        assert rc.run_status == RunStatus.RUNNING
+        assert rc.events.run_status == RunStatus.RUNNING
         # Should not raise
-        rc.set_run_status(terminal)
-        assert rc.run_status == terminal
+        rc.events.set_run_status(terminal)
+        assert rc.events.run_status == terminal
 
     @pytest.mark.parametrize("terminal", TERMINAL_STATUSES)
     @pytest.mark.parametrize("message", MESSAGES)
@@ -148,8 +214,8 @@ class TestRunningToTerminalSucceeds:
         **Validates: Requirements 8.2**
         """
         rc = make_run_context()
-        rc.set_run_status(terminal, message)
-        assert rc.run_status == terminal
+        rc.events.set_run_status(terminal, message)
+        assert rc.events.run_status == terminal
 
 
 class TestTerminalToAnyRaises:
@@ -168,9 +234,9 @@ class TestTerminalToAnyRaises:
         **Validates: Requirements 8.2, 8.3**
         """
         rc = make_run_context()
-        rc.set_run_status(first_terminal)
+        rc.events.set_run_status(first_terminal)
         with pytest.raises(InvalidStateTransitionError):
-            rc.set_run_status(second_status)
+            rc.events.set_run_status(second_status)
 
 
 class TestTrackRunStatusBackwardCompat:
@@ -183,8 +249,8 @@ class TestTrackRunStatusBackwardCompat:
         **Validates: Requirements 8.3**
         """
         rc = make_run_context()
-        rc.track_run_status(run_status=terminal)
-        assert rc.run_status == terminal
+        rc.events.track_run_status(run_status=terminal)
+        assert rc.events.run_status == terminal
 
     @pytest.mark.parametrize("target_status", ALL_STATUSES)
     def test_track_run_status_and_set_run_status_agree_on_state_machine(
@@ -198,7 +264,7 @@ class TestTrackRunStatusBackwardCompat:
         rc1 = make_run_context()
         exc1: Exception | None = None
         try:
-            rc1.set_run_status(target_status)
+            rc1.events.set_run_status(target_status)
         except InvalidStateTransitionError as e:
             exc1 = e
 
@@ -206,7 +272,7 @@ class TestTrackRunStatusBackwardCompat:
         rc2 = make_run_context()
         exc2: Exception | None = None
         try:
-            rc2.track_run_status(run_status=target_status)
+            rc2.events.track_run_status(run_status=target_status)
         except InvalidStateTransitionError as e:
             exc2 = e
 
@@ -215,7 +281,7 @@ class TestTrackRunStatusBackwardCompat:
 
         # If both succeeded, resulting status should match
         if exc1 is None and exc2 is None:
-            assert rc1.run_status == rc2.run_status == target_status
+            assert rc1.events.run_status == rc2.events.run_status == target_status
 
     @pytest.mark.parametrize("first_terminal", TERMINAL_STATUSES)
     @pytest.mark.parametrize("second_status", ALL_STATUSES)
@@ -228,12 +294,12 @@ class TestTrackRunStatusBackwardCompat:
         """
         # set_run_status path
         rc1 = make_run_context()
-        rc1.set_run_status(first_terminal)
+        rc1.events.set_run_status(first_terminal)
         with pytest.raises(InvalidStateTransitionError):
-            rc1.set_run_status(second_status)
+            rc1.events.set_run_status(second_status)
 
         # track_run_status path
         rc2 = make_run_context()
-        rc2.track_run_status(run_status=first_terminal)
+        rc2.events.track_run_status(run_status=first_terminal)
         with pytest.raises(InvalidStateTransitionError):
-            rc2.track_run_status(run_status=second_status)
+            rc2.events.track_run_status(run_status=second_status)

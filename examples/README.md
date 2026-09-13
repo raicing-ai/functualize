@@ -23,7 +23,7 @@ Runnable code for every step of the [README Quick Start](../README.md#quick-star
 
 ### [standalone/](standalone/)
 
-Feature reference, no project setup needed — six self-contained directories,
+Feature reference, no project setup needed — eight self-contained directories,
 each README a step-by-step verification checklist:
 
 - **showcase/** — the all-in-one project: CLI modes A/B/C, the full inline TUI
@@ -37,6 +37,11 @@ each README a step-by-step verification checklist:
   field beside it that no heuristic should mask
 - **group_options_lab/** — flags that belong to a group rather than a job, typed
   mid-path (`deploy --env prod web --region eu-west-1 run v1.2`), two levels deep
+- **composition_lab/** — capabilities used *together*, one job per combination,
+  on both entry points (`func` and `main.py`)
+- **freshness_lab/** — a job that caches its own artifact and decides its own
+  freshness (`Fingerprint(decides=True)` + `Freshness`), with the control job
+  that is skipped instead
 - **deploy_tool/** — an app that is *not* `func`: its own command name, config
   table, `DEPLOY_TOOL_*` env prefix and generated root flags
 
@@ -51,7 +56,7 @@ Full applications using `FunctualizeApp`:
 
 Create your own plugins for the functualize ecosystem:
 
-- **custom_state_backend** — Implement the `StateBackend` protocol
+- **custom_state_backend** — Implement the `StoreSubstrate` port
 - **custom_adapter** — Implement the `AdapterPlugin` protocol
 - **file_based_plugin** — Zero-packaging plugin in `.functualize/plugins/`
 

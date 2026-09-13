@@ -17,14 +17,15 @@ from unittest.mock import MagicMock
 import pytest
 
 from functualize._config.job_config import JobConfigView
+from functualize._engine.capabilities.observability_facade import ObservabilityFacade
 from functualize._events.hooks import HookEvent, HookRegistry
-from functualize.job._state_store import StateStore
 from functualize.job.context import (
     InvalidStateTransitionError,
     RunContext,
     RunStatus,
     RunType,
 )
+from tests.context.conftest import new_state_store
 
 # --- Fixtures ---
 
@@ -89,7 +90,7 @@ class TestExistingPublicPropertiesUnchanged:
 
     def test_phases_property_returns_list(self, run_context: RunContext) -> None:
         """The `phases` property returns a list."""
-        steps = run_context.phases
+        steps = run_context.events.phases
         assert isinstance(steps, list)
         assert steps == []
 
@@ -137,12 +138,14 @@ class TestExistingPublicMethodSignatures:
         self, run_context: RunContext
     ) -> None:
         """track_run_status() accepts (run_status, failure_message) params."""
-        run_context.track_run_status(run_status=RunStatus.SUCCESS, failure_message="")
+        run_context.events.track_run_status(
+            run_status=RunStatus.SUCCESS, failure_message=""
+        )
         assert run_context.metadata["run_status"] == RunStatus.SUCCESS
 
     def test_track_run_status_signature(self) -> None:
         """track_run_status() has expected signature."""
-        sig = inspect.signature(RunContext.track_run_status)
+        sig = inspect.signature(ObservabilityFacade.track_run_status)
         params = list(sig.parameters.keys())
         assert "self" in params
         assert "run_status" in params
@@ -155,21 +158,21 @@ class TestExistingPublicMethodSignatures:
         self, run_context: RunContext
     ) -> None:
         """track_run_status() raises InvalidStateTransitionError from terminal states."""
-        run_context.track_run_status(RunStatus.FAILURE, failure_message="bad")
+        run_context.events.track_run_status(RunStatus.FAILURE, failure_message="bad")
         with pytest.raises(InvalidStateTransitionError):
-            run_context.track_run_status(RunStatus.SUCCESS)
+            run_context.events.track_run_status(RunStatus.SUCCESS)
 
     def test_track_phase_accepts_name_message_status(
         self, run_context: RunContext
     ) -> None:
         """track_phase() accepts (phase_name, phase_message, phase_status)."""
-        run_context.track_phase("s1", "msg", RunStatus.RUNNING)
-        assert len(run_context.phases) == 1
-        assert run_context.phases[0]["name"] == "s1"
+        run_context.events.track_phase("s1", "msg", RunStatus.RUNNING)
+        assert len(run_context.events.phases) == 1
+        assert run_context.events.phases[0]["name"] == "s1"
 
     def test_track_phase_signature(self) -> None:
         """track_phase() has expected signature."""
-        sig = inspect.signature(RunContext.track_phase)
+        sig = inspect.signature(ObservabilityFacade.track_phase)
         params = list(sig.parameters.keys())
         assert "self" in params
         assert "phase_name" in params
@@ -395,13 +398,13 @@ class TestPluginConfigsEmptyMapping:
         self, run_context: RunContext
     ) -> None:
         """plugin_configs returns empty mapping on a vanilla RunContext."""
-        configs = run_context.plugin_configs
+        configs = run_context.wiring.plugin_configs
         assert len(configs) == 0
         assert dict(configs) == {}
 
     def test_plugin_configs_is_mapping(self, run_context: RunContext) -> None:
         """plugin_configs supports mapping interface (iteration, len, in)."""
-        configs = run_context.plugin_configs
+        configs = run_context.wiring.plugin_configs
         assert len(configs) == 0
         assert list(configs.keys()) == []
         assert list(configs.values()) == []
@@ -410,11 +413,11 @@ class TestPluginConfigsEmptyMapping:
     def test_plugin_configs_does_not_raise(self, run_context: RunContext) -> None:
         """Accessing plugin_configs does not raise any error."""
         # Should not raise
-        _ = run_context.plugin_configs
+        _ = run_context.wiring.plugin_configs
 
     def test_plugin_configs_is_immutable(self, run_context: RunContext) -> None:
         """plugin_configs mapping does not allow item assignment."""
-        configs = run_context.plugin_configs
+        configs = run_context.wiring.plugin_configs
         with pytest.raises(TypeError):
             configs["test"] = "value"  # type: ignore[index]
 
@@ -422,67 +425,31 @@ class TestPluginConfigsEmptyMapping:
 # --- Requirement 11.7: state works as local in-memory store ---
 
 
-class TestStateLocalInMemoryStore:
-    """Verify state works as local in-memory store with no scope.
+class TestStateIsNoLongerInMemory:
+    """The in-memory store is gone; these assert the replacement's contract.
 
-    Validates: Requirement 11.7
+    The class this replaces was `TestStateLocalInMemoryStore`, and it asserted
+    the behaviour that made the store unusable: independent per RunContext,
+    lazily allocated, evaporating with the process. A workflow that blocked at
+    a gate and resumed came back with its step records intact and its state
+    empty. See ADR-021.
     """
 
-    def test_state_returns_state_store(self, run_context: RunContext) -> None:
-        """Accessing state returns a StateStore instance."""
-        store = run_context.state
-        assert isinstance(store, StateStore)
+    def test_a_context_without_a_scope_refuses_rather_than_pretending(self) -> None:
+        from functualize._engine.capabilities.state import (
+            State,
+            StateUnavailableError,
+        )
 
-    def test_state_set_and_get(self, run_context: RunContext) -> None:
-        """State store supports basic set/get operations."""
-        run_context.state.set("key", "value")
-        assert run_context.state.get("key", str) == "value"
+        with pytest.raises(StateUnavailableError):
+            State(None).set("k", "v")
 
-    def test_state_is_same_instance_on_repeated_access(
-        self, run_context: RunContext
-    ) -> None:
-        """Repeated access to state returns the same instance."""
-        store1 = run_context.state
-        store2 = run_context.state
-        assert store1 is store2
+    def test_two_contexts_in_one_scope_share_a_store(self) -> None:
+        from functualize._engine.capabilities.state import State
 
-    def test_state_is_independent_per_runcontext(
-        self,
-        mock_config: MagicMock,
-        mock_logger: MagicMock,
-    ) -> None:
-        """Each RunContext (without scope) gets its own isolated state."""
-        rc1 = RunContext(name="job1", config=mock_config, logger=mock_logger)
-        rc2 = RunContext(name="job2", config=mock_config, logger=mock_logger)
-
-        rc1.state.set("shared_key", "from_job1")
-        # rc2 does NOT see rc1's state
-        assert rc2.state.get("shared_key", str) is None
-
-    def test_state_supports_keys_and_clear(self, run_context: RunContext) -> None:
-        """State store supports keys() and clear() operations."""
-        run_context.state.set("a", 1)
-        run_context.state.set("b", 2)
-        assert sorted(run_context.state.keys()) == ["a", "b"]
-
-        run_context.state.clear()
-        assert run_context.state.keys() == []
-
-    def test_state_lazy_initialization(
-        self,
-        mock_config: MagicMock,
-        mock_logger: MagicMock,
-    ) -> None:
-        """State store is lazily initialized - no allocation until first access."""
-        rc = RunContext(name="test", config=mock_config, logger=mock_logger)
-        # Access internal attribute directly to verify lazy init
-        assert rc._state_store is None
-        # Accessing state triggers creation
-        _ = rc.state
-        assert rc._state_store is not None
-
-
-# --- Additional backward compatibility checks ---
+        backend = new_state_store("shared")
+        State(backend).set("k", "v")
+        assert State(backend).get("k") == "v"
 
 
 class TestRunContextConstructorBackwardCompat:
@@ -516,9 +483,11 @@ class TestRunContextConstructorBackwardCompat:
         """New keyword-only params default to None and don't change behavior."""
         rc = RunContext(name="test", config=mock_config, logger=mock_logger)
         # All new features work without explicit construction args
-        assert len(rc.plugin_configs) == 0
-        assert isinstance(rc.state, StateStore)
-        assert len(rc.resources) == 0
+        assert len(rc.wiring.plugin_configs) == 0
+        from functualize._engine.capabilities.state import State
+
+        assert isinstance(rc.state, State)
+        assert len(rc.wiring.resources) == 0
 
 
 class TestRunContextMetadataDefaults:

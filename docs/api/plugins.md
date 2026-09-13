@@ -72,7 +72,7 @@ class Surface(Protocol):
     def handle_event(self, event: StructuredEvent) -> None: ...
 ```
 
-Register with `app.register_surface(obj)`. `handle_event` is called on worker
+Register with `app.extensions.register_surface(obj)`. `handle_event` is called on worker
 threads — a UI implementation must marshal onto its own loop (see
 `functualize.ui.TextualApp`, which does this for you). A surface may set
 `needs_terminal = False` to keep receiving events while a job owns the screen
@@ -99,7 +99,7 @@ class PromptCollector(Protocol):
 ```
 
 An object may satisfy both `Surface` and `PromptCollector` (a full-screen
-`TextualApp` does). Also registered with `app.register_surface(obj)`.
+`TextualApp` does). Also registered with `app.extensions.register_surface(obj)`.
 
 ---
 

@@ -321,7 +321,7 @@ class TestFieldDescriptorExtractionProperty:
 
     For any Python function with type-annotated parameters (including
     combinations of required params, optional params with defaults, list[T]
-    types, bool flags, and Enum choices), the resulting JobDescriptor.parameters
+    types, bool flags, and Enum choices as member values), the resulting JobDescriptor.parameters
     SHALL contain a FieldDescriptor for each parameter with: correct name,
     type_annotation matching the annotation string, required=True iff no default
     exists, correct default value, and choices populated for Enum types.
@@ -422,7 +422,12 @@ class TestFieldDescriptorExtractionProperty:
     def test_choices_populated_for_enum_types(
         self, param_specs: list[tuple[str, Any, Any]]
     ) -> None:
-        """FieldDescriptor.choices is populated with member names for Enum types, None otherwise.
+        """FieldDescriptor.choices holds member **values** for Enum types, None otherwise.
+
+        Values, not names: the field is documented that way, and it is what
+        `_EnumChoice` renders on the cold path. This property asserted names
+        until an adversarial review ran one program twice and watched the
+        accepted spelling change between run 1 and run 2.
 
         **Validates: Requirements 8.1**
         """
@@ -431,7 +436,7 @@ class TestFieldDescriptorExtractionProperty:
 
         for i, (name, annotation, _) in enumerate(param_specs):
             if isinstance(annotation, type) and issubclass(annotation, enum.Enum):
-                expected_choices = [m.name for m in annotation]
+                expected_choices = [str(m.value) for m in annotation]
                 assert result[i].choices == expected_choices, (
                     f"Parameter '{name}': "
                     f"expected choices={expected_choices}, got choices={result[i].choices}"
@@ -480,6 +485,6 @@ class TestFieldDescriptorExtractionProperty:
 
             # Correct choices
             if isinstance(annotation, type) and issubclass(annotation, enum.Enum):
-                assert fd.choices == [m.name for m in annotation]
+                assert fd.choices == [str(m.value) for m in annotation]
             else:
                 assert fd.choices is None

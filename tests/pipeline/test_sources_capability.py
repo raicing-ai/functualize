@@ -171,6 +171,6 @@ def test_sources_does_not_enter_the_jobs_own_fingerprint_key(tmp_path: Path) -> 
     for _ in range(3):
         assert _run(project, "s", "scan").returncode == 0
 
-    state = json.loads((project / ".functualize" / "state.json").read_text())
+    state = json.loads((project / ".functualize" / "fresh.json").read_text())
     keys = [k for k in state.get("fingerprints", {}) if k.startswith("s.scan::")]
     assert len(keys) == 1, keys

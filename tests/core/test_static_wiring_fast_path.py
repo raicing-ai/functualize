@@ -461,7 +461,7 @@ class TestStaticWiringDIRegistry:
             plugin_sources=PluginSources(entry_point_group="", explicit_plugins=[]),
         )
         with pytest.raises(RegistryFrozenError):
-            app.provide(str, "value")
+            app.di.provide(str, "value")
 
     def test_plugin_can_register_di_before_freeze(self) -> None:
         """Plugins can register DI entries during boot (before freeze)."""
@@ -472,7 +472,7 @@ class TestStaticWiringDIRegistry:
             description = "Registers DI"
 
             def __call__(self, app: FunctualizeApp) -> None:
-                app.provide(int, 42)
+                app.di.provide(int, 42)
 
         app = FunctualizeApp(
             "test-app",

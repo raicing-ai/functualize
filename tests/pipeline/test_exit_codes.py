@@ -125,7 +125,21 @@ class TestPipelineExitBehaviour:
         print "Exception ignored in: …" either, hence *quietly*."""
         project = self._project(tmp_path)
 
-        result = self._run(project, "func generate | head -5")
+        # `--log-level ERROR` so a *warning* cannot decide this test. The
+        # framework warns on stderr when a plugin takes longer than 50ms to
+        # import, and on a loaded machine it routinely does:
+        #
+        #   AssertionError: Plugin 'functualize-http' took 144ms to load
+        #   (budget: 50ms). Consider deferring heavy imports to __call__()...
+        #
+        # Nothing about a broken pipe failed there — the computer was busy. The
+        # assertion below stays exactly as strong for what this test is *about*
+        # (no traceback, no "Exception ignored in:" from the shutdown flush);
+        # it simply no longer doubles as an unmarked performance budget. The
+        # real budget assertions live in `tests/perf/` and carry the
+        # `perf_budget` marker that skips them under parallel runs; this one
+        # carried no such marker and would go red on any busy CI box.
+        result = self._run(project, "func --log-level ERROR generate | head -5")
 
         assert result.returncode == 0, result.stderr
         assert result.stderr.strip() == "", result.stderr

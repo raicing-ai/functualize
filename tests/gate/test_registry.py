@@ -19,8 +19,6 @@ Two cases keep raising, deliberately:
 
 from __future__ import annotations
 
-import subprocess
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -28,18 +26,11 @@ from pydantic import BaseModel
 
 from functualize._gate._registry import GateRegistry
 from functualize._gate._resolver import ResolveResolver
-from functualize._gate._strategy import (
-    CORE_STRATEGIES,
-    STRATEGY_PROVIDERS,
-    GateStrategy,
-    missing_strategy_hint,
-)
+from functualize._gate._strategy import GateStrategy
 from functualize._types.errors import GateResolutionError
 
 if TYPE_CHECKING:
     from functualize._gate._context import GateContext
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Answer(BaseModel):
@@ -266,42 +257,3 @@ class TestLastErrorNamesTheStrategies:
         with pytest.raises(GateResolutionError) as excinfo:
             registry.resolve_gate(Answer, gate_strategy=[], gate_name="triage")
         assert excinfo.value.last_error == "no strategies attempted"
-
-
-class TestTheStrategyProviderTable:
-    def test_it_covers_every_strategy_a_gate_may_declare(self) -> None:
-        """The table must not go stale against the validator: a name a `Gate`
-        accepts but the table omits produces a blocked walk with no hint,
-        which is the failure this table exists to prevent."""
-        from functualize._types.workflow import _VALID_GATE_STRATEGIES
-
-        assert set(STRATEGY_PROVIDERS) == set(_VALID_GATE_STRATEGIES)
-
-    def test_the_core_strategies_get_no_install_hint(self) -> None:
-        for name in CORE_STRATEGIES:
-            assert missing_strategy_hint(name) == ""
-
-    def test_the_plugin_strategies_name_their_package(self) -> None:
-        assert (
-            missing_strategy_hint("ai_inbound")
-            == "install functualize-ai to register it"
-        )
-        assert (
-            missing_strategy_hint("ai_outbound")
-            == "install functualize-mcp to register it"
-        )
-
-    def test_an_unknown_name_gets_no_hint(self) -> None:
-        assert missing_strategy_hint("nope") == ""
-
-    def test_core_names_the_plugins_without_importing_them(self) -> None:
-        """The gate from `tasks.md` 3.2, executable. Naming a package in a
-        diagnostic is not a dependency; importing one would invert the
-        dependency graph, since both plugins depend on core."""
-        result = subprocess.run(
-            ["grep", "-rn", "-E", r"import functualize_(ai|mcp)", "src/"],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-        )
-        assert result.stdout == "", f"core imports a plugin:\n{result.stdout}"

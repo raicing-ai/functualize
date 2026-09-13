@@ -42,13 +42,17 @@ _DOCUMENTED_ORDER = [
     "ExecutionContext",  # 2  build the context (before the prelude: a refused
     #                            workflow launch fires AFTER_FAILURE and the
     #                            hook needs a context to receive)
-    "_run_workflow_prelude",  # 3  workflow prelude
+    "prelude",  # 3  workflow prelude — `WorkflowOrchestrator.prelude`, which
+    #                            was `_execute_lifecycle`'s own
+    #                            `_run_workflow_prelude` until T6 moved it out
     "_resolve_di_parameters",  # 4  DI          -> context.injected
     "RunContext",  # 5  ensure a RunContext
     "_resolve_config_model",  # 6  config      -> context.injected
     "_resolve_group_options",  # 7  group opts  -> context.injected
     "redacted_snapshot",  # 8  resolved_inputs snapshot
-    "_run_dependencies",  # 9  Deps
+    "run_for",  # 9  Deps — `DependencyRunner.run_for`, which was
+    #                            `_execute_lifecycle`'s own `_run_dependencies`
+    #                            until T7 moved it out
     "_inject_from_job",  # 10 FromJob     -> context.injected
     "_run_mode_skip",  # 11 Exec.run session skip
     "_preflight_check",  # 12 pre-flight

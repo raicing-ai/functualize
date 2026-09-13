@@ -95,7 +95,6 @@ cli = [
 ]
 all = [
     "functualize[cli]",
-    "functualize-state",
     "functualize-state-sqlite",
     "functualize-http",
     "functualize-lambda",
@@ -139,7 +138,6 @@ functualize-http = { workspace = true }
 functualize-inline = { workspace = true }
 functualize-flow-viz = { workspace = true }
 functualize-lambda = { workspace = true }
-functualize-state = { workspace = true }
 functualize-ai = { workspace = true }
 functualize-ai-pydantic = { workspace = true }
 functualize-tasks = { workspace = true }
@@ -177,6 +175,8 @@ markers = [
     "slow: marks tests as slow (property-based / hypothesis, skipped unless --run-slow is passed)",
     "integration: marks tests as integration tests (test plugin loading and cross-module interactions)",
     "perf_budget: marks wall-clock startup budget assertions (skipped under coverage or xdist; see tests/perf/conftest.py)",
+    "real_state_root: opts out of the autouse state-root sandbox, for a test whose subject is the path resolution itself (see tests/conftest.py::_isolate_state_root)",
+    "json_substrate: the subject is JsonFileSubstrate itself — a path, a file size, or a hand-written JSON fixture — so it is skipped when FUNCTUALIZE_TEST_SUBSTRATE names another backend (see tests/conftest.py::_alternate_substrate)",
 ]
 
 [tool.ruff]
@@ -231,6 +231,16 @@ ignore_missing_imports = true
 
 [tool.importlinter]
 root_package = "functualize"
+# Unchanged deliberately, and measured rather than assumed: an import inside
+# `if TYPE_CHECKING:` is not an edge in import-linter's graph, so it can cross a
+# boundary the six contracts below refuse while CI stays green. The hole is
+# 155 statements wide, of which **8 would be refused as direct edges** — five
+# package pairs, named one by one in
+# `contributor/architecture/layer-contract-blind-spot.md` along with why each is
+# tolerable and what would make it stop being so. Turning the flag off would
+# refuse the 147 that are legitimate along with the 8; the document is the
+# cheaper instrument. Re-measure it before trusting the number (the file carries
+# the AST walk that produced it).
 exclude_type_checking_imports = true
 
 [[tool.importlinter.contracts]]
@@ -329,4 +339,21 @@ forbidden_modules = [
     "functualize._plugins",
     "functualize._app",
 ]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+# The delivery adapters build a `RunRequest` and hand it to `engine.run()`; they
+# do not reach past it. Five imports crossed this line before
+# `surface-request-parity`/T4 removed them — a click builder importing the
+# executor to ask what a status meant, an adapter importing the walker to name a
+# scope — and each was a second reader of a question the request already
+# answers.
+#
+# Landed **after** the removal, deliberately: a contract added first would land
+# red, and a red contract in CI is one people learn to scroll past. Removing the
+# imports without forbidding them leaves the door open and calls it closed.
+name = "Delivery adapters go through the request, not the engine"
+type = "forbidden"
+source_modules = ["functualize.app.adapters"]
+forbidden_modules = ["functualize._engine"]
 allow_indirect_imports = true

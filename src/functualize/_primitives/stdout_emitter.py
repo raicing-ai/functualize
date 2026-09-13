@@ -2,7 +2,7 @@
 
 The serialization engine behind the explicit ``Stdout`` capability
 (``out.emit(value)`` — see ``_engine/capabilities/stdout.py``), so functualize
-jobs compose in Unix pipelines. The format is chosen by the ``--output`` global
+jobs compose in Unix pipelines. The format is chosen by the ``--emit-format`` global
 flag, or — when unset (``"auto"``) — auto-dispatched by the value's type.
 
 Note: a job's *return value* is never emitted here. Emission is always explicit
@@ -11,7 +11,7 @@ Note: a job's *return value* is never emitted here. Emission is always explicit
 Public API:
 - ``StdoutEmitter`` — serializes a value to stdout per the contract
 
-§C.2 contract (auto-dispatch by value type when ``--output`` is unset):
+§C.2 contract (auto-dispatch by value type when ``--emit-format`` is unset):
 
 ===========================  ==========================================
 Return type                  Emission
@@ -24,7 +24,7 @@ generator / iterator         NDJSON — one compact JSON document per yielded
                              item, flushed per item (row-wise streaming).
 ===========================  ==========================================
 
-An explicit ``--output`` value overrides the auto-dispatch:
+An explicit ``--emit-format`` value overrides the auto-dispatch:
 
 - ``raw``    — ``str``/``bytes`` written as-is; anything else coerced via ``str``.
 - ``json``   — one compact JSON document (a generator is materialized first,
@@ -182,7 +182,7 @@ class StdoutEmitter:
         """Collect a generator into a list for one-document JSON, spill-aware.
 
         Non-iterators pass through unchanged. This is only reached for
-        ``--output json`` over a streaming return; the auto path keeps
+        ``--emit-format json`` over a streaming return; the auto path keeps
         generators streaming as NDJSON instead.
         """
         if _is_streaming(value):

@@ -56,6 +56,7 @@ def test_morning_report_invokes_sub_jobs():
     from pathlib import Path
 
     from functualize.app import FunctualizeApp, JobSources
+    from functualize.app.core import request_for
 
     # Point job_sources at this directory so all functions are registered
     this_dir = str(Path(__file__).parent)
@@ -66,7 +67,7 @@ def test_morning_report_invokes_sub_jobs():
 
     # Execute via the engine — config fields are passed as kwargs and the
     # engine resolves them into the Pydantic model
-    result = app.execute("morning_report", city="Tokyo", days=3)
+    result = app.execute(request_for("morning_report", city="Tokyo", days=3))
 
     assert result is not None
     if result.status.value != "Success":
@@ -79,6 +80,7 @@ def test_forecast_via_engine():
     from pathlib import Path
 
     from functualize.app import FunctualizeApp, JobSources
+    from functualize.app.core import request_for
 
     this_dir = str(Path(__file__).parent)
     app = FunctualizeApp(
@@ -86,7 +88,7 @@ def test_forecast_via_engine():
         job_sources=JobSources(directories=[this_dir]),
     )
 
-    result = app.execute("forecast", city="Paris", days=5)
+    result = app.execute(request_for("forecast", city="Paris", days=5))
 
     assert result is not None
     assert result.status.value == "Success"

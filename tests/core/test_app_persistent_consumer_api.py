@@ -48,27 +48,29 @@ class TestExtensionState:
     def test_starts_empty_and_is_mutable(self) -> None:
         app = FunctualizeApp(name="testapp", job_sources=JobSources(directories=[]))
 
-        assert app.extension_state == {}
+        assert app.extensions.extension_state == {}
 
-        app.extension_state["mcp"] = {"checkpoints": {}}
-        assert app.extension_state["mcp"] == {"checkpoints": {}}
+        app.extensions.extension_state["mcp"] = {"checkpoints": {}}
+        assert app.extensions.extension_state["mcp"] == {"checkpoints": {}}
 
     def test_same_dict_across_accesses(self) -> None:
         """Consumers must be able to stash state and find it again."""
         app = FunctualizeApp(name="testapp", job_sources=JobSources(directories=[]))
 
-        app.extension_state.setdefault("orchestrator", {})["surface"] = "panel"
+        app.extensions.extension_state.setdefault("orchestrator", {})["surface"] = (
+            "panel"
+        )
 
-        assert app.extension_state["orchestrator"]["surface"] == "panel"
+        assert app.extensions.extension_state["orchestrator"]["surface"] == "panel"
 
     def test_isolated_between_apps(self) -> None:
         """State must not leak via a shared class-level default."""
         first = FunctualizeApp(name="first", job_sources=JobSources(directories=[]))
         second = FunctualizeApp(name="second", job_sources=JobSources(directories=[]))
 
-        first.extension_state["mcp"] = {"a": 1}
+        first.extensions.extension_state["mcp"] = {"a": 1}
 
-        assert second.extension_state == {}
+        assert second.extensions.extension_state == {}
 
 
 class TestResolutionChain:
@@ -174,12 +176,28 @@ class TestRefreshConfig:
         assert app.resolution_chain() is not before
         assert app.resolution_chain().sources
 
-    def test_propagates_new_chain_to_execution_engine(self) -> None:
+    def test_the_engine_reads_the_chain_the_app_currently_holds(self) -> None:
+        """A refreshed chain is what the engine resolves against.
+
+        This asserted a write into the engine's private field, which is exactly
+        the mechanism that made the engine's config dependency mutable *under a
+        run*. The engine reads the app's chain now, so what is asserted is the
+        behaviour that mattered: after a refresh, the engine resolves against
+        the new chain.
+        """
+        from functualize._config.chain import ResolutionChain
+        from functualize._config.sources import DefaultSource
+
         app = FunctualizeApp(name="testapp", job_sources=JobSources(directories=[]))
 
         app.refresh()
+        app._resolution_chain = ResolutionChain(
+            [DefaultSource({"shell": {"program": "after-refresh"}})]
+        )
 
-        assert app._execution_engine._resolution_chain is app.resolution_chain()
+        assert (
+            app._execution_engine._resolve_shell_setting("program") == "after-refresh"
+        )
 
     def test_explicit_chain_is_left_alone(self) -> None:
         """A caller-supplied chain is theirs to manage — refresh must not
@@ -222,7 +240,7 @@ class TestRefreshConfig:
             job_sources=JobSources(directories=[]),
             config_sources=ConfigSources(dotenv=False),
         )
-        assert app.active_environment().casefold() == "dev"
+        assert app.configuration.active_environment().casefold() == "dev"
         app._config_path = str(tmp_path)
         app.refresh()
 

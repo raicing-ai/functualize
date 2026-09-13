@@ -56,7 +56,7 @@ class InlinePlugin:
     def __call__(self, app: Any) -> None:
         """Register this plugin as a PromptCollector with the application."""
         try:
-            app.register_surface(self)
+            app.extensions.register_surface(self)
             logger.debug("InlinePlugin registered as PromptCollector")
         except Exception as e:
             logger.warning("InlinePlugin: Failed to register: %s", e)

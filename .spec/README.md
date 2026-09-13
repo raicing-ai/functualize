@@ -6,7 +6,7 @@ The files committed here are the canonical design reference. Additional working 
 
 ## Committed Reference
 
-- **`ARCHITECTURE.md`** — Implementation-level architecture: AdapterPlugin protocol, presets as factory functions, monorepo plugin packaging.
+- **`ARCHITECTURE.md`** — Implementation-level architecture: runtime storage and its discard rules, the event log, capability duality, the AdapterPlugin protocol, presets as factory functions, monorepo plugin packaging.
 - **`CONSTITUTION.md`** — Non-negotiable rules: layer dependencies, forbidden patterns, naming conventions, quality gates, pre-release stance, transitional change policy.
 - **`TESTING.md`** — Test strategy: tiers (unit, property-based, CLI integration, TUI Pilot, E2E), fixtures (`cli_run`, `xdg_dirs`, `project_tree`), TUI testing approaches.
 - **`STATUS.md`** — Current project status: active work, open features, shape intents, potential follow-ups, recently completed features, and contribution entry points.

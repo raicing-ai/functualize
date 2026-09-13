@@ -26,6 +26,7 @@ from functualize._engine.middleware import ExecutionMiddlewareChain
 from functualize._events.hooks import HookEvent, HookRegistry
 from functualize._primitives import DIRegistry
 from functualize._types.enums import RunStatus
+from tests._support.engine_run import run_job
 
 # Import the constrained function from a module WITHOUT `from __future__ import
 # annotations` so that _build_validation_model can inspect the Annotated metadata.
@@ -158,7 +159,7 @@ class TestValidationBeforeHooks:
 
         hook_registry.register_global(HookEvent.PRE_EXECUTE, pre_execute_spy)
 
-        result = engine.execute("test_job", constrained_fn, kwargs=invalid_kwargs)
+        result = run_job(engine, "test_job", constrained_fn, kwargs=invalid_kwargs)
 
         assert result.status == RunStatus.FAILURE, (
             f"Expected FAILURE for invalid kwargs {invalid_kwargs}, got {result.status}"
@@ -185,7 +186,7 @@ class TestValidationBeforeHooks:
 
         hook_registry.register_global(HookEvent.AFTER_FAILURE, after_failure_spy)
 
-        result = engine.execute("test_job", constrained_fn, kwargs=invalid_kwargs)
+        result = run_job(engine, "test_job", constrained_fn, kwargs=invalid_kwargs)
 
         assert result.status == RunStatus.FAILURE
         assert len(after_failure_calls) == 1, (
@@ -227,7 +228,7 @@ class TestValidationBeforeHooks:
         # Manually set annotations from the base function (eagerly evaluated)
         tracked_fn.__annotations__ = inspect.get_annotations(_base_fn, eval_str=True)
 
-        result = engine.execute("test_job", tracked_fn, kwargs=invalid_kwargs)
+        result = run_job(engine, "test_job", tracked_fn, kwargs=invalid_kwargs)
 
         assert result.status == RunStatus.FAILURE
         assert function_calls == [], (
@@ -259,7 +260,7 @@ class TestValidationBeforeHooks:
         hook_registry.register_global(HookEvent.PRE_EXECUTE, pre_execute_hook)
         hook_registry.register_global(HookEvent.AFTER_FAILURE, after_failure_hook)
 
-        result = engine.execute("test_job", constrained_fn, kwargs=invalid_kwargs)
+        result = run_job(engine, "test_job", constrained_fn, kwargs=invalid_kwargs)
 
         assert result.status == RunStatus.FAILURE
         assert "PRE_EXECUTE" not in event_log, (

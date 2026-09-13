@@ -1,0 +1,185 @@
+"""#38 — an enum parameter arrives in the job body as the enum member.
+
+`_click_type_for` renders an `Enum` parameter as a `click.Choice` of its member
+values, and until `_EnumChoice` existed nothing converted the chosen value back:
+the CLI handed the job the **string** it parsed while the programmatic path
+passed the member through unchanged. The two surfaces therefore disagreed about
+the type of the same parameter — a job that switched on `color` worked standing
+and failed from the command line.
+
+Both halves of that claim are asserted here against the real entry points, not
+against `_click_type_for`: a test of the renderer would have passed before the
+fix.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import io
+import sys
+import textwrap
+from pathlib import Path
+from typing import Any
+
+from functualize.app import FunctualizeApp
+from functualize.app.core import request_for
+from functualize.app.utils import import_job
+from tests.conftest import surfaces
+
+SCRIPT = textwrap.dedent(
+    '''
+    import enum
+
+
+    class Color(enum.Enum):
+        RED = "red"
+        GREEN = "green"
+
+
+    def paint(color: Color):
+        """Paint."""
+        print(f"body={type(color).__name__}:{color!r}")
+    '''
+)
+
+#: What the body must print on every surface. The type *name* and the member's
+#: repr, because the single-file path imports the script twice — two `Color`
+#: classes, one identity check that is `False` for reasons of its own.
+MEMBER = "body=Color:<Color.RED: 'red'>"
+
+
+def _script(tmp_path: Path) -> Path:
+    path = tmp_path / "paint.py"
+    path.write_text(SCRIPT)
+    return path
+
+
+def _run_programmatically(script: Path) -> str:
+    """Run the script's job the way an embedder does: `app.execute(request)`."""
+    paint = import_job(script, "paint")
+    assert callable(paint)
+    color = sys.modules[script.stem].Color
+
+    app = FunctualizeApp("app")
+    app.register_dynamic_job(name="paint", function=paint, config_class=None)
+
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        app.execute(request_for("paint", color=color.RED))
+    return out.getvalue()
+
+
+@surfaces("func")
+def test_the_cli_delivers_the_member(cli_run: Any, tmp_path: Path) -> None:
+    """The door the defect was reported against: `func paint.py paint red`."""
+    script = _script(tmp_path)
+
+    result = cli_run([str(script), "paint", "red"], cwd=tmp_path)
+
+    assert result.exit_code == 0, result.stderr
+    assert result.stdout.strip() == MEMBER
+
+
+@surfaces("func")
+def test_the_cli_and_the_programmatic_path_agree(cli_run: Any, tmp_path: Path) -> None:
+    """One assertion, two surfaces (AC-11).
+
+    The programmatic path was never broken — it passes the member through — so
+    this is only a real test if the CLI half is compared against *it* rather
+    than against a value written down here.
+    """
+    script = _script(tmp_path)
+
+    cli = cli_run([str(script), "paint", "red"], cwd=tmp_path)
+    programmatic = _run_programmatically(script)
+
+    assert cli.exit_code == 0, cli.stderr
+    assert cli.stdout.strip() == programmatic.strip() == MEMBER
+
+
+class TestTheWarmPathOffersTheSameSpellings:
+    """The half `@surfaces("func")` could not see (review finding S1).
+
+    Both tests above run the **single-file eager** door, which builds click
+    parameters from the live signature. An app's own entry point uses the
+    *cached descriptor* renderer from its second run onward, and that one read
+    `FieldDescriptor.choices` — which `_discovery/providers.py` populated with
+    member **names** while every other producer and consumer used member
+    values. So one program offered `{red|green}` on its first run and
+    `{RED|GREEN}` on every run after, and the value the user typed on Monday
+    was refused on Tuesday.
+
+    Nothing caught it because both surfaces in the parameterisation were the
+    same code path. These assert the two *renderers*, which is where the
+    disagreement lived — cheaply, and without needing a warm boot.
+    """
+
+    @staticmethod
+    def _cold_choices(enum_cls: type) -> list[str]:
+        from functualize.app.adapters.click_params import _click_type_for
+
+        click_type, _, _ = _click_type_for(enum_cls)
+        return list(click_type.choices)
+
+    @staticmethod
+    def _cached_choices(enum_cls: type) -> list[str]:
+        """What discovery would persist for a plain-signature parameter."""
+        import inspect
+
+        from functualize._discovery.providers import _extract_enum_choices
+
+        sig = inspect.Signature(
+            [
+                inspect.Parameter(
+                    "color",
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                    annotation=enum_cls,
+                )
+            ]
+        )
+        return list(_extract_enum_choices(sig.parameters["color"].annotation) or [])
+
+    def test_a_string_valued_enum_reads_the_same_both_ways(self) -> None:
+        import enum
+
+        class Color(enum.Enum):
+            RED = "red"
+            GREEN = "green"
+
+        assert self._cold_choices(Color) == ["red", "green"]
+        assert self._cached_choices(Color) == self._cold_choices(Color)
+
+    def test_an_int_valued_enum_too(self) -> None:
+        """The case that makes "values" a rendering rather than a lookup:
+        `Level(1)` works, but the *spelling* on the command line is `"1"`."""
+        import enum
+
+        class Level(enum.Enum):
+            LOW = 1
+            HIGH = 2
+
+        assert self._cold_choices(Level) == ["1", "2"]
+        assert self._cached_choices(Level) == self._cold_choices(Level)
+
+    def test_the_rendered_choice_is_what_the_warm_renderer_offers(self) -> None:
+        """Closes the loop: the cached spellings are the ones the descriptor
+        renderer hands to click, so agreement above is agreement on screen."""
+        import enum
+
+        from functualize._types.descriptors import FieldDescriptor
+        from functualize.app.adapters.click_params import _field_click_type
+
+        class Color(enum.Enum):
+            RED = "red"
+            GREEN = "green"
+
+        field = FieldDescriptor(
+            name="color",
+            type_annotation="Color",
+            default=None,
+            description="",
+            required=True,
+            choices=self._cached_choices(Color),
+        )
+        click_type, _, _ = _field_click_type(field)
+        assert list(click_type.choices) == self._cold_choices(Color)

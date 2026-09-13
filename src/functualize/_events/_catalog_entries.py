@@ -13,7 +13,12 @@ from functualize._events._obs_types import EventMetadata
 def get_framework_event_catalog() -> list[EventMetadata]:
     """Return all framework-defined event metadata entries.
 
-    Covers domains: job, config, plugin, cli, tui.
+    Covers domains: job, config, plugin, cli, interactivity, lifecycle, shell.
+
+    Derived by reading the entries below rather than remembered: the list said
+    "job, config, plugin, cli, tui" after `tui.session.*` had been removed from
+    it — in the same edit — and named none of the three domains that were there
+    all along (adj §4).
     """
     return [
         # --- Job domain ---
@@ -28,19 +33,6 @@ def get_framework_event_catalog() -> list[EventMetadata]:
             event_name="job.execute.end",
             description="Job execution succeeds",
             payload_fields={"job_name": "str", "group": "str", "duration_ms": "float"},
-            module="functualize.discovery.registry",
-            domain="job",
-        ),
-        EventMetadata(
-            event_name="job.execute.error",
-            description="Job execution fails",
-            payload_fields={
-                "job_name": "str",
-                "group": "str",
-                "duration_ms": "float",
-                "error_type": "str",
-                "message": "str",
-            },
             module="functualize.discovery.registry",
             domain="job",
         ),
@@ -232,21 +224,6 @@ def get_framework_event_catalog() -> list[EventMetadata]:
             payload_fields={"app": "FunctualizeApp"},
             module="functualize.core.app",
             domain="lifecycle",
-        ),
-        # --- TUI domain ---
-        EventMetadata(
-            event_name="tui.session.start",
-            description="TUI session begins",
-            payload_fields={"command_name": "str"},
-            module="functualize.tui",
-            domain="tui",
-        ),
-        EventMetadata(
-            event_name="tui.session.end",
-            description="TUI session ends",
-            payload_fields={"command_name": "str", "duration_ms": "float"},
-            module="functualize.tui",
-            domain="tui",
         ),
         # --- Shell domain (§B.8; output chunks NOT on the bus) ---
         EventMetadata(

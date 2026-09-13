@@ -80,8 +80,8 @@ Which one you are in depends on a single directory:
 
 | Mode | When | Where the ledger lives |
 |---|---|---|
-| **project** | a `.functualize/` directory is found, walking upward from the working directory | `<that directory>/state.json` — inside your project, alongside the code it describes |
-| **standalone** | no `.functualize/` directory anywhere above you | `$XDG_CACHE_HOME/functualize/<project-id>/state.json` — a hashed directory under your home cache |
+| **project** | a `.functualize/` directory is found, walking upward from the working directory | `<that directory>/fresh.json` — inside your project, alongside the code it describes |
+| **standalone** | no `.functualize/` directory anywhere above you | `$XDG_CACHE_HOME/functualize/<project-id>/fresh.json` — a hashed directory under your home cache |
 
 `func` is meant to run over loose scripts anywhere on the filesystem, so
 standalone is the fallback rather than the failure: littering a `.functualize/`
@@ -94,7 +94,7 @@ which `rm -rf .functualize` is a full reset.
 Both commands tell you which mode you are in and where the file actually is:
 
 ```bash
-func builtin state show     # State path + Mode
+func builtin data show     # State path + Mode
 func builtin info           # the same two facts, beside config resolution
 ```
 
@@ -120,6 +120,100 @@ Restating the glob in the body is how the freshness check and the work drift
 apart. `sources.declared` tells "declared no sources" apart from "declared
 sources that matched nothing"; `sources.generates` carries the declared outputs.
 See [ADR-012](https://github.com/raicing-ai/functualize/blob/master/contributor/adr/012-resolved-sources.md).
+
+### Deciding your own freshness
+
+A fresh job is **skipped**: the engine decides that before your body is called,
+so the body never runs. That is the right default, and it is the wrong answer
+for a job that produces an artifact — for such a job, *"I am already current"*
+means *"hand back what I built"*, not *"do nothing"*.
+
+`Fingerprint(decides=True)` moves that decision into the job. The body is
+entered when the verdict says `SKIP_FRESH`, and reads the verdict through a
+`Freshness` parameter:
+
+```python
+from pathlib import Path
+
+from functualize.job import Fingerprint, Freshness, Log, Sources, job
+
+ARTIFACT = Path("build/report.json")   # your format, your location
+
+
+@job(
+    cache=Fingerprint(
+        sources=["inputs/*.md"],
+        generates=["build/report.json"],
+        decides=True,
+    ),
+)
+def report(fresh: Freshness, sources: Sources, log: Log) -> None:
+    verdict = fresh.verdict()
+    if verdict is not None and verdict.is_fresh:
+        log(f"up to date under {verdict.key} — returning the artifact")
+        print(ARTIFACT.read_text())
+        return
+    # ...the real work, then write ARTIFACT...
+```
+
+Two runs tell the whole story:
+
+```console
+$ func lab report
+rebuilt build/report.json from 2 declared inputs
+BUILT built=836e97a7 state=run
+
+$ func lab report
+up to date under lab.report::fa723457…::checksum — returning the artifact
+CACHED built=836e97a7 state=skip_fresh
+```
+
+The second run entered the body (`state=skip_fresh`), read the verdict and
+returned the artifact it had already built — the same `built` token, no
+rebuild. Without `decides=True` that second run would have printed nothing at
+all.
+
+**The verdict** is the decision itself, not a summary of it: `state`
+(`GuardState`), `key`, `recorded_value`, `declared_sources`,
+`declared_generates`, `source_map`, and `is_fresh` — true for `SKIP_FRESH`
+alone. `verdict()` returns `None` only when the job declares no `Fingerprint`:
+there was no decision, and a fabricated one would be a lie.
+
+`func builtin why <job>` renders that same `GuardState`, so a person and their
+job cannot disagree about a run:
+
+```console
+$ func builtin why lab.report
+lab.report → SKIP (up to date)
+  fingerprint  2 sources unchanged
+```
+
+Worth knowing before you rely on it:
+
+- **The framework never reads your artifact.** It knows the path only because
+  you declared it under `generates`, and all it asks is whether that path
+  exists. Rewrite `build/report.json` by hand and the job is still fresh. The
+  format, the location and the retention are yours; the decision about your
+  declared *inputs* is the framework's.
+- **The body runs on every invocation while your inputs are unchanged.** A
+  decided run does not rewrite its fingerprint record — the decision was
+  discarded, exactly as `--force-fresh` discards it. Reading the verdict is
+  cheap; that is the trade, and the body is what makes it pay.
+- **It is not a cache.** No artifact is stored, content-addressed or evicted on
+  your behalf; the verdict is the contract and the storage is yours
+  (`contributor/architecture/run-model/11-boundaries.md` §B, **N1**).
+- **Reading a fresh verdict does not oblige you to skip.** A job that is fresh
+  and cheap can do the work anyway.
+- **It is not a way to report a skip.** An opted-in run that runs is recorded as
+  having run — *"the framework skipped me"* and *"I ran and decided"* stay
+  distinguishable in history.
+- **Its scope is `SKIP_FRESH` only.** A satisfied `status` guard, a failing
+  `Precondition` (still exit 3) and a blocking gate (still exit 5) all stand,
+  exactly as they do for `force_fresh`.
+
+The worked example — including the control job that does *not* opt in, and a
+test that hand-edits the artifact to show the framework never reads it — is
+[`examples/standalone/freshness_lab/`](https://github.com/raicing-ai/functualize/tree/master/examples/standalone/freshness_lab).
 
 ### With guards
 
@@ -160,6 +254,7 @@ Fingerprint(sources=["src/**/*.py", "pyproject.toml"], method="checksum")
 
 - `sources`: glob patterns. Hashed with resolved config/args for the composite key.
 - `method`: `"checksum"` (default), `"timestamp"`, or `"none"`.
+- `decides`: `False` (default). `True` means *"when I am fresh, enter my body and let me decide"* — the body reads its verdict through a `Freshness` parameter and may return its cached artifact instead of rebuilding. See [Deciding your own freshness](#deciding-your-own-freshness).
 
 ### Guards
 
@@ -199,11 +294,11 @@ Use `func builtin why` to see guard results, fingerprint freshness, and which de
 The state store holds fingerprints, guard results, and execution history. Its
 location depends on the mode described in
 [Where the freshness ledger lives](#where-the-freshness-ledger-lives) —
-`func builtin state show` prints the resolved path:
+`func builtin data show` prints the resolved path:
 
 ```bash
-func builtin state clear    # Clear derived state (fingerprints, history, preconditions)
-func builtin state clear --scopes   # ...and discard in-flight workflow runs too
+func builtin data clear    # Clear derived state (fingerprints, history, preconditions)
+func builtin data clear --scopes   # ...and discard in-flight workflow runs too
 func builtin cache clear            # Clear discovery cache (job metadata)
 ```
 
@@ -233,7 +328,7 @@ Runs jobs concurrently with a bounded thread pool. Output modes:
 Jobs with a `Stdout` capability act as Unix pipeline stages:
 
 ```bash
-func build --output ndjson | jq '.targets'
+func build --emit-format ndjson | jq '.targets'
 ```
 
 `func build` emits NDJSON; `jq` processes it. The exit code table propagates
@@ -255,5 +350,6 @@ caller to parse stderr.
 ## See Also
 
 - [Composing Capabilities](composition.md) — how this fits with the other capabilities: a combination matrix of what happens at each intersection, and the traps between them
+- [Freshness Lab](https://github.com/raicing-ai/functualize/tree/master/examples/standalone/freshness_lab) — the worked example for a job that caches its own artifact, with the control job that does not
 - [Shell Capability Guide](shell.md) — running external commands with lifecycle management
 - [Workflows Guide](workflows.md) — multi-step DAGs with gates and conditional branching

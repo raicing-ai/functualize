@@ -187,11 +187,33 @@ class Fingerprint:
     and a pattern matching nothing counts as not on disk. Otherwise a job whose
     inputs were unchanged would report fresh with its promised artifact
     deleted.
+
+    ``decides`` moves the skip decision from the framework to the job:
+
+    ============================ ===============================================
+    Declaration                  A fresh verdict means
+    ============================ ===============================================
+    ``Fingerprint(sources=[…])`` the job is skipped — the default, unchanged
+    ``decides=True``             the body runs and decides what to do
+    ============================ ===============================================
+
+    The default is the first row on purpose: opting out is a decision a job
+    author makes, never one they inherit. A job that opts in reads
+    :class:`~functualize.job.Freshness` and returns whatever it likes — its
+    cached artifact, or real work. It does **not** get to report
+    ``RunStatus.SKIPPED``: "the framework skipped me" and "I ran and decided to
+    do nothing" stay distinguishable in history.
     """
 
     sources: tuple[str, ...] = ()
     generates: tuple[str, ...] = ()
     method: Literal["checksum", "timestamp", "none"] = "checksum"
+    #: The job handles its own freshness: when this declaration makes it fresh,
+    #: the body runs anyway and decides. It says what the *job* does, not what
+    #: the framework stops doing, and it is scoped to SKIP_FRESH exactly as the
+    #: `force_fresh` override is — a platform mismatch, a satisfied `status`
+    #: guard, a failing `Precondition` and a gate all still stand.
+    decides: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "sources", tuple(self.sources))
@@ -213,12 +235,21 @@ class Fingerprint:
                 "Fingerprint(method='timestamp') requires 'generates' — "
                 "timestamp comparison needs output targets to check against."
             )
+        if not isinstance(self.decides, bool):
+            raise ValueError(
+                f"Fingerprint.decides must be a bool, got {type(self.decides).__name__}"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "sources": list(self.sources),
             "generates": list(self.generates),
             "method": self.method,
+            # Round-tripped, not omitted. It is read off the live function on a
+            # cold boot and off this dict on every warm one, so a field that
+            # serializes nowhere silently reverts to its default on the second
+            # invocation of a project — the cold/warm divergence class.
+            "decides": self.decides,
         }
 
     @classmethod
@@ -227,6 +258,10 @@ class Fingerprint:
             sources=tuple(data["sources"]),
             generates=tuple(data["generates"]),
             method=data["method"],
+            # `.get` because a discovery cache written before this field existed
+            # is discarded only when the *version* changes; the default here is
+            # the field's own, so an old entry reads exactly as it always did.
+            decides=data.get("decides", False),
         )
 
 

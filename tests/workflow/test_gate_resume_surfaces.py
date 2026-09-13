@@ -158,7 +158,7 @@ def test_block_deposit_resume_completes(surface: str, tmp_path: Path) -> None:
 
     blocked = _run(project, surface, "walk")
     assert blocked.returncode == 5, blocked.stdout + blocked.stderr
-    match = re.search(r"scope '([0-9a-f]+)'", blocked.stdout + blocked.stderr)
+    match = re.search(r"scope '([\w.-]+)'", blocked.stdout + blocked.stderr)
     assert match is not None, blocked.stdout + blocked.stderr
     scope = match.group(1)
 
@@ -201,7 +201,7 @@ def test_the_blocked_message_names_a_runnable_resume_command(
     assert "--log-level DEBUG" not in err, err
     assert "--wf-resume" in err, err
     # The flag is spelled after the job name, which is where it works.
-    assert re.search(r"\bwalk --wf-resume [0-9a-f]+", err), err
+    assert re.search(r"\bwalk --wf-resume [\w.-]+", err), err
     program = "func" if surface == "func" else "main.py"
     assert program in err, err
     # It names the command that *finishes* the run, not one that starts
@@ -293,10 +293,10 @@ def test_the_blocked_message_names_a_command_path_not_a_job_address(
     assert "flow.grouped-walk --wf-resume" not in err, (
         "the message printed the job address, which is not a runnable command"
     )
-    assert re.search(r"flow grouped-walk --wf-resume [0-9a-f]+", err), err
+    assert re.search(r"flow grouped-walk --wf-resume [\w.-]+", err), err
 
     # And the command it printed actually runs.
-    match = re.search(r"--wf-resume ([0-9a-f]+)", err)
+    match = re.search(r"--wf-resume ([\w.-]+)", err)
     assert match is not None
     resumed = _run(
         project, surface, "flow", "grouped-walk", "--wf-resume", match.group(1)

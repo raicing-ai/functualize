@@ -225,11 +225,17 @@ def _value(raw: Any) -> str | None:
 
 
 def _store(app: Any) -> Any:
-    from pathlib import Path
+    """The scope records, on the app's substrate.
 
-    from functualize.app.utils import StateStore
+    Resolved through the engine rather than from the cwd. This was the site
+    `store-substrate`/T7 caught: with a database installed, `--wf-resume`
+    looked for the scope in `.functualize/scopes.json` while the walk that
+    created it had written to the database, so a perfectly valid id came back
+    as "No workflow scope".
+    """
+    from functualize.app.utils import ScopeStore
 
-    return StateStore.for_project(Path.cwd())
+    return ScopeStore(app.execution_engine.substrate)
 
 
 def _deposit(flags: dict[str, Any]) -> tuple[str | None, dict[str, Any]] | None | Any:

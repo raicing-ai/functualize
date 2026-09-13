@@ -30,7 +30,7 @@ class _FakeBreadcrumb:
     def __init__(self) -> None:
         self.state = None
 
-    def update_state(self, state: object) -> None:
+    def update_fresh(self, state: object) -> None:
         self.state = state
 
     def clear_state(self) -> None:

@@ -10,7 +10,6 @@ authors = [
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.0.0",
-    "functualize-state",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",

@@ -21,7 +21,6 @@ members = [
     "functualize-inline",
     "functualize-lambda",
     "functualize-mcp",
-    "functualize-state",
     "functualize-state-sqlite",
     "functualize-tasks",
     "functualize-tasks-local",
@@ -1241,7 +1240,6 @@ all = [
     { name = "functualize-inline" },
     { name = "functualize-lambda" },
     { name = "functualize-mcp" },
-    { name = "functualize-state" },
     { name = "functualize-state-sqlite" },
     { name = "functualize-tasks" },
     { name = "functualize-tasks-local" },
@@ -1293,7 +1291,6 @@ requires-dist = [
     { name = "functualize-inline", marker = "extra == 'all'", editable = "plugins/functualize-inline" },
     { name = "functualize-lambda", marker = "extra == 'all'", editable = "plugins/functualize-lambda" },
     { name = "functualize-mcp", marker = "extra == 'all'", editable = "plugins/functualize-mcp" },
-    { name = "functualize-state", marker = "extra == 'all'", editable = "plugins/functualize-state" },
     { name = "functualize-state-sqlite", marker = "extra == 'all'", editable = "plugins/functualize-state-sqlite" },
     { name = "functualize-tasks", marker = "extra == 'all'", editable = "plugins/functualize-tasks" },
     { name = "functualize-tasks-local", marker = "extra == 'all'", editable = "plugins/functualize-tasks-local" },
@@ -1336,7 +1333,6 @@ name = "functualize-ai"
 version = "0.3.0"
 source = { editable = "plugins/functualize-ai" }
 dependencies = [
-    { name = "functualize-state" },
     { name = "pydantic" },
 ]
 
@@ -1348,7 +1344,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "functualize-state", editable = "plugins/functualize-state" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
@@ -1548,34 +1543,11 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
-name = "functualize-state"
-version = "0.3.0"
-source = { editable = "plugins/functualize-state" }
-dependencies = [
-    { name = "pydantic" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-cov" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "pydantic", specifier = ">=2.0.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
-]
-provides-extras = ["dev"]
-
-[[package]]
 name = "functualize-state-sqlite"
 version = "0.3.0"
 source = { editable = "plugins/functualize-state-sqlite" }
 dependencies = [
     { name = "functualize" },
-    { name = "functualize-state" },
 ]
 
 [package.optional-dependencies]
@@ -1588,7 +1560,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "functualize", editable = "." },
-    { name = "functualize-state", editable = "plugins/functualize-state" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.82.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
@@ -1622,7 +1593,6 @@ name = "functualize-tasks-local"
 version = "0.3.0"
 source = { editable = "plugins/functualize-tasks-local" }
 dependencies = [
-    { name = "functualize-state" },
     { name = "functualize-tasks" },
 ]
 
@@ -1634,7 +1604,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "functualize-state", editable = "plugins/functualize-state" },
     { name = "functualize-tasks", editable = "plugins/functualize-tasks" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },

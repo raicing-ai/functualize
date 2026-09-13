@@ -1,12 +1,12 @@
-"""Property-based tests for StateStore scope determines visibility.
+"""Property-based tests for type(new_state_store()) scope determines visibility.
 
 Property 10: State_Store Scope Determines Visibility
 **Validates: Requirements 6.3, 6.4**
 
 Verifies that:
-- When two references share the same StateStore (via WorkflowScope),
+- When two references share the same type(new_state_store()) (via WorkflowScope),
   state written by one is visible to the other.
-- When each reference has its own independent StateStore (standalone),
+- When each reference has its own independent type(new_state_store()) (standalone),
   state does not leak between separate instances.
 - State persistence through a shared scope: store → retrieve cycle works
   across multiple access points.
@@ -15,8 +15,8 @@ Verifies that:
 from hypothesis import given
 from hypothesis import strategies as st
 
-from functualize.job._state_store import StateStore
 from functualize.job._workflow_scope import WorkflowScope
+from tests.context.conftest import new_state_store
 
 # --- Strategies ---
 
@@ -50,7 +50,7 @@ scope_ids = st.text(
 
 
 # Feature: enriched-runcontext, Property 10: State_Store Scope Determines Visibility
-# When two access points share the same StateStore via WorkflowScope, state written
+# When two access points share the same type(new_state_store()) via WorkflowScope, state written
 # by one is visible to the other. When standalone StateStores are used, state does
 # not leak between separate instances. Store → retrieve cycle works across multiple
 # access points sharing a scope.
@@ -75,7 +75,7 @@ class TestStateStoreScopeDeterminesVisibility:
 
         **Validates: Requirements 6.3**
         """
-        scope = WorkflowScope(scope_id)
+        scope = WorkflowScope(scope_id, state_store=new_state_store(scope_id))
         # Two references to the same state_store through the scope
         store_ref_a = scope.state_store
         store_ref_b = scope.state_store
@@ -86,7 +86,7 @@ class TestStateStoreScopeDeterminesVisibility:
 
         # Reader B can see all items written by A
         for key, value in items.items():
-            retrieved = store_ref_b.get(key, object)
+            retrieved = store_ref_b.get(key)
             assert retrieved == value
 
         # Keys are consistent across both references
@@ -115,8 +115,8 @@ class TestStateStoreScopeDeterminesVisibility:
 
         **Validates: Requirements 6.4**
         """
-        store_a = StateStore()
-        store_b = StateStore()
+        store_a = new_state_store()
+        store_b = new_state_store()
 
         # Write different data to each
         for key, value in items_a.items():
@@ -128,22 +128,22 @@ class TestStateStoreScopeDeterminesVisibility:
         # Store A should only contain its own items
         assert set(store_a.keys()) == set(items_a.keys())
         for key, value in items_a.items():
-            assert store_a.get(key, object) == value
+            assert store_a.get(key) == value
 
         # Store B should only contain its own items
         assert set(store_b.keys()) == set(items_b.keys())
         for key, value in items_b.items():
-            assert store_b.get(key, object) == value
+            assert store_b.get(key) == value
 
         # Keys unique to A should not exist in B
         only_in_a = set(items_a.keys()) - set(items_b.keys())
         for key in only_in_a:
-            assert store_b.get(key, object) is None
+            assert store_b.get(key) is None
 
         # Keys unique to B should not exist in A
         only_in_b = set(items_b.keys()) - set(items_a.keys())
         for key in only_in_b:
-            assert store_a.get(key, object) is None
+            assert store_a.get(key) is None
 
     @given(
         scope_id=scope_ids,
@@ -165,10 +165,12 @@ class TestStateStoreScopeDeterminesVisibility:
 
         **Validates: Requirements 6.3**
         """
-        scope = WorkflowScope(scope_id)
+        scope = WorkflowScope(scope_id, state_store=new_state_store(scope_id))
 
         # Simulate multiple access points (different "job" references)
-        access_points: list[StateStore] = [scope.state_store for _ in range(3)]
+        access_points: list[type(new_state_store())] = [
+            scope.state_store for _ in range(3)
+        ]
 
         # Each access point writes a portion of the items
         for i, (key, value) in enumerate(items):
@@ -179,7 +181,7 @@ class TestStateStoreScopeDeterminesVisibility:
         for ap in access_points:
             assert set(ap.keys()) == {k for k, _ in items}
             for key, value in items:
-                assert ap.get(key, object) == value
+                assert ap.get(key) == value
 
     @given(
         scope_id_a=scope_ids,
@@ -209,8 +211,8 @@ class TestStateStoreScopeDeterminesVisibility:
 
         **Validates: Requirements 6.3, 6.4**
         """
-        scope_a = WorkflowScope(scope_id_a)
-        scope_b = WorkflowScope(scope_id_b)
+        scope_a = WorkflowScope(scope_id_a, state_store=new_state_store(scope_id_a))
+        scope_b = WorkflowScope(scope_id_b, state_store=new_state_store(scope_id_b))
 
         for key, value in items_a.items():
             scope_a.state_store.set(key, value)
@@ -227,7 +229,7 @@ class TestStateStoreScopeDeterminesVisibility:
         # Keys unique to A should not appear in B's store
         only_in_a = set(items_a.keys()) - set(items_b.keys())
         for key in only_in_a:
-            assert scope_b.state_store.get(key, object) is None
+            assert scope_b.state_store.get(key) is None
 
     @given(
         scope_id=scope_ids,
@@ -243,17 +245,17 @@ class TestStateStoreScopeDeterminesVisibility:
 
         **Validates: Requirements 6.3**
         """
-        scope = WorkflowScope(scope_id)
+        scope = WorkflowScope(scope_id, state_store=new_state_store(scope_id))
         writer_a = scope.state_store
         writer_b = scope.state_store
         reader = scope.state_store
 
         # First writer sets initial value
         writer_a.set(key, value_1)
-        assert reader.get(key, object) == value_1
+        assert reader.get(key) == value_1
 
         # Second writer overwrites
         writer_b.set(key, value_2)
-        assert reader.get(key, object) == value_2
+        assert reader.get(key) == value_2
         # First writer also sees the overwrite
-        assert writer_a.get(key, object) == value_2
+        assert writer_a.get(key) == value_2

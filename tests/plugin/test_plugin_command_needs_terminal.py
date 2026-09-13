@@ -33,7 +33,7 @@ def _find(app: FunctualizeApp, namespace: str | None, name: str):
     """
     return next(
         c
-        for c in app.get_plugin_commands()
+        for c in app.extensions.get_plugin_commands()
         if c.name == name and c.namespace == namespace
     )
 
@@ -42,7 +42,7 @@ class TestDefault:
     def test_defaults_to_false(self) -> None:
         """A plugin that never heard of the field gets the safe answer."""
         app = _app()
-        app.register_plugin_command("plain", lambda: None, help_text="h")
+        app.extensions.register_plugin_command("plain", lambda: None, help_text="h")
 
         cmd = _find(app, None, "plain")
         assert cmd.needs_terminal is False
@@ -50,7 +50,9 @@ class TestDefault:
     def test_existing_positional_call_still_works(self) -> None:
         """The pre-existing four-argument call is unchanged."""
         app = _app()
-        app.register_plugin_command("legacy", lambda: None, "help text", "ns")
+        app.extensions.register_plugin_command(
+            "legacy", lambda: None, "help text", "ns"
+        )
 
         cmd = _find(app, "ns", "legacy")
         assert (cmd.help_text, cmd.namespace, cmd.needs_terminal) == (
@@ -64,7 +66,7 @@ class TestRoundTrip:
     @pytest.mark.parametrize("declared", [True, False])
     def test_declaration_survives_registration(self, declared: bool) -> None:
         app = _app()
-        app.register_plugin_command(
+        app.extensions.register_plugin_command(
             "serve",
             lambda: None,
             help_text="Start a server",
@@ -82,10 +84,10 @@ class TestRoundTrip:
         foreground, `start` spawns a subprocess and returns.
         """
         app = _app()
-        app.register_plugin_command(
+        app.extensions.register_plugin_command(
             "serve", lambda: None, namespace="demo", needs_terminal=True
         )
-        app.register_plugin_command(
+        app.extensions.register_plugin_command(
             "start", lambda: None, namespace="demo", needs_terminal=False
         )
 

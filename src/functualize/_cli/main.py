@@ -22,7 +22,10 @@ import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from contextlib import AbstractContextManager
 
 try:
     import click
@@ -328,7 +331,6 @@ def cli_app(
         "cli_config": cli_config,
         "anchor": cli_config.anchor,
     }
-
     # ── Emit parse event ─────────────────────────────────────────────────
 
     _cli_parse_duration_ms = (_time.perf_counter() - _cli_parse_start) * 1000
@@ -560,7 +562,7 @@ def _handle_bare(
 
     # Non-TTY: print parseable job list
     jobs = app.get_jobs()
-    plugin_commands = list(app.get_plugin_commands())
+    plugin_commands = list(app.extensions.get_plugin_commands())
     if not jobs and not plugin_commands:
         click.echo("No jobs discovered.")
         return
@@ -679,73 +681,34 @@ def _extract_aliases(merged_config: dict[str, Any]) -> dict[str, str]:
     return result
 
 
+def _diagnostic_scope(effective_args: list[str]) -> AbstractContextManager[None]:
+    """`diagnostic_boot()` when these args name a diagnostic builtin, else nothing.
+
+    The family name is the token after ``builtin`` — `func builtin why hello`
+    names `why`. Read positionally rather than through click, because the
+    decision has to be made *before* `cli_app()` runs: the app boots inside
+    `FunctualizeApp.__init__`, so by the time any callback could ask, the boot
+    that would have exited has already happened.
+
+    Global flags are already gone by here — `detect_mode` returns
+    `effective_args` with the pre-boot globals stripped — so the token after
+    `builtin` is the family and not an option's value.
+    """
+    import contextlib
+
+    from functualize._cli.builtins import BUILTIN_ROOT, DIAGNOSTIC_BUILTINS
+    from functualize.app.utils import diagnostic_boot
+
+    family = ""
+    if BUILTIN_ROOT in effective_args:
+        after = effective_args[effective_args.index(BUILTIN_ROOT) + 1 :]
+        family = next((token for token in after if not token.startswith("-")), "")
+    if family in DIAGNOSTIC_BUILTINS:
+        return diagnostic_boot()
+    return contextlib.nullcontext()
+
+
 # ─── Unknown command handling ────────────────────────────────────────────
-
-
-def _levenshtein(s: str, t: str) -> int:
-    """Compute Levenshtein distance between two strings.
-
-    Uses the standard dynamic programming approach with O(min(m, n)) space.
-
-    Args:
-        s: First string.
-        t: Second string.
-
-    Returns:
-        Edit distance (insertions + deletions + substitutions).
-    """
-    if len(s) < len(t):
-        return _levenshtein(t, s)
-
-    if not t:
-        return len(s)
-
-    previous_row = list(range(len(t) + 1))
-    for i, sc in enumerate(s):
-        current_row = [i + 1]
-        for j, tc in enumerate(t):
-            # Cost is 0 if characters match, 1 otherwise
-            cost = 0 if sc == tc else 1
-            current_row.append(
-                min(
-                    current_row[j] + 1,  # insertion
-                    previous_row[j + 1] + 1,  # deletion
-                    previous_row[j] + cost,  # substitution
-                )
-            )
-        previous_row = current_row
-
-    return previous_row[-1]
-
-
-def _fuzzy_suggest(cmd: str, job_names: set[str], max_results: int = 5) -> list[str]:
-    """Compute fuzzy suggestions for an unknown command.
-
-    Strategy (scored, highest first):
-    1. Exact prefix match (score=3): job starts with cmd
-    2. Substring match (score=2): cmd is contained within job name
-    3. Levenshtein distance ≤ 2 (score=1): handles transpositions/typos
-
-    Args:
-        cmd: The unrecognized command string.
-        job_names: Set of valid job names to search.
-        max_results: Maximum number of suggestions to return.
-
-    Returns:
-        Up to *max_results* suggestions sorted by score descending,
-        then alphabetically for ties.
-    """
-    scored: list[tuple[int, str]] = []
-    for name in job_names:
-        if name.startswith(cmd):
-            scored.append((3, name))
-        elif cmd in name:
-            scored.append((2, name))
-        elif _levenshtein(cmd, name) <= 2:
-            scored.append((1, name))
-
-    scored.sort(key=lambda x: (-x[0], x[1]))
-    return [name for _, name in scored[:max_results]]
 
 
 def _handle_unknown(args: list[str], job_names: set[str]) -> None:
@@ -761,7 +724,9 @@ def _handle_unknown(args: list[str], job_names: set[str]) -> None:
 
     print(f"Error: Unknown command '{cmd}'.", file=sys.stderr)
 
-    suggestions = _fuzzy_suggest(cmd, job_names)
+    from functualize.app.utils import suggest_similar_commands
+
+    suggestions = suggest_similar_commands(cmd, job_names)
     if suggestions:
         print("\nDid you mean:", file=sys.stderr)
         for suggestion in suggestions:
@@ -784,7 +749,7 @@ def _plugin_namespace_names(plugin_commands: list[Any]) -> set[str]:
     like ``a.b.c`` also registers ``a`` and ``a.b`` as navigable prefixes.
 
     Args:
-        plugin_commands: Result of ``app.get_plugin_commands()`` (duck-typed;
+        plugin_commands: Result of ``app.extensions.get_plugin_commands()`` (duck-typed;
             each item exposes a ``namespace`` attribute).
 
     Returns:
@@ -814,14 +779,14 @@ def _run_adhoc_command(
 
     Mirrors ``register_plugin_commands`` (``adapters/click_params.py``): builds
     a click command directly from the callback's signature and captures its
-    return value for ``--output`` parity. Jobs go through
+    return value for ``--emit-format`` parity. Jobs go through
     ``create_job_click_command`` at their call sites instead.
 
     Args:
         name: The command name to register the callback under.
         fn: The raw plugin callback (its signature drives option parsing).
         remaining_args: CLI args passed after the command name.
-        output_format: The ``--output`` flag value (json, text, or none).
+        output_format: The ``--emit-format`` flag value (json, text, or none).
         help_text: Optional help string.
         prog_name: How the command names itself in usage and error output.
             Defaults to ``name``, which is only right for a top-level command:
@@ -903,13 +868,15 @@ def _dispatch_group(
     group_names: set[str],
     *,
     output_format: str = "none",
+    prompt_gates: bool = False,
+    force: bool = False,
 ) -> int:
     """Resolve and execute a group sub-command against an already-booted app.
 
     Post-boot half of GROUP handling, also reused by the UNKNOWN fallback in
     ``_handle_job``. Because the app is already booted, this sees both job
     groups (from ``JOB_GROUP``) and plugin-registered command groups (from
-    ``app.get_plugin_commands()``), so ``func mcp serve`` resolves here.
+    ``app.extensions.get_plugin_commands()``), so ``func mcp serve`` resolves here.
 
     Navigation is a single walk of the group trie (A4), which replaced a greedy
     dotted-prefix loop over a merged name set. The trie carries job groups,
@@ -934,16 +901,11 @@ def _dispatch_group(
         app: The already-booted FunctualizeApp (duck-typed).
         args: ``[group_segment_1, ..., sub_command?, ...remaining_args]``.
         group_names: Known job group names (including ancestor prefixes).
-        output_format: The ``--output`` flag value (auto, json, ndjson, raw, none).
+        output_format: The ``--emit-format`` flag value (auto, json, ndjson, raw, none).
 
     Returns:
         Exit code (0 = success).
     """
-    # Jobs reached through a group must honor `--output` too: deposit it here as
-    # well, since this is also entered directly from `_handle_job`'s UNKNOWN
-    # fallback, not only from `_handle_group` (which already set it).
-    app._output_format = output_format
-
     from functualize._cli.dispatch import is_known_global_flag, walk_group_path
     from functualize.app.adapters.click_params import (
         create_job_click_command,
@@ -975,9 +937,12 @@ def _dispatch_group(
     # Per-group declared flags (S6a). Read from the cache — the section is
     # written by the same scan that produced the jobs above, and reading it
     # here costs no import.
-    from functualize.app.utils import resolve_cache_path
+    from functualize.app.utils import discovery_hash_for, resolve_cache_path
 
-    group_option_specs = read_group_options_from_cache(resolve_cache_path(Path.cwd()))
+    group_option_specs = read_group_options_from_cache(
+        resolve_cache_path(Path.cwd()),
+        discovery_hash=discovery_hash_for(app),
+    )
 
     trie = build_group_trie(
         [(job.group, job.name, "job") for job in all_jobs],
@@ -1071,6 +1036,22 @@ def _dispatch_group(
                 app=app,
                 command_name=job_descriptor.func_name,
                 group_option_values=group_option_values,
+                # This door is `func <group> <job>`, not the app's own CLI:
+                # it booted the app itself and owns the group flags consumed
+                # before the job name, and it parsed the delivery flags. It
+                # states both here rather than depositing them on the app
+                # (run-request/T11, T12).
+                #
+                # All three delivery flags are parameters of this function
+                # because they have to be: before T12 they reached the job
+                # through `app._output_format` and friends, deposited by
+                # `_handle_group` before it called here. Taking `output_format`
+                # alone would have silently dropped `--force` and
+                # `--prompt-gates` on every grouped job.
+                surface="func.group",
+                prompt_gates=prompt_gates,
+                output_format=output_format,
+                force=force,
             )
             return invoke_command_capturing(
                 command, remaining, output_format, prog_name=job_descriptor.func_name
@@ -1188,7 +1169,7 @@ def _handle_group(
         effective: Resolved effective directories.
         cli_flags: Parsed global CLI flags for resolve_cli_config.
         group_names: Set of known group names (including ancestor prefixes).
-        output_format: The --output flag value (json, text, or none).
+        output_format: The --emit-format flag value (json, text, or none).
         _app_ref: Optional mutable container; if provided, the constructed
             FunctualizeApp is appended so callers can access it for perf reporting.
 
@@ -1243,9 +1224,6 @@ def _handle_group(
         if _disabled_plugins
         else None,
     )
-    app._output_format = output_format
-    app._prompt_gates = prompt_gates
-    app._force = force
 
     # Deposit app reference for perf reporting by caller
     if _app_ref is not None:
@@ -1253,7 +1231,14 @@ def _handle_group(
 
     # Post-boot resolution (job groups + plugin command groups) lives in
     # _dispatch_group, shared with the UNKNOWN fallback in _handle_job.
-    return _dispatch_group(app, args, group_names, output_format=output_format)
+    return _dispatch_group(
+        app,
+        args,
+        group_names,
+        output_format=output_format,
+        prompt_gates=prompt_gates,
+        force=force,
+    )
 
 
 # ─── Direct job handler ──────────────────────────────────────────────────
@@ -1284,7 +1269,7 @@ def _handle_job(
         merged_config: Merged project config dict.
         effective: Resolved effective directories.
         cli_flags: Parsed global CLI flags for resolve_cli_config.
-        output_format: The --output flag value (json, text, or none).
+        output_format: The --emit-format flag value (json, text, or none).
         _app_ref: Optional mutable container; if provided, the constructed
             FunctualizeApp is appended so callers can access it for perf reporting.
 
@@ -1363,9 +1348,6 @@ def _handle_job(
         if _disabled_plugins
         else None,
     )
-    app._output_format = output_format
-    app._prompt_gates = prompt_gates
-    app._force = force
 
     # Deposit app reference for perf reporting by caller
     if _app_ref is not None:
@@ -1412,6 +1394,8 @@ def _handle_job(
                 [job_name, *remaining_args],
                 merged_group_names,
                 output_format=output_format,
+                prompt_gates=prompt_gates,
+                force=force,
             )
 
         # Ungrouped plugin command matching the name → execute directly.
@@ -1456,7 +1440,9 @@ def _handle_job(
             c.name for c in plugin_commands if getattr(c, "namespace", None) is None
         }
         discovered_names |= group_first_segments
-        suggestions = _fuzzy_suggest(job_name, discovered_names)
+        from functualize.app.utils import suggest_similar_commands
+
+        suggestions = suggest_similar_commands(job_name, discovered_names)
         if suggestions:
             print("\nDid you mean:", file=sys.stderr)
             for suggestion in suggestions:
@@ -1477,7 +1463,7 @@ def _handle_job(
         return 1
 
     # Build a click.Command directly from the job's signature + config model
-    # and run it, capturing its return value for --output emission.
+    # and run it, capturing its return value for --emit-format emission.
     from functualize.app.adapters.click_params import (
         create_job_click_command,
         invoke_command_capturing,
@@ -1488,6 +1474,10 @@ def _handle_job(
         function=function,
         job_config_class=config_class,
         app=app,
+        surface="func.job",
+        prompt_gates=prompt_gates,
+        output_format=output_format,
+        force=force,
     )
 
     return invoke_command_capturing(
@@ -1581,7 +1571,7 @@ def _handle_single_file(
     Args:
         file_args: argv slice starting from the .py file
             [file.py, function_name?, ...remaining_args]
-        output_format: The --output flag value (json, text, or none).
+        output_format: The --emit-format flag value (json, text, or none).
         _app_ref: Optional mutable container; if provided, the constructed
             FunctualizeApp is appended so callers can access it for perf reporting.
 
@@ -1648,24 +1638,77 @@ def _handle_single_file(
 
     # Construct FunctualizeApp for execution context
     from functualize.app import FunctualizeApp
-    from functualize.app.config import ConfigSources
+    from functualize.app.config import ConfigSources, JobSources, PluginSources
     from functualize.app.utils import auto_discover
 
     cwd = Path.cwd()
     discovery_result = auto_discover(cwd)
 
+    # The app scans everything discovery found **except the working directory
+    # itself**, which is the one directory the caller did not ask it to read.
+    #
+    # `auto_discover` adds CWD whenever it holds a qualifying `.py` file, and
+    # this app then imports every module that scan names — executing its top
+    # level. So a neighbour that ends with `app.cli_command()` consumed the
+    # invocation: `func weather.py trip_planner`, run beside such a script,
+    # was answered by *that* app ("no such command 'weather.py'") and the
+    # requested file never ran. Single-file mode was asked to run one file.
+    #
+    # Config-declared directories stay, and so do the ones a configured
+    # `[discovery] scan_depth` reaches: both are directories discovery was
+    # *told* to read, which is the line this draws. The working directory is
+    # the one that is implicit — `auto_discover` adds it and no setting can
+    # remove it — so it is the one this drops. The file's own functions are
+    # registered explicitly below, so nothing about the single-file target
+    # depends on the CWD scan.
+    single_file_sources = discovery_result.job_sources
+    cwd_str = str(cwd.resolve())
+
+    # **Declared or implicit, not "is it the cwd".** The paragraph above states
+    # the rule correctly and the first implementation did not follow it: it
+    # dropped the working directory by path equality, and `auto_discover`
+    # resolves a config-declared `jobs_directories = ["."]` to exactly that
+    # path. So a project that names its own root lost it, and
+    # `func caller.py caller` died with
+    # `KeyError: "Job 'project_peer' not found in engine registry"` and a
+    # traceback, while `func project_peer` in the same directory ran fine.
+    # Found by adversarial review; a working project stopped working.
+    declared = {
+        str((cwd / d).resolve())
+        for d in (discovery_result.merged_config or {}).get("jobs_directories", [])
+        or []
+    }
+    if single_file_sources.directories:
+        kept = [
+            d for d in single_file_sources.directories if d != cwd_str or d in declared
+        ]
+        single_file_sources = JobSources(
+            directories=kept or None,
+            functions=single_file_sources.functions,
+            job_providers=single_file_sources.job_providers,
+            children=single_file_sources.children,
+            children_glob=single_file_sources.children_glob,
+            lazy=single_file_sources.lazy,
+        )
+
     app = FunctualizeApp(
         name="functualize",
-        job_sources=discovery_result.job_sources,
+        job_sources=single_file_sources,
         discovery_config=cli_config.discovery,
         config_sources=ConfigSources(
             dotenv=cli_config.dotenv,
             dotenv_path=cli_config.dotenv_path,
         ),
+        # The same rule as the directory filter above, applied to the other
+        # door into the working directory. The job scan is not the only thing
+        # that reaches it: the plugin loader falls back to
+        # `./.functualize/plugins/` by convention and execs every module there
+        # during app construction — before the named file has run, and
+        # unreachable from `job_sources` entirely. So `func weather.py trip`
+        # could still be consumed by a neighbour, just via a different
+        # doorway. A **declared** `plugins_directories` is untouched.
+        plugin_sources=PluginSources(ambient_directory=False),
     )
-    app._output_format = output_format
-    app._prompt_gates = prompt_gates
-    app._force = force
 
     # Deposit app reference for perf reporting by caller
     if _app_ref is not None:
@@ -1675,6 +1718,41 @@ def _handle_single_file(
     # can cross-call within the same file.
     _register_single_file_peers(file_path, target_fn, app, module_name=file_path.stem)
 
+    # The target itself. The peer loop above skips it deliberately, and before
+    # `run-request-entry`/T11 that was fine: the click command held the
+    # function. `engine.run()` resolves by **name**, so an unregistered target
+    # now fails with "not found in engine registry".
+    #
+    # **The guard is on identity, not on the name being free**, and that
+    # distinction cost a working example. This app still discovers the
+    # surrounding project, so a file whose function shares a name with a
+    # project job found that job already registered, skipped registering its
+    # own, and ran *somebody else's* under the name the user typed. Measured on
+    # `examples/standalone/showcase`, where `scripts/hello.py` and
+    # `jobs/surfaces.py` both define `greet`:
+    #
+    #     func scripts/hello.py greet --name World
+    #     TypeError: greet() got an unexpected keyword argument 'enthusiasm'
+    #
+    # — the entry that ran carried a different config class, so the flags never
+    # collapsed into a model. Silent in the other direction: two jobs with
+    # compatible signatures would simply have run the wrong one.
+    #
+    # The file the user named wins, under a file-qualified identity when the
+    # bare one is taken. Only the registry key moves — the command keeps its
+    # spelling, and a job with no collision keeps its config prefix too, so
+    # nothing changes for the case that was already right.
+    existing = app.get_job(function_name)
+    run_name = function_name
+    if existing is not None and existing.function is not target_fn:
+        run_name = f"{file_path.stem}.{function_name}"
+    if app.get_job(run_name) is None:
+        app.register_dynamic_job(
+            name=run_name,
+            function=target_fn,
+            config_class=_detect_config_class(target_fn),
+        )
+
     # Execute through the engine via a click command built directly from the
     # target function's signature (handles DI, config, hooks).
     from functualize.app.adapters.click_params import (
@@ -1683,10 +1761,17 @@ def _handle_single_file(
     )
 
     command = create_job_click_command(
-        name=function_name or "",
+        # The identity the engine runs, which is file-qualified when the bare
+        # name belongs to a neighbouring job; `command_name` keeps the spelling
+        # the user typed.
+        name=run_name or "",
         function=target_fn,
         app=app,
         command_name=function_name,
+        surface="func.single-file",
+        prompt_gates=prompt_gates,
+        output_format=output_format,
+        force=force,
     )
 
     return invoke_command_capturing(
@@ -1858,11 +1943,13 @@ def _run_cli() -> None:
     # Position-aware: only recognize --version when it appears BEFORE the first
     # positional argument (the command name). `func --version` prints the
     # version; `func deploy --version v1` passes --version to the job. This is
-    # the same convention as other global flags (--log-level, --output, etc.)
+    # the same convention as other global flags (--log-level, --emit-format, etc.)
     # and unlike --help which Click handles per-command.
-    from functualize._cli.dispatch import (
-        _GLOBAL_OPTIONS_ALWAYS_VALUE,
-        _GLOBAL_OPTIONS_OPTIONAL_VALUE,
+    # The one flag grammar (`_types/flag_grammar.py`), reached through the
+    # public corridor because `_cli` may import public folders only.
+    from functualize.app.utils import (
+        GLOBAL_OPTIONS_ALWAYS_VALUE,
+        GLOBAL_OPTIONS_OPTIONAL_VALUE,
     )
 
     _argv_tail = sys.argv[1:]
@@ -1884,9 +1971,9 @@ def _run_cli() -> None:
             # A flag — skip it (and its value if it takes one)
             if "=" in _tok:
                 _i += 1
-            elif _tok in _GLOBAL_OPTIONS_ALWAYS_VALUE:
+            elif _tok in GLOBAL_OPTIONS_ALWAYS_VALUE:
                 _i += 2  # skip flag + value
-            elif _tok in _GLOBAL_OPTIONS_OPTIONAL_VALUE:
+            elif _tok in GLOBAL_OPTIONS_OPTIONAL_VALUE:
                 _i += 1  # conservative: don't consume the next token
             else:
                 _i += 1  # unknown flag or bool flag (--no-dotenv, --help)
@@ -1937,6 +2024,7 @@ def _run_cli() -> None:
     from functualize.app.utils import (
         DiscoveryOverrides,
         auto_discover,
+        diagnostic_boot,
         enumerate_group_names,
         enumerate_job_names,
         read_routing_names_from_cache,
@@ -1989,7 +2077,7 @@ def _run_cli() -> None:
     # Apply log level from global_opts before any app boot
     # Default to INFO (matches old behavior) so rc.log() output is visible
     log_level = global_opts.log_level if global_opts.log_level is not None else "INFO"
-    # When --output is json or text, explicitly route logging to stderr
+    # When --emit-format is json or text, explicitly route logging to stderr
     # to ensure log output does not contaminate stdout pipe data.
     # Python's logging.basicConfig() defaults to stderr, but we make it
     # explicit here for clarity and safety.
@@ -2027,7 +2115,15 @@ def _run_cli() -> None:
         and mode is not Mode.GROUP
     ):
         register_builtin_commands(cli_app)
-        cli_app()
+        # `--help` prints and stops. It never runs a job, so a project-wide
+        # contradiction — two files contesting one group's flags — has nothing
+        # to make ambiguous here, and killing a help request over it left a
+        # user with a broken project unable to read the manual for the command
+        # that would explain it (`func builtin why --help` exited 2 with an
+        # empty stdout). Unconditional, not `_diagnostic_scope`: the rule is
+        # about *running*, and this path runs nothing (decision D-4).
+        with diagnostic_boot():
+            cli_app()
         return
 
     # Resolve output format from global options. Unset → "auto": the emitter
@@ -2138,6 +2234,63 @@ def _run_cli() -> None:
                 _print_perf_report(app_ref[0], perf_format, perf_filter)
         raise SystemExit(exit_code)
 
-    # BUILTIN mode: plain Click group (no FallbackGroup)
+    # BUILTIN mode: plain Click group (no FallbackGroup).
+    #
+    # **The pre-command globals split here, and the split is exact.** BUILTIN
+    # mode takes the ones that configure *discovery and the process* and
+    # rejects the three that configure *a run*:
+    #
+    #     func --log-level ERROR      builtin version  -> functualize 0.3.0
+    #     func --config-directory /tmp builtin version -> functualize 0.3.0
+    #     func --exclude nothing.py   builtin version  -> functualize 0.3.0
+    #     func --emit-format json          builtin version  -> No such option
+    #     func --force                builtin version  -> No such option
+    #     func --prompt-gates         builtin version  -> No such option
+    #
+    # All six are in the same pre-boot grammar (`_types/flag_grammar.py`), so
+    # "early-parse flag" and "delivery input" are not two vocabularies — the
+    # three delivery inputs are a *subset* of the globals, and they are exactly
+    # the subset this door drops, because they belong on a `RunRequest` and
+    # BUILTIN mode builds none.
+    #
+    # Two comments used to describe a module-level dict carrying them into the
+    # `cli_app` callback. Both bridges they named were deleted by T11 and T12,
+    # whose gate reads 0 — but the gate matches *identifiers*, so the prose
+    # naming them survived and went on telling a reader the mechanism existed.
+    #
+    # (Deliberately worded without those two names: T11's gate counts them in
+    # this directory, and a comment quoting one would hold the count above zero
+    # for ever. That has happened seven times on this branch.)
+    #
+    # Two builtins would genuinely use one — `builtin parallel` (`--force`) and
+    # `builtin why` (`--force` changes the verdict it reports). Neither is wired
+    # and neither is being wired here; see `.spec/REVIEW-TRIAGE.md` "Builtins
+    # and the delivery inputs" for the evidence and the open question.
+    #
+    #     $ func --emit-format json builtin info jobs
+    #     Error: No such option '--emit-format'.
+    #
+    # Recorded rather than fixed: making `func builtin` accept the delivery
+    # flags is a behaviour change nobody has asked for, and inventing one while
+    # correcting a comment is how scope grows silently (rre F11).
     register_builtin_commands(cli_app)
-    cli_app()
+
+    # A **diagnostic** builtin runs inside `diagnostic_boot()`, which turns a
+    # project-wide contradiction — two files declaring `GroupOptions` for one
+    # group — from an exit into a record on `discovery_failures`. `func builtin
+    # why` exists to answer "why is my job missing?", and that rule stopped it
+    # before it could answer: exit 2, nothing on stdout. `builtin cache
+    # rebuild`, the documented way to clear a bad cache, died before reaching
+    # its own scan (adj M4, decision D-4).
+    #
+    # Everything else stays fatal, **`builtin parallel` included**: it runs
+    # jobs, and the rule is about not running under an ambiguity rather than
+    # about which door was used.
+    #
+    # Decided here rather than inside `cli_app`, because `cli_app`'s only child
+    # is `builtin` — `ctx.invoked_subcommand` is always `"builtin"` and the
+    # family name is one level deeper, which a group callback cannot see. Here
+    # the effective args are in hand, and the block wraps the whole invocation,
+    # so it is still in force when `FunctualizeApp.__init__` boots inside it.
+    with _diagnostic_scope(effective_args):
+        cli_app()

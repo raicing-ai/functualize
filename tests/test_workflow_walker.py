@@ -17,7 +17,8 @@ from functualize._engine.workflow_walker import (
     WorkflowWalker,
     graph_model_of,
 )
-from functualize._primitives.state_store import StateStore
+from functualize._primitives.scope_store import ScopeStore
+from functualize._primitives.substrate import JsonFileSubstrate
 from functualize._types.workflow import (
     END,
     ConditionalEdge,
@@ -38,8 +39,8 @@ class TripPreferences(BaseModel):
 
 
 @pytest.fixture
-def store(tmp_path: Path) -> StateStore:
-    return StateStore(tmp_path / "state.json")
+def store(tmp_path: Path) -> ScopeStore:
+    return ScopeStore(JsonFileSubstrate(tmp_path))
 
 
 class Recorder:
@@ -111,7 +112,7 @@ class TestGraphCompilation:
 
 
 class TestLinearWalk:
-    def test_runs_every_step_in_order(self, store: StateStore) -> None:
+    def test_runs_every_step_in_order(self, store: ScopeStore) -> None:
         runner = Recorder()
         report = WorkflowWalker(_linear(), store, "s1", run_step=runner).run()
 
@@ -121,7 +122,7 @@ class TestLinearWalk:
         assert report.executed == ("forecast", "travel-plan")
         assert report.replayed == ()
 
-    def test_completion_is_persisted(self, store: StateStore) -> None:
+    def test_completion_is_persisted(self, store: ScopeStore) -> None:
         """A finished walk leaves no position and a completed status."""
         WorkflowWalker(_linear(), store, "s1", run_step=Recorder()).run()
 
@@ -130,7 +131,7 @@ class TestLinearWalk:
         assert scope["status"] == "completed"
         assert scope["position"] is None
 
-    def test_workflow_name_is_recorded_for_observers(self, store: StateStore) -> None:
+    def test_workflow_name_is_recorded_for_observers(self, store: ScopeStore) -> None:
         """MCP lists scopes by the workflow they belong to."""
         WorkflowWalker(
             _linear(), store, "s1", run_step=Recorder(), workflow_name="trip_planner"
@@ -140,7 +141,7 @@ class TestLinearWalk:
         assert scope["workflow"] == "trip_planner"
 
     def test_an_empty_graph_completes_without_running_anything(
-        self, store: StateStore
+        self, store: ScopeStore
     ) -> None:
         runner = Recorder()
         report = WorkflowWalker(
@@ -151,7 +152,7 @@ class TestLinearWalk:
 
 
 class TestGateBlocking:
-    def test_walk_blocks_at_a_gate_with_no_input(self, store: StateStore) -> None:
+    def test_walk_blocks_at_a_gate_with_no_input(self, store: ScopeStore) -> None:
         runner = Recorder()
         report = WorkflowWalker(_gated(), store, "s1", run_step=runner).run()
 
@@ -161,7 +162,7 @@ class TestGateBlocking:
         # The step past the gate must not have run.
         assert runner.calls == ["forecast"]
 
-    def test_block_persists_position_status_and_schema(self, store: StateStore) -> None:
+    def test_block_persists_position_status_and_schema(self, store: ScopeStore) -> None:
         """Everything a different process needs to observe and resume the walk."""
         WorkflowWalker(_gated(), store, "s1", run_step=Recorder()).run()
 
@@ -181,7 +182,7 @@ class TestGateBlocking:
 class TestResume:
     """Replay + memoization (§D.7): re-invoke, skip what is recorded."""
 
-    def test_full_block_resume_complete_cycle(self, store: StateStore) -> None:
+    def test_full_block_resume_complete_cycle(self, store: ScopeStore) -> None:
         first = Recorder()
         blocked = WorkflowWalker(_gated(), store, "s1", run_step=first).run()
         assert blocked.outcome is WalkOutcome.BLOCKED
@@ -197,7 +198,7 @@ class TestResume:
         assert resumed.replayed == ("forecast", "preferences")
         assert resumed.executed == ("travel-plan",)
 
-    def test_resume_reuses_the_recorded_return_value(self, store: StateStore) -> None:
+    def test_resume_reuses_the_recorded_return_value(self, store: ScopeStore) -> None:
         """A replayed step's value must still be available downstream.
 
         Otherwise memoization would silently degrade the graph: the step is
@@ -212,7 +213,7 @@ class TestResume:
         assert resumed.results["forecast"] == "sunny"
         assert resumed.results["preferences"] == {"budget": "high"}
 
-    def test_resuming_a_completed_scope_is_a_no_op(self, store: StateStore) -> None:
+    def test_resuming_a_completed_scope_is_a_no_op(self, store: ScopeStore) -> None:
         """Body-once-per-scope depends on this (§A.7)."""
         WorkflowWalker(_linear(), store, "s1", run_step=Recorder()).run()
 
@@ -223,7 +224,7 @@ class TestResume:
         assert again.calls == []
         assert report.executed == ()
 
-    def test_a_still_blocked_gate_blocks_again(self, store: StateStore) -> None:
+    def test_a_still_blocked_gate_blocks_again(self, store: ScopeStore) -> None:
         """Re-invoking without depositing input must not slip past the gate."""
         WorkflowWalker(_gated(), store, "s1", run_step=Recorder()).run()
 
@@ -233,7 +234,7 @@ class TestResume:
         assert report.outcome is WalkOutcome.BLOCKED
         assert second.calls == []
 
-    def test_scopes_are_independent(self, store: StateStore) -> None:
+    def test_scopes_are_independent(self, store: ScopeStore) -> None:
         """A fresh invocation gets a fresh scope and re-runs everything."""
         WorkflowWalker(_linear(), store, "s1", run_step=Recorder()).run()
 
@@ -266,7 +267,7 @@ class TestBranchStability:
         )
 
     def test_branch_choice_is_recorded_on_first_evaluation(
-        self, store: StateStore
+        self, store: ScopeStore
     ) -> None:
         WorkflowWalker(
             self._branching(lambda _: "go"), store, "s1", run_step=Recorder()
@@ -274,7 +275,7 @@ class TestBranchStability:
         assert store.get_branch("s1", "check") == "go"
 
     def test_a_flipping_condition_does_not_move_a_resumed_walk(
-        self, store: StateStore
+        self, store: ScopeStore
     ) -> None:
         """The scenario §D.7d exists for: the condition answers differently
         on resume than it did when the walk paused."""
@@ -295,7 +296,7 @@ class TestBranchStability:
         assert "deploy" not in runner.calls
 
     def test_a_recorded_branch_does_not_call_the_condition_again(
-        self, store: StateStore
+        self, store: ScopeStore
     ) -> None:
         """Reading the recorded choice must skip the callable entirely.
 
@@ -317,7 +318,7 @@ class TestBranchStability:
         assert len(calls) == 1
 
     def test_the_condition_receives_the_source_return_value(
-        self, store: StateStore
+        self, store: ScopeStore
     ) -> None:
         seen: list[Any] = []
 
@@ -333,7 +334,7 @@ class TestBranchStability:
         ).run()
         assert seen == [{"status": "green"}]
 
-    def test_an_unmatched_choice_ends_the_walk(self, store: StateStore) -> None:
+    def test_an_unmatched_choice_ends_the_walk(self, store: ScopeStore) -> None:
         """A condition returning a key with no target has nowhere to go."""
         runner = Recorder()
         report = WorkflowWalker(
@@ -344,7 +345,7 @@ class TestBranchStability:
 
 
 class TestFailure:
-    def test_a_raising_step_fails_the_walk(self, store: StateStore) -> None:
+    def test_a_raising_step_fails_the_walk(self, store: ScopeStore) -> None:
         def boom(name: str) -> Any:
             raise RuntimeError("no network")
 
@@ -355,7 +356,7 @@ class TestFailure:
         assert "RuntimeError: no network" in report.error
 
     def test_failure_is_persisted_and_downstream_does_not_run(
-        self, store: StateStore
+        self, store: ScopeStore
     ) -> None:
         calls: list[str] = []
 
@@ -374,7 +375,7 @@ class TestFailure:
         assert scope["position"] == "forecast"
         assert scope["steps"]["forecast::"]["status"] == "failed"
 
-    def test_a_failed_step_is_retried_on_resume(self, store: StateStore) -> None:
+    def test_a_failed_step_is_retried_on_resume(self, store: ScopeStore) -> None:
         """Only *successful* steps memoize — a failure must be retryable."""
         attempts: list[str] = []
 
@@ -409,7 +410,7 @@ class TestFanOut:
             ),
         )
 
-    def test_both_branches_run(self, store: StateStore) -> None:
+    def test_both_branches_run(self, store: ScopeStore) -> None:
         runner = Recorder()
         report = WorkflowWalker(self._diamond(), store, "s1", run_step=runner).run()
 
@@ -417,7 +418,7 @@ class TestFanOut:
         assert set(runner.calls) == {"start", "left", "right", "join"}
 
     def test_a_join_does_not_wait_for_a_branch_never_taken(
-        self, store: StateStore
+        self, store: ScopeStore
     ) -> None:
         """A conditional skips one predecessor; the join must still run.
 
@@ -457,13 +458,13 @@ class TestFanOut:
         assert "join" in runner.calls, "the join must not deadlock"
         assert "right" not in runner.calls, "the untaken branch must not run"
 
-    def test_a_join_runs_once(self, store: StateStore) -> None:
+    def test_a_join_runs_once(self, store: ScopeStore) -> None:
         """Reached from both branches, but it is one node."""
         runner = Recorder()
         WorkflowWalker(self._diamond(), store, "s1", run_step=runner).run()
         assert runner.calls.count("join") == 1
 
-    def test_a_join_waits_for_the_longer_branch(self, store: StateStore) -> None:
+    def test_a_join_waits_for_the_longer_branch(self, store: ScopeStore) -> None:
         """Breadth-first order is not a topological order.
 
         With one branch longer than the other, plain BFS reaches the join via
@@ -495,7 +496,7 @@ class TestFanOut:
         assert runner.calls.index("join") > runner.calls.index("a3")
         assert runner.calls.index("join") > runner.calls.index("short")
 
-    def test_a_loop_still_terminates(self, store: StateStore) -> None:
+    def test_a_loop_still_terminates(self, store: ScopeStore) -> None:
         """A cycle makes every node permanently "not ready".
 
         Deferring forever would hang the walk, so the deferral counter breaks

@@ -16,7 +16,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from functualize._cli.stdin_reader import resolve_stdin_params
+from functualize._engine.stdin_reader import resolve_stdin_params
 from functualize.job.markers import Stdin
 
 # =============================================================================
@@ -91,9 +91,11 @@ class TestStdinExplicitWins:
 
         # Mock stdin as piped (non-TTY) with content available
         with (
-            patch("functualize._cli.stdin_reader.sys.stdin.isatty", return_value=False),
             patch(
-                "functualize._cli.stdin_reader.sys.stdin.read",
+                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
+            ),
+            patch(
+                "functualize._engine.stdin_reader.sys.stdin.read",
                 return_value=stdin_content,
             ),
         ):
@@ -125,7 +127,9 @@ class TestStdinExplicitWins:
         cli_values = {param_name: cli_value}
 
         # Mock stdin as TTY (no piped data)
-        with patch("functualize._cli.stdin_reader.sys.stdin.isatty", return_value=True):
+        with patch(
+            "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
+        ):
             result = resolve_stdin_params(stdin_markers, cli_values)
 
         # CLI value wins: returns empty dict
@@ -164,9 +168,11 @@ class TestStdinExplicitWins:
 
         # Mock stdin as piped (non-TTY)
         with (
-            patch("functualize._cli.stdin_reader.sys.stdin.isatty", return_value=False),
             patch(
-                "functualize._cli.stdin_reader.sys.stdin.read",
+                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
+            ),
+            patch(
+                "functualize._engine.stdin_reader.sys.stdin.read",
                 return_value=stdin_content,
             ),
         ):
@@ -214,9 +220,11 @@ class TestStdinResolutionFromPipe:
 
         # Mock stdin as piped (non-TTY) with content
         with (
-            patch("functualize._cli.stdin_reader.sys.stdin.isatty", return_value=False),
             patch(
-                "functualize._cli.stdin_reader.sys.stdin.read",
+                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
+            ),
+            patch(
+                "functualize._engine.stdin_reader.sys.stdin.read",
                 return_value=stdin_content,
             ),
         ):
@@ -247,9 +255,11 @@ class TestStdinResolutionFromPipe:
 
         # Mock stdin as piped (non-TTY) with content
         with (
-            patch("functualize._cli.stdin_reader.sys.stdin.isatty", return_value=False),
             patch(
-                "functualize._cli.stdin_reader.sys.stdin.read",
+                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
+            ),
+            patch(
+                "functualize._engine.stdin_reader.sys.stdin.read",
                 return_value=stdin_content,
             ),
         ):
@@ -291,9 +301,11 @@ class TestStdinResolutionFromPipe:
 
         # Mock stdin as piped (non-TTY) with content
         with (
-            patch("functualize._cli.stdin_reader.sys.stdin.isatty", return_value=False),
             patch(
-                "functualize._cli.stdin_reader.sys.stdin.read",
+                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
+            ),
+            patch(
+                "functualize._engine.stdin_reader.sys.stdin.read",
                 return_value=stdin_content,
             ),
         ):
@@ -324,9 +336,11 @@ class TestStdinResolutionFromPipe:
         cli_values: dict[str, Any] = {}
 
         with (
-            patch("functualize._cli.stdin_reader.sys.stdin.isatty", return_value=False),
             patch(
-                "functualize._cli.stdin_reader.sys.stdin.read",
+                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
+            ),
+            patch(
+                "functualize._engine.stdin_reader.sys.stdin.read",
                 return_value=stdin_content,
             ),
         ):

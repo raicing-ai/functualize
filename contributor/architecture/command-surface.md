@@ -51,7 +51,7 @@ Wraps click groups (builtins):
 
 - **Root:** the `builtin` click group's subcommands
 - **`builtin cache`** → `cache` node with provenance `"builtin"`
-- **`builtin state`** → `state` node with children `clear`, `show`
+- **`builtin data`** → `data` node with children `clear`, `show`
 - Params introspected from click parameter metadata
 
 ## 5. `InputMode` + `InputModeRegistry`
@@ -73,7 +73,7 @@ class InputModeRegistry:
 - Default mode (no sigil): command mode wrapping `CursorContext` sub-modes
   (groups, jobs, params)
 - `!` mode: shell mode — reuses `_job_worker_running` for execution,
-  writes through `StateStore.append_history`
+  writes through `FreshStore.append_history`
 - `?` mode: reserved for future `InputMode`
 
 ## 6. `DynamicInputBar`

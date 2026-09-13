@@ -69,15 +69,25 @@ Emitted by the framework, delivered to the EventBus only (see §2).
 |---|---|---|
 | `job.execute.start` | `job_name`, `invoke_depth` | `invoke_depth` is 0 for a top-level run and increments for each `rc.invoke()` level — this is how nesting is expressed. There is **no** separate `invoke.started`/`invoke.completed` pair. |
 | `job.execute.end` | `job_name`, `duration_ms`, `status` | `status` is `"success"` or `"failure"`. Emitted for blocked and validation-failed runs too. |
-| `job.execute.error` | `job_name` | Error path. |
 | `job.teardown.start` / `job.teardown.end` | `job_name` | |
 
 ### Other framework domains
 
 `plugin.discovery.*`, `plugin.load.*`, `plugin.registration.*`,
 `config.resolution.*`, `config.file.parse.*`, `config.annotation.resolve.*`,
-`config.remote.fetch.*`, `cli.parse.*`, `tui.session.*`,
+`config.remote.fetch.*`, `cli.parse.*`, `shell.command.*`,
 `lifecycle.registry.frozen`, `interactivity.job.submit`.
+
+`job.execute.error` and `tui.session.*` were listed here until
+`adjacent-defects` T6 removed them from the catalog: nothing emitted them,
+and a catalog entry with no producer is a documented lie. A failing job is
+reported by `job.execute.end` carrying `status="failure"` — there is no
+separate error event, and there never was one.
+
+`interactivity.job.submit` is the one entry the framework **subscribes** to
+rather than emits: an interactivity backend produces it and `_app/boot.py`
+listens. `tests/observability/test_catalog_entries_have_producers.py` holds
+that exception to one name.
 
 The authoritative registry is `_events/_catalog_entries.py`.
 

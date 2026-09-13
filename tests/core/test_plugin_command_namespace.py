@@ -9,7 +9,7 @@ concept. These tests pin two things:
 2. Plugin commands are **runtime-only**: they are registered at APP_READY and
    never reach the discovery cache. The group trie (A3) therefore cannot source
    plugin namespaces from cached rows pre-boot — it must take them from
-   ``app.get_plugin_commands()`` post-boot. Test 2 is the guard that keeps that
+   ``app.extensions.get_plugin_commands()`` post-boot. Test 2 is the guard that keeps that
    assumption honest if the cache format ever grows a plugin section.
 """
 
@@ -39,7 +39,7 @@ def _reset_state() -> Generator[None]:
 
 def _only(app: FunctualizeApp, name: str) -> PluginCommand:
     """The single registered plugin command called `name`."""
-    matches = [c for c in app.get_plugin_commands() if c.name == name]
+    matches = [c for c in app.extensions.get_plugin_commands() if c.name == name]
     assert len(matches) == 1, f"expected exactly one '{name}', got {len(matches)}"
     return matches[0]
 
@@ -58,7 +58,9 @@ class TestNamespaceRegistrationRoundTrip:
         def serve() -> None:
             pass
 
-        app.register_plugin_command("ns-test-serve", serve, "Start", namespace="nstest")
+        app.extensions.register_plugin_command(
+            "ns-test-serve", serve, "Start", namespace="nstest"
+        )
 
         cmd = _only(app, "ns-test-serve")
         assert isinstance(cmd, PluginCommand)
@@ -73,9 +75,13 @@ class TestNamespaceRegistrationRoundTrip:
         def stop() -> None:
             pass
 
-        app.register_plugin_command("ns-test-serve", serve, "Start", namespace="nstest")
-        app.register_plugin_command("ns-test-stop", stop, "Stop", namespace="nstest")
-        app.register_plugin_command("ns-test-top", serve, "Top level")
+        app.extensions.register_plugin_command(
+            "ns-test-serve", serve, "Start", namespace="nstest"
+        )
+        app.extensions.register_plugin_command(
+            "ns-test-stop", stop, "Stop", namespace="nstest"
+        )
+        app.extensions.register_plugin_command("ns-test-top", serve, "Top level")
 
         root = click.Group(name="func")
         sub_groups = register_plugin_commands(root, app)
@@ -96,7 +102,7 @@ class TestNamespaceRegistrationRoundTrip:
         def solo() -> None:
             pass
 
-        app.register_plugin_command("ns-test-solo", solo, "Solo")
+        app.extensions.register_plugin_command("ns-test-solo", solo, "Solo")
 
         assert _only(app, "ns-test-solo").namespace is None
 

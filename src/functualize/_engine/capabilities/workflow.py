@@ -18,21 +18,10 @@ from functualize._types.enums import RunStatus
 
 logger = logging.getLogger(__name__)
 
-# Terminal states that cannot be transitioned from.
-#
-# REFUSED belongs here for the same reason FAILURE does: the step is over. It
-# was omitted when the status was added, and the omission is silent — a refused
-# step simply never gets `end_time` or `duration`, so it reads as still running
-# in every consumer of this record.
-_TERMINAL_STATES = frozenset(
-    {
-        RunStatus.SUCCESS,
-        RunStatus.FAILURE,
-        RunStatus.CANCELLED,
-        RunStatus.TIMEOUT,
-        RunStatus.REFUSED,
-    }
-)
+# The literal that used to live here is now `RunStatus.terminal`. It was right
+# — REFUSED belongs with FAILURE, because the step is over — and its sibling in
+# `_engine/capabilities/runcontext.py` was a second copy that disagreed. Being
+# right in one of two places is what a shared property fixes.
 
 
 class TrackedStep(TypedDict):
@@ -139,7 +128,7 @@ class WorkflowTracker:
             }
 
             # If the phase is already terminal on creation, set end time
-            if step_status in _TERMINAL_STATES:
+            if step_status.terminal:
                 new_step["end_time"] = new_step["start_time"]
                 new_step["duration"] = 0.0
 
@@ -147,7 +136,7 @@ class WorkflowTracker:
 
             # Perf marking for new phase
             self._mark_step_start(step_name)
-            if step_status in _TERMINAL_STATES:
+            if step_status.terminal:
                 self._mark_step_end(step_name)
 
             self._logger.info(
@@ -177,7 +166,7 @@ class WorkflowTracker:
             existing_step["message"] = truncated_message
 
             # Set end_time and duration when transitioning to terminal
-            if step_status in _TERMINAL_STATES:
+            if step_status.terminal:
                 end_time = datetime.now(UTC)
                 existing_step["end_time"] = end_time
                 start_time = existing_step["start_time"]

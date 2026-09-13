@@ -29,7 +29,7 @@ class FakeStdout:
     Args:
         output_format: The format ``emit`` renders with — ``"auto"`` (default,
             dispatch by value type), ``"json"``, ``"ndjson"``, ``"raw"``, or
-            ``"none"``. Mirrors the ``--output`` flag so a test can pin the wire
+            ``"none"``. Mirrors the ``--emit-format`` flag so a test can pin the wire
             shape a caller would get.
     """
 

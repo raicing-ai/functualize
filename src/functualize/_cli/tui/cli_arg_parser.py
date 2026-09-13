@@ -109,6 +109,7 @@ def build_group_option_trie(func_app: Any) -> Any:
 
         from functualize.app.utils import (
             build_group_trie,
+            discovery_hash_for,
             read_group_options_from_cache,
             resolve_cache_path,
         )
@@ -117,7 +118,10 @@ def build_group_option_trie(func_app: Any) -> Any:
         # group-options section, so reading the cache before it would miss a
         # project's options on the very first call.
         jobs = func_app.get_jobs()
-        specs = read_group_options_from_cache(resolve_cache_path(Path.cwd()))
+        specs = read_group_options_from_cache(
+            resolve_cache_path(Path.cwd()),
+            discovery_hash=discovery_hash_for(func_app),
+        )
         if not specs:
             return None
         return build_group_trie(

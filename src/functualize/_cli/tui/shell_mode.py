@@ -28,7 +28,7 @@ test; the builtin path now takes this route too.
 
 **History is the kernel's ring, not the argument store.**
 ``_cli/data/argument_history.py`` is shaped per-job-per-field, which a flat list
-of shell commands is not. ``StateStore.append_history`` is the right home.
+of shell commands is not. ``FreshStore.append_history`` is the right home.
 """
 
 from __future__ import annotations
@@ -299,18 +299,27 @@ def _record_history_quietly(command: str, code: int) -> None:
     be written must not turn a successful command into visible noise on the
     terminal the user is watching.
     """
+    from datetime import UTC, datetime
     from pathlib import Path
 
-    from functualize.app.utils import StateStore
+    from functualize.app.utils import ShellHistoryStore
 
     try:
-        store = StateStore.for_project(Path.cwd())
-        store.append_history(
+        # Its own file since `durable-run-layer`/T3b. These used to share a ring
+        # in the freshness ledger with job-run history; that ring is gone because its
+        # job half was a poorer copy of the run log, and a typed command is not
+        # a run the log could hold.
+        store = ShellHistoryStore.for_project(Path.cwd())
+        store.append(
             {
                 "namespace": HISTORY_NAMESPACE,
                 "command": command,
                 "argv": shlex.split(command),
                 "exit_code": code,
+                # Stamped here for the first time. The shared ring never set it,
+                # so every shell line in `func builtin history` rendered with a
+                # blank timestamp column beside the job lines that had one.
+                "at": datetime.now(UTC).isoformat(),
             }
         )
     except (OSError, ValueError, KeyError) as exc:

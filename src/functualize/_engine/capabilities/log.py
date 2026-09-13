@@ -95,6 +95,7 @@ class Log:
 
 CAPABILITY = CapabilitySpec(
     name="Log",
+    rc_accessor="_log_sink",
     type=Log,
     factory=lambda ctx: Log(job_name=ctx.context.job_name),
 )

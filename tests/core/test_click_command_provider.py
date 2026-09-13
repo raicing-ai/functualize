@@ -57,7 +57,7 @@ class TestThreeLevelDrillDown:
     def test_families_are_present(self, app) -> None:
         names = {c.name for c in _root(app).children()}
         # The subtree B2b mounts.
-        assert {"cache", "config", "state", "info"} <= names
+        assert {"cache", "config", "data", "info"} <= names
 
     def test_nodes_are_command_nodes_at_every_level(self, app) -> None:
         root = _root(app)

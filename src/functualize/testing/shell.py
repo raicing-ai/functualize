@@ -14,10 +14,15 @@ processes::
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 from functualize._types.redaction import reveal
 from functualize._types.shell import ShellError, ShellResult
@@ -51,6 +56,9 @@ class FakeShell:
     def __init__(self, mapping: dict[Any, ShellResult] | None = None) -> None:
         self._mapping: dict[Any, ShellResult] = dict(mapping or {})
         self.calls: list[FakeShellCall] = []
+        self._cd_stack: list[str] = []
+        self._prefix_stack: list[list[str]] = []
+        self._deferred: list[tuple[list[str] | str, dict[str, Any]]] = []
 
     def __call__(
         self,
@@ -65,6 +73,13 @@ class FakeShell:
             AssertionError: If no mapping entry matches (loud on unexpected).
         """
         argv, display = self._resolve(command)
+        argv, display = self._apply_prefix(argv, display)
+        # An active `cd` block shows up the way the real shell applies it: as
+        # the call's effective working directory. Recorded rather than folded
+        # into the display, so mapping keys stay the command a job wrote.
+        cwd = self._effective_cwd(kwargs.get("cwd"))
+        if cwd is not None:
+            kwargs = {**kwargs, "cwd": cwd}
         self.calls.append(FakeShellCall(argv=argv, command=display, kwargs=kwargs))
 
         result = self._lookup(display)
@@ -90,6 +105,94 @@ class FakeShell:
         for sudo_only in ("preserve_env", "password", "watchers"):
             kwargs.pop(sudo_only, None)
         return self(["sudo", *command], **kwargs)
+
+    # ── The scoping and cleanup surface (§B.3, §B.5) ───────────────────────
+    #
+    # A test double is only a stand-in for the surface it covers. These four
+    # were on `WiredShell` and not here, so a job using the documented
+    # `with sh.cd(...)` idiom could not be unit-tested with `FakeShell` at all —
+    # and once the `Shell` protocol grew them (it had been missing them too),
+    # `isinstance(FakeShell(), Shell)` went False, which is how this was found.
+
+    @contextmanager
+    def cd(self, path: str) -> Iterator[None]:
+        """Record commands in the block as running in ``path`` (§B.3).
+
+        Nestable, resolving relative to the enclosing one, exactly as
+        ``WiredShell.cd`` does. The effective directory lands on each recorded
+        call's ``kwargs["cwd"]``, so a test can assert *where* a command ran
+        without the fake spawning anything.
+        """
+        self._cd_stack.append(str(path))
+        try:
+            yield
+        finally:
+            self._cd_stack.pop()
+
+    @contextmanager
+    def prefix(self, command: list[str] | str) -> Iterator[None]:
+        """Prepend ``command`` to every command in the block (§B.3).
+
+        The prefix is applied **before** matching, because the real shell runs
+        the prefixed argv — so a mapping keyed on ``poetry run pytest`` is what
+        matches inside ``with sh.prefix(["poetry", "run"])``. Folding it in
+        afterwards would let a test pass against a command that never ran.
+        """
+        tokens = (
+            list(command)
+            if isinstance(command, (list, tuple))
+            else shlex.split(command)
+        )
+        self._prefix_stack.append([str(t) for t in tokens])
+        try:
+            yield
+        finally:
+            self._prefix_stack.pop()
+
+    def defer(self, command: list[str] | str, **kwargs: Any) -> None:
+        """Queue a cleanup command, as ``WiredShell.defer`` does (§B.5).
+
+        Nothing runs until :meth:`run_deferred`. In a real run the engine calls
+        that on the job-exit unwind; in a test, call it yourself — or assert on
+        :attr:`deferred` to check *what* a job registered without running it.
+        """
+        self._deferred.append((command, dict(kwargs)))
+
+    @property
+    def deferred(self) -> list[list[str] | str]:
+        """The cleanup commands queued so far, in registration order."""
+        return [command for command, _kwargs in self._deferred]
+
+    def run_deferred(self) -> None:
+        """Run and clear the queued cleanups, LIFO.
+
+        ``check=False`` by default, like the real unwind: a cleanup that fails
+        must not mask the job's own outcome. Unlike the real unwind, an
+        unexpected command still raises — a fake that silently swallowed an
+        unmapped cleanup would be a fake that cannot be asserted on.
+        """
+        while self._deferred:
+            command, kwargs = self._deferred.pop()
+            kwargs.setdefault("check", False)
+            self(command, **kwargs)
+
+    def _effective_cwd(self, call_cwd: str | None) -> str | None:
+        """Per-call ``cwd`` wins, else the `cd` stack joined."""
+        if call_cwd is not None:
+            return call_cwd
+        base: str | None = None
+        for segment in self._cd_stack:
+            base = os.path.join(base, segment) if base else segment
+        return base
+
+    def _apply_prefix(self, argv: list[str], display: str) -> tuple[list[str], str]:
+        """Prepend all active prefixes (outer→inner) to argv and display."""
+        prefix: list[str] = []
+        for entry in self._prefix_stack:
+            prefix.extend(entry)
+        if not prefix:
+            return argv, display
+        return [*prefix, *argv], " ".join([*prefix, *shlex.split(display)])
 
     def _resolve(self, command: list[str] | str) -> tuple[list[str], str]:
         """Resolve a command to ``(argv, display)`` for matching and recording."""

@@ -32,21 +32,27 @@ from typing import (
 from pydantic import ValidationError
 
 from functualize._engine.context import ExecutionContext
+from functualize._engine.dependency_runner import DependencyRunner
 from functualize._engine.missing_value import MissingValueError
 from functualize._engine.resolution import ResolutionPlan, build_resolution_plan
 from functualize._engine.validation import ArgValidator, unexpected_keyword_error
+from functualize._engine.workflow_orchestrator import WorkflowOrchestrator
 from functualize._events import EventBus, HookEvent, HookRegistry
+from functualize._events.run_log import pop_run, push_run
 from functualize._primitives import DIRegistry, MissingProviderError
 from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
 from functualize._types import AmbiguousJobError, JobResult, RunStatus
 from functualize._types.annotations import resolved_hints
 from functualize._types.redaction import Secret, redacted_snapshot
+from functualize._types.run_request import SURFACE_POLICY
 
 NoneType = type(None)
 
 if TYPE_CHECKING:
     from functualize._engine.middleware import ExecutionMiddlewareChain
     from functualize._engine.result import RegisteredJob
+    from functualize._types.protocols import EngineHost
+    from functualize._types.run_request import RunRequest
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +178,19 @@ class JobExecutionEngine:
         hook_registry: Hook registry for lifecycle event dispatch.
         middleware_chain: Middleware chain for job execution wrapping.
         event_bus: EventBus for structured event emission.
-        max_invoke_depth: Maximum recursion depth for nested invokes.
+        max_invoke_depth: Maximum recursion depth for nested invokes. Only
+            consulted when no host is given — a host answers for itself.
+        host: The app this engine belongs to, as the narrow port declared in
+            ``functualize._types.protocols.EngineHost``. Everything the engine
+            needs from outside comes through it, read live rather than copied
+            into a field a later boot step has to remember to update. None
+            means the engine was built without an app (embedding, unit tests);
+            every host-backed accessor then answers as absent — except
+            :attr:`fresh_root`, which has no honest absent answer and raises.
+        fresh_root: Where this project's derived state lives, for an engine
+            built with *no* host. Ignored when a host is given: the host
+            answers that question, and a second answer is how the kernel came
+            to ask the operating system three different ways.
     """
 
     def __init__(
@@ -183,8 +201,11 @@ class JobExecutionEngine:
         event_bus: EventBus,
         max_invoke_depth: int = 10,
         plugin_config_registry: Any = None,
-        resolution_chain: Any = None,
+        host: EngineHost | None = None,
+        fresh_root: Path | None = None,
         gate_registry: Any = None,
+        agent_step_registry: Any = None,
+        notifier_registry: Any = None,
         config_view_factory: Callable[..., Any] | None = None,
         config_resolver: Callable[..., Any] | None = None,
     ) -> None:
@@ -194,10 +215,12 @@ class JobExecutionEngine:
         self._event_bus = event_bus
         self._max_invoke_depth = max_invoke_depth
         self._plugin_config_registry = plugin_config_registry
-        self._resolution_chain = resolution_chain
+        self._host = host
+        self._explicit_state_root = fresh_root
         self._gate_registry = gate_registry
+        self._agent_step_registry = agent_step_registry
+        self._notifier_registry = notifier_registry
         self._registered_jobs: dict[str, RegisteredJob] = {}
-        self._registry_mirrors: list[dict[str, RegisteredJob]] = []
         self._resolution_plan_cache: dict[int, ResolutionPlan] = {}
         # {id(function): ((param_name, GroupOptions subclass), ...)} — usually
         # empty, and the empty answer is what most executions look up (S6a).
@@ -208,7 +231,18 @@ class JobExecutionEngine:
         self._config_view_factory = config_view_factory
         self._config_resolver = config_resolver
         self._arg_validator = ArgValidator()
+        # The `@workflow` prelude, which is its own subject and was ~150 lines
+        # of this class (T6). Constructed here rather than lazily: it holds
+        # nothing but a back-reference, so there is nothing to defer.
+        self._workflow_orchestrator = WorkflowOrchestrator(self)
+        # Dependency scheduling, the sibling subject (T7).
+        self._dependency_runner = DependencyRunner(self)
         self._workflow_state_store: Any = None
+        #: Resolved on first use, then held. See :attr:`substrate`.
+        self._substrate: Any = None
+        #: Scopes this process has already built, by id, so two runs
+        #: naming one scope share it rather than racing on the file.
+        self._scopes: dict[str, Any] = {}
         self._preflight_pipeline: Any = None
         self._job_graph: Any = None
         self._exec_policy_impl: Any = None
@@ -221,6 +255,59 @@ class JobExecutionEngine:
             if _probe is not None:
                 self._config_view_type = type(_probe)
 
+    @property
+    def host(self) -> EngineHost | None:
+        """The app this engine was built for, or None when it had none.
+
+        Read-only and final: the host is a constructor argument, and there is
+        no supported way to change it after the engine exists. A caller that
+        finds None is looking at an engine built without an app — embedding, or
+        a unit test — and must ask its own question instead.
+        """
+        return self._host
+
+    @property
+    def fresh_root(self) -> Path:
+        """Where this project's derived run state (fingerprints, history,
+        workflow scopes) lives — the host's answer, or the explicit one.
+
+        One question with one answer. The kernel used to ask the operating
+        system in three places and one of them answered differently, which is
+        how a run's fingerprints could land outside the project they belonged
+        to; and it is why the durable run layer could not simply be added, since
+        it needs to know where a project's run state is.
+
+        Raises:
+            RuntimeError: when the engine has neither a host nor an explicit
+                root. Inventing the process working directory here is exactly
+                the defect this replaces, and a plausible-looking answer would
+                hide it.
+        """
+        host = self._host
+        if host is not None:
+            return host.fresh_root
+        if self._explicit_state_root is not None:
+            return self._explicit_state_root
+        raise RuntimeError(
+            "this engine was built without a host and without fresh_root, so "
+            "it does not know where this project's state lives; construct it "
+            "with _app.boot.build_engine(app), or pass fresh_root explicitly"
+        )
+
+    @property
+    def max_invoke_depth(self) -> int:
+        """The deepest chain of nested ``invoke()`` calls allowed.
+
+        The host's answer when there is one, because the limit is resolved from
+        configuration *after* the app exists — this used to be a private field
+        the boot path wrote into once it knew. Falls back to the constructor's
+        value when there is no host to ask.
+        """
+        host = self._host
+        if host is not None:
+            return host.max_invoke_depth
+        return self._max_invoke_depth
+
     def register_job(self, entry: RegisteredJob) -> None:
         """Register a job entry for programmatic lookup."""
         self._registered_jobs[entry.name] = entry
@@ -228,18 +315,6 @@ class JobExecutionEngine:
         # or resolve a previously unknown reference, so the built graph is
         # stale until it is rebuilt (and revalidated).
         self._job_graph = None
-
-    def add_registry_mirror(self, mirror: dict[str, RegisteredJob]) -> None:
-        """Register an external dict holding the same RegisteredJob entries.
-
-        When a lazily-registered entry is materialized (its module imported
-        and the frozen RegisteredJob replaced with one carrying the real
-        function), the replacement is propagated to every mirror that still
-        holds the old entry — keeping e.g. the app-level JobRegistry
-        consistent with the engine without the engine importing app types.
-        """
-        if mirror not in self._registry_mirrors:
-            self._registry_mirrors.append(mirror)
 
     def materialize_job(self, name: str) -> RegisteredJob:
         """Look up a job and guarantee its function is the real callable.
@@ -390,12 +465,15 @@ class JobExecutionEngine:
             config_class=entry.config_class or detected_config,
         )
 
-        # Swap in own registry + mirrors, only where the old entry still sits
+        # Swap in the engine's own registry, and tell the host to swap its
+        # copy, only where the old entry still sits. The host call is the
+        # contract that replaced a shared dict: the app registry and the engine
+        # used to be the same object handed across the boundary, so neither
+        # side owned the change and nothing could be asserted about it.
         if self._registered_jobs.get(entry.name) is entry:
             self._registered_jobs[entry.name] = new_entry
-        for mirror in self._registry_mirrors:
-            if mirror.get(entry.name) is entry:
-                mirror[entry.name] = new_entry
+        if self._host is not None:
+            self._host.replace_job(entry, new_entry)
 
         # Deferred DI validation (skipped at boot for lazy entries)
         errors = self._di_binding_errors(entry.name, real_fn)
@@ -425,11 +503,17 @@ class JobExecutionEngine:
         # Minimal stub for test scenarios without factory injection
         return _MinimalConfigView(section_prefix)
 
-    def _make_empty_chain(self) -> Any:
-        """Create an empty resolution chain using the injected factory or fallback."""
-        if self._config_view_factory is not None:
-            return self._resolution_chain
-        return None
+    def _live_resolution_chain(self) -> Any:
+        """The host's config resolution chain, or None when there is no host.
+
+        Asked every time rather than captured: ``refresh()`` rebuilds the chain
+        in place, and the engine used to be *written into* at that moment so it
+        would not keep resolving against a discarded one.
+        """
+        host = self._host
+        if host is None:
+            return None
+        return host.resolution_chain()
 
     def validate_di_bindings(self) -> dict[str, list[Any]]:
         """Which registered jobs have unsatisfiable DI bindings, and why.
@@ -654,89 +738,397 @@ class JobExecutionEngine:
 
         return self._ensure_materialized(self._registered_jobs[resolved])
 
-    def execute(
-        self,
-        job_name: str,
-        function: Callable[..., Any],
-        *,
-        kwargs: dict[str, Any],
-        invoke_depth: int = 0,
-        cwd: Path | None = None,
-        job_directory: Path | None = None,
-        config_class: type | None = None,
-        parent_scope: Any | None = None,
-        workflow_scope_id: str | None = None,
-        run_dependencies: bool = True,
-        force_fresh: bool = False,
-        force: bool = False,
-        group_option_values: dict[str, Any] | None = None,
-    ) -> JobResult:
-        """Execute a job, then record the run in history (T42).
+    def run(self, request: RunRequest) -> JobResult:
+        """Resolve, materialize, and execute the job named by ``request``.
 
-        The lifecycle itself is :meth:`_execute_lifecycle`; this wrapper exists
-        only so that history is written on **every** way out of it — the normal
-        return, a validation failure, a blocked pre-flight, a failed dependency
-        — from one place rather than five. Instrumenting the five return points
-        by hand is how one of them ends up forgotten and a whole class of run
-        silently stops being recorded.
+        The one entry the framework has. Every surface builds a
+        :class:`RunRequest` and arrives here; nothing outside this module holds
+        a job function in order to execute it. There is no second entry taking
+        a name *and* a function — that signature is what let eight call sites
+        each resolve a name their own way, and it was deleted here (T11) rather
+        than deprecated.
 
-        Only **top-level** runs are recorded (``invoke_depth == 0``). A
-        workflow's steps, a job's dependencies, and ``rc.invoke`` children all
-        run at ``invoke_depth + 1``; recording them would bury the handful of
-        things the user actually launched under the internals of one of them,
-        and a 200-record ring would evict real history within a single deep
-        workflow.
+        Two pieces of work moved in from the click adapters, because they are
+        the same work whichever door was used:
+
+        * **The config-model split.** A ``Stdin`` marker never sits on a config
+          model's field, so config values are held out of stdin resolution and
+          merged back afterwards. Both halves reach the lifecycle in one dict
+          either way; the split exists only to scope the step below.
+        * **Stdin resolution.** For console surfaces only
+          (:data:`~functualize._types.run_request.SURFACE_POLICY`), which is
+          what "it lived in the click adapters" used to mean implicitly.
+
+        History is written here, on *every* way out of the lifecycle — the
+        normal return, a validation failure, a blocked pre-flight, a failed
+        dependency — from one place rather than five. Instrumenting five return
+        points by hand is how one of them ends up forgotten and a whole class
+        of run silently stops being recorded.
+
+        Only **top-level** runs are recorded, plus one exception. A workflow's
+        steps, a job's dependencies, and ``rc.invoke`` children all run at
+        ``invoke_depth + 1``; recording them would bury the handful of things
+        the user actually launched under the internals of one of them, and a
+        200-record ring would evict real history within a single deep workflow.
+
+        The exception is a **parallel batch's items** (spec AC-18, STATUS #5).
+        ``func builtin parallel a b`` is the user launching `a` and `b`, and
+        neither appeared in ``func builtin history`` because
+        ``Invoke.parallel`` runs each item one level down — mechanically nested,
+        but not nested *work*. Depth alone cannot tell the two apart, so the
+        surface is what distinguishes them; the rule now lives at read time
+        in `app/_run_view._is_a_launch`, because both of its inputs are in
+        the run record.
         """
-        result = self._execute_lifecycle(
-            job_name,
-            function,
-            kwargs=kwargs,
-            invoke_depth=invoke_depth,
-            cwd=cwd,
-            job_directory=job_directory,
-            config_class=config_class,
-            parent_scope=parent_scope,
-            workflow_scope_id=workflow_scope_id,
-            run_dependencies=run_dependencies,
-            force_fresh=force_fresh,
-            force=force,
-            group_option_values=group_option_values,
-        )
-        if invoke_depth == 0:
-            self._record_history(job_name, kwargs, result)
+        job = self.get_job(request.job_name)
+        # Whether *this* call mints the scope, decided before `_ensure_scope`
+        # fills it in. Only the minter closes it, and "minter" means the run
+        # arrived naming **neither** a scope object nor a scope id:
+        #
+        # * `parent_scope` set — a workflow step, a dependency or an
+        #   `rc.invoke` child. The parent is still working; finishing its scope
+        #   would seal the store out from under it.
+        # * `workflow_scope_id` set — the caller named a scope, so the caller
+        #   owns its lifetime. This is the case that carries state *across*
+        #   runs: two `execute`s into one scope, which is what makes
+        #   `invocation=2` possible and is the whole point of durable state.
+        #   Closing it after the first run turned the second into a failure.
+        owns_scope = request.parent_scope is None and not request.workflow_scope_id
+        request = self._ensure_scope(request)
+        kwargs = self._request_kwargs(request, job)
+        run_id = self._open_run_record(request, kwargs)
+        # `finally`, not two statements in a row. `_execute_lifecycle` has
+        # raising paths `run()` does not catch — `except MissingProviderError:
+        # raise` and the `DIValidationError` beside it. A job body raising is
+        # *not* one of them; that is caught and becomes a FAILURE result.
+        #
+        # Without this the record stayed "running" for ever. Reproduced:
+        #
+        #     records: [("run-01M27Q42TF...", "running")]
+        #
+        # and nothing reaps it — the lease that would is
+        # durable-run-layer/T5, unbuilt, and `derived_state` has no
+        # `abandoned` case. Found by an external review of the AFTER state.
+        # This thread is now executing `run_id`, which is how the run-log
+        # subscriber attributes an event to a run (`_events/run_log`). Pushed
+        # after the record is opened, so an unrecordable run pushes nothing and
+        # its events fall to the enclosing run rather than to a record that
+        # does not exist.
+        push_run(run_id)
+        closed = False
+        outcome = "failed"
+        try:
+            result = self._execute_lifecycle(
+                request.job_name,
+                job.function,
+                request=request,
+                run_id=run_id,
+                kwargs=kwargs,
+                invoke_depth=request.invoke_depth,
+                cwd=request.cwd,
+                job_directory=request.job_directory,
+                config_class=job.config_class,
+                parent_scope=request.parent_scope,
+                workflow_scope_id=request.workflow_scope_id,
+                run_dependencies=request.run_dependencies,
+                force_fresh=request.force_fresh,
+                force=request.force,
+                group_option_values=(
+                    dict(request.group_option_values)
+                    if request.group_option_values is not None
+                    else None
+                ),
+            )
+            self._close_run_record(run_id, result)
+            closed = True
+            outcome = "completed" if result.status is RunStatus.SUCCESS else "failed"
+        finally:
+            pop_run(run_id)
+            # The log's single write, at the end of the run that owns it — the
+            # buffering is what keeps a file lock off the emit path.
+            self._flush_run_log(run_id)
+            if not closed:
+                self._close_run_record_failed(run_id)
+            if owns_scope:
+                self._close_scope(request, outcome)
         return result
 
-    def _record_history(
-        self, job_name: str, kwargs: dict[str, Any], result: JobResult
-    ) -> None:
-        """Append one run record to the state store's history ring (T42).
+    def _ensure_scope(self, request: RunRequest) -> RunRequest:
+        """Give this run a scope if it arrived without one.
 
-        Best-effort and silent, exactly like the shell-mode recorder it shares
-        the ring with: history is a convenience, so a store that cannot be
-        written must not turn a job that ran fine into a visible failure. The
-        one thing worth being strict about is what it must *not* write —
-        argument values, which can be secrets. Only the ``args_hash`` goes in,
-        so the record identifies a run without persisting its inputs (schema
-        §1: secrets are never stored in history, hashed only).
+        **Here, because this is where every run passes.** `app.execute` used to
+        do it, and the CLI does not go through `app.execute` — it calls
+        `engine.run()` directly (`app/adapters/click_params.py`). So a job
+        launched from the command line had no scope at all, which was invisible
+        while `rc.state` silently handed out a private dict and became a hard
+        failure the moment state was made durable. That is the entrypoint
+        divergence this whole roadmap exists to close, found by a test that ran
+        the same job through two doors.
+
+        A nested run keeps whatever its parent gave it: a workflow step, a
+        dependency and an `rc.invoke` child all share the run's scope, and a
+        parallel item shares the object while `nested_request` withholds the
+        *id* so it does not share step records.
         """
-        from datetime import UTC, datetime
+        if request.parent_scope is not None:
+            return request
+        try:
+            scope = self._scope_for(request)
+        except Exception:  # noqa: BLE001 - a missing scope must not kill a run
+            logger.debug("could not build a workflow scope", exc_info=True)
+            return request
+        return request.replace(parent_scope=scope, workflow_scope_id=scope.scope_id)
 
+    def _scope_for(self, request: RunRequest) -> Any:
+        """The scope named by the request, reused if this process has it.
+
+        Reuse is what makes two runs with the same ``workflow_scope_id`` share
+        state in-process; the store is durable either way, so a third process
+        naming the same id reads the same records off disk.
+        """
+        from functualize._engine.capabilities.state import ScopeBackedStateStore
+        from functualize._engine.capabilities.workflow_scope import WorkflowScope
+        from functualize._engine.workflow_runner import new_scope_id
+
+        # `new_scope_id`, not a second generator. There were two — `app.execute`
+        # minted `<job>-<hex8>` and the workflow runner minted `<hex16>` — so
+        # the id a user was told to resume with depended on which door started
+        # the run. One generator, one shape.
+        scope_id = request.workflow_scope_id or new_scope_id(request.job_name)
+        existing = self._scopes.get(scope_id)
+        if existing is not None:
+            return existing
+        # The host owns which scopes exist and announces new ones. Only when
+        # there is no host — a bare engine in a test — does the engine build
+        # one itself, and then it is the same durable shape.
+        host_scope = getattr(self.host, "scope_for", None)
+        if host_scope is not None:
+            scope = host_scope(scope_id)
+            self._scopes[scope_id] = scope
+            return scope
+        scopes = self._scope_store()
+        scope = WorkflowScope(
+            scope_id, state_store=ScopeBackedStateStore(scopes, scope_id)
+        )
+        self._scopes[scope_id] = scope
+        return scope
+
+    def _open_run_record(
+        self, request: RunRequest, kwargs: dict[str, Any]
+    ) -> str | None:
+        """Record this run as started; return its id, or None if unrecordable.
+
+        **Every** run through this entry, including the nested and parallel ones
+        the history ring excludes — that difference is the point of having both.
+        The ring answers *"what did I ask for"* and is capped at 200 so a deep
+        workflow cannot evict a user's own launches. The run log answers *"what
+        happened in this project"*, and a child with no record makes the tree
+        unanswerable.
+
+        Best-effort and silent: a store that
+        cannot be written must not turn a job that ran fine into a visible
+        failure. Returning `None` is how the close half learns to do nothing.
+        """
         try:
             from functualize._primitives.fingerprint import compute_args_hash
+            from functualize._primitives.run_store import RunStore, runner_identity
 
-            record = {
-                "namespace": "job",
-                "job": job_name,
-                "args_hash": compute_args_hash(call_args=self._hashable(kwargs)),
-                "status": result.status.value.lower(),
-                "duration_ms": round(result.duration_ms, 3),
-                "at": datetime.now(UTC).isoformat(),
-            }
-            self._state_store().append_history(record)
-        except Exception as exc:  # noqa: BLE001 - convenience, never fatal
-            logger.warning(
-                "could not record job history (%s: %s)", type(exc).__name__, exc
+            store = RunStore(self._state_store().substrate)
+            return store.open_run(
+                {
+                    "job": request.job_name,
+                    # AC-2: which surface started this run, answerable from the
+                    # record rather than inferred from what else is in it.
+                    "surface": request.surface,
+                    "args_hash": compute_args_hash(call_args=self._hashable(kwargs)),
+                    # **"The scope this run ran in"**, for every run — review
+                    # F6 asked whether this should instead be null for a
+                    # non-workflow job. It should not, and the reason is that
+                    # `_ensure_scope` runs immediately above: every run now has
+                    # a scope, so a null here would mean "I did not look",
+                    # not "there was none".
+                    #
+                    # The reader's obligation, which is the part worth writing
+                    # down: **a scope id here may have no record on disk.** A
+                    # run that never touched state leaves none — nothing is
+                    # minted just so it can be marked finished, because that is
+                    # how the file grew in the first place
+                    # (`scope-record-lifecycle`). So resolving this id yields
+                    # "no records", which is an answer, not an error.
+                    #
+                    # Falls back to the scope *object* because `nested_request`
+                    # deliberately withholds the scope **id** from a child — so
+                    # the child does not share the parent's step records and
+                    # gates — while still handing it the scope itself for
+                    # state. `_ensure_scope` therefore returns early and
+                    # `workflow_scope_id` stays None, which left every nested
+                    # run's record reading `scope_id: null`: a run tree with no
+                    # way to say which scope its branches ran in. Reading the
+                    # object here fixes the *record* without touching what the
+                    # id controls during execution.
+                    "scope_id": request.workflow_scope_id
+                    or getattr(request.parent_scope, "scope_id", None),
+                    "parent_run_id": request.parent_run_id,
+                    "invoke_depth": request.invoke_depth,
+                    "group_option_values": (
+                        dict(request.group_option_values)
+                        if request.group_option_values is not None
+                        else {}
+                    ),
+                    "force": request.force,
+                    "runner": runner_identity(),
+                }
             )
+        except Exception:  # noqa: BLE001 - an observation is never worth a run
+            logger.debug("could not open a run record", exc_info=True)
+            return None
+
+    def _close_scope(self, request: RunRequest, outcome: str) -> None:
+        """Mark a scope this run minted as finished, and seal its store.
+
+        **Why here.** A plain job that calls `rc.state.set(...)` wrote a record
+        with ``status: "running"`` and nothing ever changed it, so
+        `purge_scopes` refused it (`app/_workflow_control.py:442`), the age
+        filter refused it for having no timestamps, and `list_scopes` hid it.
+        The record was immortal *and* invisible — `scopes.json` reached 2,188
+        records on this project with no way to drain it
+        (`.spec/reviews/omp-after-review.md` F1).
+
+        This is the same `finally` that closes the run record, for the same
+        reason: the lifecycle has raising paths `run()` does not catch, and a
+        run that leaves by raising must not leave a record behind claiming to
+        be in progress.
+
+        **Only a scope still ``running`` is closed, and that guard is the whole
+        safety argument.** A workflow that stopped at a gate has status
+        ``blocked``; overwriting it would both lose the resume point and seal
+        the store the resumed walk needs to write to. Anything the walk already
+        decided — ``blocked``, ``completed``, ``failed``, ``cancelled`` — is
+        left exactly as it is. This method finishes runs nobody else finishes;
+        it does not adjudicate the ones that finish themselves.
+
+        Best-effort and silent, like the run-record half: an observation is
+        never worth failing a run that did its work.
+        """
+        scope = request.parent_scope
+        if scope is None:
+            return
+        scope_id = getattr(scope, "scope_id", None)
+        if scope_id is None:
+            return
+        try:
+            scopes = self._scope_store()
+            record = scopes.get_scope(scope_id)
+            if record is None:
+                # Nothing was ever written for this scope — a run that touched
+                # no state. There is no record to finish, and creating one just
+                # to mark it finished is how the file grew in the first place.
+                return
+            if record.get("status") != "running":
+                return
+            scopes.set_scope_status(scope_id, outcome)
+            if not getattr(scope, "closed", False):
+                scope.close()
+        except Exception:  # noqa: BLE001 - an observation is never worth a run
+            logger.debug("could not close the run's scope", exc_info=True)
+
+    def _flush_run_log(self, run_id: str | None) -> None:
+        """Write this run's buffered events, if anything is collecting them.
+
+        `None` when no subscriber was installed — a bare engine in a test, or
+        an app booted without observability. That is AC-6: the log costs
+        nothing when nothing is listening.
+        """
+        subscriber = getattr(self.host, "run_log", None) if self.host else None
+        if subscriber is not None:
+            subscriber.close_run(run_id)
+
+    def _close_run_record_failed(self, run_id: str | None) -> None:
+        """Close a record whose run left `engine.run()` by raising.
+
+        Separate from :meth:`_close_run_record` because there is no
+        ``JobResult`` to read a status from — the lifecycle did not return one.
+        Silent for the same reason as its sibling: an observation is never
+        worth a run.
+        """
+        if run_id is None:
+            return
+        try:
+            from functualize._primitives.run_store import RunStore
+
+            store = RunStore(self._state_store().substrate)
+            store.close_run(run_id, "failure")
+        except Exception:  # noqa: BLE001 - an observation is never worth a run
+            logger.debug("could not close a run record", exc_info=True)
+
+    def _close_run_record(self, run_id: str | None, result: JobResult) -> None:
+        """Mark the run finished. Silent for the same reason as opening it."""
+        if run_id is None:
+            return
+        try:
+            from functualize._primitives.run_store import RunStore
+
+            store = RunStore(self._state_store().substrate)
+            store.close_run(run_id, result.status.value.lower())
+        except Exception:  # noqa: BLE001 - an observation is never worth a run
+            logger.debug("could not close run record %s", run_id, exc_info=True)
+
+    def _request_kwargs(
+        self, request: RunRequest, job: RegisteredJob
+    ) -> dict[str, Any]:
+        """The kwargs the lifecycle receives, with stdin resolved (T11).
+
+        A non-console surface returns the request's kwargs untouched. That is
+        not an optimisation: an HTTP or Lambda caller that omits a
+        ``Stdin``-marked parameter must get the parameter's default, and the
+        server process's stdin is usually ``/dev/null`` — not a tty, so
+        ``resolve_stdin_params``' own guard would read it and hand the job an
+        empty string instead.
+
+        This used to hold a job's **config-model fields** out of the resolution
+        and merge them back afterwards, justified by a claim in this docstring
+        that a ``Stdin`` marker never sits on a config model's field. The claim
+        was never asserted, and it is false: a job can declare
+        ``data: Annotated[str, Stdin()]`` beside a config model carrying a
+        ``data`` field, and nothing refuses it. Measured on the three cases the
+        split could possibly distinguish — no value, an explicit value, an
+        explicit ``None`` — it changed the answer exactly once, and in the wrong
+        direction: an explicit ``None`` on a colliding name reached the config
+        model and failed validation, instead of being dropped so the pipe could
+        supply it. Inert where it was defended, wrong where it was not, so it is
+        deleted rather than asserted (rre F7).
+        """
+        kwargs = dict(request.kwargs)
+        # A subscript, not a membership test. `not in CONSOLE_SURFACES`
+        # answered `False` for a door nobody had classified, which is the
+        # majority answer given silently; `SURFACE_POLICY[...]` raises instead
+        # (rre F6).
+        if not SURFACE_POLICY[request.surface].owns_stdin:
+            return kwargs
+
+        from functualize._engine.stdin_reader import (
+            resolve_stdin_params,
+            stdin_markers_for,
+            streaming_stdin_params,
+        )
+
+        markers = stdin_markers_for(job.function)
+        if not markers:
+            return kwargs
+
+        resolved = resolve_stdin_params(
+            markers,
+            {pname: kwargs.get(pname) for pname in markers},
+            streaming_stdin_params(job.function, markers),
+        )
+        kwargs.update(resolved)
+        for pname in markers:
+            # A marked parameter that stdin did not supply and the caller left
+            # as None is dropped, not passed: the job's own default has to win,
+            # and an explicit ``None`` would override it.
+            if pname not in resolved and kwargs.get(pname) is None:
+                kwargs.pop(pname, None)
+        return kwargs
 
     @staticmethod
     def _hashable(kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -770,6 +1162,8 @@ class JobExecutionEngine:
         force_fresh: bool = False,
         force: bool = False,
         group_option_values: dict[str, Any] | None = None,
+        request: RunRequest | None = None,
+        run_id: str | None = None,
     ) -> JobResult:
         """Execute a job with full lifecycle.
 
@@ -781,7 +1175,11 @@ class JobExecutionEngine:
             function: The job callable.
             kwargs: Arguments passed (Python values, no string coercion).
             invoke_depth: Current recursion depth.
-            cwd: Working directory (defaults to Path.cwd()).
+            cwd: Working directory. `None` means "the run named none", and
+                `RunContext.cwd` then answers with the **project root the
+                host knows** — not the process's working directory, which is
+                what it used to return and is a different directory whenever
+                the two disagree (T5).
             job_directory: Directory containing the job source file.
             config_class: Optional Pydantic model for config validation.
             parent_scope: WorkflowScope to propagate to child context.
@@ -834,6 +1232,8 @@ class JobExecutionEngine:
             start_time=start_time,
             config_class=config_class,
             parent_scope=parent_scope,
+            request=request,
+            run_id=run_id,
         )
 
         declaration = getattr(function, "__functualize_workflow__", None)
@@ -868,12 +1268,14 @@ class JobExecutionEngine:
         # the job, and the job has not been reached yet.
         workflow_runner = None
         if declaration is not None:
-            workflow_runner, early = self._run_workflow_prelude(
+            workflow_runner, early = self._workflow_orchestrator.prelude(
                 job_name,
                 declaration,
                 scope_id=workflow_scope_id,
                 invoke_depth=invoke_depth,
                 start_time=start_time,
+                request=request,
+                run_id=run_id,
             )
             if early is not None:
                 return early
@@ -911,7 +1313,9 @@ class JobExecutionEngine:
                 cwd=cwd,
                 job_directory=job_directory,
                 _invoke_depth=invoke_depth,
-                _max_invoke_depth=self._max_invoke_depth,
+                _parent_request=request,
+                _run_id=run_id,
+                _max_invoke_depth=self.max_invoke_depth,
                 _execution_engine=self,
                 _di_registry=self._di_registry,
                 _workflow_scope=parent_scope,
@@ -943,7 +1347,7 @@ class JobExecutionEngine:
             # What the job was *actually* given, after config resolution and
             # coercion — the only honest answer to "why did this step do that",
             # and the thing a workflow step record has to carry. Secrets are
-            # masked here rather than at the reader: this lands in state.json
+            # masked here rather than at the reader: this lands in fresh.json
             # and is handed to external agents over MCP.
             context.metadata["resolved_inputs"] = redacted_snapshot(context.call_kwargs)
         except (ValidationError, MissingValueError) as validation_error:
@@ -962,7 +1366,7 @@ class JobExecutionEngine:
         # first would compare against sources the dep is about to change. Same
         # ordering make uses — build prerequisites, then compare timestamps.
         if run_dependencies:
-            dep_failure = self._run_dependencies(
+            dep_failure = self._dependency_runner.run_for(
                 job_name, function, context, invoke_depth, workflow_scope_id
             )
             if dep_failure is not None:
@@ -998,7 +1402,7 @@ class JobExecutionEngine:
         # source map on exactly the runs a `FromJob` dependent triggers.
         self._bind_preflight_capabilities(context, preflight_decision)
 
-        # Two overrides, and they are not the same claim.
+        # Three overrides, and they are not the same claim.
         #
         # `force_fresh` comes from the workflow walker, for a `FromJob`
         # dependent that needs this job's *value* when the recorded one cannot
@@ -1017,10 +1421,28 @@ class JobExecutionEngine:
         # what is true about the world. Neither touches the `Exec.run` skip
         # above, which is intra-run de-duplication rather than a freshness
         # claim.
+        #
+        # `decides` is the third, and the only one a job declares about itself:
+        # `Fingerprint(decides=True)` says "when I am fresh, enter my body and
+        # let me decide" — a job that caches its own artifact wants to hand it
+        # back rather than have the framework skip it into silence. It is the
+        # same claim as `force_fresh` with a different trigger, so it is read
+        # here rather than at the early return below, and it carries the same
+        # scope: SKIP_FRESH only. A platform mismatch, a satisfied `status`
+        # guard, a failing `Precondition` and a gate all still stand.
         if preflight_decision is not None:
             _state = preflight_decision.verdict.state
-            if (force_fresh and _state is GuardState.SKIP_FRESH) or (
-                force and _state in (GuardState.SKIP_FRESH, GuardState.SKIP_SATISFIED)
+            _cache = getattr(
+                getattr(function, "__functualize_job__", None), "cache", None
+            )
+            _decides = bool(getattr(_cache, "decides", False))
+            if (
+                (force_fresh and _state is GuardState.SKIP_FRESH)
+                or (
+                    force
+                    and _state in (GuardState.SKIP_FRESH, GuardState.SKIP_SATISFIED)
+                )
+                or (_decides and _state is GuardState.SKIP_FRESH)
             ):
                 preflight_decision = None
         if preflight_decision is not None and not preflight_decision.should_run:
@@ -1084,17 +1506,62 @@ class JobExecutionEngine:
 
         return result
 
+    @property
+    def substrate(self) -> Any:
+        """Where this project's documents live. **Resolved once per engine.**
+
+        The host's, when it has one — that is where a plugin installs a
+        database (`EngineHost.substrate`). Otherwise the one decision,
+        `substrate_for_project`, resolved from :attr:`fresh_root`.
+
+        Either way it is resolved **once and held**, so a run that touches the
+        freshness ledger, the scope records, the state inside them and the run
+        log walks the filesystem upward for `.functualize/` one time instead of
+        five — and cannot be told a different answer halfway through.
+        """
+        if self._substrate is None:
+            from functualize._primitives.substrate import substrate_for_project
+
+            chosen = getattr(self.host, "substrate", None)
+            self._substrate = chosen or substrate_for_project(self.fresh_root)
+        return self._substrate
+
     def _state_store(self) -> Any:
-        """The runtime state store, resolved the way `func state` resolves it.
+        """The **freshness ledger**, resolved the way `func builtin data` does.
 
         Built lazily and cached: most jobs never touch it, and resolving the
-        path walks the filesystem upward looking for `.functualize/`.
+        substrate walks the filesystem upward looking for `.functualize/`.
+
+        Fingerprints and the session precondition cache only. Scope records are
+        :meth:`_scope_store` — since `store-substrate`/T3 this object no longer
+        forwards to that one, so asking the wrong store is a type error rather
+        than a silent reach through a facade.
         """
         if self._workflow_state_store is None:
-            from functualize._primitives.state_store import StateStore
+            from functualize._primitives.fresh_store import FreshStore
 
-            self._workflow_state_store = StateStore.for_project(Path.cwd())
+            self._workflow_state_store = FreshStore(self.substrate)
         return self._workflow_state_store
+
+    def _scope_store(self) -> Any:
+        """The **scope records**, on the same substrate as the ledger.
+
+        A method rather than a second cached attribute, for the ordinary
+        reason: `ScopeStore` is cheap to build, the expensive part is resolving
+        the substrate and that is already cached, and one fewer piece of engine
+        state is one fewer thing with a lifetime.
+
+        **Not for correctness.** The first version of this said sharing one
+        instance would make a parent's fence apply to a child's scope. That was
+        true before `durable-run-layer`/T6 keyed the hold per scope and is not
+        true now — measured: caching this store fails nothing across
+        `tests/workflow/`, `test_fenced_writes.py` and the nested-workflow
+        end-to-end tests. Left as a method anyway, but without a safety claim
+        the code does not make.
+        """
+        from functualize._primitives.scope_store import ScopeStore
+
+        return ScopeStore(self.substrate)
 
     def _failure_before_execution(
         self,
@@ -1183,147 +1650,6 @@ class JobExecutionEngine:
         validate_workflow_declarations(registry=self._registered_jobs)
         self._workflows_validated_token = token
 
-    def _run_workflow_prelude(
-        self,
-        job_name: str,
-        declaration: Any,
-        *,
-        scope_id: str | None,
-        invoke_depth: int,
-        start_time: float,
-    ) -> tuple[Any, JobResult | None]:
-        """Walk a `@workflow` job's graph before its body runs.
-
-        Returns the runner (so the caller can record the epilogue) and, when
-        the body must not run, the `JobResult` to return instead.
-        """
-        # Validate before walking, not only at boot. `register_dynamic_job`
-        # never calls the boot validator, so a dynamically registered workflow
-        # reached a live walk unchecked — the same second-door shape SG closed
-        # for the job graph. Validation is memoized per registry generation, so
-        # this costs one pass rather than one per invocation.
-        self._validate_workflows_once()
-
-        from functualize._engine.workflow_runner import WorkflowRunner
-        from functualize._engine.workflow_walker import (
-            StepBlocked,
-            StepOutcome,
-            WalkOutcome,
-        )
-
-        def run_step(step_name: str) -> Any:
-            entry = self.get_job(step_name)
-            step_result = self.execute(
-                step_name,
-                entry.function,
-                kwargs={},
-                invoke_depth=invoke_depth + 1,
-                config_class=entry.config_class,
-                # Run the step *inside* the scope, so a `FromJob` parameter
-                # resolves against what the walk has already recorded rather
-                # than falling through to the fingerprint store and, finding
-                # nothing, silently taking the parameter's default.
-                #
-                # Unless the step is itself a workflow: a nested workflow owns
-                # its own scope (§A.7), and handing it the parent's would make
-                # the two walks share one set of step records and one epilogue
-                # slot — the inner body's return value would surface as the
-                # outer's.
-                # A nested workflow's scope is *derived*, not fresh. It must
-                # still be its own scope — sharing the parent's would merge
-                # two sets of step records and two epilogue slots, surfacing
-                # the inner body's return value as the outer's — but it must
-                # also be the *same* scope on re-entry, or a gate inside it
-                # can never be resumed: each parent run would spawn a new
-                # child, and the input an agent deposited would belong to a
-                # scope nothing re-enters (Part I cell G×W×W).
-                workflow_scope_id=(
-                    f"{runner.scope_id}::{step_name}"
-                    if getattr(entry.function, "__functualize_workflow__", None)
-                    else runner.scope_id
-                ),
-            )
-            # SKIPPED counts as satisfied: a step whose guards or fingerprint
-            # said "no work to do" has done its job, and failing the walk over
-            # it would make declaring a cache on a step break every workflow
-            # using it.
-            # A nested workflow that stopped at a gate has not failed. It
-            # must reach the parent walk as a block, or the parent records the
-            # step failed, marks its own scope failed, and resuming the child
-            # leaves the parent permanently failed (Part I cell G×W×W).
-            if step_result.status is RunStatus.BLOCKED:
-                raise StepBlocked(
-                    str(step_result.metadata.get("workflow_scope") or ""),
-                    str(step_result.metadata.get("blocked_on") or step_name),
-                )
-            if step_result.status not in (RunStatus.SUCCESS, RunStatus.SKIPPED):
-                # Surface the step's own exception rather than a wrapper, so
-                # the walk records the reason the step actually failed.
-                raise step_result.exception or RuntimeError(
-                    f"step {step_name!r} returned {step_result.status.value}"
-                )
-            # Keep the in-process value for the walk's lifetime. If this
-            # step's return cannot be carried through the state store, a later
-            # step reading it with `FromJob` has nowhere else to look, and
-            # re-running is not available inside a walk (resolved 19b).
-            self.publish_live_step_value(
-                runner.scope_id, step_name, step_result.return_value
-            )
-
-            return StepOutcome(
-                step_result.return_value,
-                dict(step_result.metadata.get("resolved_inputs") or {}),
-            )
-
-        runner = WorkflowRunner(
-            self._state_store(),
-            run_step=run_step,
-            scope_id=scope_id,
-            gate_registry=self._gate_registry,
-            prompt_gates=getattr(getattr(self, "_app", None), "_prompt_gates", False),
-        )
-        run = runner.prelude(job_name, declaration)
-        if run.should_run_body:
-            return runner, None
-
-        duration_ms = (time.perf_counter() - start_time) * 1000
-        metadata: dict[str, Any] = {
-            "workflow_scope": run.scope_id,
-            "workflow_status": run.outcome.value,
-        }
-        if run.body_done:
-            # An already-completed scope: replaying it is a no-op that answers
-            # with the value the body returned the first time.
-            return None, JobResult(
-                status=RunStatus.SUCCESS,
-                return_value=run.body_value,
-                duration_ms=duration_ms,
-                metadata=metadata,
-                job_name=job_name,
-            )
-        if run.outcome is WalkOutcome.BLOCKED:
-            metadata["blocked_on"] = run.blocked_on
-            # Present only when there is something to say — a gate waiting by
-            # design has no reason to give, and an always-present empty key
-            # would make consumers guard for it.
-            if run.blocked_reason:
-                metadata["blocked_reason"] = run.blocked_reason
-            return None, JobResult(
-                status=RunStatus.BLOCKED,
-                return_value=None,
-                duration_ms=duration_ms,
-                metadata=metadata,
-                job_name=job_name,
-            )
-        return None, JobResult(
-            status=RunStatus.FAILURE,
-            return_value=None,
-            duration_ms=duration_ms,
-            metadata=metadata,
-            exception=RuntimeError(run.error) if run.error else None,
-            job_name=job_name,
-        )
-
     def _get_resolution_plan(self, function: Callable[..., Any]) -> ResolutionPlan:
         """Get or build a ResolutionPlan for a function (cached by id(function))."""
         func_id = id(function)
@@ -1401,11 +1727,20 @@ class JobExecutionEngine:
                     cwd=context.cwd,
                     job_directory=context.job_directory,
                     _invoke_depth=context.invoke_depth,
-                    _max_invoke_depth=self._max_invoke_depth,
+                    _max_invoke_depth=self.max_invoke_depth,
                     _execution_engine=self,
                     _di_registry=self._di_registry,
                     _workflow_scope=context.parent_scope,
                     _caps=per_invocation_caps,
+                    # **This** is the RunContext a job's `rc:` parameter gets —
+                    # the one at :1151 is the fallback for a context that DI did
+                    # not fill. Both need the run's identity, and only this one
+                    # was given it at first: `rc.invoke` children came out with
+                    # `parent_run_id=None` while the fallback path looked
+                    # correct, which is the shape of bug that survives a test
+                    # written against the wrong path.
+                    _parent_request=context.request,
+                    _run_id=context.run_id,
                 )
                 resolved[binding.name] = rc
                 per_invocation_caps[RunContext] = rc
@@ -1545,9 +1880,9 @@ class JobExecutionEngine:
         call site (see ``_engine/missing_value``).
         """
         from functualize._engine.capabilities.prompt import Prompt as _Prompt
-        from functualize._engine.surface_routing import active_collector
 
-        collector = active_collector(getattr(self, "_app", None))
+        host = self._host
+        collector = host.collector() if host is not None else None
         if collector is None:
             return None
         return _Prompt(_provider=collector)
@@ -1570,8 +1905,10 @@ class JobExecutionEngine:
         is the plain/piped CLI, which is also the right answer for a job run
         under MCP or from a test.
         """
-        app = getattr(self, "_app", None)
-        writer = getattr(app, "shell_surface_writer", None) if app else None
+        # A plugin-provided hook on the host, not a kernel convention: nothing
+        # in `src/` defines it, and a surface that wants to own the shell's
+        # output installs it. Absent is the normal case.
+        writer = getattr(self._host, "shell_surface_writer", None)
         if callable(writer):
             sinks = writer()
             if isinstance(sinks, tuple) and len(sinks) == 2:
@@ -1668,10 +2005,11 @@ class JobExecutionEngine:
 
     def _resolve_shell_setting(self, key: str) -> str | None:
         """Resolve a non-empty string from the ``[shell]`` config section."""
-        if self._resolution_chain is None:
+        chain = self._live_resolution_chain()
+        if chain is None:
             return None
         try:
-            resolved = self._resolution_chain.resolve(key, "shell")
+            resolved = chain.resolve(key, "shell")
         except Exception:
             return None
         value = getattr(resolved, "value", None)
@@ -1690,166 +2028,6 @@ class JobExecutionEngine:
         """Direct dependencies of ``job_name`` — `Deps` and `FromJob` alike."""
         names: list[str] = self.job_graph.deps_of(job_name)
         return names
-
-    def _unreusable_upstreams(self, function: Any) -> set[str]:
-        """Upstreams a `FromJob` needs whose recorded value cannot be reused.
-
-        Those must actually run: the dependent asked for a value, and the only
-        copy of it is the one the body produces. Freshness cannot stand in —
-        it certifies files, and this value was never storable.
-
-        `run=False` is excluded by construction: it means "read what is
-        recorded, cause no work", so a missing value is the answer it asked
-        for rather than a reason to run anything.
-        """
-        from functualize._types.from_job import from_job_refs
-
-        store = self._state_store()
-        if store is None:
-            return set()
-
-        needed: set[str] = set()
-        for ref in from_job_refs(function).values():
-            if not ref.run:
-                continue
-            for method in ("checksum", "timestamp", "none"):
-                record = store.get_fingerprint(
-                    self.fingerprint_key_for(ref.name, method)
-                )
-                if record is None:
-                    continue
-                if record.get("return_value_reusable") is False:
-                    needed.add(ref.name)
-                break
-        return needed
-
-    def _scope_step_succeeded(self, scope_id: str, node: str) -> bool:
-        """True when ``node`` already completed successfully in this scope.
-
-        Reads the walk's step records — the same ones the walker replays from
-        — so "already ran here" has one answer rather than one per consumer.
-        """
-        store = self._state_store()
-        if store is None:
-            return False
-        scope = store.get_scope(scope_id)
-        for key, record in ((scope or {}).get("steps") or {}).items():
-            if key.split("::", 1)[0] == node and isinstance(record, dict):
-                return bool(record.get("status") == "success")
-        return False
-
-    def _run_dependencies(
-        self,
-        job_name: str,
-        function: Any,
-        context: Any,
-        invoke_depth: int,
-        workflow_scope_id: str | None = None,
-    ) -> JobResult | None:
-        """Run ``job_name``'s dependency graph; None when all succeeded.
-
-        Returns a FAILURE result when a dep failed, so the dependent never
-        runs against a half-built world — the whole point of declaring the
-        edge.
-        """
-        # Ask the resolved dependency list, not `Deps` specifically: a job
-        # whose only edge comes from a `FromJob` parameter has no `Deps` at
-        # all, and asking the wrong question skipped its upstream entirely.
-        if not self._declared_dep_names(job_name):
-            return None
-
-        from functualize._engine.scheduler import DepScheduler
-
-        order = self.job_graph.order_for(job_name)
-        if not order:
-            return None
-        graph = {node: self.job_graph.deps_of(node) for node in order}
-
-        declaration = getattr(function, "__functualize_job__", None)
-        deps = getattr(declaration, "deps", None) if declaration else None
-        from functualize._types.from_job import from_job_names
-
-        unreusable_upstreams = self._unreusable_upstreams(function)
-        from_job_upstreams = set(from_job_names(function))
-        live_values: dict[str, Any] = {}
-
-        def run_node(node: str) -> Any:
-            # Inside a walk, a dependency that is *also* a graph node has
-            # already run under its node identity — boot validation requires
-            # the graph to order it first (Part I cell D×W). Its step record
-            # satisfies the edge, so re-running it would execute the same node
-            # twice per scope: once as a dependency and once as a node. A
-            # non-idempotent job corrupted its own output that way, and every
-            # resume repeated it, because this pass consulted no records at
-            # all.
-            if workflow_scope_id is not None and self._scope_step_succeeded(
-                workflow_scope_id, node
-            ):
-                return True
-
-            # `get_job`, not a raw registry read: on a warm boot the entry's
-            # function is a deferred-import stand-in, and only materializing
-            # yields something runnable. Reading the entry directly worked
-            # cold and failed warm with "dependencies failed".
-            entry = self.get_job(node)
-            result = self.execute(
-                node,
-                entry.function,
-                kwargs={},
-                invoke_depth=invoke_depth + 1,
-                config_class=entry.config_class,
-                # The plan already contains this node's own dependencies, in
-                # order. Letting it schedule them again would run a shared
-                # upstream once per path into it — a diamond ran its base
-                # three times before this.
-                run_dependencies=False,
-                # A `FromJob` dependent needs this job's *value*, and the
-                # recorded one cannot be reused, so freshness must not stand
-                # in for it (resolved Q19, T32b).
-                force_fresh=node in unreusable_upstreams,
-            )
-            # Keep the value of any upstream that just ran for this job's
-            # `FromJob` parameters. Injection otherwise reads the fingerprint
-            # record, which only exists when the upstream declared
-            # `cache=Fingerprint(...)` — so a plain `@job` upstream ran, and
-            # the consumer silently received its parameter default. That made
-            # `FromJob` quietly depend on an unrelated declaration.
-            #
-            # A forced run is the same case sharpened: it ran precisely
-            # because its value could not be read back, so the copy in hand is
-            # the only one.
-            if node in from_job_upstreams and result.status is RunStatus.SUCCESS:
-                live_values[node] = result.return_value
-
-            # A dep that was skipped as fresh has satisfied the edge; only a
-            # real failure blocks the dependent.
-            return result.status in (RunStatus.SUCCESS, RunStatus.SKIPPED)
-
-        report = DepScheduler(graph, policy=getattr(deps, "policy", "fail-fast")).run(
-            run_node
-        )
-
-        if live_values:
-            context.metadata["_from_job_live"] = live_values
-        context.metadata["dependencies"] = {
-            "ran": report.succeeded,
-            "failed": report.failed,
-            "skipped": report.skipped,
-        }
-        if report.ok:
-            return None
-
-        duration_ms = context.elapsed_ms
-        return JobResult(
-            status=RunStatus.FAILURE,
-            return_value=None,
-            duration_ms=duration_ms,
-            metadata=dict(context.metadata),
-            exception=RuntimeError(
-                f"dependencies failed for {job_name!r}: {', '.join(report.failed)}"
-            ),
-            job_name=job_name,
-        )
 
     def _exec_policy(self) -> Any:
         """The `Exec` policy (timeout/retry/run), built once per engine.
@@ -1946,7 +2124,13 @@ class JobExecutionEngine:
     def _from_job_value(
         self, ref: Any, scope_id: str | None, expected_type: Any = None
     ) -> Any:
-        """The recorded value for one ``FromJob`` reference, or None."""
+        """The recorded value for one ``FromJob`` reference, or None.
+
+        Reads **both** stores, and that is the shape of the question rather
+        than a leftover: inside a walk the value is a step record, outside one
+        it is a fingerprint. `store-substrate`/T3 made the difference visible —
+        this used to be two calls on one facade.
+        """
         store = self._state_store()
         if store is None:
             return None
@@ -1954,7 +2138,7 @@ class JobExecutionEngine:
         from functualize._primitives.fingerprint import reusable_return_value
 
         if scope_id is not None:
-            scope = store.get_scope(scope_id)
+            scope = store.scopes.get_scope(scope_id)
             steps = (scope or {}).get("steps", {})
             for key, record in steps.items():
                 if key.split("::", 1)[0] == ref.name and isinstance(record, dict):
@@ -1989,7 +2173,9 @@ class JobExecutionEngine:
         if self._preflight_pipeline is None:
             from functualize._engine.preflight import Preflight
 
-            self._preflight_pipeline = Preflight(self._state_store())
+            self._preflight_pipeline = Preflight(
+                self._state_store(), root=self.fresh_root
+            )
         return self._preflight_pipeline
 
     def _preflight_check(
@@ -2286,7 +2472,7 @@ class JobExecutionEngine:
         fallback so the two features cannot drift into disagreeing about what
         "non-interactive" means (Merge B). Fields flagged secret are collected
         masked — the same test that decides whether a value is redacted in
-        ``state.json`` decides whether it is echoed while being typed.
+        ``fresh.json`` decides whether it is echoed while being typed.
 
         Args:
             config_class: The Pydantic config model being resolved.

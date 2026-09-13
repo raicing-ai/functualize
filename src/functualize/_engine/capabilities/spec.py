@@ -84,6 +84,20 @@ class CapabilitySpec:
             (``RunContext``, at step 5) or by identity (``JobConfigView``).
         per_invocation: True when a fresh instance is built for every
             invocation through the factory path.
+        rc_accessor: The dotted path a job reaches this capability by on the
+            RunContext — ``"log"``, ``"state"``, ``"events.perf_mark"`` — or
+            None when it has no such path. Declared here so
+            `tests/integration/test_capability_duality.py` can check the
+            *duality rule* against the registry rather than a hand-written
+            list: a capability added tomorrow is covered the day its spec is
+            written. That is the property the rule lacked for its whole life,
+            when it was prose and five of six capabilities violated it
+            (ADR-021).
+        shared_with_rc: False for a capability that legitimately must **not**
+            hand the same object to both doors. An exemption is declared here,
+            visibly, rather than implied by a test that quietly skips it — see
+            ADR-021 for the five classes that qualify and the one-sentence test
+            for whether something really is one.
         preflight_bind: How to complete an instance once the pre-flight
             decision exists, or None when it is complete on creation.
 
@@ -111,6 +125,8 @@ class CapabilitySpec:
     factory: Callable[[CapabilityContext], Any] | None = None
     per_invocation: bool = True
     preflight_bind: Callable[[Any, Any], None] | None = None
+    rc_accessor: str | None = None
+    shared_with_rc: bool = True
 
     @property
     def needs_preflight_bind(self) -> bool:

@@ -1,4 +1,4 @@
-"""Property-based tests for StateStore module.
+"""Property-based tests for ScopeStore module.
 
 Property 11: State_Store Keys and Clear Consistency
 **Validates: Requirements 6.5, 6.6**
@@ -8,10 +8,10 @@ Property 12: State_Store Typed Get
 """
 
 import pytest
-from hypothesis import assume, given
+from hypothesis import given
 from hypothesis import strategies as st
 
-from functualize.job._state_store import StateStore
+from tests.context.conftest import new_state_store
 
 # --- Strategies ---
 
@@ -61,7 +61,7 @@ class TestStateStoreKeysAndClearConsistency:
 
         **Validates: Requirements 6.5**
         """
-        store = StateStore()
+        store = new_state_store()
         for key, value in items.items():
             store.set(key, value)
 
@@ -84,7 +84,7 @@ class TestStateStoreKeysAndClearConsistency:
 
         **Validates: Requirements 6.6**
         """
-        store = StateStore()
+        store = new_state_store()
         for key, value in items.items():
             store.set(key, value)
 
@@ -97,7 +97,7 @@ class TestStateStoreKeysAndClearConsistency:
 
         # All previous gets should return None
         for key in items:
-            assert store.get(key, object) is None
+            assert store.get(key) is None
 
     @given(
         items=st.dictionaries(
@@ -115,7 +115,7 @@ class TestStateStoreKeysAndClearConsistency:
 
         **Validates: Requirements 6.5**
         """
-        store = StateStore()
+        store = new_state_store()
         for key, value in items.items():
             store.set(key, value)
 
@@ -140,8 +140,8 @@ class TestStateStoreKeysAndClearConsistency:
 
         **Validates: Requirements 6.5**
         """
-        store1 = StateStore()
-        store2 = StateStore()
+        store1 = new_state_store()
+        store2 = new_state_store()
 
         # Insert in original order
         for key, value in items:
@@ -185,169 +185,71 @@ all_checkable_types: list[type[object]] = [str, int, float, list, dict, bool]
 # with the key name, expected type, and actual type. When called for a non-existent
 # key, it returns None regardless of the type parameter.
 # **Validates: Requirements 6.7**
-class TestStateStoreTypedGet:
-    """Property 12: State_Store Typed Get."""
+class TestStateStoreRoundTrip:
+    """Every JSON type a job can store comes back unchanged.
+
+    Was `TestStateStoreTypedGet`, which exercised a ``get(key, type)`` overload
+    that checked the stored value's type and returned None when the key was
+    missing. That overload had **no caller** in `src/`, `examples/` or `docs/`,
+    and it was removed with the in-memory store rather than reimplemented on
+    the durable one (*Pre-Release Stance*: delete rather than shim).
+
+    The property worth keeping is the round trip: the store validates
+    JSON-serializability at write time, so whatever it accepted it must return
+    intact. The second argument to `get` is a plain default now, which is what
+    a reader expects `get` to mean.
+    """
 
     @given(key=state_keys, value=json_strings)
-    def test_get_correct_type_str(self, key: str, value: str) -> None:
-        """get(key, str) returns the stored string value.
-
-        **Validates: Requirements 6.7**
-        """
-        store = StateStore()
+    def test_a_string_round_trips(self, key: str, value: str) -> None:
+        store = new_state_store()
         store.set(key, value)
-        assert store.get(key, str) == value
+        assert store.get(key) == value
 
-    @given(key=state_keys, value=json_ints)
-    def test_get_correct_type_int(self, key: str, value: int) -> None:
-        """get(key, int) returns the stored int value.
-
-        **Validates: Requirements 6.7**
-        """
-        store = StateStore()
+    @given(key=state_keys, value=st.integers())
+    def test_an_int_round_trips(self, key: str, value: int) -> None:
+        store = new_state_store()
         store.set(key, value)
-        assert store.get(key, int) == value
+        assert store.get(key) == value
 
-    @given(key=state_keys, value=json_floats)
-    def test_get_correct_type_float(self, key: str, value: float) -> None:
-        """get(key, float) returns the stored float value.
-
-        **Validates: Requirements 6.7**
-        """
-        store = StateStore()
+    @given(key=state_keys, value=st.floats(allow_nan=False, allow_infinity=False))
+    def test_a_float_round_trips(self, key: str, value: float) -> None:
+        store = new_state_store()
         store.set(key, value)
-        assert store.get(key, float) == value
+        assert store.get(key) == value
 
-    @given(key=state_keys, value=json_bools)
-    def test_get_correct_type_bool(self, key: str, value: bool) -> None:
-        """get(key, bool) returns the stored bool value.
-
-        **Validates: Requirements 6.7**
-        """
-        store = StateStore()
+    @given(key=state_keys, value=st.booleans())
+    def test_a_bool_round_trips(self, key: str, value: bool) -> None:
+        store = new_state_store()
         store.set(key, value)
-        assert store.get(key, bool) == value
+        assert store.get(key) == value
 
-    @given(key=state_keys, value=json_lists)
-    def test_get_correct_type_list(self, key: str, value: list[int]) -> None:
-        """get(key, list) returns the stored list value.
-
-        **Validates: Requirements 6.7**
-        """
-        store = StateStore()
+    @given(key=state_keys, value=st.lists(st.integers(), max_size=10))
+    def test_a_list_round_trips(self, key: str, value: list[int]) -> None:
+        store = new_state_store()
         store.set(key, value)
-        assert store.get(key, list) == value
-
-    @given(key=state_keys, value=json_dicts)
-    def test_get_correct_type_dict(self, key: str, value: dict[str, int]) -> None:
-        """get(key, dict) returns the stored dict value.
-
-        **Validates: Requirements 6.7**
-        """
-        store = StateStore()
-        store.set(key, value)
-        assert store.get(key, dict) == value
+        assert store.get(key) == value
 
     @given(
         key=state_keys,
-        value=json_strings,
-        wrong_type=st.sampled_from([int, list, dict]),
+        value=st.dictionaries(st.text(max_size=5), st.integers(), max_size=5),
     )
-    def test_type_mismatch_raises_with_details_str(
-        self, key: str, value: str, wrong_type: type[object]
-    ) -> None:
-        """get(key, wrong_type) on a stored str raises TypeError mentioning key,
-        expected type, and actual type.
-
-        **Validates: Requirements 6.7**
-        """
-        store = StateStore()
+    def test_a_dict_round_trips(self, key: str, value: dict[str, int]) -> None:
+        store = new_state_store()
         store.set(key, value)
+        assert store.get(key) == value
 
-        with pytest.raises(TypeError, match=key) as exc_info:
-            store.get(key, wrong_type)
+    @given(key=state_keys)
+    def test_a_missing_key_returns_the_default(self, key: str) -> None:
+        """`get(key, sentinel)` returns the sentinel — a default, not a type."""
+        store = new_state_store()
+        sentinel = "not-there"
+        assert store.get(key) is None
+        assert store.get(key, sentinel) == sentinel
 
-        error_msg = str(exc_info.value)
-        assert wrong_type.__name__ in error_msg
-        assert "str" in error_msg
-
-    @given(
-        key=state_keys,
-        value=json_ints,
-        wrong_type=st.sampled_from([str, list, dict]),
-    )
-    def test_type_mismatch_raises_with_details_int(
-        self, key: str, value: int, wrong_type: type[object]
-    ) -> None:
-        """get(key, wrong_type) on a stored int raises TypeError mentioning key,
-        expected type, and actual type.
-
-        **Validates: Requirements 6.7**
-        """
-        store = StateStore()
-        store.set(key, value)
-
-        with pytest.raises(TypeError, match=key) as exc_info:
-            store.get(key, wrong_type)
-
-        error_msg = str(exc_info.value)
-        assert wrong_type.__name__ in error_msg
-        assert "int" in error_msg
-
-    @given(
-        key=state_keys,
-        value=json_lists,
-        wrong_type=st.sampled_from([str, int, float, dict]),
-    )
-    def test_type_mismatch_raises_with_details_list(
-        self, key: str, value: list[int], wrong_type: type[object]
-    ) -> None:
-        """get(key, wrong_type) on a stored list raises TypeError mentioning key,
-        expected type, and actual type.
-
-        **Validates: Requirements 6.7**
-        """
-        store = StateStore()
-        store.set(key, value)
-
-        with pytest.raises(TypeError, match=key) as exc_info:
-            store.get(key, wrong_type)
-
-        error_msg = str(exc_info.value)
-        assert wrong_type.__name__ in error_msg
-        assert "list" in error_msg
-
-    @given(
-        key=state_keys,
-        type_param=st.sampled_from(all_checkable_types),
-    )
-    def test_nonexistent_key_returns_none(
-        self, key: str, type_param: type[object]
-    ) -> None:
-        """get(key, type_) returns None for a non-existent key regardless of type.
-
-        **Validates: Requirements 6.7**
-        """
-        store = StateStore()
-        result = store.get(key, type_param)
-        assert result is None
-
-    @given(
-        key=state_keys,
-        other_key=state_keys,
-        type_param=st.sampled_from(all_checkable_types),
-    )
-    def test_nonexistent_key_returns_none_when_store_has_other_keys(
-        self, key: str, other_key: str, type_param: type[object]
-    ) -> None:
-        """get(key, type_) returns None for a missing key even when other keys exist.
-
-        **Validates: Requirements 6.7**
-        """
-        assume(key != other_key)
-
-        store = StateStore()
-        store.set(other_key, "placeholder")
-
-        result = store.get(key, type_param)
-        assert result is None
+    @given(key=state_keys)
+    def test_a_value_that_cannot_be_written_is_refused(self, key: str) -> None:
+        """Validated at write time, where the offending call is on the stack."""
+        store = new_state_store()
+        with pytest.raises(TypeError, match="not JSON-serializable"):
+            store.set(key, object())

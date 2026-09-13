@@ -16,7 +16,7 @@ The engine's entire live conversation with a UI is two one-method protocols:
 
 They are independent — a render-only surface has no `collect`; the stdin
 fallback collects but renders nothing; a full-screen app does both. Register
-either (or both) with `app.register_surface(obj)`.
+either (or both) with `app.extensions.register_surface(obj)`.
 
 ## Where a job renders: three surfaces
 
@@ -38,9 +38,9 @@ modal, or an MCP gate depending on the active collector:
 
 ```python
 def deploy(config: DeployConfig, rc: RunContext) -> str:
-    if not rc.prompt_confirm("Deploy to production?", default=False):
+    if not rc.prompts.confirm("Deploy to production?", default=False):
         return "cancelled"
-    region = rc.prompt_choice("Region", ["us-east-1", "eu-west-1"])
+    region = rc.prompts.choice("Region", ["us-east-1", "eu-west-1"])
     return f"deploying to {region}"
 ```
 
@@ -152,7 +152,7 @@ class LogFileSurface:
 class MyPlugin:
     name = "log-file"
     def __call__(self, app):
-        app.register_surface(LogFileSurface())
+        app.extensions.register_surface(LogFileSurface())
 ```
 
 `handle_event` is called on worker threads; a UI surface must marshal onto its

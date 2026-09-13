@@ -48,7 +48,7 @@ def make_fake_app(
     """Create a minimal mock FunctualizeApp for testing CliAdapter."""
     app = MagicMock()
     app.get_jobs.return_value = jobs or []
-    app.get_plugin_commands.return_value = plugin_commands or []
+    app.extensions.get_plugin_commands.return_value = plugin_commands or []
     app._event_bus = None
     app._hook_registry = None
     app.plugin_loader.loaded_instances = []
@@ -120,14 +120,14 @@ class TestCliAdapterCall:
         assert adapter._app is app
 
     def test_call_retrieves_plugin_commands(self):
-        """__call__ retrieves plugin commands from app.get_plugin_commands()."""
+        """__call__ retrieves plugin commands from app.extensions.get_plugin_commands()."""
         cmd = PluginCommand(name="my-cmd", callback=lambda: None, help_text="A command")
         app = make_fake_app(plugin_commands=[cmd])
         adapter = CliAdapter()
         adapter(app)
         # Plugin commands are now registered directly via register_plugin_commands()
         # Verify that get_plugin_commands was called during setup
-        app.get_plugin_commands.assert_called_once()
+        app.extensions.get_plugin_commands.assert_called_once()
 
 
 # =============================================================================
@@ -252,11 +252,20 @@ class TestFunctualizeAppFacades:
         assert callable(FunctualizeApp.get_jobs)
 
     def test_get_plugin_commands_returns_list(self):
-        """get_plugin_commands() returns a list."""
+        """`app.extensions.get_plugin_commands()` returns a list.
+
+        It moved off the app onto the extensions facade in
+        `engine-sealed-construction`/T9, with the ten other members a plugin
+        registers through. Asserted on the facade class, because that is where
+        the method now is — `hasattr(FunctualizeApp, ...)` would have gone on
+        passing against the *accessor* and told us nothing.
+        """
+        from functualize._app.extensions_facade import ExtensionsFacade
         from functualize.app.core import FunctualizeApp
 
-        assert hasattr(FunctualizeApp, "get_plugin_commands")
-        assert callable(FunctualizeApp.get_plugin_commands)
+        assert hasattr(FunctualizeApp, "extensions")
+        assert hasattr(ExtensionsFacade, "get_plugin_commands")
+        assert callable(ExtensionsFacade.get_plugin_commands)
 
     def test_get_job_returns_descriptor_or_none(self):
         """get_job() returns a descriptor or None."""

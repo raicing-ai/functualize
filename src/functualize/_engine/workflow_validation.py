@@ -14,7 +14,12 @@ caught the moment the executor reached for it.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def _validate_workflow_from_job_refs(
@@ -196,3 +201,99 @@ def validate_workflow_declarations(app: Any = None, *, registry: Any = None) -> 
             if cycle
             else "Workflow nesting cycle detected."
         ) from exc
+
+
+# ----------------------------------------------------------------------
+# Source identity (`durable-run-layer`/T11)
+# ----------------------------------------------------------------------
+
+
+def graph_digest(declaration: Any) -> str:
+    """A stable digest of a workflow's **graph**, not of its file.
+
+    Decision K3, and the reason is risk R-g: a digest of the *source file*
+    refuses a resume whenever anything in that file changes — a docstring, an
+    unrelated job, a reformat. That is not a safety property, it is a
+    permanent annoyance that trains people to bypass the check. What actually
+    invalidates a parked walk is the **graph**: its nodes, its edges, where it
+    starts.
+
+    So the digest is over `WorkflowShape.to_dict()` — the same projection the
+    discovery cache stores — serialised with sorted keys so a dict's iteration
+    order cannot change the answer.
+
+    Returns `""` for anything that is not a workflow, so a caller can compare
+    unconditionally: two empty digests are equal, which is the right answer for
+    a scope that never had a graph.
+    """
+    shape = getattr(declaration, "shape", None)
+    if shape is None:
+        return ""
+    try:
+        payload = shape().to_dict()
+    except Exception:  # noqa: BLE001 - a digest is never worth failing a run
+        logger.debug("could not project a workflow shape", exc_info=True)
+        return ""
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode()).hexdigest()[:16]
+
+
+class WorkflowGraphChangedError(Exception):
+    """A parked walk's graph is not the graph that is loaded now.
+
+    Resuming would replay step records against a different shape: a node that
+    no longer exists, an edge that now leads somewhere else, a gate whose
+    answer no longer has a step to feed. The records are still there and the
+    scope is still readable — only *advancing* it is refused.
+
+    Names both digests, because the first question is always "what changed",
+    and the answer "your workflow" is not one.
+    """
+
+    def __init__(self, scope_id: str, recorded: str, current: str) -> None:
+        super().__init__(
+            f"Workflow scope '{scope_id}' was recorded against graph "
+            f"{recorded} and the loaded workflow is {current}. Resuming would "
+            f"replay its steps against a different shape. Cancel the scope, or "
+            f"restore the graph it was started with."
+        )
+        self.scope_id = scope_id
+        self.recorded = recorded
+        self.current = current
+
+
+#: How deep a workflow may nest inside other workflows before it is refused.
+#:
+#: Distinct from `max_invoke_depth`, which bounds *any* nested call. This bounds
+#: **workflows inside workflows**, and each of those costs a scope, a set of
+#: step records, an epilogue slot and a lease. A run can invoke deeply without
+#: nesting a single workflow, so one limit cannot serve both.
+DEFAULT_MAX_WORKFLOW_DEPTH = 5
+
+
+def workflow_depth(scope_id: str) -> int:
+    """How many workflows deep ``scope_id`` sits. A top-level scope is 0.
+
+    Read from the id because that is where the nesting already lives: a nested
+    workflow's scope is `f"{parent}::{step}"` (`workflow_orchestrator`), so the
+    separators *are* the depth. Deriving it from the string rather than
+    threading a counter through the walk means the two cannot disagree — and
+    a resumed walk in a fresh process has the id and nothing else.
+    """
+    return scope_id.count("::")
+
+
+def check_workflow_depth(scope_id: str, limit: int | None = None) -> None:
+    """Refuse a workflow nested deeper than ``limit``.
+
+    Raises:
+        WorkflowDepthExceededError: The nesting exceeds the limit. An ordinary
+            refusal — it reaches a caller through the outcome module's existing
+            failure family, so there is no second exit-code vocabulary.
+    """
+    from functualize._types.errors import WorkflowDepthExceededError
+
+    ceiling = DEFAULT_MAX_WORKFLOW_DEPTH if limit is None else limit
+    depth = workflow_depth(scope_id)
+    if depth > ceiling:
+        raise WorkflowDepthExceededError(scope_id, depth, ceiling)

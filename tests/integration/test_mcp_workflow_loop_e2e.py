@@ -30,8 +30,9 @@ from pydantic import BaseModel, Field
 
 from functualize._app.state import AppState
 from functualize.app.core import FunctualizeApp
-from functualize.app.utils import StateStore
+from functualize.app.utils import ScopeStore
 from functualize.job import RunStatus
+from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, workflow
 
 pytestmark = pytest.mark.anyio
@@ -99,7 +100,7 @@ def app() -> FunctualizeApp:
 
 
 def _provider(app: FunctualizeApp) -> WorkflowToolProvider:
-    return WorkflowToolProvider(app, store=StateStore.for_project(Path.cwd()))
+    return WorkflowToolProvider(app, store=ScopeStore.for_project(Path.cwd()))
 
 
 async def test_an_agent_can_drive_a_blocked_workflow_to_completion(
@@ -108,7 +109,9 @@ async def test_an_agent_can_drive_a_blocked_workflow_to_completion(
     tools = _provider(app)
 
     # 1. A run blocks. This is the only thing the agent is told out of band.
-    blocked = app.execute("release", scope_id="rel-1")
+    blocked = app.execute(
+        RunRequest(job_name="release", surface="app.execute", workflow_scope_id="rel-1")
+    )
     assert blocked.status is RunStatus.BLOCKED
     assert app.ran == ["build"]  # type: ignore[attr-defined]
 
@@ -156,7 +159,11 @@ async def test_an_agent_can_drive_a_blocked_workflow_to_completion(
     assert app.ran == ["build"]  # type: ignore[attr-defined]
 
     # 6. Re-running the job replays the walk and finishes it.
-    done = app.execute("release", scope_id=workflow_id)
+    done = app.execute(
+        RunRequest(
+            job_name="release", surface="app.execute", workflow_scope_id=workflow_id
+        )
+    )
     assert done.status is RunStatus.SUCCESS
     assert done.return_value == "release complete"
     # `build` is memoized for this scope; only the rest runs.
@@ -171,7 +178,9 @@ async def test_a_cancelled_workflow_leaves_the_loop(app: FunctualizeApp) -> None
     """The escape hatch: an agent that cannot answer a gate can abandon it,
     and the scope stops appearing as outstanding work."""
     tools = _provider(app)
-    app.execute("release", scope_id="rel-1")
+    app.execute(
+        RunRequest(job_name="release", surface="app.execute", workflow_scope_id="rel-1")
+    )
 
     cancelled = await tools._cancel_workflow("rel-1")
     assert cancelled["status"] == "cancelled"
@@ -187,8 +196,12 @@ async def test_two_blocked_runs_are_driven_independently(
     """Scope-addressed resume is what makes concurrent runs safe: answering
     one must not advance the other."""
     tools = _provider(app)
-    app.execute("release", scope_id="rel-1")
-    app.execute("release", scope_id="rel-2")
+    app.execute(
+        RunRequest(job_name="release", surface="app.execute", workflow_scope_id="rel-1")
+    )
+    app.execute(
+        RunRequest(job_name="release", surface="app.execute", workflow_scope_id="rel-2")
+    )
 
     # The gate name alone is ambiguous across two scopes.
     ambiguous = await tools._answer_gate(
@@ -204,8 +217,22 @@ async def test_two_blocked_runs_are_driven_independently(
     )
     assert accepted["status"] == "answered"
 
-    assert app.execute("release", scope_id="rel-2").status is RunStatus.SUCCESS
-    assert app.execute("release", scope_id="rel-1").status is RunStatus.BLOCKED
+    assert (
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-2"
+            )
+        ).status
+        is RunStatus.SUCCESS
+    )
+    assert (
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-1"
+            )
+        ).status
+        is RunStatus.BLOCKED
+    )
 
 
 def _example_for(schema: dict, field: str) -> object:

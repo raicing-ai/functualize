@@ -129,6 +129,32 @@ process to exit.
 
 ---
 
+## 3a. Branching **in** — one request, not six vocabularies
+
+The out-branch above is six translations of one result. The **in**-branch used to
+be six translations of one intent, and that half is now consolidated: every door
+builds a `RunRequest` and hands it to `engine.run()`.
+
+The practical test of that claim is
+`tests/integration/test_surface_feature_matrix.py` — sixteen features, most of
+them run twice, once through `func`'s dispatch and once through a project's own
+`main.py` under `CliAdapter`. Fourteen rows behave identically. Two do not, and
+the difference is *about the door*, which is exactly what section 4's question
+predicts:
+
+| feature | same on both? | why |
+|---|---|---|
+| `--exclude` / `[discovery]` | **no**, by design | about *reaching* the program: `func` resolves the project's filters and hands them to the app it builds; an embedded app is handed a `DiscoveryConfig` by its author. Reading the file behind that author's back would override what they wrote in code. |
+| `[aliases]` | **no**, and not by design | resolved in `_cli/dispatch.detect_mode`, the bare CLI's pre-boot routing — an accident of *where*, not a decision. Recorded as `.spec/STATUS.md` #40. |
+
+Everything else — `Deps`, fingerprint freshness, guards, retry, group options,
+gates and their resume, `--prompt-gates`, capability injection, config
+precedence, `--force`, `--emit-format`, the exit-code contract, the
+unknown-command explanation — is about **the program**, and reaches the run
+identically through either door.
+
+---
+
 ## 4. The rule: which features must align
 
 Ask one question about a feature: **is it about the program, or about how you
@@ -144,6 +170,14 @@ Anything a *job author* declares, or that a job's own behaviour depends on:
 * `FromJob`, `Sources`, `GroupOptions`
 * `@workflow`, `Gate`, and **resuming a gate** ← the case that proved the rule
 * freshness, refusal, and the exit-code contract
+* `--force`, `--prompt-gates` and `--emit-format` — the three delivery inputs. Listed
+  here as *description*, not aspiration: `run-request-entry/T13` put the two
+  missing ones on an app's own entry point, and the dual-surface tests
+  (`tests/cli/test_app_surface_prompt_gates.py`,
+  `tests/cli/test_app_surface_output_format.py`) run one body over both. Until
+  then `adapters/cli.py` declared only `--force`, beneath a comment claiming
+  parity for both — so a `@workflow` reached from an app blocked at exit 5 with
+  no flag on that surface to prompt its gate
 * anything that makes a declared feature usable at all
 
 > If a job author can write it in their jobs file, every surface that runs jobs
@@ -171,10 +205,32 @@ Deliberately, and these are **not** gaps:
    global reaches a command only if something threads it; a `click.Option` on
    the command travels with it — including through composable mode, where the
    root callback does not exist.
-3. **Deposit-and-read for anything genuinely pre-command.** Commands are built
-   before the root callback parses, so a global must land on the app
-   (`app._force`, `app._workflow_scope_id`) and be read at call time. Both
-   surfaces use the same attribute names for this reason.
+3. **For anything genuinely pre-command, use the per-invocation channel — never
+   the app.** Commands are built before a root callback parses, so a global has
+   to reach the callback somehow. There are two honest routes, in order of
+   preference:
+
+   * **Pass it to the builder.** `func`'s handlers parse their flags *before*
+     constructing the command, so they hand the value to
+     `create_job_click_command(..., force=..., output_format=...)` and it rides
+     the closure. This is the route to take whenever the parsing happens first.
+   * **Put it in `ctx.obj`.** An app's own root callback parses *after* its
+     subcommands are built and genuinely cannot pass anything down. `ctx.obj` is
+     created per invocation and torn down with it, and `adapters/cli.py` already
+     fills it; `_request_builder.build_request` reads it when no door stated a
+     value of its own.
+
+   > **This item used to say the opposite.** It prescribed depositing the value
+   > on the app (`app._force`, `app._output_format`, `app._prompt_gates`) and
+   > reading it back at call time. That was the *deposit protocol*, and
+   > `run-request-entry/T12` deleted all eleven writes. The problem was not
+   > tidiness: the app is a process-lifetime object, so two concurrent runs
+   > shared one answer, and the kernel reached two attributes deep through
+   > `engine._app` for a value the app is under no obligation to have. Ambient
+   > *scope* is sometimes unavoidable; ambient *lifetime* is what breaks.
+   >
+   > `app._workflow_scope_id` survives, deliberately: it is the programmatic
+   > seam an embedded host sets directly, and it has no CLI spelling.
 4. **Test it through `cli_run`**, which is parameterised over both surfaces. If
    it only makes sense on one, say so with `surfaces("func")` and give the
    reason — see `tests/conftest.py`.

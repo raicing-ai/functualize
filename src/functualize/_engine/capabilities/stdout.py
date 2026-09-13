@@ -2,11 +2,11 @@
 
 ``WiredStdout`` is what the engine injects for an ``out: Stdout`` parameter. It
 wraps the §C.2 serialization engine (``_primitives/stdout_emitter.py``) with the
-resolved ``--output`` format and secret redaction.
+resolved ``--emit-format`` format and secret redaction.
 
 Two intents (see ``_types/stdout.py``):
 
-- ``emit(value)`` — serialize per ``--output``, one document per call, flushed.
+- ``emit(value)`` — serialize per ``--emit-format``, one document per call, flushed.
 - ``write(data)`` — raw verbatim passthrough, no serialization.
 
 Explicit emission is **never surface-suppressed**: unlike the removed implicit
@@ -32,7 +32,7 @@ class WiredStdout:
     """Engine-side ``Stdout`` capability (proposal Part C, revised).
 
     Args:
-        output_format: The resolved ``--output`` value — one of ``"auto"``
+        output_format: The resolved ``--emit-format`` value — one of ``"auto"``
             (dispatch by value type), ``"json"``, ``"ndjson"``, ``"raw"``, or
             ``"none"`` (suppress). Defaults to ``"auto"``.
         secrets: Secret string values to mask (``•••``) in anything written.
@@ -75,12 +75,12 @@ class WiredStdout:
     def _out(self) -> IO[Any]:
         return self._stream if self._stream is not None else sys.stdout
 
-    # ── emit: serialize per --output ────────────────────────────────────────
+    # ── emit: serialize per --emit-format ────────────────────────────────────────
 
     def emit(self, value: Any) -> None:
-        """Serialize ``value`` to stdout per the resolved ``--output`` format.
+        """Serialize ``value`` to stdout per the resolved ``--emit-format`` format.
 
-        ``--output`` decides list handling: ``emit([a, b, c])`` is one JSON
+        ``--emit-format`` decides list handling: ``emit([a, b, c])`` is one JSON
         array under ``json`` and one line per item under ``ndjson``. To stream
         rows explicitly, loop ``for r in rows: out.emit(r)``.
 
@@ -144,16 +144,29 @@ class WiredStdout:
 
 def _make_stdout(ctx: Any) -> WiredStdout:
     """Build the wired stdout channel for this invocation."""
-    # `--output` is a per-invocation CLI flag, not config: the CLI boundary
-    # deposits the resolved value on the app before dispatch. Absent
-    # (library/embedded use) it defaults to "auto" — dispatch by the emitted
-    # value's type — so `out.emit()` still works outside the CLI.
-    app = getattr(ctx.engine, "_app", None)
+    # `--emit-format` is a per-invocation flag, so it rides the request that asked
+    # for this run. It used to be read off the app — the CLI boundary deposited
+    # the resolved value there before dispatch — which meant two concurrent runs
+    # shared one answer and the kernel depended on an attribute the app is not
+    # obliged to have (run-request-entry/T12 removed the deposits).
+    #
+    # Absent a request (library or embedded use, or a context built outside
+    # `engine.run`) it defaults to "auto" — dispatch by the emitted value's
+    # type — so `out.emit()` still works with no CLI in sight.
+    # `ctx` is a `CapabilityContext` — engine, ExecutionContext, caps — so the
+    # request is one hop in, on `ctx.context`. Reading `ctx.request` returns
+    # None for every run and the format silently falls back to "auto", which is
+    # indistinguishable from working for any value that renders the same both
+    # ways (a flat mapping does). Measure with `--emit-format none`, which suppresses
+    # emission entirely, or `--emit-format raw`; `json` vs `auto` proves nothing.
+    execution = getattr(ctx, "context", None)
+    request = getattr(execution, "request", None)
     # No `secrets=` here: config is resolved *after* DI wiring, so the values
     # are not known yet. `_arm_output_redaction` fills them in from the model
     # the job actually receives.
     return WiredStdout(
-        output_format=getattr(app, "_output_format", "auto") or "auto",
+        output_format=(request.output_format if request is not None else "auto")
+        or "auto",
     )
 
 

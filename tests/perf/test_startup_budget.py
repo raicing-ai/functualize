@@ -51,15 +51,40 @@ BUDGET_CONFIG_ENTRY_POINTS_MS = 50.0  # discover_entry_points()
 # ~221ms median), so this still catches an order-of-magnitude regression without
 # reporting machine load as a code defect.
 #
-# This is the dominant boot phase — ~57% of total boot — and worth reducing
-# rather than merely re-budgeting. One concrete lead: a single boot calls
-# `importlib.metadata.entry_points()` seven times (measured), and each call
-# rescans all 215 installed distributions from disk. Caching that would cut
-# ~53ms of the ~65ms `FunctualizeApp()` construction cost. Left alone here
-# because it is a change to the boot hot path and needs its own verification.
+# This is the dominant boot phase — ~57% of total boot — and still worth
+# reducing rather than merely re-budgeting. The caching this comment once
+# proposed shipped on 2026-08-27: `_primitives/entry_points.py` collapses the
+# seven per-boot `importlib.metadata.entry_points()` walks into one scan per
+# process, and every discovery site reads that shared snapshot.
 BUDGET_CONFIG_RESOLUTION_MS = 300.0
 BUDGET_JOB_REGISTRATION_MS = 50.0  # Command registration (no jobs = fast)
 BUDGET_CHILDREN_MS = 50.0  # No children = fast
+
+# --- The whole command, not a boot phase (AC-20, audit T8) ---
+#
+# Every constant above measures a slice of `FunctualizeApp.__init__` in-process.
+# None of them answers the question a user actually has: how long does
+# `func <job>` take when the discovery cache is warm? That is the number the
+# audit's T8 asked for, and it is measured here by running the real console
+# script in a subprocess against an XDG cache the test owns.
+#
+# Measured on this machine, 2026-09-10, nine warm runs of a one-line job after
+# one cold run to populate the cache:
+#
+#     cold    825 ms
+#     warm    min 739  median 751  max 850
+#
+# **The warm/cold gap is ~9%.** The discovery cache is not what a `func <job>`
+# invocation spends its time on — interpreter start plus imports are — which is
+# worth knowing before anyone optimises the cache again. `boot.total`'s own
+# budget is 500ms, so process start and import cost roughly as much as the
+# entire app boot they precede.
+#
+# The budget is ~2x the observed max, the same headroom
+# BUDGET_CONFIG_RESOLUTION_MS uses against its own measurement (300ms against a
+# 158ms max). CI is slower and noisier than this machine, and a perf test that
+# flakes gets muted, which is worse than one that is loose.
+BUDGET_WARM_COMMAND_MS = 1800.0
 
 
 @pytest.fixture
@@ -206,3 +231,88 @@ class TestStartupBudget:
         assert "Total:" in summary
         # Print for visibility in test output
         print(f"\n--- Startup Performance Report ---\n{summary}")
+
+
+class TestWarmCommandBudget:
+    """A whole `func <job>` invocation, cache warm (AC-20, audit T8).
+
+    Every other test in this file measures a phase *inside* one process. This
+    one measures what the user waits for: fork, exec, import, boot, dispatch,
+    run, exit. It is the only test here that can catch a regression in the parts
+    of startup that happen before `FunctualizeApp.__init__` is even called.
+    """
+
+    @pytest.mark.perf_budget
+    def test_a_warm_func_job_stays_within_budget(self, tmp_path) -> None:
+        import shutil
+        import statistics
+        import subprocess
+        import sys
+        import time
+        from pathlib import Path
+
+        console_script = Path(sys.executable).parent / "func"
+        if not console_script.exists():
+            pytest.skip(f"no `func` console script beside {sys.executable}")
+
+        project = tmp_path / "project"
+        (project / "jobs").mkdir(parents=True)
+        (project / ".functualize.toml").write_text('jobs_directories = ["jobs"]\n')
+        (project / "jobs" / "ping.py").write_text(
+            "from functualize.job import job\n"
+            "\n"
+            "\n"
+            "@job()\n"
+            "def ping() -> str:\n"
+            '    """Smallest possible job."""\n'
+            '    return "pong"\n'
+        )
+
+        cache = tmp_path / "cache"
+        env = {**os.environ, "XDG_CACHE_HOME": str(cache)}
+
+        def invoke() -> tuple[float, subprocess.CompletedProcess[str]]:
+            started = time.perf_counter()
+            completed = subprocess.run(
+                [str(console_script), "ping"],
+                cwd=project,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            return (time.perf_counter() - started) * 1000, completed
+
+        # One cold run to populate the discovery cache — that run is *not*
+        # measured, because a cold cache is a different question.
+        shutil.rmtree(cache, ignore_errors=True)
+        _, cold = invoke()
+        assert cold.returncode == 0, (
+            f"the cold run failed, so nothing below measures a working command: "
+            f"{cold.stderr[-500:]}"
+        )
+
+        timings: list[float] = []
+        for _ in range(3):
+            elapsed, completed = invoke()
+            # A command that exits non-zero is fast for the wrong reason. Assert
+            # it worked before believing its timing — otherwise a broken `func`
+            # passes this test by failing quickly.
+            assert completed.returncode == 0, (
+                f"warm run failed: {completed.stderr[-500:]}"
+            )
+            timings.append(elapsed)
+
+        # Median, not mean: one scheduler hiccup in three runs should not decide
+        # the verdict.
+        warm = statistics.median(timings)
+        print(
+            f"\n--- warm `func ping` ---\n"
+            f"cold: n/a (cache priming)  warm runs: "
+            f"{', '.join(f'{t:.0f}ms' for t in timings)}  median: {warm:.0f}ms"
+        )
+        assert warm < BUDGET_WARM_COMMAND_MS, (
+            f"warm `func ping` took {warm:.0f}ms (runs: "
+            f"{', '.join(f'{t:.0f}' for t in timings)}), over the "
+            f"{BUDGET_WARM_COMMAND_MS:.0f}ms budget"
+        )

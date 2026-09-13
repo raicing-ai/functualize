@@ -10,7 +10,7 @@ import pytest
 
 from functualize._engine.explain import HEADLINES, render_dep_line, render_verdict
 from functualize._engine.guards import GuardState, GuardVerdict
-from functualize._primitives.state_store import StateStore
+from functualize._primitives.fresh_store import FreshStore
 
 
 class TestRenderVerdict:
@@ -106,7 +106,7 @@ class TestStateAndCacheAreIndependent:
         cache_path = resolve_cache_path(tmp_path)
         cache_path.write_text('{"format_version": 9, "jobs": {}}')
 
-        store = StateStore.for_project(tmp_path)
+        store = FreshStore.for_project(tmp_path)
         store.put_fingerprint("build::h::checksum", {"n": 1})
         store.clear()
 
@@ -120,19 +120,19 @@ class TestStateAndCacheAreIndependent:
         cache_path = resolve_cache_path(tmp_path)
         cache_path.write_text('{"format_version": 9, "jobs": {}}')
 
-        store = StateStore.for_project(tmp_path)
+        store = FreshStore.for_project(tmp_path)
         store.put_fingerprint("build::h::checksum", {"n": 1})
 
         cache_path.unlink()  # `func cache clear`
 
-        assert StateStore.for_project(tmp_path).get_fingerprint("build::h::checksum")
+        assert FreshStore.for_project(tmp_path).get_fingerprint("build::h::checksum")
 
     def test_state_and_cache_are_different_files(self, tmp_path) -> None:
         from functualize._primitives.cache_format import resolve_cache_path
-        from functualize._primitives.state_format import resolve_state_path
+        from functualize._primitives.fresh_format import resolve_fresh_path
 
         (tmp_path / ".functualize").mkdir()
-        assert resolve_state_path(tmp_path) != resolve_cache_path(tmp_path)
+        assert resolve_fresh_path(tmp_path) != resolve_cache_path(tmp_path)
 
 
 class TestStateCommandRegistration:
@@ -140,18 +140,18 @@ class TestStateCommandRegistration:
         from functualize._cli.builtins import BUILTIN_COMMANDS
 
         names = {cmd.name for cmd in BUILTIN_COMMANDS}
-        assert "state" in names
+        assert "data" in names
 
     def test_state_declares_show_and_clear(self) -> None:
         from functualize._cli.builtins import BUILTIN_COMMANDS
 
-        state = next(c for c in BUILTIN_COMMANDS if c.name == "state")
+        state = next(c for c in BUILTIN_COMMANDS if c.name == "data")
         assert {sub for sub, _desc in state.subcommands} == {"show", "clear"}
 
     def test_state_store_is_reachable_from_public_utils(self) -> None:
         # _cli may only import the public API — the re-export must exist.
-        from functualize.app.utils import StateStore as PublicStateStore
-        from functualize.app.utils import resolve_state_path
+        from functualize.app.utils import FreshStore as PublicStateStore
+        from functualize.app.utils import resolve_fresh_path
 
-        assert PublicStateStore is StateStore
-        assert callable(resolve_state_path)
+        assert PublicStateStore is FreshStore
+        assert callable(resolve_fresh_path)

@@ -20,7 +20,7 @@ class TestBreadcrumbHeaderWidget:
         assert header is not None
 
     def test_update_state_renders_breadcrumb(self) -> None:
-        """update_state() calls BreadcrumbState.render() and updates content."""
+        """update_fresh() calls BreadcrumbState.render() and updates content."""
         header = BreadcrumbHeader("")
         state = BreadcrumbState(
             type_prefix="R",
@@ -29,12 +29,12 @@ class TestBreadcrumbHeaderWidget:
             title="Config Table",
             sub_levels=(),
         )
-        header.update_state(state)
+        header.update_fresh(state)
         # The internal renderable is updated — verify render output matches
         assert state.render() == "[R:1/3] Config Table"
 
     def test_update_state_with_sub_levels(self) -> None:
-        """update_state() handles sub-levels correctly."""
+        """update_fresh() handles sub-levels correctly."""
         header = BreadcrumbHeader("")
         state = BreadcrumbState(
             type_prefix="R",
@@ -43,11 +43,11 @@ class TestBreadcrumbHeaderWidget:
             title="Config Table",
             sub_levels=("Field Detail: region",),
         )
-        header.update_state(state)
+        header.update_fresh(state)
         assert state.render() == "[R:1/3] Config Table > Field Detail: region"
 
     def test_update_state_general_ring(self) -> None:
-        """update_state() handles general ring prefix."""
+        """update_fresh() handles general ring prefix."""
         header = BreadcrumbHeader("")
         state = BreadcrumbState(
             type_prefix="E",
@@ -56,11 +56,11 @@ class TestBreadcrumbHeaderWidget:
             title="Settings",
             sub_levels=(),
         )
-        header.update_state(state)
+        header.update_fresh(state)
         assert state.render() == "[E:2/4] Settings"
 
     def test_update_state_display_panel(self) -> None:
-        """update_state() handles display panel prefix."""
+        """update_fresh() handles display panel prefix."""
         header = BreadcrumbHeader("")
         state = BreadcrumbState(
             type_prefix="D",
@@ -69,7 +69,7 @@ class TestBreadcrumbHeaderWidget:
             title="Docker Services",
             sub_levels=(),
         )
-        header.update_state(state)
+        header.update_fresh(state)
         assert state.render() == "[D:1/1] Docker Services"
 
     def test_clear_state(self) -> None:
@@ -78,7 +78,7 @@ class TestBreadcrumbHeaderWidget:
         state = BreadcrumbState(
             type_prefix="R", position=1, total=3, title="Config Table"
         )
-        header.update_state(state)
+        header.update_fresh(state)
         header.clear_state()
         # After clear, no assertion on renderable needed — just no crash
 

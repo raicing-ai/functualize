@@ -24,7 +24,8 @@ from functualize._events.hooks import HookEvent
 from functualize._types.errors import GateResolutionError
 from functualize._types.workflow import END, ConditionalEdge, Edge, Step
 from functualize.app.config import ExecutionConfig
-from functualize.app.core import FunctualizeApp
+from functualize.app.core import FunctualizeApp, request_for
+from functualize.types import RunRequest
 from functualize.workflow._decorator import workflow
 
 if TYPE_CHECKING:
@@ -134,7 +135,7 @@ class TestAppExecuteAutoScope:
             return "done"
 
         app.register_dynamic_job("deploy", my_job)
-        app.execute("deploy")
+        app.execute(request_for("deploy"))
 
         # Scope was created
         assert len(app._scope_registry) == 1
@@ -162,7 +163,7 @@ class TestAppExecuteAutoScope:
             return "ok"
 
         app.register_dynamic_job("hello", my_job)
-        app.execute("hello")
+        app.execute(request_for("hello"))
 
         assert len(received_scopes) == 1
         assert received_scopes[0].scope_id.startswith("hello-")
@@ -181,10 +182,16 @@ class TestAppExecuteAutoScope:
         app.register_dynamic_job("greet", my_job)
 
         # Pre-create scope
-        original_scope = app.create_workflow_scope("my-custom-scope")
+        original_scope = app.workflows.create_workflow_scope("my-custom-scope")
 
         # Execute with the same scope_id
-        app.execute("greet", scope_id="my-custom-scope")
+        app.execute(
+            RunRequest(
+                job_name="greet",
+                surface="app.execute",
+                workflow_scope_id="my-custom-scope",
+            )
+        )
 
         # Same instance is reused
         assert app._scope_registry["my-custom-scope"] is original_scope
@@ -207,7 +214,7 @@ class TestAppExecuteAutoScope:
             return "ok"
 
         app.register_dynamic_job("ordered", my_job)
-        app.execute("ordered")
+        app.execute(request_for("ordered"))
 
         assert execution_order == ["hook", "job"]
 
@@ -239,7 +246,7 @@ class TestNestedInvocationScopePropagation:
         app.register_dynamic_job("child_job", child_job)
         app.register_dynamic_job("parent_job", parent_job)
 
-        app.execute("parent_job")
+        app.execute(request_for("parent_job"))
 
         # Only one scope should have been created (by the parent)
         assert len(app._scope_registry) == 1
@@ -264,9 +271,9 @@ class TestGateResolutionEndToEnd:
         **Validates: Requirements 7.9**
         """
         resolver = AlwaysSucceedResolver({"region": "us-west-2", "replicas": 5})
-        app.register_gate_strategy("auto_resolver", resolver)
+        app.gates.register_gate_strategy("auto_resolver", resolver)
 
-        result = app.resolve_gate(
+        result = app.gates.resolve_gate(
             DeployConfig,
             force_gate=True,
             gate_strategy="auto_resolver",
@@ -299,11 +306,11 @@ class TestGateResolutionEndToEnd:
                 call_order.append(self._name)
                 return ctx.model_class(region="fallback", replicas=1)
 
-        app.register_gate_strategy("fail1", TrackingFailResolver("fail1"))
-        app.register_gate_strategy("fail2", TrackingFailResolver("fail2"))
-        app.register_gate_strategy("succeed", TrackingSucceedResolver("succeed"))
+        app.gates.register_gate_strategy("fail1", TrackingFailResolver("fail1"))
+        app.gates.register_gate_strategy("fail2", TrackingFailResolver("fail2"))
+        app.gates.register_gate_strategy("succeed", TrackingSucceedResolver("succeed"))
 
-        result = app.resolve_gate(
+        result = app.gates.resolve_gate(
             DeployConfig,
             force_gate=True,
             gate_strategy=["fail1", "fail2", "succeed"],
@@ -320,11 +327,11 @@ class TestGateResolutionEndToEnd:
 
         **Validates: Requirements 7.9**
         """
-        app.register_gate_strategy("bad1", AlwaysFailResolver("error1"))
-        app.register_gate_strategy("bad2", AlwaysFailResolver("error2"))
+        app.gates.register_gate_strategy("bad1", AlwaysFailResolver("error1"))
+        app.gates.register_gate_strategy("bad2", AlwaysFailResolver("error2"))
 
         with pytest.raises(GateResolutionError) as exc_info:
-            app.resolve_gate(
+            app.gates.resolve_gate(
                 DeployConfig,
                 force_gate=True,
                 gate_strategy=["bad1", "bad2"],
@@ -338,13 +345,13 @@ class TestGateResolutionEndToEnd:
 
         **Validates: Requirements 7.9**
         """
-        app.register_gate_strategy("primary", AlwaysFailResolver("primary_fail"))
-        app.register_gate_strategy(
+        app.gates.register_gate_strategy("primary", AlwaysFailResolver("primary_fail"))
+        app.gates.register_gate_strategy(
             "secondary", AlwaysSucceedResolver({"region": "eu-west-1"})
         )
-        app.register_gate_preset("my_preset", ["primary", "secondary"])
+        app.gates.register_gate_preset("my_preset", ["primary", "secondary"])
 
-        result = app.resolve_gate(
+        result = app.gates.resolve_gate(
             DeployConfig,
             force_gate=True,
             gate_strategy="my_preset",
@@ -367,9 +374,9 @@ class TestGateResolutionEndToEnd:
                 strategy_called.append(True)
                 return ctx.model_class(region="override", replicas=10)
 
-        app.register_gate_strategy("recorder", RecordingResolver())
+        app.gates.register_gate_strategy("recorder", RecordingResolver())
 
-        result = app.resolve_gate(
+        result = app.gates.resolve_gate(
             DeployConfig,
             force_gate=True,
             gate_strategy="recorder",
@@ -391,9 +398,9 @@ class TestGateResolutionEndToEnd:
                 strategy_called.append(True)
                 return ctx.model_class(region="override", replicas=10)
 
-        app.register_gate_strategy("recorder", RecordingResolver())
+        app.gates.register_gate_strategy("recorder", RecordingResolver())
 
-        result = app.resolve_gate(
+        result = app.gates.resolve_gate(
             DeployConfig,
             force_gate=False,
             gate_strategy="recorder",
@@ -582,7 +589,7 @@ class TestInvokeDepthPropagation:
         app.register_dynamic_job("level1_job", level1_job)
         app.register_dynamic_job("root_job", root_job)
 
-        app.execute("root_job")
+        app.execute(request_for("root_job"))
 
         # Root is at depth 0, level1 at depth 1, level2 at depth 2
         assert observed_depths == [0, 1, 2]
@@ -607,7 +614,7 @@ class TestInvokeDepthPropagation:
         # With max_invoke_depth=2:
         # root executes at depth 0, recurse at depth 1,
         # next recurse attempt at depth 2 → raises RecursionLimitError
-        app_shallow.execute("recursive_job")
+        app_shallow.execute(request_for("recursive_job"))
 
         # The job should have been called at depths 0 and 1,
         # but depth 2 should have been blocked by RecursionLimitError
@@ -632,7 +639,7 @@ class TestInvokeDepthPropagation:
         app_shallow.register_dynamic_job("deep_job", deep_job)
 
         # Execute — will eventually hit the limit
-        app_shallow.execute("deep_job")
+        app_shallow.execute(request_for("deep_job"))
 
         # At least one RecursionLimitError should have been captured
         assert len(error_captured) >= 1
@@ -675,7 +682,7 @@ class TestEndToEndFlow:
         app.register_dynamic_job("child_job", child_job)
         app.register_dynamic_job("parent_job", parent_job)
 
-        app.execute("parent_job")
+        app.execute(request_for("parent_job"))
 
         # Verify execution order: scope created first, then parent, then child
         assert events[0].startswith("scope_created:")
@@ -703,8 +710,8 @@ class TestEndToEndFlow:
         app.register_dynamic_job("job_a", simple_job)
         app.register_dynamic_job("job_b", simple_job)
 
-        app.execute("job_a")
-        app.execute("job_b")
+        app.execute(request_for("job_a"))
+        app.execute(request_for("job_b"))
 
         # Two separate scopes in the registry
         assert len(app._scope_registry) == 2
@@ -718,18 +725,20 @@ class TestEndToEndFlow:
         **Validates: Requirements 7.9**
         """
         # Register strategies
-        app.register_gate_strategy(
+        app.gates.register_gate_strategy(
             "env_resolver",
             AlwaysFailResolver("no env"),
         )
-        app.register_gate_strategy(
+        app.gates.register_gate_strategy(
             "default_resolver",
             AlwaysSucceedResolver({"target": "production"}),
         )
-        app.register_gate_preset("deploy_preset", ["env_resolver", "default_resolver"])
+        app.gates.register_gate_preset(
+            "deploy_preset", ["env_resolver", "default_resolver"]
+        )
 
         # Resolve through the preset
-        result = app.resolve_gate(
+        result = app.gates.resolve_gate(
             PartialConfig,
             force_gate=True,
             gate_strategy="deploy_preset",

@@ -188,7 +188,7 @@ surface, and TTY and non-TTY paths diverge.
 ```bash
 <prefix> func <job> --help          # flags read correctly?
 <prefix> func <job>                 # runs?
-<prefix> func <job> --output json   # machine-readable path intact?
+<prefix> func <job> --emit-format json   # machine-readable path intact?
 <prefix> func <job> | cat           # non-TTY path — no control codes leaking?
 ```
 

@@ -111,7 +111,7 @@ def _determine_section(
     use the job name directly.
 
     When a FunctualizeApp instance is available, callers should prefer
-    ``app.get_job_config_section(job_name)`` for the base section and
+    ``app.configuration.get_job_config_section(job_name)`` for the base section and
     only wrap with ``tool.functualize.`` for pyproject.toml here.
 
     Section naming rules (R2-AC7):
@@ -206,7 +206,7 @@ def discover_config_files(
        (.functualize.toml, functualize.toml, pyproject.toml) + config.*.toml glob
 
     Section naming (R2-AC7):
-    - When config_section is provided (from FunctualizeApp.get_job_config_section),
+    - When config_section is provided (from FunctualizeApp.configuration.get_job_config_section),
       uses that directly for kernel-consistent resolution.
     - Otherwise falls back to heuristic: group path for grouped, job_name for ungrouped.
     - pyproject.toml: section = tool.functualize.<section>
@@ -227,9 +227,9 @@ def discover_config_files(
             added). Prefer ``kernel_files``, which also carries each file's
             role — paths alone cannot say whether a file is contributing.
         kernel_files: Optional ``ConfigFileInfo`` list from
-            ``FunctualizeApp.config_files()``. Supersedes kernel_file_paths
+            ``FunctualizeApp.configuration.config_files()``. Supersedes kernel_file_paths
             and is the only way entries get real active/inactive status.
-        config_section: Optional section name from FunctualizeApp.get_job_config_section().
+        config_section: Optional section name from FunctualizeApp.configuration.get_job_config_section().
             When provided, overrides the _determine_section heuristic for
             kernel-consistent section resolution.
 

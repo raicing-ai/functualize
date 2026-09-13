@@ -77,7 +77,7 @@ class TestCommandNameValidation:
             pass
 
         with pytest.raises(ValueError, match="Invalid command name"):
-            app.register_plugin_command(name, dummy_callback)
+            app.extensions.register_plugin_command(name, dummy_callback)
 
     @given(name=valid_command_names)
     def test_valid_names_accepted(self, name: str) -> None:
@@ -88,7 +88,7 @@ class TestCommandNameValidation:
             pass
 
         # Should not raise
-        app.register_plugin_command(name, dummy_callback)
+        app.extensions.register_plugin_command(name, dummy_callback)
         assert name in app._plugin_commands[None]
 
 
@@ -118,11 +118,13 @@ class TestDuplicateCommandRegistration:
             pass
 
         # First registration succeeds
-        app.register_plugin_command(name, callback_a, namespace=namespace)
+        app.extensions.register_plugin_command(name, callback_a, namespace=namespace)
 
         # Second registration with same name and namespace raises
         with pytest.raises(ValueError, match="Duplicate command name"):
-            app.register_plugin_command(name, callback_b, namespace=namespace)
+            app.extensions.register_plugin_command(
+                name, callback_b, namespace=namespace
+            )
 
     @settings(suppress_health_check=[HealthCheck.filter_too_much])
     @given(
@@ -146,8 +148,8 @@ class TestDuplicateCommandRegistration:
             pass
 
         # Both registrations should succeed in different namespaces
-        app.register_plugin_command(name, callback_a, namespace=namespace_a)
-        app.register_plugin_command(name, callback_b, namespace=namespace_b)
+        app.extensions.register_plugin_command(name, callback_a, namespace=namespace_a)
+        app.extensions.register_plugin_command(name, callback_b, namespace=namespace_b)
 
         assert name in app._plugin_commands[namespace_a]
         assert name in app._plugin_commands[namespace_b]

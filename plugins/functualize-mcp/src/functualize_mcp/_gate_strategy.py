@@ -46,7 +46,7 @@ class AIOutboundGateResolver:
 
     The resolve flow:
     1. Check if there's pending input from resume_workflow (stored in
-       ``app.extension_state["mcp"]["pending_gate_input"]``).
+       ``app.extensions.extension_state["mcp"]["pending_gate_input"]``).
     2. If pending input exists, validate against gate's model_class and return.
     3. If no pending input, raise ValueError signaling the gate awaits
        external input — this causes the gate registry's fallback chain to
@@ -196,11 +196,13 @@ def register_ai_outbound_gate_strategy(app: Any) -> None:
         app: The FunctualizeApp instance.
     """
     resolver = AIOutboundGateResolver(app=app)
-    app.register_gate_strategy(AI_OUTBOUND_STRATEGY_NAME, resolver)
+    app.gates.register_gate_strategy(AI_OUTBOUND_STRATEGY_NAME, resolver)
 
     # Register gate preset
     # "ai_outbound" → ["ai_outbound", "prompt", "resolve"]
-    app.register_gate_preset(AI_OUTBOUND_PRESET_NAME, AI_OUTBOUND_PRESET_STRATEGIES)
+    app.gates.register_gate_preset(
+        AI_OUTBOUND_PRESET_NAME, AI_OUTBOUND_PRESET_STRATEGIES
+    )
 
     logger.debug(
         "Registered '%s' gate strategy and preset.",

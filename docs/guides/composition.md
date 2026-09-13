@@ -36,12 +36,12 @@ Start here. Find the sentence that matches what you are trying to do.
 | Skip work that something else already did | `Guards(status=["test -f stamp"])` | `lab publish` |
 | Refuse to start unless the environment is right | `Guards(preconditions=[Precondition("cmd", msg="…")])` | `lab gated` |
 | Fail loudly when the thing I'm meant to verify isn't there | declare it in `Fingerprint(sources=...)` — an empty resolution refuses | `lab verify` |
-| Give a caller machine-readable output | `out: Stdout` + `func --output json …` | `lab emit` |
+| Give a caller machine-readable output | `out: Stdout` + `func --emit-format json …` | `lab emit` |
 | Run an external command | `sh: Shell` | `lab probe` |
 | Retry a flaky *job* | `Exec(retry=Retry(attempts=N))` | `lab probe` |
 | Run the same work over N inputs | a driver job + `inv.parallel([...])` | `lab fanout` |
 | Keep a value for this invocation | `state: State` | `lab worker` |
-| Keep a value **across** runs | a file you own, or the runtime `StateStore` — **not** `State` | `lab counter` |
+| Keep a value **across** runs | a file you own, or the runtime `FreshStore` — **not** `State` | `lab counter` |
 | Ask a human mid-run | `Gate(...)` in a `@workflow` — see [Workflows](workflows.md) | — |
 | Pause and resume a long pipeline | `@workflow` + `--wf-resume` | — |
 | Expose all of it to an AI agent | the [MCP adapter](mcp.md) — no per-job work | — |
@@ -52,8 +52,8 @@ Start here. Find the sentence that matches what you are trying to do.
 |---|---|
 | re-globbing your own `Fingerprint(sources=...)` in the body | two statements of one intent drift; use `Sources` |
 | `subprocess.run` | `Shell` gives you secret redaction, streaming, retry and a `FakeShell` for tests |
-| a module-level global | `State` for one invocation; a file for across runs |
-| `print()` for machine output | `out.emit()` honours `--output`; `print` does not |
+| a module-level global | `State` for one run; a file for across runs |
+| `print()` for machine output | `out.emit()` honours `--emit-format`; `print` does not |
 | `sys.exit(1)` in a guard | `Precondition` refuses with exit **3**, which a caller can tell from a crash |
 | a sentinel file you check by hand | `Guards(status=...)`, which ANDs with staleness (§3, R10a) |
 | `time.sleep` retry loops | `Exec(retry=...)` for the job, `sh(..., retry=...)` for one command |
@@ -137,7 +137,7 @@ Where the framework has an opinion, and what happens when you go around it.
 | External commands | `Shell` | `subprocess.run` | redaction, streaming, `FakeShell` |
 | Retry | `Exec(retry=...)` | a `for` loop | backoff policy, exit-code filtering, and it shows up in `why` |
 | Concurrency | `inv.parallel([...])` | `ThreadPoolExecutor` | per-child `RunResult`, depth limits, scope propagation |
-| Machine output | `out.emit(...)` | `print(json.dumps(...))` | `--output` honouring; `print` ignores it |
+| Machine output | `out.emit(...)` | `print(json.dumps(...))` | `--emit-format` honouring; `print` ignores it |
 | Config | a pydantic parameter | `os.environ[...]` | the ladder (file → env → CLI), `--help` flags, `builtin env` |
 | Per-invocation scratch | `State` | a module global | isolation between concurrent invocations |
 | Across-run persistence | a file you own | `State` | **`State` does not persist** — see §5 |
@@ -243,23 +243,37 @@ costs an afternoon. See
 [`contributor/reference/pitfalls.md`](https://github.com/raicing-ai/functualize/blob/master/contributor/reference/pitfalls.md)
 for the full list.
 
-### 5.1 Three things are called "state"; one persists
+### 5.1 `State` belongs to the run, not to the job
 
-| Name | Import | Scope | Persists? |
+| Name | Import | Scope | Survives a resume? |
 |---|---|---|---|
-| `State` (capability) | `functualize.job` | one invocation | **no** |
-| `StateStore` (scope) | internal | one `WorkflowScope` | no |
-| `StateStore` (runtime) | `functualize.app.utils` | the project | **yes** — `.functualize/state.json` |
+| `State` | `functualize.job` | **one run** — every job in it shares one store | **yes** — it lives in the run's scope record |
+| runtime store | `functualize.app.utils` | the project | yes — fingerprints, history, the precondition cache |
 
-`lab fanout` pins it: two children each set `state["slot"]`, and the parent
-reads `None`.
+`State` used to be per-invocation and in memory, which made it useless for the
+case you most need a store in: a workflow that blocks at a gate and resumes in a
+new process came back with its step records intact and its state silently empty.
+It is the run's store now, so a later step reads what an earlier one wrote, and
+a resume finds both.
+
+`lab fanout` pins it. The batch's items write into the run's store — which is
+what lets the parent read what they produced:
 
 ```
 $ func lab fanout
-WORKER slot=a state=a
-WORKER slot=b state=b
-FANOUT n=2 statuses=['Success', 'Success'] parent_state=None
+WORKER slot=a wrote worker.a
+WORKER slot=b wrote worker.b
+FANOUT n=2 statuses=['Success', 'Success'] produced=['worker.a', 'worker.b']
 ```
+
+One flat key space per run, so **name the key after the writer**. Two jobs
+writing `"count"` is last-write-wins; `"fetch.count"` and `"report.count"` are
+not, and `state.keys("fetch.*")` reads one namespace back — `*` stops at the
+dot, so it cannot reach `fetchmeta.x`.
+
+A fresh run is a fresh scope, so `State` carries nothing from one run to the
+next. `lab counter` shows the alternative: a number that must climb across runs
+lives in a file the job owns.
 
 ### 5.2 A refusal is not a failure, and not a skip
 
@@ -290,16 +304,16 @@ success having verified nothing is the failure this distinction prevents.
 `lab report` runs again, even though its inputs are unchanged — it promised to
 produce that file.
 
-### 5.5 `--output` is a *global* flag
+### 5.5 `--emit-format` is a *global* flag
 
 ```bash
-func --output json lab emit      # correct
-func lab emit --output json      # Error: No such option '--output'
+func --emit-format json lab emit      # correct
+func lab emit --emit-format json      # Error: No such option '--emit-format'
 ```
 
 A job's **return value is programmatic** — it feeds `FromJob` and `rc.invoke()`
 and never reaches stdout on its own. `out.emit()` is the explicit path, and it
-is the one that honours `--output`.
+is the one that honours `--emit-format`.
 
 ### 5.6 `generates` entries are globs, not literal paths
 

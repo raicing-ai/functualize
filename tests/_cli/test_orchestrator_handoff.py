@@ -74,10 +74,17 @@ def test_run_handoff_parses_tokens_and_executes() -> None:
 
     _run_handoff(app, ["editor", "--path", "/tmp/f"])
 
+    # The door builds one frozen RunRequest and hands it to the facade — the
+    # loose (job_name, **kwargs) spelling is gone. Surface names the door: the
+    # terminal-released handoff is tui.shell (run-request-entry T9).
     app.execute.assert_called_once()
     _args, kwargs = app.execute.call_args
-    assert _args[0] == "editor"
-    assert kwargs.get("path") == "/tmp/f"
+    request = _args[0]
+    assert not kwargs
+    assert request.job_name == "editor"
+    assert request.surface == "tui.shell"
+    assert dict(request.kwargs) == {"path": "/tmp/f"}
+    assert request.group_option_values is None
 
 
 def test_run_handoff_survives_job_error() -> None:

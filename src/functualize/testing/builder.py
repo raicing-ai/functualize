@@ -10,6 +10,8 @@ Requirements: 8.1, 8.2, 8.6, 8.7
 from __future__ import annotations
 
 import logging
+import tempfile
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -17,6 +19,40 @@ from functualize._primitives.di import DIRegistry
 from functualize.job.capabilities import Invoke, JobContext, Log, Perf, Prompt, State
 from functualize.job.context import RunContext
 from functualize.testing.doubles import AutoPrompt, CapturingLog, MockInvoke, NoopPerf
+
+
+def _temp_state() -> State:
+    """A real `State`, over a real ``scopes.json`` in a temporary directory.
+
+    **Not an in-memory double, deliberately.** A double that stands in for the
+    production collaborator at the seam under test is how `Perf` shipped
+    unwired for its entire life: every test that called ``perf.mark()`` called
+    it on ``NoopPerf``, which accepted everything silently, so nothing ever
+    called the real one (ADR-021).
+
+    There is no performance argument for a double either — but the numbers that
+    show it are **empty-store** numbers, and saying so matters because they were
+    once used to defend more than they can: 0.557 ms per unbatched ``set``,
+    0.091 ms per ``get``, 1.1 ms for 100 sets in ``batch()``, 0.012 ms to
+    construct. That is what a *test* pays, which is the relevant cost here. On a
+    real project's 1 MB ``scopes.json`` the same ``set`` costs **58 ms**, because
+    every state operation re-reads the whole file and the file has no cap — see
+    `.spec/features/scope-record-lifecycle/`.
+
+    The :class:`~tempfile.TemporaryDirectory` is held by the store, so it is
+    cleaned when the store is collected and no caller has to remember it.
+    """
+    from functualize._engine.capabilities.state import ScopeBackedStateStore
+    from functualize._primitives.scope_store import ScopeStore
+    from functualize._primitives.substrate import JsonFileSubstrate
+
+    tmp = tempfile.TemporaryDirectory(prefix="functualize-test-state-")
+    backend = ScopeBackedStateStore(
+        ScopeStore(JsonFileSubstrate(Path(tmp.name))), "test-scope"
+    )
+    # Keep the directory alive exactly as long as the store that needs it.
+    backend._tmp = tmp  # type: ignore[attr-defined]
+    return State(backend)
 
 
 class TestRunContext:
@@ -55,7 +91,7 @@ class TestRunContext:
         - prompt: AutoPrompt([]) (no pre-configured answers)
         - perf: NoopPerf (silently accepts all calls)
         - state: empty State instance
-        - job_context: JobContext(name="test", trace_id=None, deadline=None, metadata=empty)
+        - job_context: JobContext(name="test", trace_id=None, metadata=empty)
 
         Args:
             log: Override for the Log capability.
@@ -74,14 +110,13 @@ class TestRunContext:
         effective_invoke = invoke if invoke is not None else MockInvoke({})
         effective_prompt = prompt if prompt is not None else AutoPrompt([])
         effective_perf = perf if perf is not None else NoopPerf()
-        effective_state = state if state is not None else State()
+        effective_state = state if state is not None else _temp_state()
         effective_job_context = (
             job_context
             if job_context is not None
             else JobContext(
                 name="test",
                 trace_id=None,
-                deadline=None,
             )
         )
 

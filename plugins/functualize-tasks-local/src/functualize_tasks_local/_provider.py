@@ -1,8 +1,19 @@
-"""Local TaskProvider implementation backed by StateBackend.
+"""Local TaskProvider, backed by the framework's own storage.
 
-Stores tasks as JSON in the active StateBackend using keys prefixed with
-``tasks:``. Each task is stored under ``tasks:{task_id}`` as a JSON-encoded
-dict containing all TaskItem fields.
+Stores tasks as JSON under keys prefixed with ``tasks:``, inside one document
+the project's :class:`StoreSubstrate` holds. Each task is a JSON-encoded dict
+of all ``TaskItem`` fields.
+
+**It used to hold a `StateBackend`** from the `functualize-state` plugin — a
+backend-agnostic key-value protocol that `store-substrate`/T6 retired, because
+such a protocol can only offer the intersection of every backend and is worth
+least exactly where having a database is worth most (`contributor/adr/022`).
+
+The four calls this provider makes — get, set, delete, keys — are now served by
+:class:`TaskDocument`, which is that shape over one substrate document. The
+gain is not that the code shrank: it is that tasks follow the project's
+substrate, so a task written under SQLite is not invisible to a reader on the
+filesystem.
 """
 
 from __future__ import annotations
@@ -15,11 +26,65 @@ from typing import TYPE_CHECKING
 from functualize_tasks import TaskItem, TaskLink, TaskNotFoundError, TaskStatus
 
 if TYPE_CHECKING:
-    from functualize_state import StateBackend
+    from functualize._types.protocols import StoreSubstrate
+
+
+#: The document every task lives in. One document, not one per task: the
+#: provider lists by prefix, and a substrate is not required to offer a key
+#: scan — only `read`, `write` and a lock.
+TASKS_KEY = "tasks"
+
+
+class TaskDocument:
+    """Four key-value calls over one substrate document.
+
+    Small on purpose. It is not a second storage vocabulary coming back: it has
+    no protocol, no plugin seam and one consumer, and it exists because
+    `LocalTaskProvider` wants a flat key space while the substrate stores whole
+    documents.
+    """
+
+    __slots__ = ("_key", "_substrate")
+
+    def __init__(self, substrate: StoreSubstrate, key: str = TASKS_KEY) -> None:
+        self._substrate = substrate
+        self._key = key
+
+    def _load(self) -> dict[str, str]:
+        stored = self._substrate.read(self._key)
+        if stored is None:
+            return {}
+        entries = stored.data.get("tasks")
+        return entries if isinstance(entries, dict) else {}
+
+    def get(self, key: str, default: str | None = None) -> str | None:
+        return self._load().get(key, default)
+
+    def set(self, key: str, value: str) -> None:
+        with self._substrate.lock(self._key):
+            entries = self._load()
+            entries[key] = value
+            self._substrate.write(self._key, {"tasks": entries})
+
+    def delete(self, key: str) -> None:
+        with self._substrate.lock(self._key):
+            entries = self._load()
+            if entries.pop(key, None) is not None:
+                self._substrate.write(self._key, {"tasks": entries})
+
+    def keys(self, prefix: str = "") -> list[str]:
+        """Keys, optionally narrowed to a prefix.
+
+        The prefix is what made this a key-value store rather than a document:
+        `LocalTaskProvider` lists by scanning `tasks:`. Filtering happens here
+        rather than in the substrate because a substrate is not required to
+        offer a key scan — only `read`, `write` and a lock.
+        """
+        return sorted(k for k in self._load() if k.startswith(prefix))
 
 
 class LocalTaskProvider:
-    """TaskProvider implementation using StateBackend with ``tasks:`` prefix.
+    """TaskProvider storing tasks under a ``tasks:`` prefix.
 
     Each task is stored as a JSON blob under the key ``tasks:{task_id}``.
     Listing operations scan all keys with the ``tasks:`` prefix and
@@ -28,7 +93,7 @@ class LocalTaskProvider:
 
     PREFIX = "tasks:"
 
-    def __init__(self, backend: StateBackend) -> None:
+    def __init__(self, backend: TaskDocument) -> None:
         self._backend = backend
 
     def _task_key(self, task_id: str) -> str:

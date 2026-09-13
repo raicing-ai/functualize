@@ -16,11 +16,12 @@ import pytest
 from pydantic import BaseModel
 
 from functualize._app.state import AppState
-from functualize._primitives.state_store import StateStore
+from functualize._primitives.scope_store import ScopeStore
 from functualize._types.enums import RunStatus
 from functualize._types.from_job import FromJob
 from functualize._types.workflow import END, Edge, Gate, Step
-from functualize.app.core import FunctualizeApp
+from functualize.app.core import FunctualizeApp, request_for
+from functualize.types import RunRequest
 from functualize.workflow._decorator import workflow
 
 
@@ -48,10 +49,10 @@ class TripPreferences(BaseModel):
     budget: str = "mid"
 
 
-def _state_store() -> StateStore:
+def _state_store() -> ScopeStore:
     from pathlib import Path
 
-    return StateStore.for_project(Path.cwd())
+    return ScopeStore.for_project(Path.cwd())
 
 
 class TestWorkflowAsOrdinaryJob:
@@ -82,7 +83,7 @@ class TestWorkflowAsOrdinaryJob:
         app.register_dynamic_job("travel_plan", travel_plan)
         app.register_dynamic_job("trip_planner", trip_planner)
 
-        result = app.execute("trip_planner")
+        result = app.execute(request_for("trip_planner"))
 
         assert result.status is RunStatus.SUCCESS
         # The body runs last, after the walk reaches END, and its value is
@@ -103,7 +104,7 @@ class TestWorkflowAsOrdinaryJob:
         app.register_dynamic_job("step_a", step_a)
         app.register_dynamic_job("flow", flow)
 
-        result = app.execute("flow")
+        result = app.execute(request_for("flow"))
         assert result.status is RunStatus.SUCCESS
         assert result.return_value is None
 
@@ -143,7 +144,7 @@ class TestGateBlocking:
 
     def test_a_gate_blocks_the_job_without_running_the_body(self) -> None:
         calls: list[str] = []
-        result = self._app(calls).execute("trip_planner")
+        result = self._app(calls).execute(request_for("trip_planner"))
 
         assert result.status is RunStatus.BLOCKED
         assert result.status.resumable
@@ -152,7 +153,13 @@ class TestGateBlocking:
 
     def test_the_block_is_addressable_by_scope_id(self) -> None:
         """The scope id in the result is the handle a resumer needs."""
-        result = self._app([]).execute("trip_planner", scope_id="run-1")
+        result = self._app([]).execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
 
         assert result.metadata["workflow_scope"] == "run-1"
         gate = _state_store().get_gate("run-1", "preferences")
@@ -163,12 +170,24 @@ class TestGateBlocking:
         calls: list[str] = []
         app = self._app(calls)
 
-        blocked = app.execute("trip_planner", scope_id="run-1")
+        blocked = app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
         assert blocked.status is RunStatus.BLOCKED
 
         _state_store().deposit_gate_payload("run-1", "preferences", {"budget": "high"})
 
-        resumed = app.execute("trip_planner", scope_id="run-1")
+        resumed = app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
 
         assert resumed.status is RunStatus.SUCCESS
         assert resumed.return_value == "itinerary"
@@ -179,11 +198,29 @@ class TestGateBlocking:
         calls: list[str] = []
         app = self._app(calls)
 
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
         _state_store().deposit_gate_payload("run-1", "preferences", {"budget": "hi"})
-        app.execute("trip_planner", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
 
-        again = app.execute("trip_planner", scope_id="run-1")
+        again = app.execute(
+            RunRequest(
+                job_name="trip_planner",
+                surface="app.execute",
+                workflow_scope_id="run-1",
+            )
+        )
 
         assert again.status is RunStatus.SUCCESS
         assert again.return_value == "itinerary"
@@ -194,8 +231,8 @@ class TestGateBlocking:
         calls: list[str] = []
         app = self._app(calls)
 
-        first = app.execute("trip_planner")
-        second = app.execute("trip_planner")
+        first = app.execute(request_for("trip_planner"))
+        second = app.execute(request_for("trip_planner"))
 
         assert first.metadata["workflow_scope"] != second.metadata["workflow_scope"]
         assert calls == ["forecast", "forecast"]
@@ -227,7 +264,7 @@ class TestFailure:
         app.register_dynamic_job("after", after)
         app.register_dynamic_job("flow", flow)
 
-        result = app.execute("flow")
+        result = app.execute(request_for("flow"))
 
         assert result.status is RunStatus.FAILURE
         assert not result.status.resumable
@@ -258,7 +295,7 @@ class TestNesting:
         app.register_dynamic_job("inner", inner)
         app.register_dynamic_job("outer", outer)
 
-        result = app.execute("outer")
+        result = app.execute(request_for("outer"))
 
         assert result.status is RunStatus.SUCCESS
         assert result.return_value == "outer-value"
@@ -284,7 +321,11 @@ class TestNesting:
         app.register_dynamic_job("inner", inner)
         app.register_dynamic_job("outer", outer)
 
-        app.execute("outer", scope_id="outer-1")
+        app.execute(
+            RunRequest(
+                job_name="outer", surface="app.execute", workflow_scope_id="outer-1"
+            )
+        )
 
         store = _state_store()
         scopes = store.scope_ids()
@@ -312,7 +353,7 @@ class TestChaining:
         app.register_dynamic_job("leaf", leaf)
         app.register_dynamic_job("doubler", doubler)
 
-        result = app.execute("doubler")
+        result = app.execute(request_for("doubler"))
         assert result.status is RunStatus.SUCCESS
         assert result.return_value == 42
         assert result.job_name == "doubler"
@@ -329,7 +370,11 @@ class TestChaining:
 
         app.register_dynamic_job("leaf", leaf)
         app.register_dynamic_job("flow", flow)
-        app.execute("flow", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="flow", surface="app.execute", workflow_scope_id="run-1"
+            )
+        )
 
         scope = _state_store().get_scope("run-1")
         assert scope is not None
@@ -348,7 +393,7 @@ class TestNonWorkflowJobsAreUntouched:
             return "ok"
 
         app.register_dynamic_job("plain", plain)
-        result = app.execute("plain")
+        result = app.execute(request_for("plain"))
 
         assert result.status is RunStatus.SUCCESS
         assert result.return_value == "ok"
@@ -404,11 +449,13 @@ class TestPartIMatrixGxWxW:
         recorded the step failed and marked its own scope failed — after which
         resuming the child could never complete the parent."""
         app = self._nested()
-        result = app.execute("parent", scope_id="G1")
+        result = app.execute(
+            RunRequest(job_name="parent", surface="app.execute", workflow_scope_id="G1")
+        )
 
         assert result.status is RunStatus.BLOCKED
 
-        scope = StateStore.for_project(Path.cwd()).get_scope("G1") or {}
+        scope = ScopeStore.for_project(Path.cwd()).get_scope("G1") or {}
         assert scope.get("status") == "blocked"
         assert not (scope.get("steps") or {}), (
             "a blocked step must not be recorded as finished"
@@ -422,10 +469,14 @@ class TestPartIMatrixGxWxW:
         once the block propagated correctly.
         """
         app = self._nested()
-        app.execute("parent", scope_id="G2")
-        app.execute("parent", scope_id="G2")
+        app.execute(
+            RunRequest(job_name="parent", surface="app.execute", workflow_scope_id="G2")
+        )
+        app.execute(
+            RunRequest(job_name="parent", surface="app.execute", workflow_scope_id="G2")
+        )
 
-        store = StateStore.for_project(Path.cwd())
+        store = ScopeStore.for_project(Path.cwd())
         children = [
             s
             for s in store.scope_ids()
@@ -437,12 +488,21 @@ class TestPartIMatrixGxWxW:
     def test_resuming_the_child_completes_the_parent(self) -> None:
         """The whole point: the agent addresses the child, the parent finishes."""
         app = self._nested()
-        assert app.execute("parent", scope_id="G3").status is RunStatus.BLOCKED
+        assert (
+            app.execute(
+                RunRequest(
+                    job_name="parent", surface="app.execute", workflow_scope_id="G3"
+                )
+            ).status
+            is RunStatus.BLOCKED
+        )
 
-        store = StateStore.for_project(Path.cwd())
+        store = ScopeStore.for_project(Path.cwd())
         assert store.deposit_gate_payload("G3::child", "edit", {"ok": True})
 
-        resumed = app.execute("parent", scope_id="G3")
+        resumed = app.execute(
+            RunRequest(job_name="parent", surface="app.execute", workflow_scope_id="G3")
+        )
         assert resumed.status is RunStatus.SUCCESS
         assert resumed.return_value == "parent done"
 
@@ -451,9 +511,11 @@ class TestPartIMatrixGxWxW:
         merge their step records and epilogue slots, surfacing the inner
         body's return value as the outer's."""
         app = self._nested()
-        app.execute("parent", scope_id="G4")
+        app.execute(
+            RunRequest(job_name="parent", surface="app.execute", workflow_scope_id="G4")
+        )
 
-        store = StateStore.for_project(Path.cwd())
+        store = ScopeStore.for_project(Path.cwd())
         parent_scope = store.get_scope("G4") or {}
         child_scope = store.get_scope("G4::child") or {}
 
@@ -538,10 +600,17 @@ class TestPartIMatrixGxD:
         monkeypatch.chdir(tmp_path)
         app, calls = self._paused(tmp_path, dep_is_a_node=False)
 
-        assert app.execute("wf", scope_id="X1").status is RunStatus.BLOCKED
-        StateStore.for_project(Path.cwd()).deposit_gate_payload("X1", "g", {"ok": True})
+        assert (
+            app.execute(
+                RunRequest(job_name="wf", surface="app.execute", workflow_scope_id="X1")
+            ).status
+            is RunStatus.BLOCKED
+        )
+        ScopeStore.for_project(Path.cwd()).deposit_gate_payload("X1", "g", {"ok": True})
         calls.clear()
-        app.execute("wf", scope_id="X1")
+        app.execute(
+            RunRequest(job_name="wf", surface="app.execute", workflow_scope_id="X1")
+        )
 
         assert "before" not in calls, "a completed step must not run again"
 
@@ -555,13 +624,20 @@ class TestPartIMatrixGxD:
         monkeypatch.chdir(tmp_path)
         app, calls = self._paused(tmp_path, dep_is_a_node=False)
 
-        assert app.execute("wf", scope_id="X2").status is RunStatus.BLOCKED
+        assert (
+            app.execute(
+                RunRequest(job_name="wf", surface="app.execute", workflow_scope_id="X2")
+            ).status
+            is RunStatus.BLOCKED
+        )
         time.sleep(0.02)
         (tmp_path / "src.txt").write_text("v2 CHANGED")
-        StateStore.for_project(Path.cwd()).deposit_gate_payload("X2", "g", {"ok": True})
+        ScopeStore.for_project(Path.cwd()).deposit_gate_payload("X2", "g", {"ok": True})
         calls.clear()
 
-        result = app.execute("wf", scope_id="X2")
+        result = app.execute(
+            RunRequest(job_name="wf", surface="app.execute", workflow_scope_id="X2")
+        )
         assert result.status is RunStatus.SUCCESS
         assert calls.count("dep") == 1, f"stale dep should re-run once: {calls}"
         assert "after" in calls
@@ -581,13 +657,20 @@ class TestPartIMatrixGxD:
         monkeypatch.chdir(tmp_path)
         app, calls = self._paused(tmp_path, dep_is_a_node=True)
 
-        assert app.execute("wf", scope_id="X3").status is RunStatus.BLOCKED
+        assert (
+            app.execute(
+                RunRequest(job_name="wf", surface="app.execute", workflow_scope_id="X3")
+            ).status
+            is RunStatus.BLOCKED
+        )
         time.sleep(0.02)
         (tmp_path / "src.txt").write_text("v2 CHANGED")
-        StateStore.for_project(Path.cwd()).deposit_gate_payload("X3", "g", {"ok": True})
+        ScopeStore.for_project(Path.cwd()).deposit_gate_payload("X3", "g", {"ok": True})
         calls.clear()
 
-        app.execute("wf", scope_id="X3")
+        app.execute(
+            RunRequest(job_name="wf", surface="app.execute", workflow_scope_id="X3")
+        )
         assert "dep" not in calls, (
             "a node completed in this scope stays completed, stale or not"
         )
@@ -630,7 +713,9 @@ class TestPartIMatrixWxI:
         ]:
             app.register_dynamic_job(name, fn)
 
-        result = app.execute("caller", scope_id="W1")
+        result = app.execute(
+            RunRequest(job_name="caller", surface="app.execute", workflow_scope_id="W1")
+        )
 
         assert result.status is RunStatus.SUCCESS
         assert result.return_value == "caller got: child done"
@@ -668,9 +753,11 @@ class TestPartIMatrixWxI:
             ("caller", caller),
         ]:
             app.register_dynamic_job(name, fn)
-        app.execute("caller", scope_id="W2")
+        app.execute(
+            RunRequest(job_name="caller", surface="app.execute", workflow_scope_id="W2")
+        )
 
-        store = StateStore.for_project(Path.cwd())
+        store = ScopeStore.for_project(Path.cwd())
         workflows = {
             (store.get_scope(s) or {}).get("workflow") for s in store.scope_ids()
         }
@@ -732,9 +819,9 @@ class TestLiveStepValueFallback:
         classified.
         """
         monkeypatch.chdir(tmp_path)
-        assert self._walk(tmp_path).execute("wf", scope_id="L1").status is (
-            RunStatus.SUCCESS
-        )
+        assert self._walk(tmp_path).execute(
+            RunRequest(job_name="wf", surface="app.execute", workflow_scope_id="L1")
+        ).status is (RunStatus.SUCCESS)
 
     def test_the_record_survives_even_though_the_value_cannot(
         self, tmp_path: Path, monkeypatch
@@ -742,9 +829,11 @@ class TestLiveStepValueFallback:
         """Position and status must persist regardless — a walk that cannot
         record where it got to cannot resume."""
         monkeypatch.chdir(tmp_path)
-        self._walk(tmp_path).execute("wf", scope_id="L2")
+        self._walk(tmp_path).execute(
+            RunRequest(job_name="wf", surface="app.execute", workflow_scope_id="L2")
+        )
 
-        record = (StateStore.for_project(Path.cwd()).get_scope("L2") or {})["steps"][
+        record = (ScopeStore.for_project(Path.cwd()).get_scope("L2") or {})["steps"][
             "open-handle::"
         ]
         assert record["status"] == "success"
@@ -758,7 +847,9 @@ class TestLiveStepValueFallback:
         """The point of 19b: the record could not carry it, so the walk's own
         memory did."""
         monkeypatch.chdir(tmp_path)
-        result = self._walk(tmp_path).execute("wf", scope_id="L3")
+        result = self._walk(tmp_path).execute(
+            RunRequest(job_name="wf", surface="app.execute", workflow_scope_id="L3")
+        )
 
         assert result.return_value == "lock", (
             "the downstream step must receive the handle, not None"
@@ -794,7 +885,9 @@ class TestLiveStepValueFallback:
         app = FunctualizeApp(name="record-first")
         for name, fn in [("produce", produce), ("consume", consume), ("wf2", wf2)]:
             app.register_dynamic_job(name, fn)
-        result = app.execute("wf2", scope_id="L4")
+        result = app.execute(
+            RunRequest(job_name="wf2", surface="app.execute", workflow_scope_id="L4")
+        )
 
         assert result.return_value == "got {'n': 1}", (
             "an ordinary value must still arrive via the record"

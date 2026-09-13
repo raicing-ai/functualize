@@ -65,12 +65,12 @@ class TestGlobalOptionSkipping:
         assert _detect("--log-level", "DEBUG", "deploy") == (Mode.JOB, ["deploy"])
 
     def test_optional_value_flag_consumes_a_valid_value(self) -> None:
-        assert _detect("--output", "json", "deploy") == (Mode.JOB, ["deploy"])
+        assert _detect("--emit-format", "json", "deploy") == (Mode.JOB, ["deploy"])
 
     def test_optional_value_flag_releases_an_invalid_value(self) -> None:
-        """`--output deploy` is `--output` (defaulted) followed by the job —
+        """`--emit-format deploy` is `--emit-format` (defaulted) followed by the job —
         the lookahead is what keeps a job name from being eaten as a value."""
-        assert _detect("--output", "deploy") == (Mode.JOB, ["deploy"])
+        assert _detect("--emit-format", "deploy") == (Mode.JOB, ["deploy"])
 
     def test_equals_form_is_one_token(self) -> None:
         assert _detect("--log-level=DEBUG", "deploy") == (Mode.JOB, ["deploy"])

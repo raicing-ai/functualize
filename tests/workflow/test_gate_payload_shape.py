@@ -24,7 +24,8 @@ from pydantic import BaseModel
 
 from functualize._app.state import AppState
 from functualize.app.core import FunctualizeApp
-from functualize.app.utils import StateStore, deposit_gate_input
+from functualize.app.utils import ScopeStore, deposit_gate_input
+from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, workflow
 
 
@@ -73,9 +74,11 @@ def app(project: Path) -> FunctualizeApp:
     return instance
 
 
-def _blocked(app: FunctualizeApp, project: Path) -> StateStore:
-    app.execute("release", scope_id="rel-1")
-    return StateStore.for_project(project)
+def _blocked(app: FunctualizeApp, project: Path) -> ScopeStore:
+    app.execute(
+        RunRequest(job_name="release", surface="app.execute", workflow_scope_id="rel-1")
+    )
+    return ScopeStore.for_project(project)
 
 
 class TestTheDepositPathStoresTheValidatedDump:

@@ -1,6 +1,6 @@
 """The state store says where it is, and which of the two modes that is (D-5).
 
-`resolve_state_path` has always done the right thing: walk upward for a
+`resolve_fresh_path` has always done the right thing: walk upward for a
 `.functualize/` directory and put `state.json` inside it when one exists,
 falling back to `$XDG_CACHE_HOME/functualize/<project-id>/` only in standalone
 mode. That is the correct design and the reason is good — `func` is meant to run
@@ -83,14 +83,14 @@ SURFACES = ["func", "app"]
 def test_a_declared_project_reports_project_mode(surface: str, tmp_path: Path) -> None:
     project = _project(tmp_path, declared=True)
 
-    out = _run(project, surface, "builtin", "state", "show").stdout
+    out = _run(project, surface, "builtin", "data", "show").stdout
 
     assert "Mode:" in out, out
     assert "project" in out, out
     # It names the directory that decided it, so "why is it there?" is answered
     # in the same line as "where is it?".
     assert ".functualize/ found at" in out, out
-    assert str(project / ".functualize" / "state.json") in out, out
+    assert str(project / ".functualize" / "fresh.json") in out, out
 
 
 @pytest.mark.parametrize("surface", SURFACES)
@@ -105,11 +105,11 @@ def test_an_undeclared_project_reports_standalone_and_names_the_switch(
     """
     project = _project(tmp_path, declared=False)
 
-    out = _run(project, surface, "builtin", "state", "show").stdout
+    out = _run(project, surface, "builtin", "data", "show").stdout
 
     assert "standalone" in out, out
     assert "create one to keep state in the project" in out, out
-    assert str(project / ".functualize" / "state.json") not in out, out
+    assert str(project / ".functualize" / "fresh.json") not in out, out
 
 
 @pytest.mark.parametrize("surface", SURFACES)
@@ -120,25 +120,39 @@ def test_builtin_info_reports_the_same_two_facts(surface: str, tmp_path: Path) -
     out = _run(project, surface, "builtin", "info").stdout
 
     assert "Runtime State" in out, out
-    assert "State path:" in out, out
+    assert "Freshness path:" in out, out
     assert "project (.functualize/ found at" in out, out
 
 
 def test_the_reported_path_is_the_one_the_engine_writes(tmp_path: Path) -> None:
     """Reporting a path the run does not use would be worse than silence.
 
-    Both come from `resolve_state_location`, which is now the single upward
-    walk — `resolve_state_path` is a thin wrapper on it. Two walks can disagree;
+    Both come from `resolve_fresh_location`, which is now the single upward
+    walk — `resolve_fresh_path` is a thin wrapper on it. Two walks can disagree;
     one cannot.
     """
     project = _project(tmp_path, declared=True)
 
     assert "RAN noop" in _run(project, "app", "m", "noop").stdout
     reported = [
-        line.split("State path:", 1)[1].strip()
-        for line in _run(project, "app", "builtin", "state", "show").stdout.splitlines()
-        if "State path:" in line
+        line.split("Freshness path:", 1)[1].strip()
+        for line in _run(project, "app", "builtin", "data", "show").stdout.splitlines()
+        if "Freshness path:" in line
     ]
 
-    assert reported, "no State path line"
-    assert Path(reported[0]).exists(), reported[0]
+    assert reported, "no Freshness path line"
+    # The **directory** the engine wrote into, not the state file itself.
+    # `durable-run-layer`/T3b left `state.json` holding only freshness
+    # verdicts, so a job that declares no sources writes none — and a test
+    # asserting the file exists would then be asserting that this particular
+    # job has a fingerprint, which is not what it is for.
+    #
+    # What it is for is that the path `state show` reports and the path the
+    # engine writes come from **one** upward walk. `runs.json` is written by
+    # every run and is resolved as this path's sibling, so finding it beside
+    # the reported path is exactly that claim.
+    beside = Path(reported[0]).parent
+    assert (beside / "runs.json").exists(), (
+        f"`state show` reported {reported[0]}, but the engine wrote its run "
+        f"log elsewhere — the two upward walks have disagreed"
+    )

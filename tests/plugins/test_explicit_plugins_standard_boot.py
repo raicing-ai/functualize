@@ -43,7 +43,7 @@ class RecordingPlugin:
 
     def __call__(self, app: Any) -> None:
         self.calls.append(app)
-        app.register_plugin_command(
+        app.extensions.register_plugin_command(
             f"{self.name}-cmd", lambda: None, "from the explicit plugin"
         )
 
@@ -72,7 +72,7 @@ class TestExplicitPluginRuns:
         plugin = RecordingPlugin()
         app = _app(tmp_path, PluginSources(explicit_plugins=[plugin]))
 
-        names = {c.name for c in app.get_plugin_commands()}
+        names = {c.name for c in app.extensions.get_plugin_commands()}
         assert "explicit-probe-cmd" in names
 
     def test_it_is_reachable_by_name(self, tmp_path) -> None:

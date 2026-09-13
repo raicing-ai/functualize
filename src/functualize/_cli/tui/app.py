@@ -121,6 +121,20 @@ _ZONE_NAMES: dict[FocusZone, str] = {
 class FunctualizeInlineTUI(App[int]):
     """V3 TUI composition root — thin orchestrator delegating to v3 modules."""
 
+    #: The exit code the *process* should carry when the shell ends.
+    #:
+    #: Set by the job worker from `job_execution.execute_job_sync`, read by
+    #: `inline_tui.launch_inline_tui`. The two are different questions and the
+    #: TUI is the one surface that answers both: its **panel** says a blocked
+    #: gate is not a failure (it renders as waiting), while its **process**
+    #: exits 5 — the same number `func <workflow>` returns outside the TUI, so a
+    #: wrapper script can tell "waiting on a human" from "finished" without
+    #: knowing which entry point ran (decision D3).
+    #:
+    #: It defaults to 0 and was never assigned, so the process exited 0 for
+    #: every run whatever the panel showed.
+    return_code: int = 0
+
     DEFAULT_CSS = """
     Screen {
         height: auto;
@@ -849,7 +863,7 @@ class FunctualizeInlineTUI(App[int]):
         environment's overlay.
         """
         try:
-            environment = self._func_app.active_environment().lower()
+            environment = self._func_app.configuration.active_environment().lower()
         except AttributeError:
             environment = "dev"
 
@@ -926,7 +940,7 @@ class FunctualizeInlineTUI(App[int]):
         section = ""
         try:
             if job_name:
-                section = self._func_app.get_job_config_section(job_name)
+                section = self._func_app.configuration.get_job_config_section(job_name)
         except Exception as exc:
             self.log.warning(
                 f"_open_new_job_config_detail: get_job_config_section failed "
@@ -1686,7 +1700,7 @@ class FunctualizeInlineTUI(App[int]):
             return  # Panel doesn't support filtering — no-op
         self._focus_state.transition(FocusMode.FILTER)
         # Save bar state so we can restore on exit
-        self._smart_bar.save_state()
+        self._smart_bar.save_fresh()
         # Pre-fill with existing filter if re-entering
         self._smart_bar.value = panel.active_filter
         self._smart_bar.placeholder = "Filter..."
@@ -2483,8 +2497,8 @@ class FunctualizeInlineTUI(App[int]):
         an explicit choice.
         """
         try:
-            name = self._func_app.active_environment()
-            source = self._func_app.environment_source()
+            name = self._func_app.configuration.active_environment()
+            source = self._func_app.configuration.environment_source()
         except AttributeError:
             return ""
         if source is EnvironmentSource.DEFAULT:

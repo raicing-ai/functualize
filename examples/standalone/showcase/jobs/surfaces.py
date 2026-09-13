@@ -4,10 +4,10 @@ Demonstrates the surface-architecture capabilities end to end:
 
   greet    — a normal job (renders in the TUI panel / plain stdout).
   sync     — a `live: Live` job (a live-updating table in a rich stdout zone).
-             Also exercises **scrollback output** (rc.log per file + rc.emit
+             Also exercises **scrollback output** (rc.log per file + rc.events.emit
              structured events) alongside the live zone.
   fetch    — scrollback-only job: demonstrates every way to post text into the
-             StdoutSurface scrollback region (rc.log, log(), rc.emit).
+             StdoutSurface scrollback region (rc.log, log(), rc.events.emit).
   edit     — a `tty: TTY` job (owns the terminal; runs a full-screen Textual app).
   report   — an ADAPTIVE job: `tty: TTY | None` + `live: Live`. One unmodified job
              renders as a full-screen app when it can own the terminal, and as a
@@ -88,7 +88,7 @@ def sync(config: SyncConfig, rc: RunContext, log: Log, live: Live) -> str:
     Ways to post to scrollback from within a job:
       • ``log("msg")`` or ``rc.log("msg")`` — standard logging, appears as a
         plain text line in scrollback (routed via Python logging → StreamHandler).
-      • ``rc.emit("event.name", resource="ctx", key=val)`` — emits a structured
+      • ``rc.events.emit("event.name", resource="ctx", key=val)`` — emits a structured
         event; StdoutSurface renders a dim one-liner in scrollback:
         ``⚡ event.name (ctx)``
 
@@ -110,7 +110,7 @@ def sync(config: SyncConfig, rc: RunContext, log: Log, live: Live) -> str:
 
         # Post a structured event — StdoutSurface renders it as a dim line
         # in scrollback: "⚡ file.synced (asset_XX.bin)"
-        rc.emit("file.synced", resource=filename, index=i, size_kb=(i + 1) * 128)
+        rc.events.emit("file.synced", resource=filename, index=i, size_kb=(i + 1) * 128)
 
         time.sleep(0.3)
 
@@ -147,7 +147,7 @@ def fetch(config: FetchConfig, rc: RunContext, log: Log) -> str:
        as ``log()`` (both route to the same Python logger), but available when
        a job already holds ``rc`` and doesn't want a separate ``log`` param.
 
-    3. **rc.emit("event", resource=..., **payload)** — emits a *structured event*.
+    3. **rc.events.emit("event", resource=..., **payload)** — emits a *structured event*.
        StdoutSurface's ``handle_event`` renders it as a dim event line:
        ``⚡ event.name (resource)``
        This is meant for machine-readable telemetry that also has a human trace.
@@ -171,8 +171,8 @@ def fetch(config: FetchConfig, rc: RunContext, log: Log) -> str:
         # Method 2: rc.log() — same effect, different call site
         rc.log(f"    ↳ response body: {{'id': {i}, 'status': 'ok'}}", level="debug")
 
-        # Method 3: rc.emit() — structured event for telemetry / surface rendering
-        rc.emit(
+        # Method 3: rc.events.emit() — structured event for telemetry / surface rendering
+        rc.events.emit(
             "http.response",
             resource=endpoint,
             status=status,

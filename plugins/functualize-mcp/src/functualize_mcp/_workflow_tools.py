@@ -12,7 +12,7 @@ These tools let an external agent drive a `@workflow` across turns:
 - ``purge_workflows`` — delete finished scopes
 
 **Where the truth lives.** Everything reported here comes from two places that
-outlive the process that wrote them: the *state store* (``.functualize/state.json``
+outlive the process that wrote them: the *freshness ledger* (``.functualize/fresh.json``
 — scope status, step records, gate records, walk position) and the *discovery
 cache* (graph topology, via ``JobDescriptor.workflow``). Neither requires
 importing the module that declared the workflow, so an agent can inspect a
@@ -33,28 +33,33 @@ from __future__ import annotations
 import functools
 import logging
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from functualize.app.utils import (
     LIVE_STATUSES as _LIVE_STATUSES,
 )
 from functualize.app.utils import (
-    GateToolPolicy as _GateToolPolicy,
-)
-from functualize.app.utils import (
-    StateStore,
+    RUN_STATES,
+    ScopeStore,
     answer_gate,
     call_gate_tool,
     cancel_scope,
-    deposit_gate_input,
+    derived_state,
+    describe_run,
     describe_scope,
     gate_draft,
+    list_runs,
     list_scopes,
     purge_scopes,
     resolve_advanceable,
     resolve_gate,
     resume_scope,
+    run_events,
+    run_tree,
+    walk_is_live,
+)
+from functualize.app.utils import (
+    GateToolPolicy as _GateToolPolicy,
 )
 from functualize.app.utils import (
     pending_gates as _pending_gates,
@@ -120,22 +125,47 @@ class WorkflowToolProvider:
             materializing gate models on resume.
         store: State store to read. Defaults to the project store resolved
             from the working directory, the same way the engine resolves it.
+        run_store: Run log to read. Same defaulting; separate because scopes
+            and runs are separate files answering separate questions.
     """
 
-    def __init__(self, app: Any, *, store: StateStore | None = None) -> None:
+    def __init__(
+        self,
+        app: Any,
+        *,
+        store: ScopeStore | None = None,
+        run_store: Any | None = None,
+    ) -> None:
         self._app = app
         self._store = store
+        self._run_store = run_store
 
     @property
-    def store(self) -> StateStore:
-        """The state store, resolved from the cwd on first use."""
+    def store(self) -> ScopeStore:
+        """The scope store, resolved from the cwd on first use."""
         if self._store is None:
-            self._store = StateStore.for_project(Path.cwd())
+            self._store = ScopeStore(self._app.execution_engine.substrate)
         return self._store
+
+    @property
+    def run_store(self) -> Any:
+        """The run log, resolved from the cwd on first use.
+
+        Separate from `store` because they are separate files answering
+        separate questions — a scope is a workflow's position, a run is one
+        execution. Resolved the same way, so the two cannot disagree about
+        which project they are in.
+        """
+        if self._run_store is None:
+            from functualize._primitives.run_store import RunStore
+
+            self._run_store = RunStore(self._app.execution_engine.substrate)
+        return self._run_store
 
     def register_tools(self, mcp: Any) -> None:
         """Register the workflow tools with a FastMCP server instance."""
         mcp.add_tool(self._get_workflow_state)
+        mcp.add_tool(self._watch_workflow)
         mcp.add_tool(self._list_workflows)
         mcp.add_tool(self._answer_gate)
         mcp.add_tool(self._get_gate_draft)
@@ -143,7 +173,14 @@ class WorkflowToolProvider:
         mcp.add_tool(self._call_gate_tool)
         mcp.add_tool(self._cancel_workflow)
         mcp.add_tool(self._purge_workflows)
-        logger.info("WorkflowToolProvider: registered 8 workflow MCP tools")
+        mcp.add_tool(self._reclaim_workflow)
+        # The run log's read verbs (`durable-run-layer`/T3), verb for verb with
+        # `func builtin run` and over the same projection — decision A3, pinned
+        # by the parity test.
+        mcp.add_tool(self._list_runs)
+        mcp.add_tool(self._get_run)
+        mcp.add_tool(self._get_run_events)
+        logger.info("WorkflowToolProvider: registered 13 workflow MCP tools")
 
     # ------------------------------------------------------------------
     # Tools
@@ -162,6 +199,43 @@ class WorkflowToolProvider:
         "Inspect one workflow scope: its graph, which steps have completed, "
         "where the walk stopped, and any gates awaiting input. "
         "Args: workflow_id — the scope identifier."
+    )
+
+    @_refuse_unreadable_scopes
+    async def _watch_workflow(
+        self, workflow_id: str, after: int = 0, limit: int = 100
+    ) -> dict[str, Any]:
+        """A bounded page of what the walk emitted, plus whether it is live.
+
+        **A page, not a stream** — the one place this tool and `workflow watch`
+        differ, and the difference is about the surfaces rather than the verb: a
+        terminal can hold a line open, a tool call returns. An agent follows the
+        same walk by calling again with the `next` it was given, which is what
+        `seq` is for, and `live` tells it whether calling again will ever
+        produce anything.
+        """
+        scope = self.store.get_scope(workflow_id)
+        if scope is None:
+            return _error("workflow_not_found", f"No workflow scope '{workflow_id}'.")
+        events = self.store.events_for(workflow_id, after=after)[: max(1, limit)]
+        return {
+            "workflow_id": workflow_id,
+            "state": derived_state(scope),
+            "live": walk_is_live(scope),
+            "events": events,
+            "next": int(events[-1].get("seq", after)) if events else after,
+        }
+
+    _watch_workflow.__name__ = "watch_workflow"
+    _watch_workflow.__qualname__ = "watch_workflow"
+    _watch_workflow.__doc__ = (
+        "Follow one workflow scope's graph as it advances: a bounded page of "
+        "the events the walker emitted, in sequence order. Args: workflow_id — "
+        "the scope; after — the last seq already seen, 0 for the beginning; "
+        "limit — at most this many events. Call again with the returned `next` "
+        "to continue. `live` is false when nobody holds the scope's lease, "
+        "which means it is parked and no further events will arrive until "
+        "somebody resumes it."
     )
 
     @_refuse_unreadable_scopes
@@ -273,6 +347,9 @@ class WorkflowToolProvider:
             input=input,
             gate=gate,
             retry_epilogue=retry_epilogue,
+            # An MCP tool asked for this resume; `guarded_execute` used to
+            # stamp every one of them `app.execute` (rre F9).
+            surface="mcp.tool",
         )
 
     _resume_workflow.__name__ = "resume_workflow"
@@ -420,16 +497,99 @@ class WorkflowToolProvider:
             for name, _ in _pending_gates(scope)
         ]
 
-    def _deposit(
-        self, scope_id: str, gate: str, payload: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Validate against the gate's model, then fill its payload slot.
+    @_refuse_unreadable_scopes
+    async def _reclaim_workflow(self, workflow_id: str) -> dict[str, Any]:
+        from functualize.app.utils import reclaim_scope
 
-        Delegates to the lifted ``deposit_gate_input`` (D2b): the CLI
-        ``func builtin workflow resume`` calls the *same* function, so there is
-        one notion of "accept input for a gate" rather than a plugin-local copy.
-        """
-        return deposit_gate_input(self._app, self.store, scope_id, gate, payload)
+        return reclaim_scope(self.store, workflow_id)
+
+    _reclaim_workflow.__name__ = "reclaim_workflow"
+    _reclaim_workflow.__qualname__ = "reclaim_workflow"
+    _reclaim_workflow.__doc__ = (
+        "Take an abandoned workflow scope so it can be resumed. An abandoned "
+        "scope is one whose runner stopped renewing its lease. Nothing "
+        "reclaims automatically: an expired lease means nothing has heard from "
+        "that runner, not that the runner is dead, and a long step on a "
+        "machine with a slow clock looks the same. Not destructive — every "
+        "step record, gate payload and position stays; only the generation "
+        "moves, which is what stops the previous holder writing. Refused for a "
+        "scope whose lease is still live; use cancel_workflow to take one from "
+        "a runner that is working. Args: workflow_id — the scope identifier."
+    )
+
+    # ------------------------------------------------------------------
+    # The run log (`durable-run-layer`/T3)
+    # ------------------------------------------------------------------
+
+    async def _list_runs(
+        self,
+        job: str | None = None,
+        surface: str | None = None,
+        state: str | None = None,
+        scope_id: str | None = None,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        return {
+            "runs": list_runs(
+                self.run_store,
+                job=job,
+                surface=surface,
+                state=state,
+                scope_id=scope_id,
+                limit=limit,
+            )
+        }
+
+    _list_runs.__name__ = "list_runs"
+    _list_runs.__qualname__ = "list_runs"
+    _list_runs.__doc__ = (
+        "Survey runs, newest first — what executed in this project and how it "
+        "ended. Filters: job — only runs of that job; surface — only runs "
+        "started through that door (app.cli, http, invoke, mcp.tool, ...); "
+        "state — one of "
+        + ", ".join(RUN_STATES)
+        + "; scope_id — only runs that executed in that workflow scope, which "
+        "is how a blocked-and-resumed workflow's several runs are found; "
+        "limit — how many rows at most, applied after filtering. "
+        "A run is one execution and is read afterwards; a workflow scope is a "
+        "position and is resumed. Use list_workflows for the latter."
+    )
+
+    async def _get_run(self, run_id: str, tree: bool = False) -> dict[str, Any]:
+        view = (
+            run_tree(self.run_store, run_id)
+            if tree
+            else describe_run(self.run_store, run_id)
+        )
+        if view is None:
+            return _error("run_not_found", f"No run '{run_id}'.")
+        return view
+
+    _get_run.__name__ = "get_run"
+    _get_run.__qualname__ = "get_run"
+    _get_run.__doc__ = (
+        "Everything known about one run: the job, the door it came through, "
+        "how it ended, how long it took, the scope it ran in and its parent. "
+        "Args: run_id — the run identifier; tree — when true, nest the runs "
+        "this run set off (a workflow step, a dependency, an invoked child) "
+        "instead of listing their ids."
+    )
+
+    async def _get_run_events(self, run_id: str) -> dict[str, Any]:
+        events = run_events(self.run_store, run_id)
+        if events is None:
+            return _error("run_not_found", f"No run '{run_id}'.")
+        return {"run_id": run_id, "events": events}
+
+    _get_run_events.__name__ = "get_run_events"
+    _get_run_events.__qualname__ = "get_run_events"
+    _get_run_events.__doc__ = (
+        "One run's event log, in sequence order. Ordered by seq rather than "
+        "timestamp, so a replay is correct across processes on different "
+        "clocks. An empty list means the run emitted nothing (or its events "
+        "aged out); a run_not_found error means there is no such run. "
+        "Args: run_id — the run identifier."
+    )
 
 
 def _now() -> str:

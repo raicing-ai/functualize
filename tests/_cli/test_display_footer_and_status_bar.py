@@ -253,8 +253,8 @@ class TestUpdateStatusBar:
         stub._func_app = MagicMock()
         # The environment is always on the bar; default to the "nothing set
         # it" case so these tests exercise the ordinary rendering.
-        stub._func_app.active_environment = MagicMock(return_value="DEV")
-        stub._func_app.environment_source = MagicMock(
+        stub._func_app.configuration.active_environment = MagicMock(return_value="DEV")
+        stub._func_app.configuration.environment_source = MagicMock(
             return_value=EnvironmentSource.DEFAULT
         )
         # No plugin bar items — status text stays base-only

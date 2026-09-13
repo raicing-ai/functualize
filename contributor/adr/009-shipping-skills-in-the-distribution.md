@@ -14,7 +14,7 @@ accepting one explicit cost:
 > from `master` while running an older release.
 
 That cost is real and it is the one that bites first, because the skills
-describe an API surface (`func builtin why`, the capability set, the `--output`
+describe an API surface (`func builtin why`, the capability set, the `--emit-format`
 vocabulary) that moves faster than the prose does.
 
 Three things were also true when this was revisited:
@@ -30,7 +30,7 @@ Three things were also true when this was revisited:
    capability table described the per-invocation `State` capability as
    "persistence across runs", documented `TestRunContext()` when the type is a
    builder reached through `.create()`, asserted on a `CapturingLog.messages`
-   attribute that does not exist, enumerated `--output` without its default
+   attribute that does not exist, enumerated `--emit-format` without its default
    `auto`, and pointed users at `uv add functualize` when `click` lives behind
    the `[cli]` extra and a bare install produces a `func` that cannot run.
 
@@ -146,7 +146,7 @@ Every API name in a shipped skill is a claim, and the suite checks it:
   names, so an unknown name fails rather than passing silently;
 - **`func builtin …` strings** against `BUILTIN_COMMANDS`, **exit codes**
   against `ExitCode`, **template names** against the scaffold registry,
-  **`--output` values** against the dispatch table;
+  **`--emit-format` values** against the dispatch table;
 - **packaging** — the force-include mapping, the resolver's ordering, and the
   materialize semantics.
 

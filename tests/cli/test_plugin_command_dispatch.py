@@ -184,7 +184,7 @@ class TestDispatchGroupMerged:
         # Job wins (D3). The observable is what the job *emits*, not what it
         # returns: a job's return value is programmatic only (rc.invoke /
         # FromJob) and is never written to stdout. This doubles as the
-        # end-to-end proof that `out: Stdout` is injected and honors --output
+        # end-to-end proof that `out: Stdout` is injected and honors --emit-format
         # through real dispatch.
         assert "JOB_TOOLS" in out
         assert "MCP Tools" not in out
@@ -239,7 +239,7 @@ class _UngroupedPlugin:
         app.hook_registry.register_global(HookEvent.APP_READY, self._on_ready)
 
     def _on_ready(self, app: Any) -> None:
-        app.register_plugin_command(
+        app.extensions.register_plugin_command(
             "standalone", self._standalone, help_text="Top-level command"
         )
 
@@ -279,7 +279,9 @@ class TestHandleJobFallbackUngrouped:
         # carrying an ungrouped plugin command. _handle_job does
         # `from functualize.app import FunctualizeApp`, so patch it there.
         booted = _boot_static([_UngroupedPlugin()])
-        assert any(c.name == "standalone" for c in booted.get_plugin_commands())
+        assert any(
+            c.name == "standalone" for c in booted.extensions.get_plugin_commands()
+        )
         monkeypatch.setattr(
             "functualize.app.FunctualizeApp",
             lambda *a, **k: booted,

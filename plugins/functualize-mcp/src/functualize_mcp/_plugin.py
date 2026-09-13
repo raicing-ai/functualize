@@ -84,8 +84,8 @@ class MCPAdapterPlugin:
         """
         try:
             # Register the plugin instance with DI (lightweight, no pydantic)
-            app.provide_named("mcp_plugin", self)
-            app.provide(MCPAdapterPlugin, self)
+            app.di.provide_named("mcp_plugin", self)
+            app.di.provide(MCPAdapterPlugin, self)
 
             # Register CLI commands (closures that resolve config lazily)
             self._register_cli_commands(app)
@@ -124,7 +124,7 @@ class MCPAdapterPlugin:
         from functualize_mcp._config import MCPConfig
 
         try:
-            config = app.resolve_model("mcp", MCPConfig)
+            config = app.configuration.resolve_model("mcp", MCPConfig)
             return config
         except Exception:
             logger.debug(
@@ -204,7 +204,7 @@ class MCPAdapterPlugin:
             else:
                 server.start_stdio()
 
-        app.register_plugin_command(
+        app.extensions.register_plugin_command(
             "serve",
             serve_command,
             help_text="Start MCP server",
@@ -247,7 +247,7 @@ class MCPAdapterPlugin:
                 print(f"Error: {e}", file=sys.stderr)
                 sys.exit(1)
 
-        app.register_plugin_command(
+        app.extensions.register_plugin_command(
             "start",
             start_command,
             help_text="Start a background MCP HTTP server",
@@ -285,7 +285,7 @@ class MCPAdapterPlugin:
                     f"{server.port:<8} {server.pid:<10} {server.status:<10}"
                 )
 
-        app.register_plugin_command(
+        app.extensions.register_plugin_command(
             "list",
             list_command,
             help_text="List running MCP servers",
@@ -329,7 +329,7 @@ class MCPAdapterPlugin:
                 print(f"Error: {e}", file=sys.stderr)
                 sys.exit(1)
 
-        app.register_plugin_command(
+        app.extensions.register_plugin_command(
             "stop",
             stop_command,
             help_text="Stop a managed MCP server",
@@ -346,7 +346,7 @@ class MCPAdapterPlugin:
             from functualize_mcp._schema_export import SchemaExporter
 
             descriptors = app.get_jobs()
-            exporter = SchemaExporter()
+            exporter = SchemaExporter(app=app)
 
             if format == "json":
                 print(exporter.export_json(descriptors))
@@ -369,7 +369,7 @@ class MCPAdapterPlugin:
                 )
                 sys.exit(1)
 
-        app.register_plugin_command(
+        app.extensions.register_plugin_command(
             "schema",
             schema_command,
             help_text="Export job schemas in multiple formats",
@@ -387,7 +387,7 @@ class MCPAdapterPlugin:
             )
 
             descriptors = app.get_jobs()
-            translator = JobToolTranslator(read_cached_group_options())
+            translator = JobToolTranslator(read_cached_group_options(app))
             config = self.config
 
             tool_defs = translator.translate_all(descriptors, config)
@@ -404,7 +404,7 @@ class MCPAdapterPlugin:
                 if desc:
                     print(f"    {desc}")
 
-        app.register_plugin_command(
+        app.extensions.register_plugin_command(
             "tools",
             tools_command,
             help_text="List exposed MCP tools",

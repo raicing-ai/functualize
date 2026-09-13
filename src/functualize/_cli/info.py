@@ -373,8 +373,8 @@ def full_report(app: FunctualizeApp, cli_config: Any = None) -> dict[str, Any]:
     report: dict[str, Any] = {
         "functualize": __version__,
         "environment": {
-            "name": app.active_environment(),
-            "source": getattr(app.environment_source(), "value", None),
+            "name": app.configuration.active_environment(),
+            "source": getattr(app.configuration.environment_source(), "value", None),
         },
         "jobs": [job_detail(app, entry["name"]) for entry in job_catalog(app)],
     }
@@ -512,6 +512,17 @@ def render_report_text(report: dict[str, Any]) -> list[str]:
     return lines
 
 
+#: ``DiscoveryFailure.error_type`` → what actually happened to the file, for the
+#: attributed note below. A missing entry means "failed to load", which is the
+#: right default: the error types not listed here *are* import and parse
+#: failures, and they are the majority.
+_WHAT_HAPPENED: dict[str, str] = {
+    "GroupOptionsConflictError": (
+        "was dropped because it contests a group's flags with another file"
+    ),
+}
+
+
 def explain_missing_job(
     job_name: str, app: Any, _failures: list[dict[str, str]] | None = None
 ) -> str | None:
@@ -562,8 +573,17 @@ def explain_missing_job(
             and not node.name.startswith("_")
         }
         if wanted in defined:
+            # The generic note below is careful not to say "failed to load",
+            # because three kinds share this list and only one is a load
+            # failure. The attributed note was not, and it is the one a reader
+            # acts on: a group-options conflict sent them looking for an import
+            # error in a file that had imported perfectly (adj M4, D-4). Say
+            # what happened to the file, per kind.
+            what_happened = _WHAT_HAPPENED.get(
+                failure.get("error_type") or "", "failed to load"
+            )
             return (
-                f"  {Path(path).name} failed to load, so the job it defines "
+                f"  {Path(path).name} {what_happened}, so the job it defines "
                 f"is missing:\n    {failure.get('message') or ''}"
             )
 

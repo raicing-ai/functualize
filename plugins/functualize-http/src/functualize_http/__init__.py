@@ -27,7 +27,12 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from functualize.types import http_status_for_status
+from functualize.types import (
+    Family,
+    RunRequest,
+    http_status_for_status,
+    request_from_envelope,
+)
 
 if TYPE_CHECKING:
     from asyncio import AbstractEventLoop
@@ -35,6 +40,34 @@ if TYPE_CHECKING:
     from functualize.app.core import FunctualizeApp
 
 logger = logging.getLogger(__name__)
+
+
+def _envelope(payload: dict[str, Any], job_name: str) -> RunRequest:
+    """This surface's wire payload, parsed by the one shared contract.
+
+    The envelope's shape, why job arguments are nested, and what breaks if they
+    are not, are documented once — on
+    :func:`functualize.types.request_from_envelope`. This function existed as a
+    byte-identical copy of the Lambda one differing only in the ``surface``
+    literal, with the contract's breaking change documented separately in each
+    (rre F12). The literal is now the argument.
+    """
+    return request_from_envelope(payload, job_name=job_name, surface="http")
+
+
+#: The boundary this surface delivers across (`run-outcome-authority` AC-3).
+#:
+#: A **constant, not a docstring.** AC-3 says "each delivery surface names its
+#: family in one place, and the name is greppable", and T6's gate checked that
+#: with `rg -c 'Family.WIRE' <file>` — which the prose paragraph below satisfied
+#: on its own, while `Family.WIRE` had no code consumer anywhere in the tree.
+#: A gate matching its own explanation is `AUDIT.md`'s hazard #1, and an enum
+#: member nothing imports is vocabulary, not a mechanism.
+#:
+#: `tests/types/test_every_surface_declares_its_family.py` reads this and checks
+#: it against what the surface actually does with a BLOCKED result, which is the
+#: one status the four families disagree about.
+OUTCOME_FAMILY = Family.WIRE
 
 
 @dataclass(frozen=True)
@@ -157,25 +190,25 @@ class HttpServerCore:
         execution into the async server context.
         """
         # Parse body
-        kwargs: dict[str, Any] = {}
+        payload: dict[str, Any] = {}
         if body:
             try:
-                kwargs = json.loads(body)
+                payload = json.loads(body)
             except (json.JSONDecodeError, UnicodeDecodeError) as e:
                 return 400, {"error": f"Invalid JSON body: {e}"}
 
-            if not isinstance(kwargs, dict):
+            if not isinstance(payload, dict):
                 return 400, {"error": "Request body must be a JSON object"}
 
         # Check job exists
         job = self._app.get_job(job_name)
         if job is None:
             return 404, {"error": f"Job '{job_name}' not found"}
-
         # Execute via asyncio.to_thread (async-to-sync bridge)
         try:
-            result = await asyncio.to_thread(self._app.execute, job_name, **kwargs)
-            body: dict[str, Any] = {
+            request = _envelope(payload, job_name)
+            result = await asyncio.to_thread(self._app.execute, request)
+            response_body: dict[str, Any] = {
                 "status": result.status.value
                 if hasattr(result.status, "value")
                 else str(result.status),
@@ -184,13 +217,20 @@ class HttpServerCore:
             }
             exception = getattr(result, "exception", None)
             if exception is not None:
-                body["error"] = str(exception)
+                response_body["error"] = str(exception)
             # The body already carried the status name; the *code* still said
             # 200 for every outcome, so anything reading the status line --
             # a load balancer, a retry policy, `curl -f` -- saw success on a
             # failed run. One table (`functualize.types`) answers this for
             # every delivery surface.
-            return http_status_for_status(result.status), body
+            #
+            # This surface declares :attr:`~functualize.types.Family.WIRE`:
+            # an HTTP status code is what the caller reads, so the outcome
+            # authority's WIRE table renders the code -- BLOCKED is 202,
+            # resumable rather than an error. The family used to be implied
+            # by importing the WIRE table's function; naming it keeps the
+            # surface-to-family map greppable when a status lands.
+            return http_status_for_status(result.status), response_body
         except Exception as e:
             logger.exception(f"Error executing job '{job_name}'")
             return 500, {"error": str(e)}
@@ -379,7 +419,7 @@ class HttpServerPlugin:
     """Capability plugin that registers a 'serve' CLI command.
 
     This plugin registers a `serve` command via
-    `app.register_plugin_command()`. When invoked, the serve command
+    `app.extensions.register_plugin_command()`. When invoked, the serve command
     starts an HTTP server using the shared HttpServerCore.
 
     Usage:
@@ -409,7 +449,7 @@ class HttpServerPlugin:
         self._app = app
         self._core = HttpServerCore(app)
 
-        app.register_plugin_command(
+        app.extensions.register_plugin_command(
             name="serve",
             callback=self._serve_command,
             help_text="Start an HTTP server exposing all jobs as endpoints",

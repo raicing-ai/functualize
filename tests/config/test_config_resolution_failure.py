@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from functualize._app.state import AppState
 from functualize.app.adapters.cli import _config_source_hint
-from functualize.app.core import FunctualizeApp
+from functualize.app.core import FunctualizeApp, request_for
 from functualize.job import RunStatus
 
 
@@ -67,13 +67,13 @@ class TestFailureShape:
     def test_missing_config_returns_a_result_instead_of_raising(self) -> None:
         """The regression this guards. A raise skips the CLI's error panel,
         which can only render an exception carried on a returned JobResult."""
-        result = _app().execute("report")
+        result = _app().execute(request_for("report"))
 
         assert result.status is RunStatus.FAILURE
         assert isinstance(result.exception, ValidationError)
 
     def test_the_exception_names_the_missing_field(self) -> None:
-        result = _app().execute("report")
+        result = _app().execute(request_for("report"))
 
         assert result.exception is not None
         fields = {err["loc"][0] for err in result.exception.errors()}
@@ -88,7 +88,7 @@ class TestFailureShape:
             return "never"
 
         app.register_dynamic_job("report", report, config_class=NeedsCity)
-        app.execute("report")
+        app.execute(request_for("report"))
 
         assert ran == []
 
@@ -98,7 +98,7 @@ class TestFailureShape:
         failure mode and check `.status` for every other one cannot write a
         correct runner — which is exactly what the CLI is."""
         try:
-            result = _app().execute("report")
+            result = _app().execute(request_for("report"))
         except Exception as exc:  # pragma: no cover - the regression itself
             pytest.fail(f"execute() raised {type(exc).__name__} instead of returning")
 
@@ -106,7 +106,7 @@ class TestFailureShape:
 
     def test_satisfying_the_config_lets_the_job_run(self) -> None:
         """The failure path must not have broken the success path."""
-        result = _app().execute("report", city="Kyoto")
+        result = _app().execute(request_for("report", city="Kyoto"))
 
         assert result.status is RunStatus.SUCCESS
         assert result.return_value == "city=Kyoto"
@@ -159,13 +159,13 @@ class TestDiscoveryAnchoring:
         (Path.cwd() / "config.base.toml").write_text('[report]\ncity = "Osaka"\n')
         AppState.reset()
 
-        assert _app().execute("report").return_value == "city=Osaka"
+        assert _app().execute(request_for("report")).return_value == "city=Osaka"
 
     def test_a_plain_config_toml_does_not_anchor_discovery(self) -> None:
         (Path.cwd() / "config.toml").write_text('[report]\ncity = "Kyoto"\n')
         AppState.reset()
 
-        result = _app().execute("report")
+        result = _app().execute(request_for("report"))
         assert result.status is RunStatus.FAILURE, (
             "an unslotted config.toml must neither anchor nor be read; if this "
             "passes, the slot rule regressed and the hint text is now a lie"
@@ -185,7 +185,7 @@ class TestDiscoveryAnchoring:
         (cwd / "config.toml").write_text('[report]\ncity = "Kyoto"\n')
         AppState.reset()
 
-        result = _app().execute("report")
+        result = _app().execute(request_for("report"))
 
         assert result.status is RunStatus.FAILURE
         assert _config_source_hint(_app(), "report").count("config.toml") == 0
@@ -224,7 +224,7 @@ class TestDiscoveryAnchoring:
         (Path.cwd() / "config.base.cfg").write_text("[report]\ncity = Osaka\n")
         AppState.reset()
 
-        assert _app().execute("report").status is RunStatus.FAILURE
+        assert _app().execute(request_for("report")).status is RunStatus.FAILURE
 
     def test_an_extension_no_provider_handles_does_not_anchor(self) -> None:
         """The extension check is delegated to the registered providers, not
@@ -243,4 +243,4 @@ class TestDiscoveryAnchoring:
         (Path.cwd() / ".functualize.toml").write_text('[report]\ncity = "Nara"\n')
         AppState.reset()
 
-        assert _app().execute("report").status is RunStatus.FAILURE
+        assert _app().execute(request_for("report")).status is RunStatus.FAILURE

@@ -128,8 +128,14 @@ class JobNode:
         if descriptor is None:
             return 1
 
+        # run-request-entry (T6/T11): the app's own command tree is the
+        # `app.cli` door. It used to be left to `create_job_click_command`'s
+        # default — "this node names nothing extra" — which is the honour
+        # system the feature removed everywhere else (rre F8). The default is
+        # gone; a door that does not say which one it is no longer compiles.
         registered = self._app.execution_engine.materialize_job(descriptor.name)
         command = create_job_click_command(
+            surface="app.cli",
             name=descriptor.name,
             function=registered.function,
             job_config_class=registered.config_class,
@@ -442,7 +448,7 @@ def unshadowed_plugin_commands(app: FunctualizeApp) -> list[Any]:
     occupied = {job_trie_path(job) for job in app.get_jobs()}
     seen: set[str] = set()
     kept: list[Any] = []
-    for cmd in app.get_plugin_commands():
+    for cmd in app.extensions.get_plugin_commands():
         path = plugin_command_path(cmd)
         if path in occupied or path in seen:
             continue

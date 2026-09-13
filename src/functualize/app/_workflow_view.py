@@ -39,6 +39,8 @@ __all__ = [
     "derived_state",
     "list_scopes",
     "tool_summaries",
+    "walk_is_live",
+    "watch_scope",
 ]
 
 #: Scope statuses that can still accept input or make progress.
@@ -75,6 +77,122 @@ _JSON_TYPES = {
 }
 
 
+def _lease_has_lapsed(scope: dict[str, Any]) -> bool:
+    """Has this scope's runner stopped renewing?
+
+    `True` only when a lease exists and has expired. A scope with **no** lease
+    is not abandoned: it was written by a runner that predates leases, or by a
+    plain job that never claimed, and calling those dead would make `abandoned`
+    the answer for most of the file.
+
+    The judgement is deliberately conservative in the same direction as
+    `_run_view._derive_state`: over-reporting a live runner as abandoned is a
+    misleading row a human re-checks, while under-reporting is a dead scope
+    nobody ever notices. Here the conservative choice runs the other way —
+    absence of evidence is not evidence — because an absent lease is the
+    ordinary case rather than the suspicious one.
+    """
+    from datetime import UTC, datetime
+
+    from functualize._primitives.lease import is_expired, read_lease
+
+    lease = read_lease(scope)
+    if lease is None:
+        return False
+    return is_expired(lease, datetime.now(UTC))
+
+
+def walk_is_live(scope: dict[str, Any] | None) -> bool:
+    """Is a runner holding this scope **right now**?
+
+    The live-versus-parked fact `derived_state`'s own docstring says it cannot
+    supply: *"a resumed walk reports `blocked` for its whole duration…
+    live-versus-parked needs a lease."* Spec AC-12 is that sentence answered.
+
+    Stricter than `not _lease_has_lapsed`, and the difference is the point. That
+    helper treats an **absent** lease as "not abandoned", which is right for it:
+    a scope written by a plain job that never claimed must not be called dead.
+    Here the question is the other one — *is someone walking this?* — and the
+    answer for a scope nobody holds is no, whether the lease expired or was
+    never taken. A watcher that waited on an absent lease would wait for ever.
+    """
+    from datetime import UTC, datetime
+
+    from functualize._primitives.lease import is_expired, read_lease
+
+    if not scope:
+        return False
+    lease = read_lease(scope)
+    return lease is not None and not is_expired(lease, datetime.now(UTC))
+
+
+def watch_scope(
+    store: Any,
+    scope_id: str,
+    *,
+    after: int = 0,
+    poll_seconds: float = 0.25,
+    timeout: float | None = None,
+    sleep: Any = None,
+    clock: Any = None,
+) -> Iterator[dict[str, Any]]:
+    """Yield a scope's walk events as the walk emits them, then stop.
+
+    **What a watcher renders comes from here and nowhere else** (spec AC-11).
+    Every record yielded is one the walker emitted; nothing in this function
+    compares two readings of the scope and infers a transition between them.
+    That distinction is the whole of R-e, and it is what the sabotage tests:
+    with the walker's emit calls removed this yields nothing at all, rather than
+    quietly falling back to describing the record.
+
+    It does *ask* the store for "everything after `seq`", repeatedly, and that
+    is a poll — there is no blocking read over a document substrate, and there
+    must not be one over a substrate that is a table or an object store. The
+    property that matters survives it: the transport asks by sequence number,
+    so it never has to work out what is new, and the renderer is fed events
+    rather than differences.
+
+    Stops, in this order:
+
+    - the log is drained **and** nobody holds the lease — `walk_is_live` is
+      false, so nothing more will arrive and waiting is waiting for ever;
+    - the scope has gone (purged under the watcher);
+    - ``timeout`` seconds have passed since the last event.
+
+    Args:
+        after: The last sequence number the caller has already seen. Resuming a
+            watch is passing this back, which is what `seq` is for.
+        poll_seconds: How long to wait before asking again, when the log is
+            drained and the walk is still live.
+        timeout: Give up after this long without a new event. None waits as
+            long as the lease is held.
+        sleep: Injected for tests, which must not spend real seconds proving
+            that a loop terminates. Defaults to `time.sleep`.
+        clock: Monotonic seconds, injected for the same reason.
+    """
+    import time
+
+    sleep = sleep or time.sleep
+    clock = clock or time.monotonic
+
+    seen = after
+    quiet_since = clock()
+    while True:
+        events = store.events_for(scope_id, after=seen)
+        if events:
+            for event in events:
+                seen = max(seen, int(event.get("seq", seen)))
+                yield event
+            quiet_since = clock()
+            continue
+        scope = store.get_scope(scope_id)
+        if not walk_is_live(scope):
+            return
+        if timeout is not None and clock() - quiet_since >= timeout:
+            return
+        sleep(poll_seconds)
+
+
 def derived_state(scope: dict[str, Any]) -> str:
     """The scope's *state*, derived from what the store already knows.
 
@@ -105,6 +223,19 @@ def derived_state(scope: dict[str, Any]) -> str:
         epilogue = scope.get("epilogue") or {}
         return "stalled" if epilogue.get("status") == "failed" else "completed"
     if status == "running":
+        # **Before the plain `running` branch, and that ordering is the whole
+        # point** (`durable-run-layer`/T8, schema §6). A scope whose runner died
+        # keeps `status: "running"` for ever, because nothing reaps it — and a
+        # reader cannot tell that from a run that is genuinely in progress. The
+        # lease is what distinguishes them: a live runner renews, a dead one
+        # stops. Testing `running` first would report every dead scope as live,
+        # which is the bug this exists to name.
+        #
+        # Derived, never stored (decision K4): no new field, no version bump,
+        # and no schedule. Nothing reclaims automatically — `reclaim` is a verb
+        # a person runs.
+        if _lease_has_lapsed(scope):
+            return "abandoned"
         return "running"
     if status == "blocked":
         return "waiting" if any(pending_gates(scope)) else "ready"
@@ -159,6 +290,21 @@ def list_scopes(
     explicit = state is not None
     rows: list[dict[str, Any]] = []
     for sid, scope in _scopes(store):
+        # A scope record with no workflow is not a workflow.
+        #
+        # Every run gets a scope, because that is where `rc.state` lives, and
+        # the record is written lazily the first time something stores a value.
+        # So a plain `func myjob` that calls `rc.state.set(...)` leaves a
+        # record — correctly, that is its state — but it never walked a graph,
+        # has no steps, and nothing will ever mark it finished. Listing it here
+        # showed a phantom "running workflow" that could not be resumed and
+        # could not be purged, because `workflow purge` refuses running scopes.
+        #
+        # `workflow` is set by the walk and by nothing else, so its absence is
+        # the honest discriminator. Filtered here rather than at write time:
+        # the record has to exist, it just is not a workflow.
+        if scope.get("workflow") is None:
+            continue
         if not explicit and scope.get("status") not in LIVE_STATUSES:
             continue
         if workflow_name is not None and scope.get("workflow") != workflow_name:

@@ -118,7 +118,44 @@ def _timing_instrumentation(config: pytest.Config) -> list[str]:
         active.append("xdist")
     if getattr(config.option, "cov_source", None):
         active.append("coverage")
+    load = _oversubscription()
+    if load is not None:
+        active.append(f"a machine loaded {load:.1f}x its core count")
     return active
+
+
+#: Above this many runnable processes per core, a wall-clock budget measures
+#: the queue rather than the code. Chosen from a real observation: a review of
+#: this branch ran `tests/perf/` on a 12-core machine at load 41.6 (3.5x) and
+#: got a warm-command median of 5430ms against an 1800ms budget — 3x over, on a
+#: commit that touched none of the boot path. Re-run alone at load 4.0 (0.3x),
+#: the same file passed 12/12 in 5.3s.
+#:
+#: 2.0 rather than something tighter because the budgets already carry ~2x
+#: headroom, so anything under a 2x-oversubscribed machine still fits inside
+#: them; a serial pytest run on a 2-core CI box sits near 1x and keeps
+#: asserting. The failure this prevents is the one that gets a perf test muted.
+_MAX_LOAD_PER_CORE = 2.0
+
+
+def _oversubscription() -> float | None:
+    """Runnable processes per core, when that is high enough to matter.
+
+    ``getloadavg`` is POSIX-only and ``cpu_count`` can return ``None``; either
+    absence means "no reason to think the machine is busy", which leaves the
+    budgets enforced. Erring that way keeps the guard from silently disabling
+    the whole file on a platform where it cannot measure.
+    """
+    getloadavg = getattr(os, "getloadavg", None)
+    cores = os.cpu_count()
+    if getloadavg is None or not cores:
+        return None
+    try:
+        one_minute = getloadavg()[0]
+    except OSError:  # pragma: no cover - documented on some platforms
+        return None
+    ratio = one_minute / cores
+    return ratio if ratio > _MAX_LOAD_PER_CORE else None
 
 
 def pytest_collection_modifyitems(
@@ -137,12 +174,19 @@ def pytest_collection_modifyitems(
     # is the only one that carries coverage and xdist — guarding after it would
     # skip nothing where it matters.
     #
+    # The third source is not the harness at all: a machine already running
+    # several jobs per core. The premise of every budget below is that the
+    # process gets a core when it asks for one, and that premise was assumed
+    # rather than checked until a review measured 3x the budget on an
+    # oversubscribed box (rre F5). Same principle as the two above — do not
+    # assert a number that describes the machine.
+    #
     # Nothing is lost: `test-fast` runs the same tests with plain `pytest`, so
     # every budget is still enforced on each PR.
     active = _timing_instrumentation(config)
     if active:
         skip_perf = pytest.mark.skip(
-            reason=f"wall-clock budget is not measurable under {'+'.join(active)}"
+            reason=f"wall-clock budget is not measurable under {', '.join(active)}"
         )
         for item in items:
             if "perf_budget" in item.keywords:
@@ -188,6 +232,62 @@ def _isolate_home(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _isolate_state_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> None:
+    """Keep the suite's runtime state out of the repository's own `.functualize/`.
+
+    `resolve_fresh_location` walks **upward** from its start directory, so any
+    test that does not `chdir` resolves to the checkout's own `.functualize/`
+    and writes there — `scopes.json`, `runs.json` and `state.json` alike, since
+    the latter two are resolved as that path's siblings.
+
+    Measured on this worktree before the fixture: `scopes.json` **1.6 MB**,
+    `runs.json` 252 KB, `state.json` 52 KB, all of it suite residue. It is
+    gitignored, so nothing was ever committed — the cost is not a dirty tree,
+    it is that **tests stop being independent**:
+
+    * A run inherits the previous run's records, so a test asserting "this is
+      invocation 1" passes alone and fails second.
+      `test_full_orchestration_flow` read `invocation=4` on its first call
+      because three earlier runs of the same test had left a counter behind.
+    * Durable state made the growth structural rather than incidental: before
+      it, only some runs wrote; now every run does.
+    * It is the most likely explanation for `.spec/KNOWN-RED.md` §10, a
+      cache-path flake that only appears under `-n auto`.
+
+    **Redirects rather than forbids.** A test that builds a project tree under
+    `tmp_path` (the `project_tree` fixture, the static trees in
+    `tests/_support/projects/`) has its own `.functualize/` there and must keep
+    resolving to it — that *is* the behaviour under test. So a directory found
+    inside `tmp_path` is returned untouched, and only a walk that escaped to an
+    ancestor is diverted into this test's own sandbox.
+
+    Opt out with ``@pytest.mark.real_state_root`` for a test whose subject
+    *is* the resolution — `tests/test_state_format.py` asserts that a directory
+    with no `.functualize/` above it falls back to XDG, and this fixture would
+    otherwise put one there and make standalone mode unreachable.
+    """
+    if request.node.get_closest_marker("real_state_root") is not None:
+        return
+
+    from functualize._primitives import fresh_format
+
+    real_find = fresh_format.find_functualize_dir
+    sandbox_root = tmp_path.resolve()
+    sandbox = sandbox_root / ".functualize"
+
+    def _scoped(start: Path) -> Path | None:
+        found = real_find(start)
+        if found is not None and found.resolve().is_relative_to(sandbox_root):
+            return found
+        sandbox.mkdir(parents=True, exist_ok=True)
+        return sandbox
+
+    monkeypatch.setattr(fresh_format, "find_functualize_dir", _scoped)
+
+
+@pytest.fixture(autouse=True)
 def _reset_entry_point_cache() -> Iterator[None]:
     """Give every test a cold entry-point snapshot.
 
@@ -205,6 +305,75 @@ def _reset_entry_point_cache() -> Iterator[None]:
     clear_entry_point_cache()
     yield
     clear_entry_point_cache()
+
+
+#: The substrate every store resolves under, when asked to use another one.
+#:
+#: `store-substrate`/T8. Set `FUNCTUALIZE_TEST_SUBSTRATE=sqlite` and the whole
+#: suite runs against `SQLiteSubstrate` instead of `JsonFileSubstrate`. That
+#: second run is this feature's **sabotage step**: if the suite only passes on
+#: files, something still reaches through the port, and the failures name it.
+#:
+#: SQLite rather than a pure in-memory stand-in, because a large part of this
+#: suite spawns subprocesses — a second process cannot see another's
+#: dictionaries, so every one of those tests would fail for a reason that says
+#: nothing about the port.
+_ALTERNATE_SUBSTRATE = os.environ.get("FUNCTUALIZE_TEST_SUBSTRATE", "").strip()
+
+
+@pytest.fixture(autouse=True)
+def _alternate_substrate(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[None]:
+    """Redirect the one substrate decision, when asked to.
+
+    Patched at `JsonFileSubstrate.for_project` — inside the decision rather
+    than at its name — because that is where a configured backend actually
+    lands, and because the stores import `substrate_for_project` by name so
+    rebinding the module attribute would not reach them.
+
+    One database per resolved root, so two stores in one project share it and
+    two projects do not.
+    """
+    if _ALTERNATE_SUBSTRATE != "sqlite":
+        yield
+        return
+
+    if request.node.get_closest_marker("json_substrate"):
+        pytest.skip(
+            "this test is about JsonFileSubstrate — it names a path, a file "
+            "size or a hand-written JSON fixture, so it cannot be true of "
+            "another backend and its failure would say nothing about the port"
+        )
+
+    import sys as _sys
+
+    _sys.path.insert(
+        0,
+        str(
+            Path(__file__).resolve().parent.parent
+            / "plugins"
+            / "functualize-state-sqlite"
+            / "src"
+        ),
+    )
+    from functualize_state_sqlite.substrate import SQLiteSubstrate
+
+    from functualize._primitives import substrate as substrate_module
+
+    real = substrate_module.JsonFileSubstrate.for_project
+    made: dict[str, object] = {}
+
+    def _sqlite_for_project(cls: object, start: object) -> object:
+        root = real(start).root
+        return made.setdefault(str(root), SQLiteSubstrate(root / "state.db"))
+
+    monkeypatch.setattr(
+        substrate_module.JsonFileSubstrate,
+        "for_project",
+        classmethod(_sqlite_for_project),
+    )
+    yield
 
 
 @pytest.fixture(autouse=True)

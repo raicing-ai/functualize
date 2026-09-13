@@ -17,6 +17,7 @@ from functualize._events.hooks import HookRegistry
 
 # Keep at runtime: the DI engine resolves this annotation via get_type_hints.
 from functualize.job import Shell  # noqa: TC001
+from tests._support.engine_run import run_job
 
 
 @pytest.fixture
@@ -111,7 +112,7 @@ class TestEngineOwnedUnwind:
             sh.defer(["touch", str(marker)])  # type: ignore[attr-defined]
             return "ok"
 
-        result = self._engine().execute("my_job", my_job, kwargs={})
+        result = run_job(self._engine(), "my_job", my_job)
         assert result.return_value == "ok"
         assert marker.exists()
 
@@ -122,7 +123,7 @@ class TestEngineOwnedUnwind:
             sh.defer(["touch", str(marker)])  # type: ignore[attr-defined]
             raise RuntimeError("boom")
 
-        self._engine().execute("my_job", my_job, kwargs={})
+        run_job(self._engine(), "my_job", my_job)
         assert marker.exists()
 
     def test_defers_run_on_keyboard_interrupt(self, tmp_path) -> None:
@@ -136,7 +137,7 @@ class TestEngineOwnedUnwind:
 
         # The engine reports Ctrl+C as a FAILURE result carrying the
         # KeyboardInterrupt (it does not propagate) — and the defers still run.
-        result = self._engine().execute("my_job", my_job, kwargs={})
+        result = run_job(self._engine(), "my_job", my_job)
         assert result.status is RunStatus.FAILURE
         assert isinstance(result.exception, KeyboardInterrupt)
         assert marker.exists()

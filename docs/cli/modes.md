@@ -88,7 +88,7 @@ Mode C activates when:
 - No arguments are provided (lists available jobs)
 - `--help` is passed
 - A built-in subcommand is invoked. The first-party commands under `builtin`
-  are `cache`, `config`, `domains`, `env`, `history`, `info`, `parallel`,
+  are `cache`, `config`, `domains`, `env`, `history`, `info`, `parallel`, `run`,
   `plugin`, `scaffold`, `self`, `shell-init`, `skills`, `state`, `version`,
   `why`, and `workflow`.
 
@@ -96,7 +96,7 @@ Mode C activates when:
 
 - For listing: performs full discovery using the active filter configuration, displays all qualifying jobs
 - For help: shows CLI usage, available commands, and global options
-- For builtins: executes the built-in command directly under the `builtin` subtree. These are registered as standard Click commands via the `GroupTrie` namespace authority. Builtins are auto-discovered at boot and include `cache`, `config`, `domains`, `env`, `history`, `info`, `parallel`, `plugin`, `scaffold`, `self`, `shell-init`, `skills`, `state`, `version`, `why`, and `workflow`
+- For builtins: executes the built-in command directly under the `builtin` subtree. These are registered as standard Click commands via the `GroupTrie` namespace authority. Builtins are auto-discovered at boot and include `cache`, `config`, `domains`, `env`, `history`, `info`, `parallel`, `plugin`, `run`, `scaffold`, `self`, `shell-init`, `skills`, `state`, `version`, `why`, and `workflow`
 
 ### Use Cases
 
@@ -164,13 +164,13 @@ at zero extra cost — the unknown-command path already boots the full app befor
 erroring:
 
 - The group listing/execution path (`func <group> [sub]`) and the
-  unknown-command fallback both merge `app.get_plugin_commands()` with the
+  unknown-command fallback both merge `app.extensions.get_plugin_commands()` with the
   discovered job groups.
 - **Precedence:** a real `.py` file, a built-in, a job group, a job name, and an
   alias all still win first. Within a group, a **job wins** over a plugin
   command on an exact sub-command name conflict (your code overrides a plugin's).
 - Plugin commands execute through the same ad-hoc Click path the scaffolded
-  project `CliAdapter` uses, so typed options and `--output` behave identically.
+  project `CliAdapter` uses, so typed options and `--emit-format` behave identically.
 
 Disabling a plugin (via `plugins.disabled`) makes its commands fall back to the
 normal "unknown command" error.

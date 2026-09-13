@@ -167,7 +167,24 @@ class TestDefaultsAndRequired:
 
 
 class TestEnumChoices:
-    """Test Enum type detection and choices extraction."""
+    """Enum detection, and *which spelling* `choices` holds.
+
+    Member **values**, which is what `FieldDescriptor.choices` is documented to
+    hold, what `_discovery/schema_extractor.py` emits for a config model's
+    fields, what `_cli/introspect.py` reads them as, and what
+    `app/adapters/click_params._EnumChoice` renders on the cold path.
+
+    These cases used to assert member *names*, and that is the more interesting
+    half of the story: the divergence was not un-tested, it was **tested in**.
+    `_discovery/providers.py` was the only producer emitting names, so an app's
+    warm boot offered `{RED|GREEN|BLUE}` while its own first run offered
+    `{red|green|blue}` — the same program changing the value it accepted
+    between run 1 and run 2. A test that pins one producer's output, rather
+    than pinning two producers against each other, cannot see that.
+
+    `test_the_cached_choices_match_what_click_renders` below is the version
+    that can.
+    """
 
     def test_enum_type_populates_choices(self) -> None:
         def job(color: Color) -> None:
@@ -175,7 +192,7 @@ class TestEnumChoices:
 
         params = extract_parameters_from_signature(job)
         assert params[0].type_annotation == "Color"
-        assert params[0].choices == ["RED", "GREEN", "BLUE"]
+        assert params[0].choices == ["red", "green", "blue"]
 
     def test_int_enum_populates_choices(self) -> None:
         def job(priority: Priority) -> None:
@@ -183,7 +200,7 @@ class TestEnumChoices:
 
         params = extract_parameters_from_signature(job)
         assert params[0].type_annotation == "Priority"
-        assert params[0].choices == ["LOW", "MEDIUM", "HIGH"]
+        assert params[0].choices == ["1", "2", "3"]
 
     def test_enum_with_default(self) -> None:
         def job(color: Color = Color.RED) -> None:
@@ -192,14 +209,14 @@ class TestEnumChoices:
         params = extract_parameters_from_signature(job)
         assert params[0].required is False
         assert params[0].default == Color.RED
-        assert params[0].choices == ["RED", "GREEN", "BLUE"]
+        assert params[0].choices == ["red", "green", "blue"]
 
     def test_optional_enum_populates_choices(self) -> None:
         def job(color: Color | None = None) -> None:
             pass
 
         params = extract_parameters_from_signature(job)
-        assert params[0].choices == ["RED", "GREEN", "BLUE"]
+        assert params[0].choices == ["red", "green", "blue"]
 
     def test_non_enum_has_no_choices(self) -> None:
         def job(name: str) -> None:
@@ -207,6 +224,24 @@ class TestEnumChoices:
 
         params = extract_parameters_from_signature(job)
         assert params[0].choices is None
+
+    def test_the_cached_choices_match_what_click_renders(self) -> None:
+        """The assertion the four above could not make on their own.
+
+        Each of them pins *this* producer's output, so all four agreed with
+        each other and with nothing else. This one compares the two producers
+        that have to agree — the cached spellings and the ones the cold path
+        hands to click — which is where the defect actually lived.
+        """
+        from functualize.app.adapters.click_params import _click_type_for
+
+        def job(color: Color, priority: Priority) -> None:
+            pass
+
+        params = extract_parameters_from_signature(job)
+        for param, enum_cls in zip(params, (Color, Priority), strict=True):
+            click_type, _, _ = _click_type_for(enum_cls)
+            assert param.choices == list(click_type.choices)
 
 
 class TestExcludedParameters:

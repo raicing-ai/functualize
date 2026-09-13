@@ -155,15 +155,43 @@ class TestProperty14PromptTextNoProvider:
     **Validates: Requirements 6.7**
     """
 
-    @given(question=questions, default=st.text(min_size=0, max_size=50))
-    def test_no_provider_raises_input_not_available(self, question: str, default: str):
-        """No provider raises InputNotAvailable regardless of default type.
+    @given(question=questions)
+    def test_no_provider_and_no_default_raises(self, question: str) -> None:
+        """Nothing can answer and nothing says what to assume — raise.
 
         **Validates: Requirements 6.7**
         """
         prompt = Prompt()
         with pytest.raises(InputNotAvailable):
-            prompt.text(question, default=default)
+            prompt.text(question)
+
+    @given(question=questions, default=st.text(min_size=1, max_size=50))
+    def test_no_provider_but_an_explicit_default_returns_it(
+        self, question: str, default: str
+    ) -> None:
+        """An explicit default *is* the non-interactive answer.
+
+        **Changed by `capability-duality`/T11.** This asserted a raise even
+        with a default, which was `Prompt`'s behaviour when it was a second,
+        inert class. `rc.prompts` — the only door any example or template
+        uses — has always returned the default here, and the two are now one
+        object, so that behaviour is what survives.
+
+        The guarantee that matters is unchanged and still asserted above: a
+        *required* prompt with nowhere to ask raises rather than inventing an
+        answer. What a default now buys is the ability to say, at the call
+        site, what the non-interactive run should assume::
+
+            rc.prompts.text("Name?", default="World")   # -> "World" in CI
+
+        The citation is orphaned: no requirements document defining 6.7 exists
+        anywhere in the repository (`grep -rn 6.7 .spec/ docs/ contributor/`
+        finds nothing), so it was cleared at some earlier merge — the same
+        state as the "21.5" cited in `tests/context/test_parallel_and_log_
+        properties.py`. Recorded rather than silently dropped.
+        """
+        prompt = Prompt()
+        assert prompt.text(question, default=default) == default
 
     @given(question=questions)
     def test_with_provider_returns_string(self, question: str):
@@ -188,15 +216,27 @@ class TestProperty15PromptConfirmNoProvider:
     **Validates: Requirements 6.8**
     """
 
-    @given(question=questions, default=st.booleans())
-    def test_no_provider_raises_input_not_available(self, question: str, default: bool):
-        """No provider raises InputNotAvailable regardless of default.
+    @given(question=questions)
+    def test_no_provider_and_no_default_raises(self, question: str) -> None:
+        """Nothing can answer and nothing says what to assume — raise.
 
         **Validates: Requirements 6.8**
         """
         prompt = Prompt()
         with pytest.raises(InputNotAvailable):
-            prompt.confirm(question, default=default)
+            prompt.confirm(question)
+
+    @given(question=questions, default=st.booleans())
+    def test_no_provider_but_an_explicit_default_returns_it(
+        self, question: str, default: bool
+    ) -> None:
+        """An explicit default *is* the non-interactive answer.
+
+        Changed by `capability-duality`/T11 for the reason given on the
+        `text()` counterpart above.
+        """
+        prompt = Prompt()
+        assert prompt.confirm(question, default=default) is default
 
     @given(question=questions)
     def test_with_provider_returns_bool(self, question: str):

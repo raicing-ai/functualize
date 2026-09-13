@@ -46,6 +46,7 @@ class TestAdapterDirectoryContents:
         # by click_params.py and lazy_command.py for the same reason
         expected_files = [
             "__init__.py",
+            "_request_builder.py",
             "_validation.py",
             "cli.py",
             "click_params.py",

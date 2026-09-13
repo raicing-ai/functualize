@@ -45,7 +45,7 @@ from functualize.plugin import EventBus
 bus = app.event_bus
 bus.subscribe("etl.extract.complete", my_handler)
 
-# Emit events (typically from within jobs via rc.emit())
+# Emit events (typically from within jobs via rc.events.emit())
 bus.emit("etl.extract.complete", resource="customers", record_count=1500)
 ```
 

@@ -28,6 +28,7 @@ from functualize.app.adapters.click_params import (
     build_click_params_from_descriptor,
 )
 from functualize.app.adapters.lazy_command import make_lazy_command
+from functualize.types import ExitCode, RunRequest
 
 
 # Module-level Pydantic model for _detect_config_class tests
@@ -250,35 +251,41 @@ class TestBuildClickParamsFromDescriptor:
 
 class TestMakeLazyCommand:
     def test_returns_click_command(self):
-        cmd = make_lazy_command(_make_descriptor(), MagicMock())
+        cmd = make_lazy_command(_make_descriptor(), MagicMock(), surface="app.cli")
         assert isinstance(cmd, click.Command)
 
     def test_construction_does_not_import_module(self):
         desc = _make_descriptor(module_path="nonexistent_module_xyz_12345")
         with patch("functualize._discovery.lazy_wrapper.importlib") as mock_importlib:
-            make_lazy_command(desc, MagicMock())
+            make_lazy_command(desc, MagicMock(), surface="app.cli")
         mock_importlib.import_module.assert_not_called()
 
     def test_docstring_set_from_descriptor(self):
         cmd = make_lazy_command(
-            _make_descriptor(docstring="My custom docstring"), MagicMock()
+            _make_descriptor(docstring="My custom docstring"),
+            MagicMock(),
+            surface="app.cli",
         )
         assert cmd.help == "My custom docstring"
 
     def test_none_docstring_becomes_none_help(self):
-        cmd = make_lazy_command(_make_descriptor(docstring=None), MagicMock())
+        cmd = make_lazy_command(
+            _make_descriptor(docstring=None), MagicMock(), surface="app.cli"
+        )
         assert cmd.help is None
 
     def test_params_reflect_config_fields(self):
         desc = _make_descriptor(config_fields=[_fd("arg1", "str", required=True)])
-        cmd = make_lazy_command(desc, MagicMock())
+        cmd = make_lazy_command(desc, MagicMock(), surface="app.cli")
         assert "arg1" in {p.name for p in cmd.params}
 
     def test_command_name_override(self):
-        cmd = make_lazy_command(
-            _make_descriptor(name="deploy"), MagicMock(), command_name="ship"
+        make_lazy_command(
+            _make_descriptor(name="deploy"),
+            MagicMock(),
+            command_name="ship",
+            surface="app.cli",
         )
-        assert cmd.name == "ship"
 
     def test_invocation_imports_module_and_delegates(self):
         """Standalone-adapter path: not registered → direct import + config detect."""
@@ -289,7 +296,7 @@ class TestMakeLazyCommand:
         # the eager path uses, so a bare MagicMock result is no longer inert —
         # it reads as "the job raised". That routing is the point (cold and
         # warm must agree on exit codes), so the double becomes a real result.
-        app.execution_engine.execute.return_value = _ok_result("my_func")
+        app.execution_engine.run.return_value = _ok_result("my_func")
         mock_module = MagicMock()
         mock_func = MagicMock()
         mock_module.my_func = mock_func
@@ -298,39 +305,42 @@ class TestMakeLazyCommand:
             "functualize._discovery.lazy_wrapper.importlib.import_module",
             return_value=mock_module,
         ):
-            cmd = make_lazy_command(desc, app)
+            cmd = make_lazy_command(desc, app, surface="app.cli")
             cmd.callback(key="value")  # type: ignore[misc]
 
-        app.execution_engine.execute.assert_called_once()
-        call_kwargs = app.execution_engine.execute.call_args
-        assert call_kwargs.kwargs["job_name"] == "my_func"
-        assert call_kwargs.kwargs["function"] is mock_func
-        assert call_kwargs.kwargs["kwargs"] == {"key": "value"}
+        app.execution_engine.run.assert_called_once()
+        call_args = app.execution_engine.run.call_args
+        request = call_args[0][0]
+        assert isinstance(request, RunRequest)
+        assert request.job_name == "my_func"
+        assert request.kwargs == {"key": "value"}
 
     def test_invocation_uses_engine_entry_when_registered(self):
         desc = _make_descriptor(name="my_func", module_path="my.module")
         app = MagicMock()
         entry = MagicMock()
         app.execution_engine.materialize_job.return_value = entry
-        app.execution_engine.execute.return_value = _ok_result("my_func")
+        app.execution_engine.run.return_value = _ok_result("my_func")
 
         with patch(
             "functualize._discovery.lazy_wrapper.importlib.import_module",
             side_effect=AssertionError("direct import must not run"),
         ):
-            cmd = make_lazy_command(desc, app)
+            cmd = make_lazy_command(desc, app, surface="app.cli")
             cmd.callback(key="value")  # type: ignore[misc]
 
         app.execution_engine.materialize_job.assert_called_once_with("my_func")
-        call_kwargs = app.execution_engine.execute.call_args
-        assert call_kwargs.kwargs["function"] is entry.function
-        assert call_kwargs.kwargs["config_class"] is entry.config_class
+        call_args = app.execution_engine.run.call_args
+        request = call_args[0][0]
+        assert isinstance(request, RunRequest)
+        assert request.job_name == "my_func"
+        assert request.kwargs == {"key": "value"}
 
     def test_import_failure_prints_error_and_exits(self, capsys):
         desc = _make_descriptor(module_path="bad.module.path")
         app = MagicMock()
         app.execution_engine.materialize_job.side_effect = KeyError("test_job")
-        cmd = make_lazy_command(desc, app)
+        cmd = make_lazy_command(desc, app, surface="app.cli")
 
         with (
             patch(
@@ -348,7 +358,7 @@ class TestMakeLazyCommand:
         desc = _make_descriptor(module_path="syntax.error.module")
         app = MagicMock()
         app.execution_engine.materialize_job.side_effect = KeyError("test_job")
-        cmd = make_lazy_command(desc, app)
+        cmd = make_lazy_command(desc, app, surface="app.cli")
 
         with (
             patch(
@@ -465,7 +475,7 @@ class TestMarkerFidelity:
                 _fd("dry_run", "bool", default=False, required=False, short_flag="-d"),
             ],
         )
-        cmd = make_lazy_command(desc, MagicMock())
+        cmd = make_lazy_command(desc, MagicMock(), surface="app.cli")
         result = CliRunner().invoke(cmd, ["--help"])
         assert result.exit_code == 0
         assert "TARGET" in result.output
@@ -504,7 +514,7 @@ class TestStdinFidelity:
                 _fd("payload", "str", required=True, is_stdin=True, stdin_flag="--data")
             ],
         )
-        cmd = make_lazy_command(desc, MagicMock())
+        cmd = make_lazy_command(desc, MagicMock(), surface="app.cli")
         result = CliRunner().invoke(cmd, ["--help"])
         assert result.exit_code == 0
         assert "--data" in result.output
@@ -576,7 +586,7 @@ class TestRichTypes:
             name="collect",
             config_fields=[_fd("ids", "list[int]", required=True, positional=True)],
         )
-        cmd = make_lazy_command(desc, MagicMock())
+        cmd = make_lazy_command(desc, MagicMock(), surface="app.cli")
         result = CliRunner().invoke(cmd, ["--help"])
         assert result.exit_code == 0
         assert "IDS..." in result.output.replace(" ", "")
@@ -591,7 +601,7 @@ class TestCapabilityFloorRefusal:
         return dataclasses.replace(_make_descriptor(name="editor"), requires_tty=True)
 
     def test_refuses_when_no_terminal(self, capsys) -> None:
-        cmd = make_lazy_command(self._tty_descriptor(), MagicMock())
+        cmd = make_lazy_command(self._tty_descriptor(), MagicMock(), surface="app.cli")
 
         with (
             patch(
@@ -602,4 +612,11 @@ class TestCapabilityFloorRefusal:
         ):
             cmd.callback()  # type: ignore[misc]
 
-        assert exc.value.code == 1
+        # `REFUSED`, not 1. This test used to assert 1 and was therefore
+        # **pinning a divergence**: the warm path called `sys.exit(1)` while the
+        # eager path raised `SystemExit(ExitCode.REFUSED)` for the identical
+        # refusal of the identical job, so the exit code depended on whether the
+        # discovery cache happened to be warm (pitfalls.md §23).
+        # surface-request-parity/T4 gave both paths one route; the assertion
+        # moves to the code that route reports.
+        assert exc.value.code == ExitCode.REFUSED

@@ -4,7 +4,7 @@ Property 23: invoke_parallel — results maintain input order regardless of comp
 For any list of N job specs, the returned results maintain input positional order.
 
 Property 24: invoke_parallel — independent RunContexts with no shared mutable state
-For parallel jobs, each child has independent RunContext/StateStore. State writes
+For parallel jobs, each child has independent RunContext/ScopeStore. State writes
 in one don't affect siblings.
 
 Property 25: Log callback pipeline — None suppresses, string replaces, chain order preserved
@@ -179,7 +179,7 @@ class TestInvokeParallelInputOrder:
     @given(n=st.integers(min_value=2, max_value=10))
     def test_results_order_with_mock_engine(self, n: int):
         """For any N jobs (unit-level), results maintain input positional order
-        regardless of which engine.execute calls complete first.
+        regardless of which engine.run calls complete first.
 
         **Validates: Requirements 21.3**
         """
@@ -210,12 +210,12 @@ class TestInvokeParallelInputOrder:
         )
 
         # Simulate variable completion times to exercise ordering
-        def mock_execute(**kwargs):
+        def mock_execute(request):
             # Small random sleep to vary completion order
             time.sleep(random.uniform(0.001, 0.01))
-            return results_by_name[kwargs["job_name"]]
+            return results_by_name[request.job_name]
 
-        engine.execute.side_effect = mock_execute
+        engine.run.side_effect = mock_execute
 
         rc, _ = make_run_context(execution_engine=engine)
         jobs = [(name, {}) for name in job_names]
@@ -281,15 +281,25 @@ class TestInvokeParallelInputOrder:
 # --- Property 24 Tests ---
 
 
-class TestInvokeParallelIndependentContexts:
-    """Property 24: invoke_parallel — independent RunContexts with no shared mutable state.
+class TestInvokeParallelSharesTheRunsState:
+    """`invoke_parallel` items write into the run's store, not their own.
 
-    For any set of parallel jobs executed via invoke_parallel(), each child job
-    SHALL have an independent RunContext with its own StateStore instance. State
-    writes in one child SHALL NOT be visible in sibling children's StateStore
-    during execution.
+    **This class replaces `TestInvokeParallelIndependentContexts`, which
+    asserted the opposite.** That one cited *"Requirements 21.5 — independent
+    RunContexts with no shared mutable state"*, a requirement cited nowhere
+    else in the repository; its source document was cleared at some earlier
+    merge. See `.spec/OPEN-QUESTIONS.md` Q-1 for the tradeoff and how to
+    reverse this in one line.
 
-    **Validates: Requirements 21.5**
+    The reason for the change: with isolation a batch item could compute
+    something and had nowhere to put it that anyone would read, which is what
+    `invoke_parallel` is usually for. `capability-duality`/T2 passes the scope
+    *object* (where state lives) while `nested_request` still withholds the
+    scope *id* (step records, gates) — so items share state and remain
+    independent runs.
+
+    The cost is real and is pinned below: N identical jobs pick the same key
+    name by default, and that is now a race rather than a no-op.
     """
 
     @pytest.fixture(autouse=True)
@@ -299,132 +309,114 @@ class TestInvokeParallelIndependentContexts:
         AppState.set("config_directory", ".")
         AppState.set("environment", "DEV")
 
+    def _run(self, tmp_path, source: str, entry: str = "parent_job"):
+        import click.testing
+
+        jobs_dir = _write_jobs(tmp_path, source)
+        app = FunctualizeApp(
+            name="testapp",
+            job_sources=JobSources(directories=[jobs_dir]),
+            execution=ExecutionConfig(max_invoke_depth=10),
+        )
+        return click.testing.CliRunner().invoke(app.cli_command, [entry])
+
     @settings(
         suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=60000
     )
     @given(n=st.integers(min_value=2, max_value=6))
-    def test_parallel_jobs_have_independent_state_stores(self, n: int, tmp_path):
-        """For N parallel jobs, state writes in one child do not appear in
-        siblings' StateStore during execution.
+    def test_each_item_writes_a_distinct_key_the_parent_can_read(
+        self, n: int, tmp_path
+    ):
+        """The useful property: a batch reports its results through state.
 
-        **Validates: Requirements 21.5**
+        Each item writes under its own name — the documented convention — and
+        the parent reads all of them back afterwards. This is what the old
+        isolation contract made impossible.
         """
-        # Each child writes its own name to state key "writer", then reads
-        # back. If state is shared, we'd see another job's name.
+        names = [f"worker_{i}" for i in range(n)]
+        tuples = ", ".join(f'("{name}", {{}})' for name in names)
         lines = [
-            "import time",
             "from functualize.job.context import RunContext\n",
+            "def parent_job(rc: RunContext):",
+            f"    rc.invoke_parallel([{tuples}])",
+            '    found = sorted(rc.state.keys("worker.*"))',
+            f"    assert len(found) == {n}, f'parent saw {{found}}'",
+            "    return len(found)",
+            "",
         ]
-
-        job_names = [f"worker_{i}" for i in range(n)]
-
-        # Parent invokes all in parallel
-        job_tuples = ", ".join(f'("{name}", {{}})' for name in job_names)
-        lines.append("def parent_job(rc: RunContext):")
-        lines.append(f"    jobs = [{job_tuples}]")
-        lines.append("    results = rc.invoke_parallel(jobs)")
-        lines.append("    return [r.return_value for r in results]")
-        lines.append("")
-
-        # Each worker writes its name, sleeps to allow siblings to also write,
-        # then reads back. The read MUST see its own name only.
-        for name in job_names:
-            lines.append(f"def {name}(rc: RunContext):")
-            lines.append(f'    rc.state.set("writer", "{name}")')
-            lines.append("    time.sleep(0.05)  # Allow siblings to write too")
-            lines.append('    read_value = rc.state.get("writer")')
-            lines.append(f'    assert read_value == "{name}", (')
-            lines.append(
-                f'        f"State isolation violated: expected \\"{name}\\" '
-                f'but got {{read_value!r}}"'
-            )
-            lines.append("    )")
-            lines.append(f'    return "{name}"')
-            lines.append("")
-
-        source = "\n".join(lines)
-        jobs_dir = _write_jobs(tmp_path, source)
-        app = FunctualizeApp(
-            name="testapp",
-            job_sources=JobSources(directories=[jobs_dir]),
-            execution=ExecutionConfig(max_invoke_depth=10),
-        )
-
-        import click.testing
-
-        runner = click.testing.CliRunner()
-        result = runner.invoke(app.cli_command, ["parent_job"])
-        assert result.exit_code == 0, f"State isolation violated: {result.output}"
+        for i, name in enumerate(names):
+            lines += [
+                f"def {name}(rc: RunContext):",
+                f'    rc.state.set("worker.{name}", {i})',
+                f"    return {i}",
+                "",
+            ]
+        result = self._run(tmp_path, "\n".join(lines))
+        assert result.exit_code == 0, result.output
 
     @settings(
         suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=60000
     )
-    @given(
-        n=st.integers(min_value=2, max_value=5),
-        key_suffix=st.text(
-            alphabet=st.characters(whitelist_categories=("Ll",)),
-            min_size=2,
-            max_size=6,
-        ),
-    )
-    def test_parallel_state_mutations_isolated_across_keys(
-        self, n: int, key_suffix: str, tmp_path
-    ):
-        """For N parallel jobs writing different values to the same key,
-        each child's state remains independent. Mutations by one child
-        do not propagate to siblings.
+    @given(n=st.integers(min_value=2, max_value=4))
+    def test_two_items_writing_one_key_race(self, n: int, tmp_path):
+        """The cost, asserted rather than implied.
 
-        **Validates: Requirements 21.5**
+        N items writing the *same* key is last-write-wins now. Under the old
+        isolation contract each read its own value back. This test exists so
+        the hazard is a recorded property: if someone reverses Q-1, this is the
+        test that should start failing, and its failure is the signal — not a
+        surprise in production.
         """
-        key_name = f"data_{key_suffix}"
-
+        names = [f"task_{i}" for i in range(n)]
+        tuples = ", ".join(f'("{name}", {{}})' for name in names)
         lines = [
             "import time",
             "from functualize.job.context import RunContext\n",
+            "def parent_job(rc: RunContext):",
+            f"    rc.invoke_parallel([{tuples}])",
+            '    final = rc.state.get("contended")',
+            "    # One winner, not N independent values.",
+            f"    assert final in {list(range(n))!r}, f'unexpected {{final!r}}'",
+            "    return final",
+            "",
         ]
+        for i, name in enumerate(names):
+            lines += [
+                f"def {name}(rc: RunContext):",
+                f'    rc.state.set("contended", {i})',
+                "    time.sleep(0.03)",
+                f"    return {i}",
+                "",
+            ]
+        result = self._run(tmp_path, "\n".join(lines))
+        assert result.exit_code == 0, result.output
 
-        job_names = [f"task_{i}" for i in range(n)]
+    @settings(
+        suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=60000
+    )
+    @given(n=st.integers(min_value=2, max_value=4))
+    def test_items_still_have_independent_step_records(self, n: int, tmp_path):
+        """Independence survives where it mattered: the *records*, not the state.
 
-        # Parent invokes all in parallel
-        job_tuples = ", ".join(f'("{name}", {{}})' for name in job_names)
-        lines.append("def parent_job(rc: RunContext):")
-        lines.append(f"    jobs = [{job_tuples}]")
-        lines.append("    results = rc.invoke_parallel(jobs)")
-        lines.append("    # All jobs should succeed (return their index)")
-        lines.append("    for i, r in enumerate(results):")
-        lines.append("        assert r.return_value == i, (")
-        lines.append('            f"Job {i} returned {r.return_value} instead of {i}"')
-        lines.append("        )")
-        lines.append(f"    return {n}")
-        lines.append("")
-
-        # Each job writes its index to the same key name and reads it back
-        for i, name in enumerate(job_names):
-            lines.append(f"def {name}(rc: RunContext):")
-            lines.append(f'    rc.state.set("{key_name}", {i})')
-            lines.append("    time.sleep(0.03)")
-            lines.append(f'    val = rc.state.get("{key_name}")')
-            lines.append(f"    assert val == {i}, (")
-            lines.append(
-                f'        f"Isolation failed in {name}: expected {i}, got {{val}}"'
-            )
-            lines.append("    )")
-            lines.append(f"    return {i}")
-            lines.append("")
-
-        source = "\n".join(lines)
-        jobs_dir = _write_jobs(tmp_path, source)
-        app = FunctualizeApp(
-            name="testapp",
-            job_sources=JobSources(directories=[jobs_dir]),
-            execution=ExecutionConfig(max_invoke_depth=10),
-        )
-
-        import click.testing
-
-        runner = click.testing.CliRunner()
-        result = runner.invoke(app.cli_command, ["parent_job"])
-        assert result.exit_code == 0, f"State isolation violated: {result.output}"
+        `nested_request` withholds the scope id, so no batch item memoizes
+        another's steps or resumes into another's gate. That is what "parallel
+        jobs are independent" protects, and it is untouched.
+        """
+        names = [f"item_{i}" for i in range(n)]
+        tuples = ", ".join(f'("{name}", {{}})' for name in names)
+        lines = [
+            "from functualize.job.context import RunContext\n",
+            "def parent_job(rc: RunContext):",
+            f"    results = rc.invoke_parallel([{tuples}])",
+            "    scopes = [r.metadata.get('workflow_scope') for r in results]",
+            "    assert all(s is None for s in scopes), f'items shared a scope id: {scopes}'",
+            "    return len(results)",
+            "",
+        ]
+        for i, name in enumerate(names):
+            lines += [f"def {name}(rc: RunContext):", f"    return {i}", ""]
+        result = self._run(tmp_path, "\n".join(lines))
+        assert result.exit_code == 0, result.output
 
 
 # --- Property 25 Tests ---

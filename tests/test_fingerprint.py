@@ -265,10 +265,10 @@ class TestFix2CacheIndependence:
     def test_fingerprints_survive_a_discovery_cache_rebuild(self, project) -> None:
         """Fix 2: rebuilding cache.json must not drop fingerprints."""
         from functualize._primitives.cache_format import resolve_cache_path
-        from functualize._primitives.state_store import StateStore
+        from functualize._primitives.fresh_store import FreshStore
 
         (project / ".functualize").mkdir()
-        store = StateStore.for_project(project)
+        store = FreshStore.for_project(project)
         key = fingerprint_key("build", compute_args_hash({"env": "dev"}), "checksum")
         store.put_fingerprint(key, make_record(_fresh_map(project)))
 
@@ -277,7 +277,7 @@ class TestFix2CacheIndependence:
         cache_path.write_text('{"format_version": 9}')
         cache_path.unlink()
 
-        assert StateStore.for_project(project).get_fingerprint(key) is not None
+        assert FreshStore.for_project(project).get_fingerprint(key) is not None
 
 
 class TestReturnValueReuse:
@@ -503,7 +503,7 @@ class TestWhyIsActuallyWired:
     def test_func_why_reports_an_unusable_return_value(self, tmp_path) -> None:
         import threading
 
-        from functualize.app.core import FunctualizeApp
+        from functualize.app.core import FunctualizeApp, request_for
         from functualize.job import Fingerprint, job
 
         (tmp_path / "a.csv").write_text("x")
@@ -517,7 +517,7 @@ class TestWhyIsActuallyWired:
 
             app = FunctualizeApp(name="why-wired")
             app.register_dynamic_job("make_handle", make_handle)
-            app.execute("make-handle")
+            app.execute(request_for("make-handle"))
 
             assert "not reusable" in app.explain("make-handle")
         finally:
@@ -525,7 +525,7 @@ class TestWhyIsActuallyWired:
 
     def test_it_stays_quiet_for_an_ordinary_return(self, tmp_path) -> None:
         """A note that always fires is a note nobody reads."""
-        from functualize.app.core import FunctualizeApp
+        from functualize.app.core import FunctualizeApp, request_for
         from functualize.job import Fingerprint, job
 
         (tmp_path / "a.csv").write_text("x")
@@ -539,7 +539,7 @@ class TestWhyIsActuallyWired:
 
             app = FunctualizeApp(name="why-quiet")
             app.register_dynamic_job("make_rows", make_rows)
-            app.execute("make-rows")
+            app.execute(request_for("make-rows"))
 
             assert "not reusable" not in app.explain("make-rows")
         finally:

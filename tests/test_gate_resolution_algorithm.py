@@ -497,3 +497,71 @@ class TestResolveGateContextBuilding:
 
         assert result.host == "mixed"
         assert result.port == 42
+
+
+class _NeedsOne(BaseModel):
+    """One required field, so no strategy can short-circuit as resolved."""
+
+    value: str
+
+
+class TestEveryRungReportsItsOwnFailure:
+    """A broken rung must not be reported as the next rung's complaint.
+
+    The ladder kept only the most recent exception, so an earlier strategy that
+    blew up left no trace: the operator saw whatever the *last* rung said. A
+    `prompt` resolver raising `TypeError` produced "Cannot resolve model Prefs
+    from config chain: unresolved fields: ['budget']" — a message that names the
+    config chain, which was working perfectly, and never mentions `prompt` at
+    all.
+
+    Found by being that broken resolver while writing `run-request-entry` AC-10's
+    test, and losing time to it.
+    """
+
+    def test_both_rungs_are_named(self) -> None:
+        from functualize._gate._registry import GateRegistry
+        from functualize._types.errors import GateResolutionError
+
+        class _Boom:
+            def __init__(self, message: str) -> None:
+                self._message = message
+
+            def resolve(self, ctx: object) -> object:
+                raise RuntimeError(self._message)
+
+        registry = GateRegistry()
+        registry.register_strategy("first", _Boom("first went wrong"))
+        registry.register_strategy("second", _Boom("second went wrong"))
+
+        with pytest.raises(GateResolutionError) as caught:
+            registry.resolve_gate(
+                _NeedsOne, gate_strategy=["first", "second"], gate_name="g"
+            )
+
+        message = caught.value.last_error
+        assert "first went wrong" in message, (
+            f"the earlier rung's failure was dropped: {message}"
+        )
+        assert "second went wrong" in message
+        assert "first:" in message and "second:" in message, (
+            f"the failures are not attributed to a strategy: {message}"
+        )
+
+    def test_a_single_failing_rung_still_reads_cleanly(self) -> None:
+        """The change must not turn one failure into a list of one prefixed
+        with noise for the common case."""
+        from functualize._gate._registry import GateRegistry
+        from functualize._types.errors import GateResolutionError
+
+        class _Boom:
+            def resolve(self, ctx: object) -> object:
+                raise RuntimeError("the only failure")
+
+        registry = GateRegistry()
+        registry.register_strategy("only", _Boom())
+
+        with pytest.raises(GateResolutionError) as caught:
+            registry.resolve_gate(_NeedsOne, gate_strategy=["only"], gate_name="g")
+
+        assert caught.value.last_error == "only: the only failure"

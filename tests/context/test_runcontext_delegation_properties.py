@@ -117,8 +117,10 @@ def _make_runcontext_with_engine(
         app._event_bus = None
         app.event_bus = MagicMock()
 
+    # The engine's host is the app, and the event bus is read off it — the
+    # engine used to reach back out through a back-reference to find one.
     engine = MagicMock()
-    engine._app = app
+    engine.host = app
 
     rc = RunContext(
         name=name,
@@ -271,7 +273,7 @@ class TestRunContextInvokeParallelDelegation:
 class TestRunContextEmitDelegation:
     """Property 2 (emit): RunContext.emit() delegates to EventBus.emit().
 
-    For any valid event_name, resource, and payload kwargs, calling rc.emit()
+    For any valid event_name, resource, and payload kwargs, calling rc.events.emit()
     produces identical observable effects as calling EventBus.emit() directly
     with the same arguments.
 
@@ -286,14 +288,14 @@ class TestRunContextEmitDelegation:
     def test_emit_delegates_to_event_bus(
         self, event_name: str, resource: str, payload: dict[str, Any]
     ) -> None:
-        """rc.emit(event_name, resource, **payload) delegates to EventBus.emit() with same args.
+        """rc.events.emit(event_name, resource, **payload) delegates to EventBus.emit() with same args.
 
         **Validates: Requirements 7.4**
         """
         event_bus = MagicMock()
         rc = _make_runcontext_with_engine(name="emit-test", event_bus=event_bus)
 
-        rc.emit(event_name, resource=resource, **payload)
+        rc.events.emit(event_name, resource=resource, **payload)
 
         # EventBus.emit called with same arguments
         event_bus.emit.assert_called_once_with(event_name, resource=resource, **payload)
@@ -305,14 +307,14 @@ class TestRunContextEmitDelegation:
     def test_emit_with_no_payload_delegates_correctly(
         self, event_name: str, resource: str
     ) -> None:
-        """rc.emit(event_name, resource) delegates with no extra payload kwargs.
+        """rc.events.emit(event_name, resource) delegates with no extra payload kwargs.
 
         **Validates: Requirements 7.4**
         """
         event_bus = MagicMock()
         rc = _make_runcontext_with_engine(name="emit-test", event_bus=event_bus)
 
-        rc.emit(event_name, resource=resource)
+        rc.events.emit(event_name, resource=resource)
 
         event_bus.emit.assert_called_once_with(event_name, resource=resource)
 
@@ -323,14 +325,14 @@ class TestRunContextEmitDelegation:
     def test_emit_with_default_resource_delegates_correctly(
         self, event_name: str, payload: dict[str, Any]
     ) -> None:
-        """rc.emit(event_name, **payload) uses default empty resource.
+        """rc.events.emit(event_name, **payload) uses default empty resource.
 
         **Validates: Requirements 7.4**
         """
         event_bus = MagicMock()
         rc = _make_runcontext_with_engine(name="emit-test", event_bus=event_bus)
 
-        rc.emit(event_name, **payload)
+        rc.events.emit(event_name, **payload)
 
         event_bus.emit.assert_called_once_with(event_name, resource="", **payload)
 
@@ -338,7 +340,7 @@ class TestRunContextEmitDelegation:
 class TestRunContextTrackPhaseDelegation:
     """Property 2 (track_phase): RunContext.track_phase() delegates to WorkflowTracker.
 
-    For any valid step name, message, and status, calling rc.track_phase()
+    For any valid step name, message, and status, calling rc.events.track_phase()
     produces identical observable effects (step state changes) as calling
     WorkflowTracker.track_step() directly with the same arguments.
 
@@ -353,7 +355,7 @@ class TestRunContextTrackPhaseDelegation:
     def test_track_phase_delegates_to_tracker(
         self, step_name: str, step_message: str, step_status: RunStatus
     ) -> None:
-        """rc.track_phase() delegates to WorkflowTracker.track_step() with same args.
+        """rc.events.track_phase() delegates to WorkflowTracker.track_step() with same args.
 
         **Validates: Requirements 7.1, 7.2**
         """
@@ -363,7 +365,7 @@ class TestRunContextTrackPhaseDelegation:
         mock_tracker = MagicMock(spec=WorkflowTracker)
         rc._workflow_tracker = mock_tracker
 
-        rc.track_phase(step_name, step_message, step_status)
+        rc.events.track_phase(step_name, step_message, step_status)
 
         mock_tracker.track_step.assert_called_once_with(
             step_name, step_message, step_status
@@ -377,7 +379,7 @@ class TestRunContextTrackPhaseDelegation:
     def test_track_phase_state_matches_direct_tracker_call(
         self, step_name: str, step_message: str, step_status: RunStatus
     ) -> None:
-        """Calling rc.track_phase() produces identical step state as calling
+        """Calling rc.events.track_phase() produces identical step state as calling
         WorkflowTracker.track_step() directly.
 
         **Validates: Requirements 7.1, 7.2**
@@ -398,7 +400,7 @@ class TestRunContextTrackPhaseDelegation:
         standalone_tracker = _make_standalone_tracker(job_name="workflow-test")
 
         # Call through facade
-        rc.track_phase(step_name, step_message, step_status)
+        rc.events.track_phase(step_name, step_message, step_status)
 
         # Call directly on standalone tracker
         standalone_tracker.track_step(step_name, step_message, step_status)
@@ -455,7 +457,7 @@ class TestRunContextTrackPhaseDelegation:
 
         # Execute same operations through both paths
         for step_name, step_message, step_status in steps:
-            rc.track_phase(step_name, step_message, step_status)
+            rc.events.track_phase(step_name, step_message, step_status)
             direct_tracker.track_step(step_name, step_message, step_status)
 
         # Compare: same number of steps in same order
