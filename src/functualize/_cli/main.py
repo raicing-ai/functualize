@@ -2264,8 +2264,8 @@ def _run_cli() -> None:
     #
     # Two builtins would genuinely use one — `builtin parallel` (`--force`) and
     # `builtin why` (`--force` changes the verdict it reports). Neither is wired
-    # and neither is being wired here; see `.spec/REVIEW-TRIAGE.md` "Builtins
-    # and the delivery inputs" for the evidence and the open question.
+    # and neither is being wired here; the delivery-input boundary is recorded
+    # in ADR-020.
     #
     #     $ func --emit-format json builtin info jobs
     #     Error: No such option '--emit-format'.

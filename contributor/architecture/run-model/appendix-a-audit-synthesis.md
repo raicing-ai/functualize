@@ -13,7 +13,7 @@ appendix records them so the merge is a decision rather than a silent choice.
 | Source | Cause 4 is… |
 |---|---|
 | `audit-engine-encapsulation.md` §1 (depth) | `func`'s pre-boot layer is a permanent second CLI, and the "one rule" fixes are per-rule hand extractions, not a mechanism |
-| `.spec/shape-intents/entrypoint-encapsulation/shape-intent.md` (synthesis) | **The deposit protocol is the divergence generator** |
+| The former entrypoint-encapsulation synthesis | **The deposit protocol is the divergence generator** |
 | `contributor/adr/020-…` | follows the depth audit |
 
 Both claims are true and neither implies the other. The problem is that the divergence ids

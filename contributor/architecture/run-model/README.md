@@ -1,6 +1,6 @@
 # Shape Intent: The Run Model — One Request In, One Record Through, One Outcome Out
 
-**Status: specified, not yet implemented**
+**Status: implemented on `feat/run-model`; retained as the durable architecture record**
 **Date: 2026-09-09**
 **Base: `origin/master` @ `e57f0c9` (0.3.0, after PRs #33–#36)**
 **Scope: the whole life of a run — how it starts (`_engine/executor.py::execute`, the
@@ -14,8 +14,7 @@ This document set merges two bodies of work that were queued separately and are 
 - **The entrypoint audit** — `contributor/architecture/audit-entrypoint-coverage.md`
   (empirical: 17 surfaces, 13 divergences, 14 leakage rows),
   `contributor/architecture/audit-engine-encapsulation.md` (design: 4 causes, 15 smells,
-  a 9-step roadmap), `contributor/adr/020-engine-entrypoint-encapsulation.md` (proposed),
-  and their synthesis at `.spec/shape-intents/entrypoint-encapsulation/shape-intent.md`.
+  a 9-step roadmap), and `contributor/adr/020-engine-entrypoint-encapsulation.md` (proposed).
 - **The pi-workflows parity roadmap** — `~/code/raicing-ai/pi-workflow-parity/`, whose
   Tier 0 and Tier 1 shipped as 0.3.0 and whose Tier 2 (items 7, 8, 9) does not exist.
 
@@ -107,5 +106,7 @@ Every arrow above is one authority. Today, five of them are re-derived per door.
 
 ## Status
 
-Nine features, specified and planned on `feat/run-model`. Nothing is implemented.
+The nine features were implemented on `feat/run-model`. This set records the resulting
+architecture, the decisions behind it, and the follow-up roadmap; it is not a branch-local
+task ledger.
 See [13-roadmap.md](13-roadmap.md) for the order and the traceability table.

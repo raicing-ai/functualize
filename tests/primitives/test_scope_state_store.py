@@ -345,7 +345,7 @@ class TestDiscard:
 
 
 class TestReviewFindings:
-    """Regressions for `.spec/reviews/scope-state-review.md`.
+    """Regressions for findings from the external scope-state review.
 
     Each was found by external review after the feature was implemented and
     passing. They are grouped here so the finding that motivated each is

@@ -8,7 +8,7 @@ parsed and rewrote every scope record the project had ever made.
 Measured on a 448 KB store holding 2,001 unrelated records: ``set`` **116×**
 slower than against an empty one, ``get`` **102×**. On a real project's 1,019 KB
 file an external review measured 58 ms per unbatched ``set``
-(`.spec/reviews/omp-after-review.md` F1). The cost scaled with *how many runs
+An external review measured the same cost. The cost scaled with *how many runs
 the project had ever done* — nothing to do with what the job stored.
 
 **A per-run value belongs in a per-run file.** After this, a `set` touches one
@@ -130,7 +130,7 @@ class ScopeStateStore:
             # otherwise replace the file with `{"state": {k: v}}` and drop
             # whatever was really there — the silent-loss shape this module's
             # docstring promises not to have. Found by external review
-            # (`.spec/reviews/scope-state-review.md` Q1.6).
+            # (as identified by the external scope-state review).
             raise ScopeStateUnreadableError(
                 self._key,
                 f"'state' is {type(state).__name__}, expected an object",
@@ -210,7 +210,7 @@ class ScopeStateStore:
 
         **Takes the lock, and refuses inside a batch.** The first version
         unlinked with no lock at all, which external review
-        (`.spec/reviews/scope-state-review.md` Q1.1) showed both ways round: a
+        An external review showed both ways round: a
         batch committing after the unlink *resurrects* the file, and an unlink
         landing between a `_mutate`'s load and its write is simply *lost*.
         Deleting the file a batch is about to write is incoherent whichever

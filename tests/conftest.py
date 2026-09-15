@@ -253,8 +253,8 @@ def _isolate_state_root(
       because three earlier runs of the same test had left a counter behind.
     * Durable state made the growth structural rather than incidental: before
       it, only some runs wrote; now every run does.
-    * It is the most likely explanation for `.spec/KNOWN-RED.md` §10, a
-      cache-path flake that only appears under `-n auto`.
+    * It is the most likely explanation for an earlier cache-path flake that
+      only appeared under `-n auto`.
 
     **Redirects rather than forbids.** A test that builds a project tree under
     `tmp_path` (the `project_tree` fixture, the static trees in

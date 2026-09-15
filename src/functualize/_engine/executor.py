@@ -992,7 +992,7 @@ class JobExecutionEngine:
         filter refused it for having no timestamps, and `list_scopes` hid it.
         The record was immortal *and* invisible — `scopes.json` reached 2,188
         records on this project with no way to drain it
-        (`.spec/reviews/omp-after-review.md` F1).
+        (as confirmed by external review).
 
         This is the same `finally` that closes the run record, for the same
         reason: the lifecycle has raising paths `run()` does not catch, and a

@@ -288,8 +288,8 @@ class TestInvokeParallelSharesTheRunsState:
     asserted the opposite.** That one cited *"Requirements 21.5 — independent
     RunContexts with no shared mutable state"*, a requirement cited nowhere
     else in the repository; its source document was cleared at some earlier
-    merge. See `.spec/OPEN-QUESTIONS.md` Q-1 for the tradeoff and how to
-    reverse this in one line.
+    merge. The tradeoff is recorded in the capability-duality architecture
+    decision and can be reversed in one line if the contract changes.
 
     The reason for the change: with isolation a batch item could compute
     something and had nowhere to put it that anyone would read, which is what

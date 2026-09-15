@@ -10,7 +10,7 @@ are closed**. If you are about to re-open a question, check §3 first.
 
 | Pass | What it did |
 |---|---|
-| 1 | Read the audit synthesis (`.spec/shape-intents/entrypoint-encapsulation/shape-intent.md` @ `289e0b7`) and the pi-workflows roadmap (`~/code/raicing-ai/pi-workflow-parity/13-roadmap.md`) as two separate bodies of work |
+| 1 | Read the former audit synthesis (revision `289e0b7`) and the pi-workflows roadmap (`~/code/raicing-ai/pi-workflow-parity/13-roadmap.md`) as two separate bodies of work |
 | 2 | Extracted the two source audits and ADR-020 in full — 17 surfaces, 13 divergences, 14 leakage rows, 4 causes, 15 smells, 9 steps, 6 open decisions |
 | 3 | **Re-verified every audit claim at `2a079de`**, by blob-hash comparison and by re-running each falsifying command. 15/17 held, 2 drifted, 0 false |
 | 4 | Surveyed the branch landscape and found the assumed collision was already merged (§2 R1) |
