@@ -8,36 +8,17 @@ on:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Gate: detect a push whose ONLY changed paths are under .spec/.
+  # Gate: detect the dedicated final cleanup commit.
   #
-  # The spec-driven workflow commits .spec/features/<name>/ on the branch so the
-  # spec artifacts are reviewable, then clears them before merge. That clearing
-  # push used to re-run this entire workflow for nothing: no test, lint, example
-  # or docs job reads a file anywhere under .spec/. This job inspects the exact
-  # pushed commit range (github.event.before..after) so the heavy jobs below can
-  # skip it.
+  # The spec-driven workflow first commits feature artifacts so they are
+  # reviewable, runs the full gate set, and only then pushes one cleanup commit
+  # deleting those artifacts. Only that final deletion-only commit is
+  # redundant. Earlier feature commits, ordinary code commits, and a cleanup
+  # commit mixed with source/doc changes all run normally.
   #
-  # `^\.spec/`, NOT `^\.spec/features/`. The clearing step is not a bare
-  # `git rm`: `.claude/rules/spec-workflow.md` says to migrate the durable half
-  # to `.spec/STATUS.md` or `contributor/adr/` FIRST, and the error message in
-  # spec-artifacts-cleared below repeats it. Both land in the same commit, so a
-  # real clearing push touches `.spec/STATUS.md` — and often
-  # `.spec/shape-intents/` — alongside `.spec/features/`. Replaying the narrower
-  # pattern over all 31 inter-push diffs in this workflow's recorded history
-  # matched ZERO of them; `^\.spec/` matches 6, which is about one full suite
-  # run saved per feature cycle. A pattern that never fires is not conservative,
-  # it is dead code.
-  #
-  # The widening stops at `.spec/`. `contributor/adr/` is deliberately NOT
-  # included even though the same step writes there: doc-verify and docs-build
-  # do read files outside `.spec/`, and the whole boundary rests on `.spec/`
-  # being a directory no job in this workflow opens.
-  #
-  # Conservative by construction: the suite skips only when the diff is
-  # non-empty and every changed path matches. A missing or zero before-SHA
-  # (new branch), a failed or empty diff, a force-push whose before-SHA is no
-  # longer reachable in the clone, and any non-spec path all default to a full
-  # run.
+  # For a push, inspect github.event.before..after. For a pull_request event,
+  # inspect the PR head commit itself; comparing base..head would include the
+  # entire PR and could never recognize the final cleanup commit.
   # ---------------------------------------------------------------------------
   spec-only-change:
     runs-on: ubuntu-latest
@@ -49,24 +30,40 @@ jobs:
           # before/after are arbitrary SHAs; a shallow clone may not have them.
           fetch-depth: 0
 
-      - name: Detect .spec/-only pushes
+      - name: Detect final feature-artifact cleanup commit
         id: detect
         env:
+          EVENT_NAME: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.event.after }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           skip=false
-          if [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
-            if changed="$(git diff --name-only "$BEFORE" "$AFTER" 2>/dev/null)" && [ -n "$changed" ]; then
-              if ! printf '%s\n' "$changed" | grep -qv '^\.spec/'; then
-                skip=true
-              fi
+          if [ "$EVENT_NAME" = pull_request ]; then
+            if [ -n "$PR_HEAD" ] && git cat-file -e "$PR_HEAD^{commit}" 2>/dev/null; then
+              changed="$(git diff-tree --no-commit-id --name-status -r "$PR_HEAD")"
+            else
+              changed=""
+            fi
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            changed="$(git diff --name-status "$BEFORE" "$AFTER" 2>/dev/null || true)"
+          else
+            changed=""
+          fi
+
+          if [ -n "$changed" ]; then
+            paths="$(printf '%s\n' "$changed" | cut -f2-)"
+            deletions="$(printf '%s\n' "$changed" | awk -F '\t' '$1 == "D" {print $2}')"
+            if [ -n "$deletions" ] \
+              && [ "$(printf '%s\n' "$paths" | wc -l)" -eq "$(printf '%s\n' "$deletions" | wc -l)" ] \
+              && ! printf '%s\n' "$deletions" | grep -qv '^\.spec/features/'; then
+              skip=true
             fi
           fi
           echo "skip=$skip" >> "$GITHUB_OUTPUT"
           if [ "$skip" = true ]; then
-            echo "Push touched only .spec/; heavy jobs will skip."
+            echo "Final .spec/features cleanup commit; validation jobs will skip."
           else
             echo "Full CI run."
           fi
@@ -212,6 +209,8 @@ jobs:
   # example harness are the regression net for it; this job is what keeps
   # that net running.
   plugin-mcp:
+    needs: spec-only-change
+    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
