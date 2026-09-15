@@ -16,54 +16,56 @@ jobs:
   # redundant. Earlier feature commits, ordinary code commits, and a cleanup
   # commit mixed with source/doc changes all run normally.
   #
-  # For a push, inspect github.event.before..after. For a pull_request event,
-  # inspect the PR head commit itself; comparing base..head would include the
-  # entire PR and could never recognize the final cleanup commit.
+  # On a PR, inspect the head commit itself; base..head includes the whole PR.
+  # The parent must have a completed CI run with every validation job green.
+  # That run's overall conclusion is red by design because
+  # spec-artifacts-cleared must fail while feature artifacts are present.
+  # Missing API data fails closed into a full run.
   # ---------------------------------------------------------------------------
   spec-only-change:
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     outputs:
       skip: ${{ steps.detect.outputs.skip }}
     steps:
       - uses: actions/checkout@v4
         with:
-          # before/after are arbitrary SHAs; a shallow clone may not have them.
+          # The PR head and its parent must both be available for inspection.
           fetch-depth: 0
 
       - name: Detect final feature-artifact cleanup commit
         id: detect
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
-          AFTER: ${{ github.event.after }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_BRANCH: ${{ github.head_ref }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           skip=false
-          if [ "$EVENT_NAME" = pull_request ]; then
-            if [ -n "$PR_HEAD" ] && git cat-file -e "$PR_HEAD^{commit}" 2>/dev/null; then
-              changed="$(git diff-tree --no-commit-id --name-status -r "$PR_HEAD")"
-            else
-              changed=""
-            fi
-          elif [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
-            changed="$(git diff --name-status "$BEFORE" "$AFTER" 2>/dev/null || true)"
-          else
-            changed=""
+          if [ "$EVENT_NAME" = pull_request ] && [ -n "$PR_HEAD" ] \
+            && git cat-file -e "$PR_HEAD^{commit}" 2>/dev/null; then
+            changed="$(git diff-tree --no-commit-id --name-status -r "$PR_HEAD" 2>/dev/null || true)"
           fi
 
-          if [ -n "$changed" ]; then
+          if [ "${changed:-}" ]; then
             paths="$(printf '%s\n' "$changed" | cut -f2-)"
             deletions="$(printf '%s\n' "$changed" | awk -F '\t' '$1 == "D" {print $2}')"
             if [ -n "$deletions" ] \
               && [ "$(printf '%s\n' "$paths" | wc -l)" -eq "$(printf '%s\n' "$deletions" | wc -l)" ] \
               && ! printf '%s\n' "$deletions" | grep -qv '^\.spec/features/'; then
-              skip=true
+              parent_sha="$(git rev-parse "${PR_HEAD}^" 2>/dev/null || true)"
+              if [ -n "$parent_sha" ] \
+                && python3 .github/scripts/verify_cleanup_predecessor.py "$parent_sha" "$PR_BRANCH"; then
+                skip=true
+              fi
             fi
           fi
           echo "skip=$skip" >> "$GITHUB_OUTPUT"
           if [ "$skip" = true ]; then
-            echo "Final .spec/features cleanup commit; validation jobs will skip."
+            echo "Final .spec/features cleanup commit follows green validation; validation jobs will skip."
           else
             echo "Full CI run."
           fi
@@ -388,9 +390,9 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
     steps:
-      - name: Skip heavy suite for spec-only change
+      - name: Skip validated suite for final spec cleanup
         if: needs.spec-only-change.outputs.skip == 'true'
-        run: echo "Spec-only change; skipping full test suite for Python ${{ matrix.python-version }}."
+        run: echo "Prior PR validation was green; skipping the unchanged full suite for Python ${{ matrix.python-version }}."
 
       - uses: actions/checkout@v4
         if: needs.spec-only-change.outputs.skip != 'true'
