@@ -13,15 +13,15 @@ import json
 
 import pytest
 
+from functualize._primitives.fresh_format import FRESH_FILENAME
 from functualize._primitives.scope_format import SCOPES_FILENAME
-from functualize._primitives.state_format import STATE_FILENAME
 
 
 @pytest.fixture
 def project(tmp_path):
     """A declared project with one blocked run and one fingerprint."""
     (tmp_path / ".functualize").mkdir()
-    (tmp_path / ".functualize" / STATE_FILENAME).write_text(
+    (tmp_path / ".functualize" / FRESH_FILENAME).write_text(
         json.dumps(
             {
                 "format_version": 1,
@@ -73,57 +73,63 @@ class TestClearKeepsRuns:
     """AC-7, AC-8. Clearing stale fingerprints used to destroy every blocked
     run, under help text naming only "fingerprints, history"."""
 
+    @pytest.mark.json_substrate
     def test_clear_keeps_scopes_and_says_so(self, cli_run, project) -> None:
-        result = cli_run(["builtin", "state", "clear"], cwd=project)
+        result = cli_run(["builtin", "data", "clear"], cwd=project)
         assert result.exit_code == 0
-        assert "Cleared fingerprints, history and session state." in result.stdout
+        assert "Cleared freshness verdicts and session state." in result.stdout
         assert "Kept 1 workflow scope" in result.stdout
         assert "--scopes" in result.stdout
 
+    @pytest.mark.json_substrate
     def test_the_blocked_run_is_still_there_afterwards(self, cli_run, project) -> None:
-        cli_run(["builtin", "state", "clear"], cwd=project)
+        cli_run(["builtin", "data", "clear"], cwd=project)
         listed = cli_run(["builtin", "workflow", "list"], cwd=project)
         assert "rel-1" in listed.stdout
 
     def test_the_recorded_gate_payload_survives(self, cli_run, project) -> None:
-        cli_run(["builtin", "state", "clear"], cwd=project)
+        cli_run(["builtin", "data", "clear"], cwd=project)
         raw = json.loads((project / ".functualize" / SCOPES_FILENAME).read_text())
         assert raw["scopes"]["rel-1"]["gates"]["approve"]["payload"] == {"by": "sam"}
 
+    @pytest.mark.json_substrate
     def test_derived_state_really_is_cleared(self, cli_run, project) -> None:
-        cli_run(["builtin", "state", "clear"], cwd=project)
-        raw = json.loads((project / ".functualize" / STATE_FILENAME).read_text())
+        cli_run(["builtin", "data", "clear"], cwd=project)
+        raw = json.loads((project / ".functualize" / FRESH_FILENAME).read_text())
         assert raw["fingerprints"] == {}
 
+    @pytest.mark.json_substrate
     def test_singular_and_plural_are_both_right(self, cli_run, project) -> None:
         raw = json.loads((project / ".functualize" / SCOPES_FILENAME).read_text())
         raw["scopes"]["rel-2"] = dict(raw["scopes"]["rel-1"])
         (project / ".functualize" / SCOPES_FILENAME).write_text(json.dumps(raw))
-        result = cli_run(["builtin", "state", "clear"], cwd=project)
+        result = cli_run(["builtin", "data", "clear"], cwd=project)
         assert "Kept 2 workflow scopes" in result.stdout
 
 
 class TestClearWithScopes:
     """AC-9. The deliberate discard, and it stays recoverable."""
 
+    @pytest.mark.json_substrate
     def test_scopes_flag_clears_them_and_reports_where_they_went(
         self, cli_run, project
     ) -> None:
-        result = cli_run(["builtin", "state", "clear", "--scopes"], cwd=project)
+        result = cli_run(["builtin", "data", "clear", "--scopes"], cwd=project)
         assert result.exit_code == 0
         assert "Cleared 1 workflow scope" in result.stdout
         assert "Moved aside to:" in result.stdout
 
+    @pytest.mark.json_substrate
     def test_a_discarded_run_is_moved_aside_not_deleted(self, cli_run, project) -> None:
-        cli_run(["builtin", "state", "clear", "--scopes"], cwd=project)
+        cli_run(["builtin", "data", "clear", "--scopes"], cwd=project)
         backup = project / ".functualize" / (SCOPES_FILENAME + ".bak")
         assert backup.exists()
         raw = json.loads(backup.read_text())
         assert raw["scopes"]["rel-1"]["gates"]["approve"]["payload"] == {"by": "sam"}
 
     def test_afterwards_there_are_no_scopes(self, cli_run, project) -> None:
-        cli_run(["builtin", "state", "clear", "--scopes"], cwd=project)
-        shown = cli_run(["builtin", "state", "show"], cwd=project)
+        cli_run(["builtin", "data", "clear", "--scopes"], cwd=project)
+        shown = cli_run(["builtin", "data", "show"], cwd=project)
         assert "Scopes: 0" in shown.stdout
 
 
@@ -131,11 +137,11 @@ class TestHelpNamesWhatItTouches:
     """AC-10. The help text is the whole reason the old behaviour was a trap."""
 
     def test_group_help_names_scopes(self, cli_run, project) -> None:
-        result = cli_run(["builtin", "state", "--help"], cwd=project)
+        result = cli_run(["builtin", "data", "--help"], cwd=project)
         assert "workflow scopes" in result.stdout
 
     def test_clear_help_names_the_scopes_flag(self, cli_run, project) -> None:
-        result = cli_run(["builtin", "state", "clear", "--help"], cwd=project)
+        result = cli_run(["builtin", "data", "clear", "--help"], cwd=project)
         assert "--scopes" in result.stdout
         assert "kept unless --scopes" in result.stdout.replace("\n", " ")
 
@@ -143,8 +149,9 @@ class TestHelpNamesWhatItTouches:
 class TestShowReportsBothStores:
     """AC-11."""
 
+    @pytest.mark.json_substrate
     def test_show_reports_the_scope_path_and_version(self, cli_run, project) -> None:
-        result = cli_run(["builtin", "state", "show"], cwd=project)
+        result = cli_run(["builtin", "data", "show"], cwd=project)
         assert result.exit_code == 0
         assert SCOPES_FILENAME in result.stdout
         assert "Scopes format: v" in result.stdout
@@ -158,6 +165,7 @@ class TestShowReportsBothStores:
 class TestUnreadableStoreRefuses:
     """AC-4, AC-6. Never an empty list and exit 0."""
 
+    @pytest.mark.json_substrate
     def test_workflow_list_refuses_with_exit_2(self, cli_run, project) -> None:
         _poison(project)
         result = cli_run(["builtin", "workflow", "list"], cwd=project)
@@ -171,11 +179,13 @@ class TestUnreadableStoreRefuses:
         assert "hunter2-SECRET" not in result.stderr
         assert "hunter2-SECRET" not in result.stdout
 
+    @pytest.mark.json_substrate
     def test_the_refusal_names_the_escape_hatch(self, cli_run, project) -> None:
         _poison(project)
         result = cli_run(["builtin", "workflow", "list"], cwd=project)
-        assert "func builtin state clear --scopes" in result.stderr
+        assert "func builtin data clear --scopes" in result.stderr
 
+    @pytest.mark.json_substrate
     @pytest.mark.parametrize(
         "argv",
         [
@@ -191,6 +201,7 @@ class TestUnreadableStoreRefuses:
         _poison(project)
         assert cli_run(argv, cwd=project).exit_code == 2
 
+    @pytest.mark.json_substrate
     def test_refusing_is_repeatable_and_leaves_the_file(self, cli_run, project) -> None:
         """If the read moved the file aside, run two would find nothing, read
         it as "no scopes", and start the workflow over."""
@@ -204,22 +215,29 @@ class TestUnreadableStoreRefuses:
 class TestShowDiagnosesRatherThanDies:
     """R-b: `show` is the command someone runs to find out what is wrong."""
 
+    @pytest.mark.json_substrate
     def test_show_still_reports_every_other_statistic(self, cli_run, project) -> None:
         _poison(project)
-        result = cli_run(["builtin", "state", "show"], cwd=project)
+        result = cli_run(["builtin", "data", "show"], cwd=project)
         assert "Fingerprints: 1" in result.stdout
-        assert "History entries: 0" in result.stdout
-        assert "State path:" in result.stdout
+        # `History entries` left this command with `durable-run-layer`/T3b:
+        # `state.json` no longer holds history, and reporting a count of
+        # something the file does not hold would be a lie in the one command a
+        # user runs to find out what is wrong. What remains is asserted above.
+        assert "Fingerprints:" in result.stdout
+        assert "Freshness path:" in result.stdout
 
+    @pytest.mark.json_substrate
     def test_show_renders_the_scope_line_as_the_fault(self, cli_run, project) -> None:
         _poison(project)
-        result = cli_run(["builtin", "state", "show"], cwd=project)
+        result = cli_run(["builtin", "data", "show"], cwd=project)
         assert "unreadable" in result.stdout
         assert "found version 99" in result.stdout
 
+    @pytest.mark.json_substrate
     def test_show_still_exits_2(self, cli_run, project) -> None:
         _poison(project)
-        assert cli_run(["builtin", "state", "show"], cwd=project).exit_code == 2
+        assert cli_run(["builtin", "data", "show"], cwd=project).exit_code == 2
 
 
 class TestEscapeHatchWorksOnAnUnreadableStore:
@@ -228,15 +246,16 @@ class TestEscapeHatchWorksOnAnUnreadableStore:
 
     def test_clear_scopes_recovers_an_unreadable_store(self, cli_run, project) -> None:
         _poison(project)
-        result = cli_run(["builtin", "state", "clear", "--scopes"], cwd=project)
+        result = cli_run(["builtin", "data", "clear", "--scopes"], cwd=project)
         assert result.exit_code == 0
         assert cli_run(["builtin", "workflow", "list"], cwd=project).exit_code == 0
 
+    @pytest.mark.json_substrate
     def test_clear_without_scopes_says_it_could_not_read_them(
         self, cli_run, project
     ) -> None:
         _poison(project)
-        result = cli_run(["builtin", "state", "clear"], cwd=project)
+        result = cli_run(["builtin", "data", "clear"], cwd=project)
         assert result.exit_code == 0
         assert "could not be read" in result.stdout
 
@@ -282,6 +301,7 @@ class TestRunningAWorkflowJobRefuses:
     def wf_project(self, project_tree):
         return project_tree(jobs={"release.py": WORKFLOW_JOB})
 
+    @pytest.mark.json_substrate
     def test_cold_cache_refuses(self, cli_run, wf_project) -> None:
         """First invocation in a project: the eager path in click_params."""
         (wf_project / ".functualize").mkdir(exist_ok=True)
@@ -290,6 +310,7 @@ class TestRunningAWorkflowJobRefuses:
         assert result.exit_code == 2
         assert "cannot be read" in result.stderr
 
+    @pytest.mark.json_substrate
     def test_warm_cache_refuses_too(self, cli_run, wf_project) -> None:
         """Second invocation: the lazy path in lazy_command, built from the
         cached descriptor. This is the one a sabotage check found uncovered."""

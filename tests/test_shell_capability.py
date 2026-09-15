@@ -15,6 +15,7 @@ from functualize._events.bus import EventBus
 from functualize._events.hooks import HookRegistry
 from functualize.job import Shell, ShellError, ShellResult
 from functualize.testing import FakeShell
+from tests._support.engine_run import run_job
 
 
 @pytest.fixture
@@ -132,12 +133,22 @@ class TestShellProgram:
                 assert (key, section) == ("program", "shell")
                 return type("R", (), {"value": "/bin/bash"})()
 
+        class _Host:
+            """The host surface this needs: a chain to resolve against.
+
+            The engine reads it through its host; it used to be handed one and
+            have it written into later (`run-model/05-engine-seal.md`).
+            """
+
+            def resolution_chain(self):
+                return _Chain()
+
         engine = JobExecutionEngine(
             di_registry=MagicMock(),
             hook_registry=HookRegistry(),
             middleware_chain=MagicMock(has_middleware=False),
             event_bus=EventBus(),
-            resolution_chain=_Chain(),
+            host=_Host(),
         )
         assert engine._resolve_shell_program() == "/bin/bash"
 
@@ -311,8 +322,122 @@ class TestDIInjection:
             return sh(["echo", "injected"]).stdout.strip()
 
         engine = self._engine()
-        result = engine.execute("my_job", my_job, kwargs={})
+        result = run_job(engine, "my_job", my_job, kwargs={})
 
         assert isinstance(captured["sh"], Shell)
         assert isinstance(captured["sh"], WiredShell)
         assert result.return_value == "injected"
+
+
+class TestFakeShellCoversTheScopingSurface:
+    """A test double is only a stand-in for the surface it covers.
+
+    `FakeShell` had `__call__` and `sudo`. It did not have `cd`, `prefix`,
+    `defer` or `run_deferred` — so a job written with the documented
+    `with sh.cd(...)` idiom could not be unit-tested with it at all. That went
+    unnoticed because the `Shell` protocol was missing the same four (adj §4):
+    `isinstance(FakeShell(), Shell)` was True because the protocol asked for
+    almost nothing. Widening the protocol turned that assertion red, which is
+    how the gap in the double was found.
+    """
+
+    def test_cd_records_where_the_command_ran(self) -> None:
+        fake = FakeShell({"pwd": ShellResult(0, "/tmp\n", "", "pwd", 1.0)})
+
+        with fake.cd("/tmp"):
+            fake("pwd")
+
+        assert fake.calls[0].kwargs["cwd"] == "/tmp"
+
+    def test_cd_nests(self) -> None:
+        fake = FakeShell({"pwd": ShellResult(0, "", "", "pwd", 1.0)})
+
+        with fake.cd("/srv"), fake.cd("app"):
+            fake("pwd")
+
+        assert fake.calls[0].kwargs["cwd"] == "/srv/app"
+
+    def test_an_explicit_cwd_still_wins(self) -> None:
+        """Same precedence as the real shell: per-call beats the block."""
+        fake = FakeShell({"pwd": ShellResult(0, "", "", "pwd", 1.0)})
+
+        with fake.cd("/tmp"):
+            fake("pwd", cwd="/elsewhere")
+
+        assert fake.calls[0].kwargs["cwd"] == "/elsewhere"
+
+    def test_no_cd_block_leaves_cwd_alone(self) -> None:
+        """The falsifier for the three above: a fake that always stamped a
+        `cwd` would pass them and change every existing test's recorded call."""
+        fake = FakeShell({"pwd": ShellResult(0, "", "", "pwd", 1.0)})
+
+        fake("pwd")
+
+        assert "cwd" not in fake.calls[0].kwargs
+
+    def test_prefix_is_applied_before_matching(self) -> None:
+        """The mapping key is what the real shell would run.
+
+        Applying the prefix only to the recording would let a test pass
+        against a command that never ran — the fake's whole job is to make
+        that impossible.
+        """
+        fake = FakeShell(
+            {"poetry run pytest": ShellResult(0, "", "", "poetry run pytest", 1.0)}
+        )
+
+        with fake.prefix(["poetry", "run"]):
+            fake(["pytest"])
+
+        assert fake.calls[0].argv == ["poetry", "run", "pytest"]
+
+    def test_an_unprefixed_command_does_not_match_a_prefixed_key(self) -> None:
+        fake = FakeShell(
+            {"poetry run pytest": ShellResult(0, "", "", "poetry run pytest", 1.0)}
+        )
+
+        with pytest.raises(AssertionError, match="unexpected command"):
+            fake(["pytest"])
+
+    def test_defer_queues_without_running(self) -> None:
+        """A job can be asserted on for *what* it registered, before cleanup."""
+        fake = FakeShell({"rm -rf /tmp/x": ShellResult(0, "", "", "rm", 1.0)})
+
+        fake.defer("rm -rf /tmp/x")
+
+        assert fake.deferred == ["rm -rf /tmp/x"]
+        assert fake.calls == []
+
+    def test_run_deferred_runs_them_lifo(self) -> None:
+        fake = FakeShell(
+            {
+                "first": ShellResult(0, "", "", "first", 1.0),
+                "second": ShellResult(0, "", "", "second", 1.0),
+            }
+        )
+        fake.defer("first")
+        fake.defer("second")
+
+        fake.run_deferred()
+
+        assert [call.command for call in fake.calls] == ["second", "first"]
+        assert fake.deferred == []
+
+    def test_a_failing_cleanup_does_not_raise(self) -> None:
+        """`check=False` by default, like the engine's own unwind: a cleanup
+        that fails must not mask the job's outcome."""
+        fake = FakeShell({"cleanup": ShellResult(1, "", "boom", "cleanup", 1.0)})
+        fake.defer("cleanup")
+
+        fake.run_deferred()
+
+        assert fake.calls[0].command == "cleanup"
+
+    def test_an_unmapped_cleanup_is_still_loud(self) -> None:
+        """Unlike the real unwind. A fake that swallowed an unmapped cleanup
+        would be a fake nothing can be asserted against."""
+        fake = FakeShell()
+        fake.defer("never-mapped")
+
+        with pytest.raises(AssertionError, match="unexpected command"):
+            fake.run_deferred()

@@ -25,7 +25,7 @@ from functualize._app.state import AppState
 from functualize._engine.capabilities.log import Log
 from functualize._engine.capabilities.runcontext import RunContext
 from functualize._primitives.di import DIRegistry
-from functualize.app.core import FunctualizeApp
+from functualize.app.core import FunctualizeApp, request_for
 from functualize.job import job
 from functualize.testing import CapturingLog
 
@@ -233,7 +233,7 @@ class TestOneSinkPerInvocation:
 
         app = FunctualizeApp(name="logsink")
         app.register_dynamic_job("emit", emit)
-        app.execute("emit")
+        app.execute(request_for("emit"))
 
         assert seen["sink"] is seen["param"], (
             "rc.log() and the `log: Log` parameter resolved to different sinks"
@@ -251,7 +251,7 @@ class TestOneSinkPerInvocation:
         app.register_dynamic_job("emit", emit)
 
         with caplog.at_level(logging.DEBUG, logger="functualize.job.emit"):
-            app.execute("emit")
+            app.execute(request_for("emit"))
 
         messages = [
             r.message for r in caplog.records if r.name == "functualize.job.emit"
@@ -271,7 +271,7 @@ class TestOneSinkPerInvocation:
         app.register_dynamic_job("quiet", quiet)
 
         with caplog.at_level(logging.DEBUG, logger="functualize.job.quiet"):
-            app.execute("quiet")
+            app.execute(request_for("quiet"))
 
         messages = [
             r.message for r in caplog.records if r.name == "functualize.job.quiet"

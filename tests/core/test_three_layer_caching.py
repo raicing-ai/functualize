@@ -128,7 +128,7 @@ class TestLayer2Invalidation:
 
         # Create a simple provider
         new_provider = StaticProvider([extra])
-        app.add_job_provider(new_provider)
+        app.extensions.add_job_provider(new_provider)
 
         second = app.get_jobs()
 
@@ -161,7 +161,7 @@ class TestLayer2Invalidation:
             ) -> JobDescriptor | None:
                 return descriptor
 
-        app.add_job_transform(NoopTransform())
+        app.extensions.add_job_transform(NoopTransform())
 
         second = app.get_jobs()
 
@@ -184,7 +184,7 @@ class TestLayer2Invalidation:
         first = app.get_jobs()
 
         # Invalidate
-        app.add_job_provider(StaticProvider([extra]))
+        app.extensions.add_job_provider(StaticProvider([extra]))
 
         # New memo should be established
         second = app.get_jobs()
@@ -262,7 +262,7 @@ class TestLayer3AlwaysActive:
         plan_before = engine._get_resolution_plan(deploy)
 
         # Mutate the job list (which invalidates Layer 2 but NOT Layer 3)
-        app.add_job_provider(StaticProvider([extra]))
+        app.extensions.add_job_provider(StaticProvider([extra]))
 
         # Layer 3 cache is NOT invalidated
         plan_after = engine._get_resolution_plan(deploy)

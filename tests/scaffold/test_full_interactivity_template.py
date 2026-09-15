@@ -275,39 +275,39 @@ class TestFullInteractivityContent:
             assert stale not in source
 
     def test_interactive_job_has_prompt_confirm(self, full_project):
-        """interactive_job.py demonstrates rc.prompt_confirm() (R4-AC5)."""
+        """interactive_job.py demonstrates rc.prompts.confirm() (R4-AC5)."""
         source = (
             full_project / "src" / "my_app" / "jobs" / "interactive_job.py"
         ).read_text()
-        assert "prompt_confirm" in source
+        assert "rc.prompts.confirm(" in source
 
     def test_interactive_job_has_prompt_choice(self, full_project):
-        """interactive_job.py demonstrates rc.prompt_choice() (R4-AC5)."""
+        """interactive_job.py demonstrates rc.prompts.choice() (R4-AC5)."""
         source = (
             full_project / "src" / "my_app" / "jobs" / "interactive_job.py"
         ).read_text()
-        assert "prompt_choice" in source
+        assert "rc.prompts.choice(" in source
 
     def test_interactive_job_has_prompt_text(self, full_project):
-        """interactive_job.py demonstrates rc.prompt_text() (R4-AC5)."""
+        """interactive_job.py demonstrates rc.prompts.text() (R4-AC5)."""
         source = (
             full_project / "src" / "my_app" / "jobs" / "interactive_job.py"
         ).read_text()
-        assert "prompt_text" in source
+        assert "rc.prompts.text(" in source
 
     def test_workflow_job_has_track_phase(self, full_project):
-        """workflow_job.py demonstrates rc.track_phase() (R4-AC5)."""
+        """workflow_job.py demonstrates rc.events.track_phase() (R4-AC5)."""
         source = (
             full_project / "src" / "my_app" / "jobs" / "workflow_job.py"
         ).read_text()
         assert "track_phase" in source
 
     def test_events_job_has_emit(self, full_project):
-        """events_job.py demonstrates rc.emit() (R4-AC5)."""
+        """events_job.py demonstrates rc.events.emit() (R4-AC5)."""
         source = (
             full_project / "src" / "my_app" / "jobs" / "events_job.py"
         ).read_text()
-        assert "rc.emit(" in source
+        assert "rc.events.emit(" in source
 
     def test_readme_has_configuration_section(self, full_project):
         """README.md has a Configuration section (R5-AC2)."""

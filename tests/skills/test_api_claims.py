@@ -7,7 +7,7 @@ and wrong against a surface that no longer exists.
 
 Three of the four checks below already caught live drift when first written —
 a capability table calling per-invocation `State` "persistence across runs", a
-`--output` vocabulary missing its default, and testing doubles documented with
+`--emit-format` vocabulary missing its default, and testing doubles documented with
 attributes they do not have.
 """
 
@@ -18,8 +18,8 @@ import re
 import pytest
 
 from functualize._cli.builtins import BUILTIN_COMMANDS, BUILTIN_ROOT
-from functualize._cli.dispatch import _OPTIONAL_VALUE_VALID_SET
 from functualize._cli.scaffold.registry import TEMPLATES
+from functualize.types import OPTIONAL_VALUE_VALID_SET
 
 from .conftest import SKILLS_ROOT, backticked, markdown_files
 
@@ -35,6 +35,11 @@ PUBLIC_MODULES = (
     "functualize.app",
     "functualize.app.utils",
     "functualize.types",
+    # Plugin-author surface. The skills document writing an agent step
+    # executor, which names `AgentCapability`, `AgentStepContext` and
+    # `AgentStepResult` — all exported here and nowhere else, so without this
+    # entry a correct reference reads as an invented name.
+    "functualize.plugin",
 )
 
 #: Backticked CamelCase spans that are legitimately not functualize API.
@@ -73,6 +78,23 @@ def _public_names() -> set[str]:
         module = importlib.import_module(dotted)
         names |= {n for n in getattr(module, "__all__", ()) if not n.startswith("_")}
     return names
+
+
+def _resolve_public_names() -> dict[str, object]:
+    """Every public export, as ``name -> the object itself``.
+
+    `_public_names` returns the spellings; the attribute check needs the
+    objects behind them.
+    """
+    import importlib
+
+    resolved: dict[str, object] = {}
+    for dotted in PUBLIC_MODULES:
+        module = importlib.import_module(dotted)
+        for name in getattr(module, "__all__", ()):
+            if not name.startswith("_"):
+                resolved.setdefault(name, getattr(module, name, None))
+    return resolved
 
 
 def _capability_types_from_engine() -> set[str]:
@@ -130,6 +152,111 @@ def test_capability_table_matches_the_engine():
     )
 
 
+#: Attributes the capability table lists that do **not** belong to the type in
+#: its first column, with what they do belong to. Each is a real member of a
+#: real object; the table's third column is prose about how the capability is
+#: used, and a handle returned by one of its methods legitimately appears there.
+_ATTRIBUTES_OF_SOMETHING_ELSE = {
+    ("Live", "update"): "the handle `Live.add`/`Live.panel` returns",
+    ("Live", "push"): "the handle `Live.add`/`Live.panel` returns",
+    ("Live", "remove"): "the handle `Live.add`/`Live.panel` returns",
+}
+
+
+def _documented_capability_attributes() -> list[tuple[str, str]]:
+    """``(type name, attribute)`` for every ``.member`` the table advertises."""
+    claims: list[tuple[str, str]] = []
+    in_section = False
+    for line in CAPABILITIES_TABLE.read_text(encoding="utf-8").splitlines():
+        if line.startswith("## "):
+            in_section = line.strip() == CAPABILITY_SECTION
+            continue
+        if not in_section:
+            continue
+        row = re.match(r"^\|\s*`(\w+)`\s*\|(.*)\|(.*)\|\s*$", line)
+        if row is None:
+            continue
+        type_name, _, described = row.groups()
+        for attribute in sorted(set(re.findall(r"`\.(\w+)", described))):
+            claims.append((type_name, attribute))
+    return claims
+
+
+def _members_of(obj: object) -> set[str]:
+    """Every name the type offers, including dataclass fields.
+
+    A frozen dataclass's fields are not class attributes unless they carry a
+    default, so `hasattr(JobContext, "name")` is False for a field that is
+    plainly part of the API. Read the field list as well as the class.
+    """
+    import dataclasses
+
+    members = {name for name in dir(obj) if not name.startswith("_")}
+    if dataclasses.is_dataclass(obj):
+        members |= {field.name for field in dataclasses.fields(obj)}
+    protocol_members = getattr(obj, "__protocol_attrs__", None)
+    if protocol_members:
+        members |= set(protocol_members)
+    return members
+
+
+def test_documented_capability_attributes_exist():
+    """Every `.member` the capability table advertises is on its type.
+
+    `test_capability_table_matches_the_engine` checks the table's **first**
+    column — which capabilities exist. Nothing checked the third, so
+    `JobContext` was advertised with a `.deadline` that `adjacent-defects` T3
+    had deleted, in a file that ships inside the wheel and that `AGENTS.md`
+    says is a checkable claim (adj §4).
+
+    Writing this found a second one, pointing the other way: `Shell` documented
+    `.cd`, `.prefix`, `.defer`, `.run_deferred` and `.sudo` that existed on the
+    implementation and **not on the protocol a job annotates**, so a job
+    written exactly as documented failed `mypy --strict`. The doc was right and
+    the type was wrong.
+    """
+    resolved = _resolve_public_names()
+    missing: list[str] = []
+    for type_name, attribute in _documented_capability_attributes():
+        if (type_name, attribute) in _ATTRIBUTES_OF_SOMETHING_ELSE:
+            continue
+        target = resolved.get(type_name)
+        if target is None:
+            continue  # `test_no_invented_public_names` owns this failure
+        if attribute not in _members_of(target):
+            missing.append(f"{type_name}.{attribute}")
+
+    assert not missing, (
+        f"the capability table advertises members that do not exist: {missing}. "
+        f"Remove them, or add them to the public type — this file ships inside "
+        f"the wheel, so a wrong name here is a wrong name an agent will use."
+    )
+
+
+def test_the_exemptions_are_still_documented_somewhere():
+    """An exemption for an attribute the table no longer mentions is an excuse
+    left behind for a claim nobody makes."""
+    claimed = set(_documented_capability_attributes())
+
+    stale = sorted(
+        f"{t}.{a}" for t, a in _ATTRIBUTES_OF_SOMETHING_ELSE if (t, a) not in claimed
+    )
+
+    assert not stale, (
+        f"_ATTRIBUTES_OF_SOMETHING_ELSE exempts members the capability table "
+        f"no longer advertises: {stale}"
+    )
+
+
+def test_the_attribute_scan_actually_finds_claims():
+    """The falsifier. An empty scan passes both tests above vacuously."""
+    claims = _documented_capability_attributes()
+
+    assert len(claims) > 20, len(claims)
+    assert ("Log", "info") in claims
+    assert ("JobContext", "trace_id") in claims
+
+
 @pytest.mark.parametrize(
     "path", markdown_files(), ids=lambda p: str(p.relative_to(SKILLS_ROOT))
 )
@@ -157,21 +284,21 @@ def test_no_invented_public_names(path):
 
 
 def test_documented_output_values_match_the_flag():
-    """The `--output` vocabulary in prose is the one dispatch accepts."""
-    valid, default = _OPTIONAL_VALUE_VALID_SET["--output"]
+    """The `--emit-format` vocabulary in prose is the one dispatch accepts."""
+    valid, default = OPTIONAL_VALUE_VALID_SET["--emit-format"]
     text = "\n".join(p.read_text(encoding="utf-8") for p in markdown_files())
 
     # Wherever the skills enumerate the vocabulary, the default must be in it —
     # omitting `auto` was the original drift, and it is the value most callers
     # actually get.
     assert default in valid
-    mentions = re.findall(r"`--output`[^\n]*", text)
-    assert mentions, "no skill documents --output any more — intended?"
+    mentions = re.findall(r"`--emit-format`[^\n]*", text)
+    assert mentions, "no skill documents --emit-format any more — intended?"
     enumerations = [m for m in mentions if "json" in m and "ndjson" in m]
-    assert enumerations, "--output is mentioned but never enumerated"
+    assert enumerations, "--emit-format is mentioned but never enumerated"
     for line in enumerations:
         assert default in line, (
-            f"--output enumeration omits the default {default!r}: {line}"
+            f"--emit-format enumeration omits the default {default!r}: {line}"
         )
 
 

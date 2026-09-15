@@ -27,12 +27,32 @@ _extensions = st.text(
     max_size=6,
 ).map(lambda s: f".{s}")
 
+#: Identifiers that a **real installed plugin** owns. Generating one makes
+#: entry-point discovery legitimately override the stub this test registered,
+#: and the test then reports a defect that is the system working: the warning
+#: it produces says so — "Remote provider for identifier 'bws' overridden".
+#:
+#: Found by hypothesis generating `bws`, which `functualize-bitwarden` claims.
+#: Latent for as long as that plugin has been in the workspace; a property test
+#: whose generator can collide with the environment fails on a schedule nobody
+#: controls.
+#:
+#: Listed rather than derived from the live registry on purpose: reading the
+#: registry here would make the exclusion silently follow whatever happens to be
+#: installed, so a newly-claimed identifier would stop being tested instead of
+#: failing loudly and being added here.
+_PLUGIN_OWNED_IDENTIFIERS = frozenset({"bws"})
+
 # Strategy for valid remote provider identifiers (lowercase alpha + hyphens)
-_identifiers = st.text(
-    alphabet=st.characters(whitelist_categories=("Ll",), whitelist_characters="-"),
-    min_size=1,
-    max_size=10,
-).filter(lambda s: s[0].isalpha() and not s.endswith("-"))
+_identifiers = (
+    st.text(
+        alphabet=st.characters(whitelist_categories=("Ll",), whitelist_characters="-"),
+        min_size=1,
+        max_size=10,
+    )
+    .filter(lambda s: s[0].isalpha() and not s.endswith("-"))
+    .filter(lambda s: s not in _PLUGIN_OWNED_IDENTIFIERS)
+)
 
 
 # --- Test helpers ---

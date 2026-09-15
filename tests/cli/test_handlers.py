@@ -23,8 +23,9 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from functualize._cli.main import _fuzzy_suggest, _handle_unknown
+from functualize._cli.main import _handle_unknown
 from functualize._types.descriptors import JobDescriptor
+from functualize.app.utils import suggest_similar_commands as _fuzzy_suggest
 
 # Patch targets for _handle_bare — uses local imports from these modules
 _PATCH_RESOLVE = "functualize._cli.config.resolve_cli_config"
@@ -64,7 +65,12 @@ def _mock_cli_config() -> MagicMock:
 
 
 class TestFuzzySuggest:
-    """Tests for _fuzzy_suggest() suggestion algorithm."""
+    """The scoring algorithm, imported under its old name.
+
+    `func` and the app entry point now call one function
+    (`app.utils.suggest_similar_commands`); these cases were written against
+    `func`'s copy and are kept as-is, because the union implementation must
+    not have lost any of them."""
 
     def test_typo_suggests_close_match(self) -> None:
         """deply is Levenshtein <= 2 from deploy -> suggested."""

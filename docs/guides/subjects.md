@@ -122,7 +122,7 @@ class SubjectsPlugin:
                     name=f"{cls.group}.{verb}",
                     group=cls.group,
                 ))
-        app.add_job_provider(StaticProvider(jobs))
+        app.extensions.add_job_provider(StaticProvider(jobs))
 
 
 app = FunctualizeApp(

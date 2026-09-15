@@ -18,9 +18,9 @@ from typing import Annotated
 import pytest
 from pydantic import BaseModel, Field
 
-from functualize._types.naming import negative_flag_for
 from functualize.app.adapters.click_params import build_click_params
 from functualize.job import Log, Option
+from functualize.types import negative_flag_for
 
 
 class AllShapes(BaseModel):

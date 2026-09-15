@@ -20,9 +20,9 @@ def health_check(rc: RunContext) -> str:
     services = ["auth", "billing"]
     results = []
     for svc in services:
-        rc.track_phase(f"check-{svc}", f"Checking {svc}", RunStatus.RUNNING)
+        rc.events.track_phase(f"check-{svc}", f"Checking {svc}", RunStatus.RUNNING)
         rc.log(f"  {svc}: healthy ✓")
-        rc.track_phase(f"check-{svc}", f"{svc} OK", RunStatus.SUCCESS)
+        rc.events.track_phase(f"check-{svc}", f"{svc} OK", RunStatus.SUCCESS)
         results.append(f"{svc}=ok")
 
     summary = ", ".join(results)

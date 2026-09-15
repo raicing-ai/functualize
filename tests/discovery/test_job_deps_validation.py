@@ -129,7 +129,7 @@ class TestValidationCoversEveryRegistrationPath:
 
     def test_a_dynamically_registered_job_is_validated(self) -> None:
         from functualize._app.state import AppState
-        from functualize.app.core import FunctualizeApp
+        from functualize.app.core import FunctualizeApp, request_for
         from functualize.job import Deps, job
 
         AppState.reset()
@@ -144,7 +144,7 @@ class TestValidationCoversEveryRegistrationPath:
             with pytest.raises(
                 JobDependencyError, match="unknown job 'does_not_exist'"
             ):
-                app.execute("broken")
+                app.execute(request_for("broken"))
         finally:
             AppState.reset()
 

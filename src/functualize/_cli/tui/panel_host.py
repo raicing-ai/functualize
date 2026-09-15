@@ -408,7 +408,7 @@ class PanelHost(Widget):
             sub_levels=tuple(self._breadcrumb_stack),
         )
         breadcrumb = self.query_one(".panel-host-breadcrumb", BreadcrumbHeader)
-        breadcrumb.update_state(state)
+        breadcrumb.update_fresh(state)
 
     def update_chrome_with_focus(self, focused: bool) -> None:
         """Update footer with focus-awareness.

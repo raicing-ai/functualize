@@ -11,9 +11,10 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from functualize.job._state_store import StateStore
+from functualize._engine.capabilities.state import ScopeBackedStateStore
 from functualize.job._workflow_scope import WorkflowScope
 from functualize.job.context import InvalidStateTransitionError
+from tests._state_support import new_state_store
 
 # --- Strategies ---
 
@@ -69,11 +70,11 @@ class TestWorkflowScopeLifecycle:
 
         **Validates: Requirements 7.2**
         """
-        scope = WorkflowScope(scope_id)
+        scope = WorkflowScope(scope_id, state_store=new_state_store(scope_id))
 
         assert scope.closed is False
         assert scope.scope_id == scope_id
-        assert isinstance(scope.state_store, StateStore)
+        assert isinstance(scope.state_store, ScopeBackedStateStore)
         assert scope.state_store.keys() == []
 
     @given(
@@ -92,7 +93,7 @@ class TestWorkflowScopeLifecycle:
 
         **Validates: Requirements 7.6**
         """
-        scope = WorkflowScope(scope_id)
+        scope = WorkflowScope(scope_id, state_store=new_state_store(scope_id))
 
         # Populate state before closing
         for key, value in items.items():
@@ -119,7 +120,7 @@ class TestWorkflowScopeLifecycle:
 
         **Validates: Requirements 7.6**
         """
-        scope = WorkflowScope(scope_id)
+        scope = WorkflowScope(scope_id, state_store=new_state_store(scope_id))
         scope.close()
 
         with pytest.raises(InvalidStateTransitionError, match="already closed"):
@@ -142,7 +143,7 @@ class TestWorkflowScopeLifecycle:
         def create_workflow_scope(sid: str) -> WorkflowScope:
             if sid in registry:
                 raise ValueError(f"Workflow scope with id '{sid}' already exists")
-            ws = WorkflowScope(sid)
+            ws = WorkflowScope(sid, state_store=new_state_store(sid))
             registry[sid] = ws
             return ws
 
@@ -171,7 +172,7 @@ class TestWorkflowScopeLifecycle:
         def create_workflow_scope(sid: str) -> WorkflowScope:
             if sid in registry:
                 raise ValueError(f"Workflow scope with id '{sid}' already exists")
-            ws = WorkflowScope(sid)
+            ws = WorkflowScope(sid, state_store=new_state_store(sid))
             registry[sid] = ws
             return ws
 
@@ -187,7 +188,7 @@ class TestWorkflowScopeLifecycle:
         # Retrieve and verify it's the same scope instance
         retrieved = get_workflow_scope(scope_id)
         assert retrieved is scope
-        assert retrieved.state_store.get(key, object) == value
+        assert retrieved.state_store.get(key) == value
 
         # Non-existent scope raises KeyError
         with pytest.raises(KeyError):
@@ -211,7 +212,9 @@ class TestWorkflowScopeMetadata:
 
         **Validates: Requirements 10.3**
         """
-        scope = WorkflowScope(scope_id, metadata=metadata)
+        scope = WorkflowScope(
+            scope_id, state_store=new_state_store(scope_id), metadata=metadata
+        )
         assert scope.metadata == metadata
 
     @given(scope_id=scope_ids)
@@ -220,7 +223,7 @@ class TestWorkflowScopeMetadata:
 
         **Validates: Requirements 10.3**
         """
-        scope = WorkflowScope(scope_id)
+        scope = WorkflowScope(scope_id, state_store=new_state_store(scope_id))
         assert scope.metadata == {}
         assert isinstance(scope.metadata, dict)
 
@@ -230,7 +233,9 @@ class TestWorkflowScopeMetadata:
 
         **Validates: Requirements 10.3**
         """
-        scope = WorkflowScope(scope_id, metadata=None)
+        scope = WorkflowScope(
+            scope_id, state_store=new_state_store(scope_id), metadata=None
+        )
         assert scope.metadata == {}
         assert isinstance(scope.metadata, dict)
 
@@ -243,7 +248,9 @@ class TestWorkflowScopeMetadata:
 
         **Validates: Requirements 10.3**
         """
-        scope = WorkflowScope(scope_id, metadata=metadata)
+        scope = WorkflowScope(
+            scope_id, state_store=new_state_store(scope_id), metadata=metadata
+        )
 
         # All keys from the input are present
         for key in metadata:

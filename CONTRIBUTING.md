@@ -355,12 +355,13 @@ straight after the merge is fine: the gate waits for the in-flight run (up to
 45 minutes, since the slow tier alone takes 20-24 on GitHub runners) rather
 than racing it.
 
-Two costs this flow deliberately avoids: the spec-clearing push that precedes
-the merge no longer re-runs the suite (`ci.yml`'s `spec-only-change` gate skips
-the heavy jobs when a push touches only `.spec/` — the whole directory, because
-clearing the artifacts and migrating the durable half to `.spec/STATUS.md` land
-in the same commit), and the version bump no longer pays for a separate prep
-PR's CI cycle — it shares the feature PR's.
+Two costs this flow deliberately avoids: after the feature-bearing PR commit
+passes the validation jobs, the final commit deleting only `.spec/features/`
+does not re-run them (`ci.yml` verifies the parent commit's PR run before
+skipping). Migrate durable knowledge to `.spec/STATUS.md` and `contributor/`
+before that final commit. A cleanup commit mixed with any other change runs
+the full suite. The version bump also shares the feature PR's CI cycle instead
+of paying for a separate prep PR.
 
 Two consequences worth knowing before tagging:
 
@@ -490,6 +491,17 @@ passing required check while `cancelled` blocks. Cancelling a run would
 otherwise satisfy every gated context with nothing executed. `spec-only-change`
 carries no `if:`, so it reports `cancelled` and holds the merge. Do not give
 that job a condition.
+
+Despite its historical name, `spec-only-change` now recognizes only the final
+deletion-only `.spec/features/` commit on a PR. It checks the parent commit's
+latest completed CI run and requires every validation job to have succeeded;
+the earlier run's overall conclusion is expected to be red solely because
+`spec-artifacts-cleared` refuses the still-present feature files. If the run
+cannot be found or a validation job is not green, the cleanup commit runs full
+CI. The three required `test-full` matrix contexts still appear on the final
+commit through inexpensive skip steps, while `spec-artifacts-cleared` runs and
+must pass. An empty `.spec/features/` directory by itself is not a skip signal:
+later code changes have not been covered by the previous run.
 
 Repository and organization admins can bypass the ruleset. Do not use it:
 every change — the version bump included — reaches `master` through a PR.

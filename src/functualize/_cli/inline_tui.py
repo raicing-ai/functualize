@@ -77,14 +77,14 @@ def launch_inline_tui(app: FunctualizeApp) -> int:
 
 
 def _capture_session_state(app: FunctualizeApp, tui: object) -> None:
-    """Save shell state into ``app.extension_state["orchestrator"]``.
+    """Save shell state into ``app.extensions.extension_state["orchestrator"]``.
 
     Kept small and entirely optional: a handoff that fails to capture state
     must still run the job. Anything already persisted by a store belongs
     there, not here.
     """
     try:
-        state = app.extension_state.setdefault("orchestrator", {})
+        state = app.extensions.extension_state.setdefault("orchestrator", {})
         bar = getattr(tui, "_smart_bar", None)
         state["last_command"] = getattr(bar, "value", "") or ""
         panel_host = getattr(tui, "_panel_host", None)
@@ -102,7 +102,7 @@ def _restore_session_state(app: FunctualizeApp, tui: object) -> None:
     nothing is mounted at this point.
     """
     try:
-        state = app.extension_state.get("orchestrator")
+        state = app.extensions.extension_state.get("orchestrator")
         if not state:
             return
         last_command = state.get("last_command") or ""
@@ -234,13 +234,22 @@ def _run_handoff(app: FunctualizeApp, tokens: list[str]) -> None:
     # token parser's `dict[str, str]` is widened where it stops being tokens.
     job_kwargs: dict[str, Any] = dict(kwargs)
 
+    # This is the terminal-released handoff door: the shell has stepped aside
+    # and the run owns the terminal, so the request names the tui.shell surface
+    # (run-request-entry T9). The in-panel worker (tui.job_execution
+    # execute_job_sync) is the tui.inline door.
+    from functualize.app.utils import RunRequest
+
+    request = RunRequest(
+        job_name=job_name,
+        surface="tui.shell",
+        kwargs=job_kwargs,
+        group_option_values=group_option_values or None,
+    )
+
     try:
         with live_ctx:
-            app.execute(
-                job_name,
-                group_option_values=group_option_values or None,
-                **job_kwargs,
-            )
+            app.execute(request)
     except Exception as exc:  # pragma: no cover - defensive; job errors surface
         print(f"Error running '{job_name}': {exc}", file=sys.stderr)
     finally:

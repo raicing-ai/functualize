@@ -49,19 +49,26 @@ class FakeApp:
     def __init__(self, jobs: dict[str, Any] | None = None):
         self._jobs = jobs or {}
 
-    def execute(self, job_name: str, **kwargs: Any) -> FakeJobResult:
+    def execute(self, request: Any) -> FakeJobResult:
+        """The facade signature as of run-request-entry T3.
+
+        The door hands over one RunRequest naming its surface, so the fake
+        records it and tests can assert the door identified itself.
+        """
+        self.last_request = request
+        job_name = request.job_name
         if job_name not in self._jobs:
             raise KeyError(f"Job '{job_name}' not found")
         handler = self._jobs[job_name]
-        result = handler(**kwargs)
+        result = handler(**dict(request.kwargs))
         return FakeJobResult(return_value=result, job_name=job_name)
 
 
 class FailingApp:
     """App that raises on execute for error path testing."""
 
-    def execute(self, job_name: str, **kwargs: Any) -> Any:
-        raise RuntimeError(f"Execution failed for '{job_name}'")
+    def execute(self, request: Any) -> Any:
+        raise RuntimeError(f"Execution failed for '{request.job_name}'")
 
 
 # =============================================================================
@@ -153,7 +160,7 @@ class TestLambdaAdapterFatLambda:
         adapter = LambdaAdapter()
         adapter(app)
 
-        result = adapter.run({"job": "greet", "kwargs": {"name": "lambda"}}, None)
+        result = adapter.run({"job": "greet", "arguments": {"name": "lambda"}}, None)
 
         assert result["statusCode"] == 200
         assert result["body"] == "hello lambda"
@@ -175,7 +182,7 @@ class TestLambdaAdapterFatLambda:
         adapter = LambdaAdapter()
         adapter(app)
 
-        result = adapter.run({"kwargs": {}}, None)
+        result = adapter.run({"arguments": {}}, None)
 
         assert result["statusCode"] == 400
         assert "job" in result["body"].lower()
@@ -273,7 +280,7 @@ class TestLambdaAdapterThinLambda:
         adapter(app)
 
         handler = adapter.make_handler("greet")
-        result = handler({"kwargs": {"name": "thin"}}, None)
+        result = handler({"arguments": {"name": "thin"}}, None)
 
         assert result["statusCode"] == 200
         assert result["body"] == "hi thin"
@@ -332,7 +339,7 @@ class TestLambdaAdapterThinLambda:
 
         handler = adapter.make_handler("deploy")
         # Even if event has a different job name, thin handler uses bound name
-        result = handler({"job": "other", "kwargs": {}}, None)
+        result = handler({"job": "other", "arguments": {}}, None)
 
         assert result["body"] == "deployed"
 

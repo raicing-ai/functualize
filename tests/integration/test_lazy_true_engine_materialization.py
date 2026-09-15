@@ -24,7 +24,7 @@ import pytest
 from functualize._discovery.lazy_wrapper import LazyJobFunction
 from functualize._primitives.di import DIValidationError
 from functualize.app.config import JobSources
-from functualize.app.core import FunctualizeApp
+from functualize.app.core import FunctualizeApp, request_for
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -103,7 +103,7 @@ class TestWarmBootZeroImportsAppLevel:
         assert isinstance(entry_b.function, LazyJobFunction)
 
         # Invoking ONE job imports exactly that one module
-        result = app_warm.execute("job-b", x=5)
+        result = app_warm.execute(request_for("job-b", x=5))
         assert result.return_value == 5
         after = {n: _imports(m) for n, m in markers.items()}
         assert after["job_b"] == cold_counts["job_b"] + 1
@@ -157,7 +157,7 @@ class TestInvokeConfigInjectionWarmPath:
             LazyJobFunction,
         )
 
-        result = app.execute("parent_job")
+        result = app.execute(request_for("parent_job"))
         assert result.exception is None, f"parent failed: {result.exception!r}"
         # Config model was detected at materialization and injected
         assert result.return_value == "dev"
@@ -196,7 +196,7 @@ class TestInvokeByCallableAppLevel:
         _purge_job_modules()
         app = _boot(jobs_dir)
 
-        result = app.execute("caller_job")
+        result = app.execute(request_for("caller_job"))
         assert result.exception is None, f"caller failed: {result.exception!r}"
         assert result.return_value == 8
 

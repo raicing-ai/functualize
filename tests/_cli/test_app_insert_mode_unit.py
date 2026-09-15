@@ -37,7 +37,7 @@ class MockSmartBar:
     def readiness(self) -> BarReadiness:
         return self._readiness
 
-    def save_state(self) -> None:
+    def save_fresh(self) -> None:
         self._saved = True
         self._saved_value = self.value
         self._saved_placeholder = self.placeholder
@@ -45,7 +45,7 @@ class MockSmartBar:
 
     def restore_state(self) -> None:
         if not self._saved:
-            raise RuntimeError("restore_state() called without prior save_state()")
+            raise RuntimeError("restore_state() called without prior save_fresh()")
         self.value = self._saved_value
         self.placeholder = self._saved_placeholder
         self._readiness = self._saved_readiness
@@ -93,7 +93,7 @@ class TestActionEnterInsertSavesBarState:
         return ctrl, fs, bar
 
     def test_action_enter_insert_saves_bar_state(self) -> None:
-        """Enter INSERT: save_state() called, enter_edit_mode() called, FocusState → INSERT."""
+        """Enter INSERT: save_fresh() called, enter_edit_mode() called, FocusState → INSERT."""
         ctrl, fs, bar = self._make_controller()
         # Must be in NORMAL mode (as the app would be after panel toggle)
         fs.force(FocusMode.NORMAL, FocusZone.PANEL)
@@ -105,7 +105,7 @@ class TestActionEnterInsertSavesBarState:
 
         # Verify successful entry
         assert result is True
-        # SmartBar.save_state() was called
+        # SmartBar.save_fresh() was called
         assert bar._saved is True
         assert bar._saved_value == original_value
         # SmartBar.enter_edit_mode() was called — bar now shows field value

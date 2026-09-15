@@ -28,6 +28,10 @@ from functualize._types.interactivity import (
 )
 from functualize._types.protocols import (
     AdapterPlugin,
+    AgentCapability,
+    AgentStepContext,
+    AgentStepExecutor,
+    AgentStepResult,
     FormatProvider,
     JobProvider,
     JobTransform,
@@ -98,6 +102,15 @@ __all__ = [
     "Source",
     "FormatProvider",
     "VaultKeyProvider",
+    # The agent step port. A step performed by an agent is an executor behind
+    # this Protocol; what an executor can enforce is declared, and a step that
+    # requires what the executor lacks is refused at validation rather than run
+    # with the constraint silently unenforced. Registration is an app method —
+    # nothing here is auto-discovered.
+    "AgentStepExecutor",
+    "AgentCapability",
+    "AgentStepContext",
+    "AgentStepResult",
     # Domain discovery
     "discover_domains",
     "scan_domain_providers",

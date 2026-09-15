@@ -57,6 +57,7 @@ INJECTED_PARAM_TYPE_NAMES: frozenset[str] = frozenset(
         "Stdout",
         "State",
         "Sources",
+        "Freshness",
         "JobContext",
         "JobConfigView",
         "TTY",

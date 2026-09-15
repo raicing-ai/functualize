@@ -27,7 +27,7 @@ def _app():
         """A job."""
 
     app = FunctualizeApp(name="t", job_sources=JobSources(functions=[alpha]))
-    app.register_plugin_command(
+    app.extensions.register_plugin_command(
         "serve", lambda port: None, help_text="Serve it", namespace="demo"
     )
     return app

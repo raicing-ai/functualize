@@ -65,11 +65,11 @@ def make_disabled_run_context(name: str) -> tuple[RunContext, PerfTimeline]:
 def execute_mark_operation(rc: RunContext, op: str, name: str) -> None:
     """Execute a mark operation on the RunContext."""
     if op == "perf_mark":
-        rc.perf_mark(name)
+        rc.events.perf_mark(name)
     elif op == "perf_mark_start":
-        rc.perf_mark_start(name)
+        rc.events.perf_mark_start(name)
     elif op == "perf_mark_end":
-        rc.perf_mark_end(name)
+        rc.events.perf_mark_end(name)
 
 
 # --- Property Tests ---
@@ -117,7 +117,7 @@ class TestDisabledTimelineNoOp:
         """
         rc, disabled_timeline = make_disabled_run_context(job_name)
 
-        rc.perf_mark(mark_name)
+        rc.events.perf_mark(mark_name)
 
         report = disabled_timeline.report()
         assert report.marks == []
@@ -134,7 +134,7 @@ class TestDisabledTimelineNoOp:
         """
         rc, disabled_timeline = make_disabled_run_context(job_name)
 
-        rc.perf_mark_start(mark_name)
+        rc.events.perf_mark_start(mark_name)
 
         report = disabled_timeline.report()
         assert report.marks == []
@@ -151,7 +151,7 @@ class TestDisabledTimelineNoOp:
         """
         rc, disabled_timeline = make_disabled_run_context(job_name)
 
-        rc.perf_mark_end(mark_name)
+        rc.events.perf_mark_end(mark_name)
 
         report = disabled_timeline.report()
         assert report.marks == []

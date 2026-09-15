@@ -54,22 +54,22 @@ class TestValidateMarkName:
     def test_empty_name_raises(self, rc: RunContext) -> None:
         """Empty string raises ValueError."""
         with pytest.raises(ValueError, match="non-empty string"):
-            rc._validate_mark_name("")
+            rc.events._validate_mark_name("")
 
     def test_name_over_256_chars_raises(self, rc: RunContext) -> None:
         """Name exceeding 256 characters raises ValueError."""
         long_name = "a" * 257
         with pytest.raises(ValueError, match="at most 256 characters"):
-            rc._validate_mark_name(long_name)
+            rc.events._validate_mark_name(long_name)
 
     def test_name_exactly_256_chars_valid(self, rc: RunContext) -> None:
         """Name of exactly 256 characters is valid."""
         name = "a" * 256
-        rc._validate_mark_name(name)  # Should not raise
+        rc.events._validate_mark_name(name)  # Should not raise
 
     def test_normal_name_valid(self, rc: RunContext) -> None:
         """Normal name passes validation."""
-        rc._validate_mark_name("my-phase")  # Should not raise
+        rc.events._validate_mark_name("my-phase")  # Should not raise
 
 
 class TestPerfMark:
@@ -79,7 +79,7 @@ class TestPerfMark:
         self, rc: RunContext, timeline: PerfTimeline
     ) -> None:
         """perf_mark records mark prefixed with job name."""
-        rc.perf_mark("my-event")
+        rc.events.perf_mark("my-event")
         report = timeline.report()
         mark_names = [name for name, _ in report.marks]
         assert "test-job.my-event" in mark_names
@@ -87,25 +87,25 @@ class TestPerfMark:
     def test_empty_name_raises(self, rc: RunContext) -> None:
         """perf_mark raises ValueError for empty name."""
         with pytest.raises(ValueError):
-            rc.perf_mark("")
+            rc.events.perf_mark("")
 
     def test_long_name_raises(self, rc: RunContext) -> None:
         """perf_mark raises ValueError for name > 256 chars."""
         with pytest.raises(ValueError):
-            rc.perf_mark("x" * 257)
+            rc.events.perf_mark("x" * 257)
 
     def test_disabled_timeline_no_op(
         self, rc_disabled: RunContext, disabled_timeline: PerfTimeline
     ) -> None:
         """perf_mark is a no-op when timeline is disabled."""
-        rc_disabled.perf_mark("something")
+        rc_disabled.events.perf_mark("something")
         report = disabled_timeline.report()
         assert len(report.marks) == 0
 
     def test_validation_still_runs_when_disabled(self, rc_disabled: RunContext) -> None:
         """Validation raises even when timeline is disabled."""
         with pytest.raises(ValueError):
-            rc_disabled.perf_mark("")
+            rc_disabled.events.perf_mark("")
 
 
 class TestPerfMarkStart:
@@ -115,7 +115,7 @@ class TestPerfMarkStart:
         self, rc: RunContext, timeline: PerfTimeline
     ) -> None:
         """perf_mark_start records mark with .start suffix."""
-        rc.perf_mark_start("upload")
+        rc.events.perf_mark_start("upload")
         report = timeline.report()
         mark_names = [name for name, _ in report.marks]
         assert "test-job.upload.start" in mark_names
@@ -123,13 +123,13 @@ class TestPerfMarkStart:
     def test_empty_name_raises(self, rc: RunContext) -> None:
         """perf_mark_start raises ValueError for empty name."""
         with pytest.raises(ValueError):
-            rc.perf_mark_start("")
+            rc.events.perf_mark_start("")
 
     def test_disabled_timeline_no_op(
         self, rc_disabled: RunContext, disabled_timeline: PerfTimeline
     ) -> None:
         """perf_mark_start is a no-op when timeline is disabled."""
-        rc_disabled.perf_mark_start("upload")
+        rc_disabled.events.perf_mark_start("upload")
         report = disabled_timeline.report()
         assert len(report.marks) == 0
 
@@ -141,7 +141,7 @@ class TestPerfMarkEnd:
         self, rc: RunContext, timeline: PerfTimeline
     ) -> None:
         """perf_mark_end records mark with .end suffix."""
-        rc.perf_mark_end("upload")
+        rc.events.perf_mark_end("upload")
         report = timeline.report()
         mark_names = [name for name, _ in report.marks]
         assert "test-job.upload.end" in mark_names
@@ -150,7 +150,7 @@ class TestPerfMarkEnd:
         self, rc: RunContext, timeline: PerfTimeline
     ) -> None:
         """perf_mark_end with no prior start records mark without error."""
-        rc.perf_mark_end("orphan")
+        rc.events.perf_mark_end("orphan")
         report = timeline.report()
         mark_names = [name for name, _ in report.marks]
         assert "test-job.orphan.end" in mark_names
@@ -161,8 +161,8 @@ class TestPerfMarkEnd:
         self, rc: RunContext, timeline: PerfTimeline
     ) -> None:
         """Start + end pair produces a completed phase."""
-        rc.perf_mark_start("data-load")
-        rc.perf_mark_end("data-load")
+        rc.events.perf_mark_start("data-load")
+        rc.events.perf_mark_end("data-load")
         report = timeline.report()
         phase = report.phase("test-job.data-load")
         assert phase is not None
@@ -171,12 +171,12 @@ class TestPerfMarkEnd:
     def test_empty_name_raises(self, rc: RunContext) -> None:
         """perf_mark_end raises ValueError for empty name."""
         with pytest.raises(ValueError):
-            rc.perf_mark_end("")
+            rc.events.perf_mark_end("")
 
     def test_disabled_timeline_no_op(
         self, rc_disabled: RunContext, disabled_timeline: PerfTimeline
     ) -> None:
         """perf_mark_end is a no-op when timeline is disabled."""
-        rc_disabled.perf_mark_end("upload")
+        rc_disabled.events.perf_mark_end("upload")
         report = disabled_timeline.report()
         assert len(report.marks) == 0

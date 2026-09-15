@@ -162,19 +162,19 @@ command = "cd examples/standalone/composition_lab && rm -f build/report.md && fu
 expected = { exit_code = 0, stdout_contains = "REPORT" }
 timeout = 60
 
-# ── §5.5: --output is a global flag; return values are programmatic ──────
+# ── §5.5: --emit-format is a global flag; return values are programmatic ──────
 
 [[steps]]
 engine = "shell"
-description = "`func --output json lab emit` prints the envelope as JSON (guide §5.5)"
-command = "cd examples/standalone/composition_lab && func --output json lab emit"
+description = "`func --emit-format json lab emit` prints the envelope as JSON (guide §5.5)"
+command = "cd examples/standalone/composition_lab && func --emit-format json lab emit"
 expected = { exit_code = 0, stdout_contains = "\"total\":8" }
 timeout = 60
 
 [[steps]]
 engine = "shell"
 description = "the flag AFTER the job name is an error — the guide's decoy, so this is not vacuous"
-command = "cd examples/standalone/composition_lab && func lab emit --output json"
+command = "cd examples/standalone/composition_lab && func lab emit --emit-format json"
 expected = { exit_code = 2, stderr_contains = "No such option" }
 timeout = 60
 
@@ -191,7 +191,7 @@ timeout = 60
 engine = "shell"
 description = "inv.parallel runs N children; each child's State is its OWN, and the parent sees none of it (guide §5.1)"
 command = "cd examples/standalone/composition_lab && func lab fanout"
-expected = { exit_code = 0, stdout_contains = "FANOUT n=2 statuses=['Success', 'Success'] parent_state=None" }
+expected = { exit_code = 0, stdout_contains = "FANOUT n=2 statuses=['Success', 'Success'] produced=['worker.a', 'worker.b']" }
 timeout = 90
 
 [[steps]]
@@ -311,7 +311,7 @@ timeout = 90
 [[steps]]
 engine = "shell"
 description = "block -> answer -> resume completes the SAME scope, on the app surface (the original defect: scope addressing was a `func`-only pre-command global, so this walk could never finish)"
-command = '''cd examples/standalone/composition_lab && out=$(python main.py lab release 2>&1); id=$(printf '%s\n' "$out" | sed -n "s/.*scope '\([0-9a-f]*\)'.*/\1/p" | head -1); echo "scope=$id" && python main.py builtin workflow answer "$id" approval-gate --input '{"note":"ok"}' && python main.py lab release --wf-resume "$id"'''
+command = '''cd examples/standalone/composition_lab && out=$(python main.py lab release 2>&1); id=$(printf '%s\n' "$out" | sed -n "s/.*scope '\([A-Za-z0-9._-]*\)'.*/\1/p" | head -1); echo "scope=$id" && python main.py builtin workflow answer "$id" approval-gate --input '{"note":"ok"}' && python main.py lab release --wf-resume "$id"'''
 expected = { exit_code = 0, stdout_contains = "RELEASE complete" }
 timeout = 120
 

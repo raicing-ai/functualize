@@ -152,6 +152,10 @@ def _entry_point_locations() -> list[SkillsLocation]:
     ``__file__``: the target package may be zipped, and a host has no reason to
     replicate functualize's own layout assumptions.
     """
+    # Deliberate exception to the `_primitives.entry_points` cache: `_cli`
+    # may not import internal packages (import-linter contract, same note as
+    # `plugin_cmd.py`), and no public seam re-exports the cached helper. This
+    # also needs `version()` per distribution, which the cache does not cover.
     import logging
     from importlib.metadata import entry_points, version
 

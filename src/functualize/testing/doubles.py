@@ -178,9 +178,12 @@ class AutoPrompt(Prompt):
         return self._next_response()
 
     # Parameter names below mirror Prompt exactly. A job calling
-    # prompt.text(message="...") by keyword must bind against the double the
-    # same way it binds against the real capability.
-    def confirm(self, message: str, *, default: bool = False, **kwargs: Any) -> Any:
+    # prompt.text(question="...") by keyword must bind against the double the
+    # same way it binds against the real capability — which is why they moved
+    # with it when `PromptFacade` was merged into `Prompt` (T11).
+    def confirm(
+        self, question: str, *, default: bool | None = None, **kwargs: Any
+    ) -> Any:
         """Return the next pre-configured response.
 
         Raises:
@@ -188,7 +191,7 @@ class AutoPrompt(Prompt):
         """
         return self._next_response()
 
-    def choice(self, message: str, options: list[Any], **kwargs: Any) -> Any:
+    def choice(self, question: str, choices: list[Any], **kwargs: Any) -> Any:
         """Return the next pre-configured response.
 
         Raises:
@@ -196,7 +199,7 @@ class AutoPrompt(Prompt):
         """
         return self._next_response()
 
-    def text(self, message: str, *, default: str = "", **kwargs: Any) -> Any:
+    def text(self, question: str, *, default: str | None = None, **kwargs: Any) -> Any:
         """Return the next pre-configured response.
 
         Raises:

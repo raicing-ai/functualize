@@ -52,7 +52,7 @@ shipped. S6 is ~90% done. S7 (watch/matrix/dry-run) was split out and is not sta
 7. **`FromJob[T]` / `FromStep[T]`** — return-value reuse across the dependency graph.
    Disqualification warnings. Pydantic classifier.
 
-8. **Pipeline mode** — `Stdout` capability (`out.emit`/`out.write`), `--output` flag, NDJSON streaming,
+8. **Pipeline mode** — `Stdout` capability (`out.emit`/`out.write`), `--emit-format` flag, NDJSON streaming,
    SIGPIPE handling, exit-code table.
 
 9. **Builtins** — `func builtin parallel`, `func builtin history`, `func builtin env`,

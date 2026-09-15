@@ -123,12 +123,12 @@ CAPABILITY = CapabilitySpec(
     type=TTY,
     # `caps` is the live per-invocation map — TTY resolves rc from it lazily,
     # so declaration order does not matter. Availability is the capability
-    # floor (Phase 5's orchestrator refines it per surface). `funcapp` lets
+    # floor (Phase 5's orchestrator refines it per surface). The host lets
     # tty.run push a Surface-conforming app onto the surface stack for its
     # window.
     factory=lambda ctx: TTY(
         caps=ctx.caps,
         available=terminal_available(),
-        funcapp=getattr(ctx.engine, "_app", None),
+        funcapp=ctx.engine.host,
     ),
 )

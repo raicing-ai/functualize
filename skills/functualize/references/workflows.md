@@ -50,6 +50,7 @@ Exported from `functualize.workflow`:
 | `workflow` | The declaration decorator |
 | `Step` | A node that runs a registered job |
 | `Gate` | A node that pauses to collect input |
+| `AgentStep` | A node performed by an agent, through a registered executor |
 | `Tool` | A job a gate offers, with gate-fixed arguments narrowed away |
 | `Edge` | A directed connection |
 | `ConditionalEdge` | A branch taken on a runtime condition |
@@ -65,6 +66,33 @@ import importlib; print(importlib.import_module("functualize.workflow").__all__)
 (`import functualize.workflow as w` binds the **decorator function**, not the
 module — the package re-exports the name. Use `importlib` to reach the module.)
 
+## Agent steps
+
+`AgentStep(name, instructions, executor=None, tools=(), requires=frozenset(),
+time_budget_s=None)` hands a node to a registered **executor** instead of running a
+local function.
+
+Executors are registered, never discovered:
+`app.extensions.register_agent_step_executor(MyExecutor())`. An executor is anything with a
+`name`, a `capabilities` collection and `execute(ctx) -> AgentStepResult`. Core
+ships one, `cli-prompt`, which asks a person. `executor=None` means *the single
+registered executor* — with two registered, a step naming none is refused rather
+than guessed at.
+
+Three capabilities: `enforces_tool_allowlist`, `preserves_active_time_budget`,
+`supports_visible_output`. Two are **implied by the step's own declaration** —
+`tools=[...]` implies the first, `time_budget_s=...` the second — and `requires=`
+only widens. An executor that cannot honour one makes the step **refuse before the
+walk starts**, rather than running with the constraint dropped.
+
+`capabilities` may hold `AgentCapability` members or the bare strings above; they
+are compared by value. An unknown name is refused at registration.
+
+`ctx.inputs` is always empty and `AgentStepResult.tool_calls` is dropped by the
+walker — both are declared and marked transitional in the source, naming the
+feature that completes them: typed step outcomes and a run event stream
+respectively.
+
 ## Gates
 
 A `Gate` pauses the walk for input. `Tool(read_file, allowed=FromStep(...))`
@@ -79,7 +107,7 @@ Gate resolution lives in `_gate/`. A paused workflow persists as a scope.
 valid — `"resolve"` (config chain), `"prompt"` (interactive surface),
 `"ai_inbound"` (an LLM fills the model), `"ai_outbound"` (an external agent
 deposits it). Preset names are **not** accepted here; presets are reachable
-only through `rc.invoke(..., gate_strategy=...)` and `app.resolve_gate`.
+only through `rc.invoke(..., gate_strategy=...)` and `app.gates.resolve_gate`.
 
 Two are only registered when a plugin is installed: `ai_inbound` by
 `functualize-ai`, `ai_outbound` by `functualize-mcp`.

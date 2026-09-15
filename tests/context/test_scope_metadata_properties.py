@@ -1,6 +1,6 @@
-"""Property-based tests for StateStore replacement and JobResult metadata.
+"""Property-based tests for ScopeStore replacement and JobResult metadata.
 
-Property 14: StateStore replacement — new store used, no data migration
+Property 14: ScopeStore replacement — new store used, no data migration
 **Validates: Requirements 7.5**
 
 Property 21: JobResult metadata — maximum 64 keys enforced
@@ -15,7 +15,6 @@ from unittest.mock import MagicMock
 from hypothesis import given
 from hypothesis import strategies as st
 
-from functualize.job._workflow_scope import WorkflowScope
 from functualize.job.context import RunContext
 
 # --- Strategies ---
@@ -64,7 +63,6 @@ class ConformingStore:
 
     def __init__(self) -> None:
         self._data: dict[str, Any] = {}
-        self._job_namespaces: dict[str, dict[str, Any]] = {}
 
     def get(self, key: str, default: Any = None) -> Any:
         return self._data.get(key, default)
@@ -84,195 +82,25 @@ class ConformingStore:
     def clear(self) -> None:
         self._data.clear()
 
-    def get_job_state(self, job_name: str, key: str, default: Any = None) -> Any:
-        namespace = self._job_namespaces.get(job_name, {})
-        return namespace.get(key, default)
 
-    def list_job_namespaces(self) -> list[str]:
-        return list(self._job_namespaces.keys())
+# --- Property 14: ScopeStore replacement — new store used, no data migration ---
 
 
-# --- Property 14: StateStore replacement — new store used, no data migration ---
-
-
-# Feature: plugin-ecosystem-enablement, Property 14: StateStore replacement
+# Feature: plugin-ecosystem-enablement, Property 14: ScopeStore replacement
 # For any WorkflowScope with state written to the original store, after
 # replace_state_store(new_store) is called with a protocol-conforming store,
 # all subsequent state operations SHALL use the new store, and the new store
 # SHALL NOT contain data from the previous store.
 # **Validates: Requirements 7.5**
-class TestStateStoreReplacement:
-    """Property 14: StateStore replacement — new store used, no data migration."""
-
-    @given(
-        scope_id=scope_ids,
-        initial_data=st.dictionaries(
-            keys=state_keys,
-            values=json_values,
-            min_size=1,
-            max_size=10,
-        ),
-    )
-    def test_new_store_does_not_contain_previous_data(
-        self, scope_id: str, initial_data: dict[str, object]
-    ) -> None:
-        """After replace_state_store, the new store does NOT contain data from the old store.
-
-        **Validates: Requirements 7.5**
-        """
-        scope = WorkflowScope(scope_id)
-
-        # Write data to the original store
-        for key, value in initial_data.items():
-            scope.state_store.set(key, value)
-
-        # Replace with a new conforming store
-        new_store = ConformingStore()
-        scope.replace_state_store(new_store)
-
-        # New store should be empty — no data migration
-        assert new_store.to_dict() == {}
-        assert new_store.keys() == []
-
-        # None of the old keys should be accessible via the new store
-        for key in initial_data:
-            assert scope.state_store.get(key) is None
-
-    @given(
-        scope_id=scope_ids,
-        initial_data=st.dictionaries(
-            keys=state_keys,
-            values=json_values,
-            min_size=1,
-            max_size=10,
-        ),
-        new_data=st.dictionaries(
-            keys=state_keys,
-            values=json_values,
-            min_size=1,
-            max_size=10,
-        ),
-    )
-    def test_subsequent_ops_use_new_store(
-        self,
-        scope_id: str,
-        initial_data: dict[str, object],
-        new_data: dict[str, object],
-    ) -> None:
-        """After replacement, all subsequent state operations use the new store.
-
-        **Validates: Requirements 7.5**
-        """
-        scope = WorkflowScope(scope_id)
-
-        # Write data to the original store
-        for key, value in initial_data.items():
-            scope.state_store.set(key, value)
-
-        # Replace with a new conforming store
-        new_store = ConformingStore()
-        scope.replace_state_store(new_store)
-
-        # Write new data — should go to the new store
-        for key, value in new_data.items():
-            scope.state_store.set(key, value)
-
-        # The new store should contain exactly the new data
-        for key, value in new_data.items():
-            assert new_store.get(key) == value
-
-        # The scope's state_store property should point to the new store
-        assert scope.state_store is new_store
-
-    @given(
-        scope_id=scope_ids,
-        initial_data=st.dictionaries(
-            keys=state_keys,
-            values=json_values,
-            min_size=1,
-            max_size=10,
-        ),
-        new_key=state_keys,
-        new_value=json_values,
-    )
-    def test_new_store_get_set_delete_keys_operations(
-        self,
-        scope_id: str,
-        initial_data: dict[str, object],
-        new_key: str,
-        new_value: object,
-    ) -> None:
-        """All CRUD operations (get, set, delete, keys) go through the new store after replacement.
-
-        **Validates: Requirements 7.5**
-        """
-        scope = WorkflowScope(scope_id)
-
-        # Write to original store
-        for key, value in initial_data.items():
-            scope.state_store.set(key, value)
-
-        # Replace
-        new_store = ConformingStore()
-        scope.replace_state_store(new_store)
-
-        # set via scope goes to new store
-        scope.state_store.set(new_key, new_value)
-        assert new_store.get(new_key) == new_value
-
-        # get via scope reads from new store
-        assert scope.state_store.get(new_key) == new_value
-
-        # keys via scope reflects new store. StateStoreProtocol exposes
-        # membership through `keys()` — which returns a list — and defines no
-        # `__contains__`, so a conforming store is not required to answer `in`.
-        store_keys = scope.state_store.keys()
-        assert new_key in store_keys
-
-        # delete via scope operates on new store
-        scope.state_store.delete(new_key)
-        assert new_store.get(new_key) is None
-
-    @given(
-        scope_id=scope_ids,
-        initial_data=st.dictionaries(
-            keys=state_keys,
-            values=json_values,
-            min_size=1,
-            max_size=10,
-        ),
-    )
-    def test_original_store_data_preserved_after_replacement(
-        self, scope_id: str, initial_data: dict[str, object]
-    ) -> None:
-        """The original store retains its data after replacement (it is not cleared).
-
-        **Validates: Requirements 7.5**
-        """
-        scope = WorkflowScope(scope_id)
-        original_store = scope.state_store
-
-        # Write data to original store
-        for key, value in initial_data.items():
-            original_store.set(key, value)
-
-        # Replace
-        new_store = ConformingStore()
-        scope.replace_state_store(new_store)
-
-        # Original store should still have its data (no side-effects)
-        for key, value in initial_data.items():
-            assert original_store.get(key) == value
+# Property 14 — "ScopeStore replacement: new store used, no data migration" —
+# is gone with `WorkflowScope.replace_state_store` (`store-substrate`/T5). Four
+# Hypothesis cases described a swap that can no longer be expressed: a plugin
+# supplies a substrate, and every store moves with it or none does. That the
+# method and its protocol are absent is asserted once, in
+# `tests/core/test_scope_state_metadata.py::TestTheSeamIsGone`, rather than
+# restated as a property over generated data.
 
 
-# --- Property 21: JobResult metadata — maximum 64 keys enforced ---
-
-
-# Feature: plugin-ecosystem-enablement, Property 21: JobResult metadata max 64 keys
-# For any sequence of metadata key-value writes during execution, the resulting
-# JobResult.metadata SHALL contain at most 64 keys, with excess writes silently
-# discarded.
-# **Validates: Requirements 15.5**
 class TestJobResultMetadataMaxKeys:
     """Property 21: JobResult metadata — maximum 64 keys enforced."""
 

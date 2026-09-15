@@ -187,10 +187,21 @@ class _FakeApp:
         self.settings = settings
         self.registered: list[tuple[Any, str, Any]] = []
 
+    @property
+    def extensions(self) -> _FakeExtensions:
+        """`app.extensions` — where a plugin registers, since
+        `engine-sealed-construction`/T9. The fake mirrors the real shape."""
+        return _FakeExtensions(self)
+
+
+class _FakeExtensions:
+    def __init__(self, app: _FakeApp) -> None:
+        self._app = app
+
     def register_ambient_construct(
         self, factory: Any, *, name: str | None = None, predicate: Any = None
     ) -> None:
-        self.registered.append((factory, name or "", predicate))
+        self._app.registered.append((factory, name or "", predicate))
 
 
 class _Descriptor:

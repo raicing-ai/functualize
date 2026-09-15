@@ -191,3 +191,55 @@ class TestPlanClassifiesCapabilities:
         by_name = {b.name: b.source for b in plan.params}
         assert by_name["tty"] == "di"
         assert by_name["live"] == "di"
+
+
+class TestLiveBindsToTheHostsZone:
+    """A `live: Live` parameter is bound to the zone the *host* resolves.
+
+    The zone used to be found by reaching out of the kernel through the engine's
+    back-reference to the app and reading its surface lists. It is one host call
+    now (`EngineHost.live_zone`), and this is the end-to-end proof that a job's
+    construct reaches the surface — the binding, not the plumbing. The
+    surface-routing half (top-of-stack wins, panel zone during a panel run) has
+    its own proofs in `tests/cli/test_surface_resolution.py` and
+    `tests/_cli/test_panel_live_zone.py`.
+    """
+
+    def test_a_construct_reaches_the_hosts_live_zone(self) -> None:
+        from functualize import FunctualizeApp
+        from functualize._config.chain import ResolutionChain
+        from functualize.app.config import ConfigSources, JobSources, PluginSources
+        from functualize.app.core import request_for
+
+        added: list[object] = []
+
+        class _Zone:
+            """What `active_live_zone` looks for: callable `add` and `panel`."""
+
+            name = "test-zone"
+
+            def add(self, construct: object) -> None:
+                added.append(construct)
+
+            def panel(self, construct: object) -> None: ...
+
+        construct = _Construct()
+
+        def job(live: Live) -> None:
+            live.add(construct)
+
+        app = FunctualizeApp(
+            "live-host",
+            job_sources=JobSources(functions=[job]),
+            config_sources=ConfigSources(config_resolution_chain=ResolutionChain([])),
+            plugin_sources=PluginSources(entry_point_group="", explicit_plugins=[]),
+        )
+        # The pushed stack is where a phase-scoped surface lives — a job-owned
+        # app during its EXCLUSIVE window, the func TUI panel during a panel run.
+        app.push_surface(_Zone())
+        try:
+            app.execute(request_for("job"))
+        finally:
+            app.pop_surface()
+
+        assert added == [construct]

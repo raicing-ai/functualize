@@ -44,7 +44,7 @@ async def _live_bar():
     async with app.run_test():
         bar = app.query_one("#bar", SmartBar)
         bar.value = "deploy --region us-east-1"
-        bar.save_state()
+        bar.save_fresh()
         yield bar
 
 

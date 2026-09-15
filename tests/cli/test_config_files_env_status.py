@@ -62,7 +62,7 @@ def _entries(project: Path, environment: str) -> dict[str, object]:
         "serve",
         None,
         project,
-        kernel_files=app.config_files("serve"),
+        kernel_files=app.configuration.config_files("serve"),
         config_section="serve",
     )
     return {e.display_name: e for e in entries}

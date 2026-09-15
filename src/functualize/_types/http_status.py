@@ -75,6 +75,13 @@ _STATUS_HTTP_CODES: dict[RunStatus, int] = {
 }
 
 
+# The outcome authority is `functualize._types.outcome`. This table stays here —
+# every existing caller imports it from this module — but `outcome.py` re-exports
+# it, and the *rules* about what a status means at a boundary live there, not
+# beside the numbers. A new consumer should ask `outcome.is_failure(status,
+# family=...)` rather than reading this dict.
+
+
 def http_status_for_status(status: RunStatus) -> int:
     """The HTTP status code a finished run should be reported with.
 

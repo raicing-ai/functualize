@@ -6,7 +6,7 @@ Run with:
     func scripts/data_processor.py summarize --input-path ./sample.csv
 
 These jobs use Domain SDK packages directly without a full project setup.
-Dependencies: pip install functualize functualize-state functualize-tasks
+Dependencies: pip install functualize functualize-tasks
 
 Note: no `from __future__ import annotations` here — the CLI's config-class
 expansion needs the real annotation objects; string annotations would hide
@@ -15,7 +15,6 @@ that a parameter is a BaseModel.
 
 from enum import StrEnum
 
-from functualize_state import InMemoryState, StateNamespace
 from functualize_tasks import MockTasks, TaskLink, TaskStatus
 from pydantic import BaseModel, Field
 
@@ -26,7 +25,16 @@ from functualize.job.decorators import job
 # Shared state (inline dependency — no project config needed)
 # ---------------------------------------------------------------------------
 
-_state = InMemoryState()
+#: Process-local, and it always was. This used to be `functualize-state`'s
+#: `InMemoryState`, which was a dict behind a key-value protocol; the protocol
+#: was retired (`contributor/adr/022` — a backend-agnostic key-value domain can
+#: only offer the intersection of every backend) and what is left is the dict.
+#:
+#: Note what it does *not* do: `summarize` run as a second `func` invocation
+#: sees `runs == 0`, because this is memory and not storage. That was true of
+#: the old version too. Durable state belongs to a **run** — `rc.state` — and
+#: to a workflow scope, which is a different example.
+_state: dict[str, object] = {}
 _tasks = MockTasks()
 
 
@@ -63,10 +71,9 @@ def process(config: ProcessConfig, rc: RunContext) -> dict:
     rc.log(f"Processing {config.input_path} → {config.format.value}")
 
     # Use inline state to track processing progress
-    ns = StateNamespace(_state, prefix="process:")
-    ns.set("last_input", config.input_path)
-    ns.set("last_format", config.format.value)
-    ns.set("runs", (ns.get("runs") or 0) + 1)
+    _state["process:last_input"] = config.input_path
+    _state["process:last_format"] = config.format.value
+    _state["process:runs"] = int(_state.get("process:runs") or 0) + 1
 
     # Track as a task
     task_id = _tasks.add(
@@ -111,14 +118,13 @@ def summarize(config: SummarizeConfig, rc: RunContext) -> dict:
     rc.log(f"Summarizing {config.input_path} (top {config.top_n})")
 
     # Read state from previous runs
-    ns = StateNamespace(_state, prefix="process:")
-    total_runs = ns.get("runs") or 0
+    total_runs = int(_state.get("process:runs") or 0)
 
     summary = {
         "input": config.input_path,
         "top_n": config.top_n,
         "previous_runs": total_runs,
-        "last_format": ns.get("last_format", "unknown"),
+        "last_format": _state.get("process:last_format", "unknown"),
     }
 
     rc.log(f"Found {total_runs} previous processing run(s)")

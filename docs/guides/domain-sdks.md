@@ -9,23 +9,34 @@ Functualize's capabilities are organized as standalone Domain SDK packages. Each
 ```mermaid
 graph TD
     subgraph "Domain SDKs (lightweight)"
-        state["functualize-state"]
         ai["functualize-ai"]
         tasks["functualize-tasks"]
     end
 
     subgraph "Implementation Plugins (heavyweight)"
-        sqlite["functualize-state-sqlite"]
         pydantic["functualize-ai-pydantic"]
         local["functualize-tasks-local"]
     end
 
-    sqlite --> state
+    subgraph "Storage (not a domain)"
+        sqlite["functualize-state-sqlite"]
+    end
+
     pydantic --> ai
     local --> tasks
 ```
 
 **Domain SDKs** define _what_ a capability does (protocols, types). **Implementation Plugins** provide _how_ it works (real backends, API clients).
+
+!!! note "Storage is not a domain SDK"
+    There was a `functualize-state` SDK, and it was retired. A
+    backend-agnostic key-value protocol can only offer the **intersection of
+    every backend**, which is worth least exactly where having a real database
+    is worth most. `functualize-state-sqlite` now supplies a
+    **`StoreSubstrate`** — *give me this document, put this document back, stop
+    anyone else while I do both* — and every store follows it. See
+    `contributor/adr/022-storage-is-a-substrate-not-a-key-value-domain.md` and
+    the [Custom Substrate example](../examples/plugins/custom-state-backend.md).
 
 !!! note "Interactivity is not a domain SDK"
     Interactivity is *presentation architecture* (a surface stack, phase-scoped
@@ -40,9 +51,11 @@ graph TD
 
 | Domain | SDK Package | Capability Class | Default Plugin |
 |--------|-------------|-----------------|----------------|
-| State | `functualize-state` | `StateBackend`, `ExecutionStore` | `functualize-state-sqlite` |
 | AI | `functualize-ai` | `AI` | `functualize-ai-pydantic` |
 | Tasks | `functualize-tasks` | `Tasks` | `functualize-tasks-local` |
+
+Storage is **not** in this table — see the note above. A job's own durable state
+is `rc.state`, and where functualize keeps its bookkeeping is a substrate.
 
 ---
 
@@ -67,11 +80,10 @@ Use testing doubles directly without a project:
 
 ```python
 from functualize_ai.testing import MockAI
-from functualize_state import InMemoryState, StateNamespace
+from functualize_tasks import MockTasks
 
 ai = MockAI(responses={"*summarize*": "Short summary"})
-state = InMemoryState()
-ns = StateNamespace(state, prefix="my:")
+tasks = MockTasks()
 ```
 
 ---
@@ -81,7 +93,6 @@ ns = StateNamespace(state, prefix="my:")
 Each SDK provides testing doubles that work without implementation plugins:
 
 ```python
-from functualize_state import InMemoryState
 from functualize_ai.testing import MockAI
 from functualize_tasks.testing import MockTasks
 ```
@@ -99,22 +110,23 @@ Implement the domain's provider protocol and register via entry point:
 
 ```python
 # my_plugin/_provider.py
-from functualize_state import StateBackend
+from functualize_tasks import TaskProvider
 
-class RedisBackend:
-    def get(self, key, default=None): ...
-    def set(self, key, value): ...
-    def delete(self, key): ...
-    def keys(self, prefix=""): ...
+class JiraTasks:
+    def add(self, title, *, linked_to=None): ...
+    def update(self, task_id, *, status=None, notes=None): ...
+    def list(self, *, status=None, filter=None): ...
 ```
 
 ```toml
 # pyproject.toml
-[project.entry-points."functualize.state_providers"]
-redis = "my_plugin:RedisPlugin"
+[project.entry-points."functualize.tasks_providers"]
+jira = "my_plugin:JiraPlugin"
 ```
 
-See the [Plugin Examples](../examples/plugins/custom-state-backend.md) for a complete walkthrough.
+Storage follows a different shape — one substrate, installed at `APP_READY`.
+See the [Custom Substrate example](../examples/plugins/custom-state-backend.md)
+for a complete walkthrough.
 
 ---
 
@@ -125,11 +137,11 @@ When only one implementation plugin is installed for a domain, functualize auto-
 When multiple implementations are installed, specify your choice in the config file:
 
 ```toml
-[state]
-provider = "sqlite"
-
 [ai]
 provider = "pydantic"
+
+[tasks]
+provider = "local"
 ```
 
 ---
@@ -140,7 +152,7 @@ Generate new SDK or plugin packages:
 
 ```bash
 func builtin scaffold add domain --name my-domain
-func builtin scaffold add plugin --domain state --name redis
+func builtin scaffold add plugin --domain tasks --name jira
 ```
 
 ---

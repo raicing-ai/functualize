@@ -15,6 +15,7 @@ import fastmcp
 from fastmcp import FastMCP
 
 from functualize._types.errors import ScopeCancelledError
+from functualize.types import RunRequest
 from functualize_mcp._history_tools import MCPHistoryToolRegistry
 from functualize_mcp._management_tools import MCPManagementToolRegistry
 from functualize_mcp._task_tools import MCPTaskToolRegistry
@@ -68,7 +69,7 @@ class MCPServer:
 
         self._app = app
         self._config = config
-        self._translator = JobToolTranslator(read_cached_group_options())
+        self._translator = JobToolTranslator(read_cached_group_options(app))
         self._gate_tool_policy = GateToolPolicy(app)
         self._tool_registry = MCPToolRegistry(
             app, config=config, gate_policy=self._gate_tool_policy
@@ -188,7 +189,7 @@ def _build_tool_function(
 
     if not properties:
         # No parameters — simple wrapper
-        async def _no_params_handler() -> dict:
+        async def _no_params_handler() -> dict[str, Any]:
             return _execute_job(app, job_name, {}, policy)
 
         _no_params_handler.__name__ = job_name
@@ -306,7 +307,12 @@ def _execute_job(
 
     try:
         result = app.execute(
-            job_name, group_option_values=group_values or None, **job_kwargs
+            RunRequest(
+                job_name=job_name,
+                surface="mcp.tool",
+                kwargs=job_kwargs,
+                group_option_values=group_values or None,
+            )
         )
         return {
             "status": wire_status(result.status),

@@ -6,7 +6,7 @@ Two tiers reach a live zone:
 - **Ambient** — a plugin registered it once at boot, and it renders for every
   eligible job with no job-author code::
 
-      app.register_ambient_construct(
+      app.extensions.register_ambient_construct(
           FlowVizConstruct,
           predicate=lambda d: d.uses_invoke,
       )

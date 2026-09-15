@@ -61,7 +61,7 @@ class TestJobPhaseRetrievalConsistency:
         """get_phase(name) returns None for any untracked step name."""
         # **Validates: Requirements 8.4, 8.5**
         rc = make_run_context()
-        assert rc.get_phase(name) is None
+        assert rc.events.get_phase(name) is None
 
     @given(name=step_names, message=step_messages, status=step_statuses)
     def test_get_phase_returns_tracked_step(
@@ -71,9 +71,9 @@ class TestJobPhaseRetrievalConsistency:
         that step with correct fields."""
         # **Validates: Requirements 8.4, 8.5**
         rc = make_run_context()
-        rc.track_phase(name, message, status)
+        rc.events.track_phase(name, message, status)
 
-        step = rc.get_phase(name)
+        step = rc.events.get_phase(name)
         assert step is not None
         assert step["name"] == name
         assert step["status"] == status
@@ -95,11 +95,11 @@ class TestJobPhaseRetrievalConsistency:
         # **Validates: Requirements 8.4, 8.5**
         rc = make_run_context()
         for step_name, step_message, step_status in steps:
-            rc.track_phase(step_name, step_message, step_status)
+            rc.events.track_phase(step_name, step_message, step_status)
 
         # The last step tracked (new step appended at end) is the current step
         last_name = steps[-1][0]
-        current = rc.current_phase
+        current = rc.events.current_phase
         assert current is not None
         assert current["name"] == last_name
 
@@ -123,11 +123,11 @@ class TestJobPhaseRetrievalConsistency:
         new step would be current, but if only one step exists it remains current)."""
         # **Validates: Requirements 8.4, 8.5**
         rc = make_run_context()
-        rc.track_phase(step_name, msg1, status1)
-        rc.track_phase(step_name, msg2, status2)
+        rc.events.track_phase(step_name, msg1, status1)
+        rc.events.track_phase(step_name, msg2, status2)
 
         # Only one step exists (updated in place), so it's the current step
-        current = rc.current_phase
+        current = rc.events.current_phase
         assert current is not None
         assert current["name"] == step_name
         assert current["status"] == status2
@@ -149,10 +149,10 @@ class TestJobPhaseRetrievalConsistency:
         # **Validates: Requirements 8.4, 8.5**
         rc = make_run_context()
         for step_name, step_message, step_status in steps:
-            rc.track_phase(step_name, step_message, step_status)
+            rc.events.track_phase(step_name, step_message, step_status)
 
         # For each step, get_phase must return the identical object
         # that's found in the workflow_steps list
-        for tracked_step in rc.phases:
-            retrieved = rc.get_phase(tracked_step["name"])
+        for tracked_step in rc.events.phases:
+            retrieved = rc.events.get_phase(tracked_step["name"])
             assert retrieved is tracked_step

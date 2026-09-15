@@ -185,10 +185,10 @@ def report(rc: RunContext) -> dict:
 from functualize.job import RunContext, Stdout
 
 def report(rc: RunContext, out: Stdout) -> None:
-    out.emit({"status": "ok"})       # serialized per --output
+    out.emit({"status": "ok"})       # serialized per --emit-format
 ```
 
-`out.emit()` respects `--output` (`auto` — the default, dispatching on the
+`out.emit()` respects `--emit-format` (`auto` — the default, dispatching on the
 emitted value's type — plus `json`, `ndjson`, `raw`, `none`), so the same job is
 human-readable and machine-parseable without branching.
 `out.write()` is raw passthrough — no serialization, no newline.

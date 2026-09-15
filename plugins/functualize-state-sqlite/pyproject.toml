@@ -18,7 +18,6 @@ classifiers = [
 ]
 dependencies = [
     "functualize>=0.1.0,<1.0.0",
-    "functualize-state>=0.1.0,<1.0.0",
 ]
 
 [project.entry-points."functualize.state_providers"]
@@ -37,7 +36,6 @@ build-backend = "hatchling.build"
 
 [tool.uv.sources]
 functualize = { workspace = true }
-functualize-state = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/functualize_state_sqlite"]

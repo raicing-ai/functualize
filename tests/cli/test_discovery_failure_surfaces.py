@@ -126,21 +126,22 @@ class TestTheDefaultRenderingReportsFailures:
         assert len(report["discovery_failures"]) == 1
 
 
-@pytest.mark.surfaces("func")
 class TestTheUnknownCommandExplainsItself:
-    """A7-A10, on the `func` entry point.
+    """A7-A10, on **both** entry points.
 
-    **Restricted to one surface, deliberately and with a known gap.** The
-    explanation is one function (`explain_missing_job`) called from both
-    reporters, because which surface you reached the program through does not
-    change why one of its jobs is absent. But a project's own `main.py`
-    invokes click in standalone mode, so an unrecognized name is rendered by
-    click's own `UsageError` before either reporter runs — the hint reaches
-    `func` and the adapter's fallback chain, and not that path.
+    This class carried `@pytest.mark.surfaces("func")` and a paragraph
+    explaining why: a project's own `main.py` invoked click in standalone mode,
+    so an unrecognized name was rendered by click's own `UsageError` before
+    either reporter ran. `adjacent-defects` T12 closed that — the explanation
+    reaches both doors now, which
+    `tests/cli/test_unknown_command_parity.py` asserts.
 
-    Marked rather than asserted loosely: an assertion relaxed enough to pass on
-    both surfaces passed *vacuously* on the second one, matching the warning
-    line instead of the explanation. Recorded in `.spec/STATUS.md`.
+    What kept the marker after T12 was **one sentence**: the app's reporter
+    printed ``Error: Command 'x' not found.`` where `func` printed
+    ``Error: Unknown command 'x'.``, for the identical condition, under a
+    comment in that same function saying the surface does not change the
+    answer. Both print `func`'s sentence now, so the marker is gone and these
+    four run twice (adj §4).
     """
 
     def test_it_names_the_file_and_the_reason(self, cli_run, project_tree) -> None:

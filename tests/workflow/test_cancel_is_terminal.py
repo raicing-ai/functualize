@@ -19,8 +19,9 @@ from pydantic import BaseModel
 
 from functualize._app.state import AppState
 from functualize._types.errors import ScopeCancelledError
-from functualize.app.core import FunctualizeApp
-from functualize.app.utils import StateStore
+from functualize.app.core import FunctualizeApp, request_for
+from functualize.app.utils import ScopeStore
+from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, workflow
 
 
@@ -74,36 +75,56 @@ class TestACancelledScopeRefusesToAdvance:
     def test_invoking_the_job_against_a_cancelled_scope_raises(
         self, app: FunctualizeApp, project: Path
     ) -> None:
-        app.execute("release", scope_id="rel-1")
-        store = StateStore.for_project(project)
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-1"
+            )
+        )
+        store = ScopeStore.for_project(project)
         store.set_scope_status("rel-1", "cancelled")
 
         with pytest.raises(ScopeCancelledError):
-            app.execute("release", scope_id="rel-1")
+            app.execute(
+                RunRequest(
+                    job_name="release", surface="app.execute", workflow_scope_id="rel-1"
+                )
+            )
 
     def test_the_status_is_not_overwritten(
         self, app: FunctualizeApp, project: Path
     ) -> None:
         """The exact regression: the walk used to run to completion and write
         `completed` over `cancelled`."""
-        app.execute("release", scope_id="rel-1")
-        store = StateStore.for_project(project)
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-1"
+            )
+        )
+        store = ScopeStore.for_project(project)
         store.set_scope_status("rel-1", "cancelled")
 
         with pytest.raises(ScopeCancelledError):
-            app.execute("release", scope_id="rel-1")
+            app.execute(
+                RunRequest(
+                    job_name="release", surface="app.execute", workflow_scope_id="rel-1"
+                )
+            )
 
         scope = store.get_scope("rel-1")
         assert scope is not None
         assert scope["status"] == "cancelled"
 
     def test_no_step_runs(self, app: FunctualizeApp, project: Path) -> None:
-        store = StateStore.for_project(project)
+        store = ScopeStore.for_project(project)
         store.ensure_scope("rel-2", "release")
         store.set_scope_status("rel-2", "cancelled")
 
         with pytest.raises(ScopeCancelledError):
-            app.execute("release", scope_id="rel-2")
+            app.execute(
+                RunRequest(
+                    job_name="release", surface="app.execute", workflow_scope_id="rel-2"
+                )
+            )
 
         assert app._test_calls == []  # type: ignore[attr-defined]
 
@@ -112,12 +133,16 @@ class TestACancelledScopeRefusesToAdvance:
     ) -> None:
         """Terminal means terminal, so the message must carry the recovery —
         a caller that cannot reuse the id needs the job name."""
-        store = StateStore.for_project(project)
+        store = ScopeStore.for_project(project)
         store.ensure_scope("rel-3", "release")
         store.set_scope_status("rel-3", "cancelled")
 
         with pytest.raises(ScopeCancelledError) as excinfo:
-            app.execute("release", scope_id="rel-3")
+            app.execute(
+                RunRequest(
+                    job_name="release", surface="app.execute", workflow_scope_id="rel-3"
+                )
+            )
 
         assert "release" in str(excinfo.value)
         assert "rel-3" in str(excinfo.value)
@@ -128,13 +153,21 @@ class TestALiveScopeIsUnaffected:
         self, app: FunctualizeApp, project: Path
     ) -> None:
         """The guard must not catch the case it is not for."""
-        app.execute("release", scope_id="rel-4")
-        store = StateStore.for_project(project)
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-4"
+            )
+        )
+        store = ScopeStore.for_project(project)
         assert store.get_scope("rel-4")["status"] == "blocked"
 
-        result = app.execute("release", scope_id="rel-4")
+        result = app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-4"
+            )
+        )
         assert result.metadata.get("workflow_status") == "blocked"
 
     def test_a_fresh_scope_is_unaffected(self, app: FunctualizeApp) -> None:
-        result = app.execute("release")
+        result = app.execute(request_for("release"))
         assert result.metadata.get("workflow_status") == "blocked"

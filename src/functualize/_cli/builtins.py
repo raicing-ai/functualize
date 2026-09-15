@@ -17,7 +17,13 @@ from pathlib import Path
 from typing import Any
 
 from functualize._cli.parallel_output import OUTPUT_MODES
-from functualize.app.utils import WORKFLOW_STATES, ExitCode
+from functualize.app.utils import (
+    RUN_STATES,
+    WORKFLOW_STATES,
+    ExitCode,
+    Family,
+    is_failure,
+)
 
 
 @dataclass(frozen=True)
@@ -87,11 +93,14 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
         requires_subcommand=True,
     ),
     BuiltinCommand(
-        "state",
-        "Manage runtime state (fingerprints, history, session, scopes)",
+        "data",
+        "Inspect and clear what this project keeps on disk",
         (
-            ("show", "Show runtime state statistics"),
-            ("clear", "Reset derived state; --scopes also discards workflow runs"),
+            ("show", "Show every store: path, count, size, mode"),
+            (
+                "clear",
+                "Reset derived data; --scopes, --runs and --all widen the target",
+            ),
         ),
         requires_subcommand=True,
     ),
@@ -147,11 +156,22 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
         (
             ("list", "Survey workflow scopes, with filters"),
             ("show", "Show one scope in full — graph, results, gates"),
+            ("watch", "Follow a scope's graph as the walk advances it"),
             ("answer", "Record input for a gate — partial, whole, or corrected"),
             ("resume", "Advance a scope, optionally answering a gate first"),
             ("gate-tool", "Run a tool a waiting gate offers"),
             ("cancel", "Cancel a workflow scope — terminal"),
             ("purge", "Delete finished scopes"),
+            ("reclaim", "Take an abandoned scope so it can be resumed"),
+        ),
+        requires_subcommand=True,
+    ),
+    BuiltinCommand(
+        "run",
+        "Read the run log — what executed, and how it ended",
+        (
+            ("list", "Survey runs, newest first, with filters"),
+            ("show", "Show one run — its origin, outcome, tree and events"),
         ),
         requires_subcommand=True,
     ),
@@ -255,6 +275,21 @@ BUILTIN_ROOT_COMMAND: BuiltinCommand = BuiltinCommand(
     # own: it owns no subcommands, only families.
     children=BUILTIN_COMMANDS,
 )
+
+
+#: The builtins whose job is to explain or repair a project that is broken.
+#:
+#: They boot the project like everything else, so a project-wide contradiction
+#: — two files declaring ``GroupOptions`` for one group — used to stop them the
+#: way it stops a run: exit 2, nothing on stdout. That made ``func builtin why``
+#: unable to answer *"why is my job missing?"* in the one case where the answer
+#: was the contradiction, and made ``builtin cache rebuild`` — the documented
+#: way to clear a bad cache — die before its own scan (adj M4, decision D-4).
+#:
+#: Everything absent from this set stays fatal, ``builtin parallel`` included:
+#: it runs jobs, and the rule is about not *running* under an ambiguity, not
+#: about which door was used.
+DIAGNOSTIC_BUILTINS: frozenset[str] = frozenset({"cache", "info", "self", "why"})
 
 
 # Derived lookups — import these instead of re-listing builtin names.
@@ -595,7 +630,16 @@ def _report_parallel(job_names: tuple[str, ...], results: list[Any]) -> None:
         if status is not RunStatus.SUCCESS and result.exception is not None:
             detail = f" — {type(result.exception).__name__}: {result.exception}"
         click.echo(f"{status.value:<8} {name}{detail}", err=True)
-        if status not in (RunStatus.SUCCESS, RunStatus.SKIPPED, RunStatus.BLOCKED):
+        # `func builtin parallel` is a PROCESS surface: it terminates the
+        # process with an exit code a shell reads. The family answers, this
+        # site does not.
+        #
+        # This *changes* one answer, deliberately. The tuple that used to live
+        # here counted BLOCKED as not-a-failure, so a batch in which a job
+        # paused at a gate exited 0 — "all good" — and the pause was invisible
+        # to anything reading only the exit code. That is the same false clean
+        # as D-7, and the reason the exit-code table reserves 5 for it.
+        if is_failure(status, family=Family.PROCESS):
             failed.append(result)
 
     if not failed:
@@ -614,9 +658,9 @@ def _state_location() -> tuple[Path, str, Path | None]:
     One upward walk through the same function the engine uses, so the CLI
     cannot report a path the engine would not write to.
     """
-    from functualize.app.utils import resolve_state_location
+    from functualize.app.utils import resolve_fresh_location
 
-    return resolve_state_location(Path.cwd())
+    return resolve_fresh_location(Path.cwd())
 
 
 def _state_mode_line(mode: str, marker: Path | None) -> str:
@@ -774,31 +818,49 @@ def register_builtin_commands(cli_group: Any) -> None:
 
     _mount(builtin_app, cache_app, "cache")
 
-    # --- state (runtime state store, Part F) ---
+    # --- data (everything this project keeps on disk) ---
+    #
+    # **Named `data`, not for any one file** (`durable-run-layer`/T3b). It was
+    # `state`, after `state.json`, and by the time it covered five files that
+    # name was a lie in two directions: it under-described the group, and the
+    # word "state" already meant something else to a job author —
+    # `rc.state.set(...)` writes a scope's state, so `func builtin state clear`
+    # cleared the one thing the user did *not* mean.
+    #
+    # Renaming the file to `fresh.json` fixes half of that. Naming the group
+    # after the directory rather than any file in it fixes the other half, and
+    # turns `--scopes` from an exception bolted onto a one-file command into an
+    # ordinary target among several.
+    #
     # Deliberately separate from `cache`: the discovery cache answers "what jobs
-    # exist" and is rebuilt on any source change; runtime state answers "what
-    # ran last, against which inputs". Clearing one never clears the other
-    # (§D.3 Fix 2) — a shared command would recreate exactly the spurious-
-    # rebuild bug up-to-date checking exists to prevent.
-    state_app = click.Group(
-        name="state",
+    # exist" and is rebuilt on any source change; this answers "what ran last,
+    # against which inputs". Clearing one never clears the other (§D.3 Fix 2) —
+    # a shared command would recreate exactly the spurious-rebuild bug
+    # up-to-date checking exists to prevent.
+    data_app = click.Group(
+        name="data",
         help=(
-            "Manage runtime state — fingerprints, run history, the session "
-            "precondition cache, and workflow scopes."
+            "Inspect and clear what this project keeps on disk — freshness "
+            "verdicts, workflow scopes, the run log and shell history."
         ),
     )
 
-    @state_app.command("show")
-    def state_show() -> None:
+    @data_app.command("show")
+    def data_show() -> None:
         """Show runtime state statistics."""
+        from pathlib import Path
+
         from functualize.app.utils import (
+            SCOPES_LIMIT,
             SCOPES_VERSION,
+            FreshStore,
+            RunStore,
             ScopeStoreUnreadableError,
-            StateStore,
+            ShellHistoryStore,
         )
 
         path, mode, marker = _state_location()
-        store = StateStore(path)
+        store = FreshStore.for_project(Path.cwd())
         click.echo(f"Fingerprints: {len(store.fingerprint_keys())}")
 
         # `show` is the command someone runs to find out what is wrong, so it
@@ -807,7 +869,21 @@ def register_builtin_commands(cli_group: Any) -> None:
         # 2: nothing here is fine.
         fault: ScopeStoreUnreadableError | None = None
         try:
-            click.echo(f"Scopes: {len(store.scope_ids())}")
+            # Count, cap and **size** together. The count alone was already
+            # here and it is not what a user needs: the defect this reports on
+            # was 2,188 records costing 58 ms per state write, and nobody
+            # noticed until an external review measured the file. A number with
+            # no ceiling beside it does not read as "getting full".
+            click.echo(
+                f"Scopes: {len(store.scopes.scope_ids())} of {SCOPES_LIMIT} "
+                f"— {store.scopes.describe()}"
+            )
+            # Scope state is reported separately because T3 moved job state
+            # out of the record document. Reporting only the records after that
+            # move would say "small" about the half that no longer grows while
+            # the half that does stayed invisible — the exact failure AC-4
+            # exists to prevent, one document over.
+            click.echo(f"Scope state: {store.scopes.describe_state()}")
         except ScopeStoreUnreadableError as exc:
             fault = exc
             found = exc.found_version
@@ -819,62 +895,103 @@ def register_builtin_commands(cli_group: Any) -> None:
             count = "" if exc.scope_count is None else f"{exc.scope_count} scopes, "
             click.echo(f"Scopes:       unreadable — {count}{detail}")
 
-        click.echo(f"History entries: {len(store.get_history())}")
-        click.echo(f"State path: {path}")
-        click.echo(f"Scopes path: {store.scopes_path}")
+        # History left this file in `durable-run-layer`/T3b, so this stops
+        # reporting it: what remains here is freshness verdicts, and a count of
+        # something the file no longer holds would be a lie in the one command
+        # a user runs to find out what is wrong. `func builtin history` is
+        # where history is answered now.
+
+        # The other two stores the `data` group covers. Reporting three of five
+        # and calling the command `data` would be the same under-description
+        # the group was renamed to escape.
+        runs = RunStore.for_project(Path.cwd())
+        shell = ShellHistoryStore.for_project(Path.cwd())
+        click.echo(f"Runs: {len(runs.run_ids())} — {runs.describe()}")
+        click.echo(f"Shell history: {shell.count()} — {shell.describe()}")
+
+        click.echo(f"Freshness path: {store.describe()}")
         click.echo(f"Scopes format: v{SCOPES_VERSION}")
         click.echo(f"Mode:       {_state_mode_line(mode, marker)}")
 
         if fault is not None:
             click.echo("")
             click.echo(
-                "Error: run `func builtin state clear --scopes` to move the "
+                "Error: run `func builtin data clear --scopes` to move the "
                 "scope file aside and start fresh.",
                 err=True,
             )
             raise SystemExit(ExitCode.USAGE)
 
-    @state_app.command("clear")
+    @data_app.command("clear")
     @click.option(
         "--scopes",
         "clear_scopes",
         is_flag=True,
         help="Also discard persisted workflow scopes, including in-flight runs.",
     )
-    def state_clear(clear_scopes: bool) -> None:
-        """Reset derived runtime state — fingerprints, run history, and the
-        session precondition cache.
+    @click.option(
+        "--runs",
+        "clear_runs",
+        is_flag=True,
+        help="Also delete the run log — what ran here, and how each run ended.",
+    )
+    @click.option(
+        "--all",
+        "clear_all",
+        is_flag=True,
+        help="Every target: freshness, scopes, the run log and shell history.",
+    )
+    def data_clear(clear_scopes: bool, clear_runs: bool, clear_all: bool) -> None:
+        """Reset derived data — freshness verdicts and the session cache.
 
         Workflow scopes are kept unless --scopes is passed: a scope is a run
         somebody is waiting on, not a cache. Never touches the discovery cache.
+
+        **Derived data is deleted; records are moved aside.** That asymmetry is
+        the whole reason `--scopes` is a separate flag rather than the default:
+        a scope holds gate payloads a human deposited, so clearing it renames
+        the file and says where it went — which is also the escape hatch from a
+        scope file that cannot be parsed, and why it never reads it first.
         """
         from pathlib import Path
 
         from functualize.app.utils import (
+            FreshStore,
+            RunStore,
             ScopeStoreUnreadableError,
-            StateStore,
-            resolve_scopes_path,
-            resolve_state_path,
+            ShellHistoryStore,
         )
 
-        path = resolve_state_path(Path.cwd())
-        scopes_path = resolve_scopes_path(Path.cwd())
-        if not path.exists() and not scopes_path.exists():
-            raise SystemExit(0)
+        if clear_all:
+            clear_scopes = clear_runs = True
 
-        store = StateStore(path)
+        store = FreshStore.for_project(Path.cwd())
+        if store.is_empty() and store.scopes.is_empty():
+            raise SystemExit(0)
 
         # Counted before clearing, and best-effort: an unreadable scope store
         # is exactly when --scopes matters most, so it must not block the one
         # command that resolves it.
         kept = None
         try:
-            kept = len(store.scope_ids())
+            kept = len(store.scopes.scope_ids())
         except ScopeStoreUnreadableError:
             kept = None
 
-        moved = store.clear(scopes=clear_scopes)
-        click.echo("Cleared fingerprints, history and session state.")
+        store.clear()
+        moved = store.scopes.clear() if clear_scopes else None
+        click.echo("Cleared freshness verdicts and session state.")
+
+        # Derived, like the freshness ledger — deleted rather than moved aside.
+        # The run log is an observation of what happened, not a record anyone
+        # is waiting on, so losing it costs history and nothing in flight.
+        if clear_runs:
+            for cleared, label in (
+                (RunStore.for_project(Path.cwd()).discard(), "run log"),
+                (ShellHistoryStore.for_project(Path.cwd()).clear(), "shell history"),
+            ):
+                if cleared:
+                    click.echo(f"Cleared the {label}.")
 
         if clear_scopes:
             if moved is None:
@@ -894,7 +1011,7 @@ def register_builtin_commands(cli_group: Any) -> None:
                 "pass --scopes to move it aside."
             )
 
-    _mount(builtin_app, state_app, "state")
+    _mount(builtin_app, data_app, "data")
 
     # --- Workflow sub-group (D2b: MCP↔CLI parity over the state store) ---
     # These mirror the MCP workflow tools. `list`/`state`/`cancel` read the
@@ -916,6 +1033,7 @@ def register_builtin_commands(cli_group: Any) -> None:
     #: disagreeing about what "ambiguous" is worth.
     _workflow_exits = {
         "workflow_not_found": 1,
+        "workflow_held": 1,
         "gate_not_found": 1,
         "gate_not_answered": 1,
         "validation_error": 1,
@@ -930,18 +1048,22 @@ def register_builtin_commands(cli_group: Any) -> None:
         "argument_not_permitted": int(ExitCode.USAGE),
     }
 
-    def _workflow_store() -> Any:
+    def _workflow_store(ctx: Any) -> Any:
         """The store the `builtin workflow` subcommands read.
 
         One place, so an unreadable scope store refuses identically for
         `list`, `show`, `resume` and `cancel` — the alternative is four
-        opinions about the same file.
+        opinions about the same records.
+
+        **From the app's substrate, never from the cwd** (`store-substrate`/T7).
+        Resolving independently meant that with a database plugin installed the
+        CLI read `.functualize/scopes.json` while the run wrote to SQLite, so
+        `workflow list` was empty and `--wf-resume` refused an id that existed.
+        Caught by the no-shared-disk test, which is what it is for.
         """
-        from pathlib import Path
+        from functualize.app.utils import ScopeStore
 
-        from functualize.app.utils import StateStore
-
-        return StateStore.for_project(Path.cwd())
+        return ScopeStore(_workflow_app_ref(ctx).execution_engine.substrate)
 
     @contextlib.contextmanager
     def _workflow_refusal() -> Any:
@@ -953,6 +1075,29 @@ def register_builtin_commands(cli_group: Any) -> None:
         except ScopeStoreUnreadableError as exc:
             click.echo(f"Error: {exc}", err=True)
             raise SystemExit(ExitCode.USAGE) from exc
+
+    def _render_walk_event(event: dict[str, Any]) -> str:
+        """One walk event as a line.
+
+        Renders the event's own fields and nothing else — no lookup of the
+        scope to fill in what the event did not say. An event that carries no
+        node is a walk-level one, and printing it without a node is the honest
+        rendering; going to find one would be the reconstruction AC-11 rules
+        out, arrived at by the back door.
+        """
+        payload = event.get("payload") or {}
+        name = str(event.get("event", "")).removeprefix("workflow.")
+        node = payload.get("node") or ""
+        outcome = payload.get("outcome") or ""
+        iteration = payload.get("iteration")
+        parts = [f"{int(event.get('seq', 0)):>4}", f"{name:<10}"]
+        if node:
+            parts.append(str(node))
+        if iteration:
+            parts.append(f"(pass {int(iteration) + 1})")
+        if outcome:
+            parts.append(f"-> {outcome}")
+        return "  ".join(parts)
 
     def _render_scope(detail: dict[str, Any]) -> None:
         """One scope as text — the same projection `--format json` emits.
@@ -1052,7 +1197,7 @@ def register_builtin_commands(cli_group: Any) -> None:
         from functualize.app.utils import list_scopes
 
         app = _workflow_app_ref(ctx)
-        store = _workflow_store()
+        store = _workflow_store(ctx)
         with _workflow_refusal():
             items = list_scopes(
                 app,
@@ -1101,7 +1246,7 @@ def register_builtin_commands(cli_group: Any) -> None:
 
         app = _workflow_app_ref(ctx)
         with _workflow_refusal():
-            detail = describe_scope(app, _workflow_store(), workflow_id)
+            detail = describe_scope(app, _workflow_store(ctx), workflow_id)
         if detail is None:
             click.echo(f"Error: no workflow scope '{workflow_id}'.", err=True)
             raise SystemExit(1)
@@ -1217,7 +1362,7 @@ def register_builtin_commands(cli_group: Any) -> None:
         from functualize.app.utils import answer_gate, gate_draft
 
         app = _workflow_app_ref(ctx)
-        store = _workflow_store()
+        store = _workflow_store(ctx)
 
         values = _parse_set(set_pairs)
         if input_json is not None:
@@ -1319,7 +1464,7 @@ def register_builtin_commands(cli_group: Any) -> None:
         from functualize.app.utils import resume_scope
 
         app = _workflow_app_ref(ctx)
-        store = _workflow_store()
+        store = _workflow_store(ctx)
 
         payload = None
         if input_json is not None:
@@ -1337,6 +1482,11 @@ def register_builtin_commands(cli_group: Any) -> None:
                 input=payload,
                 gate=gate,
                 retry_epilogue=retry_epilogue,
+                # This door is `func builtin workflow resume`. It was labelled
+                # `app.execute` by `guarded_execute`'s hardcoded constant, so a
+                # CLI resume and a programmatic one were the same run as far as
+                # the request could say (rre F9).
+                surface="func.builtin",
             )
 
         if fmt == "json":
@@ -1357,13 +1507,36 @@ def register_builtin_commands(cli_group: Any) -> None:
         and it is the point: a script that resumes in a loop needs to know
         whether it finished.
         """
-        from functualize.app.utils import RunStatus, exit_code_for_status
+        from functualize.app.utils import (
+            RunStatus,
+            exit_code_for_status,
+            status_from_wire,
+        )
 
-        status = str(result.get("status") or "").lower()
-        for member in RunStatus:
-            if member.value.lower() == status:
-                return int(exit_code_for_status(member))
-        return 0 if status in {"answered", "drafted"} else 1
+        raw = str(result.get("status") or "")
+
+        # `resume` reports in **two vocabularies through one field**: the walk's
+        # RunStatus when it ran, and the gate-answer state when it did not. The
+        # gate states are not run statuses, and the old fallback papered over
+        # that by answering 0 for them -- which is how a still-waiting gate came
+        # to report success, in direct contradiction of this method's own
+        # docstring. Translate the gate vocabulary first, explicitly.
+        gate_states = {
+            # The input was incomplete, so it was saved and the gate still
+            # blocks. That is a blocked run, and a blocked run exits 5.
+            "drafted": RunStatus.BLOCKED,
+        }
+        status = gate_states.get(raw.strip().lower()) or status_from_wire(raw)
+        if status is None:
+            # The verb reported something that names no RunStatus. The old
+            # fallback special-cased two gate-state strings that are not run
+            # statuses at all and returned 0 for them, and 1 for everything
+            # else. Returning 0 for an unrecognised string is how a resume loop
+            # concludes it has finished when it has not. USAGE says what
+            # actually happened: the caller and the verb disagree about the
+            # vocabulary.
+            return int(ExitCode.USAGE)
+        return int(exit_code_for_status(status))
 
     @workflow_app.command("gate-tool")
     @click.argument("workflow_id")
@@ -1393,7 +1566,7 @@ def register_builtin_commands(cli_group: Any) -> None:
         from functualize.app.utils import GateToolPolicy, call_gate_tool
 
         app = _workflow_app_ref(ctx)
-        store = _workflow_store()
+        store = _workflow_store(ctx)
         try:
             args = json.loads(args_json)
         except json.JSONDecodeError as exc:
@@ -1421,14 +1594,108 @@ def register_builtin_commands(cli_group: Any) -> None:
                 f"{result['tool']}: {result['status']} -> {result['return_value']!r}"
             )
 
+    @workflow_app.command("watch")
+    @click.argument("workflow_id")
+    @click.option(
+        "--format",
+        "fmt",
+        type=click.Choice(["text", "json"]),
+        default="text",
+        help="Render each event as a line, or as newline-delimited JSON.",
+    )
+    @click.option(
+        "--after",
+        "after",
+        type=int,
+        default=0,
+        metavar="SEQ",
+        help="Resume a watch: only events after this sequence number.",
+    )
+    @click.option(
+        "--timeout",
+        "timeout",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="Give up after this long with no event. Default: wait while held.",
+    )
+    @click.pass_context
+    def workflow_watch(
+        ctx: click.Context,
+        workflow_id: str,
+        fmt: str,
+        after: int,
+        timeout: float | None,
+    ) -> None:
+        """Follow a workflow scope's graph as it advances.
+
+        Renders what the **walker emitted** — never a description reconstructed
+        by re-reading the record, which cannot tell a step that ran from one
+        that was replayed and misses anything that started and finished between
+        two readings.
+
+        Reports the scope **parked** when nobody holds its lease, rather than
+        waiting for a walk that is not running (spec AC-12). That is also how it
+        terminates on a finished scope: the log drains, the lease is not held,
+        and it returns having printed everything that happened.
+
+        `--format json` emits one object per line, so it pipes.
+        """
+        import json
+
+        from functualize.app.utils import derived_state, walk_is_live, watch_scope
+
+        store = _workflow_store(ctx)
+        with _workflow_refusal():
+            scope = store.get_scope(workflow_id)
+        if scope is None:
+            click.echo(f"Error: no workflow scope '{workflow_id}'.", err=True)
+            raise SystemExit(1)
+
+        live = walk_is_live(scope)
+        state = derived_state(scope)
+        if fmt == "json":
+            click.echo(
+                json.dumps(
+                    {
+                        "scope": workflow_id,
+                        "state": state,
+                        "watching": "live" if live else "parked",
+                    }
+                )
+            )
+        else:
+            click.echo(
+                f"{workflow_id}  {state}  "
+                f"({'live' if live else 'parked'} — following events)"
+            )
+
+        seq = after
+        with _workflow_refusal():
+            for event in watch_scope(store, workflow_id, after=after, timeout=timeout):
+                seq = int(event.get("seq", seq))
+                if fmt == "json":
+                    click.echo(json.dumps(event))
+                else:
+                    click.echo(_render_walk_event(event))
+
+        with _workflow_refusal():
+            final = store.get_scope(workflow_id)
+        state = derived_state(final) if final else "gone"
+        if fmt == "json":
+            click.echo(json.dumps({"scope": workflow_id, "state": state, "seq": seq}))
+        else:
+            click.echo(f"{workflow_id}  {state}  (seq {seq})")
+
     @workflow_app.command("cancel")
     @click.argument("workflow_id")
-    def workflow_cancel(workflow_id: str) -> None:
+    @click.pass_context
+    def workflow_cancel(ctx: click.Context, workflow_id: str) -> None:
         """Cancel a workflow scope. Terminal — it cannot be resumed."""
         from functualize.app.utils import cancel_scope
 
         with _workflow_refusal():
-            result = cancel_scope(_workflow_store(), workflow_id)
+            result = cancel_scope(_workflow_store(ctx), workflow_id)
         if "error" in result:
             click.echo(f"Error: {result['message']}", err=True)
             raise SystemExit(_workflow_exits.get(result["error"], 1))
@@ -1446,7 +1713,10 @@ def register_builtin_commands(cli_group: Any) -> None:
         metavar="DAYS",
         help="Only scopes whose newest recorded result is older.",
     )
-    def workflow_purge(state: str | None, older_than: float | None) -> None:
+    @click.pass_context
+    def workflow_purge(
+        ctx: click.Context, state: str | None, older_than: float | None
+    ) -> None:
         """Delete finished workflow scopes.
 
         Never touches a running, waiting or ready scope, and --state cannot
@@ -1457,7 +1727,7 @@ def register_builtin_commands(cli_group: Any) -> None:
 
         with _workflow_refusal():
             result = purge_scopes(
-                _workflow_store(), state=state, older_than_days=older_than
+                _workflow_store(ctx), state=state, older_than_days=older_than
             )
         if "error" in result:
             click.echo(f"Error: {result['message']}", err=True)
@@ -1466,7 +1736,173 @@ def register_builtin_commands(cli_group: Any) -> None:
         for scope_id in result["removed"]:
             click.echo(f"  {scope_id}")
 
+    @workflow_app.command("reclaim")
+    @click.argument("workflow_id")
+    @click.pass_context
+    def workflow_reclaim(ctx: click.Context, workflow_id: str) -> None:
+        """Take an abandoned scope so it can be resumed.
+
+        An abandoned scope is one whose runner stopped renewing its lease.
+        Nothing reclaims automatically: an expired lease means *nothing has
+        heard from that runner*, not *that runner is dead*, and a long step on
+        a machine with a slow clock looks identical.
+
+        Not destructive. Every step record, gate payload and position stays
+        where it is; only the generation moves, which is what stops the
+        previous holder writing.
+        """
+        from functualize.app._workflow_control import reclaim_scope
+
+        store = _workflow_store(ctx)
+        with _workflow_refusal():
+            result = reclaim_scope(store, workflow_id)
+        if "error" in result:
+            click.echo(f"Error: {result['message']}", err=True)
+            raise SystemExit(_workflow_exits.get(result["error"], 1))
+        click.echo(result["message"])
+
     _mount(builtin_app, workflow_app, "workflow")
+
+    # --- run (durable-run-layer/T3) ------------------------------------
+    #
+    # `runs.json` has been written since T2 and read by nothing. These are the
+    # read verbs, thin over `app/_run_view.py` — the same projection the MCP
+    # tools return, so the two surfaces cannot answer differently.
+    #
+    # A separate group from `workflow` because they answer different questions:
+    # a scope is a workflow's *position* and exists to be resumed, a run is one
+    # *execution* and exists to be read afterwards. A workflow that blocked and
+    # resumed three times is one scope and four runs.
+    run_app = click.Group(
+        name="run", help="Read the run log — what executed, and how it ended."
+    )
+
+    def _run_store() -> Any:
+        """The store the `builtin run` subcommands read.
+
+        One place, for the reason `_workflow_store` gives: four opinions about
+        the same file is how two verbs start disagreeing about it.
+        """
+        from pathlib import Path
+
+        from functualize.app.utils import RunStore
+
+        return RunStore.for_project(Path.cwd())
+
+    @run_app.command("list")
+    @click.option("--job", "job", default=None, help="Only runs of this job.")
+    @click.option(
+        "--surface",
+        "surface",
+        default=None,
+        help="Only runs started through this door (cli, http, invoke, ...).",
+    )
+    @click.option(
+        "--state",
+        "state",
+        default=None,
+        type=click.Choice(list(RUN_STATES)),
+        help="Only runs in this derived state. `abandoned` is a run that never "
+        "closed and is not this process — see `run show`.",
+    )
+    @click.option(
+        "--scope", "scope_id", default=None, help="Only runs in this workflow scope."
+    )
+    @click.option("--limit", type=int, default=20, help="How many rows at most.")
+    @click.option(
+        "--format",
+        "fmt",
+        type=click.Choice(["table", "json"]),
+        default="table",
+        help="Render the runs as a table or JSON.",
+    )
+    def run_list(
+        job: str | None,
+        surface: str | None,
+        state: str | None,
+        scope_id: str | None,
+        limit: int,
+        fmt: str,
+    ) -> None:
+        """Survey runs, newest first.
+
+        The opposite order from `workflow list`, and deliberately: a scope list
+        answers "what is waiting on me", where order is incidental; a run list
+        answers "what just happened", where it is the whole question.
+        """
+        from functualize.app.utils import list_runs
+
+        items = list_runs(
+            _run_store(),
+            job=job,
+            surface=surface,
+            state=state,
+            scope_id=scope_id,
+            limit=limit,
+        )
+        if fmt == "json":
+            import json
+
+            click.echo(json.dumps({"runs": items}, indent=2))
+            return
+        if not items:
+            click.echo("No matching runs.")
+            return
+        for it in items:
+            # A rendering of the shared projection, never a second projection —
+            # the moment the one-liner had its own shape, `--format json` and
+            # the MCP survey stopped being the same rows.
+            took = "-" if it["duration_ms"] is None else f"{it['duration_ms']:.0f}ms"
+            click.echo(
+                f"{it['run_id']}  {it['job']}  {it['state']}  "
+                f"{it['surface'] or '-'}  {took}"
+            )
+
+    @run_app.command("show")
+    @click.argument("run_id")
+    @click.option(
+        "--events", is_flag=True, help="Include this run's event log, in seq order."
+    )
+    @click.option(
+        "--tree", is_flag=True, help="Include the runs this run set off, nested."
+    )
+    @click.option(
+        "--format",
+        "fmt",
+        type=click.Choice(["table", "json"]),
+        default="table",
+        help="Render the run as text or JSON.",
+    )
+    def run_show(run_id: str, events: bool, tree: bool, fmt: str) -> None:
+        """Everything known about one run."""
+        import json
+
+        from functualize.app.utils import describe_run, run_events, run_tree
+
+        store = _run_store()
+        payload = run_tree(store, run_id) if tree else describe_run(store, run_id)
+        if payload is None:
+            click.echo(f"Error: no run '{run_id}'.", err=True)
+            raise SystemExit(1)
+        if events:
+            payload = {**payload, "events": run_events(store, run_id) or []}
+        if fmt == "json":
+            click.echo(json.dumps(payload, indent=2))
+            return
+        for key in ("run_id", "job", "state", "surface", "started_at", "ended_at"):
+            click.echo(f"{key}: {payload.get(key)}")
+        if payload.get("duration_ms") is not None:
+            click.echo(f"duration_ms: {payload['duration_ms']:.0f}")
+        if payload.get("scope_id"):
+            click.echo(f"scope_id: {payload['scope_id']}")
+        if payload.get("parent_run_id"):
+            click.echo(f"parent_run_id: {payload['parent_run_id']}")
+        if events:
+            click.echo(f"events: {len(payload.get('events') or [])}")
+            for event in payload.get("events") or []:
+                click.echo(f"  {event.get('seq')}  {event.get('at')}  {event}")
+
+    _mount(builtin_app, run_app, "run")
 
     # --- parallel (T40) ---
     # `Invoke.parallel` has existed since S1 and was reachable only from inside
@@ -1539,22 +1975,40 @@ def register_builtin_commands(cli_group: Any) -> None:
         help="Show at most this many of the most recent records.",
     )
     def history_command(namespace: str | None, limit: int | None) -> None:
-        """Show recent runs, newest first."""
+        """Show recent runs, newest first.
+
+        **Two sources since `durable-run-layer`/T3b**, where one ring used to
+        hold both. Job history is *derived* from the run log — which recorded
+        the same runs plus the nested ones plus who invoked them, making the
+        ring a poorer copy of a subset. Shell history moved to its own file,
+        because a typed command was never a run and the log has nowhere to put
+        it.
+
+        Nothing changes for the caller: the same records, the same order, the
+        same `--namespace` flag.
+        """
         from pathlib import Path
 
-        from functualize.app.utils import StateStore, resolve_state_path
+        from functualize.app.utils import RunStore, ShellHistoryStore, job_history
 
-        path = resolve_state_path(Path.cwd())
-        # Read directly, not via `for_project`: history is inspected far more
-        # often than it is written, and reading must not create a state file in
-        # a project that has never run anything.
-        if not path.exists():
+        # Reading must not create anything in a project that has never run
+        # anything, which is why these ask rather than write: every read path
+        # through a store is a pure read, and `for_project` only resolves where
+        # the documents would be.
+        runs = RunStore.for_project(Path.cwd())
+        shell = ShellHistoryStore.for_project(Path.cwd())
+        job_records = job_history(runs) if namespace in (None, "job") else []
+        shell_records = shell.entries() if namespace in (None, "shell") else []
+        if not job_records and not shell_records and not runs.run_ids():
             click.echo("No history recorded yet.", err=True)
             return
 
-        records = StateStore(path).get_history()
-        if namespace is not None:
-            records = [r for r in records if r.get("namespace") == namespace]
+        records: list[dict[str, Any]] = [*job_records, *shell_records]
+        # Merged newest-first across both sources. Sorted on `at`, which every
+        # record now carries — the shell half did not stamp one until T3b, and
+        # an unsorted merge would have put every shell line after every job
+        # line regardless of when either happened.
+        records.sort(key=lambda r: str(r.get("at") or ""), reverse=True)
         if limit is not None:
             records = records[:limit]
 
@@ -1957,7 +2411,7 @@ def register_builtin_commands(cli_group: Any) -> None:
             click.echo("No domains discovered.")
             click.echo("")
             click.echo("Install a domain SDK package to get started:")
-            click.echo("  pip install functualize-state")
+            click.echo("  pip install functualize-state-sqlite")
             click.echo("  pip install functualize-ai")
             click.echo("  pip install functualize-tasks")
             return
@@ -2540,15 +2994,17 @@ def register_builtin_commands(cli_group: Any) -> None:
                     click.echo("  Convention dirs: (none detected)")
 
         # Where freshness is remembered, and which of the two modes that is.
-        # `resolve_state_path` has always walked upward for a `.functualize/`
+        # `resolve_fresh_path` has always walked upward for a `.functualize/`
         # and fallen back to the home cache, and nothing said which had
         # happened — so a project could spend its whole life in standalone
-        # mode and then go looking for a `state.json` under a hashed directory
+        # mode and then go looking for a `fresh.json` under a hashed directory
         # it had never seen.
         state_path, state_mode, state_marker = _state_location()
         click.echo("")
         click.echo("─── Runtime State ───")
-        click.echo(f"  State path: {state_path}")
+        # The same label `data show` uses. Two words for one path is the drift
+        # that made `state` ambiguous in the first place.
+        click.echo(f"  Freshness path: {state_path}")
         # The scope file is reported here for the same reason the mode is: a
         # file whose location nothing prints is a file nobody finds.
         click.echo(f"  Scopes path: {state_path.with_name('scopes.json')}")

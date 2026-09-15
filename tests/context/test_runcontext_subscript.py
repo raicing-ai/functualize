@@ -207,7 +207,7 @@ class TestBackwardCompatibility:
     def test_run_status_works_without_registry(self, rc_without_registry):
         from functualize._types.enums import RunStatus
 
-        assert rc_without_registry.run_status == RunStatus.RUNNING
+        assert rc_without_registry.events.run_status == RunStatus.RUNNING
 
     def test_init_without_di_registry_param(self, mock_config, mock_logger):
         """Verify RunContext can still be created without _di_registry."""

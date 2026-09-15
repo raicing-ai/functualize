@@ -381,7 +381,7 @@ out of order once, on purpose.
 point included the DI-injected capability instances. `canonical_json` falls back
 to `repr` for anything unserializable, and `object.__repr__` embeds the memory
 address — so a job declaring `log: Log` wrote a **different fingerprint key on
-every run**. It could never report fresh, and its `state.json` grew without
+every run**. It could never report fresh, and its `fresh.json` grew without
 bound. A unit test on the hash function passes: within one process, one object,
 one repr.
 

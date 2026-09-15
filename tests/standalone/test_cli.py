@@ -14,11 +14,14 @@ from unittest.mock import ANY, MagicMock, patch
 import pytest
 
 from functualize._cli.main import main
-from functualize.app.adapters.cli import _find_similar
+from functualize.app.utils import suggest_similar_commands as _find_similar
 
 
 class TestFindSimilar:
-    """Tests for command suggestion logic."""
+    """The app entry point's cases, against the shared implementation.
+
+    `_find_similar` was a second, non-fuzzy copy; these four cases are what it
+    guaranteed, and the union must still guarantee them."""
 
     def test_prefix_match(self) -> None:
         result = _find_similar("dep", ["deploy", "test", "build"])

@@ -154,7 +154,7 @@ Or deploy the same jobs as an HTTP service or Lambda handler — same jobs, diff
 | **Declarative workflows** | Multi-step graphs with `@workflow`, conditional branching, gates, and scope-tracked execution. |
 | **Plugin system** | Extend with job providers, output renderers, input providers, format providers, and lifecycle hooks — all via protocols. |
 | **Multiple delivery surfaces** | The same jobs run via CLI, HTTP API, AWS Lambda, MCP (AI agents), or TUI. Write once, deliver everywhere. |
-| **Dependency injection** | Register services with `app.provide()`. Jobs access them via `rc[MyService]`. No global state. |
+| **Dependency injection** | Register services with `app.di.provide()`. Jobs access them via `rc[MyService]`. No global state. |
 | **Event system** | Structured publish-subscribe via `EventBus`. Jobs emit custom events, plugins react. |
 
 ---

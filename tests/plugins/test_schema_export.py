@@ -413,7 +413,7 @@ class TestCLICommandRegistration:
 
         plugin = MCPAdapterPlugin()
         app = MagicMock()
-        app.resolve_model.return_value = MagicMock(
+        app.configuration.resolve_model.return_value = MagicMock(
             transport="stdio", host="127.0.0.1", port=8080
         )
 
@@ -424,7 +424,7 @@ class TestCLICommandRegistration:
         # register_plugin_command called with "schema" and namespace="mcp"
         schema_calls = [
             call
-            for call in app.register_plugin_command.call_args_list
+            for call in app.extensions.register_plugin_command.call_args_list
             if len(call[0]) > 0 and call[0][0] == "schema"
         ]
         assert len(schema_calls) == 1
@@ -437,7 +437,7 @@ class TestCLICommandRegistration:
 
         plugin = MCPAdapterPlugin()
         app = MagicMock()
-        app.resolve_model.return_value = MagicMock(
+        app.configuration.resolve_model.return_value = MagicMock(
             transport="stdio", host="127.0.0.1", port=8080
         )
 
@@ -446,7 +446,7 @@ class TestCLICommandRegistration:
 
         tools_calls = [
             call
-            for call in app.register_plugin_command.call_args_list
+            for call in app.extensions.register_plugin_command.call_args_list
             if len(call[0]) > 0 and call[0][0] == "tools"
         ]
         assert len(tools_calls) == 1

@@ -178,7 +178,14 @@ def _run(project: Path, surface: str, *args: str) -> subprocess.CompletedProcess
 
 
 def _scope_of(result: subprocess.CompletedProcess[str]) -> str:
-    match = re.search(r"scope '([0-9a-f]+)'", result.stdout + result.stderr)
+    r"""The scope id from a blocked run's message.
+
+    `[\w.-]+`, not `[0-9a-f]+`: there is one scope-id generator now and it
+    names the job — `walk-e1e5b989`, or `flow.grouped-walk-85f311a8` for a
+    grouped one. There used to be two generators minting different shapes
+    depending on which door started the run (capability-duality).
+    """
+    match = re.search(r"scope '([\w.-]+)'", result.stdout + result.stderr)
     assert match is not None, result.stdout + result.stderr
     return match.group(1)
 

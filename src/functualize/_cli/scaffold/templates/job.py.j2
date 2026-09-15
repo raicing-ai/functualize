@@ -24,19 +24,19 @@ def run(config: {{ class_name }}Config, rc: RunContext) -> None:
     """
     rc.log(f"Starting {{ job_name }} job with target: {config.target}")
 
-    rc.track_phase("initialize", "Setting up job resources", RunStatus.RUNNING)
+    rc.events.track_phase("initialize", "Setting up job resources", RunStatus.RUNNING)
     # ... initialization logic here ...
-    rc.track_phase("initialize", "Resources ready", RunStatus.SUCCESS)
+    rc.events.track_phase("initialize", "Resources ready", RunStatus.SUCCESS)
 
-    rc.track_phase("process", "Processing target", RunStatus.RUNNING)
+    rc.events.track_phase("process", "Processing target", RunStatus.RUNNING)
     if config.dry_run:
         rc.log("Dry run mode — skipping actual processing", level="warning")
     else:
         # ... actual processing logic here ...
         pass
-    rc.track_phase("process", "Processing complete", RunStatus.SUCCESS)
+    rc.events.track_phase("process", "Processing complete", RunStatus.SUCCESS)
 
-    rc.track_run_status(RunStatus.SUCCESS)
+    rc.events.track_run_status(RunStatus.SUCCESS)
     rc.log("Job completed successfully")
 
 

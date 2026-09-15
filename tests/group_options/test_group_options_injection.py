@@ -11,8 +11,8 @@ Two properties are worth more than the rest and are asserted directly:
 
 * **D-c** — a mid-path flag beats the environment, matching how a job's own
   flag does.
-* **Injection is not CLI-conditional.** ``app.execute("deploy.web.run")`` has
-  no command line at all, and must still see its group's file/env/default
+* **Injection is not CLI-conditional.** ``app.execute(request_for("deploy.web.run"))``
+  has no command line at all, and must still see its group's file/env/default
   values. A group option that only materialized under the CLI would be a
   different feature.
 
@@ -31,8 +31,9 @@ from typing import Any
 import pytest
 
 from functualize._app.state import AppState
-from functualize.app.core import FunctualizeApp
+from functualize.app.core import FunctualizeApp, request_for
 from functualize.job import RunStatus
+from functualize.types import RunRequest
 
 _JOB_MODULE = """
 {future_import}
@@ -120,18 +121,17 @@ def _execute(
 ) -> Any:
     """Run through the engine, optionally with a group-CLI layer.
 
-    ``app.execute`` deliberately has no ``group_option_values`` parameter —
-    a mid-path flag is a command-line concept, and the facade is not the
-    command line. The dispatcher reaches the engine directly, so the tests
-    that exercise the CLI layer do too.
+    A mid-path flag is a command-line concept, and the dispatcher reaches the
+    engine directly — so the tests that exercise the CLI layer do too, rather
+    than routing a synthetic layer through ``app.execute``.
     """
-    entry = app.job_registry.get_job(job_name)
-    return app._execution_engine.execute(
-        job_name,
-        entry.function,
-        config_class=entry.config_class,
-        kwargs=kwargs,
-        group_option_values=group_options,
+    return app._execution_engine.run(
+        RunRequest(
+            job_name=job_name,
+            surface="app.execute",
+            kwargs=kwargs,
+            group_option_values=group_options,
+        )
     )
 
 
@@ -280,7 +280,7 @@ class TestGroupOptionsInjection:
         AppState.reset()
         app = _app(_job_module(use_future))
 
-        via_facade = app.execute("run")
+        via_facade = app.execute(request_for("run"))
         via_engine = _execute(app, "run")
 
         assert via_facade.status is RunStatus.SUCCESS, repr(via_facade.exception)

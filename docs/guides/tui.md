@@ -18,7 +18,7 @@ class Surface(Protocol):
     def handle_event(self, event: StructuredEvent) -> None: ...
 ```
 
-`StructuredEvent` carries `event_name` (a `{domain}.{resource}.{action}` string such as `job.execute.start`, `job.execute.end`, `job.teardown.end`), `resource`, and a `payload` dict — so a surface reads whatever it needs off one uniform shape rather than a fixed callback list. Register a surface with `app.register_surface(obj)`.
+`StructuredEvent` carries `event_name` (a `{domain}.{resource}.{action}` string such as `job.execute.start`, `job.execute.end`, `job.teardown.end`), `resource`, and a `payload` dict — so a surface reads whatever it needs off one uniform shape rather than a fixed callback list. Register a surface with `app.extensions.register_surface(obj)`.
 
 !!! danger "handle_event runs on the job's worker thread"
     When a host owns the terminal, `handle_event` is invoked from the job's

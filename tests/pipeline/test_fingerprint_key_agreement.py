@@ -95,7 +95,7 @@ def _run(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
 
 
 def _fingerprint_keys(project: Path) -> list[str]:
-    state = project / ".functualize" / "state.json"
+    state = project / ".functualize" / "fresh.json"
     if not state.exists():
         return []
     return sorted(json.loads(state.read_text()).get("fingerprints", {}))

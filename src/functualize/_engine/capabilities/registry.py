@@ -35,6 +35,7 @@ forfeit that.
 
 from __future__ import annotations
 
+from functualize._engine.capabilities.freshness import CAPABILITY as _FRESHNESS
 from functualize._engine.capabilities.invoke import CAPABILITY as _INVOKE
 from functualize._engine.capabilities.job_context import CAPABILITY as _JOB_CONTEXT
 from functualize._engine.capabilities.live import CAPABILITY as _LIVE
@@ -78,6 +79,7 @@ CAPABILITY_SPECS: tuple[CapabilitySpec, ...] = (
     _STDOUT,
     _STATE,
     _SOURCES,
+    _FRESHNESS,
     _JOB_CONTEXT,
     _TTY,
     _LIVE,
@@ -116,9 +118,15 @@ def _check_name_agreement() -> None:
 
     See the module docstring for why the name set exists at all and why this is
     an import-time invariant rather than a test.
+
+    It also covers the *executor* capability names — the flags an
+    `AgentStepExecutor` declares — by the same rule applied to their own pair:
+    `AgentCapability` and the declarations that can require it
+    (`_types.workflow.IMPLIED_CAPABILITIES`).
     """
     registered = {spec.name for spec in CAPABILITY_SPECS}
     if registered == set(INJECTED_PARAM_TYPE_NAMES):
+        _check_agent_capability_coverage()
         return
     missing_names = registered - set(INJECTED_PARAM_TYPE_NAMES)
     missing_specs = set(INJECTED_PARAM_TYPE_NAMES) - registered
@@ -130,6 +138,40 @@ def _check_name_agreement() -> None:
         "_primitives/capability_names.INJECTED_PARAM_TYPE_NAMES. The name set "
         "cannot derive from this registry because _discovery consumes it and "
         "may not import _engine (peer layers are independent); see ADR-014."
+    )
+
+
+def _check_agent_capability_coverage() -> None:
+    """Refuse to start when an executor flag no declaration can require exists.
+
+    `AgentCapability` is what an executor promises it can enforce;
+    `IMPLIED_CAPABILITIES` says which `AgentStep` declaration makes a step
+    require each flag. A member of the enum with no entry there can never be
+    required by anything, so the engine can never refuse a step for it — a flag
+    that exists in the public vocabulary and does nothing, which is the failure
+    ADR-014's import-time agreement exists to make impossible.
+
+    Asserted here rather than in a test for the same reason the injected names
+    are: forgetting a declaration is a startup failure by construction, not a
+    runtime surprise discovered by a user.
+    """
+    from functualize._types.protocols import AgentCapability
+    from functualize._types.workflow import IMPLIED_CAPABILITIES
+
+    declared = {capability.value for capability in AgentCapability}
+    reachable = {capability.value for capability in IMPLIED_CAPABILITIES}
+    if declared == reachable:
+        return
+    raise RuntimeError(
+        "AgentCapability and _types.workflow.IMPLIED_CAPABILITIES disagree — "
+        f"declared as a flag but no AgentStep declaration can require it: "
+        f"{sorted(declared - reachable)}; "
+        f"reachable from a declaration but not a declared flag: "
+        f"{sorted(reachable - declared)}. A flag nothing can require is one the "
+        "engine can never refuse a step for. Add it beside the `AgentStep` "
+        "attribute that implies it, or map it to None there if it is only ever "
+        "declared explicitly. See ADR-014 for the same shape applied to the "
+        "injected capabilities."
     )
 
 

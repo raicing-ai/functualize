@@ -4,10 +4,10 @@ Tests validation errors raised by:
 - ResolutionPipeline.add_provider with non-provider arguments
 - ResolutionPipeline.add_transform with non-transform arguments
 - NamespaceTransform("") with empty prefix
-- @app.on_job_failure("") with empty job name
-- @app.before_job on a no-param function
-- @app.run_middleware on a non-generator function
-- @app.on_event("invalid!!pattern") with invalid event pattern
+- @app.hooks.on_job_failure("") with empty job name
+- @app.hooks.before_job on a no-param function
+- @app.hooks.run_middleware on a non-generator function
+- @app.hooks.on_event("invalid!!pattern") with invalid event pattern
 
 **Validates: Requirements 3.4, 4.5, 9.5, 14.4, 16.4, 17.5, 18.5, 28.5**
 """
@@ -135,27 +135,27 @@ class TestAppDecoratorErrors:
     def test_on_job_failure_empty_string_raises_valueerror(
         self, app: FunctualizeApp
     ) -> None:
-        """@app.on_job_failure('') raises ValueError.
+        """@app.hooks.on_job_failure('') raises ValueError.
 
         **Validates: Requirements 14.4**
         """
         with pytest.raises(ValueError, match="non-empty"):
-            app.on_job_failure("")
+            app.hooks.on_job_failure("")
 
     def test_on_job_teardown_empty_string_raises_valueerror(
         self, app: FunctualizeApp
     ) -> None:
-        """@app.on_job_teardown('') raises ValueError.
+        """@app.hooks.on_job_teardown('') raises ValueError.
 
         **Validates: Requirements 16.4**
         """
         with pytest.raises(ValueError, match="non-empty"):
-            app.on_job_teardown("")
+            app.hooks.on_job_teardown("")
 
     def test_before_job_no_param_function_raises_typeerror(
         self, app: FunctualizeApp
     ) -> None:
-        """@app.before_job on a function with no parameters raises TypeError.
+        """@app.hooks.before_job on a function with no parameters raises TypeError.
 
         **Validates: Requirements 17.5**
         """
@@ -163,29 +163,29 @@ class TestAppDecoratorErrors:
             TypeError, match="must accept at least one positional parameter"
         ):
 
-            @app.before_job
+            @app.hooks.before_job
             def no_params() -> None:
                 pass
 
     def test_run_middleware_non_generator_raises_typeerror(
         self, app: FunctualizeApp
     ) -> None:
-        """@app.run_middleware on a non-generator function raises TypeError.
+        """@app.hooks.run_middleware on a non-generator function raises TypeError.
 
         **Validates: Requirements 18.5**
         """
         with pytest.raises(TypeError, match="generator function"):
 
-            @app.run_middleware
+            @app.hooks.run_middleware
             def not_a_generator(rc: Any) -> None:
                 pass
 
     def test_on_event_invalid_pattern_raises_valueerror(
         self, app: FunctualizeApp
     ) -> None:
-        """@app.on_event('invalid!!pattern') raises ValueError.
+        """@app.hooks.on_event('invalid!!pattern') raises ValueError.
 
         **Validates: Requirements 28.5**
         """
         with pytest.raises(ValueError, match="Invalid event pattern"):
-            app.on_event("invalid!!pattern")
+            app.hooks.on_event("invalid!!pattern")

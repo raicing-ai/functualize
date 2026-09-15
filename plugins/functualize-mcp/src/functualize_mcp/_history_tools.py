@@ -1,15 +1,26 @@
-"""MCP History tools — query execution history via MCP when the State domain is active.
+"""MCP tools over the run log: what ran, and what happened inside one run.
 
-Provides get_job_history and get_execution_detail MCP tools.
-These tools are conditionally exposed only when the functualize-state
-domain SDK is installed.
+`store-substrate`/T6.
+
+These tools used to read an `ExecutionStore` from the retired
+`functualize-state` domain, and the way they read it is the clearest argument
+for retiring it. `get_job_history` could not simply ask for recent executions —
+the protocol had no such method — so it probed for four
+(`get_all_executions`, `get_recent_executions`, `get_session_executions` with an
+empty session, then with the app's session), taking whichever the installed
+backend happened to have. That is what "the intersection of every backend" costs
+in practice: a caller guessing at five shapes because the contract cannot
+express the one question being asked.
+
+The framework's own run log answers it directly. `job_history` and
+`describe_run` are the same projections `func builtin history` and
+`func builtin run show` render, so the MCP surface and the CLI now report one
+set of facts instead of two.
 """
 
 from __future__ import annotations
 
-import contextlib
 import logging
-from dataclasses import asdict
 from typing import Any
 
 __all__ = ["MCPHistoryToolRegistry"]
@@ -17,84 +28,40 @@ __all__ = ["MCPHistoryToolRegistry"]
 logger = logging.getLogger(__name__)
 
 
-def _execution_record_to_dict(record: Any) -> dict[str, Any]:
-    """Convert an ExecutionRecord to a serializable dict.
-
-    Args:
-        record: An ExecutionRecord instance.
-
-    Returns:
-        A dict representation suitable for MCP responses.
-    """
-    data = asdict(record)
-    return data
-
-
-def _phase_record_to_dict(phase: Any) -> dict[str, Any]:
-    """Convert a PhaseRecord to a serializable dict.
-
-    Args:
-        phase: A PhaseRecord instance.
-
-    Returns:
-        A dict representation suitable for MCP responses.
-    """
-    data = asdict(phase)
-    return data
+def _error_response(code: str, message: str) -> dict[str, Any]:
+    """The shape every failing tool returns, unchanged from the old tools."""
+    return {"error": {"code": code, "message": message}}
 
 
 class MCPHistoryToolRegistry:
-    """Registers MCP history tools when the State domain is available.
+    """Registers the two history tools against a FastMCP server."""
 
-    Tools are only registered if the functualize-state package can be
-    imported. This ensures the MCP server doesn't fail when the State
-    domain is not installed.
-
-    Args:
-        app: The FunctualizeApp instance providing DI and job registry.
-    """
-
-    def __init__(self, app: Any) -> None:
+    def __init__(self, app: Any, *, run_store: Any = None) -> None:
         self._app = app
-        self._execution_store: Any = None
+        self._run_store = run_store
 
-    def _get_execution_store(self) -> Any:
-        """Resolve the ExecutionStore from the app's DI registry.
+    @property
+    def run_store(self) -> Any:
+        """The run log, on the app's substrate. Resolved on first use.
 
-        Returns:
-            The ExecutionStore instance, or None if unavailable.
+        Through the engine rather than from the cwd, so the tools read the same
+        documents the run wrote — including when a plugin has installed a
+        database (`store-substrate`/T5).
         """
-        if self._execution_store is not None:
-            return self._execution_store
+        if self._run_store is None:
+            from functualize._primitives.run_store import RunStore
 
-        try:
-            from functualize_state import ExecutionStore
-
-            # Try to resolve from DI
-            if hasattr(self._app, "resolve"):
-                self._execution_store = self._app.resolve(ExecutionStore)
-        except Exception:
-            pass
-
-        return self._execution_store
+            self._run_store = RunStore(self._app.execution_engine.substrate)
+        return self._run_store
 
     def register_tools(self, mcp: Any) -> None:
-        """Register history MCP tools with the FastMCP server instance.
+        """Register both history tools.
 
-        Only registers if functualize-state is importable.
-
-        Args:
-            mcp: The FastMCP instance to register tools with.
+        **Unconditional now.** It used to register only if `functualize-state`
+        was importable, so the tools were absent on an ordinary install and the
+        absence looked like a missing feature. The run log is part of the
+        framework; there is nothing to be installed.
         """
-        try:
-            from functualize_state import ExecutionStore  # noqa: F401
-        except ImportError:
-            logger.debug(
-                "MCPHistoryToolRegistry: functualize-state not installed, "
-                "skipping history tool registration."
-            )
-            return
-
         mcp.add_tool(self._get_job_history)
         mcp.add_tool(self._get_execution_detail)
         logger.info("MCPHistoryToolRegistry: Registered 2 history MCP tools")
@@ -108,73 +75,25 @@ class MCPHistoryToolRegistry:
         name: str | None = None,
         limit: int = 50,
     ) -> dict[str, Any]:
-        """Get execution history, optionally filtered by job name.
-
-        Args:
-            name: Optional job name to filter history by.
-            limit: Maximum number of records to return (default 50).
-
-        Returns:
-            Dict with "executions" key containing list of execution record dicts.
-        """
-        store = self._get_execution_store()
-        if store is None:
-            return _error_response(
-                "state_not_available",
-                "State domain is not available. Install functualize-state-sqlite "
-                "for execution history.",
-            )
+        """Launches, newest first, optionally filtered by job name."""
+        from functualize.app.utils import job_history
 
         try:
-            # The ExecutionStore protocol uses session-based querying.
-            # We query with a broad session or use available methods.
-            # Try to get executions — some implementations may support
-            # a get_all or similar method.
-            executions: list[Any] = []
+            records = job_history(self.run_store)
+        except Exception as exc:
+            logger.error("MCPHistoryToolRegistry: could not read history: %s", exc)
+            return _error_response("history_error", f"Failed to get job history: {exc}")
 
-            if hasattr(store, "get_all_executions"):
-                # Extended method that some implementations may provide
-                executions = store.get_all_executions(limit=limit)
-            elif hasattr(store, "get_session_executions"):
-                # Standard protocol method — try with a wildcard session
-                # We need to find recent sessions and aggregate
-                if hasattr(store, "get_recent_executions"):
-                    executions = store.get_recent_executions(limit=limit)
-                elif hasattr(store, "get_session_executions"):
-                    # Use session_id="" or a known session to get executions
-                    # Some backends support empty session for "all"
-                    try:
-                        executions = store.get_session_executions("", limit=limit)
-                    except Exception:
-                        # Fallback: try to get from app's current session
-                        session_id = getattr(self._app, "session_id", None) or ""
-                        if session_id:
-                            executions = store.get_session_executions(
-                                session_id, limit=limit
-                            )
-
-            # Filter by job name if specified
-            if name and executions:
-                executions = [
-                    e for e in executions if getattr(e, "job_name", None) == name
-                ]
-
-            # Apply limit
-            executions = executions[:limit]
-
-            return {
-                "executions": [_execution_record_to_dict(e) for e in executions],
-                "count": len(executions),
-            }
-        except Exception as e:
-            logger.error("MCPHistoryToolRegistry: Error getting job history: %s", e)
-            return _error_response("history_error", f"Failed to get job history: {e}")
+        if name:
+            records = [r for r in records if r.get("job") == name]
+        records = records[:limit]
+        return {"executions": records, "count": len(records)}
 
     _get_job_history.__name__ = "get_job_history"
     _get_job_history.__qualname__ = "get_job_history"
     _get_job_history.__doc__ = (
-        "Get execution history for jobs. Returns a list of execution records "
-        "with status, duration, and results. "
+        "Get run history for jobs. Returns a list of run records with status, "
+        "timing, and the surface that started each one. "
         "Args: name — optional job name filter; limit — max records (default 50)."
     )
 
@@ -182,91 +101,31 @@ class MCPHistoryToolRegistry:
         self,
         execution_id: str,
     ) -> dict[str, Any]:
-        """Get detailed information about a specific execution.
-
-        Returns the execution record and its phase records.
-
-        Args:
-            execution_id: The execution ID to look up.
-
-        Returns:
-            Dict with execution details and phases, or an error response.
-        """
-        store = self._get_execution_store()
-        if store is None:
-            return _error_response(
-                "state_not_available",
-                "State domain is not available. Install functualize-state-sqlite "
-                "for execution history.",
-            )
+        """One run and the events it emitted, in sequence order."""
+        from functualize.app.utils import describe_run, run_events
 
         try:
-            # Get the execution record
-            execution = None
+            record = describe_run(self.run_store, execution_id)
+        except Exception as exc:
+            logger.error("MCPHistoryToolRegistry: could not read run: %s", exc)
+            return _error_response("history_error", f"Failed to get run: {exc}")
 
-            if hasattr(store, "get_execution"):
-                execution = store.get_execution(execution_id)
-            elif hasattr(store, "get_session_executions") and hasattr(
-                store, "get_recent_executions"
-            ):
-                # Fallback: search through sessions by scanning recent records
-                all_execs = store.get_recent_executions(limit=1000)
-                execution = next(
-                    (e for e in all_execs if e.execution_id == execution_id),
-                    None,
-                )
-
-            if execution is None:
-                return _error_response(
-                    "execution_not_found",
-                    f"Execution '{execution_id}' does not exist.",
-                )
-
-            # Get phase records for this execution
-            phases: list[Any] = []
-            with contextlib.suppress(Exception):
-                phases = store.get_execution_phases(execution_id)
-
-            return {
-                "execution": _execution_record_to_dict(execution),
-                "phases": [_phase_record_to_dict(p) for p in phases],
-            }
-        except Exception as e:
-            if "not found" in str(e).lower():
-                return _error_response(
-                    "execution_not_found",
-                    f"Execution '{execution_id}' does not exist.",
-                )
-            logger.error(
-                "MCPHistoryToolRegistry: Error getting execution detail: %s", e
-            )
+        if record is None:
             return _error_response(
-                "history_error", f"Failed to get execution detail: {e}"
+                "execution_not_found", f"No run with id '{execution_id}'."
             )
+        return {
+            "execution": record,
+            # Named `phases` because that is what this tool returned before the
+            # port, and an MCP client's tool schema is a published surface.
+            # They are the run's events, ordered by the store's sequence rather
+            # than by a timestamp, so a replay is correct across two clocks.
+            "phases": run_events(self.run_store, execution_id) or [],
+        }
 
     _get_execution_detail.__name__ = "get_execution_detail"
     _get_execution_detail.__qualname__ = "get_execution_detail"
     _get_execution_detail.__doc__ = (
-        "Get detailed information about a specific execution including phases. "
-        "Returns execution record with status, duration, args, result, and "
-        "a list of execution phases. "
-        "Args: execution_id — the execution ID to look up."
+        "Get one run's record and the events it emitted. "
+        "Args: execution_id — the run id from get_job_history."
     )
-
-
-def _error_response(error_code: str, message: str) -> dict[str, Any]:
-    """Build a structured error response dict.
-
-    Args:
-        error_code: Machine-readable error code.
-        message: Human-readable error message.
-
-    Returns:
-        Dict with "error" key containing code and message.
-    """
-    return {
-        "error": {
-            "code": error_code,
-            "message": message,
-        }
-    }

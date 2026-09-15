@@ -31,13 +31,13 @@ def run(config: SampleConfig, rc: RunContext) -> None:
     """
     rc.log(f"Starting sample job targeting: {config.target}")
 
-    rc.track_phase("greet", "Preparing greeting", RunStatus.RUNNING)
+    rc.events.track_phase("greet", "Preparing greeting", RunStatus.RUNNING)
 
     if config.dry_run:
         rc.log("Dry run mode — skipping actual work", level="warning")
     else:
         rc.log(f"Hello, {config.target}!")
 
-    rc.track_phase("greet", "Greeting complete", RunStatus.SUCCESS)
-    rc.track_run_status(RunStatus.SUCCESS)
+    rc.events.track_phase("greet", "Greeting complete", RunStatus.SUCCESS)
+    rc.events.track_run_status(RunStatus.SUCCESS)
     rc.log("Sample job completed successfully")

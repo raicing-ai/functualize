@@ -14,9 +14,9 @@ parse failures too. `tasks.md` 4.1 renames it `discovery_failures`, which is
 what shipped — `import_failures` would be actively wrong for a `SyntaxError`,
 which never reaches the import path.
 
-The gate in `tasks.md` also used to read `func builtin info --output json`,
-which is unexecutable: `Error: No such option '--output'`. The shipped flag is
-`--json`. `--output` is the spelling *proposed* by
+The gate in `tasks.md` also used to read `func builtin info --emit-format json`,
+which is unexecutable: `Error: No such option '--emit-format'`. The shipped flag is
+`--json`. `--emit-format` is the spelling *proposed* by
 `shape-intents/output-flag-normalization.md`, which is unimplemented; if that
 lands, this command moves with every other, not ahead of them.
 """

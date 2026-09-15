@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 if TYPE_CHECKING:
     import re
     from collections.abc import Callable, Mapping, Sequence
+    from contextlib import AbstractContextManager
 
     from functualize._types.job_declaration import Retry
 
@@ -161,5 +162,72 @@ class Shell(Protocol):
                 appears.
             ValueError: If a raw string is passed without ``shell=True`` or
                 template params (ambiguous — see class docstring).
+        """
+        ...
+
+    # ── The scoping and cleanup surface ────────────────────────────────────
+    #
+    # These five were on the implementation and documented — in
+    # `docs/guides/`, in the shipped skill's capability table, and in this
+    # module's own class docstring — and were **not on the protocol**. `Shell`
+    # is what a job author annotates, so a job written exactly as documented
+    # (`with sh.cd("/tmp"):`) failed `mypy --strict` with `"Shell" has no
+    # attribute "cd"`. Found while closing adj §4's "the shipped skill
+    # advertises a removed field": the test written to check the skill's
+    # attribute claims against the public types reported five of them missing
+    # here, which turned out to be the type's defect rather than the doc's.
+
+    def cd(self, path: str) -> AbstractContextManager[None]:
+        """Run commands in ``path`` for the duration of the block (§B.3).
+
+        Nestable — a nested ``cd`` resolves relative to the enclosing one.
+        Overridden by an explicit per-call ``cwd=``.
+        """
+        ...
+
+    def prefix(self, command: list[str] | str) -> AbstractContextManager[None]:
+        """Prepend ``command`` to every command in the block (§B.3).
+
+        ``with sh.prefix(["poetry", "run"]): sh(["pytest"])`` runs
+        ``poetry run pytest``. Nestable; outer prefixes apply before inner.
+        """
+        ...
+
+    def defer(self, command: list[str] | str, **kwargs: Any) -> None:
+        """Register a cleanup command to run when the job exits (§B.5).
+
+        Deferred commands run **LIFO** on the engine's job-exit unwind — on
+        success, on failure, on Ctrl+C, and after a timeout — not through a
+        user ``try``/``finally``, which a killed subprocess tree or a hard
+        timeout skips. ``kwargs`` are the options :meth:`__call__` takes.
+        """
+        ...
+
+    def run_deferred(self) -> None:
+        """Run and clear all deferred commands, LIFO (engine-owned, §B.5).
+
+        Best-effort: a cleanup that fails must not mask the job's own outcome
+        and must not stop the remaining cleanups.
+        """
+        ...
+
+    def sudo(
+        self,
+        command: list[str],
+        *,
+        preserve_env: bool = False,
+        password: Any = None,
+        watchers: Sequence[Responder] | None = None,
+        **kwargs: Any,
+    ) -> ShellResult:
+        """Run ``command`` under ``sudo -S`` with an auto password responder (§B.4).
+
+        The password comes from ``password=`` or the injected
+        ``[shell] sudo_password`` secret, and is fed to sudo's stdin rather
+        than placed in the echoed command. Requires the list command form.
+
+        Raises:
+            ValueError: No password is available, or ``command`` is not a list.
+            ShellError: The command itself failed.
         """
         ...

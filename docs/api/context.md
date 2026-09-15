@@ -69,29 +69,29 @@ def either_way(rc: RunContext, log: Log) -> None:
 
 ### Status Tracking
 
-#### `rc.set_run_status(status, message="")`
+#### `rc.events.set_run_status(status, message="")`
 
 Transition the execution status. Terminal states cannot be transitioned from.
 
 ```python
 from functualize.types import RunStatus
 
-rc.set_run_status(RunStatus.SUCCESS, "All records processed")
+rc.events.set_run_status(RunStatus.SUCCESS, "All records processed")
 ```
 
 ---
 
 ### Job Phases
 
-#### `rc.track_phase(phase_name, message, status=None)`
+#### `rc.events.track_phase(phase_name, message, status=None)`
 
 Create or update a named job phase. Delegates to the `WorkflowTracker` capability class.
 
 ```python
 from functualize.types import RunStatus
 
-rc.track_phase("extract", "Fetching from API")
-rc.track_phase("extract", "Got 1000 records", RunStatus.SUCCESS)
+rc.events.track_phase("extract", "Fetching from API")
+rc.events.track_phase("extract", "Got 1000 records", RunStatus.SUCCESS)
 ```
 
 ---
@@ -128,26 +128,26 @@ results = rc.invoke_parallel(jobs)
 
 ### Event Emission
 
-#### `rc.emit(event_name, resource="", **payload)`
+#### `rc.events.emit(event_name, resource="", **payload)`
 
 Emit a custom structured event. Delegates directly to `EventBus.emit()`.
 
 ```python
-rc.emit("etl.extract.complete", resource="customers", record_count=1500)
+rc.events.emit("etl.extract.complete", resource="customers", record_count=1500)
 ```
 
 ---
 
 ### Prompting
 
-#### `rc.prompt(request)`
+#### `rc.prompts.ask(request)`
 
 Present a structured prompt to the user via the active `PromptCollector`.
 
 ```python
 from functualize.plugin import PromptRequest
 
-response = rc.prompt(PromptRequest(
+response = rc.prompts.ask(PromptRequest(
     question="Select environment",
     choices=[...],
 ))
@@ -155,15 +155,15 @@ response = rc.prompt(PromptRequest(
 
 #### Convenience Methods
 
-- `rc.prompt_confirm(question, *, destructive=False, default=None)` — Yes/no confirmation
-- `rc.prompt_choice(question, choices, *, default=None)` — Single selection
-- `rc.prompt_text(question, *, default=None, secret=False)` — Text input
+- `rc.prompts.confirm(question, *, destructive=False, default=None)` — Yes/no confirmation
+- `rc.prompts.choice(question, choices, *, default=None)` — Single selection
+- `rc.prompts.text(question, *, default=None, secret=False)` — Text input
 
 ---
 
 ### Performance Instrumentation
 
-#### `rc.perf_mark(name)` / `rc.perf_mark_start(name)` / `rc.perf_mark_end(name)`
+#### `rc.events.perf_mark(name)` / `rc.events.perf_mark_start(name)` / `rc.events.perf_mark_end(name)`
 
 Record performance marks. Delegates to the `Perf` capability class.
 

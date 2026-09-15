@@ -35,9 +35,30 @@ SUPPORTED_TYPES = ("str", "int", "bool", "float", "enum", "list[str]")
 # --- Dynamic Enum generation ---
 
 
+#: Names `EnumType.__new__` refuses outright, whatever else they look like.
+#:
+#: `mro` collides with `type.mro` and `""` is not a name at all, so both raise
+#: `ValueError: invalid enum member name(s)` at class construction — before any
+#: of this file's properties get a chance to be true or false. The generator
+#: draws lowercase identifiers, so `mro` is a legal draw and this test failed on
+#: roughly one run in several for a reason that is about `enum`, not about
+#: schema extraction. Found by `workflow-graph-semantics`/T7's `--run-slow`
+#: sweep; the draw is `DynEnum230` in that run's output.
+_ILLEGAL_ENUM_MEMBERS = frozenset({"mro", ""})
+
+
 def _make_enum(name: str, members: list[str]) -> type[enum.Enum]:
-    """Create a dynamic Enum class with string values."""
-    return enum.Enum(name, {m: m for m in members})  # type: ignore[misc]
+    """Create a dynamic Enum class with string values.
+
+    Filters the names `enum` itself forbids rather than constraining the
+    strategy's regex: the regex says what a *field name* may look like and is
+    shared, and narrowing it here would silently shrink the input space for
+    every other property in the file.
+    """
+    usable = [m for m in members if m not in _ILLEGAL_ENUM_MEMBERS]
+    if not usable:
+        usable = ["fallback"]
+    return enum.Enum(name, {m: m for m in usable})  # type: ignore[misc]
 
 
 # --- Field specification dataclass for test generation ---

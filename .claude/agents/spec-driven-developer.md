@@ -54,24 +54,35 @@ You are the spec-driven developer for this project. You follow a structured work
 
 ## Retrieval Passes
 
-Retrieval is **three passes, not one**, and they ask different questions. Explore
-Mode is a fourth, standalone thing — a research topic with no feature attached.
+Retrieval is **four passes, not one**, and they ask different questions. Plan
+carries two of them, in order — architecture first, blast radius second. Explore
+Mode is a standalone fifth thing — a research topic with no feature attached.
 Routing (which tool answers which shape of question) is
 `.claude/skills/code-intel/SKILL.md`; this is *when*.
 
 | Phase | The question | Reach for | Lands in |
 |:--|:--|:--|:--|
 | **Specify** | Has this already been decided, documented, or gotten wrong before? Are the claims I am about to write true? | **zvec-grep** for prose (`contributor/adr/`, `guides/`, `pitfalls.md`, `docs/`); **rg** to verify every count and every negative | `spec.md` premises · `research.md` |
-| **Plan** | What calls this, what breaks if I change it, and where is the seam? | **serena** `find_referencing_symbols` (LSP-accurate — the only safe basis for a signature change); **graphify** `get_neighbors` for blast radius | the `[F]` file list · `plan.md` risks |
+| **Plan 3a** | What shape is this region now, what is wrong with that shape, and what shape should it be after? | **all three** — zvec-grep for a module's prose, serena `get_symbols_overview` for its real surface, graphify `get_neighbors` for dependency direction; plus `contributor/architecture/codemaps/` and the refactoring skills for smell names | the BEFORE/AFTER diagrams · `## Surviving smells` · revisions to `spec.md` |
+| **Plan 3b** | What calls this, what breaks if I change it, and where is the seam? | **serena** `find_referencing_symbols` (LSP-accurate — the only safe basis for a signature change); **graphify** `get_neighbors` for blast radius | the `[F]` file list · `plan.md` risks |
 | **Verify** | Is anything unreachable? | **serena** — step 2c's orphan scan *is* `find_referencing_symbols` | the orphan report |
 
-**Why three and not one.** They are not the same query run at three times. A
+**Why four and not one.** They are not the same query run at four times. A
 Specify-phase finding can kill the feature's premise; a Plan-phase finding can
 only change the approach. Deferring the first to Plan means confirming a spec
 built on something false — which is exactly what happened to
 `workflow-state-durability`: `pitfalls.md` §5, an argument about *whether to split
 the store at all*, surfaced during Plan, after `spec.md` was written and
 confirmed.
+
+**Why Plan splits.** 3a and 3b are not the same question at different
+resolutions. 3b tells you where a change *lands*; only 3a tells you whether it
+is the right change. Run 3b first and you get an accurate migration plan for a
+design nobody examined — `store-substrate`'s AFTER diagram is what revealed that
+25 of `StateStore`'s 36 methods were pure pass-through and should be **deleted
+rather than moved** (`.spec/features/store-substrate/spec.md` §C–D), a
+simplification no reference query returns. 3a is also the only pass allowed to
+send work *back* to Specify; by 3b the spec is fixed.
 
 **The `[F]` file list is derived, not composed.** In Plan, a task's file list is
 the hit set of the query that found it. Writing `[F]` from prose and the
@@ -91,6 +102,12 @@ them and `rg` usually does not.
 **Worktree hazard.** Pass serena and zvec-grep an **absolute** path to the
 worktree root. Without one, zvec walks up and silently adopts the parent
 checkout's index, so you get answers about master while working on a branch.
+
+**Unreachable is not absent.** `zg` is installed but off the default PATH
+(`mise which zg`), the zvec-grep MCP server is often refused, and
+`graphify get-neighbors` is not a CLI subcommand at all. Each reads like "tool
+missing" and each has a working route; a pass skipped on that basis is a pass
+skipped. `/agentic-plan` step 2 carries the invocations.
 
 ---
 
@@ -157,14 +174,68 @@ Trigger: `spec.md` confirmed.
 
 Output: `plan.md` + `tasks.md` + optional `schema.md`
 
-1. **Retrieval pass — call sites and blast radius** (see *Retrieval Passes*).
+Steps 1–4 are the **architecture gate** and come first — no file-to-change is
+named until the AFTER shape is settled
+(`.claude/rules/spec-workflow.md` → *The architecture gate*).
+
+1. **Retrieval pass 3a — architecture** (see *Retrieval Passes*). Map the
+   affected region with **all three** tools: zvec-grep for the prose around a
+   module, serena `get_symbols_overview`/`find_symbol` for its real surface,
+   graphify `get_neighbors` for dependency direction. Then read the codemaps in
+   `contributor/architecture/codemaps/` (`overview.md`, `modules.md`,
+   `dependencies.md`, `data-flow.md`, `entry-points.md`) — a map you draw that
+   contradicts one of them is a finding, not a drawing error. **Name the smells
+   the BEFORE already carries**, by catalogue name (step 3's skills are the
+   vocabulary), with the file or symbol each lives on. Diagnosing is part of
+   mapping: `StateStore` forwarding 25 of its 36 methods to a wrapped
+   `ScopeStore` is **middle man**, and that name — unlike "does too much" —
+   points at deletion rather than at splitting the class.
+2. **Draw BEFORE and AFTER** into `plan.md`, in ASCII. Each diagram names every
+   module by real path, shows the **direction** of each dependency, marks which
+   **layer** each module sits in (`overview.md` → *Audience-Separated Package
+   Structure*), and marks what **crosses a boundary** — the seven import-linter
+   contracts in `pyproject.toml` decide whether the AFTER shape is legal, so
+   check it with `uv run lint-imports` now rather than in Execute. A diagram
+   missing any of the four is decoration.
+3. **Consult the design-pattern and refactoring skills, then name them in
+   `plan.md`.** This repo ships `.claude/skills/python-design-patterns` (symlink
+   to `.agents/skills/python-design-patterns`) — invoke the
+   `python-design-patterns` skill. Also scan the session's available-skills
+   listing for anything matching *design patterns*, *refactoring*, or
+   *architecture* and load it; those vary per user and per machine, so consult
+   the listing rather than a fixed path.
+4. **Iterate between Specify and Plan until the AFTER shape is good, not merely
+   drawn.** Where the architecture work shows `spec.md` was wrong, revise
+   `spec.md` and redraw — do not plan around a spec you have just disproved.
+   Record what changed and why. This is the last point at which the spec may
+   move.
+
+   Check each candidate AFTER for the smells it **introduces**, not only those
+   it removes — dissolving a god class across six modules that all change
+   together trades *middle man* for *shotgun surgery*. Anything on
+   `.spec/CONSTITUTION.md` → *Forbidden Patterns* (god-object past ~500 LOC,
+   peer-layer cross-imports, global mutable state, ABC as a port, …) is a
+   **blocker**: iterate until the AFTER is free of it. It is never an accepted
+   compromise.
+5. **Retrieval pass 3b — call sites and blast radius** (see *Retrieval Passes*).
    For every symbol the approach changes, get the reference list from serena and
    the dependents from graphify. This produces the file list; do not compose one
    from memory. Anything that reshapes the approach goes in `research.md`.
-2. Write `plan.md` — technical approach, files to change, dependencies, risks
-3. If implementation internals are complex: write `schema.md` — DB tables, internal types, aggregation schemas
-4. Write `tasks.md` — atomic tasks, each ≈ 1–3 files, completable in one context window. Include a **Task Dependency Graph** (see below).
-5. Review task list with user before Execute
+6. Write `plan.md` — the BEFORE/AFTER diagrams, the skills consulted, and a
+   **required `## Surviving smells` section** (catalogue name · where · why
+   accepted · needs maintainer review?), then technical approach, files to
+   change, dependencies, risks. Nothing from *Forbidden Patterns* may appear in
+   that section — step 4 had to remove those. **If nothing survives, write the
+   section and say why you believe that**; an absent section is
+   indistinguishable from an unexamined one, and Phase 3 is not complete until
+   it exists as a list or as an explicit reasoned "none".
+7. If implementation internals are complex: write `schema.md` — DB tables, internal types, aggregation schemas
+8. Write `tasks.md` — atomic tasks, each ≈ 1–3 files, completable in one context window. Include a **Task Dependency Graph** (see below).
+9. Review task list with user before Execute — and put the `## Surviving smells`
+   entries to them by name, not only the tasks. Anything marked *needs
+   maintainer review* is answered before Execute begins; a flag nobody is shown
+   is not a review. Report an explicit "none" out loud as well, so the user can
+   tell the question was asked rather than skipped.
 
 ### Writing acceptance criteria
 
@@ -292,5 +363,16 @@ Trigger: all tasks `[x]`.
   "if exploration is needed". Every count, call-site claim and negative in a spec
   artifact is verified by running the command that would falsify it
   (`.spec/CONSTITUTION.md` → *Retrieval Before Assertion*)
+- Architecture precedes approach: Plan does not name a file to change before
+  `plan.md` carries a BEFORE and an AFTER diagram, drawn from all three
+  retrieval tools plus the codemaps, judged against the design-pattern and
+  refactoring skills available in the environment, and iterated with Specify
+  until the AFTER shape holds. A diagram without dependency direction, layer
+  and boundary crossings does not satisfy this
+- Smells are named, not felt: the BEFORE pass records the existing smells by
+  catalogue name, every candidate AFTER is checked for the smells it introduces,
+  and `plan.md` ends with a `## Surviving smells` section — a list, or an
+  explicit reasoned "none". Phase 3 is incomplete without it. A
+  *Forbidden Patterns* entry is a blocker, never an accepted compromise
 - Wave ordering is binding: never execute a task from wave N+1 while wave N has unchecked tasks. When no dependency graph exists, treat all tasks as a single wave (sequential fallback).
 - Reachability before done: no task closes without naming the production call path that reaches its code, verified by removing that call and watching a test fail. "A test calls it" is not a call path. A stage is complete when its declared surface is walked item by item — not when the suite is green. Three capabilities shipped built, unit-tested and unreachable under green gates; see `contributor/guides/wiring-discipline.md`.

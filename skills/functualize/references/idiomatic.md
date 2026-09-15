@@ -235,7 +235,7 @@ document, this one included.
 | Would this job run, and why? | `func builtin why <job>` |
 | What ran recently? | `func builtin history` |
 | What is the resolved config? | `func builtin config show` |
-| Where does runtime state live? | `func builtin state show` |
+| Where does runtime state live? | `func builtin data show` |
 | What does this job take? | `func <group> <job> --help` |
 
 Two habits worth more than any table here:
@@ -244,7 +244,7 @@ Two habits worth more than any table here:
 programs — the second builds commands from a discovery cache and may never
 import your file. `func builtin cache clear` forces the cold path.
 
-**Do not parse prose.** Use exit codes, and `--output json` where a job emits.
+**Do not parse prose.** Use exit codes, and `--emit-format json` where a job emits.
 
 ---
 

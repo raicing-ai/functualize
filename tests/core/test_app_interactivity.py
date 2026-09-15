@@ -15,9 +15,7 @@ def _write_job(tmp_path, source: str) -> str:
     (jobs_dir / "my_jobs.py").write_text(textwrap.dedent(source))
     return str(jobs_dir)
 
-
-class TestAppInteractivityJobSubmit:
-    """FunctualizeApp routes interactivity.job.submit to engine.execute."""
+    """FunctualizeApp routes interactivity.job.submit to engine.run."""
 
     def setup_method(self):
         AppState.reset()

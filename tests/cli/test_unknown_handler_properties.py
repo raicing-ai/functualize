@@ -15,7 +15,9 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from functualize._cli.main import _fuzzy_suggest, _handle_unknown, _levenshtein
+from functualize._cli.main import _handle_unknown
+from functualize.app.utils import _levenshtein
+from functualize.app.utils import suggest_similar_commands as _fuzzy_suggest
 
 # =============================================================================
 # Strategies

@@ -27,6 +27,7 @@ from functualize._types.descriptors import JobDescriptor
 from functualize._types.job_declaration import Fingerprint, JobDeclaration
 from functualize.app import FunctualizeApp
 from functualize.app.config import JobSources, PluginSources
+from functualize.app.core import request_for
 
 
 @pytest.fixture(autouse=True)
@@ -80,7 +81,7 @@ class ProviderPlugin:
         self._descriptor = descriptor
 
     def __call__(self, app: Any) -> None:
-        app.add_job_provider(HandBuiltProvider(self._descriptor))
+        app.extensions.add_job_provider(HandBuiltProvider(self._descriptor))
 
 
 def _app(tmp_path: Path, descriptor: JobDescriptor) -> FunctualizeApp:
@@ -117,7 +118,7 @@ class TestCacheOnADescriptor:
         )
 
         for _ in range(3):
-            app.execute("hand-built")
+            app.execute(request_for("hand-built"))
 
         assert len(runs) == 1, (
             f"declared cache= should have skipped runs 2 and 3, got {len(runs)}"
@@ -142,9 +143,9 @@ class TestCacheOnADescriptor:
             ),
         )
 
-        app.execute("hand-built")
+        app.execute(request_for("hand-built"))
         source.write_text("second")
-        app.execute("hand-built")
+        app.execute(request_for("hand-built"))
 
         assert runs == ["first", "second"]
 

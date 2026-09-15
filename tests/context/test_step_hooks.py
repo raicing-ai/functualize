@@ -63,7 +63,7 @@ class TestOnStepStart:
             calls.append((name, status, msg))
 
         hook_registry.register_global(HookEvent.ON_PHASE_START, on_start)
-        rc.track_phase("deploy", "starting deploy", RunStatus.RUNNING)
+        rc.events.track_phase("deploy", "starting deploy", RunStatus.RUNNING)
 
         assert len(calls) == 1
         assert calls[0] == ("deploy", RunStatus.RUNNING, "starting deploy")
@@ -79,8 +79,8 @@ class TestOnStepStart:
 
         hook_registry.register_global(HookEvent.ON_PHASE_START, on_start)
 
-        rc.track_phase("build", "building", RunStatus.RUNNING)
-        rc.track_phase("build", "done", RunStatus.SUCCESS)
+        rc.events.track_phase("build", "building", RunStatus.RUNNING)
+        rc.events.track_phase("build", "done", RunStatus.SUCCESS)
 
         # Should only fire once (on creation), not on update
         assert len(calls) == 1
@@ -96,9 +96,9 @@ class TestOnStepStart:
 
         hook_registry.register_global(HookEvent.ON_PHASE_START, on_start)
 
-        rc.track_phase("step1", "msg1", RunStatus.RUNNING)
-        rc.track_phase("step2", "msg2", RunStatus.RUNNING)
-        rc.track_phase("step3", "msg3", RunStatus.RUNNING)
+        rc.events.track_phase("step1", "msg1", RunStatus.RUNNING)
+        rc.events.track_phase("step2", "msg2", RunStatus.RUNNING)
+        rc.events.track_phase("step3", "msg3", RunStatus.RUNNING)
 
         assert calls == ["step1", "step2", "step3"]
 
@@ -112,7 +112,7 @@ class TestOnStepStart:
             calls.append((name, status))
 
         hook_registry.register_global(HookEvent.ON_PHASE_START, on_start)
-        rc.track_phase("quick-fail", "immediate fail", RunStatus.FAILURE)
+        rc.events.track_phase("quick-fail", "immediate fail", RunStatus.FAILURE)
 
         assert len(calls) == 1
         assert calls[0] == ("quick-fail", RunStatus.FAILURE)
@@ -132,8 +132,8 @@ class TestOnStepFailure:
 
         hook_registry.register_global(HookEvent.ON_PHASE_FAILURE, on_failure)
 
-        rc.track_phase("deploy", "starting", RunStatus.RUNNING)
-        rc.track_phase("deploy", "deploy failed", RunStatus.FAILURE)
+        rc.events.track_phase("deploy", "starting", RunStatus.RUNNING)
+        rc.events.track_phase("deploy", "deploy failed", RunStatus.FAILURE)
 
         assert len(calls) == 1
         assert calls[0] == ("deploy", RunStatus.FAILURE, "deploy failed")
@@ -149,8 +149,8 @@ class TestOnStepFailure:
 
         hook_registry.register_global(HookEvent.ON_PHASE_FAILURE, on_failure)
 
-        rc.track_phase("build", "building", RunStatus.RUNNING)
-        rc.track_phase("build", "done", RunStatus.SUCCESS)
+        rc.events.track_phase("build", "building", RunStatus.RUNNING)
+        rc.events.track_phase("build", "done", RunStatus.SUCCESS)
 
         assert len(calls) == 0
 
@@ -164,7 +164,7 @@ class TestOnStepFailure:
             calls.append(name)
 
         hook_registry.register_global(HookEvent.ON_PHASE_FAILURE, on_failure)
-        rc.track_phase("fast-fail", "immediate", RunStatus.FAILURE)
+        rc.events.track_phase("fast-fail", "immediate", RunStatus.FAILURE)
 
         assert len(calls) == 1
         assert calls[0] == "fast-fail"
@@ -179,7 +179,7 @@ class TestOnStepFailure:
             calls.append(name)
 
         hook_registry.register_global(HookEvent.ON_PHASE_FAILURE, on_failure)
-        rc.track_phase("step", "starting", RunStatus.RUNNING)
+        rc.events.track_phase("step", "starting", RunStatus.RUNNING)
 
         assert len(calls) == 0
 
@@ -200,8 +200,8 @@ class TestOnStepComplete:
 
         hook_registry.register_global(HookEvent.ON_PHASE_COMPLETE, on_complete)
 
-        rc.track_phase("build", "building", RunStatus.RUNNING)
-        rc.track_phase("build", "build done", RunStatus.SUCCESS)
+        rc.events.track_phase("build", "building", RunStatus.RUNNING)
+        rc.events.track_phase("build", "build done", RunStatus.SUCCESS)
 
         assert len(calls) == 1
         assert calls[0] == ("build", RunStatus.SUCCESS, "build done")
@@ -219,8 +219,8 @@ class TestOnStepComplete:
 
         hook_registry.register_global(HookEvent.ON_PHASE_COMPLETE, on_complete)
 
-        rc.track_phase("deploy", "deploying", RunStatus.RUNNING)
-        rc.track_phase("deploy", "failed", RunStatus.FAILURE)
+        rc.events.track_phase("deploy", "deploying", RunStatus.RUNNING)
+        rc.events.track_phase("deploy", "failed", RunStatus.FAILURE)
 
         assert len(calls) == 0
 
@@ -236,7 +236,7 @@ class TestOnStepComplete:
             calls.append(name)
 
         hook_registry.register_global(HookEvent.ON_PHASE_COMPLETE, on_complete)
-        rc.track_phase("cached", "already done", RunStatus.SUCCESS)
+        rc.events.track_phase("cached", "already done", RunStatus.SUCCESS)
 
         assert len(calls) == 1
         assert calls[0] == "cached"
@@ -260,7 +260,7 @@ class TestStepHookErrorIsolation:
         hook_registry.register_global(HookEvent.ON_PHASE_START, bad_hook)
         hook_registry.register_global(HookEvent.ON_PHASE_START, good_hook)
 
-        rc.track_phase("deploy", "starting", RunStatus.RUNNING)
+        rc.events.track_phase("deploy", "starting", RunStatus.RUNNING)
 
         # Second hook still called despite first failing
         assert second_calls == ["deploy"]
@@ -274,9 +274,9 @@ class TestStepHookErrorIsolation:
             raise ValueError("kaboom")
 
         hook_registry.register_global(HookEvent.ON_PHASE_START, bad_hook)
-        rc.track_phase("deploy", "starting", RunStatus.RUNNING)
+        rc.events.track_phase("deploy", "starting", RunStatus.RUNNING)
 
-        step = rc.get_phase("deploy")
+        step = rc.events.get_phase("deploy")
         assert step is not None
         assert step["status"] == RunStatus.RUNNING
 
@@ -292,10 +292,10 @@ class TestStepHookErrorIsolation:
 
         hook_registry.register_global(HookEvent.ON_PHASE_FAILURE, bad_failure_hook)
 
-        rc.track_phase("step", "starting", RunStatus.RUNNING)
-        rc.track_phase("step", "failed", RunStatus.FAILURE)
+        rc.events.track_phase("step", "starting", RunStatus.RUNNING)
+        rc.events.track_phase("step", "failed", RunStatus.FAILURE)
 
-        step = rc.get_phase("step")
+        step = rc.events.get_phase("step")
         assert step is not None
         assert step["status"] == RunStatus.FAILURE
 
@@ -318,7 +318,7 @@ class TestStepHookJobScoped:
             "test-job", HookEvent.ON_PHASE_START, scoped_hook
         )
 
-        rc.track_phase("deploy", "starting", RunStatus.RUNNING)
+        rc.events.track_phase("deploy", "starting", RunStatus.RUNNING)
         assert calls == ["deploy"]
 
     def test_job_scoped_hook_does_not_fire_for_other_job(
@@ -348,7 +348,7 @@ class TestStepHookJobScoped:
             _execution_engine=engine,
         )
 
-        rc2.track_phase("deploy", "starting", RunStatus.RUNNING)
+        rc2.events.track_phase("deploy", "starting", RunStatus.RUNNING)
         assert calls == []
 
     def test_global_and_job_scoped_both_fire(
@@ -372,7 +372,7 @@ class TestStepHookJobScoped:
             "test-job", HookEvent.ON_PHASE_START, scoped_hook
         )
 
-        rc.track_phase("deploy", "starting", RunStatus.RUNNING)
+        rc.events.track_phase("deploy", "starting", RunStatus.RUNNING)
         assert calls == ["global", "scoped"]
 
 
@@ -386,8 +386,8 @@ class TestStepHookWithoutEngine:
         rc = RunContext(name="test-job", config=config, logger=logger)
 
         # Should not raise
-        rc.track_phase("deploy", "starting", RunStatus.RUNNING)
-        assert rc.get_phase("deploy") is not None
+        rc.events.track_phase("deploy", "starting", RunStatus.RUNNING)
+        assert rc.events.get_phase("deploy") is not None
 
 
 class TestStepHookCombinedEvents:
@@ -408,7 +408,7 @@ class TestStepHookCombinedEvents:
         hook_registry.register_global(HookEvent.ON_PHASE_START, on_start)
         hook_registry.register_global(HookEvent.ON_PHASE_FAILURE, on_failure)
 
-        rc.track_phase("fast-fail", "instant fail", RunStatus.FAILURE)
+        rc.events.track_phase("fast-fail", "instant fail", RunStatus.FAILURE)
 
         assert events == ["start", "failure"]
 
@@ -429,6 +429,6 @@ class TestStepHookCombinedEvents:
         hook_registry.register_global(HookEvent.ON_PHASE_START, on_start)
         hook_registry.register_global(HookEvent.ON_PHASE_COMPLETE, on_complete)
 
-        rc.track_phase("cached", "already done", RunStatus.SUCCESS)
+        rc.events.track_phase("cached", "already done", RunStatus.SUCCESS)
 
         assert events == ["start", "complete"]

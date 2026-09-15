@@ -44,8 +44,24 @@ class SchemaExporter:
     - **typescript**: TypeScript type definitions (interfaces per job config)
     """
 
-    def __init__(self, translator: JobToolTranslator | None = None) -> None:
-        self._translator = translator or JobToolTranslator(read_cached_group_options())
+    def __init__(
+        self,
+        translator: JobToolTranslator | None = None,
+        *,
+        app: Any = None,
+    ) -> None:
+        """
+        Args:
+            translator: A translator to use as-is; the default builds one from
+                the discovery cache.
+            app: Passed through to `read_cached_group_options` so the exported
+                schema describes the tree *this* app scanned. Only the default
+                path uses it — an explicit ``translator`` already carries its
+                own group options.
+        """
+        self._translator = translator or JobToolTranslator(
+            read_cached_group_options(app)
+        )
 
     # ------------------------------------------------------------------
     # Public API

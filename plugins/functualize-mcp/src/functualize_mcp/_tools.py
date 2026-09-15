@@ -21,7 +21,9 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from functualize._types.enums import RunStatus
 from functualize._types.errors import ScopeCancelledError
+from functualize.types import Family, RunRequest, wire_value
 from functualize_mcp._translator import JobToolTranslator
 
 if TYPE_CHECKING:
@@ -30,6 +32,21 @@ if TYPE_CHECKING:
 __all__ = ["MCPToolRegistry"]
 
 logger = logging.getLogger(__name__)
+
+
+#: The boundary this surface delivers across (`run-outcome-authority` AC-3).
+#:
+#: A **constant, not a docstring.** AC-3 says "each delivery surface names its
+#: family in one place, and the name is greppable", and T6's gate checked that
+#: with `rg -c 'Family.TOOL' <file>` — which the prose paragraph nearby
+#: satisfied on its own, while `Family.TOOL` had no code consumer anywhere in
+#: the tree. A gate matching its own explanation is `AUDIT.md`'s hazard #1, and
+#: an enum member nothing imports is vocabulary, not a mechanism.
+#:
+#: `tests/types/test_every_surface_declares_its_family.py` reads this and checks
+#: it against what the surface actually does with a BLOCKED result, which is the
+#: one status the four families disagree about.
+OUTCOME_FAMILY = Family.TOOL
 
 
 def wire_status(status: Any) -> str:
@@ -41,11 +58,22 @@ def wire_status(status: Any) -> str:
     where every document describing the protocol says ``"blocked"``
     (``docs/guides/mcp.md``).
 
+    That disagreement is settled in ``functualize._types.outcome`` — the single
+    authority for how a :class:`~functualize.types.RunStatus` reads at a
+    boundary. This surface declares :attr:`~functualize.types.Family.TOOL`: a
+    tool response carries a status string, and the caller branches on the
+    string. :func:`~functualize.types.wire_value` is the authoritative spelling;
+    the string fallback below is only for fakes that hand in a plain ``str``
+    (e.g. test doubles), preserving the old defensive behaviour for anything
+    that is not yet a ``RunStatus``.
+
     ``RunStatus`` stays a plain ``Enum`` — it is the shared internal vocabulary
     and its capitalized values reach the CLI's own output. This is a *boundary*
     normalization, which is where a wire format belongs.
     """
-    return getattr(status, "value", str(status)).lower()
+    if isinstance(status, RunStatus):
+        return wire_value(status)
+    return str(status).lower()
 
 
 def wire_metadata(result: Any) -> dict[str, Any]:
@@ -238,7 +266,11 @@ class MCPToolRegistry:
     )
 
     async def _run_job(
-        self, name: str, config: dict[str, Any] | None = None
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        group_option_values: dict[str, Any] | None = None,
+        scope_id: str | None = None,
     ) -> dict[str, Any]:
         """Execute a job synchronously and return the result.
 
@@ -248,7 +280,7 @@ class MCPToolRegistry:
 
         Args:
             name: The job name to execute.
-            config: Optional partial configuration dict. Missing fields
+            arguments: Optional dict of the job's own parameters. Missing fields
                 are resolved from the config chain.
 
         Returns:
@@ -281,10 +313,22 @@ class MCPToolRegistry:
         if refusal is not None:
             return refusal
 
-        # Execute
-        kwargs = config or {}
+        # Execute. Job arguments stay in their own nested object and the two
+        # control inputs sit beside it, never inside it — so a job with a
+        # parameter literally named `scope_id` gets it as an argument and the
+        # scope is still the caller's to choose separately (spec AC-17a; the contract itself is
+        # `functualize.types.request_from_envelope`).
+        kwargs = arguments or {}
         try:
-            result = self._app.execute(name, **kwargs)
+            result = self._app.execute(
+                RunRequest(
+                    job_name=name,
+                    surface="mcp.run-job",
+                    kwargs=kwargs,
+                    group_option_values=group_option_values or None,
+                    workflow_scope_id=scope_id,
+                )
+            )
             return {
                 "status": wire_status(result.status),
                 "return_value": result.return_value,
@@ -310,11 +354,17 @@ class MCPToolRegistry:
         "blocks, metadata carries workflow_scope — the scope id to address it "
         "by — plus workflow_status and blocked_on. Missing config fields are "
         "resolved from the config chain. "
-        "Args: name — job name; config — optional partial config dict."
+        "Args: name — job name; arguments — optional dict of the job's own "
+        "parameters; group_option_values — optional dict of group options; "
+        "scope_id — optional workflow scope to join or resume."
     )
 
     async def _run_job_async(
-        self, name: str, config: dict[str, Any] | None = None
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        group_option_values: dict[str, Any] | None = None,
+        scope_id: str | None = None,
     ) -> dict[str, Any]:
         """Start a job asynchronously and return an execution_id.
 
@@ -323,7 +373,9 @@ class MCPToolRegistry:
 
         Args:
             name: The job name to execute.
-            config: Optional partial configuration dict.
+            arguments: Optional dict of the job's own parameters.
+            group_option_values: Optional group options for this run.
+            scope_id: Optional workflow scope to join or resume.
 
         Returns:
             Dict with execution_id on success, or an error response.
@@ -362,11 +414,14 @@ class MCPToolRegistry:
         with self._lock:
             self._async_executions[execution_id] = execution
 
-        # Launch in background thread
-        kwargs = config or {}
+        # Launch in background thread. The control inputs travel with it, so
+        # the async door reaches the engine with the same request the
+        # synchronous one would build — that is what makes the three doors
+        # comparable rather than merely similar.
+        kwargs = arguments or {}
         thread = threading.Thread(
             target=self._run_async_worker,
-            args=(execution_id, name, kwargs),
+            args=(execution_id, name, kwargs, group_option_values, scope_id),
             daemon=True,
             name=f"mcp-async-{execution_id}",
         )
@@ -379,7 +434,9 @@ class MCPToolRegistry:
     _run_job_async.__doc__ = (
         "Start a functualize job asynchronously. Returns an execution_id "
         "that can be used with get_execution_status to poll progress. "
-        "Args: name — job name; config — optional partial config dict."
+        "Args: name — job name; arguments — optional dict of the job's own "
+        "parameters; group_option_values — optional dict of group options; "
+        "scope_id — optional workflow scope to join or resume."
     )
 
     async def _get_execution_status(self, execution_id: str) -> dict[str, Any]:
@@ -436,7 +493,12 @@ class MCPToolRegistry:
     # ------------------------------------------------------------------
 
     def _run_async_worker(
-        self, execution_id: str, job_name: str, kwargs: dict[str, Any]
+        self,
+        execution_id: str,
+        job_name: str,
+        kwargs: dict[str, Any],
+        group_option_values: dict[str, Any] | None = None,
+        scope_id: str | None = None,
     ) -> None:
         """Background worker that executes a job and updates execution state.
 
@@ -447,7 +509,15 @@ class MCPToolRegistry:
         """
         start_time = time.time()
         try:
-            result = self._app.execute(job_name, **kwargs)
+            result = self._app.execute(
+                RunRequest(
+                    job_name=job_name,
+                    surface="mcp.async",
+                    kwargs=kwargs,
+                    group_option_values=group_option_values or None,
+                    workflow_scope_id=scope_id,
+                )
+            )
             end_time = time.time()
             duration_ms = (end_time - start_time) * 1000
 

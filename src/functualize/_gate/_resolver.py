@@ -20,7 +20,7 @@ class GateResolver(Protocol):
     """Protocol for gate strategy implementations.
 
     Any class implementing this protocol can be registered as a gate
-    strategy via ``app.register_gate_strategy()``.
+    strategy via ``app.gates.register_gate_strategy()``.
     """
 
     def resolve(self, ctx: GateContext) -> BaseModel:

@@ -1,6 +1,13 @@
-"""Property-based tests for State.keys() prefix filtering.
+"""Property-based tests for `State.keys()` — the no-wildcard branch.
 
-Tests Properties 10 and 11 from the Phase 1 design document.
+`keys()` takes a **glob** now, and a pattern containing no ``*`` keeps the
+older prefix meaning. These properties cover that branch: every strategy below
+excludes ``*`` deliberately, so a generated pattern is always a plain prefix.
+
+The glob branch — ``"fetch.*"`` stopping at a dot, ``"fetch.**"`` crossing it,
+``"*.rows"`` across namespaces, and the reason a bare prefix is the sharp
+option — is covered in `tests/integration/test_capability_duality.py`
+(`TestKeysMatchesByGlob`) against a real store.
 
 **Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5**
 """
@@ -12,14 +19,20 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize.job._state import State
+from tests.context.conftest import new_state_store
 
 # --- Strategies ---
 
+# No ``*`` anywhere: a generated key or pattern containing one would exercise
+# the glob branch, where "returns exactly the keys starting with p" is not the
+# contract. That branch has its own tests; see the module docstring.
+_no_star = st.characters(blacklist_characters="*")
+
 # Strategy for valid state keys: non-empty strings
-state_keys = st.text(min_size=1, max_size=50)
+state_keys = st.text(alphabet=_no_star, min_size=1, max_size=50)
 
 # Strategy for prefix strings (can be empty)
-prefix_strings = st.text(min_size=0, max_size=30)
+prefix_strings = st.text(alphabet=_no_star, min_size=0, max_size=30)
 
 # Strategy for generating a dict of state entries
 state_entries = st.dictionaries(
@@ -43,7 +56,7 @@ non_string_values = (
 
 # --- Property 10: State prefix filter correctness ---
 # For any set of keys stored in State and for any prefix string p,
-# calling State.keys(prefix=p) returns exactly the set of keys k
+# calling State.keys(p) with no wildcard returns exactly the keys k
 # where k.startswith(p) is True.
 # **Validates: Requirements 4.1, 4.2, 4.3, 4.4**
 
@@ -55,15 +68,15 @@ class TestStatePrefixFilterCorrectness:
     def test_keys_with_prefix_returns_exactly_matching_keys(
         self, entries: dict[str, object], prefix: str
     ) -> None:
-        """keys(prefix=p) returns exactly the keys starting with p.
+        """keys(p) with no wildcard returns exactly the keys starting with p.
 
         **Validates: Requirements 4.1, 4.2, 4.3, 4.4**
         """
-        state = State()
+        state = State(new_state_store())
         for k, v in entries.items():
             state.set(k, v)
 
-        result = state.keys(prefix=prefix)
+        result = state.keys(prefix)
         expected = [k for k in entries if k.startswith(prefix)]
 
         # Same set of keys (order is unspecified)
@@ -71,21 +84,25 @@ class TestStatePrefixFilterCorrectness:
 
     @given(entries=state_entries)
     def test_empty_prefix_returns_all_keys(self, entries: dict[str, object]) -> None:
-        """keys(prefix='') returns all stored keys (equivalent to no args).
+        """keys("") returns all stored keys (equivalent to no args).
 
         **Validates: Requirements 4.1, 4.3**
         """
-        state = State()
+        state = State(new_state_store())
         for k, v in entries.items():
             state.set(k, v)
 
-        result_empty = state.keys(prefix="")
+        result_empty = state.keys("")
         result_no_arg = state.keys()
 
         assert sorted(result_empty) == sorted(result_no_arg)
         assert sorted(result_empty) == sorted(entries.keys())
 
-    @given(entries=state_entries, prefix=st.text(min_size=1, max_size=30))
+    # `prefix_strings`, not a bare `st.text()`. This test used one, so it could
+    # generate `*` — and `keys("*")` correctly returns every key, which is not
+    # "starts with `*`". It was a latent failure from the day `keys()` became a
+    # glob, waiting for hypothesis to try that one character; it did.
+    @given(entries=state_entries, prefix=prefix_strings.filter(bool))
     def test_prefix_filter_is_case_sensitive(
         self, entries: dict[str, object], prefix: str
     ) -> None:
@@ -93,11 +110,11 @@ class TestStatePrefixFilterCorrectness:
 
         **Validates: Requirements 4.2**
         """
-        state = State()
+        state = State(new_state_store())
         for k, v in entries.items():
             state.set(k, v)
 
-        result = state.keys(prefix=prefix)
+        result = state.keys(prefix)
 
         # Every returned key must start with the prefix (case-sensitive)
         for key in result:
@@ -121,19 +138,19 @@ class TestStatePrefixFilterCorrectness:
 
         **Validates: Requirements 4.4**
         """
-        state = State()
+        state = State(new_state_store())
         for k, v in entries.items():
             state.set(k, v)
 
         # Use a prefix that cannot match any key (longer than all keys)
         impossible_prefix = "z" * 100
-        result = state.keys(prefix=impossible_prefix)
+        result = state.keys(impossible_prefix)
 
         assert result == []
 
 
 # --- Property 11: State prefix type enforcement ---
-# For any value that is not a str, calling State.keys(prefix=value)
+# For any value that is not a str, calling State.keys(non_str)
 # raises a TypeError.
 # **Validates: Requirements 4.5**
 
@@ -141,24 +158,24 @@ class TestStatePrefixFilterCorrectness:
 class TestStatePrefixTypeEnforcement:
     """Property 11: State prefix type enforcement."""
 
-    @given(bad_prefix=non_string_values)
-    def test_non_str_prefix_raises_type_error(self, bad_prefix: object) -> None:
-        """Calling keys(prefix=non_str_value) raises TypeError.
+    @given(bad_pattern=non_string_values)
+    def test_non_str_prefix_raises_type_error(self, bad_pattern: object) -> None:
+        """A non-string pattern raises TypeError.
 
         **Validates: Requirements 4.5**
         """
-        state = State()
+        state = State(new_state_store())
 
-        with pytest.raises(TypeError, match="prefix must be a str"):
-            state.keys(prefix=bad_prefix)  # type: ignore[arg-type]
+        with pytest.raises(TypeError, match="pattern must be a str"):
+            state.keys(bad_pattern)  # type: ignore[arg-type]
 
-    @given(bad_prefix=st.integers())
-    def test_integer_prefix_raises_type_error(self, bad_prefix: int) -> None:
+    @given(bad_pattern=st.integers())
+    def test_integer_prefix_raises_type_error(self, bad_pattern: int) -> None:
         """Integer prefix raises TypeError with descriptive message.
 
         **Validates: Requirements 4.5**
         """
-        state = State()
+        state = State(new_state_store())
 
         with pytest.raises(TypeError, match="got int"):
-            state.keys(prefix=bad_prefix)  # type: ignore[arg-type]
+            state.keys(bad_pattern)  # type: ignore[arg-type]

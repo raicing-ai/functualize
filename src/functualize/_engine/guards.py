@@ -92,7 +92,7 @@ class GuardVerdict:
 class PreconditionCache:
     """Session-scoped precondition memo (§D.2).
 
-    Backed by a :class:`~functualize._primitives.state_store.StateStore` when
+    Backed by a :class:`~functualize._primitives.fresh_store.FreshStore` when
     one is supplied; otherwise in-memory for the process.
     """
 

@@ -3,7 +3,7 @@
 `func --version` → prints functualize version (pre-boot, no discovery).
 `func deploy --version v1` → passes `--version v1` to the deploy job.
 
-This is the same convention as other global flags (`--log-level`, `--output`):
+This is the same convention as other global flags (`--log-level`, `--emit-format`):
 they must come before the first positional. Only `--help` / `-h` is special
 (Click handles it per-command for job/group help pages).
 """

@@ -164,15 +164,15 @@ def verify(log: Log) -> None:
     print("VERIFY BODY RAN")  # must never appear
 
 
-# ── 6. Stdout × --output ─────────────────────────────────────────────────
+# ── 6. Stdout × --emit-format ─────────────────────────────────────────────────
 #
 # A job's return value is programmatic (it feeds FromJob and rc.invoke).
-# Reaching stdout is explicit and honours --output.
+# Reaching stdout is explicit and honours --emit-format.
 
 
 @job(group=JOB_GROUP, deps=Deps("lab.parse"))
 def emit(out: Stdout, parsed: Annotated[Parsed, FromJob("lab.parse")]) -> None:
-    """`func lab emit --output json` prints the envelope as JSON."""
+    """`func lab emit --emit-format json` prints the envelope as JSON."""
     out.emit({"items": [i.model_dump() for i in parsed.items], "total": parsed.total})
 
 
@@ -189,38 +189,48 @@ def probe(sh: Shell, log: Log) -> None:
 
 # ── 8. Invoke.parallel × State ───────────────────────────────────────────
 #
-# `State` is per-invocation and in memory. The children below get their own
-# State; nothing they set is visible here. That is the trap this job pins.
+# `State` is the **run's** store, shared by every job in it — including the
+# items of a parallel batch, which is what makes a fan-out able to report
+# anything. So each worker below writes under its own name and the parent reads
+# all of them back.
+#
+# Writing the *same* key from several workers is last-write-wins. Name the key
+# after the writer and the question does not arise; that is the whole of the
+# convention.
 
 
 @job(group=JOB_GROUP)
 def worker(log: Log, state: State, slot: str = "a") -> None:
-    """A child job. Its `State` is its own."""
-    state.set("slot", slot)
-    print(f"WORKER slot={slot} state={state.get('slot')}")
+    """A child job. Its results go where its caller can read them."""
+    state.set(f"worker.{slot}", slot.upper())
+    print(f"WORKER slot={slot} wrote worker.{slot}")
 
 
 @job(group=JOB_GROUP)
 def fanout(inv: Invoke, state: State, log: Log) -> None:
-    """Run N of the same job concurrently, then read the results."""
+    """Run N of the same job concurrently, then read what they produced."""
     results = inv.parallel(
         [("lab.worker", {"slot": "a"}), ("lab.worker", {"slot": "b"})]
     )
     statuses = sorted(r.status.value for r in results)
-    print(
-        f"FANOUT n={len(results)} statuses={statuses} parent_state={state.get('slot')}"
-    )
+    # `worker.*` — one glob segment, so it stops at the dot and cannot reach a
+    # neighbouring namespace.
+    produced = sorted(state.keys("worker.*"))
+    print(f"FANOUT n={len(results)} statuses={statuses} produced={produced}")
 
 
-# ── 9. State (runtime, across runs) — the one that persists ──────────────
+# ── 9. Across runs — what `State` deliberately does not do ──────────────
 
 
 @job(group=JOB_GROUP)
 def counter(log: Log) -> None:
-    """`State` does not persist. A file you own does.
+    """`State` persists for its run. A file you own persists across runs.
 
-    Three things are called "state"; only the runtime store survives a process,
-    and it is reached from `functualize.app.utils`, not from the capability.
+    `State` lives in the run's scope record, so it survives a gate and a resume
+    — the same scope id finds the same values, even in a new process. What it
+    does **not** do is carry anything from one run to the next: a fresh run is a
+    fresh scope. This job wants a number that keeps climbing across runs, so it
+    owns a file.
     """
     stamp = BUILD / "counter.json"
     BUILD.mkdir(exist_ok=True)

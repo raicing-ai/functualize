@@ -1,6 +1,6 @@
 """Property-based tests for LambdaAdapter event routing (Property 25).
 
-Tests that for any valid event dict containing {"job": job_name, "kwargs": {...}}
+Tests that for any valid event dict containing {"job": job_name, "arguments": {...}}
 where job_name corresponds to a registered job, LambdaAdapter.run(event, context)
 executes the named job with the provided kwargs and returns a dict with statusCode
 and body fields.
@@ -63,12 +63,18 @@ class TrackingApp:
         self._registered_jobs = registered_jobs
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
-    def execute(self, job_name: str, **kwargs: Any) -> FakeJobResult:
+    def execute(self, request: Any) -> FakeJobResult:
+        # One positional `RunRequest`, matching the facade since
+        # run-request-entry/T15. The old `(job_name, **kwargs)` signature was
+        # the accidental control channel: a Lambda event body splatted into it
+        # let a caller's payload key choose the run's scope.
+        job_name = request.job_name
+        kwargs = dict(request.kwargs)
         if job_name not in self._registered_jobs:
             raise KeyError(f"Job '{job_name}' not found")
         self.calls.append((job_name, kwargs))
         return FakeJobResult(
-            return_value={"job_name": job_name, "kwargs": kwargs},
+            return_value={"job_name": job_name, "arguments": kwargs},
             job_name=job_name,
         )
 
@@ -140,7 +146,7 @@ _kwargs_strategy = st.dictionaries(
 class TestLambdaAdapterEventRouting:
     """Property 25: Lambda adapter event routing.
 
-    For any valid event dict containing {"job": job_name, "kwargs": {...}}
+    For any valid event dict containing {"job": job_name, "arguments": {...}}
     where job_name corresponds to a registered job, LambdaAdapter.run(event, context)
     SHALL execute the named job with the provided kwargs and return a dict with
     statusCode and body fields.
@@ -169,7 +175,7 @@ class TestLambdaAdapterEventRouting:
         adapter = LambdaAdapter()
         adapter(app)
 
-        event = {"job": job_name, "kwargs": kwargs}
+        event = {"job": job_name, "arguments": kwargs}
         result = adapter.run(event, None)
 
         # Must return a dict with statusCode and body
@@ -199,7 +205,7 @@ class TestLambdaAdapterEventRouting:
         adapter = LambdaAdapter()
         adapter(app)
 
-        event = {"job": job_name, "kwargs": kwargs}
+        event = {"job": job_name, "arguments": kwargs}
         adapter.run(event, None)
 
         # Verify the correct job was called with the correct kwargs
@@ -312,10 +318,10 @@ class TestLambdaAdapterEventRouting:
         adapter = LambdaAdapter()
         adapter(app)
 
-        event = {"job": job_name, "kwargs": kwargs}
+        event = {"job": job_name, "arguments": kwargs}
         result = adapter.run(event, None)
 
         assert result["statusCode"] == 200
         # The body is the return_value from FakeJobResult
-        # TrackingApp returns {"job_name": ..., "kwargs": ...}
-        assert result["body"] == {"job_name": job_name, "kwargs": kwargs}
+        # TrackingApp returns {"job_name": ..., "arguments": ...}
+        assert result["body"] == {"job_name": job_name, "arguments": kwargs}

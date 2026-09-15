@@ -39,7 +39,7 @@ from functualize._config.vault import (
 )
 from functualize._config.vault_source import VaultSource
 from functualize.app.config import ConfigSources
-from functualize.app.core import FunctualizeApp
+from functualize.app.core import FunctualizeApp, request_for
 from functualize.app.presets import remote_first
 from functualize.job import RunStatus
 
@@ -632,7 +632,7 @@ def _run(max_age: str | None = None) -> Any:
         return f"used:{config.password}"
 
     app.register_dynamic_job("report", report, config_class=Credentials)
-    return app.execute("report")
+    return app.execute(request_for("report"))
 
 
 @pytest.mark.usefixtures("project")

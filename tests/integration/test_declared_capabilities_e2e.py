@@ -28,8 +28,8 @@ from typing import Annotated
 import pytest
 
 from functualize._app.state import AppState
-from functualize.app.core import FunctualizeApp
-from functualize.app.utils import StateStore
+from functualize.app.core import FunctualizeApp, request_for
+from functualize.app.utils import ScopeStore
 from functualize.job import (
     Deps,
     Exec,
@@ -42,6 +42,7 @@ from functualize.job import (
     RunStatus,
     job,
 )
+from functualize.types import RunRequest
 
 
 @pytest.fixture(autouse=True)
@@ -79,7 +80,9 @@ class TestDeps:
             order.append("downstream")
             return "d"
 
-        _app(upstream=upstream, downstream=downstream).execute("downstream")
+        _app(upstream=upstream, downstream=downstream).execute(
+            request_for("downstream")
+        )
 
         assert order == ["upstream", "downstream"], (
             "the declared dependency did not run — Deps is inert again"
@@ -100,7 +103,7 @@ class TestDeps:
         def c() -> None:
             order.append("c")
 
-        _app(a=a, b=b, c=c).execute("c")
+        _app(a=a, b=b, c=c).execute(request_for("c"))
 
         assert order == ["a", "b", "c"]
 
@@ -124,7 +127,7 @@ class TestDeps:
         def top() -> None:
             order.append("top")
 
-        _app(base=base, left=left, right=right, top=top).execute("top")
+        _app(base=base, left=left, right=right, top=top).execute(request_for("top"))
 
         assert order.count("base") == 1
         assert order.index("base") < order.index("left")
@@ -141,7 +144,9 @@ class TestDeps:
         def dependent() -> None:
             ran.append("dependent")
 
-        result = _app(broken=broken, dependent=dependent).execute("dependent")
+        result = _app(broken=broken, dependent=dependent).execute(
+            request_for("dependent")
+        )
 
         assert result.status is RunStatus.FAILURE
         assert ran == [], "the dependent ran against a half-built world"
@@ -157,7 +162,7 @@ class TestGuards:
         def guarded() -> None:
             ran.append("guarded")
 
-        result = _app(guarded=guarded).execute("guarded")
+        result = _app(guarded=guarded).execute(request_for("guarded"))
 
         # REFUSED, not FAILURE — which is what this test's own name has always
         # said, and what `Precondition`'s docstring has always promised
@@ -181,7 +186,7 @@ class TestGuards:
         def guarded() -> None:
             ran.append("guarded")
 
-        result = _app(guarded=guarded).execute("guarded")
+        result = _app(guarded=guarded).execute(request_for("guarded"))
 
         assert result.status is RunStatus.SUCCESS
         assert ran == ["guarded"]
@@ -193,7 +198,7 @@ class TestGuards:
         def already_done() -> None:
             ran.append("already_done")
 
-        result = _app(already_done=already_done).execute("already_done")
+        result = _app(already_done=already_done).execute(request_for("already_done"))
 
         assert result.status is RunStatus.SKIPPED
         assert ran == []
@@ -216,8 +221,8 @@ class TestFingerprint:
         ran: list[str] = []
         app = _app(build=self._job(ran))
 
-        first = app.execute("build")
-        second = app.execute("build")
+        first = app.execute(request_for("build"))
+        second = app.execute(request_for("build"))
 
         assert first.status is RunStatus.SUCCESS
         assert second.status is RunStatus.SKIPPED
@@ -228,9 +233,9 @@ class TestFingerprint:
         ran: list[str] = []
         app = _app(build=self._job(ran))
 
-        app.execute("build")
+        app.execute(request_for("build"))
         Path("input.txt").write_text("v2")
-        again = app.execute("build")
+        again = app.execute(request_for("build"))
 
         assert again.status is RunStatus.SUCCESS
         assert ran == ["build", "build"]
@@ -246,8 +251,8 @@ class TestFingerprint:
             raise RuntimeError("boom")
 
         app = _app(flaky=flaky)
-        app.execute("flaky")
-        app.execute("flaky")
+        app.execute(request_for("flaky"))
+        app.execute(request_for("flaky"))
 
         assert len(attempts) == 2, "a failed run was recorded as fresh"
 
@@ -260,8 +265,8 @@ class TestFingerprint:
             ran.append("plain")
 
         app = _app(plain=plain)
-        app.execute("plain")
-        app.execute("plain")
+        app.execute(request_for("plain"))
+        app.execute(request_for("plain"))
 
         assert ran == ["plain", "plain"]
 
@@ -289,9 +294,9 @@ class TestDepsAndFreshnessTogether:
             ran.append("consumer")
 
         app = _app(regenerate=regenerate, consumer=consumer)
-        app.execute("consumer")
+        app.execute(request_for("consumer"))
         ran.clear()
-        app.execute("consumer")
+        app.execute(request_for("consumer"))
 
         # The dep rewrote the source, so the consumer cannot be fresh.
         assert ran == ["regenerate", "consumer"]
@@ -311,10 +316,10 @@ class TestDepsAndFreshnessTogether:
             ran.append("downstream")
 
         app = _app(upstream=upstream, downstream=downstream)
-        app.execute("upstream")
+        app.execute(request_for("upstream"))
         ran.clear()
 
-        result = app.execute("downstream")
+        result = app.execute(request_for("downstream"))
 
         assert result.status is RunStatus.SUCCESS
         assert ran == ["downstream"]
@@ -328,7 +333,7 @@ class TestPlatformGuard:
         def elsewhere() -> None:
             ran.append("elsewhere")
 
-        result = _app(elsewhere=elsewhere).execute("elsewhere")
+        result = _app(elsewhere=elsewhere).execute(request_for("elsewhere"))
 
         assert result.status is RunStatus.SKIPPED
         assert ran == []
@@ -367,7 +372,7 @@ class TestExecHasNoTimeout:
         def slow() -> str:
             return "finished"
 
-        result = _app(slow=slow).execute("slow")
+        result = _app(slow=slow).execute(request_for("slow"))
         assert result.status is RunStatus.SUCCESS
         assert result.return_value == "finished"
 
@@ -385,7 +390,7 @@ class TestExecRetry:
                 raise RuntimeError("transient")
             return "eventually"
 
-        result = _app(flaky=flaky).execute("flaky")
+        result = _app(flaky=flaky).execute(request_for("flaky"))
 
         assert result.status is RunStatus.SUCCESS
         assert len(attempts) == 3
@@ -398,7 +403,7 @@ class TestExecRetry:
             attempts.append(1)
             raise RuntimeError("permanent")
 
-        result = _app(always_broken=always_broken).execute("always_broken")
+        result = _app(always_broken=always_broken).execute(request_for("always_broken"))
 
         assert result.status is RunStatus.FAILURE
         assert len(attempts) == 2
@@ -411,7 +416,7 @@ class TestExecRetry:
             attempts.append(1)
             raise RuntimeError("boom")
 
-        _app(plain_failure=plain_failure).execute("plain_failure")
+        _app(plain_failure=plain_failure).execute(request_for("plain_failure"))
 
         assert len(attempts) == 1
 
@@ -424,7 +429,7 @@ class TestExecRetry:
             attempts.append(1)
             raise ValueError("not the declared type")
 
-        _app(wrong_error=wrong_error).execute("wrong_error")
+        _app(wrong_error=wrong_error).execute(request_for("wrong_error"))
 
         assert len(attempts) == 1
 
@@ -440,8 +445,8 @@ class TestExecRunMode:
             ran.append("setup")
 
         app = _app(setup=setup)
-        first = app.execute("setup")
-        second = app.execute("setup")
+        first = app.execute(request_for("setup"))
+        second = app.execute(request_for("setup"))
 
         assert first.status is RunStatus.SUCCESS
         assert second.status is RunStatus.SKIPPED
@@ -456,8 +461,8 @@ class TestExecRunMode:
             ran.append(flavour)
 
         app = _app(setup=setup)
-        app.execute("setup", flavour="a")
-        app.execute("setup", flavour="b")
+        app.execute(request_for("setup", flavour="a"))
+        app.execute(request_for("setup", flavour="b"))
 
         assert ran == ["a"]
 
@@ -469,9 +474,9 @@ class TestExecRunMode:
             ran.append(target)
 
         app = _app(build=build)
-        app.execute("build", target="a")
-        app.execute("build", target="a")
-        app.execute("build", target="b")
+        app.execute(request_for("build", target="a"))
+        app.execute(request_for("build", target="a"))
+        app.execute(request_for("build", target="b"))
 
         assert ran == ["a", "b"]
 
@@ -483,8 +488,8 @@ class TestExecRunMode:
             ran.append("normal")
 
         app = _app(normal=normal)
-        app.execute("normal")
-        app.execute("normal")
+        app.execute(request_for("normal"))
+        app.execute(request_for("normal"))
 
         assert ran == ["normal", "normal"]
 
@@ -515,7 +520,7 @@ class TestFromJobEdges:
         def publish(wheel: Annotated[str, FromJob("build_wheel")] = "") -> None:
             order.append("publish")
 
-        _app(build_wheel=build_wheel, publish=publish).execute("publish")
+        _app(build_wheel=build_wheel, publish=publish).execute(request_for("publish"))
 
         assert order == ["build_wheel", "publish"]
 
@@ -532,7 +537,7 @@ class TestFromJobEdges:
         def consumer(value: Annotated[str, FromJob("shared")] = "") -> None:
             order.append("consumer")
 
-        _app(shared=shared, consumer=consumer).execute("consumer")
+        _app(shared=shared, consumer=consumer).execute(request_for("consumer"))
 
         assert order == ["shared", "consumer"]
 
@@ -578,14 +583,14 @@ def c() -> str:
 
     def test_a_transitive_chain_runs_the_same_cold_and_warm(self) -> None:
         # Cold: nothing cached yet.
-        self._discovered_app().execute("c")
+        self._discovered_app().execute(request_for("c"))
         cold = Path("trace.txt").read_text().split()
         Path("trace.txt").unlink()
 
         # Warm: the first app wrote a discovery cache, so the second boots
         # from it and the job functions are not imported up front.
         AppState.reset()
-        self._discovered_app().execute("c")
+        self._discovered_app().execute(request_for("c"))
         warm = Path("trace.txt").read_text().split()
 
         assert cold == ["a", "b", "c"]
@@ -616,7 +621,7 @@ class TestFromJobInjection:
         Path("input.txt").write_text("v1")
         _app(
             build_wheel=build_wheel, cached_build=cached_build, publish=publish
-        ).execute("publish")
+        ).execute(request_for("publish"))
 
         assert seen == ["cached-artifact"]
 
@@ -637,8 +642,8 @@ class TestFromJobInjection:
             seen.append(art)
 
         app = _app(build=build, publish=publish)
-        app.execute("publish")
-        app.execute("publish")
+        app.execute(request_for("publish"))
+        app.execute(request_for("publish"))
 
         assert ran == ["build"], "the fresh upstream was re-run"
         assert seen == ["artifact", "artifact"], "the cached value was lost"
@@ -657,8 +662,8 @@ class TestFromJobInjection:
             seen.append(art)
 
         app = _app(build=build, publish=publish)
-        app.execute("build")
-        app.execute("publish", art="explicit")
+        app.execute(request_for("build"))
+        app.execute(request_for("publish", art="explicit"))
 
         assert seen == ["explicit"]
 
@@ -679,7 +684,7 @@ class TestFromJobRunFalse:
         def report(art: Annotated[str, FromJob("build", run=False)] = "none") -> None:
             seen.append(art)
 
-        _app(build=build, report=report).execute("report")
+        _app(build=build, report=report).execute(request_for("report"))
 
         assert ran == [], "run=False triggered the upstream anyway"
         assert seen == ["none"], "no recorded value — the default should stand"
@@ -699,9 +704,9 @@ class TestFromJobRunFalse:
             seen.append(art)
 
         app = _app(build=build, report=report)
-        app.execute("build")
+        app.execute(request_for("build"))
         ran.clear()
-        app.execute("report")
+        app.execute(request_for("report"))
 
         assert ran == [], "reading a recorded value must not re-run anything"
         assert seen == ["artifact"]
@@ -737,7 +742,9 @@ class TestInvokeHonoursDeclarations:
         def caller(rc: RunContext) -> None:
             rc.invoke("target")
 
-        _app(upstream=upstream, target=target, caller=caller).execute("caller")
+        _app(upstream=upstream, target=target, caller=caller).execute(
+            request_for("caller")
+        )
 
         assert order == ["upstream", "target"]
 
@@ -757,8 +764,8 @@ class TestInvokeHonoursDeclarations:
             got.append(rc.invoke("build").return_value)
 
         app = _app(build=build, caller=caller)
-        app.execute("build")
-        app.execute("caller")
+        app.execute(request_for("build"))
+        app.execute(request_for("caller"))
 
         assert got == ["artifact"], "a skipped-as-fresh job returned no value"
 
@@ -808,10 +815,14 @@ class TestWorkflowFromJobIsARead:
         from functualize.workflow import Edge
 
         app = self._app_with([Edge(source="forecast", target="travel_plan")])
-        result = app.execute("trip", scope_id="run-1")
+        result = app.execute(
+            RunRequest(
+                job_name="trip", surface="app.execute", workflow_scope_id="run-1"
+            )
+        )
 
         assert result.status is RunStatus.SUCCESS
-        store = StateStore.for_project(Path.cwd())
+        store = ScopeStore.for_project(Path.cwd())
         steps = store.get_scope("run-1")["steps"]
         assert steps["travel-plan::"]["return_value"] == "packing for sunny"
 
@@ -821,9 +832,13 @@ class TestWorkflowFromJobIsARead:
         from functualize.workflow import Edge
 
         app = self._app_with([Edge(source="forecast", target="travel_plan")])
-        app.execute("trip", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="trip", surface="app.execute", workflow_scope_id="run-1"
+            )
+        )
 
-        store = StateStore.for_project(Path.cwd())
+        store = ScopeStore.for_project(Path.cwd())
         scope = store.get_scope("run-1")
         assert sorted(scope["steps"]) == ["forecast::", "travel-plan::"]
 
@@ -905,7 +920,9 @@ class TestPartIMatrixDxW:
 
     def test_a_node_that_is_also_a_dependency_runs_once_per_scope(self) -> None:
         calls, app = self._graph(order_dep_first=True)
-        app.execute("wf", scope_id="dxw-1")
+        app.execute(
+            RunRequest(job_name="wf", surface="app.execute", workflow_scope_id="dxw-1")
+        )
 
         assert calls.count("shared") == 1, f"ran {calls.count('shared')}×: {calls}"
         assert calls == ["shared", "step_a"]
@@ -914,8 +931,12 @@ class TestPartIMatrixDxW:
         """Resume amplified the original bug: the dependency pass re-ran the
         node on every re-entry because it consulted no records."""
         calls, app = self._graph(order_dep_first=True)
-        app.execute("wf", scope_id="dxw-2")
-        app.execute("wf", scope_id="dxw-2")
+        app.execute(
+            RunRequest(job_name="wf", surface="app.execute", workflow_scope_id="dxw-2")
+        )
+        app.execute(
+            RunRequest(job_name="wf", surface="app.execute", workflow_scope_id="dxw-2")
+        )
 
         assert calls.count("shared") == 1, f"ran {calls.count('shared')}×: {calls}"
 
@@ -946,7 +967,13 @@ class TestPartIMatrixDxW:
 
         _calls, app = self._graph(order_dep_first=False)
         with pytest.raises(WorkflowDeclarationError, match="does not order it before"):
-            app.execute("wf", scope_id="second-door")
+            app.execute(
+                RunRequest(
+                    job_name="wf",
+                    surface="app.execute",
+                    workflow_scope_id="second-door",
+                )
+            )
 
     def test_a_dependency_outside_the_graph_is_untouched(self) -> None:
         """Only nodes are governed. An ordinary dependency keeps following its
@@ -991,7 +1018,9 @@ class TestPartIMatrixDxW:
             app.register_dynamic_job(name, fn)
 
         validate_workflow_declarations(app)  # not a node — no contradiction
-        app.execute("wf", scope_id="dxw-3")
+        app.execute(
+            RunRequest(job_name="wf", surface="app.execute", workflow_scope_id="dxw-3")
+        )
 
         assert calls.count("refresh") == 2, (
             "a dependency outside the graph must not be scope-deduped"
@@ -1049,8 +1078,8 @@ class TestForcedUpstreamForAnUnusableValue:
         monkeypatch.chdir(tmp_path)
         app, ran = self._app(tmp_path)
 
-        app.execute("make-handle")
-        assert app.execute("make-handle").status is RunStatus.SKIPPED
+        app.execute(request_for("make-handle"))
+        assert app.execute(request_for("make-handle")).status is RunStatus.SKIPPED
         assert ran == ["make_handle"], "ran once, then skipped as fresh"
 
     def test_a_dependent_forces_the_upstream_and_gets_a_live_value(
@@ -1061,10 +1090,10 @@ class TestForcedUpstreamForAnUnusableValue:
         monkeypatch.chdir(tmp_path)
         app, ran = self._app(tmp_path)
 
-        app.execute("make-handle")
+        app.execute(request_for("make-handle"))
         ran.clear()
 
-        result = app.execute("uses-handle")
+        result = app.execute(request_for("uses-handle"))
         assert ran == ["make_handle"], "the fresh upstream must be forced"
         assert result.return_value == "lock", "the live value must be injected"
 
@@ -1074,10 +1103,10 @@ class TestForcedUpstreamForAnUnusableValue:
         monkeypatch.chdir(tmp_path)
         app, ran = self._app(tmp_path)
 
-        app.execute("make-handle")
+        app.execute(request_for("make-handle"))
         ran.clear()
 
-        result = app.execute("reads-only")
+        result = app.execute(request_for("reads-only"))
         assert ran == [], "run=False must not trigger the upstream"
         assert result.return_value == "NoneType"
 
@@ -1128,14 +1157,14 @@ class TestForcedUpstreamForAnUnusableValue:
 
         # Marker absent: the guard does not satisfy, so the job runs and
         # records a value that cannot be reused.
-        app.execute("guarded")
+        app.execute(request_for("guarded"))
         assert ran == ["guarded"], "setup: the job must run once to record"
 
         # Marker present: the skip is now SKIP_SATISFIED, not SKIP_FRESH.
         (tmp_path / "done.marker").write_text("")
         ran.clear()
 
-        app.execute("wants-it")
+        app.execute(request_for("wants-it"))
 
         assert ran == [], (
             "a satisfied status guard must still refuse, even when a "

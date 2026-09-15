@@ -111,7 +111,7 @@ class TestResourceInjectionAndTypedAccess:
         """
         rc = make_run_context()
         inject_resource(rc, name, resource)
-        result = rc.get_resource(name, type(resource))
+        result = rc.wiring.get_resource(name, type(resource))
         assert result is resource
 
     @given(name=resource_names, resource=resource_instances)
@@ -123,7 +123,7 @@ class TestResourceInjectionAndTypedAccess:
         **Validates: Requirements 9.2**
         """
         rc = make_run_context(resources={name: resource})
-        result = rc.get_resource(name, type(resource))
+        result = rc.wiring.get_resource(name, type(resource))
         assert result is resource
 
     @given(
@@ -144,7 +144,7 @@ class TestResourceInjectionAndTypedAccess:
         rc = make_run_context(resources={name: resource})
 
         with pytest.raises(TypeError) as exc_info:
-            rc.get_resource(name, wrong_type)
+            rc.wiring.get_resource(name, wrong_type)
 
         error_msg = str(exc_info.value)
         # Error message should contain the resource name
@@ -173,7 +173,7 @@ class TestResourceInjectionAndTypedAccess:
         rc = make_run_context(resources=resources)
 
         with pytest.raises(KeyError) as exc_info:
-            rc.get_resource(name, DatabaseClient)
+            rc.wiring.get_resource(name, DatabaseClient)
 
         error_msg = str(exc_info.value)
         # Error message should list available resource names
@@ -196,7 +196,7 @@ class TestResourceInjectionAndTypedAccess:
         **Validates: Requirements 9.1, 9.6**
         """
         rc = make_run_context(resources=dict(items) if items else None)
-        mapping = rc.resources
+        mapping = rc.wiring.resources
 
         # Should be a MappingProxyType (read-only)
         assert isinstance(mapping, MappingProxyType)
@@ -226,7 +226,7 @@ class TestResourceInjectionAndTypedAccess:
 
         # Each resource should be independently accessible
         for name, resource in items.items():
-            result = rc.get_resource(name, type(resource))
+            result = rc.wiring.get_resource(name, type(resource))
             assert result is resource
 
     @given(
@@ -243,7 +243,7 @@ class TestResourceInjectionAndTypedAccess:
         rc = make_run_context()
         inject_resource(rc, name, resource)
 
-        mapping = rc.resources
+        mapping = rc.wiring.resources
         assert name in mapping
         assert mapping[name] is resource
 
@@ -265,7 +265,7 @@ class TestResourceInjectionAndTypedAccess:
         inject_resource(rc, name, first_resource)
         inject_resource(rc, name, second_resource)
 
-        result = rc.get_resource(name, type(second_resource))
+        result = rc.wiring.get_resource(name, type(second_resource))
         assert result is second_resource
 
     def test_resources_property_empty_when_no_resources(self) -> None:
@@ -274,7 +274,7 @@ class TestResourceInjectionAndTypedAccess:
         **Validates: Requirements 9.1**
         """
         rc = make_run_context()
-        mapping = rc.resources
+        mapping = rc.wiring.resources
         assert isinstance(mapping, MappingProxyType)
         assert len(mapping) == 0
 
@@ -290,5 +290,5 @@ class TestResourceInjectionAndTypedAccess:
         **Validates: Requirements 9.2**
         """
         rc = make_run_context(resources={name: resource})
-        result = rc.get_resource(name, object)
+        result = rc.wiring.get_resource(name, object)
         assert result is resource

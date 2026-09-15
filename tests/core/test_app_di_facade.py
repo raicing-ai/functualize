@@ -1,9 +1,9 @@
 """Unit tests for FunctualizeApp DI facade methods and registry freeze lifecycle.
 
 Tests cover:
-- app.provide() delegates to internal DIRegistry
-- app.provide_factory() delegates to internal DIRegistry
-- app.provide_named() delegates to internal DIRegistry
+- app.di.provide() delegates to internal DIRegistry
+- app.di.provide_factory() delegates to internal DIRegistry
+- app.di.provide_named() delegates to internal DIRegistry
 - Registry freeze triggered after APP_READY hooks complete
 - REGISTRY_FROZEN event emitted after freeze, before adapter run()
 - APP_READY hooks can still call provide() (registry unfrozen during hooks)
@@ -33,10 +33,10 @@ def _reset_state() -> Generator[None]:
 
 
 class TestDIFacadeMethods:
-    """Tests for app.provide(), app.provide_factory(), app.provide_named()."""
+    """Tests for app.di.provide(), app.di.provide_factory(), app.di.provide_named()."""
 
     def test_provide_delegates_to_registry(self) -> None:
-        """app.provide() stores a singleton in the internal DIRegistry."""
+        """app.di.provide() stores a singleton in the internal DIRegistry."""
         app = FunctualizeApp(name="testapp")
 
         # Registry is frozen after boot — manually reset for facade testing
@@ -46,13 +46,13 @@ class TestDIFacadeMethods:
             pass
 
         instance = MyService()
-        app.provide(MyService, instance)
+        app.di.provide(MyService, instance)
 
         resolved = app._di_registry.resolve(MyService)
         assert resolved is instance
 
     def test_provide_with_qualifier(self) -> None:
-        """app.provide() with qualifier stores qualified registration."""
+        """app.di.provide() with qualifier stores qualified registration."""
         app = FunctualizeApp(name="testapp")
         app._di_registry._frozen = False
 
@@ -60,13 +60,13 @@ class TestDIFacadeMethods:
             pass
 
         redis_cache = Cache()
-        app.provide(Cache, redis_cache, qualifier="redis")
+        app.di.provide(Cache, redis_cache, qualifier="redis")
 
         resolved = app._di_registry.resolve(Cache, qualifier="redis")
         assert resolved is redis_cache
 
     def test_provide_factory_delegates_to_registry(self) -> None:
-        """app.provide_factory() registers a factory in the internal DIRegistry."""
+        """app.di.provide_factory() registers a factory in the internal DIRegistry."""
         app = FunctualizeApp(name="testapp")
         app._di_registry._frozen = False
 
@@ -80,7 +80,7 @@ class TestDIFacadeMethods:
             call_count += 1
             return Service()
 
-        app.provide_factory(Service, factory, "singleton")
+        app.di.provide_factory(Service, factory, "singleton")
 
         result1 = app._di_registry.resolve(Service)
         result2 = app._di_registry.resolve(Service)
@@ -88,7 +88,7 @@ class TestDIFacadeMethods:
         assert call_count == 1
 
     def test_provide_factory_invocation_scope(self) -> None:
-        """app.provide_factory() with 'invocation' scope creates new instances each time."""
+        """app.di.provide_factory() with 'invocation' scope creates new instances each time."""
         app = FunctualizeApp(name="testapp")
         app._di_registry._frozen = False
 
@@ -100,14 +100,14 @@ class TestDIFacadeMethods:
                 caps = {}
             return Service()
 
-        app.provide_factory(Service, factory, "invocation")
+        app.di.provide_factory(Service, factory, "invocation")
 
         result1 = app._di_registry.resolve(Service)
         result2 = app._di_registry.resolve(Service)
         assert result1 is not result2
 
     def test_provide_factory_with_qualifier(self) -> None:
-        """app.provide_factory() with qualifier stores qualified factory."""
+        """app.di.provide_factory() with qualifier stores qualified factory."""
         app = FunctualizeApp(name="testapp")
         app._di_registry._frozen = False
 
@@ -117,23 +117,23 @@ class TestDIFacadeMethods:
         def factory() -> DB:
             return DB()
 
-        app.provide_factory(DB, factory, "singleton", qualifier="primary")
+        app.di.provide_factory(DB, factory, "singleton", qualifier="primary")
 
         resolved = app._di_registry.resolve(DB, qualifier="primary")
         assert isinstance(resolved, DB)
 
     def test_provide_named_delegates_to_registry(self) -> None:
-        """app.provide_named() registers a string-keyed value."""
+        """app.di.provide_named() registers a string-keyed value."""
         app = FunctualizeApp(name="testapp")
         app._di_registry._frozen = False
 
-        app.provide_named("api_key", "secret-123")
+        app.di.provide_named("api_key", "secret-123")
 
         resolved = app._di_registry.resolve_named("api_key")
         assert resolved == "secret-123"
 
     def test_provide_raises_after_freeze(self) -> None:
-        """app.provide() raises RegistryFrozenError after boot (registry frozen)."""
+        """app.di.provide() raises RegistryFrozenError after boot (registry frozen)."""
         app = FunctualizeApp(name="testapp")
 
         # Registry should be frozen after __init__ completes
@@ -143,24 +143,24 @@ class TestDIFacadeMethods:
             pass
 
         with pytest.raises(RegistryFrozenError):
-            app.provide(Service, Service())
+            app.di.provide(Service, Service())
 
     def test_provide_factory_raises_after_freeze(self) -> None:
-        """app.provide_factory() raises RegistryFrozenError after boot."""
+        """app.di.provide_factory() raises RegistryFrozenError after boot."""
         app = FunctualizeApp(name="testapp")
 
         class Service:
             pass
 
         with pytest.raises(RegistryFrozenError):
-            app.provide_factory(Service, lambda: Service(), "singleton")
+            app.di.provide_factory(Service, lambda: Service(), "singleton")
 
     def test_provide_named_raises_after_freeze(self) -> None:
-        """app.provide_named() raises RegistryFrozenError after boot."""
+        """app.di.provide_named() raises RegistryFrozenError after boot."""
         app = FunctualizeApp(name="testapp")
 
         with pytest.raises(RegistryFrozenError):
-            app.provide_named("key", "value")
+            app.di.provide_named("key", "value")
 
 
 class TestRegistryFreezeLifecycle:
@@ -201,7 +201,7 @@ class TestRegistryFreezeLifecycle:
         assert app._di_registry.is_frozen is True
 
     def test_app_ready_hooks_can_provide(self) -> None:
-        """APP_READY hooks can call app.provide() since registry is unfrozen."""
+        """APP_READY hooks can call app.di.provide() since registry is unfrozen."""
         provided_successfully: list[bool] = []
 
         class MyService:
@@ -215,7 +215,7 @@ class TestRegistryFreezeLifecycle:
             def __call__(self, app_instance: Any) -> None:
                 def register_service(a: Any) -> None:
                     try:
-                        a.provide(MyService, MyService())
+                        a.di.provide(MyService, MyService())
                         provided_successfully.append(True)
                     except RegistryFrozenError:
                         provided_successfully.append(False)

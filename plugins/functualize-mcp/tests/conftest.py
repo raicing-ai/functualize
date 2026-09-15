@@ -77,7 +77,12 @@ class FakeApp:
                 return d
         return None
 
-    def execute(self, job_name: str, **kwargs: Any) -> FakeJobResult:
+    def execute(self, request: Any) -> FakeJobResult:
+        # One positional `RunRequest` — the facade's only form since
+        # run-request-entry/T15. The old `(job_name, **kwargs)` signature was
+        # the accidental control channel it closed: a payload splatted into it
+        # let a caller's key choose the run's scope.
+        job_name = request.job_name
         if self._execute_error:
             raise self._execute_error
         if job_name in self._execute_results:

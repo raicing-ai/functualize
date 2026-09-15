@@ -31,7 +31,7 @@ cd examples/standalone/showcase
 ## Setup
 
 ```bash
-pip install "functualize[cli]" functualize-ai functualize-state functualize-tasks
+pip install "functualize[cli]" functualize-ai functualize-tasks
 # or, from the repo root, use the dev env:  uv sync --all-extras
 ```
 

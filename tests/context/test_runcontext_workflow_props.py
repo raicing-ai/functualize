@@ -66,7 +66,7 @@ class TestJobPhaseAutoMarking:
         timeline = PerfTimeline(enabled=True)
         rc = _make_run_context(job_name, timeline)
 
-        rc.track_phase(step_name, "starting step", RunStatus.RUNNING)
+        rc.events.track_phase(step_name, "starting step", RunStatus.RUNNING)
 
         report = timeline.report()
         recorded_names = [name for name, _ in report.marks]
@@ -90,7 +90,7 @@ class TestJobPhaseAutoMarking:
         timeline = PerfTimeline(enabled=True)
         rc = _make_run_context(job_name, timeline)
 
-        rc.track_phase(step_name, "immediate terminal", terminal_status)
+        rc.events.track_phase(step_name, "immediate terminal", terminal_status)
 
         report = timeline.report()
         recorded_names = [name for name, _ in report.marks]
@@ -119,13 +119,13 @@ class TestJobPhaseAutoMarking:
         rc = _make_run_context(job_name, timeline)
 
         # First call: create the step with non-terminal status
-        rc.track_phase(step_name, "step running", RunStatus.RUNNING)
+        rc.events.track_phase(step_name, "step running", RunStatus.RUNNING)
 
         # Clear marks to isolate the transition effect
         marks_before = len(timeline.report().marks)
 
         # Second call: transition to terminal
-        rc.track_phase(step_name, "step done", terminal_status)
+        rc.events.track_phase(step_name, "step done", terminal_status)
 
         report = timeline.report()
         recorded_names = [name for name, _ in report.marks]
@@ -153,7 +153,7 @@ class TestJobPhaseAutoMarking:
         timeline = PerfTimeline(enabled=True)
         rc = _make_run_context(job_name, timeline)
 
-        rc.track_phase(step_name, "step in progress", non_terminal_status)
+        rc.events.track_phase(step_name, "step in progress", non_terminal_status)
 
         report = timeline.report()
         recorded_names = [name for name, _ in report.marks]

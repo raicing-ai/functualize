@@ -82,8 +82,10 @@ class TestFunctualizeAppInit:
     def test_resolves_environment_from_env_var(self):
         with patch.dict(os.environ, {"ENVIRONMENT": "STAGING"}):
             app = FunctualizeApp(name="testapp")
-            assert app.active_environment() == "STAGING"
-            assert app.environment_source() is EnvironmentSource.ENVIRONMENT
+            assert app.configuration.active_environment() == "STAGING"
+            assert (
+                app.configuration.environment_source() is EnvironmentSource.ENVIRONMENT
+            )
 
     def test_environment_defaults_to_dev(self):
         env = {k: v for k, v in os.environ.items()}
@@ -91,9 +93,9 @@ class TestFunctualizeAppInit:
             env.pop(var, None)
         with patch.dict(os.environ, env, clear=True):
             app = FunctualizeApp(name="testapp")
-            assert app.active_environment() == "DEV"
+            assert app.configuration.active_environment() == "DEV"
             # Defaulted, not chosen — the distinction the TUI footer shows.
-            assert app.environment_source() is EnvironmentSource.DEFAULT
+            assert app.configuration.environment_source() is EnvironmentSource.DEFAULT
 
 
 class TestConfigDiscovery:
@@ -239,7 +241,7 @@ class TestConfigFiles:
         return app
 
     def _by_name(self, app, job_name="serve"):
-        return {Path(i.path).name: i for i in app.config_files(job_name)}
+        return {Path(i.path).name: i for i in app.configuration.config_files(job_name)}
 
     def test_reports_each_file_contribution(self, tmp_path, monkeypatch):
         """Each file keeps its own values, not the merged view."""
@@ -295,14 +297,17 @@ class TestConfigFiles:
 
         assert self._by_name(app)["config.dev.toml"].values == {"port": 8080}
         # Without a job name, the file's full contents come back.
-        full = {Path(i.path).name: i for i in app.config_files()}
+        full = {Path(i.path).name: i for i in app.configuration.config_files()}
         assert full["config.dev.toml"].values == {
             "serve": {"port": 8080},
             "other": {"x": 1},
         }
 
     def test_returns_empty_when_no_files_discovered(self, tmp_path, monkeypatch):
-        assert self._app_in(tmp_path, monkeypatch).config_files("serve") == []
+        assert (
+            self._app_in(tmp_path, monkeypatch).configuration.config_files("serve")
+            == []
+        )
 
 
 class TestRunMethod:

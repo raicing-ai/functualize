@@ -292,7 +292,7 @@ def is_secret_field(field_info: Any) -> bool:
     Public because more than one sink has to agree on it: this decides both
     whether a recorded value is masked and whether a *prompt* for that value is
     masked (T45). Two independent answers to "is this a secret" is how a field
-    gets redacted in state.json and then echoed to the screen while being typed.
+    gets redacted in fresh.json and then echoed to the screen while being typed.
     """
     if is_secret_annotation(getattr(field_info, "annotation", None)):
         return True

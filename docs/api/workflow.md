@@ -17,6 +17,8 @@ The `functualize.workflow` module provides graph-based workflow execution with m
 from functualize.workflow import (
     workflow,
     Step,
+    Gate,
+    AgentStep,
     Edge,
     ConditionalEdge,
     END,
@@ -68,6 +70,42 @@ step = Step(validate_data)  # callable reference
 !!! note
     `Step` only takes a `job` argument. There are no `action` or `name`
     constructor parameters — the job declaration already describes what runs.
+
+---
+
+## `AgentStep`
+
+A workflow node performed by an **agent**, through a registered executor, rather than by a
+registered job. The third node kind, and the first whose execution is not a local function
+call: it runs somewhere else, can take arbitrarily long, and can be **refused**.
+
+```python
+from functualize.workflow import AgentStep
+
+AgentStep(
+    "draft",
+    instructions="Draft the release notes from the fetched changelog.",
+    tools=["read_file"],
+    time_budget_s=120,
+)
+```
+
+| Attribute | Type | Description |
+|---|---|---|
+| `name` | `str` | Graph key for this node — the address it is recorded under, and the name a refusal reports |
+| `instructions` | `str` | What the step asks the agent to do. Required, and may not be blank |
+| `executor` | `str \| None` | The registered executor that services this step. `None` means *the only registered executor*; with two registered, a step naming none is refused rather than guessed at |
+| `tools` | `Sequence[str]` | The tool allowlist. Declaring any tool implies `enforces_tool_allowlist`. An empty sequence declares no constraint, which is not the same statement as "no tools" |
+| `requires` | `frozenset[AgentCapability]` | Capabilities needed on top of the implied ones. Widening is explicit; narrowing is not possible |
+| `time_budget_s` | `float \| None` | Active-time budget in seconds. Declaring one implies `preserves_active_time_budget` |
+
+!!! note "Refused, never degraded"
+    An executor that cannot honour a required capability makes the step refuse **before the
+    walk starts**. Running it with the constraint dropped would produce a workflow that
+    appears to have restricted tools it left wide open.
+
+See [Workflows → Agent steps](../guides/workflows.md#agent-steps) for executors,
+capabilities and a worked graph.
 
 ---
 
@@ -141,7 +179,7 @@ def simple_workflow(config, rc):
 
 Workflow types live in `functualize._types.workflow`:
 
-- `_types/workflow.py` — Step, Gate, Edge, ConditionalEdge, END, WorkflowShape, WorkflowDeclaration
+- `_types/workflow.py` — Step, Gate, AgentStep, Edge, ConditionalEdge, END, WorkflowShape, WorkflowDeclaration
 - `workflow/_decorator.py` — `@workflow` decorator and execution engine
 - `workflow/_validation.py` — Graph validation and cycle detection
 

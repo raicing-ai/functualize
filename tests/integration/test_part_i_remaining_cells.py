@@ -23,8 +23,9 @@ from functualize._app.state import AppState
 from functualize._types.enums import RunStatus
 from functualize._types.errors import WorkflowDeclarationError
 from functualize._types.from_job import FromJob, FromStep
-from functualize.app.core import FunctualizeApp
+from functualize.app.core import FunctualizeApp, request_for
 from functualize.job import Deps, RunContext, job
+from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, workflow
 
 
@@ -62,7 +63,9 @@ class TestCellDxI:
         def caller(rc: RunContext) -> str:
             return str(rc.invoke("target").return_value)
 
-        _app("dxi", dep_j=dep_j, target=target, caller=caller).execute("caller")
+        _app("dxi", dep_j=dep_j, target=target, caller=caller).execute(
+            request_for("caller")
+        )
 
         assert calls == ["dep", "target"], "an invoked job's deps must run first"
 
@@ -88,7 +91,7 @@ class TestCellFxI:
 
         result = _app(
             "fxi", upstream=upstream, consumer=consumer, caller=caller
-        ).execute("caller")
+        ).execute(request_for("caller"))
 
         assert calls == ["upstream"], "a never-run upstream must be run"
         assert result.return_value == "value-from-upstream"
@@ -135,11 +138,17 @@ class TestCellFxW:
 
     def test_a_run_true_reference_outside_the_graph_is_refused(self) -> None:
         with pytest.raises(WorkflowDeclarationError, match="not a node in the graph"):
-            self._graph(run=True).execute("wf", scope_id="fxw-1")
+            self._graph(run=True).execute(
+                RunRequest(
+                    job_name="wf", surface="app.execute", workflow_scope_id="fxw-1"
+                )
+            )
 
     def test_run_false_is_the_documented_escape(self) -> None:
         """Reading a recorded value orders nothing, so it needs no node."""
-        result = self._graph(run=False).execute("wf", scope_id="fxw-2")
+        result = self._graph(run=False).execute(
+            RunRequest(job_name="wf", surface="app.execute", workflow_scope_id="fxw-2")
+        )
         assert result.return_value == "saw DEFAULT"
 
 
@@ -178,7 +187,9 @@ class TestCellDxWKeepGoing:
 
     def test_fail_fast_stops_the_step(self) -> None:
         app, calls = self._wf("fail-fast")
-        result = app.execute("wf", scope_id="kg-1")
+        result = app.execute(
+            RunRequest(job_name="wf", surface="app.execute", workflow_scope_id="kg-1")
+        )
 
         assert result.status is not RunStatus.SUCCESS
         assert "step_one" not in calls, "the step must not run against a failed dep"
@@ -186,7 +197,9 @@ class TestCellDxWKeepGoing:
     def test_keep_going_still_runs_the_other_dep(self) -> None:
         """The policy is the step's own: it governs *its* dep set."""
         app, calls = self._wf("keep-going")
-        app.execute("wf", scope_id="kg-2")
+        app.execute(
+            RunRequest(job_name="wf", surface="app.execute", workflow_scope_id="kg-2")
+        )
 
         assert "solid" in calls, "keep-going must not abandon the remaining deps"
 
@@ -242,7 +255,14 @@ class TestCellFsResumeAndMissing:
         from functualize_mcp._workflow_tools import WorkflowToolProvider
 
         app = self._gated()
-        assert app.execute("wf", scope_id="FS1").status is RunStatus.BLOCKED
+        assert (
+            app.execute(
+                RunRequest(
+                    job_name="wf", surface="app.execute", workflow_scope_id="FS1"
+                )
+            ).status
+            is RunStatus.BLOCKED
+        )
 
         tools = WorkflowToolProvider(app)
         result = asyncio.run(
@@ -254,7 +274,9 @@ class TestCellFsResumeAndMissing:
         """The walk may legitimately not have reached it; the tool's own
         signature decides whether that is an error."""
         app = self._gated()
-        app.execute("wf", scope_id="FS2")
+        app.execute(
+            RunRequest(job_name="wf", surface="app.execute", workflow_scope_id="FS2")
+        )
 
         from functualize_mcp._workflow_tools import WorkflowToolProvider
 

@@ -98,7 +98,7 @@ class TestStepHookTransitions:
 
         # Track steps in sequence
         for step_name, status, message in steps:
-            rc.track_phase(step_name, message, status)
+            rc.events.track_phase(step_name, message, status)
 
         # ON_PHASE_START should fire exactly once per unique step name
         unique_names_in_order: list[str] = []
@@ -135,7 +135,7 @@ class TestStepHookTransitions:
 
         # Track steps in sequence
         for step_name, status, message in steps:
-            rc.track_phase(step_name, message, status)
+            rc.events.track_phase(step_name, message, status)
 
         # Both statuses the tracker treats as a failed phase. `step_status` is
         # passed through to the hook, so the expectation carries the actual
@@ -167,7 +167,7 @@ class TestStepHookTransitions:
 
         # Track steps in sequence
         for step_name, status, message in steps:
-            rc.track_phase(step_name, message, status)
+            rc.events.track_phase(step_name, message, status)
 
         # ON_PHASE_COMPLETE should fire for every call where status is SUCCESS
         expected_completions = [
@@ -207,7 +207,7 @@ class TestStepHookTransitions:
         registry.register_global("on_phase_complete", on_complete)
 
         # Create a step with FAILURE status
-        rc.track_phase(step_name, message, RunStatus.FAILURE)
+        rc.events.track_phase(step_name, message, RunStatus.FAILURE)
 
         # Both START and FAILURE should fire, but not COMPLETE
         assert "start" in events_fired
@@ -243,7 +243,7 @@ class TestStepHookTransitions:
         registry.register_global("on_phase_complete", on_complete)
 
         # Create a step with SUCCESS status
-        rc.track_phase(step_name, message, RunStatus.SUCCESS)
+        rc.events.track_phase(step_name, message, RunStatus.SUCCESS)
 
         # Both START and COMPLETE should fire, but not FAILURE
         assert "start" in events_fired
@@ -277,11 +277,11 @@ class TestStepHookTransitions:
         registry.register_global("on_phase_failure", on_failure)
 
         # First call: creates step (RUNNING status, no failure/complete hook)
-        rc.track_phase(step_name, msg1, RunStatus.RUNNING)
+        rc.events.track_phase(step_name, msg1, RunStatus.RUNNING)
         assert start_count[0] == 1
 
         # Second call: updates step (FAILURE status)
-        rc.track_phase(step_name, msg2, RunStatus.FAILURE)
+        rc.events.track_phase(step_name, msg2, RunStatus.FAILURE)
         # START should NOT fire again
         assert start_count[0] == 1
         # FAILURE should fire on update
@@ -325,7 +325,7 @@ class TestStepHookTransitions:
 
         # Track all steps
         for step_name, status, message in steps:
-            rc.track_phase(step_name, message, status)
+            rc.events.track_phase(step_name, message, status)
 
         # Compute expected counts
         unique_step_names = set()

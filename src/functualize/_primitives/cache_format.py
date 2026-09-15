@@ -132,7 +132,24 @@ from functualize._primitives.locator import _xdg_cache_dir, compute_project_id
 # evidence. `from_dict` reads fields by name and the keys are only a retention
 # index, so a v19 cache would not raise: it would silently key old entries the
 # old way and under-report. The bump forces a one-time rebuild instead.
-CACHE_VERSION = 20
+# v21 (2026-09-10): no format change — a *negative* pre-filter decision written
+# before the collecting-failures fix is poisoned, and nothing else reaches it.
+# A module that failed to import for one reason (a SyntaxError) was recorded as
+# `eligible: false` even when the filter had reached no decision, so the warm
+# path replayed the wrong reason forever: the real failure vanished and a
+# downstream `ModuleNotFoundError` was reported in its place, on every run,
+# surviving `cache clear`. The entry's *shape* is unchanged, so `from_dict`
+# reads it happily and `discovery_hash` matches — the decision's **meaning**
+# moved, which is precisely the case the rule above names. The bump forces a
+# one-time rebuild instead.
+#
+# The same bump also covers a second meaning change in the same release: a
+# plain-signature enum parameter's `FieldDescriptor.choices` now holds member
+# **values**, as the field is documented to hold and as every other producer
+# and consumer already treated it. `_discovery/providers.py` alone emitted
+# member *names*, so a v20 entry spells the choices the way the CLI will now
+# refuse them — a valid-looking cache that rejects every correct value.
+CACHE_VERSION = 21
 
 # Cache file name within the resolved cache directory.
 CACHE_FILENAME = "cache.json"

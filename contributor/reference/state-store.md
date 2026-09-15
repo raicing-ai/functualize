@@ -5,34 +5,45 @@
 
 ## 1. Purpose
 
-Runtime persistence is **two files**, not one, and the difference between them is the
-discard rule:
+Runtime persistence is **five files**, and the difference between them is the discard
+rule. Two hold records and refuse when unreadable; three hold derived or convenience data
+and degrade to empty.
 
-| | `state.json` | `scopes.json` |
+| file | holds | on unreadable |
 |---|---|---|
-| Holds | fingerprints, run history, session precondition cache | workflow scope records: steps, branch choices, gate payloads, position, epilogue |
+| `fresh.json` | fingerprints, session precondition cache | degrades to empty |
+| `scopes.json` | scope records: steps, branches, gate payloads, position, epilogue | **refuses** |
+| `scope-state/<id>.json` | one run's `rc.state` (`scope-record-lifecycle`/T3) | **refuses** |
+| `runs.json` | the run log: every execution, its origin, parentage and outcome | degrades to empty |
+| `shell-history.json` | commands typed in the TUI's shell mode (`durable-run-layer`/T3b) | degrades to empty |
+
+The two-file table below is kept for the pair the discard rule was first drawn between:
+
+| | `fresh.json` | `scopes.json` |
+|---|---|---|
+| Holds | fingerprints, session precondition cache | workflow scope records: steps, branch choices, gate payloads, position, epilogue |
 | Is | **derived** — recomputable from the source tree | a **record** — recomputable from nothing |
 | Unreadable or wrong version | degrades to empty; worst case is one extra run | **refuses**, leaving the file in place |
 | Module | `_primitives/state_format.py` | `_primitives/scope_format.py` |
-| Cleared by | `func builtin state clear` | `func builtin state clear --scopes` |
+| Cleared by | `func builtin data clear` | `func builtin data clear --scopes` |
 
-Scopes lived in `state.json` until 2026-09-09. They should not have: a `STATE_VERSION`
+Scopes lived in `fresh.json` until 2026-09-09. They should not have: a `STATE_VERSION`
 bump — an ordinary release action — silently erased every in-flight run, gate payloads and
 all, because the envelope's discard rule was written for fingerprints. A blocked run
 holding a human's approval is not derived state.
 
 **When adding a section, pick the file first.** If losing it would upset someone, it is not
-derived and does not belong in `state.json`.
+derived and does not belong in `fresh.json`.
 
 Both are separate again from the discovery cache (which holds "what jobs exist and their
 metadata"). None of the three invalidates another:
 - `func cache clear` clears the discovery cache only
-- `func builtin state clear` clears derived runtime state only, and keeps scopes
-- `func builtin state clear --scopes` also discards scopes, moving the file aside
+- `func builtin data clear` clears derived runtime state only, and keeps scopes
+- `func builtin data clear --scopes` also discards scopes, moving the file aside
 
 ## 2. File Format
 
-- **Location:** `.functualize/state.json` and `.functualize/scopes.json` (same XDG
+- **Location:** `.functualize/fresh.json` and `.functualize/scopes.json` (same XDG
   fallback rules as `cache.json`, resolved via `locator.py`)
 - **Modules:** `_primitives/state_format.py`, `_primitives/scope_format.py`
 - **Versions:** `STATE_VERSION` and `SCOPES_VERSION`, **independent of each other** —
@@ -46,12 +57,11 @@ metadata"). None of the three invalidates another:
   `{str: record}` mapping, which is the shape `StateBackend`'s KV protocol addresses, so
   that migration needs no record-format change.
 
-`state.json`:
+`fresh.json`:
 ```json
 {
   "format_version": 1,
   "fingerprints": { ... },
-  "history": [ ... ],
   "session": {"preconditions": { ... }}
 }
 ```
@@ -77,7 +87,7 @@ different modes.
 
 ### 2.1 Reading, side by side
 
-| Condition | `state.json` | `scopes.json` |
+| Condition | `fresh.json` | `scopes.json` |
 |---|---|---|
 | absent | empty envelope | empty — "no scopes" |
 | unparseable / not a dict | empty envelope | **`ScopeStoreUnreadableError`** |
@@ -86,7 +96,7 @@ different modes.
 A refusal **never moves the file**. It has to be a repeatable state: if the read renamed
 the file aside, the next run would find nothing, read it as "no scopes", and start the
 workflow over — silently, which is the failure the split exists to prevent. The file moves
-only at `func builtin state clear --scopes`, and even then it is moved, not deleted.
+only at `func builtin data clear --scopes`, and even then it is moved, not deleted.
 
 The error reports a **count, never content**: scope records hold gate payloads and step
 return values, which may be secrets.
@@ -148,14 +158,29 @@ Keyed `(scope_id, job_name, args_hash)`. One record type serves four consumers:
 4. **Epilogue `FromJob[step]` injection** — step return values available to the
    workflow's epilogue body
 
-## 6. History Ring Buffer
+## 6. History — two sources, one command
 
-- `append_history(entry)` / `get_history(n)` on the state store
-- Ring buffer, bound 200 entries
-- Entry fields: `job_name`, `args_hash`, `status` (success/failure/cancelled),
-  `duration_ms`, `timestamp`, `scope_id`
-- Backs `func builtin history` command
-- Written through the shell mode's `StateStore.append_history`
+The ring buffer in `fresh.json` is **gone** (`durable-run-layer`/T3b). It held two kinds
+of record under a `namespace` tag, and they went in opposite directions:
+
+| namespace | now comes from | why |
+|---|---|---|
+| `job` | **derived** from `runs.json` via `app/_run_view.job_history` | the run log already recorded the same runs, plus the nested ones, plus who invoked them — the ring was a poorer copy of a subset |
+| `shell` | `_primitives/shell_history.py`, its own file | a command typed in shell mode was never a run; the log has nowhere to put one |
+
+`func builtin history` reads both and merges them newest-first on `at`. Its `--namespace`
+flag is unchanged, and so is the rendering — the split is invisible to the caller.
+
+**The launch rule moved, not changed.** "Only what the user launched" — `invoke_depth == 0`
+plus the items of a top-level parallel batch — used to be applied when *writing* the ring.
+It is now applied when *reading* the log, in `_run_view._is_a_launch`, which is possible
+because both of its inputs (`surface`, `invoke_depth`) are in the run record.
+
+**Argument values are still never stored** — only `args_hash`, so a record identifies a
+run without persisting its inputs.
+
+The bound moved with the data: the ring's 200 is gone, and history is now capped by
+`RUNS_LIMIT` (500), the one cap that has to hold anyway.
 
 ## 7. `func builtin why` / `--explain`
 
@@ -174,16 +199,17 @@ build
 
 `--explain` on any run prints the same verdict per node as it schedules.
 
-## 8. `func builtin state clear`
+## 8. `func builtin data clear`
 
-- Clears **derived** runtime state: fingerprints, history, session preconditions
+- Clears **derived** runtime state: fingerprints, session preconditions. Not history —
+  it no longer lives here (§6)
 - **Keeps workflow scopes**, and says how many it kept. A scope is a run somebody is
   waiting on, not a cache; discarding one is a separate decision
 - `--scopes` also discards scopes, **moving the file aside** rather than deleting it, and
   reports where it went. This is also the escape hatch from a scope file that cannot be
   read, so it never reads the file first
 - Does NOT touch the discovery cache; `func cache clear` does NOT touch state
-- `func builtin state show` reports both files, their counts, and the scope format
+- `func builtin data show` reports both files, their counts, and the scope format
   version. On an unreadable scope store it prints every other statistic, renders the scope
   line as the fault, and exits 2 — it is the command people run to find out what is
   wrong, so it diagnoses rather than stonewalls

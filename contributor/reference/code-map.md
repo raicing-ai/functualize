@@ -28,13 +28,13 @@
 
 | Symbol | File | Purpose |
 |--------|------|---------|
-| `RunContext` | `job/context.py` | Thin facade over DI registry (~500 LOC) |
+| `RunContext` | `_engine/capabilities/runcontext.py` | The job-author core: `config`, `log`, `invoke`, `state`, `cwd`. ~256 executable lines, budgeted at 500 by `tests/test_facade_loc_limits.py`. Rarer capabilities are grouped behind `rc.events`, `rc.prompts`, `rc.discovery` and `rc.wiring` (`engine-sealed-construction`/T8) |
 | `Log` | `job/capabilities.py` | Logging capability (info, warning, error, debug) |
 | `Invoke` | `job/capabilities.py` | Job invocation (call, parallel, schema) |
 | `Prompt` | `job/capabilities.py` | User input collection (ask, confirm, choice, text) |
 | `Perf` | `job/capabilities.py` | Performance marking (mark, mark_start, mark_end) |
 | `State` | `job/capabilities.py` | Key-value state (get, set, delete, keys) |
-| `JobContext` | `job/capabilities.py` | Frozen dataclass: name, trace_id, deadline, metadata |
+| `JobContext` | `job/capabilities.py` | Frozen dataclass: name, trace_id, span_id, cwd, job_directory, invoke_depth, scope_id, metadata |
 | `JobConfigView` | `job/` | Scoped config access for jobs |
 | `TTY` | `job/capabilities.py` | Terminal-ownership capability (HARD: forces EXCLUSIVE) |
 | `Live` | `job/capabilities.py` | Live-display channel (always injected, degrading) |

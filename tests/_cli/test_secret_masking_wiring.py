@@ -94,7 +94,7 @@ def _tui_for(descriptors: list[Any], smartbar_value: str) -> FunctualizeInlineTU
     func_app.name = "test-app"
     func_app.get_jobs.return_value = [job]
     func_app.get_job.side_effect = lambda name: job if name == "sync" else None
-    func_app.config_files.return_value = []
+    func_app.configuration.config_files.return_value = []
 
     with patch.object(FunctualizeInlineTUI, "__init__", lambda self, *a, **kw: None):
         tui = FunctualizeInlineTUI.__new__(FunctualizeInlineTUI)

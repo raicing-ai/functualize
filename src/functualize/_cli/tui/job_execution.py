@@ -237,13 +237,22 @@ def execute_job_sync(
     # produced, not what `execute` receives.
     job_kwargs: dict[str, Any] = dict(kwargs)
 
+    # This door is the shell's in-panel worker: the job runs *inside* the
+    # inline TUI, so the request names the tui.inline surface
+    # (run-request-entry T9). The terminal-released handoff
+    # (inline_tui._run_handoff) is the tui.shell door.
+    from functualize.app.utils import RunRequest
+
+    request = RunRequest(
+        job_name=job_name,
+        surface="tui.inline",
+        kwargs=job_kwargs,
+        group_option_values=group_option_values or None,
+    )
+
     try:
         with _panel_live_zone(app, job_name):
-            result = app._func_app.execute(
-                job_name,
-                group_option_values=group_option_values or None,
-                **job_kwargs,
-            )
+            result = app._func_app.execute(request)
     except Exception as e:
         # `execute()` is not meant to raise — it reports a failed run by
         # *returning* a FAILURE result — but a genuine bug or a BaseException
@@ -266,23 +275,42 @@ def execute_job_sync(
     # exception — so a panel that only caught exceptions printed "✓ Done" for a
     # run the engine recorded as a failure. That is precisely the split a user
     # sees between this panel and `func builtin history`, which reads the same
-    # status. SKIPPED/BLOCKED are not failures (a blocked workflow did what it
-    # was asked and is resumable), matching `func builtin parallel`'s rule.
-    from functualize.app.utils import RunStatus, exit_code_for_status
+    # status.
+    #
+    # **This surface asks two questions, and they have different answers** (D3).
+    # The panel is PANEL: a paused run is rendered as done, because it did what
+    # it was asked and stays addressable right here — painting it red is how
+    # BLOCKED came to look like a failure to a user who could see it had not.
+    # The process exit is PROCESS: a shell reads it, and a script resuming in a
+    # loop needs to know whether it finished, so a pause exits 5.
+    #
+    # Those two used to be one branch with one answer, and the comment that
+    # justified it cited `func builtin parallel` — another hand-written site,
+    # not an authority. Both now read the same module, and the parity test
+    # derives its expectations from that module rather than from a second list.
+    from functualize.app.utils import Family, exit_code_for_status, is_failure
 
     status = getattr(result, "status", None)
-    if status in (RunStatus.SUCCESS, RunStatus.SKIPPED, RunStatus.BLOCKED):
+    if status is None:
+        rendered_failure, return_code = True, 1
+    else:
+        rendered_failure = is_failure(status, family=Family.PANEL)
+        return_code = (
+            int(exit_code_for_status(status))
+            if is_failure(status, family=Family.PROCESS)
+            else 0
+        )
+
+    if not rendered_failure:
         _write("[bold green]✓ Done[/bold green]")
         _write("─" * 40)
         outcome = "success"
-        return_code = 0
     else:
         exc = getattr(result, "exception", None)
         detail = _translate_error(exc) if exc is not None else str(status)
         _write(f"[bold red]✗ Failed: {detail}[/bold red]")
         _write("─" * 40)
         outcome = "failure"
-        return_code = int(exit_code_for_status(status)) if status is not None else 1
 
     effective_values = extract_effective_values(app._pending, job_name, kwargs)
     app._snapshot_store.record(job_name, effective_values, outcome)
@@ -607,8 +635,25 @@ def run_job(app: FunctualizeInlineTUI, tokens: list[str]) -> None:
     output_log.write(f"[bold green]▶ Running:[/bold green] func {' '.join(tokens)}")
     output_log.write("─" * 40)
 
+    def _run_and_record() -> int:
+        # `execute_job_sync` computes the **process** exit code — the D3
+        # decision: a gate that blocks exits 5, the same number `func <workflow>`
+        # returns outside the TUI, so a wrapper script can tell "waiting on a
+        # human" from "finished". It was being discarded here: `run_worker`
+        # ignores its callable's return, `run_job` is `-> None`, and nothing
+        # ever assigned `app.return_code` — which `inline_tui.launch_inline_tui`
+        # reads to decide what the process exits with. So the panel said
+        # BLOCKED and the process said 0.
+        #
+        # Found by review, not by the suite: AC-6 was asserted about the value
+        # `execute_job_sync` returns, which was correct, and never about what
+        # the process did with it.
+        code = execute_job_sync(app, job_name, job_kwargs, group_values)
+        app.return_code = code
+        return code
+
     app.run_worker(
-        lambda: execute_job_sync(app, job_name, job_kwargs, group_values),
+        _run_and_record,
         name=_JOB_WORKER_NAME,
         exclusive=True,
         thread=True,

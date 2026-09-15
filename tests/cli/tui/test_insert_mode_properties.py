@@ -43,7 +43,7 @@ class MockSmartBar:
     def readiness(self) -> BarReadiness:
         return self._readiness
 
-    def save_state(self) -> None:
+    def save_fresh(self) -> None:
         self._saved = True
         self._saved_value = self.value
         self._saved_cursor = self.cursor_position
@@ -52,7 +52,7 @@ class MockSmartBar:
 
     def restore_state(self) -> None:
         if not self._saved:
-            raise RuntimeError("restore_state() called without prior save_state()")
+            raise RuntimeError("restore_state() called without prior save_fresh()")
         self.value = self._saved_value
         self.cursor_position = self._saved_cursor
         self.placeholder = self._saved_placeholder

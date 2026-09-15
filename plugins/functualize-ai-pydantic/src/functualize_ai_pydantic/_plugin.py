@@ -27,7 +27,7 @@ class PydanticAIPlugin:
     At boot time (APP_READY), reads AIConfig from the app's [ai] config
     section, creates a PydanticAIProvider instance, and registers both
     the generic AI capability and the concrete PydanticAI subclass with
-    the DI registry via app.provide().
+    the DI registry via app.di.provide().
 
     Implements the plugin callable protocol expected by functualize's
     plugin discovery system.
@@ -97,10 +97,10 @@ class PydanticAIPlugin:
             )
 
             # Register the generic AI type with DI
-            app.provide(AI, self._pydantic_ai)
+            app.di.provide(AI, self._pydantic_ai)
 
             # Register the concrete PydanticAI type with DI
-            app.provide(PydanticAI, self._pydantic_ai)
+            app.di.provide(PydanticAI, self._pydantic_ai)
 
             logger.debug(
                 "PydanticAIPlugin: Registered AI and PydanticAI (model=%s)",
@@ -117,7 +117,7 @@ class PydanticAIPlugin:
         Falls back to default AIConfig values if no configuration is found.
         """
         try:
-            config = app.resolve_model("ai", AIConfig)
+            config = app.configuration.resolve_model("ai", AIConfig)
             return config  # type: ignore[return-value]
         except Exception:
             # No config available — use defaults

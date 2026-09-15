@@ -294,11 +294,11 @@ app.hook_registry.register_global(HookEvent.INVOKE_END, trace_invoke_end)
 Fires when a WorkflowScope is created — useful for replacing the state store:
 
 ```python
-from my_plugin.sqlite_store import SQLiteStateStore
+from my_plugin.sqlite_store import SQLiteFreshStore
 
 def inject_persistent_store(scope):
     """Replace the default in-memory store with SQLite."""
-    scope.replace_state_store(SQLiteStateStore(db_path="state.db"))
+    scope.replace_state_store(SQLiteFreshStore(db_path="state.db"))
 
 app.hook_registry.register_global(HookEvent.ON_SCOPE_CREATED, inject_persistent_store)
 ```

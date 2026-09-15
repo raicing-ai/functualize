@@ -7,6 +7,173 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — a cycle in a workflow graph is refused instead of run once
+
+**Breaking.** A `@workflow` whose edges form a cycle now raises
+`WorkflowDeclarationError` at decoration time, naming the cycle.
+
+It used to be accepted. The walk prunes nodes it has already visited, so the
+second pass was dropped with no message — a loop that never looped, which is
+indistinguishable from a loop whose condition was false. The declaration said
+one thing, the run did another, and nothing said so. Nothing validated it
+either: the existing guard covers cycles *between nested workflows*, not edges
+inside one graph.
+
+```
+Workflow graph has a cycle with no declared bound: check -> work -> check.
+```
+
+Diamonds and conditionals whose branches rejoin are unaffected — reaching a node
+twice by different paths is not a cycle, and refusing that would break the most
+common non-linear graph there is.
+
+If you have a graph that relies on the old behaviour, it was running once:
+remove the edge that closes the cycle. An explicit bounded repetition is coming
+in the same release.
+
+### Added — the run log is readable
+
+Every execution has been recorded since 0.3.0 and read by nothing. `runs.json`
+knew what ran, through which door, with which parent and how it ended, and there
+was no way to ask.
+
+**`func builtin run`**, and MCP verb for verb:
+
+| CLI | MCP | |
+|---|---|---|
+| `run list` | `list_runs` | Survey runs, newest first: `--job`, `--surface`, `--state`, `--scope`, `--limit` |
+| `run show <id>` | `get_run` | One run in full; `--tree` nests what it set off |
+| `run show <id> --events` | `get_run_events` | Its event log, in sequence order |
+
+Both surfaces render **one projection** (`app/_run_view.py`), so `--format json`
+and the MCP tools return the same rows — asserted by a test, not promised in
+prose.
+
+Runs and workflow scopes answer different questions and are deliberately
+separate: a scope is a workflow's *position* and exists to be resumed; a run is
+one *execution* and exists to be read afterwards. A workflow that blocked and
+resumed three times is one scope and four runs, and
+`run list --scope <id>` is how the four are found. See
+[Run Commands](docs/cli/run.md).
+
+`--state` filters on a **derived** state, so "which runs never finished" is
+askable. It adds one value to the stored vocabulary: `abandoned`, a run with no
+recorded end whose runner is not this process. **It currently over-reports** —
+a live job on another machine reads as abandoned — which is the deliberate
+direction, because a misleading row gets re-checked while a dead run reported as
+`running` is hidden for ever.
+
+### Added — two runners can no longer walk one workflow
+
+0.3.0 shipped a known limitation: two `resume` invocations on the same scope
+both advanced it, each believing it was alone, interleaving two walks' decisions
+into one record. A running walk now holds a **lease** with a monotonically
+increasing generation, and every write to that scope carries the generation it
+was acquired under. A write carrying an old one is **refused, not merged**.
+
+The generation is the mechanism; the expiry only decides *when* someone may take
+over. A lease with just an owner and an expiry cannot work: two machines
+disagree about the time, so each one's evidence is its own clock.
+
+**`cancel` now wins against a running walk.** It did not before, and fencing
+alone would not have fixed it — the running walk holds the *current* generation,
+so its `COMPLETED` stamp is a legal write and lands on top of the cancellation.
+`cancel` takes the lease, so the walk's next write is refused and what the
+record says is what the person who cancelled meant.
+
+**A new derived state, `abandoned`**: a scope whose runner stopped renewing.
+Without it, a dead run and a live one are indistinguishable — both read
+`running` for ever, because nothing reaps them.
+
+> It means *nothing has heard from that runner*, not *that runner is dead*. A
+> long step on a machine with a slow clock looks the same. Nothing reclaims
+> automatically, reading never repairs, and an abandoned scope is not purgeable
+> — collecting it would delete the evidence of whatever went wrong.
+
+**`func builtin workflow reclaim <id>`** (and `reclaim_workflow` over MCP) takes
+an abandoned scope so it can be resumed. Not destructive: every step record,
+gate payload and position stays; only the generation moves. Refused for a scope
+whose lease is still live — that one is in use, and `cancel` is the verb for
+taking it.
+
+### Added — a run's events are persisted
+
+`EventBus` emitted and forgot; nothing wrote an event anywhere, so a run's
+account of itself lasted as long as the process. A subscriber now persists them
+per run, readable through `func builtin run show <id> --events` and
+`get_run_events`.
+
+The bus itself gains no file I/O and no write lands on the emit path: events are
+buffered and flushed once when the run ends. A run with nothing listening costs
+nothing.
+
+### Changed — `state.json` is `fresh.json`, and `builtin state` is `builtin data`
+
+**Breaking, pre-release.** The word *state* meant three different things, and
+the collision had a live cost: a user who wrote `rc.state.set(...)` and then ran
+`func builtin state clear` cleared the wrong thing — their data survived, their
+freshness cache did not.
+
+| was | is | why |
+|---|---|---|
+| `.functualize/state.json` | `.functualize/fresh.json` | it holds only freshness verdicts now; the name is the definition rather than an approximation |
+| `func builtin state` | `func builtin data` | the group covers **five** files, so naming it after any one of them under-describes it |
+| `StateStore` (runtime) | `FreshStore` | there were two classes called `StateStore`; now there are none |
+
+`func builtin data clear` gains `--runs` and `--all` beside the existing
+`--scopes`. Its default is unchanged, and so is the asymmetry that matters:
+**derived data is deleted, records are moved aside.** `scopes.json` holds gate
+payloads a human deposited, so `--scopes` renames the file and reports where it
+went — which is also the escape hatch from a scope file that cannot be parsed.
+
+`func builtin data show` now reports every store — freshness, scopes, scope
+state, the run log and shell history — with counts, sizes and paths.
+
+**No migration, and no compatibility alias.** An old `state.json` is simply not
+found, so the next run recomputes its freshness verdicts and writes
+`fresh.json`. The worst case is one extra run of each job, which is exactly the
+worst case that file's discard rule already accepts. Delete the stale file if
+you want the disk back.
+
+### Changed — a run's state no longer costs the project's history
+
+`rc.state` became durable in this cycle by living inside the scope record, which
+put a per-run value in a project-wide file: one `set` parsed and rewrote every
+scope record the project had ever made. Measured against a store holding 2,000
+past runs, a write was **116× slower** than the same write on an empty one, and
+a read **102×**.
+
+A run's state now lives in its own file (`.functualize/scope-state/<id>.json`).
+Steady-state writes and reads are **at parity** with an empty project. Unrelated
+runs also stop contending: one file meant one lock, so two jobs sharing nothing
+serialized on every write.
+
+`scopes.json` gains a cap (500 records) that **never evicts a live scope** — a
+workflow parked at a gate survives any amount of unrelated traffic, and a file
+holding nothing finished stays over the cap rather than discarding something
+resumable. Non-workflow scopes now reach a terminal status when their run ends,
+so `func builtin workflow purge` can finally collect them; before, they were
+immortal *and* hidden. `func builtin state show` reports the scope file's count,
+cap and size, and the state directory's — the defect's real cost was that
+nobody could see it.
+
+**Breaking, pre-release:** a run *in flight* across this upgrade resumes with
+empty state. Its step records, gates and position are unaffected. The
+`get_job_state` / `list_job_namespaces` pair is removed from `StateStoreProtocol`
+— a job namespace is a key prefix (`state.set("fetch.rows", n)`), not an API.
+
+### Fixed
+
+- **A `prompt: Prompt` parameter could not prompt.** Its factory built the
+  capability with no collector and nothing ever bound one, so every call raised
+  `InputNotAvailable` while `rc.prompts` — the documented door — answered
+  normally. They are one class now, reached two ways.
+- A nested run's log entry recorded `scope_id: null`, so a run tree could not
+  say which scope its branches ran in.
+- `state.batch()` held the wrong file's lock after state moved, silently voiding
+  its all-or-nothing guarantee.
+
+
 ## [0.3.0] - 2026-09-09
 
 ### Added — a workflow can be driven to completion without a shell

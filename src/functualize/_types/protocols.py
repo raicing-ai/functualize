@@ -12,6 +12,21 @@ Protocols defined here:
 - FormatProvider: Configuration file format plugins
 - JobTransform: Job descriptor interceptors/modifiers
 - ModulePreFilter: Pre-import discovery predicates
+- VaultKeyProvider: Where the local secrets vault's key comes from
+- EngineHost: What the execution engine needs from outside itself
+- AgentStepExecutor: Runs a workflow step by delegating it to an agent
+- StoreSubstrate: Where functualize keeps its own bookkeeping
+
+The agent step port carries its own payload vocabulary — ``AgentCapability``
+(what an executor promises it can enforce), ``AgentStepContext`` (what it is
+given) and ``AgentStepResult`` (what it returns). Those three live here rather
+than in a module of their own because the port is their only consumer, and an
+implementation that imports the Protocol needs the other three names at the
+same moment.
+
+The store substrate port likewise carries ``Stored`` — a document and the
+revision it was read at, which travel together because compare-and-swap
+cannot work if they can disagree.
 
 Re-exported from functualize._types.interactivity:
 - Surface: renders a job's events
@@ -20,7 +35,10 @@ Re-exported from functualize._types.interactivity:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from contextlib import AbstractContextManager
+from dataclasses import dataclass
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from functualize._types.interactivity import (
@@ -37,7 +55,9 @@ from functualize._types.interactivity import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from functualize._types.descriptors import JobDescriptor
+    from functualize._types.descriptors import JobDescriptor, RegisteredJob
+    from functualize._types.run_request import RunRequest
+    from functualize._types.workflow import Notification
 
 
 @runtime_checkable
@@ -308,16 +328,548 @@ class VaultKeyProvider(Protocol):
         ...
 
 
+@runtime_checkable
+class EngineHost(Protocol):
+    """Everything the engine needs from outside itself, wired once.
+
+    The execution engine is **complete at construction**. It is handed a host
+    and reads it; it is no longer finished afterwards by owners that write
+    private fields into it and read back out through a back-reference. There is
+    no supported way to modify an engine once it is built — which is the point,
+    because "open for modification" then stops being a review note and becomes
+    structurally false for this axis.
+
+    :class:`~functualize.app.core.FunctualizeApp` is the host that ships, and
+    ``_app/boot.build_engine(host)`` is the one construction site both boot
+    paths call. An engine may also be built with no host at all (embedding,
+    unit tests); every member here then has a defined absent answer, which is
+    why the engine's own accessors are None-tolerant rather than reaching for
+    an attribute that may not be there.
+
+    **Members ask; none of them lends.** ``registered_jobs()`` returns a
+    read-only mapping: the app registry used to hand the engine its private
+    dict by reference, so two objects shared mutable state with no contract
+    between them, and only one of them knew it.
+
+    Deliberately absent: everything the engine takes as a constructor argument
+    already — the DI registry, the hook registry, the middleware chain, the
+    event bus, the gate registry, the config factories. A port lists what must
+    come *from outside*, not what it was handed at birth.
+    """
+
+    def get_descriptor(self, name: str) -> JobDescriptor | None:
+        """The descriptor for ``name``, or None when nothing is registered.
+
+        One call, replacing a walk from the kernel out through the app it was
+        handed and into that app's registry.
+        """
+        ...
+
+    def registered_jobs(self) -> Mapping[str, RegisteredJob]:
+        """Every registered job, as a read-only mapping.
+
+        Read-only on purpose: the engine asks, rather than being given the
+        registry's private dict to mutate.
+        """
+        ...
+
+    def replace_job(self, current: RegisteredJob, replacement: RegisteredJob) -> None:
+        """Swap ``current`` for ``replacement`` wherever the host holds it.
+
+        Materializing a lazily-registered job replaces the placeholder that
+        carries the deferred import with one carrying the real function. The
+        engine holds its own entry; the host holds the copy the rest of the app
+        reads. This call is what keeps the two from diverging — a contract,
+        where a shared dict was not.
+        """
+        ...
+
+    def resolution_chain(self) -> Any:
+        """The active config resolution chain.
+
+        A method rather than a property because the app's sanctioned accessor
+        has been one since the provenance panels began calling it, and a port
+        that does not fit its implementation is the wrong port.
+
+        Read live rather than captured: ``refresh()`` rebuilds the chain in
+        place, and a captured copy would leave the engine resolving against a
+        discarded one.
+        """
+        ...
+
+    @property
+    def substrate(self) -> StoreSubstrate | None:
+        """Where this project's documents live, or None for the default.
+
+        The **one** place a configured backend is chosen
+        (`store-substrate`/T5). A plugin that wants a database sets this at
+        boot and every store the engine builds follows, so scope records and
+        the job state inside them cannot end up in different backends.
+
+        None means "resolve the filesystem default from :attr:`fresh_root`",
+        which is what an app with no such plugin does. It is not an error and
+        not a missing feature — it is the ordinary case.
+
+        Deliberately **here rather than discovered by `_primitives`**. The one
+        decision lives in `substrate_for_project`, which may not import
+        `_plugins` or `_config` — they are peer layers. So the composition
+        root chooses, and the engine is handed the answer, the same way
+        :attr:`fresh_root` works.
+        """
+        ...
+
+    @property
+    def fresh_root(self) -> Path:
+        """Where this project's derived run state (fingerprints, history,
+        workflow scopes) lives.
+
+        One answer to a question three places in the kernel used to answer for
+        themselves by asking the operating system — and answering it
+        differently, which is why the durable run layer could not simply be
+        added on top.
+        """
+        ...
+
+    @property
+    def max_invoke_depth(self) -> int:
+        """The deepest chain of nested ``invoke()`` calls allowed.
+
+        A property because it is resolved from configuration *after* the app
+        exists, and the engine must see the resolved value rather than the
+        constructor default it was built with.
+        """
+        ...
+
+    @property
+    def event_bus(self) -> Any:
+        """The app's structured event bus, for ``RunContext.emit``/``on_event``."""
+        ...
+
+    def live_zone(self) -> Surface | None:
+        """The surface that should host ``Live`` constructs, or None.
+
+        Top of the pushed stack wins, then the first registered live-capable
+        surface. None means ``Live`` no-ops, which is the correct answer in the
+        kernel and on any surface without a live region.
+        """
+        ...
+
+    def collector(self) -> PromptCollector | None:
+        """The one surface that should answer a prompt, or None.
+
+        None is not an error: it is what turns a would-be hang into a typed
+        ``InputNotAvailable`` at the call site.
+        """
+        ...
+
+    def push_surface(self, surface: Surface) -> None:
+        """Push a phase-scoped surface onto the stack, for a ``TTY`` window.
+
+        Paired with :meth:`pop_surface` so a crashing phase still unwinds
+        before the next one starts.
+        """
+        ...
+
+    def pop_surface(self, surface: Surface | None = None) -> None:
+        """Pop that surface again — tolerant of an already-empty stack."""
+        ...
+
+    @property
+    def run_log(self) -> Any:
+        """The run-log subscriber, or None if nothing is collecting events.
+
+        `durable-run-layer`/T4. The engine buffers nothing itself: it pushes and
+        pops the run id so the subscriber can attribute an event, and asks the
+        host to flush when the run ends. `None` is the ordinary answer for a
+        bare engine in a test, and is what makes AC-6 true — a run with no
+        subscriber costs no additional write.
+
+        A property rather than a method because it is state the host holds, not
+        a question it answers.
+        """
+        ...
+
+    def scope_for(self, scope_id: str) -> Any:
+        """The `WorkflowScope` named by ``scope_id``, created if it is new.
+
+        The engine mints a scope for every run that arrives without one, which
+        is where state lives — but *which* scope objects exist, and the
+        `ON_SCOPE_CREATED` hook that announces a new one, are the host's
+        business. Minting behind the host's back skipped the hook and left the
+        app's registry empty, so a plugin watching for scopes saw none.
+
+        Idempotent by id: asking twice returns the same object, which is what
+        lets two runs naming one scope share it in-process.
+        """
+        ...
+
+
+class AgentCapability(StrEnum):
+    """A constraint an executor promises it can enforce on a step's behalf.
+
+    Declared by the executor, required by the step, and compared **before the
+    walk starts**. A step whose requirement the executor cannot honour is
+    refused rather than run, because running it would leave the constraint
+    silently unenforced — a workflow that appears to have restricted tools it
+    left wide open.
+
+    A ``StrEnum`` rather than ``(str, Enum)`` for the same reason
+    :class:`~functualize._types.outcome.Family` is one: the contracts spell it
+    ``(str, Enum)``, and on this interpreter that is the same type with a
+    ``UP042`` warning attached.
+    """
+
+    ENFORCES_TOOL_ALLOWLIST = "enforces_tool_allowlist"
+    PRESERVES_ACTIVE_TIME_BUDGET = "preserves_active_time_budget"
+    SUPPORTS_VISIBLE_OUTPUT = "supports_visible_output"
+
+
+def capability_value(capability: object) -> str:
+    """The wire name of a capability, whatever spelling it arrived in.
+
+    **Compare capabilities by value, never by member.** A plugin's executor is
+    duck-typed — the registry accepts anything satisfying `AgentStepExecutor` —
+    and the docs publish the bare strings, so a plugin declaring
+    ``frozenset({"enforces_tool_allowlist"})`` is a legitimate executor. Set
+    arithmetic between members and strings happens to work today only because
+    :class:`AgentCapability` is a ``StrEnum`` and the ``str`` mixin's ``__eq__``
+    and ``__hash__`` win the MRO. Under a plain ``Enum`` the same comparison
+    reports a **false refusal** for a capability the executor did declare, and
+    every test double in the suite uses the enum, so nothing would catch it
+    (asp M-4).
+
+    So the base stops being load-bearing: this function says what is meant, and
+    a change to how the enum is spelled cannot silently invert a refusal.
+    """
+    value = getattr(capability, "value", capability)
+    return value if isinstance(value, str) else str(value)
+
+
+@dataclass(frozen=True)
+class AgentStepContext:
+    """Everything an executor is given to perform one agent step.
+
+    It **carries** the run's :class:`~functualize._types.run_request.RunRequest`
+    rather than restating its fields: the request already holds where the run
+    came from and what it was asked for, and a second shape for those would be
+    a second answer to where a run came from.
+
+    Attributes:
+        request: The request the run reaching this step was built from.
+        step_name: The declaring node's name — the step being executed.
+        instructions: What the step asks the agent to do.
+        tools: The tool allowlist the step declared, normalized to a tuple. An
+            empty tuple means the step declared no constraint, which is not the
+            same statement as "this step may use no tools".
+        inputs: The values the step binds into the agent's work.
+            **TRANSITIONAL(workflow-graph-semantics)** — always empty today.
+            The port's single construction site passes an empty mapping,
+            because binding an upstream node's output into a downstream step is
+            the typed-outcome plumbing that feature builds; there is no other
+            source for it. An executor may read it and will get nothing (asp
+            M-3). Declared now rather than added later so the payload shape a
+            plugin compiles against does not change under it.
+        time_budget_s: The step's active-time budget in seconds, when it
+            declared one.
+    """
+
+    request: RunRequest
+    step_name: str
+    instructions: str
+    tools: tuple[str, ...]
+    # TRANSITIONAL(workflow-graph-semantics): populated by nothing yet — see the
+    # attribute note above.
+    inputs: Mapping[str, Any]
+    time_budget_s: float | None
+
+
+@dataclass(frozen=True)
+class AgentStepResult:
+    """What an executor returns for one agent step.
+
+    Attributes:
+        value: The step's result, recorded as the step's outcome.
+        tool_calls: The tool invocations the agent reported, in order. Empty
+            for an executor that does not surface them — an audit trail, not a
+            contract, so nothing may require a non-empty tuple.
+            **TRANSITIONAL(durable-run-layer)** — the walker takes
+            ``result.value`` and drops this, so an executor that fills it is
+            writing the audit trail into nowhere. It lands when there is a run
+            event stream to write it to; recording it in the step record first
+            would put an unbounded, agent-controlled payload in the scope store
+            (asp M-3).
+    """
+
+    value: Any
+    # TRANSITIONAL(durable-run-layer): read by nothing yet — see the attribute
+    # note above.
+    tool_calls: tuple[Mapping[str, Any], ...] = ()
+
+
+@runtime_checkable
+class Notifier(Protocol):
+    """Protocol for delivering a workflow `Notify`.
+
+    Registered by an app method — ``app.extensions.register_notifier`` — and
+    **never auto-discovered**, for `AgentStepExecutor`'s reason: auto-discovery
+    is how a surface acquires behaviour nobody declared, and this one sends
+    something to a human.
+
+    **Two members, and that is the point.** A name to be resolved by, and one
+    call that delivers. No acknowledgement, no result, no retry policy and no
+    routing — `to` arrives exactly as it was declared and this port never looks
+    inside it. The moment it does, the port owns a broker (**N8**).
+
+    ``deliver`` may raise; the walk logs it and carries on. A notification that
+    could not be sent must not turn a workflow that succeeded into one that
+    failed, and it must not stop the walk it is reporting on.
+
+    Implementations are checked with ``isinstance``; ``issubclass`` raises
+    ``TypeError`` on this Protocol, because ``name`` is a data member.
+    """
+
+    #: The name a `Notify` refers to this notifier by, and the key it is looked
+    #: up under in ``_engine.notify_providers.NOTIFY_PROVIDERS``.
+    name: str
+
+    def deliver(self, notification: Notification) -> None:
+        """Send ``notification`` to its declared target."""
+        ...
+
+
+@runtime_checkable
+class AgentStepExecutor(Protocol):
+    """Protocol for running a workflow step by delegating it to an agent.
+
+    Registered by an app method — ``app.extensions.register_agent_step_executor`` — and
+    **never auto-discovered**: auto-discovery is how a surface acquires
+    behaviour nobody declared. ``GateResolver`` is the template, down to the
+    registration door.
+
+    The engine asks an executor only for steps that named it, or for every
+    agent step when exactly one executor is registered. Nothing falls back to a
+    different executor, and nothing falls back to a human.
+
+    ``capabilities`` is a promise, and a missing flag is a **refusal**, not a
+    default: a step requiring
+    :attr:`AgentCapability.ENFORCES_TOOL_ALLOWLIST` from an executor that does
+    not declare it fails validation, because running anyway would grant every
+    tool the step meant to leave out.
+
+    Implementations are checked with ``isinstance``; ``issubclass`` raises
+    ``TypeError`` on this Protocol, because ``name`` and ``capabilities`` are
+    data members — a fact no type checker will point out at the call site.
+    """
+
+    #: The name a step refers to this executor by, and the key it is looked up
+    #: under in ``_engine.agent_providers.EXECUTOR_PROVIDERS``.
+    name: str
+
+    #: What this executor can enforce. Every flag absent from this set is a
+    #: capability a step requiring it will be refused for.
+    capabilities: frozenset[AgentCapability]
+
+    def execute(self, ctx: AgentStepContext) -> AgentStepResult:
+        """Perform one agent step.
+
+        Args:
+            ctx: The step, its inputs, and the request that reached it.
+
+        Returns:
+            The step's result.
+
+        Raises:
+            Exception: Any exception fails the step. How a failure is routed
+                around a step is not this port's business, and no exception
+                here is answered by asking a human instead.
+        """
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class Stored:
+    """A document read back out of a substrate, with the revision it was at.
+
+    The two travel together because compare-and-swap cannot work if they can
+    disagree: a caller that read the document in one call and its revision in
+    another has a window between them in which someone else wrote, and would
+    then pass an ``expect`` that describes a document it never saw.
+
+    Attributes:
+        data: The document. A mapping, always — a substrate that finds
+            anything else raises rather than coercing.
+        revision: An opaque token identifying *this* content. Compare it, pass
+            it to :meth:`StoreSubstrate.write`; do not order it or do
+            arithmetic on it. A filesystem derives one from the bytes, a remote
+            store from its own row version, and neither meaning survives the
+            other.
+    """
+
+    data: dict[str, Any]
+    revision: int
+
+
+@runtime_checkable
+class StoreSubstrate(Protocol):
+    """Where functualize keeps its own bookkeeping.
+
+    Three members, deliberately. The tempting port is the union of what the
+    stores already do — ``get_scope``, ``record_step``, ``append_event``,
+    ``put_fingerprint`` — which is an interface with one implementation that
+    every new store verb widens. What the stores actually need from storage is:
+    *give me this document*, *put this document back*, and *stop anyone else
+    while I do both*. The discard rules, the caps and the record shapes are
+    decisions about **meaning** and stay on the store; ``scopes.json`` refusing
+    an unreadable file while ``fresh.json`` degrades to empty is not a fact
+    about storage and must not move here.
+
+    **A key is not a path.** ``"fresh"``, ``"scopes"``, ``"runs"``,
+    ``"scope-state/<scope-id>"`` — a substrate over SQLite or S3 maps those
+    however it likes. They are stable because they are what the store already
+    calls the thing.
+
+    **Two ways to be safe, because backends differ.** A filesystem gets mutual
+    exclusion from ``flock``; a remote store often cannot offer it and needs
+    compare-and-swap instead. Both live in the port from the start so a remote
+    implementation does not have to invent a second method later, and so
+    :meth:`write` reports refusal rather than assuming a lock was held.
+
+    **Six members, not three**, which is a revision of spec AC-1 made while
+    building it. The three beyond read/write/lock each have exactly one caller
+    that a three-member port would strand on the filesystem: :meth:`clear` is
+    ``func builtin data clear``, the documented way out of a document that
+    cannot be read; :meth:`delete` is the scope purge, which must not keep a
+    copy; :meth:`describe` is ``func builtin data show``, which exists to tell
+    a person where their data is. A store that is substrate-agnostic except for
+    its purge and its two operator commands is not substrate-agnostic.
+    """
+
+    def read(self, key: str) -> Stored | None:
+        """The document at ``key`` and its revision, or None if never written.
+
+        None and an empty document are different answers — nothing has been
+        stored here, versus something empty was — and stores rely on the
+        distinction: a missing ``scopes.json`` reads as "no scopes", an
+        unparseable one refuses.
+
+        Raises:
+            SubstrateUnreadableError: The document exists and could not be
+                decoded. The *store* decides whether that is fatal.
+        """
+        ...
+
+    def write(
+        self, key: str, payload: dict[str, Any], *, expect: int | None = None
+    ) -> bool:
+        """Replace the document at ``key``. False when ``expect`` did not match.
+
+        Atomic in the sense that matters: a reader sees either the previous
+        document or this one, never half of one.
+
+        Args:
+            key: The document to replace.
+            payload: Its new content.
+            expect: The revision the caller last read, or None to write
+                unconditionally. Passing None on a read-modify-write is safe
+                only while holding :meth:`lock`.
+
+        Returns:
+            True when the write landed. False when ``expect`` was given and the
+            stored revision has moved since — the caller re-reads and retries.
+            A failed compare-and-swap is an ordinary outcome, not an error.
+        """
+        ...
+
+    def lock(self, *keys: str) -> AbstractContextManager[None]:
+        """Exclusive access to every key given, where the substrate offers it.
+
+        **Variadic, and that is load-bearing.** A substrate handing out a lock
+        *per key* reproduces the lock-order inversion this port exists to
+        remove: a record write inside ``state.batch()`` takes state then
+        scopes, while a state write inside ``store.batch()`` takes scopes then
+        state, and no store can fix it because the *caller* chooses which batch
+        to open first. Being able to say "one lock covering everything this
+        substrate holds" removes it by construction rather than by asking
+        callers to be careful.
+
+        May be a no-op for a backend that offers no mutual exclusion, which is
+        why :meth:`write` takes ``expect`` and returns a bool.
+        """
+        ...
+
+    def clear(self, key: str) -> str | None:
+        """Move the document aside **without reading it**, or None if absent.
+
+        The escape hatch from a document :meth:`read` refuses, reached by
+        ``func builtin data clear``. Not reading is the whole point: it has to
+        work on exactly the content that cannot be parsed.
+
+        Aside rather than deleted, because the runs inside a scope file someone
+        cannot load may still be wanted.
+
+        Returns:
+            A human-readable account of where it went — a path, a backup key, a
+            snapshot id — or None when there was nothing there.
+        """
+        ...
+
+    def delete(self, key: str) -> bool:
+        """Remove the document. True if there was one.
+
+        Distinct from :meth:`clear`, which keeps a copy. A purge runs whenever
+        a scope record goes, so keeping a copy each time would accumulate
+        forever — and there is nothing to recover: the record that referenced
+        this document is already gone.
+
+        A failure to remove must **not** be reported as "there was none". That
+        made a purge which could not delete look like one with nothing to
+        delete.
+        """
+        ...
+
+    def describe(self, key: str) -> str:
+        """One line a person can read: where this document lives, and its size.
+
+        ``func builtin data show`` is the command someone runs to find out what
+        is wrong, and "where is my data" is most of that answer. A substrate
+        that could not be asked would confine the command to one backend, so
+        this is a port member rather than a filesystem detail the CLI reaches
+        around the port for.
+
+        A key ending in ``/`` names a **namespace** rather than one document
+        — ``"scope-state/"`` is every scope's state — and is described in
+        aggregate. Scope state is one document per run, so a line about the
+        single document ``scope-state`` would describe nothing that exists; the
+        half of the store that actually grows would stay invisible, which is
+        the failure this line is here to prevent.
+
+        Prose, not structure: a path and a byte count mean nothing to a
+        substrate backed by a table.
+        """
+        ...
+
+
 __all__ = [
     # Protocols
     "AdapterPlugin",
+    "AgentStepExecutor",
+    "Notifier",
+    "EngineHost",
     "FormatProvider",
     "JobProvider",
     "JobTransform",
     "ModulePreFilter",
     "PluginWithShutdown",
     "Source",
+    "StoreSubstrate",
     "VaultKeyProvider",
+    # Agent step port payload vocabulary
+    "AgentCapability",
+    "AgentStepContext",
+    "AgentStepResult",
+    "capability_value",
+    # Store substrate port payload vocabulary
+    "Stored",
     # Re-exports from functualize._types.interactivity
     "InputNotAvailable",
     "PromptChoice",

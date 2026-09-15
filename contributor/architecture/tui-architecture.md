@@ -247,7 +247,7 @@ cancel.
 ## CLI argument features reaching the TUI
 
 Positional args (`Arg()`), short flags (`Option("-x", ...)`), stdin params
-(`Stdin()`), and `--output` stdout emission are all real and used by the
+(`Stdin()`), and `--emit-format` stdout emission are all real and used by the
 direct `func <job> ...` CLI path (`app/adapters/cli.py`, Click-backed). The
 TUI's own SmartBar-to-kwargs conversion (`tui/cli_arg_parser.py`) is a
 simpler, separate re-implementation: it does not accumulate repeated

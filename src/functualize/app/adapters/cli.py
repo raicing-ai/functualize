@@ -41,6 +41,12 @@ from functualize.app.adapters.click_params import (
     make_duality_group,
 )
 from functualize.app.adapters.lazy_command import make_lazy_command
+from functualize.types import OPTIONAL_VALUE_VALID_SET
+
+# `--emit-format`'s vocabulary, read from the one flag grammar rather than repeated
+# here. `func` reads the same table, which is what keeps the two surfaces from
+# drifting on what the flag accepts (run-outcome-authority/T8).
+_OUTPUT_VALUES, _OUTPUT_DEFAULT = OPTIONAL_VALUE_VALID_SET["--emit-format"]
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
@@ -242,7 +248,7 @@ def _config_source_hint(app: Any, job_name: str) -> str:
     and the fallback to the user config directory is silent.
     """
     try:
-        files = app.config_files(job_name)
+        files = app.configuration.config_files(job_name)
     except Exception:  # introspection must never mask the real error
         return ""
 
@@ -349,6 +355,7 @@ def _build_job_command(
 
     if func is not None and not getattr(func, "__functualize_lazy__", False):
         command: click.Command = create_job_click_command(
+            surface="app.cli",
             name=descriptor.name,
             function=func,
             job_config_class=config_class,
@@ -360,6 +367,7 @@ def _build_job_command(
         command = make_lazy_command(
             descriptor,
             app,
+            surface="app.cli",
             command_name=command_name,
             group_option_values=group_option_values,
         )
@@ -520,6 +528,7 @@ def register_discovered_jobs(
 
     from functualize.app.utils import (
         build_group_trie,
+        discovery_hash_for,
         read_group_options_from_cache,
         resolve_cache_path,
     )
@@ -536,7 +545,8 @@ def register_discovered_jobs(
     # this cache section, so reading it here is warm and import-free.
     try:
         group_option_specs = read_group_options_from_cache(
-            resolve_cache_path(Path.cwd())
+            resolve_cache_path(Path.cwd()),
+            discovery_hash=discovery_hash_for(app),
         )
     except Exception as exc:  # pragma: no cover - defensive
         logger.debug("register_discovered_jobs: no group options (%s)", exc)
@@ -567,7 +577,7 @@ def register_plugin_commands(
     """Register all plugin-contributed commands on a click.Group.
 
     **Reads the shadow resolver rather than every registered command.** This
-    used to iterate ``app.get_plugin_commands()`` and hand each one to
+    used to iterate ``app.extensions.get_plugin_commands()`` and hand each one to
     ``add_command``, which overwrites by name — and because ``__call__``
     registers jobs *before* plugins, a top-level plugin command sharing a job's
     name silently replaced the job. The same collision gave the job the win on
@@ -615,7 +625,7 @@ def shadowed_plugin_commands(app: FunctualizeApp) -> list[tuple[str, str]]:
     occupied = {job_trie_path(job) for job in app.get_jobs()}
     return [
         (path, cmd.name)
-        for cmd in app.get_plugin_commands()
+        for cmd in app.extensions.get_plugin_commands()
         if (path := plugin_command_path(cmd)) in occupied
     ]
 
@@ -692,6 +702,12 @@ def _try_discovered_job(cmd: str, remaining_args: list[str], app: object) -> int
 
     descriptor = matching[0]
 
+    # run-request-entry (T6/T11): this fallback is one of the app-CLI job
+    # paths — a job registered after the click tree was built. It names no
+    # surface of its own: `create_job_click_command` defaults to `app.cli`,
+    # which is exactly what this door is, and the callback it builds is what
+    # constructs the request.
+
     try:
         # Materializes lazy entries (imports only this job's module) and
         # returns the live function + detected config_class.
@@ -705,6 +721,7 @@ def _try_discovered_job(cmd: str, remaining_args: list[str], app: object) -> int
         return None
 
     command = create_job_click_command(
+        surface="app.cli",
         name=descriptor.name,
         function=func,
         job_config_class=config_class,
@@ -715,8 +732,18 @@ def _try_discovered_job(cmd: str, remaining_args: list[str], app: object) -> int
 
 
 def _show_command_not_found(cmd: str, app: object) -> None:
-    """Print a 'command not found' error with suggestions."""
-    print(f"Error: Command '{cmd}' not found.", file=sys.stderr)
+    """Print an 'unknown command' error with suggestions.
+
+    **The same sentence `func` prints**, deliberately. This door said
+    ``Error: Command 'x' not found.`` while `_cli/main.py:_show_command_not_found`
+    said ``Error: Unknown command 'x'.`` for the identical condition — with the
+    comment below, in this function, asserting that the surface a user came
+    through does not change the answer. The explanation underneath already
+    reached both doors (`tests/cli/test_unknown_command_parity.py`); the
+    headline did not, and a test asserting the headline could therefore only
+    ever run on one of them (adj §4).
+    """
+    print(f"Error: Unknown command '{cmd}'.", file=sys.stderr)
 
     try:
         from functualize.app import FunctualizeApp
@@ -724,10 +751,15 @@ def _show_command_not_found(cmd: str, app: object) -> None:
         if isinstance(app, FunctualizeApp):
             jobs = app.get_jobs()
             job_names = [j.name for j in jobs]
-            suggestions = _find_similar(cmd, job_names)
+            from functualize.app.utils import suggest_similar_commands
+
+            suggestions = suggest_similar_commands(cmd, job_names)
             if suggestions:
+                # The list is capped by `suggest_similar_commands` itself, at
+                # the same number `func` shows. A second, smaller slice here
+                # is how the two doors answered one question differently.
                 print("\nDid you mean:", file=sys.stderr)
-                for s in suggestions[:3]:
+                for s in suggestions:
                     print(f"  {s}", file=sys.stderr)
     except Exception:
         pass
@@ -747,25 +779,6 @@ def _show_command_not_found(cmd: str, app: object) -> None:
         pass
 
     print("\nRun 'func --help' to see available commands.", file=sys.stderr)
-
-
-def _find_similar(target: str, candidates: list[str]) -> list[str]:
-    """Find candidates sharing prefix or substring with target."""
-    if not target:
-        return []
-
-    matches: list[tuple[int, str]] = []
-    target_lower = target.lower()
-
-    for name in candidates:
-        name_lower = name.lower()
-        if name_lower.startswith(target_lower) or target_lower.startswith(name_lower):
-            matches.append((0, name))
-        elif target_lower in name_lower or name_lower in target_lower:
-            matches.append((1, name))
-
-    matches.sort(key=lambda x: x[0])
-    return [m[1] for m in matches]
 
 
 # ─── CliAdapter class ────────────────────────────────────────────────────
@@ -835,10 +848,21 @@ class CliAdapter:
         if caller_owns_group:
             self._cli_group = cli_group
         else:
+            # `FallbackGroup` unconditionally, empty fallback chain included.
+            #
             # NormalizingGroup is the floor, not an upgrade: name resolution
             # must not depend on whether a fallback chain happens to be wired.
-            group_cls = FallbackGroup if self._fallbacks else NormalizingGroup
-            self._cli_group = group_cls(name=app.name, invoke_without_command=True)
+            # But *routing an unrecognized name to a reporter* must not depend
+            # on it either. With a plain group, click raises `NoSuchCommand`
+            # before any of this module's reporting runs, so a project's own
+            # `main.py` answered a typo with `No such command` and exit 2 while
+            # `func` answered it with the discovery explanation and exit 1 —
+            # and the reporter both are supposed to share never ran on the
+            # second surface (#37). An empty chain is not a special case: it
+            # falls through to `_try_discovered_job` and then
+            # `_show_command_not_found`, which is exactly the path a wired
+            # chain reaches when nothing matches.
+            self._cli_group = FallbackGroup(name=app.name, invoke_without_command=True)
             # This is the root, so it is the one group that carries the agent
             # block. A caller who brings their own group keeps their own help
             # text — turning it on there would edit output they own.
@@ -912,6 +936,13 @@ class CliAdapter:
             perf_report: str | None = None,
             perf_filter: str | None = None,
             force: bool = False,
+            prompt_gates: bool = False,
+            # Click derives this name from the flag, so it followed
+            # `--output` -> `--emit-format` (2026-09-10). It silently became
+            # `**generated` fodder when only the flag was renamed, and
+            # `--emit-format none` stopped suppressing on this surface while
+            # `func` kept working — the dual-surface test is what caught it.
+            emit_format: str | None = None,
             **generated: Any,
         ) -> None:
             """Global options processed before any sub-command.
@@ -988,15 +1019,19 @@ class CliAdapter:
             else:
                 app_instance.job_registry.update_config_paths()
 
-            # Deposited on the app rather than passed down, because the
-            # commands were built before this callback ran — the same route
-            # `--output` already takes. `func` reaches the identical attributes
-            # from `_cli/main.py`, so the two surfaces agree.
-            app_instance._force = force
-
+            # Into the click context, not onto the app. This callback runs
+            # *after* its subcommands were built, so unlike `func`'s handlers it
+            # cannot hand `force` to the builder — but `ctx.obj` is created per
+            # invocation and torn down with it, where `app._force` lived for the
+            # process's lifetime and was read by the kernel through
+            # `engine._app` (run-request/T12 removed that). `build_request`
+            # reads this dict when a door states no value of its own.
             ctx.obj = {
                 "app": app_instance,
                 "fallbacks": fallbacks,
+                "force": force,
+                "prompt_gates": prompt_gates,
+                "output_format": emit_format or "auto",
             }
 
             # Bare invocation of a self-contained app (C3.3). `func` itself
@@ -1050,16 +1085,43 @@ class CliAdapter:
                 default=None,
                 help="Filter pattern for --perf-report.",
             ),
-            # Parity with the bare `func` CLI, which has both as pre-command
-            # globals. Without them an app entry point could not force a run at
-            # all, and could not resume a gated workflow from any surface —
-            # a `@workflow` with a `Gate` blocked at exit 5 forever.
+            # Parity with the bare `func` CLI, which has all three as
+            # pre-command globals (D-1, D-2; run-request/T13). The comment here
+            # used to claim this parity while only `--force` existed — an app
+            # entry point could not prompt a gate's fields and could not choose
+            # a serialization for `out.emit()`, so a `@workflow` with a `Gate`
+            # blocked at exit 5 forever and a machine-readable run was
+            # impossible on any surface but `func` itself.
             click.Option(
                 ["--force"],
                 is_flag=True,
                 default=False,
                 help="Run even when up to date. Does not override a failed "
                 "precondition or a gate.",
+            ),
+            click.Option(
+                ["--prompt-gates"],
+                is_flag=True,
+                default=False,
+                help="Prompt for a gate's fields during a workflow walk "
+                "instead of blocking on it.",
+            ),
+            # Choices and default come from the one flag grammar
+            # (`_types/flag_grammar.py`), not a second copy: `func` reads the
+            # same table, so the two surfaces cannot drift on what
+            # `--emit-format` accepts. A bare `--emit-format` means the default,
+            # matching func's optional-value lookahead.
+            click.Option(
+                ["--emit-format"],
+                type=click.Choice(sorted(_OUTPUT_VALUES)),
+                is_flag=False,
+                flag_value=_OUTPUT_DEFAULT,
+                default=None,
+                help=(
+                    "Serialization for out.emit(): "
+                    f"{', '.join(sorted(_OUTPUT_VALUES))} "
+                    f"(default {_OUTPUT_DEFAULT})."
+                ),
             ),
             *_generated_setting_options(),
             *self._cli_group.params,
@@ -1200,8 +1262,8 @@ def _show_info_impl(
     console = Console()
 
     log_level = logging.getLevelName(logging.getLogger().getEffectiveLevel())
-    environment = app.active_environment()
-    env_source = app.environment_source()
+    environment = app.configuration.active_environment()
+    env_source = app.configuration.environment_source()
     config_dir = AppState.get("config_directory") or app._config_path
 
     # Say where it came from: "DEV (default)" and "DEV (ENVIRONMENT)" mean
@@ -1531,7 +1593,7 @@ def _print_config_files(app: Any, console: Console) -> None:
     mention the file at all.
     """
     try:
-        infos = app.config_files()
+        infos = app.configuration.config_files()
     except Exception:
         infos = []
 

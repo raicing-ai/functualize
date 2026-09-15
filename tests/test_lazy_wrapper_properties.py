@@ -175,7 +175,7 @@ class TestLazyWrapperNoImport:
             "functualize._discovery.lazy_wrapper.importlib.import_module"
         ) as mock_import:
             for descriptor in descriptors:
-                wrapper = make_lazy_command(descriptor, app)
+                wrapper = make_lazy_command(descriptor, app, surface="app.cli")
                 # Verify the wrapper is callable
                 assert callable(wrapper)
 
@@ -197,7 +197,7 @@ class TestLazyWrapperNoImport:
         with patch(
             "functualize._discovery.lazy_wrapper.importlib.import_module"
         ) as mock_import:
-            cmd = make_lazy_command(descriptor, app)
+            cmd = make_lazy_command(descriptor, app, surface="app.cli")
 
             # A click.Command is produced (callable) with the descriptor's help.
             assert isinstance(cmd, click.Command)

@@ -43,7 +43,7 @@ class SmartBarProtocol(Protocol):
     @property
     def readiness(self) -> Any: ...
 
-    def save_state(self) -> None: ...
+    def save_fresh(self) -> None: ...
     def restore_state(self) -> None: ...
     def enter_edit_mode(
         self, field_name: str, value: str, hint: str, *, secret: bool = False
@@ -122,7 +122,7 @@ class InsertModeController:
         self._return_zone = return_zone
 
         # Save current bar state (Req 4.1)
-        self._bar.save_state()
+        self._bar.save_fresh()
 
         # Repurpose bar for editing (Req 4.2). A secret field masks as it is
         # typed — the same `is_secret_field` answer that masks it in the panel

@@ -57,7 +57,7 @@ class TestMiddlewareRegistry:
         def my_middleware(rc: Any) -> Generator[None]:
             yield
 
-        app.register_run_middleware(my_middleware)
+        app.hooks.register_run_middleware(my_middleware)
         assert app._middleware_registry.has_middleware
 
     def test_register_run_middleware_with_priority(self, app: FunctualizeApp) -> None:
@@ -67,8 +67,8 @@ class TestMiddlewareRegistry:
         def mw_b(rc: Any) -> Generator[None]:
             yield
 
-        app.register_run_middleware(mw_a, priority=10)
-        app.register_run_middleware(mw_b, priority=5)
+        app.hooks.register_run_middleware(mw_a, priority=10)
+        app.hooks.register_run_middleware(mw_b, priority=5)
 
         sorted_entries = app._middleware_registry.get_sorted()
         assert len(sorted_entries) == 2
@@ -82,7 +82,7 @@ class TestMiddlewareRegistry:
         def mw(rc: Any) -> Generator[None]:
             yield
 
-        app.register_run_middleware(mw)
+        app.hooks.register_run_middleware(mw)
         entries = app._middleware_registry.get_sorted()
         assert entries[0].priority == 0
 
@@ -100,46 +100,46 @@ class TestScopeRegistry:
         assert app._scope_registry == {}
 
     def test_create_workflow_scope(self, app: FunctualizeApp) -> None:
-        scope = app.create_workflow_scope("test-scope")
+        scope = app.workflows.create_workflow_scope("test-scope")
         assert isinstance(scope, WorkflowScope)
         assert scope.scope_id == "test-scope"
 
     def test_create_workflow_scope_with_metadata(self, app: FunctualizeApp) -> None:
         meta = {"run_id": "abc-123", "provider": "restate"}
-        scope = app.create_workflow_scope("meta-scope", metadata=meta)
+        scope = app.workflows.create_workflow_scope("meta-scope", metadata=meta)
         assert scope.metadata == meta
 
     def test_create_workflow_scope_stores_in_registry(
         self, app: FunctualizeApp
     ) -> None:
-        scope = app.create_workflow_scope("stored-scope")
+        scope = app.workflows.create_workflow_scope("stored-scope")
         assert app._scope_registry["stored-scope"] is scope
 
     def test_create_workflow_scope_duplicate_raises_value_error(
         self, app: FunctualizeApp
     ) -> None:
-        app.create_workflow_scope("dup-scope")
+        app.workflows.create_workflow_scope("dup-scope")
         with pytest.raises(ValueError, match="already exists"):
-            app.create_workflow_scope("dup-scope")
+            app.workflows.create_workflow_scope("dup-scope")
 
     def test_get_workflow_scope(self, app: FunctualizeApp) -> None:
-        created = app.create_workflow_scope("get-scope")
-        retrieved = app.get_workflow_scope("get-scope")
+        created = app.workflows.create_workflow_scope("get-scope")
+        retrieved = app.workflows.get_workflow_scope("get-scope")
         assert retrieved is created
 
     def test_get_workflow_scope_missing_raises_key_error(
         self, app: FunctualizeApp
     ) -> None:
         with pytest.raises(KeyError, match="not found"):
-            app.get_workflow_scope("nonexistent")
+            app.workflows.get_workflow_scope("nonexistent")
 
     def test_get_workflow_scope_error_lists_available(
         self, app: FunctualizeApp
     ) -> None:
-        app.create_workflow_scope("scope-a")
-        app.create_workflow_scope("scope-b")
+        app.workflows.create_workflow_scope("scope-a")
+        app.workflows.create_workflow_scope("scope-b")
         with pytest.raises(KeyError, match="scope-a"):
-            app.get_workflow_scope("missing")
+            app.workflows.get_workflow_scope("missing")
 
 
 class TestPluginConfigRegistryWiring:
@@ -182,7 +182,7 @@ class TestPluginCommandRegistration:
         def my_cmd() -> None:
             pass
 
-        app.register_plugin_command("my-cmd", my_cmd)
+        app.extensions.register_plugin_command("my-cmd", my_cmd)
         assert "my-cmd" in app._plugin_commands[None]
 
     def test_register_namespaced_command(self, app: FunctualizeApp) -> None:
@@ -191,7 +191,7 @@ class TestPluginCommandRegistration:
         def my_cmd() -> None:
             pass
 
-        app.register_plugin_command("run", my_cmd, namespace="my-plugin")
+        app.extensions.register_plugin_command("run", my_cmd, namespace="my-plugin")
         assert "run" in app._plugin_commands["my-plugin"]
         assert "my-plugin" in app._plugin_sub_groups
 
@@ -206,8 +206,8 @@ class TestPluginCommandRegistration:
         def cmd_b() -> None:
             pass
 
-        app.register_plugin_command("start", cmd_a, namespace="server")
-        app.register_plugin_command("stop", cmd_b, namespace="server")
+        app.extensions.register_plugin_command("start", cmd_a, namespace="server")
+        app.extensions.register_plugin_command("stop", cmd_b, namespace="server")
         assert "start" in app._plugin_commands["server"]
         assert "stop" in app._plugin_commands["server"]
 
@@ -220,8 +220,8 @@ class TestPluginCommandRegistration:
         def cmd_b() -> None:
             pass
 
-        app.register_plugin_command("status", cmd_a, namespace="server")
-        app.register_plugin_command("status", cmd_b, namespace="db")
+        app.extensions.register_plugin_command("status", cmd_a, namespace="server")
+        app.extensions.register_plugin_command("status", cmd_b, namespace="db")
         assert "status" in app._plugin_commands["server"]
         assert "status" in app._plugin_commands["db"]
 
@@ -236,9 +236,9 @@ class TestPluginCommandRegistration:
         def cmd_b() -> None:
             pass
 
-        app.register_plugin_command("run", cmd_a, namespace="test-grp")
+        app.extensions.register_plugin_command("run", cmd_a, namespace="test-grp")
         with pytest.raises(ValueError, match="Duplicate command name 'run'"):
-            app.register_plugin_command("run", cmd_b, namespace="test-grp")
+            app.extensions.register_plugin_command("run", cmd_b, namespace="test-grp")
 
     def test_duplicate_name_top_level_raises_value_error(
         self, app: FunctualizeApp
@@ -251,9 +251,9 @@ class TestPluginCommandRegistration:
         def cmd_b() -> None:
             pass
 
-        app.register_plugin_command("deploy", cmd_a)
+        app.extensions.register_plugin_command("deploy", cmd_a)
         with pytest.raises(ValueError, match="Duplicate command name 'deploy'"):
-            app.register_plugin_command("deploy", cmd_b)
+            app.extensions.register_plugin_command("deploy", cmd_b)
 
     def test_invalid_name_uppercase_raises_value_error(
         self, app: FunctualizeApp
@@ -264,7 +264,7 @@ class TestPluginCommandRegistration:
             pass
 
         with pytest.raises(ValueError, match="Invalid command name"):
-            app.register_plugin_command("MyCmd", cmd)
+            app.extensions.register_plugin_command("MyCmd", cmd)
 
     def test_invalid_name_starts_with_digit_raises_value_error(
         self, app: FunctualizeApp
@@ -275,7 +275,7 @@ class TestPluginCommandRegistration:
             pass
 
         with pytest.raises(ValueError, match="Invalid command name"):
-            app.register_plugin_command("1cmd", cmd)
+            app.extensions.register_plugin_command("1cmd", cmd)
 
     def test_invalid_name_empty_raises_value_error(self, app: FunctualizeApp) -> None:
         """Empty name is rejected."""
@@ -284,7 +284,7 @@ class TestPluginCommandRegistration:
             pass
 
         with pytest.raises(ValueError, match="Invalid command name"):
-            app.register_plugin_command("", cmd)
+            app.extensions.register_plugin_command("", cmd)
 
     def test_invalid_name_too_long_raises_value_error(
         self, app: FunctualizeApp
@@ -296,7 +296,7 @@ class TestPluginCommandRegistration:
 
         long_name = "a" * 65
         with pytest.raises(ValueError, match="Invalid command name"):
-            app.register_plugin_command(long_name, cmd)
+            app.extensions.register_plugin_command(long_name, cmd)
 
     def test_invalid_name_special_chars_raises_value_error(
         self, app: FunctualizeApp
@@ -307,14 +307,14 @@ class TestPluginCommandRegistration:
             pass
 
         with pytest.raises(ValueError, match="Invalid command name"):
-            app.register_plugin_command("my_cmd", cmd)
+            app.extensions.register_plugin_command("my_cmd", cmd)
 
     def test_non_callable_callback_raises_value_error(
         self, app: FunctualizeApp
     ) -> None:
         """Non-callable callback is rejected."""
         with pytest.raises(ValueError, match="callback must be callable"):
-            app.register_plugin_command("valid-name", "not_callable")  # type: ignore[arg-type]
+            app.extensions.register_plugin_command("valid-name", "not_callable")  # type: ignore[arg-type]
 
     def test_help_text_too_long_raises_value_error(self, app: FunctualizeApp) -> None:
         """Help text exceeding 256 chars is rejected."""
@@ -324,7 +324,9 @@ class TestPluginCommandRegistration:
 
         long_help = "x" * 257
         with pytest.raises(ValueError, match="must be at most 256 characters"):
-            app.register_plugin_command("valid-cmd", cmd, help_text=long_help)
+            app.extensions.register_plugin_command(
+                "valid-cmd", cmd, help_text=long_help
+            )
 
     def test_valid_name_boundary_64_chars(self, app: FunctualizeApp) -> None:
         """Name of exactly 64 chars is accepted."""
@@ -333,7 +335,7 @@ class TestPluginCommandRegistration:
             pass
 
         name_64 = "a" * 64
-        app.register_plugin_command(name_64, cmd)
+        app.extensions.register_plugin_command(name_64, cmd)
         assert name_64 in app._plugin_commands[None]
 
     def test_valid_name_single_char(self, app: FunctualizeApp) -> None:
@@ -342,7 +344,7 @@ class TestPluginCommandRegistration:
         def cmd() -> None:
             pass
 
-        app.register_plugin_command("x", cmd)
+        app.extensions.register_plugin_command("x", cmd)
         assert "x" in app._plugin_commands[None]
 
     def test_help_text_passed_to_typer(self, app: FunctualizeApp) -> None:
@@ -351,6 +353,8 @@ class TestPluginCommandRegistration:
         def cmd() -> None:
             pass
 
-        app.register_plugin_command("info", cmd, help_text="Show plugin info")
+        app.extensions.register_plugin_command(
+            "info", cmd, help_text="Show plugin info"
+        )
         # Command is registered — verify it exists in typer registered commands
         assert "info" in app._plugin_commands[None]

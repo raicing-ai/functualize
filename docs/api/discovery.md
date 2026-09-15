@@ -17,7 +17,7 @@ from functualize.app import JobSources
 
 **Location:** `functualize.types` (defined in `functualize._types.descriptors`)
 
-A frozen dataclass representing a registered job's full metadata. Accessible via `app.get_jobs()`, `app.get_job(name)`, or `rc.get_job_schema(name)`.
+A frozen dataclass representing a registered job's full metadata. Accessible via `app.get_jobs()`, `app.get_job(name)`, or `rc.discovery.get_job_schema(name)`.
 
 ### Primary fields
 

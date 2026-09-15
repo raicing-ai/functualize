@@ -142,18 +142,24 @@ class TestStatusFormatting:
     """Test that status values map to correct display strings."""
 
     def test_active_status(self) -> None:
-        from functualize._cli.tui.panels.config_files import _format_status
+        from functualize._cli.tui.panels.config_files import (
+            _format_status,
+        )
 
         assert _format_status("active") == "★ active"
 
     def test_not_found_status(self) -> None:
-        from functualize._cli.tui.panels.config_files import _format_status
+        from functualize._cli.tui.panels.config_files import (
+            _format_status,
+        )
 
         assert _format_status("not_found") == "○ not found"
 
     def test_inactive_status(self) -> None:
         """A file that exists but belongs to another environment."""
-        from functualize._cli.tui.panels.config_files import _format_status
+        from functualize._cli.tui.panels.config_files import (
+            _format_status,
+        )
 
         assert _format_status("inactive") == "○ inactive"
 
@@ -163,13 +169,17 @@ class TestStatusFormatting:
         Folding them together made it impossible to say that a writable file
         is being ignored — the thing users actually need to know.
         """
-        from functualize._cli.tui.panels.config_files import _format_status
+        from functualize._cli.tui.panels.config_files import (
+            _format_status,
+        )
 
         assert _format_status("active", writable=False) == "★ active 🔒"
         assert _format_status("inactive", writable=False) == "○ inactive 🔒"
 
     def test_unknown_status_passthrough(self) -> None:
-        from functualize._cli.tui.panels.config_files import _format_status
+        from functualize._cli.tui.panels.config_files import (
+            _format_status,
+        )
 
         assert _format_status("custom") == "custom"
 

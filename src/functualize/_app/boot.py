@@ -25,11 +25,17 @@ import glob as glob_module
 import logging
 import os
 import re
+import sys
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Collection
+    from collections.abc import Collection, Iterator
+
+    from functualize._engine.executor import JobExecutionEngine
+    from functualize._types.protocols import EngineHost
 
 from functualize._app.environment import detect_environment
 from functualize._app.impl import build_resource_locator
@@ -99,6 +105,51 @@ def init_observability(app: Any) -> None:
     app._middleware_stack = _MiddlewareStack()
     install_config_event_sink(app._event_bus)
 
+    # The run log (`durable-run-layer`/T4). Registered here because this is the
+    # cross-layer wiring point — `_events` does not know about the run store and
+    # must not, which is the same reason `install_config_event_sink` lives here.
+    #
+    # Subscribing is what turns the log on: with nothing subscribed the bus
+    # returns before it builds an event object, so a bare engine costs nothing
+    # (AC-6). The subscriber buffers and writes once per run, so no file lock
+    # lands on the emit path.
+    from functualize._events.run_log import install_run_log as _install_run_log
+
+    def _run_store_for_project() -> Any:
+        """The run log, on the **engine's** substrate.
+
+        Resolved through the engine rather than from the cwd, so the run log
+        cannot end up in a different project — or, once a substrate is
+        configurable, a different backend — from the scope records describing
+        the same run. That is spec AC-4 at the one seam where an event
+        subscriber, not a run, decides where to write.
+        """
+        from functualize._primitives.run_store import RunStore
+
+        return RunStore(app.execution_engine.substrate)
+
+    app._run_log = _install_run_log(app._event_bus, _run_store_for_project)
+
+    # The walk log is a *second* subscriber, not a flag on the first, and
+    # `_events/walk_log.py` opens with why: the run log buffers and flushes when
+    # a run ends, which is exactly too late for anyone watching a walk that is
+    # still going. It writes through instead, onto the scope rather than the
+    # run, because a scope is advanced by several runs across a resume.
+    from functualize._events.walk_log import install_walk_log as _install_walk_log
+
+    def _scope_store_for_project() -> Any:
+        """The walk log, on the **engine's** substrate — `_run_store_for_project`'s
+        reason, and the same store the walk itself writes its steps to, so an
+        event and the step it describes cannot land in different backends."""
+        from functualize._primitives.scope_store import ScopeStore
+
+        return ScopeStore(app.execution_engine.substrate)
+
+    # The return is discarded: unlike the run log, nothing calls back into
+    # this subscriber — it has no buffer to flush and no run to close — and the
+    # bus holds the reference that keeps it alive.
+    _install_walk_log(app._event_bus, _scope_store_for_project)
+
     from functualize._events._catalog_entries import (
         get_framework_event_catalog,
     )
@@ -160,6 +211,58 @@ def wire_entry_point_jobs(app: Any) -> None:
     app._resolution_pipeline.add_provider(EntryPointProvider())
 
 
+def build_engine(host: EngineHost) -> JobExecutionEngine:
+    """Construct the engine, complete, for the host that owns it.
+
+    The **one** construction site. ``boot_static`` and ``boot_standard`` each
+    carried a near-identical twenty-line block — the same arguments, the same
+    twenty-line comment, and the only difference the local alias of two
+    imports — so an engine argument added to one and missed in the other
+    survived every gate there is. This module is the composition root, so it
+    may read the app's own fields; the engine only ever receives the
+    :class:`~functualize._types.protocols.EngineHost` port of them.
+
+    Args:
+        host: The app the engine belongs to, as the engine's port.
+
+    Returns:
+        The engine, ready to execute.
+    """
+    from functualize._config.chain import ResolutionChain
+    from functualize._config.job_config import JobConfigView, resolve_job_config
+    from functualize._engine.executor import JobExecutionEngine
+
+    app: Any = host
+
+    def _config_view_factory(*, section_prefix: str) -> Any:
+        chain = getattr(app, "_resolution_chain", None) or ResolutionChain([])
+        return JobConfigView(
+            resolution_chain=chain,
+            default_section_prefix=section_prefix,
+        )
+
+    engine = JobExecutionEngine(
+        di_registry=app._di_registry,
+        hook_registry=app._hook_registry,
+        middleware_chain=app._execution_middleware_chain,
+        event_bus=app._event_bus,
+        max_invoke_depth=app._execution_config.max_invoke_depth,
+        plugin_config_registry=app.plugin_config_registry,
+        host=host,
+        gate_registry=app._gate_registry,
+        # Landed on another branch (agent-step-port) while this construction
+        # site was being consolidated, so it reached `boot.py`'s two inline
+        # calls and not this one. Taking the seal's side of that merge without
+        # this line would have dropped agent-step dispatch silently — the
+        # engine would build, boot, and refuse every `AgentStep` as unknown.
+        agent_step_registry=app._agent_step_registry,
+        notifier_registry=app._notifier_registry,
+        config_view_factory=_config_view_factory,
+        config_resolver=resolve_job_config,
+    )
+    return engine
+
+
 def boot_static(app: Any, perf_timeline: Any) -> None:
     """Static wiring fast path — zero filesystem I/O.
 
@@ -180,7 +283,6 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
     """
     from functualize._config.registry import ProviderRegistry
     from functualize._discovery.registry import JobRegistry
-    from functualize._engine.executor import JobExecutionEngine
     from functualize._engine.job_middleware import MiddlewareRegistry
     from functualize._events import HookRegistry
     from functualize._plugins.loader import PluginLoader
@@ -219,9 +321,25 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
         _GateStrategy.RESOLVE.value, _ResolveResolver()
     )
 
+    # Agent step executors (the agent-step port). Registered, never discovered:
+    # built here so it exists before the engine is constructed, and populated
+    # through the same `app.extensions.register_agent_step_executor` door a plugin uses.
+    from functualize._engine.agent_step import AgentStepRegistry as _AgentStepRegistry
+
+    app._agent_step_registry = _AgentStepRegistry()
+
+    # Notifiers (`workflow-graph-semantics`/T6). Same door, same reason, and
+    # core registers **nothing** into it — a default registration makes the
+    # refusal unreachable, and a workflow whose "page the on-call on failure"
+    # quietly became a debug line is worse than one that refuses to start.
+    from functualize._engine.notify import NotifierRegistry as _NotifierRegistry
+
+    app._notifier_registry = _NotifierRegistry()
+
     # Observability subsystem (lazy-initialized)
     app._observability_initialized = False
     app._event_bus = None
+    app._run_log = None
     app._middleware_stack = None
 
     # Plugin system registries
@@ -248,44 +366,35 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
 
     _register_prompt_gate_strategy(app, collector_factory=active_collector)
 
+    # Core's own agent step executor — the one that asks a person. Registered
+    # through the public door a plugin uses, so there is no second way in, and
+    # registered in *both* boot paths for the same reason the gate strategy is:
+    # a bare app has exactly one executor, and an `AgentStep` naming none
+    # resolves to it.
+
+    # **No default executor** (spec §5, US-3, §3.5; design doc §F, and the
+    # maintainer's decision of 2026-09-10). Core used to register its own
+    # `cli-prompt` executor here, in both boot paths — and because
+    # `AgentStepRegistry.resolve` gives an unnamed step "the single registered
+    # one", that registration *was* the default. So on a bare install the most
+    # natural declaration an author can write,
+    #
+    #     AgentStep(name="draft", instructions="Write the migration")
+    #
+    # was performed by asking that author to write the migration. The spec
+    # forbids exactly that, four times over: "it does not fall back to prompting
+    # a human — a fallback that changes who answers is a different program."
+    #
+    # With nothing registered, `resolve` raises `AgentExecutorUnavailableError`
+    # and names the package to install, which is the refusal the feature is
+    # built on. A plugin that registers exactly one executor still supplies it
+    # to unnamed steps; that is a plugin the operator chose to install.
+
     # Initialize observability early so EventBus is available for the engine
     init_observability(app)
 
-    # Execution engine
-    from functualize._config.chain import ResolutionChain as _ResolutionChain
-    from functualize._config.job_config import (
-        JobConfigView as _JobConfigView,
-    )
-    from functualize._config.job_config import (
-        resolve_job_config as _resolve_job_config,
-    )
-
-    def _config_view_factory(*, section_prefix: str) -> Any:
-        chain = getattr(app, "_resolution_chain", None) or _ResolutionChain([])
-        return _JobConfigView(
-            resolution_chain=chain,
-            default_section_prefix=section_prefix,
-        )
-
-    app._execution_engine = JobExecutionEngine(
-        di_registry=app._di_registry,
-        hook_registry=app._hook_registry,
-        middleware_chain=app._execution_middleware_chain,
-        event_bus=app._event_bus,
-        max_invoke_depth=app._execution_config.max_invoke_depth,
-        plugin_config_registry=app.plugin_config_registry,
-        gate_registry=app._gate_registry,
-        config_view_factory=_config_view_factory,
-        config_resolver=_resolve_job_config,
-    )
-    # Back-reference to the owning app so the engine can resolve the active
-    # surface stack (Live binding via active_live_zone), the active prompt
-    # collector, and job descriptors at execution time. Without this, `Live`
-    # capabilities no-op even when a StdoutSurface is pushed (see
-    # _engine/surface_routing.active_live_zone and runcontext `_app` reads).
-    app._execution_engine._app = app
-    # Keep the JobRegistry consistent when the engine materializes lazy entries
-    app._execution_engine.add_registry_mirror(app.job_registry._registered_jobs)
+    # Execution engine — one construction site, shared with boot_standard
+    app._execution_engine = build_engine(app)
 
     # Resolution pipeline with StaticProvider (zero I/O)
     app._resolution_pipeline = ResolutionPipeline()
@@ -391,7 +500,6 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     from functualize._config.providers.toml import TomlFormatProvider
     from functualize._config.registry import ProviderRegistry
     from functualize._discovery.registry import JobRegistry
-    from functualize._engine.executor import JobExecutionEngine
     from functualize._engine.job_middleware import MiddlewareRegistry
     from functualize._events import HookRegistry
     from functualize._events.hooks import ConfigHookEvent
@@ -431,6 +539,21 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
         _GateStrategy.RESOLVE.value, _ResolveResolver()
     )
 
+    # Agent step executors (the agent-step port). Registered, never discovered:
+    # built here so it exists before the engine is constructed, and populated
+    # through the same `app.extensions.register_agent_step_executor` door a plugin uses.
+    from functualize._engine.agent_step import AgentStepRegistry as _AgentStepRegistry
+
+    app._agent_step_registry = _AgentStepRegistry()
+
+    # Notifiers (`workflow-graph-semantics`/T6). Same door, same reason, and
+    # core registers **nothing** into it — a default registration makes the
+    # refusal unreachable, and a workflow whose "page the on-call on failure"
+    # quietly became a debug line is worse than one that refuses to start.
+    from functualize._engine.notify import NotifierRegistry as _NotifierRegistry
+
+    app._notifier_registry = _NotifierRegistry()
+
     # Observability subsystem (lazy-initialized)
     app._observability_initialized = False
     app._event_bus = None
@@ -459,45 +582,36 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
 
     _register_prompt_gate_strategy(app, collector_factory=active_collector)
 
+    # Core's own agent step executor — the one that asks a person. Registered
+    # through the public door a plugin uses, so there is no second way in, and
+    # registered in *both* boot paths for the same reason the gate strategy is:
+    # a bare app has exactly one executor, and an `AgentStep` naming none
+    # resolves to it.
+
+    # **No default executor** (spec §5, US-3, §3.5; design doc §F, and the
+    # maintainer's decision of 2026-09-10). Core used to register its own
+    # `cli-prompt` executor here, in both boot paths — and because
+    # `AgentStepRegistry.resolve` gives an unnamed step "the single registered
+    # one", that registration *was* the default. So on a bare install the most
+    # natural declaration an author can write,
+    #
+    #     AgentStep(name="draft", instructions="Write the migration")
+    #
+    # was performed by asking that author to write the migration. The spec
+    # forbids exactly that, four times over: "it does not fall back to prompting
+    # a human — a fallback that changes who answers is a different program."
+    #
+    # With nothing registered, `resolve` raises `AgentExecutorUnavailableError`
+    # and names the package to install, which is the refusal the feature is
+    # built on. A plugin that registers exactly one executor still supplies it
+    # to unnamed steps; that is a plugin the operator chose to install.
+
     # Initialize observability early so EventBus is available for the engine
     init_observability(app)
     app.event_bus.subscribe("interactivity.job.submit", app._on_job_submit_event)
 
-    # Execution engine (single path for all adapters)
-    from functualize._config.chain import ResolutionChain as _ResolutionChain2
-    from functualize._config.job_config import (
-        JobConfigView as _JobConfigView2,
-    )
-    from functualize._config.job_config import (
-        resolve_job_config as _resolve_job_config2,
-    )
-
-    def _config_view_factory2(*, section_prefix: str) -> Any:
-        chain = getattr(app, "_resolution_chain", None) or _ResolutionChain2([])
-        return _JobConfigView2(
-            resolution_chain=chain,
-            default_section_prefix=section_prefix,
-        )
-
-    app._execution_engine = JobExecutionEngine(
-        di_registry=app._di_registry,
-        hook_registry=app._hook_registry,
-        middleware_chain=app._execution_middleware_chain,
-        event_bus=app._event_bus,
-        max_invoke_depth=app._execution_config.max_invoke_depth,
-        plugin_config_registry=app.plugin_config_registry,
-        gate_registry=app._gate_registry,
-        config_view_factory=_config_view_factory2,
-        config_resolver=_resolve_job_config2,
-    )
-    # Back-reference to the owning app so the engine can resolve the active
-    # surface stack (Live binding via active_live_zone), the active prompt
-    # collector, and job descriptors at execution time. Without this, `Live`
-    # capabilities no-op even when a StdoutSurface is pushed (see
-    # _engine/surface_routing.active_live_zone and runcontext `_app` reads).
-    app._execution_engine._app = app
-    # Keep the JobRegistry consistent when the engine materializes lazy entries
-    app._execution_engine.add_registry_mirror(app.job_registry._registered_jobs)
+    # Execution engine — one construction site, shared with boot_static
+    app._execution_engine = build_engine(app)
 
     # Resolution pipeline for Provider/Transform architecture
     app._resolution_pipeline = ResolutionPipeline()
@@ -697,8 +811,10 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
         ConfigHookEvent.AFTER_CONFIG_INIT, app._resolution_chain
     )
 
-    # 7a. Wire resolution chain to execution engine
-    app._execution_engine._resolution_chain = app._resolution_chain
+    # 7a. Nothing is wired into the engine here. Its config dependency and its
+    #     invoke-depth limit are read *through* the host, so a refresh that
+    #     rebuilds the chain in place is visible to it without anyone reaching
+    #     in — which is what this step used to do, at runtime, mid-flight.
 
     # 7b. Resolve max_invoke_depth from config
     _resolve_max_invoke_depth(app)
@@ -712,6 +828,9 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     perf_timeline.mark("boot.job_registration.start")
     resolve_and_register_jobs(app)
     perf_timeline.mark("boot.job_registration.end")
+
+    # 8a. Two modules claiming one group's flags stop the run, rendered.
+    report_group_options_conflicts(app)
 
     # 8b. Validate plugin extension metadata against loaded plugins (§A.6)
     validate_plugin_ext_metadata(app)
@@ -1002,7 +1121,7 @@ def wire_declared_job_sources(app: Any) -> None:
     ``job_providers`` accepts either a bare provider or a
     ``(provider, [transforms])`` pair -- the form its docstring has always
     promised. Both reach ``ResolutionPipeline.add_provider``, which is also
-    what ``app.add_job_provider()`` calls, so a declared provider and an
+    what ``app.extensions.add_job_provider()`` calls, so a declared provider and an
     imperative one are indistinguishable downstream.
 
     Malformed entries raise here rather than being skipped: silence is what
@@ -1296,6 +1415,108 @@ def report_unsatisfiable_jobs(app: Any) -> None:
     app._unsatisfiable_jobs = reported
 
 
+#: The ``DiscoveryFailure.error_type`` a contested group path arrives under —
+#: ``record_discovery_failure`` names that field after the exception's class.
+_GROUP_OPTIONS_CONFLICT = "GroupOptionsConflictError"
+
+#: Is this boot serving a command whose job is to *explain* a broken project?
+#:
+#: A ``ContextVar`` rather than a constructor argument, because the app boots
+#: inside ``FunctualizeApp.__init__`` — there is no moment between construction
+#: and boot in which a caller could set an attribute — and because this is a
+#: property of the **invocation**, not of the app. A ``FunctualizeApp`` built
+#: twice in one process, once for a diagnostic and once for a run, must get two
+#: answers; a class attribute would give it one.
+_DIAGNOSTIC_BOOT: ContextVar[bool] = ContextVar(
+    "functualize_diagnostic_boot", default=False
+)
+
+
+@contextmanager
+def diagnostic_boot() -> Iterator[None]:
+    """Boot inside this block reports project-wide contradictions, not exits.
+
+    ``func builtin why`` exists to answer *"why is my job missing?"*. When the
+    answer is that two files declare ``GroupOptions`` for one group, it could
+    not answer: the contradiction stopped the boot before the command ran, with
+    exit 2 and an empty stdout. Same for ``builtin info`` and for
+    ``builtin cache rebuild``, which is the documented way to clear a bad cache
+    and died before reaching its own scan (adj M4, decision D-4).
+
+    **Only the diagnostics.** Anything that would *run* a job stays fatal: the
+    framework cannot know which declaration's flags ``func deploy --env prod``
+    means, and the only alternative to stopping is serving one of them
+    silently. The set is
+    :data:`~functualize._cli.builtins.DIAGNOSTIC_BUILTINS`, and the caller —
+    which knows what was typed — is what enters this block.
+    """
+    token = _DIAGNOSTIC_BOOT.set(True)
+    try:
+        yield
+    finally:
+        _DIAGNOSTIC_BOOT.reset(token)
+
+
+def report_group_options_conflicts(app: Any) -> None:
+    """Render a contested group path and stop the run. Do not serve either one.
+
+    Two modules binding ``GroupOptions`` to one group is not a broken module:
+    every job in the project is fine, and what cannot be answered is which
+    *flags* the group's path carries — ``func deploy --env prod …`` means one
+    thing per declaration, and the scan order that would pick between them is
+    set-iteration order. The provider reports the conflict through
+    ``discovery_failures``, the same list that answers "why is my job missing?"
+    (ADR-018's surface). Boot is where that becomes a rendered error instead of
+    a traceback, because boot is the one seam both entry points share: ``func``
+    builds an app inside ``_handle_job``, and a project's own script builds one
+    under ``CliAdapter``.
+
+    Fatal by decision, not by accident. A discovery failure that costs one job
+    is reported and the run continues (ADR-018); this one is a project-wide
+    contradiction between two files, and the only two resolutions are "serve the
+    wrong flags silently" and "stop". It exits with ``ExitCode.USAGE`` — the
+    table's config-error code, which is also what a Pydantic ``ValidationError``
+    at invocation takes (``app/adapters/cli.py:_print_validation_error``).
+
+    **Except for the commands that exist to explain a broken project.** Inside
+    :func:`diagnostic_boot`, this reports and returns instead: a rule that stops
+    ``func builtin why`` is a rule that stops the answer to the question the
+    conflict raises. See that function for what is and is not exempt.
+
+    Args:
+        app: The app whose providers ran discovery. Providers that do not scan
+            (``StaticProvider``, a plugin's own) contribute nothing, the same
+            attribute-read rule `_cli/info.py:discovery_failures` follows.
+    """
+    from functualize._types.exit_codes import ExitCode
+
+    pipeline = getattr(app, "_resolution_pipeline", None)
+    conflicts: list[Any] = [
+        failure
+        for entry in getattr(pipeline, "_providers", ()) or ()
+        for failure in (
+            getattr(getattr(entry, "provider", entry), "discovery_failures", ()) or ()
+        )
+        if getattr(failure, "error_type", None) == _GROUP_OPTIONS_CONFLICT
+    ]
+    if not conflicts:
+        return
+
+    if _DIAGNOSTIC_BOOT.get():
+        # A diagnostic reports and keeps going. The conflict is already in
+        # `discovery_failures`, which is what `builtin info` renders and what
+        # `builtin why` reads — so saying it here as well would print it twice
+        # for the commands whose whole output is that list. Nothing is
+        # swallowed: the record is the channel.
+        return
+
+    for failure in conflicts:
+        # The provider's own message is the one that names the group and both
+        # declaring files, and it already carries the remedy.
+        print(f"Error: {failure.message}", file=sys.stderr)
+    raise SystemExit(int(ExitCode.USAGE))
+
+
 def _register_jobs_eager(app: Any) -> None:
     """Register jobs from the provider boot built, importing every module now.
 
@@ -1574,7 +1795,11 @@ def validate_plugin_ext_metadata(app: Any) -> None:
 
 
 def _resolve_max_invoke_depth(app: Any) -> None:
-    """Resolve max_invoke_depth from config and update the engine.
+    """Resolve max_invoke_depth from config and record it on the app.
+
+    Recorded on the *app* rather than written into the engine: the engine reads
+    the limit from its host, so the resolved value has one home and no writer
+    has to know the engine exists.
 
     Args:
         app: The FunctualizeApp instance.
@@ -1583,7 +1808,7 @@ def _resolve_max_invoke_depth(app: Any) -> None:
         resolved = app._resolution_chain.resolve("max_invoke_depth", "general")
         depth = int(resolved.value)
         if depth > 0:
-            app._execution_engine._max_invoke_depth = depth
+            app._resolved_max_invoke_depth = depth
     except (ValueError, TypeError, KeyError, AttributeError):
         pass
     except Exception as exc:

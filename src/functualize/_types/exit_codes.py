@@ -68,6 +68,13 @@ _STATUS_EXIT_CODES: dict[RunStatus, ExitCode] = {
 }
 
 
+# The outcome authority is `functualize._types.outcome`. This table stays here —
+# every existing caller imports it from this module — but `outcome.py` re-exports
+# it, and the *rules* about what a status means at a boundary live there, not
+# beside the numbers. A new consumer should ask `outcome.is_failure(status,
+# family=...)` rather than reading this dict.
+
+
 def exit_code_for_status(status: RunStatus) -> ExitCode:
     """The process exit code a finished run should terminate with.
 

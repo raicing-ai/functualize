@@ -8,65 +8,64 @@ on:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Gate: detect a push whose ONLY changed paths are under .spec/.
+  # Gate: detect the dedicated final cleanup commit.
   #
-  # The spec-driven workflow commits .spec/features/<name>/ on the branch so the
-  # spec artifacts are reviewable, then clears them before merge. That clearing
-  # push used to re-run this entire workflow for nothing: no test, lint, example
-  # or docs job reads a file anywhere under .spec/. This job inspects the exact
-  # pushed commit range (github.event.before..after) so the heavy jobs below can
-  # skip it.
+  # The spec-driven workflow first commits feature artifacts so they are
+  # reviewable, runs the full gate set, and only then pushes one cleanup commit
+  # deleting those artifacts. Only that final deletion-only commit is
+  # redundant. Earlier feature commits, ordinary code commits, and a cleanup
+  # commit mixed with source/doc changes all run normally.
   #
-  # `^\.spec/`, NOT `^\.spec/features/`. The clearing step is not a bare
-  # `git rm`: `.claude/rules/spec-workflow.md` says to migrate the durable half
-  # to `.spec/STATUS.md` or `contributor/adr/` FIRST, and the error message in
-  # spec-artifacts-cleared below repeats it. Both land in the same commit, so a
-  # real clearing push touches `.spec/STATUS.md` — and often
-  # `.spec/shape-intents/` — alongside `.spec/features/`. Replaying the narrower
-  # pattern over all 31 inter-push diffs in this workflow's recorded history
-  # matched ZERO of them; `^\.spec/` matches 6, which is about one full suite
-  # run saved per feature cycle. A pattern that never fires is not conservative,
-  # it is dead code.
-  #
-  # The widening stops at `.spec/`. `contributor/adr/` is deliberately NOT
-  # included even though the same step writes there: doc-verify and docs-build
-  # do read files outside `.spec/`, and the whole boundary rests on `.spec/`
-  # being a directory no job in this workflow opens.
-  #
-  # Conservative by construction: the suite skips only when the diff is
-  # non-empty and every changed path matches. A missing or zero before-SHA
-  # (new branch), a failed or empty diff, a force-push whose before-SHA is no
-  # longer reachable in the clone, and any non-spec path all default to a full
-  # run.
+  # On a PR, inspect the head commit itself; base..head includes the whole PR.
+  # The parent must have a completed CI run with every validation job green.
+  # That run's overall conclusion is red by design because
+  # spec-artifacts-cleared must fail while feature artifacts are present.
+  # Missing API data fails closed into a full run.
   # ---------------------------------------------------------------------------
   spec-only-change:
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     outputs:
       skip: ${{ steps.detect.outputs.skip }}
     steps:
       - uses: actions/checkout@v4
         with:
-          # before/after are arbitrary SHAs; a shallow clone may not have them.
+          # The PR head and its parent must both be available for inspection.
           fetch-depth: 0
 
-      - name: Detect .spec/-only pushes
+      - name: Detect final feature-artifact cleanup commit
         id: detect
         env:
-          BEFORE: ${{ github.event.before }}
-          AFTER: ${{ github.event.after }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_BRANCH: ${{ github.head_ref }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           skip=false
-          if [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
-            if changed="$(git diff --name-only "$BEFORE" "$AFTER" 2>/dev/null)" && [ -n "$changed" ]; then
-              if ! printf '%s\n' "$changed" | grep -qv '^\.spec/'; then
+          if [ "$EVENT_NAME" = pull_request ] && [ -n "$PR_HEAD" ] \
+            && git cat-file -e "$PR_HEAD^{commit}" 2>/dev/null; then
+            changed="$(git diff-tree --no-commit-id --name-status -r "$PR_HEAD" 2>/dev/null || true)"
+          fi
+
+          if [ "${changed:-}" ]; then
+            paths="$(printf '%s\n' "$changed" | cut -f2-)"
+            deletions="$(printf '%s\n' "$changed" | awk -F '\t' '$1 == "D" {print $2}')"
+            if [ -n "$deletions" ] \
+              && [ "$(printf '%s\n' "$paths" | wc -l)" -eq "$(printf '%s\n' "$deletions" | wc -l)" ] \
+              && ! printf '%s\n' "$deletions" | grep -qv '^\.spec/features/'; then
+              parent_sha="$(git rev-parse "${PR_HEAD}^" 2>/dev/null || true)"
+              if [ -n "$parent_sha" ] \
+                && python3 .github/scripts/verify_cleanup_predecessor.py "$parent_sha" "$PR_BRANCH"; then
                 skip=true
               fi
             fi
           fi
           echo "skip=$skip" >> "$GITHUB_OUTPUT"
           if [ "$skip" = true ]; then
-            echo "Push touched only .spec/; heavy jobs will skip."
+            echo "Final .spec/features cleanup commit follows green validation; validation jobs will skip."
           else
             echo "Full CI run."
           fi
@@ -212,6 +211,8 @@ jobs:
   # example harness are the regression net for it; this job is what keeps
   # that net running.
   plugin-mcp:
+    needs: spec-only-change
+    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -384,31 +385,40 @@ jobs:
   # Thorough validation, runs alongside test-fast.
   test-full:
     needs: spec-only-change
-    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
     steps:
+      - name: Skip validated suite for final spec cleanup
+        if: needs.spec-only-change.outputs.skip == 'true'
+        run: echo "Prior PR validation was green; skipping the unchanged full suite for Python ${{ matrix.python-version }}."
+
       - uses: actions/checkout@v4
+        if: needs.spec-only-change.outputs.skip != 'true'
 
       - name: Install uv
+        if: needs.spec-only-change.outputs.skip != 'true'
         uses: astral-sh/setup-uv@v4
         with:
           version: "latest"
 
       - name: Set up Python ${{ matrix.python-version }}
+        if: needs.spec-only-change.outputs.skip != 'true'
         run: uv python install ${{ matrix.python-version }}
 
       - name: Install dependencies
+        if: needs.spec-only-change.outputs.skip != 'true'
         run: uv sync --all-extras
 
       - name: Run full test suite (property tests + coverage, parallel)
+        if: needs.spec-only-change.outputs.skip != 'true'
         env:
           HYPOTHESIS_PROFILE: ci
         run: uv run pytest --run-slow --cov=functualize --cov-report=xml -n auto
 
       - name: Upload coverage
+        if: needs.spec-only-change.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-${{ matrix.python-version }}
@@ -447,3 +457,49 @@ jobs:
             exit 1
           fi
           echo "OK: .spec/features/ carries no tracked files."
+
+  # An honoured `.spec/EXEMPT` writes nothing to the repository, so the only
+  # durable receipt for a spec-workflow bypass is a `Spec-exempt:` line in the
+  # pull request body. This job validates that such a declaration is well formed
+  # and republishes it in the run summary.
+  #
+  # It deliberately always materializes: a required check that never runs leaves
+  # GitHub waiting for a status that cannot arrive. It does not decide whether
+  # an exemption was owed; that remains a self-reported reviewer-facing receipt.
+  spec-exemption-declared:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate any Spec-exempt declaration
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "Not a pull request; no PR body to check."
+            exit 0
+          fi
+
+          declarations=$(printf '%s\n' "${PR_BODY:-}" | tr -d '\r' \
+            | grep -E '^[[:space:]]*Spec-exempt:' || true)
+
+          if [ -z "$declarations" ]; then
+            echo "No Spec-exempt declaration in this PR body."
+            exit 0
+          fi
+
+          status=0
+          while IFS= read -r line; do
+            [ -n "$line" ] || continue
+            reason=$(printf '%s' "$line" | sed -E 's/^[[:space:]]*Spec-exempt:[[:space:]]*//')
+            if [ "${#reason}" -lt 20 ]; then
+              echo "::error::Spec-exempt reason is ${#reason} characters; at least 20 are required: $line"
+              status=1
+            else
+              echo "Declared bypass: $reason"
+              echo "- \`Spec-exempt:\` $reason" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done <<< "$declarations"
+
+          exit "$status"

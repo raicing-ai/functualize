@@ -60,11 +60,11 @@ timeout = 240
 
 [[steps]]
 engine = "docker"
-description = "pip install functualize[cli] + functualize-state + functualize-tasks from source"
+description = "pip install functualize[cli] + functualize-tasks from source"
 image = "python:3.11-slim"
 volumes = { "." = "/src:ro" }
 workdir = "/src"
-command = "pip install '/src[cli]' /src/plugins/functualize-state/ /src/plugins/functualize-tasks/ 2>&1 && echo 'OK' && functualize --version"
+command = "pip install '/src[cli]' /src/plugins/functualize-tasks/ 2>&1 && echo 'OK' && functualize --version"
 expected = { stdout_contains = "OK", exit_code = 0 }
 timeout = 240
 

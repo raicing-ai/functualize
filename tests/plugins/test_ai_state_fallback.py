@@ -1,7 +1,7 @@
 """Tests for AI graceful degradation when State domain is absent or fails.
 
 Validates Requirements 25.1, 25.2, 25.3:
-- 25.1: Fall back to in-memory StateStore when State domain not installed
+- 25.1: Fall back to in-memory ScopeStore when State domain not installed
 - 25.2: Emit boot-time warning about ephemeral data
 - 25.3: When State domain IS installed but fails at runtime, fail entirely
 """
@@ -203,42 +203,24 @@ class TestResolveAiStateBackend:
 # ---------------------------------------------------------------------------
 
 
-class TestIntegrationWithStateNamespace:
-    """Verify that the fallback backends work with StateNamespace from functualize-state."""
+class TestTheStateDomainProbeIsGone:
+    """`store-substrate`/T6.
 
-    def test_ephemeral_with_state_namespace(self) -> None:
-        """EphemeralStateBackend works with StateNamespace for ai: prefix."""
-        from functualize_state._namespace import StateNamespace
+    Three tests here checked that the fallback backends compose with
+    `StateNamespace` from `functualize-state`. That package is retired — a
+    backend-agnostic key-value protocol can only offer the intersection of
+    every backend, which is worth least exactly where a database is worth most
+    (`contributor/adr/022`) — so the collaborator they integrated with does not
+    exist. They are deleted rather than rewritten against a stand-in, which
+    would have asserted that the fallback works with something nothing uses.
 
-        backend = EphemeralStateBackend()
-        ns = StateNamespace(backend, "ai:")
+    What is still worth pinning is that the *probe* went with it: a function
+    that asked whether a deleted package was importable would answer "no"
+    forever, and the AI plugin would silently use ephemeral storage on every
+    install.
+    """
 
-        ns.set("budget_spent", 3.14)
-        assert ns.get("budget_spent") == 3.14
-        assert backend.get("ai:budget_spent") == 3.14
+    def test_there_is_no_domain_availability_probe(self) -> None:
+        import functualize_ai._state_fallback as module
 
-    def test_ephemeral_namespace_keys(self) -> None:
-        """StateNamespace.keys() works with EphemeralStateBackend."""
-        from functualize_state._namespace import StateNamespace
-
-        backend = EphemeralStateBackend()
-        ns = StateNamespace(backend, "ai:")
-
-        ns.set("budget_spent", 1.0)
-        ns.set("checkpoint", "data")
-        backend.set("tasks:other", "x")  # Should not appear in ai: namespace
-
-        keys = ns.keys()
-        assert sorted(keys) == ["budget_spent", "checkpoint"]
-
-    def test_strict_wrapper_with_state_namespace_propagates_error(self) -> None:
-        """StrictStateBackendWrapper propagates errors through StateNamespace."""
-        from functualize_state._namespace import StateNamespace
-
-        mock_backend = MagicMock()
-        mock_backend.set.side_effect = OSError("disk full")
-        wrapper = StrictStateBackendWrapper(mock_backend)
-        ns = StateNamespace(wrapper, "ai:")
-
-        with pytest.raises(OSError, match="disk full"):
-            ns.set("budget_spent", 5.0)
+        assert not hasattr(module, "is_state_domain_available")

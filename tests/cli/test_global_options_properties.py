@@ -9,6 +9,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from functualize._cli.builtins import BUILTIN_COMMANDS, BUILTIN_ROOT
 from functualize._cli.dispatch import (
     Mode,
     _extract_global_options,
@@ -23,13 +24,23 @@ from functualize._cli.dispatch import (
 # and are not recognized as builtins.
 # These simulate job names, file names, etc.
 _positional_chars = st.sampled_from("abcdefghijklmnopqrstuvwxyz0123456789_")
+#: Names `detect_mode` routes to BUILTIN, **derived** rather than restated.
+#:
+#: This was a hand-written set: `{"cache", "config", "domains", "scaffold",
+#: "version", "show-info", "tui"}`. It had drifted both ways — `show-info` and
+#: `tui` are not builtins any more, and it never contained `builtin` itself,
+#: which is the routing word. Hypothesis eventually drew the four-letter string
+#: `"builtin"` and the property failed on a strategy that contradicted its own
+#: premise. A list that mirrors a registry is only ever one release from being
+#: wrong; read the registry.
+_BUILTIN_NAMES = frozenset(
+    {BUILTIN_ROOT, *(command.name for command in BUILTIN_COMMANDS)}
+)
+
 _positional_arg = st.text(_positional_chars, min_size=1, max_size=20).filter(
     # Exclude builtin names and anything that looks like an option
     lambda s: (
-        s
-        not in {"cache", "config", "domains", "scaffold", "version", "show-info", "tui"}
-        and not s.startswith("-")
-        and not s.endswith(".py")
+        s not in _BUILTIN_NAMES and not s.startswith("-") and not s.endswith(".py")
     )
 )
 
@@ -88,7 +99,7 @@ _global_option_with_value = st.tuples(_value_options, _option_values)
 
 # Strategy for additional args after the positional (job-specific flags)
 _job_flag_name = st.sampled_from(
-    ["--env", "--dry-run", "--force", "--output", "--verbose"]
+    ["--env", "--dry-run", "--force", "--emit-format", "--verbose"]
 )
 _job_flag_value = st.text(
     st.sampled_from("abcdefghijklmnopqrstuvwxyz0123456789_/.-"),

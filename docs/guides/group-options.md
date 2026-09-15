@@ -171,29 +171,48 @@ app.execute("deploy.web.run")           # opts.env comes from file/env/default
 rc.invoke("deploy.web.run")             # same
 ```
 
-The **mid-path flag layer is the one exception**, and it behaves the way its
-name suggests: it belongs to the command line that typed it.
+The **mid-path flag layer belongs to the command line that typed it** — and a
+caller who wants to pass one on now says so.
 
 ```python
-# The facade accepts one explicitly — this is how the CLI and MCP pass on the
-# flags they parsed.
+# Every executing door accepts one explicitly. This is how the CLI, HTTP,
+# Lambda and MCP pass on the flags they parsed.
 app.execute("deploy.web.run", group_option_values={"env": "prod"})
 
-# `rc.invoke` starts no command line, so it passes none. A job invoked from
-# inside another job resolves its group options from its own file, environment
-# and default layers — never from the flags typed at the parent.
+# `rc.invoke` starts no command line, so by default it passes none: a job
+# invoked from inside another job resolves its group options from its own file,
+# environment and default layers.
 rc.invoke("deploy.web.run")
+
+# ...and it can pass one deliberately, for the case where a parent really is
+# steering a child at a path it knows about.
+rc.invoke("deploy.web.run", group_option_values={"env": "prod"})
 ```
 
-A `@workflow` step behaves the same as `rc.invoke` here: the walk runs each step
-as an ordinary job with no flag layer, so a step's group options come from
-file, environment and defaults.
+A `@workflow` step behaves like a bare `rc.invoke`: the walk runs each step as
+an ordinary job with no flag layer, so a step's group options come from file,
+environment and defaults.
 
-This is not a gap to route around. A flag is typed at one path, and a job the
-run happens to invoke afterwards sits at a path of its own — inheriting the
-parent's flags would mean a value typed for `deploy.web` silently steering a job
-under `deploy.worker`. Set the value where the child reads it (its section, or
-its environment variable) when it should apply to both.
+!!! note "The default did not change; the boundary did"
+
+    Until `surface-request-parity`, `rc.invoke` could **not** pass the flag
+    layer at all, and this guide recorded that as deliberate: a flag typed for
+    `deploy.web` should not silently steer a job under `deploy.worker`.
+
+    That reasoning is still right about the *default*, and the default is
+    unchanged — a bare `rc.invoke` inherits nothing, and there is a test that
+    was written before the override existed to keep it that way.
+
+    What changed is the cost of the prohibition. Every door now builds one
+    `RunRequest`, and `group_option_values` is a field on it. Withholding the
+    field from one caller stopped being free and became a **deliberate
+    erasure** — a line of code whose only job is to drop something the caller
+    had. A boundary that costs code needs a better reason than that it used to
+    cost nothing, and "the parent might mean a different path" is a reason to
+    make the caller *say* it, not a reason to make it impossible.
+
+    So the answer is the same as everywhere else in the framework: explicit
+    beats implicit. Nothing is inherited; anything passed is passed on purpose.
 
 ## Steering a whole run from code
 
@@ -226,12 +245,16 @@ def release(invoke: Invoke) -> None:
             os.environ["DEPLOY__ENV"] = previous
 ```
 
-The flag layer is the one that does **not** reach them, for the reason above:
+The flag layer is the one that is **not** inherited, for the reason above:
 
 ```python
 # The workflow job is given env="prod". Its steps are not.
 app.execute("deploy.release", group_option_values={"env": "prod"})
 ```
+
+A step that should receive one is given it, explicitly, by the job that drives
+it — `rc.invoke(..., group_option_values=...)`. The environment approach above
+remains the way to steer a *whole* run, including steps nobody names.
 
 For a value that should always apply, prefer the config file section or an
 explicit `ConfigSources(config_resolution_chain=...)` over mutating the

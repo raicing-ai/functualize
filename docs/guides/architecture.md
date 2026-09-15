@@ -430,7 +430,7 @@ When a job calls `rc.prompt_*()`, the framework routes to exactly one active
 collector:
 
 ```
-[Job Function] → rc.prompt_confirm(...) → [RunContext]
+[Job Function] → rc.prompts.confirm(...) → [RunContext]
       → active PromptCollector.collect(request) → PromptResponse
         (inline TUI, a job app's modal, stdin fallback, MCP gate)
 ```
@@ -442,13 +442,13 @@ descriptor cache): `tty: TTY` grants terminal ownership for a job-owned Textual
 app (`tty.run(app)`, refused off a terminal), and `live: Live` mounts a live
 `LiveConstruct` into the active surface's live zone (`live.add(construct)`).
 
-### Custom event emission — rc.emit()
+### Custom event emission — rc.events.emit()
 
 Jobs emit custom structured events that reach the `EventBus` and every registered
 `Surface`:
 
 ```python
-rc.emit("pipeline.stage.complete", resource="extract", records=1000)
+rc.events.emit("pipeline.stage.complete", resource="extract", records=1000)
 ```
 
 Framework lifecycle events (`job.execute.*`, `job.teardown.*`, `plugin.*`,
@@ -464,15 +464,15 @@ bus; dispatch continues** — one bad surface never interrupts a job or starves 
 | Extension point | Interface | Registered via | Purpose |
 |---|---|---|---|
 | **Hooks** | `HookRegistry.register()` | Code (`app.hook_registry.register(...)`) | Callbacks at lifecycle points |
-| **DI Registration** | `app.provide()` / `provide_factory()` / `provide_named()` | Code (from plugins during boot) | Register typed capabilities for DI injection |
+| **DI Registration** | `app.di.provide()` / `provide_factory()` / `provide_named()` | Code (from plugins during boot) | Register typed capabilities for DI injection |
 | **Plugins** | `PluginMetadata` protocol + callable | Python entry points (`functualize.plugins`) | Add CLI commands, register providers, subscribe to events |
 | **Adapters** | `AdapterPlugin` Protocol | `adapter(app); adapter.run()` | Delivery surfaces: CLI, HTTP, Lambda, custom |
-| **Surface** | `Surface` protocol (`handle_event`) | `app.register_surface(obj)` | Render a job's events |
-| **PromptCollector** | `PromptCollector` protocol (`collect`) | `app.register_surface(obj)` | Answer `rc.prompt_*()` |
+| **Surface** | `Surface` protocol (`handle_event`) | `app.extensions.register_surface(obj)` | Render a job's events |
+| **PromptCollector** | `PromptCollector` protocol (`collect`) | `app.extensions.register_surface(obj)` | Answer `rc.prompt_*()` |
 | **Job UI capabilities** | `tty: TTY` / `live: Live` params | declared in the job signature | Own the terminal / mount a live construct |
-| **Job Providers** | `JobProvider` Protocol | `app.add_job_provider(provider)` | Custom job discovery sources |
-| **Job Transforms** | `JobTransform` Protocol | `app.add_job_transform(transform)` | Intercept and modify job descriptors |
+| **Job Providers** | `JobProvider` Protocol | `app.extensions.add_job_provider(provider)` | Custom job discovery sources |
+| **Job Transforms** | `JobTransform` Protocol | `app.extensions.add_job_transform(transform)` | Intercept and modify job descriptors |
 | **EventBus** | `app.event_bus.emit / subscribe` | Code | Structured publish-subscribe |
 | **Middleware** | `MiddlewareChain` (yield-based generators) | Code | Wrap execution at named operation points |
 | **Format providers** | `FormatProvider` protocol | Entry points or `provider_registry` | Support for new config file formats |
-| **StateStore** | `StateStoreProtocol` protocol | `scope.replace_state_store(impl)` | Pluggable state storage backends |
+| **FreshStore** | `FreshStoreProtocol` protocol | `scope.replace_state_store(impl)` | Pluggable state storage backends |

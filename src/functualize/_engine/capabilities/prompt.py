@@ -1,13 +1,28 @@
-"""Prompt capability class — interactive input collection (1:1 dispatch).
+"""Asking the person on the other end — `rc.prompts` and `prompt: Prompt`.
 
-The Prompt class provides convenient methods (confirm, choice, text) that
-build a PromptRequest and delegate to a single active Surface. If no surface
-is available, all methods raise InputNotAvailable.
+**One class, two doors** (ADR-021). Until `capability-duality`/T11 these were
+two classes: `Prompt` for the DI parameter and `PromptFacade` for `rc.prompts`.
+They were not merely separate objects — the DI one was *inert*. Its registry
+factory was ``lambda ctx: Prompt()``, so every injected `Prompt` carried
+``_provider=None`` and raised `InputNotAvailable` on every call, while
+`rc.prompts` resolved the live collector and answered. A job written
+``def j(p: Prompt)`` could not prompt at all.
+
+That is the same shape as the `Perf` stub (`capability-duality`/T5): a factory
+that returns the *unwired* form of a capability whose real wiring lives
+somewhere else. The fix is the same — resolve through the shared map, and let
+one implementation hold the logic.
+
+The rule underneath did not change: a prompt is routed to the surface that owns
+the terminal, and a job that asks where nothing can answer gets
+`InputNotAvailable` rather than a silent default. Silently defaulting is how a
+non-interactive run appears to have been confirmed.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import dataclasses
+from typing import TYPE_CHECKING, Any, cast
 
 from functualize._engine.capabilities.spec import CapabilitySpec
 from functualize._types.interactivity import (
@@ -16,6 +31,7 @@ from functualize._types.interactivity import (
     PromptIntent,
     PromptRequest,
     PromptResponse,
+    severity_for_intent,
 )
 
 if TYPE_CHECKING:
@@ -25,134 +41,199 @@ __all__ = ["Prompt"]
 
 
 class Prompt:
-    """Interactive input collection capability (1:1 dispatch to a Surface).
+    """Ask the person on the other end, or be told there is none.
 
-    Provides typed convenience methods that construct a PromptRequest and
-    delegate to exactly one active Surface. Raises InputNotAvailable if none
-    is available.
+    Reached two ways, and it is the **same object** either way (ADR-021):
+    ``rc.prompts.confirm(...)`` and a ``prompt: Prompt`` parameter.
 
     Args:
-        _provider: The Surface to collect through, or None if none is
-                   available.
+        _provider: A collector bound at construction. The kernel's own callers
+            (`Shell.sudo`, missing-value prompting) resolve a collector first
+            and pass it here, so those paths do not depend on a RunContext.
+        _caps: The run's capability map, from which the RunContext — and
+            through it the live surface stack — is found **at call time**.
+            Lazy on purpose: DI resolution runs before the RunContext exists,
+            so capturing it eagerly captures ``None`` (the defect
+            `capability-duality`/T1 fixed for `Invoke`).
     """
 
-    def __init__(self, *, _provider: PromptCollector | None = None) -> None:
+    __slots__ = ("_caps", "_explicit_rc", "_provider")
+
+    def __init__(
+        self,
+        *,
+        _provider: PromptCollector | None = None,
+        _rc: Any | None = None,
+        _caps: dict[type, Any] | None = None,
+    ) -> None:
         self._provider = _provider
+        self._explicit_rc = _rc
+        self._caps = _caps
 
-    def _ensure_provider(self) -> PromptCollector:
-        """Return the active collector or raise InputNotAvailable."""
-        if self._provider is None:
-            raise InputNotAvailable(
-                "No Surface is available to collect input. Prompts need "
-                "either an interactive terminal or a registered surface "
-                "(see docs/guides/interactivity.md)."
-            )
-        return self._provider
+    @property
+    def _rc(self) -> Any | None:
+        """The RunContext for this execution, or None outside a job."""
+        if self._explicit_rc is not None:
+            return self._explicit_rc
+        if self._caps is None:
+            return None
+        from functualize._engine.capabilities.runcontext import RunContext
 
-    def confirm(self, message: str, *, default: bool = False) -> bool:
-        """Ask a yes/no confirmation question.
+        return self._caps.get(RunContext)
 
-        Args:
-            message: The confirmation question to display.
-            default: Default boolean value if user provides no input.
+    @property
+    def _job_name(self) -> str | None:
+        """The job asking, stamped onto the request so a surface can say who."""
+        rc = self._rc
+        return None if rc is None else rc._name
 
-        Returns:
-            True if confirmed, False otherwise.
+    def _get_input_provider(self) -> PromptCollector | None:
+        """Return the collector that should answer this job's prompts.
+
+        Only surfaces that actually implement ``collect`` are eligible — a
+        render-only surface (flow-viz) must never be handed a prompt it
+        cannot answer.
+
+        **Resolved per call, not per construction.** A surface pushed after
+        this object was built — the common case, since DI resolves before the
+        orchestrator pushes anything — must still be the one that answers.
+        Stack-scoped: top-of-stack wins, so the phase that owns the terminal
+        collects; see ``_engine/surface_routing.active_collector`` and
+        contributor/adr/001-surface-architecture-collapse.md.
+        """
+        if self._provider is not None:
+            return self._provider
+        rc = self._rc
+        if rc is None or rc._execution_engine is None:
+            return None
+        host = rc._execution_engine.host
+        if host is None:
+            return None
+        return cast("PromptCollector | None", host.collector())
+
+    def ask(self, request: PromptRequest) -> PromptResponse:
+        """Send a fully-constructed request to the surface that can answer it.
+
+        The low-level form every convenience method routes through. Use it when
+        you need control over the `PromptRequest` fields.
 
         Raises:
-            InputNotAvailable: If no Surface is available.
+            InputNotAvailable: Nothing can collect and the request is required
+                with no default — the case where returning a default would
+                fabricate an answer nobody gave.
         """
-        provider = self._ensure_provider()
-        request = PromptRequest(
-            question=message,
-            intent=PromptIntent.CONFIRM_NEUTRAL,
-            default=default,
+        filled = dataclasses.replace(request, source_job=self._job_name)
+        provider = self._get_input_provider()
+        if provider is None:
+            if filled.required and filled.default is None:
+                raise InputNotAvailable(
+                    f"No InputProvider registered and prompt requires input "
+                    f"(job={self._job_name!r}, question={filled.question!r}). "
+                    f"Prompts need either an interactive terminal or a "
+                    f"registered surface (see docs/guides/interactivity.md)."
+                )
+            return PromptResponse(value=filled.default, source="default")
+        return provider.collect(filled)
+
+    def confirm(
+        self,
+        question: str,
+        *,
+        destructive: bool = False,
+        default: bool | None = None,
+        context_message: str | None = None,
+        context_data: dict[str, Any] | None = None,
+    ) -> bool:
+        """Ask a yes/no question.
+
+        With no ``default`` the question is *required*: off a terminal it
+        raises rather than assuming an answer. Pass ``default`` to make the
+        non-interactive answer explicit.
+        """
+        intent = (
+            PromptIntent.CONFIRM_DESTRUCTIVE
+            if destructive
+            else PromptIntent.CONFIRM_NEUTRAL
         )
-        response = provider.collect(request)
-        # Coerce value to bool
+        # Derived, not hand-mapped — one source of truth for the styling.
+        response = self.ask(
+            PromptRequest(
+                question=question,
+                intent=intent,
+                severity=severity_for_intent(intent),
+                default=default,
+                context_message=context_message,
+                context_data=context_data,
+                required=default is None,
+            )
+        )
+        if response.was_cancelled:
+            return False
         value = response.value
         if isinstance(value, bool):
             return value
         if isinstance(value, str):
-            return value.lower() in ("true", "yes", "y", "1")
-        return bool(value)
+            return value.lower() in ("yes", "y", "true", "1")
+        return bool(value) if value is not None else False
 
     def choice(
-        self, message: str, options: list[PromptChoice], **kwargs: object
+        self,
+        question: str,
+        choices: list[str] | list[PromptChoice],
+        *,
+        default: str | None = None,
+        context_message: str | None = None,
     ) -> str:
-        """Present choices and return the selected value.
-
-        Args:
-            message: The selection question to display.
-            options: List of PromptChoice objects representing available options.
-            **kwargs: Additional keyword arguments passed to PromptRequest
-                      (e.g., default, severity, help_text).
-
-        Returns:
-            The selected choice value as a string.
-
-        Raises:
-            InputNotAvailable: If no Surface is available.
-        """
-        provider = self._ensure_provider()
-        request = PromptRequest(
-            question=message,
-            intent=PromptIntent.SELECT,
-            choices=options,
-            **kwargs,  # type: ignore[arg-type]
+        """Present options and return the selected value."""
+        normalized = [
+            PromptChoice(value=c) if isinstance(c, str) else c for c in choices
+        ]
+        response = self.ask(
+            PromptRequest(
+                question=question,
+                intent=PromptIntent.SELECT,
+                choices=normalized,
+                default=default,
+                context_message=context_message,
+                required=default is None,
+            )
         )
-        response = provider.collect(request)
         return str(response.value) if response.value is not None else ""
 
-    def text(self, message: str, *, default: str = "", **kwargs: object) -> str:
-        """Ask for free-form text input.
-
-        Args:
-            message: The input question to display.
-            default: Default string value if user provides no input.
-            **kwargs: Additional keyword arguments passed to PromptRequest
-                      (e.g., placeholder, help_text, validator).
-
-        Returns:
-            The user's text response as a string.
-
-        Raises:
-            InputNotAvailable: If no Surface is available.
-        """
-        provider = self._ensure_provider()
-        request = PromptRequest(
-            question=message,
-            intent=PromptIntent.TEXT_INPUT,
-            default=default,
-            **kwargs,  # type: ignore[arg-type]
+    def text(
+        self,
+        question: str,
+        *,
+        default: str | None = None,
+        secret: bool = False,
+        placeholder: str | None = None,
+        validator: str | Any | None = None,
+        context_message: str | None = None,
+    ) -> str:
+        """Ask for free-form text. ``secret=True`` asks without echoing."""
+        intent = PromptIntent.SECRET_INPUT if secret else PromptIntent.TEXT_INPUT
+        response = self.ask(
+            PromptRequest(
+                question=question,
+                intent=intent,
+                default=default,
+                placeholder=placeholder,
+                validator=validator,
+                context_message=context_message,
+                required=default is None,
+            )
         )
-        response = provider.collect(request)
         return str(response.value) if response.value is not None else ""
-
-    def ask(self, request: PromptRequest) -> PromptResponse:
-        """Send a fully-constructed PromptRequest to the active Surface.
-
-        This is the low-level method that all other convenience methods
-        ultimately delegate to. Use this when you need full control over
-        the PromptRequest fields.
-
-        Args:
-            request: A structured PromptRequest describing the input needed.
-
-        Returns:
-            A PromptResponse from the Surface.
-
-        Raises:
-            InputNotAvailable: If no Surface is available.
-        """
-        provider = self._ensure_provider()
-        return provider.collect(request)
 
 
 # ── Registry entry (ADR-014) ───────────────────────────────────────────────
 
 CAPABILITY = CapabilitySpec(
     name="Prompt",
+    rc_accessor="prompts",
     type=Prompt,
-    factory=lambda ctx: Prompt(),
+    # `caps`, not a collector. The collector is resolved per call because the
+    # surface that owns the terminal changes during a run; binding one here is
+    # what made the injected `Prompt` permanently inert.
+    factory=lambda ctx: Prompt(_caps=ctx.caps),
 )

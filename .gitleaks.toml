@@ -1,15 +1,28 @@
 extend                              = { useDefault = true }
 title                               = "functualize gitleaks config"
 
-# The security-audit skill documents hardcoded-credential vulnerabilities by
-# showing a vulnerable→fixed pair. Its "vulnerable" half is a fabricated key
-# (`sk-live-…`) next to the joke password `hunter2` — an entropy match by
-# construction, since demonstrating the pattern requires writing the pattern.
+# Two allowlisted things, each scoped as narrowly as the format allows.
 #
-# Scoped to that one file rather than a global rule exclusion: a real key
-# committed anywhere else must still fail the scan.
+# **1. The security-audit skill.** It documents hardcoded-credential
+# vulnerabilities by showing a vulnerable→fixed pair, and its "vulnerable" half
+# is a fabricated key (`sk-live-…`) next to the joke password `hunter2` — an
+# entropy match by construction, since demonstrating the pattern requires
+# writing the pattern. Scoped to that one *file* rather than excluding the rule,
+# so a real key committed anywhere else still fails the scan.
+#
+# **2. An example event payload.** `generic-api-key` is an entropy-and-proximity
+# heuristic: a word containing `api` near an `=` and a long-enough token.
+# `resource="api.tar.gz", duration_ms=1200` matches all three and there is no
+# secret in it — it is an argument to `rc.events.emit` in a test. Scoped by
+# *line content* rather than by file, which is the narrower of the two: the same
+# fixture in another file stays covered, and a different string in this one is
+# not exempt.
 [allowlist]
-description = "Illustrative secrets in security documentation"
+description = "Illustrative secrets in documentation, and one entropy false positive"
+regexTarget = "line"
 paths = [
   '''\.agents/skills/auditing-python-security/VULNERABILITIES\.md''',
+]
+regexes = [
+  '''resource="api\.tar\.gz", duration_ms=\d+''',
 ]

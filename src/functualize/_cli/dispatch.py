@@ -25,11 +25,18 @@ if TYPE_CHECKING:
     # true-lazy boot. `_cli` imports public API only (lint-imports), which is
     # what this is when it does resolve.
     from functualize.app.utils import (
-        FieldDescriptor,
-        GroupOptionsSpec,
         GroupTrie,
         TrieNode,
     )
+
+from functualize.app.utils import (
+    GLOBAL_BOOL_FLAGS,
+    GLOBAL_OPTIONS_ALWAYS_VALUE,
+    GLOBAL_OPTIONS_OPTIONAL_VALUE,
+    GLOBAL_OPTIONS_WITH_VALUE,
+    OPTIONAL_VALUE_VALID_SET,
+    match_group_flag,
+)
 
 
 class Mode(enum.Enum):
@@ -58,66 +65,6 @@ class Mode(enum.Enum):
 
 
 # _BUILTIN_NAMES is imported from the single registry (see top of module).
-
-# Global options that always consume the next token as their value.
-_GLOBAL_OPTIONS_ALWAYS_VALUE = frozenset(
-    {
-        "--log-level",
-        "--dotenv-file",
-        "--config-directory",
-        "--discovery-depth",
-        "--require-file-import",
-        "--require-file-prefix",
-        "--require-file-postfix",
-        "--require-file-marker",
-        "--require-job-prefix",
-        "--require-job-postfix",
-        "--require-job-decorators",
-        "--exclude",
-        "--perf-filter",
-        "--import-libs",
-    }
-)
-
-# Global options that MAY take a value from a known set; if the next token
-# is not in that set, the flag assumes its default value (lookahead).
-_GLOBAL_OPTIONS_OPTIONAL_VALUE = frozenset(
-    {
-        "--perf-report",
-        "--output",
-    }
-)
-
-# Mapping: flag → (valid_values_frozenset, default_value)
-_OPTIONAL_VALUE_VALID_SET: dict[str, tuple[frozenset[str], str]] = {
-    "--perf-report": (frozenset({"text", "json"}), "text"),
-    # §C.2 serialization vocabulary for `out.emit()`. "auto" (dispatch by the
-    # emitted value's type) is both the default *and* a typeable value: a bare
-    # `--output` falls back to it via the lookahead, and that fallback is fed
-    # back through validation, so it has to be a legal value — spelling it also
-    # lets a user name the default explicitly.
-    "--output": (frozenset({"auto", "json", "ndjson", "raw", "none"}), "auto"),
-}
-
-# Union set for backward compatibility (used for --option=value detection).
-_GLOBAL_OPTIONS_WITH_VALUE = (
-    _GLOBAL_OPTIONS_ALWAYS_VALUE | _GLOBAL_OPTIONS_OPTIONAL_VALUE
-)
-
-# Global options that are boolean flags (no value after the flag).
-# NOTE: --version is NOT here — it is handled by the pre-boot fast path in
-# main.py (position-aware: only before the first positional). --help/-h are
-# here because Click needs to see them for per-command help rendering.
-_GLOBAL_BOOL_FLAGS = frozenset(
-    {
-        "--no-dotenv",
-        "--prompt-gates",
-        "--no-prompt-gates",
-        "--force",
-        "--help",
-        "-h",
-    }
-)
 
 
 def _names_a_group(token: str, group_names: set[str]) -> bool:
@@ -199,20 +146,20 @@ def detect_mode(
     while i < len(args):
         arg = args[i]
 
-        if arg in _GLOBAL_BOOL_FLAGS:
+        if arg in GLOBAL_BOOL_FLAGS:
             # Boolean flag — skip it, next arg is still available
             i += 1
             continue
 
-        if arg in _GLOBAL_OPTIONS_ALWAYS_VALUE:
+        if arg in GLOBAL_OPTIONS_ALWAYS_VALUE:
             # Always-consumes-value flag — skip both the flag and its value
             i += 2
             continue
 
-        if arg in _GLOBAL_OPTIONS_OPTIONAL_VALUE:
+        if arg in GLOBAL_OPTIONS_OPTIONAL_VALUE:
             # Optional-value flag — lookahead: only consume next token if
             # it is in the valid set for this flag.
-            valid_set, _default = _OPTIONAL_VALUE_VALID_SET[arg]
+            valid_set, _default = OPTIONAL_VALUE_VALID_SET[arg]
             if i + 1 < len(args) and args[i + 1] in valid_set:
                 i += 2  # consume flag + valid value
             else:
@@ -315,7 +262,7 @@ class ParsedGlobalOptions:
     exclude: list[str] | None = field(default=None)
     perf_report: str | None = None
     perf_filter: str | None = None
-    output: str | None = None  # --output flag: json, text, or none
+    output: str | None = None  # --emit-format flag: json, text, or none
     prompt_gates: bool = False  # --prompt-gates: prompt for gate fields during walk
     force: bool = False  # --force: run even when up to date
     first_positional_index: int = -1  # index into argv[1:] of first positional
@@ -357,9 +304,9 @@ def _extract_global_options(
             continue
 
         # Boolean flag: --force. Valueless, so deliberately NOT in
-        # `_GLOBAL_OPTIONS_ALWAYS_VALUE` — that set is for options that consume
+        # `GLOBAL_OPTIONS_ALWAYS_VALUE` — that set is for options that consume
         # the next token, and putting `--force` there would swallow the job
-        # name. It **must** also be in `_GLOBAL_BOOL_FLAGS`, which is the list
+        # name. It **must** also be in `GLOBAL_BOOL_FLAGS`, which is the list
         # `detect_mode` skips when looking for the first positional: a flag
         # parsed here and unknown there is read as the command name, and
         # `func --force build` answers `Unknown command 'force'`.
@@ -387,7 +334,7 @@ def _extract_global_options(
         # Handle --option=value style for recognized options
         if arg.startswith("--") and "=" in arg:
             flag_part, _, value_part = arg.partition("=")
-            if flag_part in _GLOBAL_OPTIONS_WITH_VALUE:
+            if flag_part in GLOBAL_OPTIONS_WITH_VALUE:
                 _assign_option(flag_part, value_part, state)
                 i += 1
                 continue
@@ -397,7 +344,7 @@ def _extract_global_options(
                 break
 
         # Handle --option VALUE style for recognized options
-        if arg in _GLOBAL_OPTIONS_ALWAYS_VALUE:
+        if arg in GLOBAL_OPTIONS_ALWAYS_VALUE:
             if i + 1 >= len(args):
                 # Missing value — treat as end (let downstream handle)
                 first_positional_index = i
@@ -408,8 +355,8 @@ def _extract_global_options(
             continue
 
         # Handle optional-value flags with lookahead
-        if arg in _GLOBAL_OPTIONS_OPTIONAL_VALUE:
-            valid_set, default_value = _OPTIONAL_VALUE_VALID_SET[arg]
+        if arg in GLOBAL_OPTIONS_OPTIONAL_VALUE:
+            valid_set, default_value = OPTIONAL_VALUE_VALID_SET[arg]
             if i + 1 < len(args) and args[i + 1] in valid_set:
                 # Next token is a valid format value → consume it
                 _assign_option(arg, args[i + 1], state)
@@ -595,7 +542,7 @@ def _assign_option(
             state.exclude = []
         state.exclude.append(value)
     elif flag == "--perf-report":
-        valid_values = _OPTIONAL_VALUE_VALID_SET["--perf-report"][0]
+        valid_values = OPTIONAL_VALUE_VALID_SET["--perf-report"][0]
         if value not in valid_values:
             print(
                 f"Error: --perf-report must be one of "
@@ -606,11 +553,11 @@ def _assign_option(
         state.perf_report = value
     elif flag == "--perf-filter":
         state.perf_filter = value
-    elif flag == "--output":
-        valid_values = _OPTIONAL_VALUE_VALID_SET["--output"][0]
+    elif flag == "--emit-format":
+        valid_values = OPTIONAL_VALUE_VALID_SET["--emit-format"][0]
         if value not in valid_values:
             print(
-                f"Error: --output must be one of "
+                f"Error: --emit-format must be one of "
                 f"{{{', '.join(sorted(valid_values))}}}, got '{value}'.",
                 file=sys.stderr,
             )
@@ -693,73 +640,6 @@ class GroupWalk:
     bad_flag_hint: str | None = None
 
 
-def _flag_aliases(field: FieldDescriptor) -> tuple[str, ...]:
-    """Every spelling that selects ``field`` **positively**.
-
-    The long form is derived from the field name with underscores hyphenated
-    (``dry_run`` -> ``--dry-run``), matching what the click param builder
-    renders, plus the undecorated ``--dry_run`` so the name as written also
-    works. A short flag is included when the ``Option`` marker declared one.
-    """
-    names = [f"--{field.name.replace('_', '-')}"]
-    if "_" in field.name:
-        names.append(f"--{field.name}")
-    if field.short_flag:
-        names.append(field.short_flag)
-    return tuple(names)
-
-
-def _negative_aliases(
-    field: FieldDescriptor, siblings: Sequence[str]
-) -> tuple[str, ...]:
-    """Every spelling that selects ``field`` **negatively**, for a bool.
-
-    Empty for a non-boolean, and empty when a sibling literally named
-    ``no_<name>`` owns the spelling — the same rule the click builders render
-    from, reached through ``app.utils`` because ``_cli`` may not import
-    ``_``-prefixed packages. Two surfaces asking one function is the point: if
-    they decided independently, ``--no-cache`` would mean different things
-    depending on how the program was invoked.
-    """
-    if (field.type_annotation or "") != "bool":
-        return ()
-
-    from functualize.app.utils import negative_flag_for
-
-    negative = negative_flag_for(field.name, siblings)
-    if negative is None:
-        return ()
-    names = [negative]
-    if "_" in field.name:
-        names.append(f"--no_{field.name}")
-    return tuple(names)
-
-
-def _match_group_flag(
-    token: str, specs: Sequence[GroupOptionsSpec]
-) -> tuple[FieldDescriptor, str | None, bool] | None:
-    """Find the field a mid-path ``token`` selects, if any declares it.
-
-    Searched nearest-declaration-first so a nested group may shadow an
-    ancestor's flag. Returns ``(field, inline_value, negated)`` where
-    ``inline_value`` is the right-hand side of a ``--flag=value`` spelling and
-    ``negated`` says the ``--no-`` spelling was used.
-
-    ``negated`` is a third element rather than a synthesised ``inline="false"``
-    because the caller must tell ``--no-strict`` from ``--strict=false``: the
-    first is the supported spelling and the second is refused.
-    """
-    name, separator, inline = token.partition("=")
-    for spec in reversed(specs):
-        siblings = [f.name for f in spec.fields]
-        for spec_field in spec.fields:
-            if name in _flag_aliases(spec_field):
-                return spec_field, (inline if separator else None), False
-            if name in _negative_aliases(spec_field, siblings):
-                return spec_field, (inline if separator else None), True
-    return None
-
-
 def walk_group_path(trie: GroupTrie, args: Sequence[str]) -> GroupWalk:
     """Walk ``args`` through ``trie``, consuming group-declared flags en route.
 
@@ -786,7 +666,7 @@ def walk_group_path(trie: GroupTrie, args: Sequence[str]) -> GroupWalk:
         token = args[index]
 
         if token.startswith("-"):
-            matched = _match_group_flag(token, trie.group_options_on_path(path))
+            matched = match_group_flag(token, trie.group_options_on_path(path))
             if matched is None:
                 return GroupWalk(
                     node=node,
@@ -863,7 +743,7 @@ def walk_group_path(trie: GroupTrie, args: Sequence[str]) -> GroupWalk:
 
 
 def is_known_global_flag(token: str) -> bool:
-    """Is ``token`` one of func's own global flags (`--log-level`, `--output`, …)?
+    """Is ``token`` one of func's own global flags (`--log-level`, `--emit-format`, …)?
 
     Accepts both ``--flag`` and ``--flag=value`` spellings. Used only to give a
     better error when a global is misplaced *after* the group name: global flags
@@ -872,4 +752,4 @@ def is_known_global_flag(token: str) -> bool:
     option". See ``_dispatch_group``.
     """
     flag = token.split("=", 1)[0]
-    return flag in _GLOBAL_OPTIONS_WITH_VALUE or flag in _GLOBAL_BOOL_FLAGS
+    return flag in GLOBAL_OPTIONS_WITH_VALUE or flag in GLOBAL_BOOL_FLAGS

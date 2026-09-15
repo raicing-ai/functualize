@@ -174,7 +174,7 @@ class GateRegistry:
         strategy_entries = self._resolve_strategy_list(gate_strategy)
 
         # Step 5: Try each strategy in order
-        last_exc: BaseException | None = None
+        failures: list[str] = []
         unregistered: list[str] = []
         for strategy_name, preset_source in strategy_entries:
             resolver = self._strategies.get(strategy_name)
@@ -210,7 +210,17 @@ class GateRegistry:
             try:
                 return resolver.resolve(ctx)
             except Exception as exc:
-                last_exc = exc
+                # **Every** rung's failure, each labelled with the rung it came
+                # from — not just the last one. The ladder used to keep only
+                # the most recent exception, so a broken *earlier* strategy was
+                # invisible and the operator was shown the *next* strategy's
+                # complaint instead: a `prompt` resolver raising `TypeError`
+                # reported "Cannot resolve model Prefs from config chain",
+                # which points at the config chain, which was fine.
+                #
+                # Found while writing AC-10's test, by being the broken
+                # resolver.
+                failures.append(f"{strategy_name}: {exc}")
                 continue
 
         # All strategies failed. Both causes are reported, and the
@@ -220,8 +230,7 @@ class GateRegistry:
         parts = []
         if unregistered:
             parts.append(_unregistered_message(unregistered))
-        if last_exc is not None:
-            parts.append(str(last_exc))
+        parts.extend(failures)
         last_error_msg = "; ".join(parts) if parts else "no strategies attempted"
         raise GateResolutionError(
             gate_name=gate_name,

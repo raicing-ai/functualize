@@ -3,7 +3,7 @@
 These tests encode the EXPECTED (correct) behavior — they are designed to FAIL
 on unfixed code to confirm the bug exists.
 
-Bug A: --perf-report and --output in _GLOBAL_OPTIONS_WITH_VALUE unconditionally
+Bug A: --perf-report and --emit-format in _GLOBAL_OPTIONS_WITH_VALUE unconditionally
 consume the next token as their value. When the next token is a job name (not a
 valid format value), it gets consumed as the flag value, leaving no positional
 for detect_mode(), which then incorrectly returns Mode.BARE instead of Mode.JOB.
@@ -18,24 +18,24 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.dispatch import (
-    _OPTIONAL_VALUE_VALID_SET,
     Mode,
     _extract_global_options,
     detect_mode,
 )
+from functualize.types import OPTIONAL_VALUE_VALID_SET
 
 # =============================================================================
 # Strategies
 # =============================================================================
 
 # Valid format values for each optional-value flag, read from the flag table
-# itself. These were hardcoded copies and had drifted: --output's list still
+# itself. These were hardcoded copies and had drifted: --emit-format's list still
 # said {"json", "text", "none"} long after the real vocabulary became
 # {"auto", "json", "ndjson", "raw", "none"}, so the "non-format token"
 # strategies below could emit a value that *is* a format and the assertions
 # would be testing the opposite of what they claim.
-_PERF_REPORT_VALID, _PERF_REPORT_DEFAULT = _OPTIONAL_VALUE_VALID_SET["--perf-report"]
-_OUTPUT_VALID, _OUTPUT_DEFAULT = _OPTIONAL_VALUE_VALID_SET["--output"]
+_PERF_REPORT_VALID, _PERF_REPORT_DEFAULT = OPTIONAL_VALUE_VALID_SET["--perf-report"]
+_OUTPUT_VALID, _OUTPUT_DEFAULT = OPTIONAL_VALUE_VALID_SET["--emit-format"]
 
 # Characters safe for job-name-like tokens
 _identifier_first_char = st.sampled_from("abcdefghijklmnopqrstuvwxyz")
@@ -60,7 +60,7 @@ _non_perf_format_job_name = st.builds(
     )
 )
 
-# Job-name-like strings that are NOT valid format values for --output
+# Job-name-like strings that are NOT valid format values for --emit-format
 _non_output_format_job_name = st.builds(
     lambda first, rest: first + rest,
     _identifier_first_char,
@@ -84,11 +84,11 @@ _non_output_format_job_name = st.builds(
 class TestBugConditionOptionalValueConsumption:
     """Property 1: Bug Condition - Optional-Value Flag Consumes Positional.
 
-    For any argv where --perf-report or --output is followed by a token that
+    For any argv where --perf-report or --emit-format is followed by a token that
     is NOT in their valid format set AND the token does not start with "-",
     the token MUST appear in effective_args from detect_mode() (i.e., it is
     NOT consumed as the flag value), and the flag SHALL receive its default
-    value ("text" for --perf-report, "none" for --output).
+    value ("text" for --perf-report, "none" for --emit-format).
 
     These tests encode the EXPECTED correct behavior. They are expected to
     FAIL on the unfixed code, confirming Bug A exists.
@@ -139,31 +139,31 @@ class TestBugConditionOptionalValueConsumption:
 
     @given(job_name=_non_output_format_job_name)
     def test_output_does_not_consume_non_format_token(self, job_name: str) -> None:
-        """--output followed by a non-format token preserves the token.
+        """--emit-format followed by a non-format token preserves the token.
 
-        When --output is followed by a token that is not one of its valid
+        When --emit-format is followed by a token that is not one of its valid
         format values, the flag should fall back to its declared default and
         the token should remain a positional argument.
 
         NOTE: On unfixed code, this fails because the token IS consumed as the
-        --output value. The existing validation then rejects it via SystemExit(1).
+        --emit-format value. The existing validation then rejects it via SystemExit(1).
         The fix should prevent consumption entirely, so no SystemExit occurs.
 
         **Validates: Requirements 2.8**
         """
-        argv = ["func", "--output", job_name]
+        argv = ["func", "--emit-format", job_name]
 
-        # On UNFIXED code: token is consumed as --output value, then validation
+        # On UNFIXED code: token is consumed as --emit-format value, then validation
         # rejects it with SystemExit(1). This confirms the bug — the token
         # should NOT be consumed in the first place.
         try:
             opts, _ = _extract_global_options(argv)
         except SystemExit:
-            # Bug confirmed: token was consumed as --output value and rejected.
+            # Bug confirmed: token was consumed as --emit-format value and rejected.
             # The correct behavior is to NOT consume it at all.
             pytest.fail(
                 f"SystemExit raised because '{job_name}' was consumed as "
-                f"--output value and rejected by validation. The token should "
+                f"--emit-format value and rejected by validation. The token should "
                 f"NOT be consumed as the flag value."
             )
 
@@ -179,19 +179,19 @@ class TestBugConditionOptionalValueConsumption:
 
     @given(job_name=_non_output_format_job_name)
     def test_output_non_format_token_detected_as_job(self, job_name: str) -> None:
-        """detect_mode routes to Mode.JOB when --output precedes a job name.
+        """detect_mode routes to Mode.JOB when --emit-format precedes a job name.
 
-        When --output is followed by a known job name (not a format value),
+        When --emit-format is followed by a known job name (not a format value),
         detect_mode should identify it as Mode.JOB with the job name in
         effective_args.
 
         NOTE: On unfixed code, detect_mode unconditionally consumes the next
-        token after --output (i += 2), so the job name disappears and mode
+        token after --emit-format (i += 2), so the job name disappears and mode
         resolves to BARE instead of JOB.
 
         **Validates: Requirements 1.6, 2.8**
         """
-        argv = ["func", "--output", job_name]
+        argv = ["func", "--emit-format", job_name]
         job_names = {job_name}
 
         mode, effective_args = detect_mode(argv, job_names=job_names)
@@ -238,21 +238,21 @@ class TestBugConditionOptionalValueConsumption:
         )
 
     def test_detect_mode_output_followed_by_concrete_job(self) -> None:
-        """Concrete case: func --output forecast → Mode.JOB.
+        """Concrete case: func --emit-format forecast → Mode.JOB.
 
         NOTE: detect_mode does NOT call _extract_global_options and therefore
-        does NOT hit the --output validation. It simply skips the flag + value
+        does NOT hit the --emit-format validation. It simply skips the flag + value
         unconditionally (i += 2), consuming "forecast" as the flag value.
 
         **Validates: Requirements 1.6, 2.8**
         """
-        argv = ["func", "--output", "forecast"]
+        argv = ["func", "--emit-format", "forecast"]
         job_names = {"forecast"}
 
         mode, effective_args = detect_mode(argv, job_names=job_names)
 
         assert mode is Mode.JOB, (
-            f"Expected Mode.JOB for 'func --output forecast' "
+            f"Expected Mode.JOB for 'func --emit-format forecast' "
             f"with job_names={{'forecast'}}, got {mode}"
         )
         assert "forecast" in effective_args, (

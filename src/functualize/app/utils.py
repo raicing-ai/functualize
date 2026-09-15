@@ -13,7 +13,8 @@ import json
 import os
 import sys
 import tomllib
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,13 @@ from typing import Any
 from pydantic import TypeAdapter, ValidationError
 
 from functualize._config.merge import merge_config_layers
+
+# `workflow-graph-semantics`/T6. Core ships a notifier and registers none; this
+# is how somebody reaches it to register it. Without the re-export the claim in
+# `_engine/notify.LogNotifier`'s docstring — that "no notifier registered" is a
+# state a user can leave without installing a package — would be false, because
+# the only way to import it would be through `_engine`.
+from functualize._engine.notify import LogNotifier
 from functualize._primitives.agent_epilog import (
     agent_epilog,
     write_agent_epilog,
@@ -33,6 +41,11 @@ from functualize._primitives.display_detection import (
     find_display_providers,
     is_display_provider,
 )
+from functualize._primitives.fresh_format import (
+    resolve_fresh_location,
+    resolve_fresh_path,
+)
+from functualize._primitives.fresh_store import FreshStore
 from functualize._primitives.job_schema import (
     field_property,
     input_schema,
@@ -45,15 +58,14 @@ from functualize._primitives.parameter_types import (
     is_cli_value_type,
 )
 from functualize._primitives.plugin_kinds import PluginKind, classify_group
+from functualize._primitives.run_store import RunStore, new_run_id, runner_identity
 from functualize._primitives.scope_format import (
+    SCOPES_LIMIT,
     SCOPES_VERSION,
-    resolve_scopes_path,
 )
-from functualize._primitives.state_format import (
-    resolve_state_location,
-    resolve_state_path,
-)
-from functualize._primitives.state_store import StateStore
+from functualize._primitives.scope_state_store import scope_state_key
+from functualize._primitives.scope_store import ScopeStore
+from functualize._primitives.shell_history import ShellHistoryStore
 from functualize._types.annotations import resolved_hints
 from functualize._types.descriptors import FieldDescriptor, GroupOptionsSpec
 from functualize._types.enums import RunStatus
@@ -63,6 +75,17 @@ from functualize._types.errors import (
     ScopeStoreUnreadableError,
 )
 from functualize._types.exit_codes import ExitCode, exit_code_for_status
+from functualize._types.flag_grammar import (
+    GLOBAL_BOOL_FLAGS,
+    GLOBAL_OPTIONS_ALWAYS_VALUE,
+    GLOBAL_OPTIONS_OPTIONAL_VALUE,
+    GLOBAL_OPTIONS_WITH_VALUE,
+    OPTIONAL_VALUE_VALID_SET,
+    flag_aliases,
+    match_group_flag,
+    negative_aliases,
+    negative_flag_for,
+)
 from functualize._types.naming import (
     BUILTIN_SEGMENT,
     GroupTrie,
@@ -70,16 +93,33 @@ from functualize._types.naming import (
     TrieNode,
     TrieResolution,
     group_ancestors,
-    negative_flag_for,
     normalize_name,
     normalize_segment,
     resolve_name,
+)
+from functualize._types.outcome import (
+    Family,
+    is_failure,
+    report_line,
+    status_from_wire,
+    wire_value,
 )
 from functualize._types.redaction import (
     MASK,
     display_value,
     is_secret_field,
     reveal,
+)
+from functualize._types.run_request import (
+    RunRequest,
+)
+from functualize.app._run_view import (
+    RUN_STATES,
+    describe_run,
+    job_history,
+    list_runs,
+    run_events,
+    run_tree,
 )
 from functualize.app._workflow_answer import answer_gate, gate_draft, resolve_gate
 from functualize.app._workflow_control import (
@@ -88,6 +128,7 @@ from functualize.app._workflow_control import (
     call_gate_tool,
     cancel_scope,
     purge_scopes,
+    reclaim_scope,
     resolve_advanceable,
     resume_scope,
 )
@@ -95,8 +136,11 @@ from functualize.app._workflow_resume import deposit_gate_input, pending_gates
 from functualize.app._workflow_view import (
     LIVE_STATUSES,
     WORKFLOW_STATES,
+    derived_state,
     describe_scope,
     list_scopes,
+    walk_is_live,
+    watch_scope,
 )
 from functualize.app.config import JobSources
 
@@ -135,6 +179,12 @@ def job_config_fields(app: Any, job_name: str) -> list[Any]:
 
 
 __all__ = [
+    "Family",
+    "is_failure",
+    "report_line",
+    "status_from_wire",
+    "wire_value",
+    "RunRequest",
     "auto_discover",
     "classify_group",
     "PluginKind",
@@ -158,11 +208,21 @@ __all__ = [
     "call_gate_tool",
     "cancel_scope",
     "purge_scopes",
+    "reclaim_scope",
     "resolve_advanceable",
     "resume_scope",
     "gate_draft",
     "resolve_gate",
+    "describe_run",
+    "job_history",
+    "run_events",
+    "run_tree",
+    "LogNotifier",
+    "derived_state",
     "describe_scope",
+    "walk_is_live",
+    "watch_scope",
+    "list_runs",
     "list_scopes",
     "LIVE_STATUSES",
     "DiscoveryOverrides",
@@ -183,17 +243,30 @@ __all__ = [
     "pending_gates",
     "read_display_modules_from_cache",
     "read_group_options_from_cache",
+    "suggest_similar_commands",
+    "discovery_hash_for",
+    "diagnostic_boot",
+    "has_eligible_ambient",
+    "is_execution_engine",
+    "terminal_available",
     "read_routing_names_from_cache",
     "read_routing_rows_from_cache",
     "resolve_cache_path",
     "TrieNode",
     "TrieResolution",
-    "resolve_state_location",
-    "resolve_state_path",
-    "StateStore",
+    "resolve_fresh_location",
+    "resolve_fresh_path",
+    "FreshStore",
+    "ScopeStore",
     # The scope store's location and version, for `builtin state show` and
     # `builtin info`: a file whose path nothing reports is a file nobody finds.
-    "resolve_scopes_path",
+    "RUN_STATES",
+    "RunStore",
+    "ShellHistoryStore",
+    "new_run_id",
+    "runner_identity",
+    "scope_state_key",
+    "SCOPES_LIMIT",
     "SCOPES_VERSION",
     # Raised when the scope store cannot be honoured. Public because `_cli`,
     # `app/adapters` and the MCP plugin all have to turn it into a refusal, and
@@ -219,6 +292,14 @@ __all__ = [
     "merge_config_layers",
     "group_ancestors",
     "negative_flag_for",
+    "GLOBAL_OPTIONS_ALWAYS_VALUE",
+    "GLOBAL_OPTIONS_OPTIONAL_VALUE",
+    "OPTIONAL_VALUE_VALID_SET",
+    "GLOBAL_OPTIONS_WITH_VALUE",
+    "GLOBAL_BOOL_FLAGS",
+    "flag_aliases",
+    "negative_aliases",
+    "match_group_flag",
     "normalize_name",
     "normalize_segment",
     "resolve_name",
@@ -1538,7 +1619,7 @@ def read_routing_rows_from_cache(
         Plugin commands are **not** here and cannot be: they are registered at
         APP_READY, in memory, and never reach the cache. A trie built from
         these rows describes job space only; plugin namespaces are added
-        post-boot from ``app.get_plugin_commands()``.
+        post-boot from ``app.extensions.get_plugin_commands()``.
     """
     from functualize._primitives.cache_format import CACHE_VERSION
 
@@ -1633,8 +1714,208 @@ def build_group_trie(
     )
 
 
+def is_execution_engine(candidate: Any) -> bool:
+    """Is ``candidate`` a real execution engine?
+
+    A **type** question, kept as one. `app/adapters/click_params.py` guards
+    against being handed something that is not an engine, and the honest form of
+    that guard is `isinstance` — surface-request-parity/T4 forbids the adapter
+    importing `_engine` to phrase it, not the guard itself.
+
+    Duck-typing was tried and is wrong here: `callable(getattr(engine, "run"))`
+    is satisfied by any `MagicMock`, which is precisely the case the guard
+    exists to catch ("invoking a job without an attached app"). A check that
+    every stand-in passes is not a check.
+
+    This corridor may import `_engine`; the adapters may not. That is the whole
+    point of a corridor.
+    """
+    from functualize._engine.executor import JobExecutionEngine
+
+    return isinstance(candidate, JobExecutionEngine)
+
+
+def terminal_available() -> bool:
+    """Is there a real terminal for a job that declares ``tty: TTY``?
+
+    Published here because the **adapters may not import `_engine`**
+    (surface-request-parity/T4) and both dispatch paths have to answer this
+    before running anything. One route, so the cold and warm paths cannot
+    disagree about what a terminal is.
+    """
+    from functualize._engine.capabilities.tty import terminal_available as _probe
+
+    return _probe()
+
+
+def has_eligible_ambient(app: Any, descriptor: Any) -> bool:
+    """Would a plugin's ambient construct render for this job?
+
+    Same corridor, same reason: `adapters/surface_gate.py` asks it and may not
+    reach `_engine` to do so.
+    """
+    from functualize._engine.ambient import has_eligible_ambient as _probe
+
+    return _probe(app, descriptor)
+
+
+@contextmanager
+def diagnostic_boot() -> Iterator[None]:
+    """Boot inside this block reports a project-wide contradiction, not exits.
+
+    The corridor for `_cli`, which may import public folders only. See
+    ``functualize._app.boot.diagnostic_boot`` for what it does and, more
+    importantly, what stays fatal.
+    """
+    from functualize._app.boot import diagnostic_boot as _diagnostic_boot
+
+    with _diagnostic_boot():
+        yield
+
+
+def discovery_hash_for(app: Any = None) -> str | None:
+    """The caller's own discovery fingerprint, for the cache reader to check.
+
+    A cache file's ``group_options`` section describes the tree that a
+    *particular* discovery configuration scanned. A caller running with
+    different filters — a different ``--exclude``, a narrower
+    ``--discovery-depth`` — is looking at a different tree, and serving it that
+    section is serving it someone else's answer (adjacent-defects/T10).
+
+    Pass the result to :func:`read_group_options_from_cache` as
+    ``discovery_hash``. ``None`` means *cannot know* and skips the check, which
+    is the pre-existing behaviour and stays available for callers that have no
+    app in hand.
+
+    The corridor exists because ``_cli`` may import public folders only, and
+    ``discovery_hash_from_config`` lives in ``_discovery``.
+
+    **``None`` means one thing, and a missing attribute is not it.** This used
+    to read ``_discovery_config``, then fall back to ``discovery_config``, then
+    swallow every exception — three ways to return ``None``, of which only one
+    was the documented "cannot know". The second spelling had **no writer
+    anywhere in ``src/``**, and the combination meant a renamed attribute, a
+    refactored app or a stand-in object degraded the cache reader to its
+    pre-fix behaviour with nothing said: not an error, just the check quietly
+    no longer happening — the exact shape `pitfalls.md` §5 is about, and the
+    one adj §4 found here.
+
+    So: no ``app`` is ``None`` (the documented path, for callers that have none
+    in hand); an ``app`` whose ``_discovery_config`` is ``None`` is ``None``
+    (that app declared no discovery configuration); and an object with no such
+    attribute at all is an :class:`AttributeError`, because
+    :class:`~functualize.app.core.FunctualizeApp` sets it in ``__init__`` and
+    anything else is a caller mistake worth hearing about.
+
+    Raises:
+        AttributeError: ``app`` is not ``None`` and has no
+            ``_discovery_config`` — it is not an app.
+    """
+    from functualize._discovery.filter_factory import discovery_hash_from_config
+
+    if app is None:
+        return None
+    missing: Any = object()
+    config: Any = getattr(app, "_discovery_config", missing)
+    if config is missing:
+        raise AttributeError(
+            f"discovery_hash_for() was handed a "
+            f"{type(app).__name__} with no `_discovery_config`. Pass a "
+            f"FunctualizeApp, or pass None to skip the check deliberately — "
+            f"returning None here would disable a cache correctness check "
+            f"without saying so."
+        )
+    if config is None:
+        return None
+    return discovery_hash_from_config(config)
+
+
+def _levenshtein(s: str, t: str) -> int:
+    """Edit distance between two strings — insertions, deletions,
+    substitutions. Standard dynamic programming, O(min(m, n)) space."""
+    if len(s) < len(t):
+        return _levenshtein(t, s)
+    if not t:
+        return len(s)
+
+    previous_row = list(range(len(t) + 1))
+    for i, sc in enumerate(s):
+        current_row = [i + 1]
+        for j, tc in enumerate(t):
+            cost = 0 if sc == tc else 1
+            current_row.append(
+                min(
+                    current_row[j] + 1,  # insertion
+                    previous_row[j + 1] + 1,  # deletion
+                    previous_row[j] + cost,  # substitution
+                )
+            )
+        previous_row = current_row
+    return previous_row[-1]
+
+
+def suggest_similar_commands(
+    target: str,
+    candidates: Iterable[str],
+    max_results: int = 5,
+) -> list[str]:
+    """What the user probably meant by ``target``, best first.
+
+    **One implementation, because "did you mean?" is one question.** There were
+    two: ``func`` scored prefix / substring / Levenshtein ≤ 2, and the app entry
+    point scored prefix / substring only — not fuzzy at all, so the commonest
+    case (a real typo) produced *no* suggestion on an app while producing one on
+    ``func``. `adjacent-defects/AC-12` promises the app "produces the same
+    explanation ``func`` produces"; T12 made the app *reach* the weaker one for
+    the first time, and the test it added asserted only the explanation text,
+    which the two really did share.
+
+    The union of both, so neither door lost a behaviour:
+
+    1. **Prefix, either direction** (score 3) — ``dep`` → ``deploy``, and
+       ``deployy`` → ``deploy``.
+    2. **Substring, either direction** (score 2) — ``ploy`` → ``deploy``.
+    3. **Levenshtein ≤ 2** (score 1) — ``deply`` → ``deploy``. This is the rule
+       the app entry point did not have.
+
+    Matching is case-insensitive (the app entry point's behaviour; ``func`` was
+    case-sensitive). Ties break alphabetically so the list is stable — a
+    suggestion order that moves between runs reads as a different answer.
+
+    An empty ``target`` suggests nothing: every candidate has it as a prefix,
+    so the "helpful" answer is the entire command list.
+
+    Args:
+        target: What the user typed and no command matched.
+        candidates: The valid names to search. Any iterable; order does not
+            matter, since the result is scored and then sorted.
+        max_results: Cap on the returned list.
+
+    Returns:
+        Up to ``max_results`` names, best score first, then alphabetical.
+    """
+    if not target:
+        return []
+
+    lowered = target.lower()
+    scored: list[tuple[int, str]] = []
+    for name in candidates:
+        low = name.lower()
+        if low.startswith(lowered) or lowered.startswith(low):
+            scored.append((3, name))
+        elif lowered in low or low in lowered:
+            scored.append((2, name))
+        elif _levenshtein(lowered, low) <= 2:
+            scored.append((1, name))
+
+    scored.sort(key=lambda pair: (-pair[0], pair[1]))
+    return [name for _, name in scored[:max_results]]
+
+
 def read_group_options_from_cache(
     cache_path: Path,
+    *,
+    discovery_hash: str | None,
 ) -> dict[str, GroupOptionsSpec] | None:
     """Read the declared per-group flags from an existing cache file.
 
@@ -1643,11 +1924,34 @@ def read_group_options_from_cache(
     answered without importing the declaring module. The declaring class is
     imported only when a value must be validated.
 
+    Args:
+        cache_path: Path to the discovery cache file.
+        discovery_hash: Fingerprint of the discovery config the caller is
+            running under, from :func:`discovery_hash_for`. A cache whose
+            header records a different one was written by a scan the caller is
+            not repeating, so its ``group_options`` section describes a
+            filtered tree the caller does not have — it is refused, exactly as
+            a format-version mismatch is. ``None`` means "cannot know" and
+            skips the check.
+
+            **Required, keyword-only, and deliberately without a default.**
+            It had one, and a fifth caller — the MCP plugin, the surface whose
+            entire job is publishing a job's schema to an agent — took it and
+            served the stale section for a release. ``adjacent-defects/T10``
+            named a sabotage for that ("drop the fingerprint argument at the
+            call site; this test must fail"), and nothing could observe it: a
+            test can assert what this function returns, never what a caller
+            passed. Removing the default moves the check from a test that does
+            not exist to the type checker and the interpreter, which cannot
+            forget to run. A caller that truly cannot know says ``None`` and
+            says it out loud.
+
     Returns:
         A ``{group_path: GroupOptionsSpec}`` mapping if the cache exists and
         is valid (possibly empty when no group declares options). Returns
-        None if the cache is missing, unreadable, malformed, or a different
-        format version — callers should fall back to scanning.
+        None if the cache is missing, unreadable, malformed, a different
+        format version, or written under a different discovery filter set —
+        callers should fall back to scanning.
     """
     from functualize._primitives.cache_format import CACHE_VERSION
 
@@ -1660,6 +1964,14 @@ def read_group_options_from_cache(
         return None
 
     if not isinstance(data, dict) or data.get("version") != CACHE_VERSION:
+        return None
+
+    # The header is the same fingerprint the boot path checks before replaying
+    # any of this file (`CachedDirectoryScanProvider._is_globally_invalidated`).
+    # This section carries none of its own, so a reader that does not check the
+    # header serves the flags of a scan that was run under other filters —
+    # which is how an excluded declaration kept answering for one invocation.
+    if discovery_hash is not None and data.get("discovery_hash") != discovery_hash:
         return None
 
     section = data.get("group_options")

@@ -131,11 +131,11 @@ def register_ai_inbound_gate_strategy(app: Any, ai: AI) -> None:
         ai: The AI capability instance.
     """
     resolver = AIInboundGateResolver(ai=ai)
-    app.register_gate_strategy(AI_INBOUND_STRATEGY_NAME, resolver)
+    app.gates.register_gate_strategy(AI_INBOUND_STRATEGY_NAME, resolver)
 
     # Register gate presets
     # "ai_inbound" → ["ai_inbound", "prompt", "resolve"]
-    app.register_gate_preset(AI_INBOUND_PRESET_NAME, AI_INBOUND_PRESET_STRATEGIES)
+    app.gates.register_gate_preset(AI_INBOUND_PRESET_NAME, AI_INBOUND_PRESET_STRATEGIES)
 
     # "ai" → ["ai_outbound", "ai_inbound", "prompt", "resolve"]
-    app.register_gate_preset(AI_PRESET_NAME, AI_PRESET_STRATEGIES)
+    app.gates.register_gate_preset(AI_PRESET_NAME, AI_PRESET_STRATEGIES)

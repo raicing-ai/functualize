@@ -56,7 +56,8 @@ src/functualize/
 ├── testing/          PUBLIC — Test helpers (TestRunContext, doubles)
 ├── workflow/         PUBLIC — Workflow definition API (@workflow decorator, Step/Edge types)
 │
-├── _types/           INTERNAL — Shared vocabulary (only dataclasses, enums, protocols)
+├── _types/           INTERNAL — Shared vocabulary: the types every layer names, and the
+│                     rules that are *about* those types (naming, flag grammar, outcome)
 ├── _primitives/      INTERNAL — Zero-dep utilities (DI, ResourceLocator, MiddlewareChain)
 ├── _events/          INTERNAL — Cross-cutting (EventBus, HookRegistry, PerfTimeline)
 ├── _discovery/       INTERNAL — Job finding + caching
@@ -67,6 +68,18 @@ src/functualize/
 ├── _gate/            INTERNAL — Gate resolution for workflow input pauses
 └── _cli/             INTERNAL — `func` CLI delivery (uses public API only)
 ```
+
+> **`_types/` holds behaviour, and that is intended.** This line used to read
+> *"only dataclasses, enums, protocols"*, which had not been true for a long
+> time: `workflow.py` defines 36 functions and methods, `job_declaration.py` 27,
+> `naming.py` 25 (including the whole group trie), `redaction.py` 18. What
+> belongs here is a rule that is *about* the shared vocabulary and needs no
+> other layer to state it — name normalization, the flag grammar, the outcome
+> tables — because every altitude needs it and the peer layers may not import
+> each other. What does not belong is anything that reaches a subsystem:
+> `_types` imports nothing internal, and an import-linter contract enforces
+> that. Corrected after a reviewer read the old line against
+> `_types/flag_grammar.py` and reasonably asked which one was wrong.
 
 ## The Three Layers
 

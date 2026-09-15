@@ -46,11 +46,22 @@ class RecordingApp(FakeApp):
 
     def __init__(self) -> None:
         super().__init__()
-        self.calls: list[tuple[str, dict]] = []
+        self.calls: list[tuple[str, dict, dict | None]] = []
 
-    def execute(self, job_name: str, **kwargs: object) -> FakeJobResult:
-        self.calls.append((job_name, kwargs))
-        return super().execute(job_name, **kwargs)
+    def execute(self, request: object) -> FakeJobResult:
+        # (name, job kwargs, group options) — three things, because on this
+        # branch they *are* three things. `app.execute` used to take
+        # `(job_name, **kwargs)`, so a group option arrived flattened in among
+        # the job's own arguments; the request keeps them in separate fields
+        # (run-request-entry/T15), which is what the assertions below now pin.
+        self.calls.append(
+            (
+                request.job_name,  # type: ignore[attr-defined]
+                dict(request.kwargs),  # type: ignore[attr-defined]
+                request.group_option_values,  # type: ignore[attr-defined]
+            )
+        )
+        return super().execute(request)
 
 
 def test_grouped_name_with_params_builds_and_executes() -> None:
@@ -77,7 +88,11 @@ def test_grouped_name_with_params_builds_and_executes() -> None:
     assert result["status"] == "success"
     assert result["return_value"] == "executed probe.echo"
     assert result["duration_ms"] == 42.0
-    assert app.calls == [("probe.echo", {"group_option_values": None, "text": "hello"})]
+    # The job's own argument, and nothing else, in `kwargs`. Master asserted
+    # `{"group_option_values": None, "text": "hello"}` because its facade
+    # flattened both into one dict; here the group options have their own field
+    # and the job cannot receive one as an argument by accident.
+    assert app.calls == [("probe.echo", {"text": "hello"}, None)]
 
 
 def test_grouped_name_without_params_still_builds() -> None:

@@ -26,6 +26,8 @@ from functualize._types.job_declaration import (
 from functualize.job.capabilities import (
     TTY,
     FailingResponder,
+    Freshness,
+    FreshnessVerdict,
     Invoke,
     JobConfigView,
     JobContext,
@@ -93,6 +95,8 @@ __all__ = [
     "Responder",
     "FailingResponder",
     "Sources",
+    "Freshness",
+    "FreshnessVerdict",
     "State",
     "Stdout",
     "JobContext",

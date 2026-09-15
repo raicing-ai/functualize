@@ -119,7 +119,7 @@ class TestWithPluginConfigCopySemantics:
         **Validates: Requirements 4.1**
         """
         rc = make_run_context(plugin_configs={"plugin.test": config})
-        new_rc = rc.with_plugin_config("plugin.test", **overrides)
+        new_rc = rc.wiring.with_plugin_config("plugin.test", **overrides)
         assert new_rc is not rc
 
     @given(config=flexible_configs, overrides=flexible_overrides)
@@ -142,10 +142,10 @@ class TestWithPluginConfigCopySemantics:
         original_enabled = config.enabled
 
         # Perform override
-        rc.with_plugin_config("plugin.test", **overrides)
+        rc.wiring.with_plugin_config("plugin.test", **overrides)
 
         # Verify original config object unchanged
-        original_config = rc.get_plugin_config("plugin.test")
+        original_config = rc.wiring.get_plugin_config("plugin.test")
         assert isinstance(original_config, FlexibleConfig)
         assert original_config.name == original_name
         assert original_config.count == original_count
@@ -177,10 +177,10 @@ class TestWithPluginConfigCopySemantics:
         }
         rc = make_run_context(plugin_configs=configs)
 
-        new_rc = rc.with_plugin_config("plugin.test", **overrides)
+        new_rc = rc.wiring.with_plugin_config("plugin.test", **overrides)
 
         # The other section should be preserved identically
-        preserved = new_rc.get_plugin_config(alt_section)
+        preserved = new_rc.wiring.get_plugin_config(alt_section)
         assert preserved is alt_config  # Same object reference
         assert isinstance(preserved, AltConfig)
         assert preserved.api_key == alt_config.api_key
@@ -198,9 +198,9 @@ class TestWithPluginConfigCopySemantics:
         **Validates: Requirements 4.1**
         """
         rc = make_run_context(plugin_configs={"plugin.test": config})
-        new_rc = rc.with_plugin_config("plugin.test", **overrides)
+        new_rc = rc.wiring.with_plugin_config("plugin.test", **overrides)
 
-        new_config = new_rc.get_plugin_config("plugin.test")
+        new_config = new_rc.wiring.get_plugin_config("plugin.test")
         assert isinstance(new_config, FlexibleConfig)
 
         # All override values must be applied
@@ -219,9 +219,9 @@ class TestWithPluginConfigCopySemantics:
         **Validates: Requirements 4.1**
         """
         rc = make_run_context(plugin_configs={"plugin.test": config})
-        new_rc = rc.with_plugin_config("plugin.test", **overrides)
+        new_rc = rc.wiring.with_plugin_config("plugin.test", **overrides)
 
-        new_config = new_rc.get_plugin_config("plugin.test")
+        new_config = new_rc.wiring.get_plugin_config("plugin.test")
         assert isinstance(new_config, FlexibleConfig)
         all_fields = {"name", "count", "ratio", "enabled"}
         non_overridden = all_fields - set(overrides.keys())
@@ -251,7 +251,7 @@ class TestWithPluginConfigCopySemantics:
         }
         rc = make_run_context(plugin_configs=configs)
 
-        original_size = len(rc.plugin_configs)
-        rc.with_plugin_config("plugin.test", **overrides)
+        original_size = len(rc.wiring.plugin_configs)
+        rc.wiring.with_plugin_config("plugin.test", **overrides)
 
-        assert len(rc.plugin_configs) == original_size
+        assert len(rc.wiring.plugin_configs) == original_size

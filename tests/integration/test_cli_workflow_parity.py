@@ -19,8 +19,9 @@ from pydantic import BaseModel, Field
 from functualize._app.state import AppState
 from functualize._cli.builtins import register_builtin_commands
 from functualize.app.core import FunctualizeApp
-from functualize.app.utils import StateStore
+from functualize.app.utils import ExitCode, ScopeStore
 from functualize.job import RunStatus
+from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, workflow
 
 pytestmark = pytest.mark.anyio
@@ -110,7 +111,11 @@ class TestCliDrivesABlockedWorkflow:
         self, app: FunctualizeApp, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Mirror of the S4 MCP loop, driven entirely over the CLI."""
-        blocked = app.execute("release", scope_id="rel-1")
+        blocked = app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-1"
+            )
+        )
         assert blocked.status is RunStatus.BLOCKED
 
         # `list` sees the blocked scope.
@@ -153,7 +158,11 @@ class TestCliDrivesABlockedWorkflow:
     ) -> None:
         """`replicas` is required, so this drafts rather than answering — and
         a still-blocked gate must not be walked past."""
-        app.execute("release", scope_id="rel-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-1"
+            )
+        )
         app.ran.clear()  # type: ignore[attr-defined]
 
         code = _run_cli(
@@ -167,17 +176,35 @@ class TestCliDrivesABlockedWorkflow:
                 json.dumps({"environment": "prod"}),
             ],
         )
-        assert code == 0
+        # Exit 5: the draft was saved and the gate still blocks. `_resume_exit`
+        # promises this in its own docstring -- "a still-blocked run exits 5 ...
+        # a script that resumes in a loop needs to know whether it finished" --
+        # but until run-outcome-authority T4 the verb answered 0 here, because
+        # "drafted" is a gate state rather than a RunStatus and the hand-rolled
+        # fallback mapped it to success. A loop reading 0 would have stopped
+        # resuming with the gate still waiting.
+        assert code == int(ExitCode.BLOCKED)
         assert "not advanced" in capsys.readouterr().out
         assert app.ran == []  # type: ignore[attr-defined]
 
         # Still blocked — the run does not complete on a re-run.
-        assert app.execute("release", scope_id="rel-1").status is RunStatus.BLOCKED
+        assert (
+            app.execute(
+                RunRequest(
+                    job_name="release", surface="app.execute", workflow_scope_id="rel-1"
+                )
+            ).status
+            is RunStatus.BLOCKED
+        )
 
     def test_show_reports_the_scope(
         self, app: FunctualizeApp, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        app.execute("release", scope_id="rel-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-1"
+            )
+        )
         assert (
             _run_cli(app, ["builtin", "workflow", "show", "rel-1", "--format", "json"])
             == 0
@@ -191,9 +218,13 @@ class TestCliDrivesABlockedWorkflow:
         assert detail["steps"], "the graph was omitted — this is the old summary"
 
     def test_cancel_marks_the_scope_cancelled(self, app: FunctualizeApp) -> None:
-        app.execute("release", scope_id="rel-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-1"
+            )
+        )
         assert _run_cli(app, ["builtin", "workflow", "cancel", "rel-1"]) == 0
-        scope = StateStore.for_project(Path.cwd()).get_scope("rel-1")
+        scope = ScopeStore.for_project(Path.cwd()).get_scope("rel-1")
         assert scope is not None and scope["status"] == "cancelled"
 
     def test_show_of_unknown_scope_errors(self, app: FunctualizeApp) -> None:
@@ -213,7 +244,11 @@ class TestParityIsOneFunction:
     ) -> None:
         from functualize_mcp._workflow_tools import WorkflowToolProvider
 
-        app.execute("release", scope_id="rel-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-1"
+            )
+        )
 
         calls: list[str] = []
         sentinel = {"status": "answered", "gate": "approval", "message": "ok"}
@@ -229,7 +264,7 @@ class TestParityIsOneFunction:
         monkeypatch.setattr("functualize_mcp._workflow_tools.answer_gate", _spy)
 
         # MCP path.
-        provider = WorkflowToolProvider(app, store=StateStore.for_project(Path.cwd()))
+        provider = WorkflowToolProvider(app, store=ScopeStore.for_project(Path.cwd()))
         await provider._answer_gate(
             {"environment": "prod", "replicas": 3},
             workflow_id="rel-1",
@@ -266,7 +301,11 @@ class TestTheTwoSurfacesReturnTheSameProjection:
 
     @pytest.fixture
     def blocked(self, app: FunctualizeApp) -> FunctualizeApp:
-        app.execute("release", scope_id="rel-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-1"
+            )
+        )
         return app
 
     async def test_show_and_get_workflow_state_are_byte_identical(
@@ -307,9 +346,9 @@ class TestTheTwoSurfacesReturnTheSameProjection:
         """`waiting` before the gate is answered, `ready` after — on both."""
         from functualize_mcp._workflow_tools import WorkflowToolProvider
 
-        from functualize.app.utils import StateStore, deposit_gate_input
+        from functualize.app.utils import ScopeStore, deposit_gate_input
 
-        store = StateStore.for_project(Path.cwd())
+        store = ScopeStore.for_project(Path.cwd())
         assert (await WorkflowToolProvider(blocked)._get_workflow_state("rel-1"))[
             "state"
         ] == "waiting"
@@ -334,7 +373,11 @@ class TestTheAnswerCommand:
 
     @pytest.fixture
     def blocked(self, app: FunctualizeApp) -> FunctualizeApp:
-        app.execute("release", scope_id="rel-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-1"
+            )
+        )
         return app
 
     def test_set_takes_json_typed_values(
@@ -362,7 +405,7 @@ class TestTheAnswerCommand:
         result = json.loads(capsys.readouterr().out)
         assert result["status"] == "answered"
 
-        store = StateStore.for_project(Path.cwd())
+        store = ScopeStore.for_project(Path.cwd())
         assert store.get_gate("rel-1", "approval")["payload"]["replicas"] == 3
 
     def test_a_bare_word_stays_a_string(
@@ -424,7 +467,7 @@ class TestTheAnswerCommand:
         )
         assert code == 0
         assert json.loads(capsys.readouterr().out)["draft"] == {}
-        store = StateStore.for_project(Path.cwd())
+        store = ScopeStore.for_project(Path.cwd())
         assert store.get_gate_draft("rel-1", "approval") is None
 
     def test_no_commit_holds_a_complete_draft(
@@ -448,7 +491,7 @@ class TestTheAnswerCommand:
         result = json.loads(capsys.readouterr().out)
         assert result["complete"] is True
         assert result["status"] == "drafted"
-        store = StateStore.for_project(Path.cwd())
+        store = ScopeStore.for_project(Path.cwd())
         assert store.get_gate("rel-1", "approval")["payload"] is None
 
     def test_a_malformed_set_pair_is_a_usage_error(
@@ -475,7 +518,11 @@ class TestTheAnswerCommand:
                 json.dumps({"environment": "prod", "replicas": 3}),
             ],
         )
-        blocked.execute("release", scope_id="rel-1")
+        blocked.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-1"
+            )
+        )
 
         code = _run_cli(
             blocked,
@@ -499,7 +546,11 @@ class TestTheGateToolVerb:
 
     @pytest.fixture
     def blocked(self, app: FunctualizeApp) -> FunctualizeApp:
-        app.execute("release", scope_id="rel-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-1"
+            )
+        )
         app.ran.clear()  # type: ignore[attr-defined]
         return app
 
@@ -516,7 +567,7 @@ class TestTheGateToolVerb:
         _run_cli(blocked, ["builtin", "workflow", "gate-tool", "rel-1", "build"])
         _run_cli(blocked, ["builtin", "workflow", "gate-tool", "rel-1", "build"])
 
-        store = StateStore.for_project(Path.cwd())
+        store = ScopeStore.for_project(Path.cwd())
         assert len(store.get_tool_calls("rel-1")) == 2
         assert blocked.ran == ["build", "build"]  # type: ignore[attr-defined]
 

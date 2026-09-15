@@ -1,6 +1,8 @@
-"""State capability — per-invocation key-value store.
+"""The `State` capability — re-exported from its canonical location.
 
-Re-exports from the canonical implementation in _engine/capabilities.
+`FreshStore` used to be a second public name for a second class. There is one
+class now (ADR-021), and it is durable; see
+`functualize._engine.capabilities.state`.
 """
 
 from functualize._engine.capabilities.state import State

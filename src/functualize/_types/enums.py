@@ -44,6 +44,38 @@ class RunStatus(Enum):
         return self is RunStatus.BLOCKED
 
     @property
+    def terminal(self) -> bool:
+        """True when the phase is over and cannot be transitioned from.
+
+        **One definition, because there were two and they disagreed.**
+        `_engine/capabilities/workflow.py` and
+        `_engine/capabilities/runcontext.py` each carried a `_TERMINAL_STATES`
+        frozenset; one included REFUSED and one did not. The first one's own
+        comment explains why the omission matters — *"a refused step simply
+        never gets `end_time` or `duration`, so it reads as still running in
+        every consumer of this record"* — and its sibling had exactly that
+        defect, one module away. The runcontext copy's test mirrored the
+        omission and asserted agreement with it, so the two could never
+        converge by failing.
+
+        This is the **state machine's** question — may a phase transition out
+        of here — and not the delivery question `functualize.types.is_failure`
+        answers. The membership is the one `workflow.py` reasoned about, kept
+        exactly: BLOCKED is a declared pause and `resumable` is the property
+        that says so; SKIPPED is a phase a run can still move on from; RUNNING
+        is the non-terminal case by definition; and UNKNOWN is deliberately
+        left transitionable, because a status nobody could determine should not
+        also be a state nobody can leave.
+        """
+        return self in {
+            RunStatus.SUCCESS,
+            RunStatus.FAILURE,
+            RunStatus.CANCELLED,
+            RunStatus.TIMEOUT,
+            RunStatus.REFUSED,
+        }
+
+    @property
     def ran(self) -> bool:
         """True when the job's body actually executed.
 

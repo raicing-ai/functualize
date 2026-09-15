@@ -337,14 +337,14 @@ class TestAIInboundRegistration:
         register_ai_inbound_gate_strategy(app, ai)
 
         # Should register the strategy
-        app.register_gate_strategy.assert_called_once()
-        call_args = app.register_gate_strategy.call_args
+        app.gates.register_gate_strategy.assert_called_once()
+        call_args = app.gates.register_gate_strategy.call_args
         assert call_args[0][0] == "ai_inbound"
         assert isinstance(call_args[0][1], AIInboundGateResolver)
 
         # Should register both presets
-        assert app.register_gate_preset.call_count == 2
-        preset_calls = app.register_gate_preset.call_args_list
+        assert app.gates.register_gate_preset.call_count == 2
+        preset_calls = app.gates.register_gate_preset.call_args_list
 
         # First call: "ai_inbound" preset
         assert preset_calls[0][0][0] == "ai_inbound"

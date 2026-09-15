@@ -386,7 +386,7 @@ In the TUI, `--level` appears as a dropdown with options `debug`, `info`, `warni
 
 Jobs often have multiple phases. You can model them as phases within a single job, or as separate jobs invoked from a parent. Here's how to choose:
 
-### Use `rc.track_phase()` when:
+### Use `rc.events.track_phase()` when:
 
 - Steps are **sequential within one logical operation** — they form a pipeline that only makes sense together
 - You want **perf tracking per step** — each step gets its own timing entry in the performance timeline
@@ -394,17 +394,17 @@ Jobs often have multiple phases. You can model them as phases within a single jo
 
 ```python
 def run(rc: RunContext, config: DeployConfig):
-    rc.track_phase("validate", "Validating inputs", RunStatus.RUNNING)
+    rc.events.track_phase("validate", "Validating inputs", RunStatus.RUNNING)
     validate(config)
-    rc.track_phase("validate", "Validation passed", RunStatus.SUCCESS)
+    rc.events.track_phase("validate", "Validation passed", RunStatus.SUCCESS)
 
-    rc.track_phase("build", "Building artifact", RunStatus.RUNNING)
+    rc.events.track_phase("build", "Building artifact", RunStatus.RUNNING)
     artifact = build(config)
-    rc.track_phase("build", "Build complete", RunStatus.SUCCESS)
+    rc.events.track_phase("build", "Build complete", RunStatus.SUCCESS)
 
-    rc.track_phase("deploy", "Deploying artifact", RunStatus.RUNNING)
+    rc.events.track_phase("deploy", "Deploying artifact", RunStatus.RUNNING)
     deploy(artifact, config)
-    rc.track_phase("deploy", "Deployed", RunStatus.SUCCESS)
+    rc.events.track_phase("deploy", "Deployed", RunStatus.SUCCESS)
 ```
 
 ### Use `rc.invoke()` when:

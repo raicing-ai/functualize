@@ -16,13 +16,25 @@ if TYPE_CHECKING:
 __all__ = ["JobToolTranslator", "MCPToolDef", "read_cached_group_options"]
 
 
-def read_cached_group_options() -> dict[str, Any]:
+def read_cached_group_options(app: Any = None) -> dict[str, Any]:
     """The cached ``{group path: GroupOptionsSpec}`` map, or empty (S6a).
 
     Read from the same discovery cache the CLI dispatcher reads, so the tool
     schema and the command line describe one set of flags. Every translator
     construction site calls this rather than the constructor doing it, so a
     translator built in a test does no I/O and sees no ambient project.
+
+    Args:
+        app: The app this server is publishing, when there is one. Its
+            discovery fingerprint is what makes the cache's ``group_options``
+            section *this* server's answer rather than some other scan's: a
+            section written under a different ``--exclude`` describes a tree
+            this process does not have (``adjacent-defects/T10``). The four
+            core readers have passed it since T10; this one did not, which
+            made the surface whose entire job is publishing a job's schema to
+            an agent the one surface still serving the stale section.
+            ``None`` keeps the old "cannot know" behaviour for a caller with
+            no app in hand.
 
     Failures are not fatal: a project with no declarations, or a cache not yet
     written, exposes no group options — the server must still start.
@@ -31,11 +43,18 @@ def read_cached_group_options() -> dict[str, Any]:
         from pathlib import Path
 
         from functualize.app.utils import (
+            discovery_hash_for,
             read_group_options_from_cache,
             resolve_cache_path,
         )
 
-        return dict(read_group_options_from_cache(resolve_cache_path(Path.cwd())) or {})
+        return dict(
+            read_group_options_from_cache(
+                resolve_cache_path(Path.cwd()),
+                discovery_hash=discovery_hash_for(app),
+            )
+            or {}
+        )
     except Exception:  # pragma: no cover - defensive
         return {}
 

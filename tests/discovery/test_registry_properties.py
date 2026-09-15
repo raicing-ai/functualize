@@ -401,6 +401,12 @@ def test_property_8_runcontext_injected_at_invocation(func_name, param_names):
     func.__annotations__["rc"] = RunContext
 
     app = FunctualizeApp(name="testapp")
+    # Registered, not just wrapped: `engine.run()` resolves by *name*
+    # (run-request-entry/T11), so a command whose job the registry has never
+    # heard of cannot execute. Production discovery registers; this test builds
+    # a command by hand and used to get away with it because the command
+    # carried the function itself.
+    app.register_dynamic_job(func_name, func)
     registry = JobRegistry(
         app=app, cli_wiring_factory={"create_job_command": _create_job_command}
     )

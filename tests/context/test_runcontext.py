@@ -120,7 +120,7 @@ class TestRunContextInit:
         assert run_context.metadata["duration"] is None
 
     def test_initial_workflow_steps_empty(self, run_context):
-        assert run_context.phases == []
+        assert run_context.events.phases == []
 
     def test_initial_job_config_is_none(self, run_context):
         assert run_context.job_config is None
@@ -194,50 +194,50 @@ class TestTrackRunStatus:
     """Tests for RunContext.track_run_status() method."""
 
     def test_transition_to_success(self, run_context):
-        run_context.track_run_status(RunStatus.SUCCESS)
+        run_context.events.track_run_status(RunStatus.SUCCESS)
         assert run_context.metadata["run_status"] == RunStatus.SUCCESS
         assert run_context.metadata["end_time"] is not None
         assert run_context.metadata["duration"] is not None
         assert run_context.metadata["duration"] >= 0.0
 
     def test_transition_to_failure(self, run_context):
-        run_context.track_run_status(RunStatus.FAILURE, failure_message="oops")
+        run_context.events.track_run_status(RunStatus.FAILURE, failure_message="oops")
         assert run_context.metadata["run_status"] == RunStatus.FAILURE
         assert run_context.metadata["end_time"] is not None
 
     def test_transition_to_cancelled(self, run_context):
-        run_context.track_run_status(RunStatus.CANCELLED)
+        run_context.events.track_run_status(RunStatus.CANCELLED)
         assert run_context.metadata["run_status"] == RunStatus.CANCELLED
         assert run_context.metadata["end_time"] is not None
 
     def test_transition_to_timeout(self, run_context):
-        run_context.track_run_status(RunStatus.TIMEOUT)
+        run_context.events.track_run_status(RunStatus.TIMEOUT)
         assert run_context.metadata["run_status"] == RunStatus.TIMEOUT
         assert run_context.metadata["end_time"] is not None
 
     def test_raises_on_terminal_to_terminal(self, run_context):
-        run_context.track_run_status(RunStatus.SUCCESS)
+        run_context.events.track_run_status(RunStatus.SUCCESS)
         with pytest.raises(InvalidStateTransitionError):
-            run_context.track_run_status(RunStatus.FAILURE)
+            run_context.events.track_run_status(RunStatus.FAILURE)
 
     def test_raises_on_terminal_to_running(self, run_context):
-        run_context.track_run_status(RunStatus.FAILURE)
+        run_context.events.track_run_status(RunStatus.FAILURE)
         with pytest.raises(InvalidStateTransitionError):
-            run_context.track_run_status(RunStatus.RUNNING)
+            run_context.events.track_run_status(RunStatus.RUNNING)
 
     def test_running_to_running_allowed(self, run_context):
         # Should not raise
-        run_context.track_run_status(RunStatus.RUNNING)
+        run_context.events.track_run_status(RunStatus.RUNNING)
         assert run_context.metadata["run_status"] == RunStatus.RUNNING
         assert run_context.metadata["end_time"] is None
 
     def test_end_time_is_utc(self, run_context):
-        run_context.track_run_status(RunStatus.SUCCESS)
+        run_context.events.track_run_status(RunStatus.SUCCESS)
         end_time = run_context.metadata["end_time"]
         assert end_time.tzinfo == UTC
 
     def test_duration_is_positive(self, run_context):
-        run_context.track_run_status(RunStatus.SUCCESS)
+        run_context.events.track_run_status(RunStatus.SUCCESS)
         assert run_context.metadata["duration"] >= 0.0
 
 
@@ -245,9 +245,9 @@ class TestTrackPhase:
     """Tests for RunContext.track_phase() method."""
 
     def test_add_new_step(self, run_context):
-        run_context.track_phase("step1", "Starting step 1")
-        assert len(run_context.phases) == 1
-        step = run_context.phases[0]
+        run_context.events.track_phase("step1", "Starting step 1")
+        assert len(run_context.events.phases) == 1
+        step = run_context.events.phases[0]
         assert step["name"] == "step1"
         assert step["status"] == RunStatus.RUNNING
         assert step["message"] == "Starting step 1"
@@ -256,10 +256,10 @@ class TestTrackPhase:
         assert step["duration"] is None
 
     def test_update_existing_step(self, run_context):
-        run_context.track_phase("step1", "Starting")
-        run_context.track_phase("step1", "Done", RunStatus.SUCCESS)
-        assert len(run_context.phases) == 1
-        step = run_context.phases[0]
+        run_context.events.track_phase("step1", "Starting")
+        run_context.events.track_phase("step1", "Done", RunStatus.SUCCESS)
+        assert len(run_context.events.phases) == 1
+        step = run_context.events.phases[0]
         assert step["status"] == RunStatus.SUCCESS
         assert step["message"] == "Done"
         assert step["end_time"] is not None
@@ -267,34 +267,34 @@ class TestTrackPhase:
         assert step["duration"] >= 0.0
 
     def test_steps_ordered_by_first_appearance(self, run_context):
-        run_context.track_phase("step1", "First")
-        run_context.track_phase("step2", "Second")
-        run_context.track_phase("step3", "Third")
-        names = [s["name"] for s in run_context.phases]
+        run_context.events.track_phase("step1", "First")
+        run_context.events.track_phase("step2", "Second")
+        run_context.events.track_phase("step3", "Third")
+        names = [s["name"] for s in run_context.events.phases]
         assert names == ["step1", "step2", "step3"]
 
     def test_message_truncated_to_1000_chars(self, run_context):
         long_message = "x" * 2000
-        run_context.track_phase("step1", long_message)
-        step = run_context.phases[0]
+        run_context.events.track_phase("step1", long_message)
+        step = run_context.events.phases[0]
         assert len(step["message"]) == 1000
 
     def test_message_exactly_1000_not_truncated(self, run_context):
         message = "a" * 1000
-        run_context.track_phase("step1", message)
-        step = run_context.phases[0]
+        run_context.events.track_phase("step1", message)
+        step = run_context.events.phases[0]
         assert step["message"] == message
 
     def test_multiple_steps_independent(self, run_context):
-        run_context.track_phase("step1", "msg1")
-        run_context.track_phase("step2", "msg2")
-        run_context.track_phase("step1", "updated", RunStatus.SUCCESS)
-        assert run_context.phases[0]["status"] == RunStatus.SUCCESS
-        assert run_context.phases[1]["status"] == RunStatus.RUNNING
+        run_context.events.track_phase("step1", "msg1")
+        run_context.events.track_phase("step2", "msg2")
+        run_context.events.track_phase("step1", "updated", RunStatus.SUCCESS)
+        assert run_context.events.phases[0]["status"] == RunStatus.SUCCESS
+        assert run_context.events.phases[1]["status"] == RunStatus.RUNNING
 
     def test_step_start_time_is_utc(self, run_context):
-        run_context.track_phase("step1", "msg")
-        step = run_context.phases[0]
+        run_context.events.track_phase("step1", "msg")
+        step = run_context.events.phases[0]
         assert step["start_time"].tzinfo == UTC
 
 

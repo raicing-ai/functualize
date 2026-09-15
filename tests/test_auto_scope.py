@@ -16,8 +16,9 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from functualize._app.state import AppState
-from functualize.app.core import FunctualizeApp
+from functualize.app.core import FunctualizeApp, request_for
 from functualize.job._workflow_scope import WorkflowScope
+from functualize.types import RunRequest
 
 # --- Fixtures ---
 
@@ -72,7 +73,7 @@ class TestAutoScopeIdFormat:
         app.register_dynamic_job(job_name, dummy_job)
 
         # Execute the job (auto-creates scope)
-        app.execute(job_name)
+        app.execute(request_for(job_name))
 
         # The scope registry should have exactly one scope with matching format
         assert len(app._scope_registry) == 1
@@ -97,7 +98,7 @@ class TestAutoScopeIdFormat:
             return "ok"
 
         app.register_dynamic_job(job_name, dummy_job)
-        app.execute(job_name)
+        app.execute(request_for(job_name))
 
         scope_id = next(iter(app._scope_registry.keys()))
 
@@ -126,7 +127,7 @@ class TestAutoScopeIdFormat:
             return "ok"
 
         app.register_dynamic_job(job_name, dummy_job)
-        app.execute(job_name)
+        app.execute(request_for(job_name))
 
         # There should be one scope in the registry
         assert len(app._scope_registry) == 1
@@ -162,10 +163,16 @@ class TestExplicitScopeIdReuse:
         app.register_dynamic_job(job_name, dummy_job)
 
         # Pre-create a scope with the explicit ID
-        original_scope = app.create_workflow_scope(scope_id)
+        original_scope = app.workflows.create_workflow_scope(scope_id)
 
         # Execute with that explicit scope_id
-        app.execute(job_name, scope_id=scope_id)
+        app.execute(
+            RunRequest(
+                job_name=job_name,
+                surface="app.execute",
+                workflow_scope_id=scope_id,
+            )
+        )
 
         # The scope in the registry should be the same instance
         assert app._scope_registry[scope_id] is original_scope
@@ -187,11 +194,17 @@ class TestExplicitScopeIdReuse:
         app.register_dynamic_job(job_name, dummy_job)
 
         # Pre-create a scope
-        app.create_workflow_scope(scope_id)
+        app.workflows.create_workflow_scope(scope_id)
         assert len(app._scope_registry) == 1
 
         # Execute with same scope_id — should not create another scope
-        app.execute(job_name, scope_id=scope_id)
+        app.execute(
+            RunRequest(
+                job_name=job_name,
+                surface="app.execute",
+                workflow_scope_id=scope_id,
+            )
+        )
         assert len(app._scope_registry) == 1
 
     @given(job_name=job_names, scope_id=scope_ids)
@@ -211,7 +224,13 @@ class TestExplicitScopeIdReuse:
         app.register_dynamic_job(job_name, dummy_job)
 
         # Execute with an explicit scope_id that doesn't exist yet
-        app.execute(job_name, scope_id=scope_id)
+        app.execute(
+            RunRequest(
+                job_name=job_name,
+                surface="app.execute",
+                workflow_scope_id=scope_id,
+            )
+        )
 
         # A scope should have been created with that exact ID
         assert scope_id in app._scope_registry

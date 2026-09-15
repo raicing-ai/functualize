@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 from functualize._engine.executor import JobExecutionEngine
 from functualize._events.bus import EventBus
 from functualize._events.hooks import HookRegistry
+from tests._support.engine_run import run_job
 
 
 class _EventRecorder:
@@ -51,13 +52,13 @@ class TestEngineLifecycleEvents:
     """Engine emits structured lifecycle events via EventBus."""
 
     def test_engine_emits_start_and_end_events(self):
-        """execute() emits job.execute.start and job.execute.end events."""
+        """run() emits job.execute.start and job.execute.end events."""
         engine, event_bus, recorder = _make_engine()
 
         def my_job():
             pass
 
-        engine.execute("my_job", my_job, kwargs={})
+        run_job(engine, "my_job", my_job, kwargs={})
 
         event_names = [e.event_name for e in recorder.events]
         assert "job.execute.start" in event_names
@@ -70,7 +71,7 @@ class TestEngineLifecycleEvents:
         def my_job():
             pass
 
-        engine.execute("deploy_app", my_job, kwargs={})
+        run_job(engine, "deploy_app", my_job, kwargs={})
 
         start_events = [
             e for e in recorder.events if e.event_name == "job.execute.start"
@@ -85,7 +86,7 @@ class TestEngineLifecycleEvents:
         def my_job():
             return "done"
 
-        engine.execute("my_job", my_job, kwargs={})
+        run_job(engine, "my_job", my_job, kwargs={})
 
         end_events = [e for e in recorder.events if e.event_name == "job.execute.end"]
         assert len(end_events) == 1
@@ -98,7 +99,7 @@ class TestEngineLifecycleEvents:
         def failing_job():
             raise RuntimeError("boom")
 
-        engine.execute("failing_job", failing_job, kwargs={})
+        run_job(engine, "failing_job", failing_job, kwargs={})
 
         end_events = [e for e in recorder.events if e.event_name == "job.execute.end"]
         assert len(end_events) == 1
@@ -111,7 +112,7 @@ class TestEngineLifecycleEvents:
         def my_job():
             pass
 
-        engine.execute("my_job", my_job, kwargs={})
+        run_job(engine, "my_job", my_job, kwargs={})
 
         end_events = [e for e in recorder.events if e.event_name == "job.execute.end"]
         assert len(end_events) == 1
@@ -125,7 +126,7 @@ class TestEngineLifecycleEvents:
         def failing():
             raise ValueError("oops")
 
-        engine.execute("failing", failing, kwargs={})
+        run_job(engine, "failing", failing, kwargs={})
 
         event_names = [e.event_name for e in recorder.events]
         assert "job.execute.end" in event_names

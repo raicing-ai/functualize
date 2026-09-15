@@ -4,7 +4,7 @@ The MCP server is a long-lived consumer that needs state the kernel has no
 opinion about: gate checkpoints awaiting external AI input, and input handed
 back by ``resume_workflow``. That state used to be monkey-patched onto the
 ``FunctualizeApp`` instance as private ``_mcp_*`` attributes. It now lives
-under ``app.extension_state["mcp"]``, the kernel's documented slot for
+under ``app.extensions.extension_state["mcp"]``, the kernel's documented slot for
 exactly this.
 
 Every accessor here tolerates an app without ``extension_state`` (test
@@ -19,13 +19,17 @@ from typing import Any
 
 __all__ = ["gate_checkpoints", "mcp_state", "pending_gate_input"]
 
-#: Namespace key under ``app.extension_state``.
+#: Namespace key under ``app.extensions.extension_state``.
 _NAMESPACE = "mcp"
 
 
 def mcp_state(app: Any) -> dict[str, Any]:
     """Return MCP's extension-state namespace, creating it if needed."""
-    extension_state = getattr(app, "extension_state", None)
+    # Through `app.extensions` since `engine-sealed-construction`/T9. Read
+    # defensively at both hops: an app predating the facade, or a bare test
+    # double, has neither.
+    extensions = getattr(app, "extensions", None)
+    extension_state = getattr(extensions, "extension_state", None)
     if extension_state is None:
         # An app predating the public API (or a bare test double): hand back a
         # throwaway dict so callers still get dict semantics, not an

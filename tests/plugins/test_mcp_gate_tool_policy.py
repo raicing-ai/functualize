@@ -24,7 +24,8 @@ from pydantic import BaseModel
 
 from functualize._app.state import AppState
 from functualize.app.core import FunctualizeApp
-from functualize.app.utils import StateStore
+from functualize.app.utils import ScopeStore
+from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, workflow
 
 
@@ -44,8 +45,8 @@ class Approval(BaseModel):
     approved: bool
 
 
-def _store() -> StateStore:
-    return StateStore.for_project(Path.cwd())
+def _store() -> ScopeStore:
+    return ScopeStore.for_project(Path.cwd())
 
 
 def _app(tools: list[str] | None, *, name: str = "release") -> FunctualizeApp:
@@ -103,14 +104,22 @@ class TestNoRestriction:
         as "permit nothing" would make the common `Gate(name, awaits)` form
         freeze every tool the moment it blocked."""
         app = _app([])
-        app.execute("release", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="run-1"
+            )
+        )
 
         assert _policy(app).allowed_tools() is None
         assert _policy(app).permitted("unrelated")
 
     def test_a_resolved_gate_stops_restricting(self) -> None:
         app = _app(["build"])
-        app.execute("release", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="run-1"
+            )
+        )
         assert not _policy(app).permitted("unrelated")
 
         _store().deposit_gate_payload("run-1", "approval", {"approved": True})
@@ -120,7 +129,11 @@ class TestNoRestriction:
     def test_a_cancelled_scope_stops_restricting(self) -> None:
         """Otherwise an abandoned workflow would hold the toolset hostage."""
         app = _app(["build"])
-        app.execute("release", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="run-1"
+            )
+        )
         _store().set_scope_status("run-1", "cancelled")
 
         assert _policy(app).allowed_tools() is None
@@ -129,13 +142,21 @@ class TestNoRestriction:
 class TestRestriction:
     def test_a_listed_tool_is_permitted(self) -> None:
         app = _app(["build"])
-        app.execute("release", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="run-1"
+            )
+        )
 
         assert _policy(app).permitted("build")
 
     def test_an_unlisted_tool_is_refused(self) -> None:
         app = _app(["build"])
-        app.execute("release", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="run-1"
+            )
+        )
 
         assert not _policy(app).permitted("unrelated")
 
@@ -143,7 +164,11 @@ class TestRestriction:
         """A refusal that does not say what would work costs the agent a turn
         to discover by trial."""
         app = _app(["build", "deploy"])
-        app.execute("release", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="run-1"
+            )
+        )
 
         refusal = _policy(app).refusal("unrelated")
 
@@ -157,7 +182,11 @@ class TestMultipleScopes:
         workflow it is for. Intersecting would let two unrelated workflows
         deadlock each other."""
         app = _app(["build"])
-        app.execute("release", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="run-1"
+            )
+        )
 
         store = _store()
         store.ensure_scope("run-2", "other")
@@ -180,7 +209,11 @@ class TestMultipleScopes:
         """A gate that declares no tools is not asking for a restriction, so
         it must not be silently tightened by an unrelated workflow's list."""
         app = _app(["build"])
-        app.execute("release", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="run-1"
+            )
+        )
 
         store = _store()
         store.ensure_scope("run-2", "other")
@@ -205,7 +238,11 @@ class TestDispatchEnforcement:
 
     def test_dispatch_refuses_an_unlisted_job(self) -> None:
         app = _app(["build"])
-        app.execute("release", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="run-1"
+            )
+        )
         app.ran.clear()  # type: ignore[attr-defined]
 
         result = _execute_job(app, "unrelated", {}, _policy(app))
@@ -215,7 +252,11 @@ class TestDispatchEnforcement:
 
     def test_dispatch_runs_a_listed_job(self) -> None:
         app = _app(["unrelated"])
-        app.execute("release", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="run-1"
+            )
+        )
         app.ran.clear()  # type: ignore[attr-defined]
 
         result = _execute_job(app, "unrelated", {}, _policy(app))
@@ -226,7 +267,11 @@ class TestDispatchEnforcement:
     def test_dispatch_without_a_policy_enforces_nothing(self) -> None:
         """Direct callers with no workflow state to consult are unaffected."""
         app = _app(["build"])
-        app.execute("release", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="run-1"
+            )
+        )
         app.ran.clear()  # type: ignore[attr-defined]
 
         assert _execute_job(app, "unrelated", {})["return_value"] == "did a thing"
@@ -239,7 +284,11 @@ class TestWorkflowToolsAreNeverRefused:
         this the restriction would be a deadlock, not a permission.
         """
         app = _app(["nothing_useful"])
-        app.execute("release", scope_id="run-1")
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="run-1"
+            )
+        )
         tools = WorkflowToolProvider(app, store=_store())
 
         # Refused at dispatch...

@@ -132,7 +132,7 @@ class TestEnterFallbackNegativePilot:
         # action (drill_down / confirm_edit / apply_filter) — stub that
         # real handler too, since forcing the mode directly (bypassing the
         # real enter_insert/enter_filter transition) skips state the real
-        # handler would otherwise depend on (e.g. SmartBar.save_state()).
+        # handler would otherwise depend on (e.g. SmartBar.save_fresh()).
         # The point of this test is only that action_execute never fires.
         own_action = KEYMAPS[mode]["enter"]
 

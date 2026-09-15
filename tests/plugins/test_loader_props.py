@@ -242,7 +242,7 @@ class TestPluginConfigProtocolDetection:
         # Plugin should be loaded
         assert plugin_name in loader.loaded_plugins
         # No config resolution should have happened (resolve_model not called)
-        app.resolve_model.assert_not_called()
+        app.configuration.resolve_model.assert_not_called()
         # Registry should be empty
         assert not app.plugin_config_registry.has(plugin_name)
 
@@ -281,7 +281,7 @@ class TestPluginConfigProtocolDetection:
 
         app = MagicMock()
         app.plugin_config_registry = PluginConfigRegistry()
-        app.resolve_model.return_value = resolved_config
+        app.configuration.resolve_model.return_value = resolved_config
 
         with patch("functualize._plugins.loader.entry_points", return_value=[mock_ep]):
             loader = PluginLoader()
@@ -290,7 +290,7 @@ class TestPluginConfigProtocolDetection:
         # Plugin should be loaded
         assert plugin_name in loader.loaded_plugins
         # resolve_model should have been called with the section and model class
-        app.resolve_model.assert_called_once_with(section, SampleConfig)
+        app.configuration.resolve_model.assert_called_once_with(section, SampleConfig)
         # Config should be stored in registry
         assert app.plugin_config_registry.has(section)
 
@@ -300,7 +300,7 @@ class TestPluginConfigProtocolDetection:
 
 class TestConfigResolutionPrecedence:
     """Property 3: The Resolution_Chain is invoked with the correct section
-    name and model class, whatever value app.resolve_model returns becomes
+    name and model class, whatever value app.configuration.resolve_model returns becomes
     the stored config, and the framework does not override or modify the
     resolved values — it's a passthrough.
 
@@ -316,18 +316,18 @@ class TestConfigResolutionPrecedence:
         section: str,
         config: SampleConfig,
     ) -> None:
-        """_resolve_plugin_config invokes app.resolve_model with the plugin's
+        """_resolve_plugin_config invokes app.configuration.resolve_model with the plugin's
         config_section and config_model exactly."""
         plugin = MagicMock()
         plugin.config_section = section
         plugin.config_model = SampleConfig
 
         app = MagicMock()
-        app.resolve_model.return_value = config
+        app.configuration.resolve_model.return_value = config
 
         _resolve_plugin_config(plugin, app)
 
-        app.resolve_model.assert_called_once_with(section, SampleConfig)
+        app.configuration.resolve_model.assert_called_once_with(section, SampleConfig)
 
     @given(
         section=section_names,
@@ -338,14 +338,14 @@ class TestConfigResolutionPrecedence:
         section: str,
         config: SampleConfig,
     ) -> None:
-        """Whatever app.resolve_model returns is the exact value returned by
+        """Whatever app.configuration.resolve_model returns is the exact value returned by
         _resolve_plugin_config — no modification or wrapping occurs."""
         plugin = MagicMock()
         plugin.config_section = section
         plugin.config_model = SampleConfig
 
         app = MagicMock()
-        app.resolve_model.return_value = config
+        app.configuration.resolve_model.return_value = config
 
         result = _resolve_plugin_config(plugin, app)
 
@@ -375,7 +375,7 @@ class TestConfigResolutionPrecedence:
         plugin.config_model = AnotherConfig
 
         app = MagicMock()
-        app.resolve_model.return_value = config
+        app.configuration.resolve_model.return_value = config
 
         result = _resolve_plugin_config(plugin, app)
 
@@ -392,7 +392,7 @@ class TestConfigResolutionPrecedence:
         section: str,
     ) -> None:
         """When _resolve_plugin_config is used within the loader pipeline,
-        the return value of app.resolve_model becomes exactly the config
+        the return value of app.configuration.resolve_model becomes exactly the config
         stored in the registry — verifying end-to-end passthrough."""
         # Create a sentinel object to verify identity
         sentinel_config = SampleConfig(host="sentinel.test", port=12345, enabled=False)
@@ -402,14 +402,14 @@ class TestConfigResolutionPrecedence:
         plugin.config_model = SampleConfig
 
         app = MagicMock()
-        app.resolve_model.return_value = sentinel_config
+        app.configuration.resolve_model.return_value = sentinel_config
 
         result = _resolve_plugin_config(plugin, app)
 
         # Verify identity — the exact object returned by resolve_model
         assert result is sentinel_config
         # Verify the section was passed correctly
-        call_args = app.resolve_model.call_args
+        call_args = app.configuration.resolve_model.call_args
         assert call_args[0][0] == section
         assert call_args[0][1] is SampleConfig
 
@@ -447,7 +447,7 @@ class TestConfigResolutionPrecedence:
                 return config_b
             raise AssertionError(f"Unexpected call: ({section}, {model_cls})")
 
-        app.resolve_model.side_effect = side_effect
+        app.configuration.resolve_model.side_effect = side_effect
 
         result_a = _resolve_plugin_config(plugin_a, app)
         result_b = _resolve_plugin_config(plugin_b, app)
@@ -539,7 +539,7 @@ def _make_app_mock(
         # Default: return model with defaults
         return model_cls()
 
-    app.resolve_model = MagicMock(side_effect=resolve_model)
+    app.configuration.resolve_model = MagicMock(side_effect=resolve_model)
     return app
 
 
@@ -731,7 +731,7 @@ class TestPluginConfigResolutionRoundTrip:
             loader.load_all(app)
 
         # resolve_model must have been called with the plugin's section and model class
-        app.resolve_model.assert_called_once_with(section, ExtendedConfig)
+        app.configuration.resolve_model.assert_called_once_with(section, ExtendedConfig)
 
     @given(
         section=section_names,
@@ -777,7 +777,7 @@ class RequiredFieldConfig(BaseModel):
 
 
 class TestMissingRequiredFieldRaisesValidationError:
-    """Property 4: When app.resolve_model() raises a Pydantic ValidationError
+    """Property 4: When app.configuration.resolve_model() raises a Pydantic ValidationError
     (e.g., due to a missing required field), the error propagates from the
     PluginLoader. Additionally, on_config_resolved is NOT called when
     resolution fails.
@@ -794,7 +794,7 @@ class TestMissingRequiredFieldRaisesValidationError:
         section: str,
         plugin_name: str,
     ) -> None:
-        """When app.resolve_model() raises a pydantic ValidationError,
+        """When app.configuration.resolve_model() raises a pydantic ValidationError,
         the error propagates from the PluginLoader's load_all method."""
         # Create a ValidationError by attempting to construct model without required field
         try:
@@ -808,7 +808,7 @@ class TestMissingRequiredFieldRaisesValidationError:
         app.plugin_config_registry = registry
 
         # Configure resolve_model to raise the ValidationError
-        app.resolve_model.side_effect = validation_error
+        app.configuration.resolve_model.side_effect = validation_error
 
         mock_ep = MagicMock()
         mock_ep.name = f"ep-{plugin_name}"
@@ -828,7 +828,7 @@ class TestMissingRequiredFieldRaisesValidationError:
         section: str,
         plugin_name: str,
     ) -> None:
-        """on_config_resolved is NOT called when app.resolve_model() raises
+        """on_config_resolved is NOT called when app.configuration.resolve_model() raises
         a ValidationError — the plugin never receives an invalid config."""
         # Create a ValidationError
         try:
@@ -844,7 +844,7 @@ class TestMissingRequiredFieldRaisesValidationError:
         app.plugin_config_registry = registry
 
         # Configure resolve_model to raise the ValidationError
-        app.resolve_model.side_effect = validation_error
+        app.configuration.resolve_model.side_effect = validation_error
 
         mock_ep = MagicMock()
         mock_ep.name = f"ep-{plugin_name}"
@@ -881,7 +881,7 @@ class TestMissingRequiredFieldRaisesValidationError:
         app = MagicMock()
         registry = PluginConfigRegistry()
         app.plugin_config_registry = registry
-        app.resolve_model.side_effect = validation_error
+        app.configuration.resolve_model.side_effect = validation_error
 
         mock_ep = MagicMock()
         mock_ep.name = f"ep-{plugin_name}"
@@ -916,7 +916,7 @@ class TestMissingRequiredFieldRaisesValidationError:
         app = MagicMock()
         registry = PluginConfigRegistry()
         app.plugin_config_registry = registry
-        app.resolve_model.side_effect = validation_error
+        app.configuration.resolve_model.side_effect = validation_error
 
         mock_ep = MagicMock()
         mock_ep.name = f"ep-{plugin_name}"

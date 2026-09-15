@@ -27,7 +27,7 @@ from types import ModuleType
 import pytest
 
 from functualize._app.state import AppState
-from functualize.app.core import FunctualizeApp
+from functualize.app.core import FunctualizeApp, request_for
 from functualize.job import RunStatus
 
 _JOB_MODULE = """
@@ -74,7 +74,7 @@ def _isolated_project(
 def _run(module: ModuleType, **kwargs: object) -> object:
     app = FunctualizeApp(name="pep563")
     app.register_dynamic_job("report", module.report, config_class=module.CityConfig)
-    return app.execute("report", **kwargs)
+    return app.execute(request_for("report", **kwargs))
 
 
 @pytest.mark.parametrize("use_future", [False, True], ids=["live", "pep563"])
@@ -135,7 +135,7 @@ class TestUnresolvableAnnotations:
         app = FunctualizeApp(name="pep563")
         app.register_dynamic_job("report", module.report)
 
-        result = app.execute("report")
+        result = app.execute(request_for("report"))
 
         assert result.status is RunStatus.SUCCESS
         assert result.return_value == "ran"
@@ -182,7 +182,7 @@ def test_the_config_model_is_also_set_on_runcontext() -> None:
     app = FunctualizeApp(name="pep563")
     app.register_dynamic_job("report", module.report, config_class=module.CityConfig)
 
-    result = app.execute("report")
+    result = app.execute(request_for("report"))
 
     assert result.status is RunStatus.SUCCESS
     assert result.return_value == "agreed"

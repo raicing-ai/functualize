@@ -54,6 +54,7 @@ Users import from public folders. Contributors work in internal folders. The `_c
 
 ### DI + RunContext Duality
 - The DI registry and RunContext resolve from the **same underlying capability map** — they are two access paths, not competing systems.
+  The mechanism, and the five classes of capability that legitimately cannot share one object (qualified providers, factory-scoped providers, exclusive resources, pre-flight-bound capabilities, app-scoped singletons), are in `contributor/adr/021-capability-duality.md`. It is enforced by a test parametrized over `CAPABILITY_SPECS`, not by this line — the rule was prose for its whole life and five of six capabilities violated it.
 - Jobs may declare dependencies via type-annotated params (DI) OR receive `RunContext` (facade) OR both (hybrid). All three are first-class.
 - The DI registry is **populated at boot and frozen before execution** (`REGISTRY_FROZEN` event). No runtime mutations.
 - Framework capabilities (`Log`, `Invoke`, `Prompt`, `Perf`, `State`, `JobContext`) are per-invocation. Plugin capabilities are app-scoped singletons or per-invocation factories.
@@ -176,6 +177,16 @@ false premise survives user confirmation and then gets built on.
   for a different tool; the routing table is
   `.claude/skills/code-intel/SKILL.md`, the timing is
   `.claude/agents/spec-driven-developer.md` → *Retrieval Passes*.
+- **A description of a thing is not the thing.** Verify the *payload*, not the
+  path to it. Real failure (2026-09-11): an agent writing the architecture gate
+  told contributors to name code smells by catalogue name — *feature envy*,
+  *middle man*, *shotgun surgery* — having confirmed the design-patterns skill
+  existed and its symlink resolved, and let the skills-listing **description**
+  stand in for the skill's **contents**. `rg -c` over the skill found **zero**
+  of those six names; they live only in a per-user skill the repository does
+  not ship, so on another machine the instruction was unfollowable. Checking
+  that a file exists, that an import resolves, or that a doc claims a thing,
+  is not checking the thing.
 - **"I read the file" is not verification of a negative.** *Nothing calls this*,
   *this is the only caller*, *no test covers it* are claims about the whole repo;
   answer them with `rg` or serena's `find_referencing_symbols`, never by reading.

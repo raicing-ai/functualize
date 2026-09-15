@@ -39,7 +39,11 @@ operation_point_st = st.sampled_from(
         "config.file.parse",
         "plugin.load.init",
         "cli.parse.args",
-        "tui.session.start",
+        # Was `tui.session.start`, removed from the catalog by
+        # `adjacent-defects` T6 because nothing emitted it. A sample event name
+        # only has to be well-formed, but one naming a deleted event teaches a
+        # reader it exists (adj §4).
+        "shell.command.start",
     ]
 )
 

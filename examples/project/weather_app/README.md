@@ -44,7 +44,7 @@ uv run func            # bare func → inline TUI / job listing
 - A `[project.scripts]` console entry point (`weather-app`) — distribute your jobs as a CLI
 - `classic()` config preset: CLI flags → env vars → `config.base.toml` + `ENVIRONMENT` overlay → defaults
 - `@job` with `visibility="external"` — ready to serve over MCP by adding `functualize-mcp`
-- `rc.invoke()` + `rc.track_phase()` pipelines inside a project
+- `rc.invoke()` + `rc.events.track_phase()` pipelines inside a project
 
 ## Escalating further
 

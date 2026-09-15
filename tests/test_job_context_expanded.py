@@ -10,7 +10,6 @@ Tests the JobContext frozen dataclass from functualize.job._job_context:
 from __future__ import annotations
 
 import dataclasses
-from datetime import UTC
 from pathlib import Path
 from types import MappingProxyType
 
@@ -64,12 +63,6 @@ def _job_context_strategy(draw: st.DrawFn) -> JobContext:
         name=draw(_name_strategy),
         trace_id=draw(_optional_str_strategy),
         span_id=draw(_optional_str_strategy),
-        deadline=draw(
-            st.one_of(
-                st.none(),
-                st.datetimes(timezones=st.just(UTC)),
-            )
-        ),
         cwd=draw(_optional_path_strategy),
         job_directory=draw(_optional_path_strategy),
         invoke_depth=draw(_invoke_depth_strategy),

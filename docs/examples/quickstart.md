@@ -8,7 +8,7 @@ Source: [`examples/quickstart/`](https://github.com/raicing-ai/functualize/tree/
 |------|-----------|--------------|
 | 1 | `step1_basic/` | Run a Python script — `RunContext`, `rc.log()` |
 | 2 | `step2_config/` | Typed configuration — Pydantic models, layered resolution |
-| 3 | `step3_invoke/` | `rc.invoke()` + `rc.track_phase()` pipelines |
+| 3 | `step3_invoke/` | `rc.invoke()` + `rc.events.track_phase()` pipelines |
 | 4 | `step4_tui/` | The inline TUI — bare `func`, SmartBar, panel rings |
 | 5 | `step5_ai/` | `ai.complete()` with structured output (`MockAI`, no keys) |
 | 6 | `step6_mcp/` | `@job(visibility=...)` + `func mcp serve` |

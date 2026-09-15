@@ -158,7 +158,7 @@ Mode F:  caller → engine.execute() directly
 
 1. Warm boot registers each cache-only descriptor as a `LazyJobFunction` proxy (`_discovery/lazy_wrapper.py`) in both the JobRegistry and the execution engine — no import.
 2. The engine materializes an entry at its choke points — `get_job()`, the top of `execute()` (before any signature introspection, so `id(function)`-keyed resolution-plan/validator caches key on the real function), and the public `materialize_job(name)` used by CLI dispatch.
-3. Materialization imports the module once (thread-safe), detects `config_class` from the real signature, swaps the frozen `RegisteredJob` in the engine registry **and** all registered mirrors (the app's JobRegistry — `add_registry_mirror`), and runs the deferred per-job DI validation.
+3. Materialization imports the module once (thread-safe), detects `config_class` from the real signature, swaps the frozen `RegisteredJob` in the engine registry **and** in its host's (`EngineHost.replace_job` — the app's JobRegistry, which used to lend the engine its private dict by reference), and runs the deferred per-job DI validation.
 4. Descriptors carrying a live function (cold boot, static providers) register directly with a detected `config_class` — cold boot is byte-for-byte the eager behavior, including boot-time DI validation.
 
 **Environment guarantees under `lazy=True`** (verified): all extension points load at boot, independent of job-module imports —

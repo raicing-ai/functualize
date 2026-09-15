@@ -350,7 +350,7 @@ def list_domains() -> None:
         )
         click.echo("")
         click.echo("Available domain SDKs:")
-        click.echo("  pip install functualize-state")
+        click.echo("  pip install functualize-state-sqlite")
         click.echo("  pip install functualize-ai")
         click.echo("  pip install functualize-tasks")
         return

@@ -137,7 +137,7 @@ class TestPluginConfigsReturnsMappingProxy:
         """For any registered configs, plugin_configs returns MappingProxyType."""
         # **Validates: Requirements 3.1**
         rc = make_run_context(plugin_configs=configs)
-        result = rc.plugin_configs
+        result = rc.wiring.plugin_configs
         assert isinstance(result, MappingProxyType)
 
     @given(name=job_names)
@@ -145,7 +145,7 @@ class TestPluginConfigsReturnsMappingProxy:
         """When no plugins registered, plugin_configs still returns MappingProxyType."""
         # **Validates: Requirements 3.1, 3.5**
         rc = make_run_context(name=name, plugin_configs=None)
-        result = rc.plugin_configs
+        result = rc.wiring.plugin_configs
         assert isinstance(result, MappingProxyType)
         assert len(result) == 0
 
@@ -164,7 +164,7 @@ class TestGetPluginConfigReturnsCorrectModel:
         # **Validates: Requirements 3.2**
         rc = make_run_context(plugin_configs=configs)
         for section, expected_model in configs.items():
-            result = rc.get_plugin_config(section)
+            result = rc.wiring.get_plugin_config(section)
             assert result is expected_model
 
     @given(configs=plugin_config_entries())
@@ -175,7 +175,7 @@ class TestGetPluginConfigReturnsCorrectModel:
         # **Validates: Requirements 3.2**
         rc = make_run_context(plugin_configs=configs)
         for section, expected_model in configs.items():
-            result = rc.get_plugin_config(section)
+            result = rc.wiring.get_plugin_config(section)
             assert type(result) is type(expected_model)
 
 
@@ -199,7 +199,7 @@ class TestGetPluginConfigRaisesKeyError:
             return  # Skip (extremely unlikely due to namespace prefix)
         rc = make_run_context(plugin_configs=configs)
         with pytest.raises(KeyError, match="No plugin config for section"):
-            rc.get_plugin_config(unknown_section)
+            rc.wiring.get_plugin_config(unknown_section)
 
     @given(
         configs=plugin_config_entries(),
@@ -214,7 +214,7 @@ class TestGetPluginConfigRaisesKeyError:
             return
         rc = make_run_context(plugin_configs=configs)
         with pytest.raises(KeyError, match="Available:"):
-            rc.get_plugin_config(unknown_section)
+            rc.wiring.get_plugin_config(unknown_section)
 
     @given(name=job_names, unknown_section=section_names)
     def test_raises_key_error_when_no_plugins_registered(
@@ -224,7 +224,7 @@ class TestGetPluginConfigRaisesKeyError:
         # **Validates: Requirements 3.3**
         rc = make_run_context(name=name, plugin_configs=None)
         with pytest.raises(KeyError):
-            rc.get_plugin_config(unknown_section)
+            rc.wiring.get_plugin_config(unknown_section)
 
 
 class TestPluginConfigsImmutability:
@@ -238,7 +238,7 @@ class TestPluginConfigsImmutability:
         """Assignment to plugin_configs mapping raises TypeError."""
         # **Validates: Requirements 3.5**
         rc = make_run_context(plugin_configs=configs)
-        mapping = rc.plugin_configs
+        mapping = rc.wiring.plugin_configs
         with pytest.raises(TypeError):
             mapping["new.section"] = DynamicConfigA()  # type: ignore[index]
 
@@ -247,7 +247,7 @@ class TestPluginConfigsImmutability:
         """Deletion from plugin_configs mapping raises TypeError."""
         # **Validates: Requirements 3.5**
         rc = make_run_context(plugin_configs=configs)
-        mapping = rc.plugin_configs
+        mapping = rc.wiring.plugin_configs
         section = next(iter(configs))
         with pytest.raises(TypeError):
             del mapping[section]  # type: ignore[attr-defined]
@@ -259,7 +259,7 @@ class TestPluginConfigsImmutability:
         """MappingProxyType does not expose pop, update, clear, setdefault."""
         # **Validates: Requirements 3.5**
         rc = make_run_context(plugin_configs=configs)
-        mapping = rc.plugin_configs
+        mapping = rc.wiring.plugin_configs
         assert not hasattr(mapping, "pop")
         assert not hasattr(mapping, "update")
         assert not hasattr(mapping, "clear")
@@ -277,7 +277,7 @@ class TestEmptyMappingWhenNoPlugins:
         """Accessing plugin_configs with no plugins does not raise."""
         # **Validates: Requirements 3.5**
         rc = make_run_context(name=name, plugin_configs=None)
-        result = rc.plugin_configs
+        result = rc.wiring.plugin_configs
         assert len(result) == 0
         assert isinstance(result, MappingProxyType)
 
@@ -286,5 +286,5 @@ class TestEmptyMappingWhenNoPlugins:
         """Empty plugin_configs mapping can be iterated without error."""
         # **Validates: Requirements 3.5**
         rc = make_run_context(name=name, plugin_configs=None)
-        items = list(rc.plugin_configs.items())
+        items = list(rc.wiring.plugin_configs.items())
         assert items == []

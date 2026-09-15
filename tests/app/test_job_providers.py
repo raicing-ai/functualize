@@ -223,7 +223,7 @@ class TestDeclarativeMatchesImperative:
             "a", job_sources=JobSources(job_providers=[StaticProvider([alpha])])
         )
         imperative = FunctualizeApp("a", job_sources=JobSources())
-        imperative.add_job_provider(StaticProvider([alpha]))
+        imperative.extensions.add_job_provider(StaticProvider([alpha]))
 
         for app in (declared, imperative):
             found = app.get_job("alpha")
@@ -238,7 +238,9 @@ class TestDeclarativeMatchesImperative:
             ),
         )
         imperative = FunctualizeApp("a", job_sources=JobSources())
-        imperative.add_job_provider(StaticProvider([alpha]), [NamespaceTransform("ns")])
+        imperative.extensions.add_job_provider(
+            StaticProvider([alpha]), [NamespaceTransform("ns")]
+        )
 
         for app in (declared, imperative):
             assert [d.name for d in app._resolution_pipeline.resolve_all()] == [
@@ -259,7 +261,7 @@ class TestDeclarativeMatchesImperative:
             "a", job_sources=JobSources(job_providers=[StaticProvider([alpha])])
         )
         imperative = FunctualizeApp("a", job_sources=JobSources())
-        imperative.add_job_provider(StaticProvider([alpha]))
+        imperative.extensions.add_job_provider(StaticProvider([alpha]))
 
         assert "alpha" in _names(declared)
         assert "alpha" not in _names(imperative)

@@ -148,7 +148,7 @@ class TestDITypeValidation:
     """Property 25: DI type validation.
 
     For any type T and instance obj where isinstance(obj, T) is False,
-    calling app.provide(T, obj) SHALL raise a TypeError.
+    calling app.di.provide(T, obj) SHALL raise a TypeError.
 
     **Validates: Requirements 10.1**
     """
@@ -215,7 +215,7 @@ class TestDIDuplicateWarning:
     """Property 26: DI duplicate warning.
 
     For any type T registered twice without a qualifier, the second
-    app.provide(T, instance) call SHALL emit a Python warning via the
+    app.di.provide(T, instance) call SHALL emit a Python warning via the
     warnings module.
 
     **Validates: Requirements 10.2**

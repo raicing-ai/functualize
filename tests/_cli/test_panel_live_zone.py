@@ -149,7 +149,7 @@ async def test_events_forward_to_hosted_constructs(
         table = _Table()
         live.add(table)
         captured["table"] = table
-        rc.emit("custom.thing", resource="widget")
+        rc.events.emit("custom.thing", resource="widget")
 
     tui = make_tui("emitter", emitting_job)
     await _run_job(tui, "emitter")

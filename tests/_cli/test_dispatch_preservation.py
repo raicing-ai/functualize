@@ -8,7 +8,7 @@ Non-buggy inputs include:
 - Always-consumes-value flags (--log-level, --config-directory, etc.) followed
   by their value and then a positional
 - Boolean flags (--no-dotenv) with a positional
-- Equals-style flags (--perf-report=text, --output=json) with a positional
+- Equals-style flags (--perf-report=text, --emit-format=json) with a positional
 - Explicit valid values for optional-value flags (--perf-report text)
 
 **Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 3.10, 3.11, 3.12, 3.13**
@@ -21,11 +21,11 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._cli.dispatch import (
-    _OPTIONAL_VALUE_VALID_SET,
     Mode,
     _extract_global_options,
     detect_mode,
 )
+from functualize.types import OPTIONAL_VALUE_VALID_SET
 
 # =============================================================================
 # Strategies
@@ -322,7 +322,7 @@ class TestPreservationBooleanFlags:
 class TestPreservationEqualsStyleSyntax:
     """Property 2: Preservation — Equals-style flags parse correctly.
 
-    For all argv with =-style syntax (--perf-report=text, --output=json) and
+    For all argv with =-style syntax (--perf-report=text, --emit-format=json) and
     a job name, detect_mode() returns Mode.JOB with correct parsing.
 
     **Validates: Requirements 3.1, 3.2, 3.7**
@@ -330,7 +330,7 @@ class TestPreservationEqualsStyleSyntax:
 
     @given(
         format_value=st.sampled_from(
-            sorted(_OPTIONAL_VALUE_VALID_SET["--perf-report"][0])
+            sorted(OPTIONAL_VALUE_VALID_SET["--perf-report"][0])
         ),
         job_name=_job_name,
     )
@@ -351,7 +351,7 @@ class TestPreservationEqualsStyleSyntax:
 
     @given(
         format_value=st.sampled_from(
-            sorted(_OPTIONAL_VALUE_VALID_SET["--perf-report"][0])
+            sorted(OPTIONAL_VALUE_VALID_SET["--perf-report"][0])
         ),
         job_name=_job_name,
     )
@@ -370,17 +370,19 @@ class TestPreservationEqualsStyleSyntax:
         assert opts.first_positional_index == 1
 
     @given(
-        format_value=st.sampled_from(sorted(_OPTIONAL_VALUE_VALID_SET["--output"][0])),
+        format_value=st.sampled_from(
+            sorted(OPTIONAL_VALUE_VALID_SET["--emit-format"][0])
+        ),
         job_name=_job_name,
     )
     def test_output_equals_syntax_routes_job(
         self, format_value: str, job_name: str
     ) -> None:
-        """--output=VALUE job_name → Mode.JOB.
+        """--emit-format=VALUE job_name → Mode.JOB.
 
         **Validates: Requirements 3.7**
         """
-        argv = ["func", f"--output={format_value}", job_name]
+        argv = ["func", f"--emit-format={format_value}", job_name]
         job_names = {job_name}
 
         mode, effective_args = detect_mode(argv, job_names=job_names)
@@ -389,17 +391,19 @@ class TestPreservationEqualsStyleSyntax:
         assert job_name in effective_args
 
     @given(
-        format_value=st.sampled_from(sorted(_OPTIONAL_VALUE_VALID_SET["--output"][0])),
+        format_value=st.sampled_from(
+            sorted(OPTIONAL_VALUE_VALID_SET["--emit-format"][0])
+        ),
         job_name=_job_name,
     )
     def test_output_equals_syntax_parses_value(
         self, format_value: str, job_name: str
     ) -> None:
-        """--output=VALUE job_name → output=VALUE, first_positional_index=1.
+        """--emit-format=VALUE job_name → output=VALUE, first_positional_index=1.
 
         **Validates: Requirements 3.7**
         """
-        argv = ["func", f"--output={format_value}", job_name]
+        argv = ["func", f"--emit-format={format_value}", job_name]
 
         opts, _ = _extract_global_options(argv)
 
@@ -507,7 +511,7 @@ class TestPreservationMultipleFlags:
     @given(
         log_level=st.sampled_from(_VALID_LOG_LEVELS),
         perf_format=st.sampled_from(
-            sorted(_OPTIONAL_VALUE_VALID_SET["--perf-report"][0])
+            sorted(OPTIONAL_VALUE_VALID_SET["--perf-report"][0])
         ),
         job_name=_job_name,
     )
@@ -623,16 +627,16 @@ class TestPreservationMultipleFlags:
         # Optionally add --perf-report=FORMAT (equals style only)
         if data.draw(st.booleans()):
             fmt = data.draw(
-                st.sampled_from(sorted(_OPTIONAL_VALUE_VALID_SET["--perf-report"][0]))
+                st.sampled_from(sorted(OPTIONAL_VALUE_VALID_SET["--perf-report"][0]))
             )
             flag_tokens.append(f"--perf-report={fmt}")
 
-        # Optionally add --output=FORMAT (equals style only)
+        # Optionally add --emit-format=FORMAT (equals style only)
         if data.draw(st.booleans()):
             fmt = data.draw(
-                st.sampled_from(sorted(_OPTIONAL_VALUE_VALID_SET["--output"][0]))
+                st.sampled_from(sorted(OPTIONAL_VALUE_VALID_SET["--emit-format"][0]))
             )
-            flag_tokens.append(f"--output={fmt}")
+            flag_tokens.append(f"--emit-format={fmt}")
 
         # Optionally add --exclude
         if data.draw(st.booleans()):

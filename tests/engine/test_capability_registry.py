@@ -106,18 +106,22 @@ def test_an_unregistered_type_raises_rather_than_being_constructed() -> None:
 
 
 def test_the_two_phase_bind_is_declared_not_remembered() -> None:
-    """`Sources` is the only capability completed after the pre-flight — today.
+    """The capabilities completed after the pre-flight are declared, not called.
 
     The point is not the membership but that it is *readable*: the executor
     loops over the specs that declare a `preflight_bind` instead of calling one
-    hard-coded function at one line. A second capability of this shape declares
-    it and is found.
+    hard-coded function at one line. `Sources` was alone when this was written
+    and the docstring said a second capability of this shape would declare it
+    and be found; `Freshness` is that second one, and it arrived with no call
+    added to the lifecycle.
     """
+    from functualize._engine.capabilities.freshness import Freshness
     from functualize._engine.capabilities.sources import Sources
 
     declaring = {spec.name for spec in CAPABILITY_SPECS if spec.needs_preflight_bind}
-    assert declaring == {"Sources"}
+    assert declaring == {"Freshness", "Sources"}
     assert SPEC_BY_TYPE[Sources].preflight_bind is not None
+    assert SPEC_BY_TYPE[Freshness].preflight_bind is not None
 
 
 def test_a_declared_bind_is_invoked_with_the_preflight_decision() -> None:
@@ -166,3 +170,42 @@ def test_a_capability_context_is_the_only_factory_argument() -> None:
     assert LOG_SPEC.factory is not None
     built = LOG_SPEC.factory(CapabilityContext(engine=None, context=_Ctx(), caps={}))
     assert type(built).__name__ == "Log"
+
+
+def test_the_agent_capability_flags_are_all_reachable_from_a_declaration() -> None:
+    """The same agreement, for the flags an *executor* declares.
+
+    `AgentCapability` is what an executor promises it can enforce;
+    `IMPLIED_CAPABILITIES` says which `AgentStep` declaration makes a step
+    require each flag. A member of the enum with no entry there is a flag the
+    engine can never refuse a step for — it would exist in the public
+    vocabulary and do nothing.
+    """
+    from functualize._types.protocols import AgentCapability
+    from functualize._types.workflow import IMPLIED_CAPABILITIES
+
+    assert {capability for capability in AgentCapability} == set(IMPLIED_CAPABILITIES)
+
+
+def test_the_agent_capability_guard_actually_fires() -> None:
+    """Proof the second half of the import check is a guard, not a comment.
+
+    Deleting a row from the implication table is exactly the "forgotten
+    declaration" the check exists for: the flag stays declarable by an executor
+    and becomes unrequireable by a step.
+    """
+    from functualize._engine.capabilities import registry
+    from functualize._types import workflow
+
+    original = workflow.IMPLIED_CAPABILITIES
+    incomplete = {
+        capability: attribute
+        for capability, attribute in original.items()
+        if capability.value != "enforces_tool_allowlist"
+    }
+    workflow.IMPLIED_CAPABILITIES = incomplete
+    try:
+        with pytest.raises(RuntimeError, match="enforces_tool_allowlist"):
+            registry._check_agent_capability_coverage()
+    finally:
+        workflow.IMPLIED_CAPABILITIES = original

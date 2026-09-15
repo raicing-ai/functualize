@@ -48,7 +48,7 @@ class Jsonschema:
 class _ProviderPlugin:
     """The real seam: a plugin that adds a provider while it is being loaded.
 
-    Not `app.add_job_provider(...)` after construction — plugins load at boot
+    Not `app.extensions.add_job_provider(...)` after construction — plugins load at boot
     step 4 and job resolution happens at step 9, so a provider added after the
     constructor returns has already missed the registration it needs. The
     plugin call is the documented route, and it is the one a framework built
@@ -63,7 +63,7 @@ class _ProviderPlugin:
         self._provider = provider
 
     def __call__(self, app: FunctualizeApp) -> None:
-        app.add_job_provider(self._provider)
+        app.extensions.add_job_provider(self._provider)
 
 
 def _app_with(provider: JobProvider) -> FunctualizeApp:

@@ -36,9 +36,11 @@ from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
 from functualize._primitives.config_class_detection import detect_config_class
 from functualize._types.enums import RunStatus
 from functualize._types.exit_codes import ExitCode, exit_code_for_status
-from functualize._types.naming import negative_flag_for
+from functualize._types.outcome import Family, is_failure, report_line
+from functualize.types import negative_flag_for
 
 if TYPE_CHECKING:
+    from functualize._types.run_request import RunSurface
     from functualize.app.core import FunctualizeApp
 
 logger = logging.getLogger(__name__)
@@ -62,16 +64,6 @@ _APP_SCOPE_ATTR = "_workflow_scope_id"
 def _declares_workflow(function: Any) -> bool:
     """True when a live function carries a ``@workflow`` declaration."""
     return getattr(function, "__functualize_workflow__", None) is not None
-
-
-def _force_requested(app_ref: Any) -> bool:
-    """Did the caller ask to run anyway?
-
-    Deposited on the app by whichever CLI parsed it — both do, at the same
-    attribute — because the commands are built before the pre-command flags are
-    parsed. Same route `--output` takes.
-    """
-    return bool(getattr(app_ref, "_force", False))
 
 
 # ─── Small pure helpers (copies of the ones in adapters/cli.py) ──
@@ -117,12 +109,43 @@ def _get_list_inner_type(base_type: Any) -> Any:
     return str
 
 
+class _EnumChoice(click.Choice):  # type: ignore[type-arg]
+    """A ``Choice`` of an enum's member values that yields the enum member.
+
+    The inverse of the rendering in :func:`_click_type_for`. An ``Enum``
+    parameter is offered as a ``Choice`` of its member values, and until this
+    existed nothing converted the chosen value back: the job body received
+    ``str`` where its annotation said ``Color``, while the programmatic path
+    passed the member through unchanged — so the two surfaces disagreed about
+    the type of the same parameter (#38).
+
+    The member is found by the **rendered spelling**, not by ``Color(value)``:
+    an int-valued enum renders ``"1"``, which is no member's value. A value that
+    is already a member is returned untouched, so a signature default
+    (``color: Color = Color.RED``) survives click's own choice check instead of
+    failing it.
+    """
+
+    def __init__(self, enum_type: type[Enum]) -> None:
+        self._enum_type = enum_type
+        self._members = {str(member.value): member for member in enum_type}
+        super().__init__(list(self._members))
+
+    def convert(self, value: Any, param: Any, ctx: Any) -> Any:
+        if isinstance(value, self._enum_type):
+            return value
+        # ``Choice.convert`` returns the matched *original* choice — one of the
+        # rendered spellings, which are this mapping's keys.
+        return self._members[super().convert(value, param, ctx)]
+
+
 def _click_type_for(py_type: Any) -> tuple[Any, bool, bool]:
     """Map a Python type to ``(click_type, is_flag, multiple)``.
 
     Mirrors Click's conversion so parsing/metavars/choices match:
     - Optional ``X | None`` is unwrapped to ``X``.
-    - Enum → ``click.Choice`` of member values.
+    - Enum → a ``click.Choice`` of member values that converts back to the
+      member (:class:`_EnumChoice`).
     - ``list[X]`` → inner ``X`` type with ``multiple=True``.
     - ``bool`` → ``click.BOOL`` with ``is_flag=True``.
     - everything else → ``click.types.convert_type(X)``.
@@ -141,8 +164,7 @@ def _click_type_for(py_type: Any) -> tuple[Any, bool, bool]:
         return elem_type, False, True
 
     if _is_enum_subclass(inner):
-        choices = [str(member.value) for member in inner]
-        return click.Choice(choices), False, False
+        return _EnumChoice(inner), False, False
 
     if inner is bool:
         return click.BOOL, True, False
@@ -885,53 +907,6 @@ def build_click_params(
     return arguments + options, job_config_class, stdin_markers
 
 
-def _streaming_stdin_params(
-    function: Callable[..., Any], stdin_markers: dict[str, Any]
-) -> frozenset[str]:
-    """Which ``Stdin``-marked params are typed as a stream (§C.2).
-
-    A parameter annotated ``Iterator[Row]`` / ``Iterable[Row]`` /
-    ``Generator[...]`` wants the lazy NDJSON stream; anything else keeps the
-    eager whole-of-stdin string. ``str``/``bytes`` are iterable but are emphatically
-    *not* streams, and are excluded by construction: this tests the annotation's
-    generic **origin**, which is ``None`` for a bare ``str``.
-
-    Annotations are read through ``resolved_hints`` rather than raw, so a module
-    compiled under ``from __future__ import annotations`` (PEP 563) does not
-    silently report every type as the string ``"Iterator[Row]"``.
-    """
-    import collections.abc as _abc
-    import typing as _typing
-
-    if not stdin_markers:
-        return frozenset()
-    try:
-        from functualize._types.annotations import resolved_hints
-
-        hints = resolved_hints(function)
-    except Exception:
-        return frozenset()
-
-    stream_origins = {
-        _abc.Iterator,
-        _abc.Iterable,
-        _abc.Generator,
-        _abc.AsyncIterator,
-        _abc.AsyncIterable,
-    }
-    streaming: set[str] = set()
-    for pname in stdin_markers:
-        hint = hints.get(pname)
-        if hint is None:
-            continue
-        # Unwrap Annotated[...] so `Annotated[Iterator[Row], Stdin()]` is seen.
-        if _typing.get_origin(hint) is _typing.Annotated:
-            hint = _typing.get_args(hint)[0]
-        if _typing.get_origin(hint) in stream_origins:
-            streaming.add(pname)
-    return frozenset(streaming)
-
-
 def _exit_quietly_on_broken_pipe() -> None:
     """Redirect stdout to ``/dev/null`` and exit 0 after a broken pipe.
 
@@ -1040,12 +1015,15 @@ def build_job_engine_callback(
     function: Callable[..., Any],
     job_config_class: type[BaseModel] | None,
     app: FunctualizeApp | None,
-    stdin_markers: dict[str, Any],
     *,
     uses_live: bool,
     requires_tty: bool,
     group_option_values: dict[str, Any] | None = None,
     workflow_scope_id: str | None = None,
+    surface: RunSurface,
+    prompt_gates: bool | None = None,
+    output_format: str | None = None,
+    force: bool | None = None,
 ) -> Callable[..., Any]:
     """Build the DI/config/lifecycle callback a click command invokes.
 
@@ -1057,29 +1035,36 @@ def build_job_engine_callback(
     *before* the job name (S6a). They are not click params of this command —
     position is what scopes them (D-d) — so they ride the closure rather than
     ``kwargs``, and the engine resolves them against the group, not the job.
+
+    ``surface`` is the door that built this command. It stopped taking
+    ``stdin_markers`` at run-request/T11: the callback no longer resolves
+    stdin, ``engine.run()`` does, and it re-derives the markers from the job's
+    own signature.
+
+    ``prompt_gates``, ``output_format`` and ``force`` are the delivery inputs.
+    ``None`` means "this door did not parse them" — the app's own root callback
+    puts them in ``ctx.obj`` instead, because it runs after its subcommands were
+    built. Until run-request/T12 both routes were the same thing: an attribute
+    written onto the app object, which the kernel then read.
     """
     app_ref = app
 
     def wrapper(**kwargs: Any) -> Any:
-        from functualize._engine.executor import (
-            JobExecutionEngine as _JobExecutionEngine,
-        )
-
         if requires_tty:
-            from functualize._engine.capabilities.tty import terminal_available
+            from functualize.app.adapters.surface_gate import (
+                refuse_without_terminal,
+            )
 
-            if not terminal_available():
-                print(
-                    f"Error: '{name}' needs an interactive terminal "
-                    f"(it declares `tty: TTY`). Run it from `func` at a real "
-                    f"TTY — it cannot run over a pipe, in CI, or under MCP.",
-                    file=sys.stderr,
-                )
-                # A pre-flight refusal, not a job failure (T39 exit table).
-                raise SystemExit(ExitCode.REFUSED)
+            refuse_without_terminal(name)
+
+        # The type question, asked through the corridor rather than by
+        # importing the kernel to phrase it (T4, AC-1). Duck-typing was tried
+        # here and is wrong: `callable(engine.run)` is true of any `MagicMock`,
+        # which is exactly the case this guard catches.
+        from functualize.app.utils import is_execution_engine
 
         engine = getattr(app_ref, "_execution_engine", None)
-        if not isinstance(engine, _JobExecutionEngine):
+        if not is_execution_engine(engine):
             raise RuntimeError(
                 f"Cannot execute job '{name}': no execution engine available. "
                 "Ensure the app has been booted with an execution engine."
@@ -1103,32 +1088,11 @@ def build_job_engine_callback(
             # this attribute directly. It has no CLI spelling.
             scope_id = getattr(app_ref, "_workflow_scope_id", None)
 
-        cli_values: dict[str, Any] = {}
-        if job_config_class is not None:
-            config_field_names = set(job_config_class.model_fields.keys())
-            for field_name in list(kwargs.keys()):
-                if field_name in config_field_names:
-                    cli_values[field_name] = kwargs.pop(field_name)
-
-        direct_kwargs = dict(kwargs)
-
-        if stdin_markers:
-            from functualize._cli.stdin_reader import resolve_stdin_params
-
-            stdin_cli_values = {
-                pname: direct_kwargs.get(pname) for pname in stdin_markers
-            }
-            resolved = resolve_stdin_params(
-                stdin_markers,
-                stdin_cli_values,
-                _streaming_stdin_params(function, stdin_markers),
-            )
-            direct_kwargs.update(resolved)
-            for pname in stdin_markers:
-                if pname in resolved:
-                    pass
-                elif direct_kwargs.get(pname) is None:
-                    direct_kwargs.pop(pname, None)
+        # The config-model split and stdin resolution used to happen here.
+        # Both moved into `engine.run()` at run-request/T11: they are the same
+        # work whichever door was used, and this one only ever did it for
+        # click. `stdin_markers` still shapes the click *parameters* above —
+        # that half genuinely is this module's business.
 
         from functualize.app.adapters.surface_gate import wants_stdout_surface
 
@@ -1144,33 +1108,52 @@ def build_job_engine_callback(
 
                 live_ctx = stdout_live_session(app_ref, _descriptor)
 
-        with live_ctx, scope_store_refusal():
-            result = app_ref.execution_engine.execute(  # type: ignore[union-attr]
+        with live_ctx, prelude_refusal():
+            from functualize.app.adapters._request_builder import build_request
+
+            request = build_request(
                 job_name=name,
-                function=function,
-                config_class=job_config_class,
-                kwargs={**direct_kwargs, **cli_values},
+                kwargs=kwargs,
                 group_option_values=group_option_values,
                 workflow_scope_id=scope_id,
-                force=_force_requested(app_ref),
+                surface=surface,
+                prompt_gates=prompt_gates,
+                output_format=output_format,
+                force=force,
+                app=app_ref,
             )
-
+            result = app_ref.execution_engine.run(request)  # type: ignore[union-attr]
         return deliver_job_result(result, name, app_ref)
 
     return wrapper
 
 
 @contextlib.contextmanager
-def scope_store_refusal() -> Iterator[None]:
-    """Turn a refused walk into a usage error, not a traceback.
+def prelude_refusal() -> Iterator[None]:
+    """Turn a walk refused before it started into a clean line, not a traceback.
 
-    Two conditions, one exit code, because they are the same kind of answer:
-    *this run cannot start, and no job ran.* An unreadable scope store, and a
-    scope that was cancelled.
+    Everything caught here is the same kind of answer — *this run cannot start,
+    and no job ran* — raised from `WorkflowRunner.prelude`, which runs **before
+    DI resolution and before any hook**. That is early enough that the refusal
+    cannot travel on the event bus and never becomes a ``JobResult``: it
+    arrives as an exception out of ``engine.run``.
 
-    The workflow prelude reads scopes **before DI resolution and before any
-    hook**, so this cannot travel on the event bus and never becomes a
-    ``JobResult`` — it arrives as an exception out of ``engine.execute``.
+    Two exit codes, because the *reasons* are two kinds:
+
+    - **Usage (2)** — the operator's environment or arguments are wrong: an
+      unreadable scope store, a scope that was cancelled.
+    - **Refused (3)** — a *declared precondition for running the job* was not
+      met: an agent step naming an executor nobody registered, or one whose
+      executor cannot honour a capability the step requires. That is the
+      distinction `_types/exit_codes.py` draws in its own words, and the reason
+      `REFUSED` exists rather than falling back to `JOB_RAISED`, where it would
+      be "indistinguishable from a job that ran and threw".
+
+    The agent-step pair was missing until an adversarial review ran the CLI
+    path: both errors derive from `Exception` and escaped to the process
+    boundary as a full traceback with exit 1 — the exact code the table says a
+    refusal must not use. `contracts.md` §5 had promised they "map to an exit
+    code through F2's outcome module"; nothing mapped them.
 
     **Both execute call sites wrap themselves in this, or neither.** They are
     the cold and warm dispatch paths, and `deliver_job_result`'s own docstring
@@ -1178,10 +1161,12 @@ def scope_store_refusal() -> Iterator[None]:
     boot exited 1, warm boot exited 0, for the same job and the same failure."
     That is `contributor/reference/pitfalls.md` §23 — two dispatch paths, one
     result-handling contract.
-
-    Exit 2, usage/config: the run never started and no job raised. Not 1, and
-    never 0 with an empty scope list.
     """
+    from functualize._types.errors import (
+        AgentCapabilityRefusedError,
+        AgentExecutorUnavailableError,
+        NotifierUnavailableError,
+    )
     from functualize.app.utils import ScopeCancelledError, ScopeStoreUnreadableError
 
     try:
@@ -1189,6 +1174,17 @@ def scope_store_refusal() -> Iterator[None]:
     except (ScopeStoreUnreadableError, ScopeCancelledError) as exc:
         click.echo(f"Error: {exc}", err=True)
         raise SystemExit(ExitCode.USAGE) from exc
+    except (
+        AgentExecutorUnavailableError,
+        AgentCapabilityRefusedError,
+        # `workflow-graph-semantics`/T6, joining this arm rather than getting
+        # its own: it is the same kind of answer — the declaration asked for
+        # something no registration can supply, so nothing ran and nothing
+        # failed. A refusal (3), not an error (1).
+        NotifierUnavailableError,
+    ) as exc:
+        click.echo(f"Error: {exc}", err=True)
+        raise SystemExit(ExitCode.REFUSED) from exc
 
 
 def deliver_job_result(result: Any, name: str, app_ref: Any = None) -> Any:
@@ -1227,7 +1223,7 @@ def deliver_job_result(result: Any, name: str, app_ref: Any = None) -> Any:
 
         from pydantic import ValidationError as PydanticValidationError
 
-        from functualize._engine.missing_value import MissingValueError
+        from functualize.types import MissingValueError
 
         if isinstance(result.exception, PydanticValidationError):
             from functualize.app.adapters.cli import _print_validation_error
@@ -1268,15 +1264,27 @@ def deliver_job_result(result: Any, name: str, app_ref: Any = None) -> Any:
     # and warns that scattering SystemExit "is how that contract silently
     # drifts", and this was the scattering. It is the same shape as D7 — a rule
     # stated in two places, one of which quietly answered 0.
-    if result.status is RunStatus.BLOCKED:
-        _report_blocked(result)
-    elif result.status is RunStatus.REFUSED:
-        _report_refused(result)
+    # This surface is PROCESS: it ends a process with a code a shell reads.
+    # The family answers; this site does not. What used to be here -- a
+    # hand-written pair of branches deciding which statuses owe a message, next
+    # to a table deciding the code -- was the scattering `_types/exit_codes.py`
+    # warns about in its own docstring.
+    # The module decides *which* statuses owe the caller a line. This surface
+    # decides how to say it, because only this surface holds the result: which
+    # gate, which scope, the resume incantation. A status the module later adds
+    # to the owing set gets its generic sentence here for free rather than
+    # silently saying nothing.
+    if (line := report_line(result.status)) is not None:
+        if result.status is RunStatus.BLOCKED:
+            _report_blocked(result)
+        elif result.status is RunStatus.REFUSED:
+            _report_refused(result)
+        else:
+            print(line, file=sys.stderr)
 
-    code = exit_code_for_status(result.status)
-    if code == ExitCode.OK:
+    if not is_failure(result.status, family=Family.PROCESS):
         return result.return_value
-    raise SystemExit(code)
+    raise SystemExit(exit_code_for_status(result.status))
 
 
 def _report_refused(result: Any) -> None:
@@ -1286,11 +1294,10 @@ def _report_refused(result: Any) -> None:
     way :func:`_report_blocked` already is — the code now comes from the table.
     """
     reason = str((getattr(result, "metadata", None) or {}).get("skip_reason") or "")
-    message = (
-        f"Refused: {reason}"
-        if reason
-        else "Refused: a declared precondition for running this job was not met."
-    )
+    # With no reason to add, the module's sentence is the message -- it used to
+    # be spelled out again here, one copy per surface, which is the shape this
+    # feature exists to remove.
+    message = f"Refused: {reason}" if reason else report_line(RunStatus.REFUSED)
     print(message, file=sys.stderr)
 
 
@@ -1303,6 +1310,10 @@ def create_job_click_command(
     command_name: str | None = None,
     group_option_values: dict[str, Any] | None = None,
     workflow_scope_id: str | None = None,
+    surface: RunSurface,
+    prompt_gates: bool | None = None,
+    output_format: str | None = None,
+    force: bool | None = None,
 ) -> click.Command:
     """Build a ``click.Command`` for a job — the click-native replacement.
 
@@ -1315,10 +1326,15 @@ def create_job_click_command(
             bare function name for a grouped job). Defaults to ``name``.
         group_option_values: Group flags consumed mid-path by the dispatcher
             (S6a), passed through to the engine as the group-CLI layer.
+        surface: The door building this command. Defaults to the app's own
+            CLI; ``func``'s handlers pass their own (run-request/T11).
+        prompt_gates: Delivery input, ``None`` when this door did not parse it.
+        output_format: Delivery input, ``None`` when this door did not parse it.
+        force: Delivery input, ``None`` when this door did not parse it.
     """
     from functualize._discovery.providers import extract_capability_markers
 
-    params, resolved_config, stdin_markers = build_click_params(
+    params, resolved_config, _stdin_markers = build_click_params(
         function, job_config_class
     )
     if _declares_workflow(function):
@@ -1333,11 +1349,14 @@ def create_job_click_command(
         function,
         resolved_config,
         app,
-        stdin_markers,
         uses_live=markers["uses_live"],
         requires_tty=markers["requires_tty"],
         group_option_values=group_option_values,
         workflow_scope_id=workflow_scope_id,
+        surface=surface,
+        prompt_gates=prompt_gates,
+        output_format=output_format,
+        force=force,
     )
     return click.Command(
         name=command_name or name,
@@ -1402,6 +1421,8 @@ def create_job_command(
     function: Callable[..., Any],
     job_config_class: type[BaseModel] | None = None,
     app: FunctualizeApp | None = None,
+    *,
+    surface: RunSurface = "app.execute",
 ) -> Callable[..., Any]:
     """Wrap a job function for direct invocation, DI/config-aware.
 
@@ -1411,10 +1432,22 @@ def create_job_command(
     capability params are excluded. This is the callable form of
     :func:`create_job_click_command` for embedders and the ``_discovery``
     CLI-wiring seam, which must not import ``click`` machinery directly.
+
+    Args:
+        surface: The door this callable represents. It defaults to
+            ``app.execute`` — programmatic entry — because that is what an
+            embedder holding a callable actually is, and because the previous
+            default was ``app.cli``: a run through here was labelled as having
+            come through the app's command tree, a door it never passed. That
+            was not cosmetic. ``app.cli`` owns the process's stdin
+            (:data:`~functualize._types.run_request.SURFACE_POLICY`), so the
+            mislabel also handed these runs stdin resolution and the ambient
+            click-context read (rre F8). A caller that really is wiring a CLI
+            passes its own door.
     """
     from functualize._discovery.providers import extract_capability_markers
 
-    params, resolved_config, stdin_markers = build_click_params(
+    params, resolved_config, _stdin_markers = build_click_params(
         function, job_config_class
     )
     markers = extract_capability_markers(function)
@@ -1423,9 +1456,9 @@ def create_job_command(
         function,
         resolved_config,
         app,
-        stdin_markers,
         uses_live=markers["uses_live"],
         requires_tty=markers["requires_tty"],
+        surface=surface,
     )
 
     # Synthesize a signature exposing the CLI param names (DI already stripped),
@@ -1484,15 +1517,15 @@ def invoke_command_capturing(
     stdout: a job's return value is programmatic only — it feeds ``rc.invoke()``
     and ``FromJob``/``FromStep``. Job data reaches stdout solely through the
     explicit ``Stdout`` capability (``out.emit()`` / ``out.write()``), which the
-    engine injects and which honors ``--output``. See
+    engine injects and which honors ``--emit-format``. See
     ``functualize._types.stdout`` for the ratified design.
 
     ``emit_return=True`` restores return-value emission for **plugin/ad-hoc
     commands**, which are plain click callbacks rather than engine-executed
     jobs: they get no ``Stdout`` injection and carry no ``FromJob`` semantics,
-    so serializing their return under ``--output`` remains the right behavior.
+    so serializing their return under ``--emit-format`` remains the right behavior.
     Emission still requires an *explicit* format — ``auto`` and ``none`` stay
-    silent, preserving "no ``--output``, no stdout dump".
+    silent, preserving "no ``--emit-format``, no stdout dump".
 
     ``obj`` seeds ``ctx.obj`` for callers invoking a command out of its group,
     where no root callback runs to populate it.

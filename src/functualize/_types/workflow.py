@@ -6,7 +6,7 @@ walker knows how to do (gates), and edges wire them together. Anything that
 would make the graph a second, parallel way of *writing* logic was deliberately
 left out — that is what the decorated function's epilogue body is for.
 
-Two node kinds:
+Three node kinds:
 
 - :class:`Step` wraps a reference to a registered job. It carries no behavior
   of its own; the job's own ``@job`` declaration (deps, guards, caching) is
@@ -16,9 +16,14 @@ Two node kinds:
   awaited schema, and resumes when input is deposited. Gates used to be a
   ``Step(awaits_input=...)`` flag, which made "a node that runs a job" and "a
   node that waits for a human" the same type with mutually exclusive fields.
+- :class:`AgentStep` is work performed by an agent rather than by a local job
+  call. It names the executor that services it and declares what it needs
+  honoured; an executor that cannot honour it is refused **before the walk**
+  (``_engine.agent_step``), never run with the constraint silently dropped.
 
 Node identity is the node's ``name``: for a `Step` the referenced job name, for
-a `Gate` its declared name. Edges reference nodes by that name.
+a `Gate` or an `AgentStep` its declared name. Edges reference nodes by that
+name.
 
 Lives in ``_types`` (not the public ``functualize.workflow`` package) for the
 same reason ``JobDeclaration`` does: boot and discovery must read declarations,
@@ -33,15 +38,22 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from functualize._types.job_declaration import _ref_name
+from functualize._types.protocols import AgentCapability
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
 
 __all__ = [
     "END",
+    "AgentStep",
     "ConditionalEdge",
     "Edge",
     "Gate",
+    "Loop",
+    "Notification",
+    "Notify",
+    "OnFailure",
+    "IMPLIED_CAPABILITIES",
     "Step",
     "Tool",
     "ToolRef",
@@ -112,9 +124,30 @@ class Step:
         job: The job to run — its registered name, or the decorated function
             itself. Nothing else: a step does not define behavior, it points
             at behavior that is already declared and independently runnable.
+        effecting: This step does something the world remembers — charges a
+            card, sends a mail, files a ticket. It must run **exactly once**
+            across a crash and a resume.
+
+            Default `False`, and that default is the honest one: the framework
+            cannot tell an effecting step from a pure one by looking at it, and
+            guessing wrong in this direction re-runs a refund. A step that says
+            nothing is replayed, which is the behaviour every workflow has had
+            until now.
+
+            What the flag buys is an **outbox**: the step's completion record is
+            committed in the same locked batch as the walk's position, so a
+            crash can leave the effect done and the record absent only if it
+            lands between the effect and a write that is itself atomic. See
+            `_engine/frontier.complete`.
+
+            > It does not make the effect itself transactional — nothing here
+            > can. It makes the *record* of the effect commit with the walk's
+            > progress, which is what a resume reads to decide whether to run
+            > the step again.
     """
 
     job: str | Callable[..., Any]
+    effecting: bool = False
 
     def __post_init__(self) -> None:
         if isinstance(self.job, str):
@@ -313,6 +346,127 @@ class Gate:
 
 
 @dataclass(frozen=True)
+class AgentStep:
+    """A workflow node performed by an agent, not by a registered job.
+
+    The third node kind, and the first whose execution is *not* a local
+    function call: it runs somewhere else, it can take arbitrarily long, it can
+    fail in ways a ``try/except`` around a callable does not describe, and it
+    can be **refused** — which is the point. A step that declares something its
+    executor cannot honour refuses before the walk starts, rather than running
+    with the constraint silently dropped.
+
+    Nothing about the agent is declared here. The port says what the *engine*
+    needs; how an implementation talks to a model, an MCP client or a terminal
+    is the implementation's business.
+
+    Attributes:
+        name: Graph key for this node — the address it is recorded under, and
+            the name a refusal reports.
+        instructions: What the step asks the agent to do. Required, and not
+            allowed to be blank: an agent step with nothing to ask cannot be
+            serviced by anyone.
+        executor: The registered executor that services this step, by name.
+            ``None`` means *the only registered executor*, which is a unique
+            answer — a step declaring ``None`` where two are registered is
+            refused rather than guessed at, because handing it to one of them
+            would be substituting an executor for the one the step meant.
+        tools: The tool allowlist this step declares. Declaring any tool
+            implies :attr:`AgentCapability.ENFORCES_TOOL_ALLOWLIST`
+            (:data:`IMPLIED_CAPABILITIES`). An empty sequence declares no
+            constraint, which is *not* the same statement as "no tools".
+        requires: Capabilities the step needs honoured, on top of the implied
+            ones. Widening a declaration is explicit; narrowing it is not
+            possible — ``tools=[…]`` implies its capability either way.
+        time_budget_s: The step's active-time budget in seconds, when it
+            declares one. Declaring one implies
+            :attr:`AgentCapability.PRESERVES_ACTIVE_TIME_BUDGET`: an executor
+            that cannot honour a budget must refuse the step, not ignore it.
+    """
+
+    name: str
+    instructions: str
+    executor: str | None = None
+    tools: Sequence[str] = ()
+    requires: frozenset[AgentCapability] = frozenset()
+    time_budget_s: float | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not self.name.strip():
+            raise ValueError("AgentStep name must be a non-empty string")
+        # A node name is a graph address, so it canonicalizes like every other
+        # address (`Step`, `Gate`, `Edge`) — otherwise an edge written from the
+        # name the author typed would not find this node.
+        object.__setattr__(self, "name", _job_ref_name(self.name))
+        if not isinstance(self.instructions, str) or not self.instructions.strip():
+            raise ValueError(
+                f"AgentStep '{self.name}' must declare non-empty instructions"
+            )
+        if self.executor is not None and (
+            not isinstance(self.executor, str) or not self.executor.strip()
+        ):
+            raise ValueError(
+                f"AgentStep '{self.name}' executor must be a non-empty string or "
+                f"None, got {self.executor!r}"
+            )
+        tools = tuple(self.tools)
+        if any(not isinstance(tool, str) or not tool.strip() for tool in tools):
+            raise ValueError(
+                f"AgentStep '{self.name}' tools must be non-empty strings, "
+                f"got {tools!r}"
+            )
+        object.__setattr__(self, "tools", tools)
+        if self.time_budget_s is not None and self.time_budget_s <= 0:
+            raise ValueError(
+                f"AgentStep '{self.name}' time_budget_s must be positive, "
+                f"got {self.time_budget_s!r}"
+            )
+        # Folded in rather than left to the checker: anything reading
+        # `step.requires` gets the set the engine will actually check against,
+        # so an implication cannot be missed by reading the declaration.
+        object.__setattr__(
+            self, "requires", frozenset(self.requires) | implied_capabilities(self)
+        )
+
+
+#: Every capability flag an executor may declare, and the `AgentStep` attribute
+#: whose presence makes a step require it. ``None`` means no declaration implies
+#: that flag — an author must name it in ``requires``.
+#:
+#: **This table is checked, not maintained.** A flag absent from it is one no
+#: declaration can require, so nothing can ever refuse a step for it and the
+#: flag is dead on arrival. ``_engine/capabilities/registry.py`` asserts at
+#: import that these keys are exactly the ``AgentCapability`` members and
+#: refuses to start when they disagree — ADR-014's shape for the injected
+#: capabilities, applied to the flags an executor declares.
+IMPLIED_CAPABILITIES: dict[AgentCapability, str | None] = {
+    # An author who constrains tools has stated an intent. Satisfying it
+    # silently-not-at-all is the failure this port exists to prevent, so the
+    # capability is implied; it can be widened explicitly, never narrowed.
+    AgentCapability.ENFORCES_TOOL_ALLOWLIST: "tools",
+    # A budget the executor cannot honour is a constraint left unenforced.
+    AgentCapability.PRESERVES_ACTIVE_TIME_BUDGET: "time_budget_s",
+    # Nothing else in a declaration says "this output must reach a live
+    # surface", so this one is reached by naming it.
+    AgentCapability.SUPPORTS_VISIBLE_OUTPUT: None,
+}
+
+
+def implied_capabilities(step: AgentStep) -> frozenset[AgentCapability]:
+    """The capabilities ``step`` requires by declaring something.
+
+    Not the whole requirement — an author may also name capabilities in
+    ``requires``, which :meth:`AgentStep.__post_init__` has already folded in
+    by the time anything reads the attribute.
+    """
+    return frozenset(
+        capability
+        for capability, attribute in IMPLIED_CAPABILITIES.items()
+        if attribute is not None and getattr(step, attribute)
+    )
+
+
+@dataclass(frozen=True)
 class Edge:
     """Unconditional directed connection between two workflow nodes.
 
@@ -331,6 +485,91 @@ class Edge:
         object.__setattr__(self, "source", _job_ref_name(self.source))
         if isinstance(self.target, str):
             object.__setattr__(self, "target", _job_ref_name(self.target))
+
+
+@dataclass(frozen=True)
+class OnFailure:
+    """Where control goes when a step raises.
+
+    Without one, a raising step stops the walk and the scope is marked
+    ``failed`` — that is the behaviour every workflow has today and `OnFailure`
+    does not change it. It adds a *declared* alternative, and only for the node
+    it names.
+
+    Attributes:
+        source: The node whose failure this routes.
+        target: Where to continue, or ``END`` to finish the walk without
+            marking it failed — a cleanup path that succeeds is a success.
+        when: Called with the exception the step raised; routing requires a
+            true answer. `None` routes every failure, which is the honest
+            spelling of a catch-all.
+
+    **The chosen route is recorded and read back on replay**, never
+    re-evaluated — the property `ConditionalEdge` already has, for a sharper
+    reason. `_choice_for` puts it as *"calling it and discarding the answer
+    would still run whatever side effects it has"*, and a failure predicate is
+    exactly the kind that pages somebody.
+    """
+
+    source: str
+    target: str | _EndSentinel = field(default_factory=lambda: END)
+    when: Callable[[BaseException], bool] | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "source", _job_ref_name(self.source))
+        if isinstance(self.target, str):
+            object.__setattr__(self, "target", _job_ref_name(self.target))
+
+
+@dataclass(frozen=True)
+class Loop:
+    r"""A back-edge that closes a cycle, **with the bound that makes it legal**.
+
+    A cycle declared with ordinary :class:`Edge`\ s is refused at decoration
+    time (`workflow-graph-semantics`/T1), because the walk prunes nodes it has
+    already visited and such a graph therefore ran its cycle exactly once, in
+    silence. `Loop` is the declaration that says *how many times*, which is the
+    one thing the graph could not previously express.
+
+    ``max_iterations`` has **no default** on purpose. Every value anyone would
+    pick as one is wrong for somebody: too low silently truncates work, too
+    high turns a runaway condition into a long outage instead of a quick
+    refusal. Writing the bound is the point of the type.
+
+    Attributes:
+        source: The node the back-edge leaves — the end of the repeated body.
+        target: The node it returns to — the start of the repeated body.
+        max_iterations: How many times the body may run in total, counting the
+            first pass. `1` is a body that never repeats, which is legal and
+            occasionally what a caller wants while they are switching it off.
+        condition: Called with the source node's return value; going round
+            again requires a true answer. `None` means "always, until the
+            bound", which is the honest spelling of a fixed repeat.
+    """
+
+    source: str
+    target: str
+    max_iterations: int
+    condition: Callable[..., bool] | None = None
+
+    def __post_init__(self) -> None:
+        # Same canonicalization as `Edge`: endpoints name nodes, and node names
+        # are canonical.
+        object.__setattr__(self, "source", _job_ref_name(self.source))
+        object.__setattr__(self, "target", _job_ref_name(self.target))
+        if not isinstance(self.max_iterations, int) or isinstance(
+            self.max_iterations, bool
+        ):
+            raise TypeError(
+                f"Loop max_iterations must be an int, got "
+                f"{type(self.max_iterations).__name__}"
+            )
+        if self.max_iterations < 1:
+            raise ValueError(
+                f"Loop max_iterations must be at least 1, got "
+                f"{self.max_iterations}. A bound of 0 would declare a body that "
+                f"cannot run, which is a graph with the edge deleted."
+            )
 
 
 @dataclass(frozen=True)
@@ -387,7 +626,7 @@ class WorkflowNodeShape:
     """
 
     name: str
-    kind: str  # "step" | "gate"
+    kind: str  # "step" | "gate" | "agent"
     model: str | None = None
 
 
@@ -445,6 +684,11 @@ class WorkflowShape:
         for node in self.nodes:
             if node.kind == "gate":
                 nodes.append({"gate": node.name, "model": node.model})
+            elif node.kind == "agent":
+                # Its own key, not "step": an agent step runs no registered
+                # job, so a consumer that read it as one would look up a job
+                # that does not exist.
+                nodes.append({"agent": node.name})
             else:
                 nodes.append({"step": node.name})
 
@@ -484,6 +728,8 @@ class WorkflowShape:
                         name=str(raw["gate"]), kind="gate", model=raw.get("model")
                     )
                 )
+            elif "agent" in raw:
+                nodes.append(WorkflowNodeShape(name=str(raw["agent"]), kind="agent"))
             elif "step" in raw:
                 nodes.append(WorkflowNodeShape(name=str(raw["step"]), kind="step"))
             else:
@@ -512,6 +758,111 @@ class WorkflowShape:
         return cls(nodes=tuple(nodes), edges=tuple(edges))
 
 
+def _node_kind(node: Step | Gate | AgentStep) -> str:
+    """The kind a node is recorded as in the cache shape.
+
+    One place decides this, so a new node kind is a row here rather than a
+    second reading of the same question wherever the shape is consumed.
+    """
+    if isinstance(node, Gate):
+        return "gate"
+    if isinstance(node, AgentStep):
+        return "agent"
+    if isinstance(node, Step):
+        return "step"
+    raise TypeError(f"Unknown workflow node type {type(node).__name__!r}")
+
+
+#: Scope statuses a `Notify` may fire on.
+#:
+#: The statuses the **walk writes**, not the richer set
+#: `app/_workflow_view.derived_state` computes for display. `_types` imports
+#: nothing internal, so reading the derived vocabulary here is not available —
+#: and copying it would be a fifth spelling of a list that must agree exactly
+#: (`contributor/reference/pitfalls.md` §6). What a walk ends in is what a
+#: notification can be about, and those are these four.
+_VALID_NOTIFY_STATES: frozenset[str] = frozenset(
+    {"completed", "failed", "blocked", "cancelled"}
+)
+
+
+@dataclass(frozen=True)
+class Notify:
+    """Tell somebody when a walk ends in a given state.
+
+    An **effect**, and it rides the same outbox rule as `Step(effecting=True)`:
+    the record that it fired is committed before the provider is called, so a
+    crash can lose a notification but can never send it twice. At-most-once, in
+    the direction that matters — a resumed workflow must not page the on-call
+    again for a failure they have already seen.
+
+    > **Not a bus and not a broker.** ``to`` is opaque to the engine: it is
+    > handed to the provider verbatim and nothing here parses, matches or routes
+    > on it. The moment ``to`` becomes load-bearing routing, you own a broker —
+    > and then retries, fan-out and a dead-letter queue follow, none of which
+    > this is. A target, and an effect.
+
+    Attributes:
+        on: The scope status to fire on — one of `_VALID_NOTIFY_STATES`.
+        to: Where the notification goes, in whatever spelling the provider
+            understands. An address, a channel, a task list, a URL.
+        provider: Which registered notifier delivers it. None means the single
+            registered one, and is an error when there is more than one — a
+            notification that silently picked a deliverer would be the worst
+            kind of working.
+    """
+
+    on: str
+    to: str
+    provider: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.on not in _VALID_NOTIFY_STATES:
+            raise ValueError(
+                f"Notify `on` must be one of {sorted(_VALID_NOTIFY_STATES)}, "
+                f"got {self.on!r}"
+            )
+        if not isinstance(self.to, str) or not self.to.strip():
+            raise ValueError("Notify `to` must be a non-empty string")
+        if self.provider is not None and not self.provider.strip():
+            raise ValueError("Notify `provider` must be a non-empty string or None")
+
+    @property
+    def key(self) -> str:
+        """What "this notification already fired" is recorded under.
+
+        The declaration's own content, not its position in a list: a workflow
+        that gains a second `Notify` must not make the first one fire again by
+        shifting its index.
+        """
+        return f"{self.on}\x00{self.provider or ''}\x00{self.to}"
+
+
+@dataclass(frozen=True)
+class Notification:
+    """What a notifier is handed. A target, and what happened.
+
+    Five fields and no envelope. There is no message id, no correlation key, no
+    priority and no retry count, because each of those is the first field of a
+    broker and this is not one (**N8**). A provider that needs an id makes one;
+    a provider that needs a retry owns it.
+
+    Attributes:
+        to: The declaration's ``to``, **verbatim**. Never parsed here.
+        scope_id: The walk this is about.
+        workflow: The job name, when the scope records one.
+        status: The scope status that fired it.
+        node: Where the walk stopped, when it stopped somewhere — the failed
+            node, or the gate it is blocked at. None for a walk that finished.
+    """
+
+    to: str
+    scope_id: str
+    workflow: str | None
+    status: str
+    node: str | None = None
+
+
 @dataclass(frozen=True)
 class WorkflowDeclaration:
     """The frozen graph attached by ``@workflow`` (mirrors ``JobDeclaration``).
@@ -521,12 +872,22 @@ class WorkflowDeclaration:
     which is what lets discovery serialize the graph shape into the cache.
     """
 
-    nodes: tuple[Step | Gate, ...] = ()
+    nodes: tuple[Step | Gate | AgentStep, ...] = ()
     edges: tuple[Edge | ConditionalEdge, ...] = ()
+    #: Notifications to fire when the walk ends. **Not in `edges`**: a `Notify`
+    #: has no source and no target in the graph — it is about the walk's
+    #: outcome, not about control moving from one node to another — and putting
+    #: it there would make every edge consumer test for a kind that has neither.
+    notify: tuple[Notify, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "nodes", tuple(self.nodes))
         object.__setattr__(self, "edges", tuple(self.edges))
+        object.__setattr__(self, "notify", tuple(self.notify))
+
+    def notifications_for(self, status: str) -> tuple[Notify, ...]:
+        """Every declared notification that fires on ``status``."""
+        return tuple(item for item in self.notify if item.on == status)
 
     @property
     def entry(self) -> str | None:
@@ -538,7 +899,7 @@ class WorkflowDeclaration:
         """
         return self.nodes[0].name if self.nodes else None
 
-    def node(self, name: str) -> Step | Gate | None:
+    def node(self, name: str) -> Step | Gate | AgentStep | None:
         """Look up a node by its graph key."""
         for node in self.nodes:
             if node.name == name:
@@ -548,7 +909,8 @@ class WorkflowDeclaration:
     def step_refs(self) -> tuple[str | Callable[..., Any], ...]:
         """Every `Step`'s job reference, in declaration order.
 
-        Boot resolves these against the registry; gates have no job to resolve.
+        Boot resolves these against the registry; gates have no job to resolve
+        and an `AgentStep` names an *executor*, which is a different registry.
         """
         return tuple(node.job for node in self.nodes if isinstance(node, Step))
 
@@ -586,7 +948,7 @@ class WorkflowDeclaration:
         nodes = tuple(
             WorkflowNodeShape(
                 name=node.name,
-                kind="gate" if isinstance(node, Gate) else "step",
+                kind=_node_kind(node),
                 model=(
                     getattr(node.awaits, "__name__", None)
                     if isinstance(node, Gate)

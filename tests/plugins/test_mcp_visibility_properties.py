@@ -104,7 +104,10 @@ class FakeApp:
                 return d
         return None
 
-    def execute(self, job_name: str, **kwargs: Any) -> FakeJobResult:
+    def execute(self, request: Any) -> FakeJobResult:
+        # One positional `RunRequest` — the facade's only form since
+        # run-request-entry/T15.
+        job_name = request.job_name
         if job_name in self._execute_results:
             return self._execute_results[job_name]
         return FakeJobResult(status="success", return_value=f"executed {job_name}")
@@ -647,8 +650,8 @@ class TestMCPPartialConfigResolutionProperty:
         captured_kwargs: dict[str, Any] = {}
 
         class TrackingApp(FakeApp):
-            def execute(self, jn: str, **kwargs: Any) -> FakeJobResult:
-                captured_kwargs.update(kwargs)
+            def execute(self, request: Any) -> FakeJobResult:
+                captured_kwargs.update(dict(request.kwargs))
                 return FakeJobResult(status="success", return_value="ok")
 
         app = TrackingApp(descriptors=[descriptor])

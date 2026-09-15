@@ -1,7 +1,7 @@
 """Unit tests for stdout emission integration.
 
-Tests StdoutEmitter behavior with --output json/ndjson/raw/none, None return
-values, invalid --output validation, and rc.log() routing to stderr.
+Tests StdoutEmitter behavior with --emit-format json/ndjson/raw/none, None return
+values, invalid --emit-format validation, and rc.log() routing to stderr.
 
 Validates Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6
 """
@@ -19,12 +19,12 @@ from functualize._cli.dispatch import _extract_global_options
 from functualize._primitives.stdout_emitter import StdoutEmitter
 
 # =============================================================================
-# Tests: --output json serializes return value to stdout (Requirement 6.1)
+# Tests: --emit-format json serializes return value to stdout (Requirement 6.1)
 # =============================================================================
 
 
 class TestOutputJson:
-    """Test --output json serializes return value to stdout."""
+    """Test --emit-format json serializes return value to stdout."""
 
     def test_json_emits_dict(self) -> None:
         """A dict value is JSON-serialized to stdout with trailing newline."""
@@ -79,23 +79,23 @@ class TestOutputJson:
         assert parsed == {"path": "/tmp/test"}
 
     def test_global_options_parses_output_json(self) -> None:
-        """_extract_global_options recognizes --output json."""
-        opts, _ = _extract_global_options(["func", "--output", "json", "deploy"])
+        """_extract_global_options recognizes --emit-format json."""
+        opts, _ = _extract_global_options(["func", "--emit-format", "json", "deploy"])
         assert opts.output == "json"
 
     def test_global_options_parses_output_json_equals(self) -> None:
-        """_extract_global_options recognizes --output=json."""
-        opts, _ = _extract_global_options(["func", "--output=json", "deploy"])
+        """_extract_global_options recognizes --emit-format=json."""
+        opts, _ = _extract_global_options(["func", "--emit-format=json", "deploy"])
         assert opts.output == "json"
 
 
 # =============================================================================
-# Tests: --output raw writes str/bytes as-is to stdout (§C.2)
+# Tests: --emit-format raw writes str/bytes as-is to stdout (§C.2)
 # =============================================================================
 
 
 class TestOutputRaw:
-    """Test --output raw writes str/bytes as-is (no added newline)."""
+    """Test --emit-format raw writes str/bytes as-is (no added newline)."""
 
     def test_raw_emits_string_as_is(self) -> None:
         """A string value is written verbatim — raw means no added newline."""
@@ -116,18 +116,18 @@ class TestOutputRaw:
         assert buf.getvalue() == "42"
 
     def test_global_options_parses_output_raw(self) -> None:
-        """_extract_global_options recognizes --output raw."""
-        opts, _ = _extract_global_options(["func", "--output", "raw", "deploy"])
+        """_extract_global_options recognizes --emit-format raw."""
+        opts, _ = _extract_global_options(["func", "--emit-format", "raw", "deploy"])
         assert opts.output == "raw"
 
 
 # =============================================================================
-# Tests: --output ndjson streams one JSON document per item (§C.2)
+# Tests: --emit-format ndjson streams one JSON document per item (§C.2)
 # =============================================================================
 
 
 class TestOutputNdjson:
-    """Test --output ndjson emits one compact JSON document per item."""
+    """Test --emit-format ndjson emits one compact JSON document per item."""
 
     def test_ndjson_emits_one_line_per_list_item(self) -> None:
         """A list emits one JSON document per element, newline-separated."""
@@ -160,18 +160,18 @@ class TestOutputNdjson:
         ]
 
     def test_global_options_parses_output_ndjson(self) -> None:
-        """_extract_global_options recognizes --output ndjson."""
-        opts, _ = _extract_global_options(["func", "--output", "ndjson", "deploy"])
+        """_extract_global_options recognizes --emit-format ndjson."""
+        opts, _ = _extract_global_options(["func", "--emit-format", "ndjson", "deploy"])
         assert opts.output == "ndjson"
 
 
 # =============================================================================
-# Tests: --output none produces no stdout (Requirement 6.3)
+# Tests: --emit-format none produces no stdout (Requirement 6.3)
 # =============================================================================
 
 
 class TestOutputNone:
-    """Test --output none produces no stdout."""
+    """Test --emit-format none produces no stdout."""
 
     def test_none_format_produces_no_output(self) -> None:
         """With format='none', nothing is written to stdout."""
@@ -192,12 +192,12 @@ class TestOutputNone:
         assert buf.getvalue() == ""
 
     def test_global_options_parses_output_none(self) -> None:
-        """_extract_global_options recognizes --output none."""
-        opts, _ = _extract_global_options(["func", "--output", "none", "deploy"])
+        """_extract_global_options recognizes --emit-format none."""
+        opts, _ = _extract_global_options(["func", "--emit-format", "none", "deploy"])
         assert opts.output == "none"
 
     def test_global_options_no_output_flag_is_none(self) -> None:
-        """When --output is not specified, opts.output is None (default behavior)."""
+        """When --emit-format is not specified, opts.output is None (default behavior)."""
         opts, _ = _extract_global_options(["func", "deploy"])
         assert opts.output is None
 
@@ -239,41 +239,41 @@ class TestNoneReturnValue:
 
 
 # =============================================================================
-# Tests: Invalid --output value produces error on stderr (Requirement 6.6)
+# Tests: Invalid --emit-format value produces error on stderr (Requirement 6.6)
 # =============================================================================
 
 
 class TestInvalidOutputValue:
-    """Test invalid --output value produces error on stderr."""
+    """Test invalid --emit-format value produces error on stderr."""
 
     def test_invalid_output_xml_raises_system_exit(self) -> None:
-        """--output=xml triggers SystemExit with code 1."""
+        """--emit-format=xml triggers SystemExit with code 1."""
         with pytest.raises(SystemExit) as exc_info:
-            _extract_global_options(["func", "--output=xml", "deploy"])
+            _extract_global_options(["func", "--emit-format=xml", "deploy"])
         assert exc_info.value.code == 1
 
     def test_invalid_output_yaml_raises_system_exit(self) -> None:
-        """--output=yaml triggers SystemExit with code 1."""
+        """--emit-format=yaml triggers SystemExit with code 1."""
         with pytest.raises(SystemExit) as exc_info:
-            _extract_global_options(["func", "--output=yaml", "deploy"])
+            _extract_global_options(["func", "--emit-format=yaml", "deploy"])
         assert exc_info.value.code == 1
 
     def test_invalid_output_prints_error_to_stderr(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """Invalid --output value prints descriptive error to stderr."""
+        """Invalid --emit-format value prints descriptive error to stderr."""
         with pytest.raises(SystemExit):
-            _extract_global_options(["func", "--output=xml", "deploy"])
+            _extract_global_options(["func", "--emit-format=xml", "deploy"])
         captured = capsys.readouterr()
         assert "xml" in captured.err
-        assert "--output" in captured.err
+        assert "--emit-format" in captured.err
 
     def test_invalid_output_error_mentions_valid_formats(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """Error message for invalid --output mentions valid format options."""
+        """Error message for invalid --emit-format mentions valid format options."""
         with pytest.raises(SystemExit):
-            _extract_global_options(["func", "--output=csv", "deploy"])
+            _extract_global_options(["func", "--emit-format=csv", "deploy"])
         captured = capsys.readouterr()
         assert "json" in captured.err
         assert "ndjson" in captured.err

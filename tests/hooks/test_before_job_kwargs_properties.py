@@ -2,8 +2,7 @@
 
 Property 16: BEFORE_JOB hooks receive a shallow copy of original kwargs.
 
-For any kwargs dictionary passed to engine.execute(), BEFORE_JOB hooks SHALL
-receive a shallow copy of the original kwargs (before config resolution).
+For any kwargs dictionary passed to engine.run(), BEFORE_JOB hooks SHALL
 Mutations by one hook SHALL NOT affect subsequent hooks or the job function's
 actual arguments.
 

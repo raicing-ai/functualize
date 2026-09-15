@@ -30,7 +30,7 @@ class TestProtocolConformance:
 
 
 class TestEmitFormatMatrix:
-    """`--output` x value-type matrix (design note's table)."""
+    """`--emit-format` x value-type matrix (design note's table)."""
 
     def _emit(self, fmt: str, value: object) -> str:
         buf = io.StringIO()

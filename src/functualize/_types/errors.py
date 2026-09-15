@@ -6,9 +6,11 @@ public contract for job authors and platform developers.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from pathlib import Path
-from typing import Any
+from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from functualize._types.protocols import AgentCapability
 
 
 class RecursionLimitError(Exception):
@@ -28,6 +30,36 @@ class RecursionLimitError(Exception):
             f"Recursion limit reached: invoke_depth={depth} at "
             f"max_invoke_depth={max_depth} while invoking '{job_name}'"
         )
+
+
+class WorkflowDepthExceededError(Exception):
+    """A workflow nested deeper than `general.max_workflow_depth` allows.
+
+    `durable-run-layer`/T12, inherited decision C9. A separate limit from
+    `max_invoke_depth`, because they bound different things: that one counts
+    *any* nested call, while this counts **workflows inside workflows** — each
+    of which owns a scope, a set of step records, an epilogue slot and a lease.
+    A run can legitimately invoke deeply without nesting a single workflow.
+
+    Unbounded nesting is not a hypothetical: a workflow that names itself as a
+    step type-checks, boots, and produces one scope per level until the disk
+    or the recursion limit runs out — and every one of those scopes is a record
+    somebody has to clean up.
+
+    **No new exit code.** It is an ordinary refusal and reaches a caller through
+    the outcome module's existing failure family, so there is one exit-code
+    vocabulary rather than two.
+    """
+
+    def __init__(self, scope_id: str, depth: int, limit: int) -> None:
+        super().__init__(
+            f"Workflow nesting is {depth} deep at '{scope_id}', and the limit "
+            f"is {limit}. Raise `general.max_workflow_depth` if this nesting "
+            f"is intended, or flatten the graph."
+        )
+        self.scope_id = scope_id
+        self.depth = depth
+        self.limit = limit
 
 
 class JobDependencyError(Exception):
@@ -197,10 +229,14 @@ class ScopeStoreUnreadableError(Exception):
     the read moved the file aside, the next run would find nothing, read it as
     "no scopes", and start the workflow over silently — the exact failure this
     error exists to prevent. It moves only when a human asks, at
-    ``func builtin state clear --scopes``, which the message names.
+    ``func builtin data clear --scopes``, which the message names.
 
     Attributes:
-        path: The scope file that could not be read.
+        where: A human-readable account of the document that could not be read
+            — a path under the filesystem substrate, a table row elsewhere. A
+            description rather than a `Path`, because the store no longer knows
+            it is talking to a filesystem and a substrate over a database has no
+            path to name.
         scope_count: How many scopes were visible in it, or None if it could
             not be parsed at all.
         found_version: The format version on disk, when that is the cause.
@@ -213,13 +249,13 @@ class ScopeStoreUnreadableError(Exception):
 
     def __init__(
         self,
-        path: Path,
+        where: str,
         *,
         scope_count: int | None = None,
         found_version: int | None = None,
         expected_version: int,
     ) -> None:
-        self.path = path
+        self.where = where
         self.scope_count = scope_count
         self.found_version = found_version
         self.expected_version = expected_version
@@ -241,12 +277,12 @@ class ScopeStoreUnreadableError(Exception):
                 "including any recorded gate input."
             )
         return (
-            f"{self.path} cannot be read ({cause}).\n"
+            f"{self.where} cannot be read ({cause}).\n"
             f"       {holds}\n"
             "\n"
             "  The file has been left where it is. To move it aside and "
             "start fresh:\n"
-            "      func builtin state clear --scopes"
+            "      func builtin data clear --scopes"
         )
 
 
@@ -304,3 +340,208 @@ class ScopeCancelledError(Exception):
         super().__init__(
             f"Workflow scope '{scope_id}' was cancelled and cannot be resumed. {start}."
         )
+
+
+class NotifierUnavailableError(Exception):
+    """Raised at validation when a `Notify` has no notifier to deliver it.
+
+    A refusal, not a degradation, and the reason is sharper here than for an
+    agent step: the point of a notification is that somebody finds out. A
+    declaration that quietly delivered nowhere would be indistinguishable from
+    one that worked, until the day it mattered.
+
+    Raised **before the walk**, in `WorkflowRunner.prelude`, so it fires when
+    nothing has happened yet. Discovering at the end of a long run that its
+    "page the on-call on failure" was never deliverable is the one moment the
+    fault is least recoverable.
+
+    Attributes:
+        to: The declared target, so the message names *which* notification.
+            Reported as written; nothing here interprets it.
+        provider: The notifier the declaration named, or None when it named
+            none and one could not be identified.
+        registered: The notifier names that *are* registered, sorted.
+        hint: How to make it available, as the install clause from
+            ``_engine.notify_providers.NOTIFY_PROVIDERS``. Empty for a core
+            name — core registers no notifier by default, so a missing ``log``
+            is a registration nobody made, not a package to install.
+    """
+
+    def __init__(
+        self,
+        to: str,
+        provider: str | None = None,
+        *,
+        registered: Sequence[str] = (),
+        hint: str = "",
+    ) -> None:
+        self.to = to
+        self.provider = provider
+        self.registered = tuple(registered)
+        self.hint = hint
+        super().__init__(self._message())
+
+    def _message(self) -> str:
+        # Three situations, for `AgentExecutorUnavailableError`'s reason: one
+        # sentence covering "named one that is missing" and "named none" prints
+        # a contradiction on the case a user is most likely to hit.
+        if self.provider is not None:
+            wanted = f"names notifier {self.provider!r}, which is not registered"
+            known = (
+                f" (registered: {', '.join(self.registered)})"
+                if self.registered
+                else " (no notifier is registered at all)"
+            )
+        elif self.registered:
+            wanted = (
+                f"names no notifier and {len(self.registered)} are registered, "
+                "so which one should deliver it cannot be identified"
+            )
+            known = f" (registered: {', '.join(self.registered)})"
+        else:
+            wanted = "has no notifier registered for it"
+            known = " (no notifier is registered at all)"
+        remedy = f" {self.hint.capitalize()}." if self.hint else ""
+        return (
+            f"The notification to {self.to!r} {wanted}{known}.{remedy} "
+            "Register one with app.extensions.register_notifier, or remove the "
+            "Notify — a notification nobody delivers is worse than none."
+        )
+
+
+class AgentExecutorUnavailableError(Exception):
+    """Raised at validation when an agent step has no executor to run it.
+
+    A refusal, not a degradation. The walk never starts, and the step is
+    **not** handed to a human instead: swapping who answers changes the
+    program, and a step declared as an agent's work was declared that way for a
+    reason. It is also not substituted with another executor — an executor the
+    step did not name cannot honour what the step declared.
+
+    Raised before the walk rather than at the node, so that nothing has
+    happened yet when it fires.
+
+    Attributes:
+        step_name: The agent step that could not be serviced.
+        executor: The executor the step named, or None when it named none and
+            no executor is registered at all.
+        registered: The executor names that *are* registered, sorted.
+        hint: How to make it available, as the install clause from
+            ``_engine.agent_providers.EXECUTOR_PROVIDERS``. Empty for a core
+            name — a core executor that is missing is a registry built by hand,
+            not a package waiting to be installed.
+    """
+
+    def __init__(
+        self,
+        step_name: str,
+        executor: str | None = None,
+        *,
+        registered: Sequence[str] = (),
+        hint: str = "",
+    ) -> None:
+        self.step_name = step_name
+        self.executor = executor
+        self.registered = tuple(registered)
+        self.hint = hint
+        super().__init__(self._message())
+
+    def _message(self) -> str:
+        # Three situations, not two. Naming an executor that is not registered
+        # is one; naming none is the other two, and they need different
+        # sentences. One sentence covered both and produced "has no executor
+        # registered for it (registered: ai, cli-prompt)" — a contradiction in
+        # eleven words, on the case a user is most likely to hit (asp M-1).
+        if self.executor is not None:
+            wanted = f"names executor {self.executor!r}, which is not registered"
+            known = (
+                f" (registered: {', '.join(self.registered)})"
+                if self.registered
+                else " (no executor is registered at all)"
+            )
+        elif self.registered:
+            # `resolve` returns the sole executor when exactly one is
+            # registered, so reaching here with a non-empty list means two or
+            # more — and picking between them is what nothing may do.
+            wanted = (
+                f"names no executor and {len(self.registered)} are registered, "
+                "so which one should service it cannot be identified"
+            )
+            known = f" (registered: {', '.join(self.registered)})"
+        else:
+            wanted = "has no executor registered for it"
+            known = " (no executor is registered at all)"
+        remedy = f" {self.hint.capitalize()}." if self.hint else ""
+        return (
+            f"Agent step {self.step_name!r} {wanted}{known}.{remedy} "
+            "The step is refused — it is never answered by prompting a human "
+            "instead."
+        )
+
+
+class AgentCapabilityRefusedError(Exception):
+    """Raised at validation when an executor cannot honour what a step requires.
+
+    The engine refuses rather than running with the constraint unenforced:
+    running anyway is the silent degradation an agent step exists to avoid —
+    the workflow would appear to have restricted something it left wide open.
+
+    Raised before the walk starts, so no step has run and no step record
+    exists to reconcile.
+
+    Attributes:
+        step_name: The agent step whose requirement cannot be honoured.
+        executor: The registered executor that was chosen for it.
+        capability: The required capability that executor does not declare.
+        declared: The capabilities the executor does declare, sorted.
+    """
+
+    def __init__(
+        self,
+        step_name: str,
+        *,
+        executor: str,
+        capability: AgentCapability,
+        declared: Sequence[AgentCapability] = (),
+    ) -> None:
+        self.step_name = step_name
+        self.executor = executor
+        self.capability = capability
+        self.declared = tuple(declared)
+        super().__init__(self._message())
+
+    def _message(self) -> str:
+        declared = (
+            ", ".join(sorted(str(cap) for cap in self.declared)) or "no capabilities"
+        )
+        return (
+            f"Agent step {self.step_name!r} requires "
+            f"{str(self.capability)!r}, which executor {self.executor!r} does "
+            f"not declare (it declares: {declared}). The step is refused — "
+            "running it would leave the constraint unenforced."
+        )
+
+
+class SubstrateUnreadableError(Exception):
+    """A stored document exists but its bytes could not be turned into a mapping.
+
+    **Raised, never swallowed.** Whether that is fatal is the *store's*
+    decision, not storage's: ``fresh_format`` degrades to an empty envelope
+    because its content is recomputable, and ``scope_format`` refuses because a
+    scope is the only trace of an in-flight run — see
+    :class:`ScopeStoreUnreadableError`, which is what a store raises once it has
+    decided. A substrate that chose between those would be taking a decision
+    about *meaning* it has no standing to take.
+
+    The document is **left where it is**, for the same reason
+    :class:`ScopeStoreUnreadableError` leaves its file: a refusal has to be a
+    repeatable state.
+
+    Attributes:
+        key: The document name that could not be read. A key, not a path — a
+            substrate over SQLite or S3 has no path to report.
+    """
+
+    def __init__(self, key: str, detail: str) -> None:
+        self.key = key
+        super().__init__(f"Cannot read {key!r}: {detail}")

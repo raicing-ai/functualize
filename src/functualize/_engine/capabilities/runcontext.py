@@ -8,12 +8,10 @@ Delegates heavy logic to capability classes:
 
 from __future__ import annotations
 
-import dataclasses
 import logging
 from datetime import UTC, datetime
 from logging import Logger
 from pathlib import Path
-from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar, TypedDict, TypeVar, cast, overload
 
 from functualize._engine.capabilities.log import Log, validate_log_level
@@ -22,23 +20,22 @@ from functualize._types.enums import RunStatus, RunType
 _module_logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from pydantic import BaseModel
 
     from functualize._config.job_config import JobConfigView
+    from functualize._engine.capabilities.discovery_facade import DiscoveryFacade
     from functualize._engine.capabilities.invoke import Invoke
-    from functualize._engine.capabilities.state_store import StateStore
+    from functualize._engine.capabilities.observability_facade import (
+        ObservabilityFacade,
+    )
+    from functualize._engine.capabilities.prompt import Prompt
+    from functualize._engine.capabilities.state import State
+    from functualize._engine.capabilities.wiring_facade import WiringFacade
     from functualize._engine.capabilities.workflow import WorkflowTracker
     from functualize._engine.capabilities.workflow_scope import WorkflowScope
     from functualize._engine.result import JobResult
-    from functualize._events.perf import PerfTimeline, Phase
+    from functualize._events.perf import PerfTimeline
     from functualize._primitives.di import DIRegistry
-    from functualize._types.interactivity import (
-        PromptChoice,
-        PromptRequest,
-        PromptResponse,
-    )
 
 T = TypeVar("T")
 
@@ -71,10 +68,21 @@ class JobPhase(TypedDict):
     duration: float | None
 
 
-# Terminal states that cannot be transitioned from
-_TERMINAL_STATES = frozenset(
-    {RunStatus.SUCCESS, RunStatus.FAILURE, RunStatus.CANCELLED, RunStatus.TIMEOUT}
-)
+#: Terminal states that cannot be transitioned from.
+#:
+#: **Derived from `RunStatus.terminal`, not written out again.** This set and
+#: the one in `_engine/capabilities/workflow.py` were two literals, one module
+#: apart, and they disagreed: that one included REFUSED and this one did not.
+#: Its comment even explained what the omission costs — *"a refused step simply
+#: never gets `end_time` or `duration`, so it reads as still running in every
+#: consumer of this record"* — and this copy had precisely that defect.
+#:
+#: `tests/context/test_runcontext_status.py` mirrored the omission and asserted
+#: agreement with it, so the two could never converge by failing. Found by
+#: adversarial review.
+#:
+#: The name survives because `functualize.job._runcontext` re-exports it.
+_TERMINAL_STATES = frozenset(status for status in RunStatus if status.terminal)
 
 
 def _dispatch_to_surfaces(
@@ -136,11 +144,12 @@ class RunContext:
         metadata: dict[str, Any] | None = None,
         *,
         plugin_configs: dict[str, BaseModel] | None = None,
-        state_store: StateStore | None = None,
         resources: dict[str, Any] | None = None,
         perf_timeline: PerfTimeline | None = None,
         _workflow_scope: WorkflowScope | None = None,
         _invoke_depth: int = 0,
+        _parent_request: Any = None,
+        _run_id: str | None = None,
         _max_invoke_depth: int = 10,
         _execution_engine: Any = None,
         cwd: Path | None = None,
@@ -159,11 +168,20 @@ class RunContext:
         self._metadata.setdefault("duration", None)
         self._job_config: Any = None
         self._plugin_configs: dict[str, BaseModel] | None = plugin_configs
-        self._state_store: StateStore | None = state_store
+        self._state: State | None = None
+        #: Deliberately absent. `rc.state` resolves through the capability
+        #: map and the scope; a per-context store parameter was a third way to
+        #: obtain one, used only by tests, and three doors onto one fact is
+        #: what ADR-021 exists to remove.
         self._resources: dict[str, Any] | None = resources
         self._perf_timeline: PerfTimeline | None = perf_timeline
         self._workflow_scope: WorkflowScope | None = _workflow_scope
         self._invoke_depth: int = _invoke_depth
+        self._parent_request: Any = _parent_request
+        #: The run-log id of *this* run, so `rc.invoke` children can name
+        #: their parent. Carried rather than looked up: a batch item runs on
+        #: a worker thread, where a `ContextVar` would be empty.
+        self._run_id: str | None = _run_id
         self._max_invoke_depth: int = _max_invoke_depth
         self._execution_engine: Any = _execution_engine
         self._cwd: Path | None = cwd
@@ -182,16 +200,108 @@ class RunContext:
         self._status_callbacks: list[Any] = []
         self._phase_callbacks: list[Any] = []
         self._log_callbacks: list[Any] = []
+        #: Facades. `RunContext` reached 800 lines by being the one object a
+        #: job holds, so everything a job might ever want was a method on it
+        #: (T8). These group the rarer capabilities behind a name that says
+        #: which subject they belong to; the core a job actually reaches for —
+        #: `config`, `log`, `invoke`, `state`, `cwd` — stays flat.
+        self._discovery: DiscoveryFacade | None = None
+        self._wiring: WiringFacade | None = None
+        self._events: ObservabilityFacade | None = None
+        self._prompts: Prompt | None = None
+
+    def _derive(self, **overrides: Any) -> RunContext:
+        """A copy of this context with ``overrides`` applied.
+
+        Every field is carried by construction. The alternative — a second
+        ``RunContext(...)`` call listing the fields it happens to need — is
+        what ``wiring.with_plugin_config`` was, and it silently dropped seven:
+        the derived context had no engine (so ``invoke`` raised), no run id, no
+        cwd, and an ``_invoke_depth`` reset to 0, which defeats the recursion
+        guard for everything downstream of it.
+
+        Adding a field to ``__init__`` therefore does not require finding this
+        function. That was the actual failure mode: ``_run_id`` was added to
+        two construction sites and missed here.
+        """
+        fields: dict[str, Any] = {
+            "name": self._name,
+            "config": self._config,
+            "logger": self._logger,
+            "metadata": self._metadata,
+            "plugin_configs": self._plugin_configs,
+            "resources": self._resources,
+            "perf_timeline": self._perf_timeline,
+            "_workflow_scope": self._workflow_scope,
+            "_invoke_depth": self._invoke_depth,
+            "_parent_request": self._parent_request,
+            "_run_id": self._run_id,
+            "_max_invoke_depth": self._max_invoke_depth,
+            "_execution_engine": self._execution_engine,
+            "cwd": self._cwd,
+            "job_directory": self._job_directory,
+            "_di_registry": self._di_registry,
+            "_caps": self._caps,
+        }
+        fields.update(overrides)
+        return RunContext(**fields)
+
+    @property
+    def prompts(self) -> Prompt:
+        """`rc.prompts` — ask the person on the other end, if there is one.
+
+        The **same object** a `prompt: Prompt` parameter receives (ADR-021).
+        Resolved through the capability map so the two doors cannot drift; the
+        fallback below builds one only for a context with no map at all.
+        """
+        from functualize._engine.capabilities.prompt import Prompt as _Prompt
+
+        shared = self._cap_or_none(_Prompt)
+        if shared is not None:
+            return cast("Prompt", shared)
+        if self._prompts is not None:
+            return self._prompts
+        built = _Prompt(_rc=self)
+        # Cached in both places, as `rc.state` is and for the same reason: the
+        # map is what makes the two doors one object, the attribute is what
+        # makes two `rc.prompts` reads one object where there is no map.
+        if self._caps is not None:
+            self._caps[_Prompt] = built
+        self._prompts = built
+        return built
+
+    @property
+    def events(self) -> ObservabilityFacade:
+        """`rc.events` — events, phases, run status and the perf timeline."""
+        if self._events is None:
+            from functualize._engine.capabilities.observability_facade import (
+                ObservabilityFacade,
+            )
+
+            self._events = ObservabilityFacade(self)
+        return self._events
+
+    @property
+    def wiring(self) -> WiringFacade:
+        """`rc.wiring` — the plugin configs and resources this app provides."""
+        if self._wiring is None:
+            from functualize._engine.capabilities.wiring_facade import WiringFacade
+
+            self._wiring = WiringFacade(self)
+        return self._wiring
+
+    @property
+    def discovery(self) -> DiscoveryFacade:
+        """`rc.discovery` — read-only questions about the registered jobs."""
+        if self._discovery is None:
+            from functualize._engine.capabilities.discovery_facade import (
+                DiscoveryFacade,
+            )
+
+            self._discovery = DiscoveryFacade(self)
+        return self._discovery
 
     # --- Callback registration (backward compat) ---
-
-    def on_status_change(self, callback: Any) -> None:
-        """Register a callback invoked on status transitions."""
-        self._status_callbacks.append(callback)
-
-    def on_phase_change(self, callback: Any) -> None:
-        """Register a callback invoked on phase changes."""
-        self._phase_callbacks.append(callback)
 
     def on_log(self, callback: Any) -> None:
         """Register a callback invoked on log emissions."""
@@ -200,15 +310,33 @@ class RunContext:
     # --- Capability accessors (lazy init) ---
 
     def _get_invoke(self) -> Invoke:
+        """The run's `Invoke` — the same object a `inv: Invoke` parameter got.
+
+        **The capability map first** (ADR-021). Fixing the hook parentage made
+        both doors *behave* alike; they were still two objects, and the
+        registry-driven duality test caught that. Two `WiredInvoke`s per run is
+        two places for depth, gate registry and parent request to drift apart —
+        which is how the original defect happened.
+        """
         if self._execution_engine is None:
             raise RuntimeError(
                 "Cannot invoke jobs: RunContext was not created by JobExecutionEngine"
             )
+        from functualize._engine.capabilities.invoke import Invoke as _Invoke
+
+        shared = self._cap_or_none(_Invoke)
+        if shared is not None:
+            return cast("Invoke", shared)
         if self._invoke_capability is None:
             from functualize._engine.capabilities.invoke import WiredInvoke
 
             self._invoke_capability = WiredInvoke(
                 execution_engine=self._execution_engine,
+                # The request that asked for *this* run, so `rc.invoke`'s
+                # children inherit its delivery inputs instead of silently
+                # taking defaults (run-request-entry, nested-inheritance fix).
+                parent_request=self._parent_request,
+                parent_run_id=self._run_id,
                 invoke_depth=self._invoke_depth,
                 max_invoke_depth=self._max_invoke_depth,
                 workflow_scope=self._workflow_scope,
@@ -221,6 +349,10 @@ class RunContext:
                 # arguments were accepted and documented, and did nothing.
                 gate_registry=getattr(self._execution_engine, "_gate_registry", None),
             )
+            # Into the shared map, so a capability resolved after this one
+            # finds the same object rather than building a second.
+            if self._caps is not None:
+                self._caps[_Invoke] = self._invoke_capability
         return self._invoke_capability
 
     def _get_tracker(self) -> WorkflowTracker:
@@ -232,18 +364,11 @@ class RunContext:
             self._workflow_tracker = _WorkflowTracker(
                 job_name=self._name,
                 run_context=self,
-                perf_timeline=self._perf_timeline or self._resolve_timeline(),
+                perf_timeline=self._perf_timeline or self.events._resolve_timeline(),
                 execution_engine=self._execution_engine,
                 step_logger=self._logger,
             )
         return self._workflow_tracker
-
-    def _resolve_timeline(self) -> Any:
-        if self._perf_timeline is not None:
-            return self._perf_timeline
-        from functualize._events.perf import perf_timeline
-
-        return perf_timeline
 
     # --- Properties ---
 
@@ -271,10 +396,6 @@ class RunContext:
             self._result_metadata[key] = value
 
     @property
-    def phases(self) -> list[JobPhase]:
-        return self._get_tracker().steps
-
-    @property
     def job_config(self) -> Any:
         return self._job_config
 
@@ -288,29 +409,25 @@ class RunContext:
 
     @property
     def cwd(self) -> Path:
-        return self._cwd if self._cwd is not None else Path.cwd()
+        """This run's working directory: the one it named, or the project's.
+
+        The run's own `cwd` wins when the request carried one. Otherwise the
+        answer is the project root the engine's host knows, not the *process's*
+        working directory — which is what this used to return, and which is a
+        different directory whenever the two disagree.
+        """
+        if self._cwd is not None:
+            return self._cwd
+        if self._execution_engine is None:
+            raise RuntimeError(
+                "this RunContext was not created by an engine, so it has no "
+                "working directory; pass cwd= when building it"
+            )
+        return cast("Path", self._execution_engine.fresh_root)
 
     @property
     def job_directory(self) -> Path | None:
         return self._job_directory
-
-    @property
-    def run_status(self) -> RunStatus:
-        return cast("RunStatus", self._metadata["run_status"])
-
-    @property
-    def run_duration(self) -> float:
-        duration = self._metadata.get("duration")
-        if duration is not None:
-            return float(duration)
-        start = self._metadata.get("start_time")
-        if start is None:
-            return 0.0
-        return float((datetime.now(UTC) - start).total_seconds())
-
-    @property
-    def current_phase(self) -> JobPhase | None:
-        return self._get_tracker().current_step
 
     # --- DI Subscript Access ---
 
@@ -322,10 +439,29 @@ class RunContext:
     def __getitem__(self, key: str) -> Any: ...
 
     def __getitem__(self, key: type | str | tuple[type, str]) -> Any:
+        """`rc[T]` — the run's instance of ``T``.
+
+        **The capability map first, the DI registry second** (ADR-021). A
+        per-invocation capability lives in the map and is never in the
+        registry, so consulting only the registry reported a capability the job
+        was *holding in its own hand* as missing: `rc[Log]` raised
+        `MissingProviderError` and `Log in rc` was False while a `log: Log`
+        parameter had the object.
+
+        A qualified or named lookup skips the map deliberately. There is no
+        "the" `Conn` when two are registered under different qualifiers, so
+        those forms are exactly the ones that must reach the registry and let
+        it answer — see ADR-021 for the classes that cannot share one object.
+        """
         from functualize._primitives.di import (
             AmbiguousProviderError,
             MissingProviderError,
         )
+
+        if isinstance(key, type):
+            found = self._cap_or_none(key)
+            if found is not None:
+                return found
 
         if self._di_registry is None:
             raise RuntimeError(
@@ -354,6 +490,14 @@ class RunContext:
             return self._di_registry.resolve(key)
 
     def __contains__(self, key: type | str) -> bool:
+        """`T in rc` — is ``T`` reachable from this run?
+
+        Same order as :meth:`__getitem__`, and for the same reason: a
+        capability in the map is reachable even though the registry has never
+        heard of it.
+        """
+        if isinstance(key, type) and self._cap_or_none(key) is not None:
+            return True
         if self._di_registry is None:
             return False
         if isinstance(key, str):
@@ -381,111 +525,22 @@ class RunContext:
 
     # --- Delegation: Phase Tracking ---
 
-    def track_phase(
-        self,
-        phase_name: str,
-        phase_message: str,
-        phase_status: RunStatus = RunStatus.RUNNING,
-    ) -> None:
-        """Track a job phase. Delegates to WorkflowTracker.track_step()."""
-        # Determine if this is a new phase or an update
-        existing = self._get_tracker().get_step(phase_name)
-        action = "updated" if existing is not None else "created"
-
-        self._get_tracker().track_step(phase_name, phase_message, phase_status)
-
-        # Build phase dict for callbacks (backward compat)
-        phase_dict: JobPhase = {
-            "name": phase_name,
-            "message": phase_message,
-            "status": phase_status,
-            "start_time": None,
-            "end_time": None,
-            "duration": None,
-        }
-
-        # Invoke phase callbacks with (phase_dict, action)
-        for cb in self._phase_callbacks:
-            try:
-                cb(phase_dict, action)
-            except Exception:
-                self._logger.warning(
-                    "Phase callback %r raised an exception", cb, exc_info=True
-                )
-
-    def get_phase(self, phase_name: str) -> JobPhase | None:
-        return self._get_tracker().get_step(phase_name)
-
     # --- Delegation: Event Emission ---
 
-    def _resolve_event_bus(self) -> Any | None:
-        """Resolve the EventBus from the execution engine's app."""
-        if self._execution_engine is None:
-            return None
-        app = getattr(self._execution_engine, "_app", None)
-        if app is None:
-            return None
-        return getattr(app, "_event_bus", None) or getattr(app, "event_bus", None)
-
-    def emit(self, event_name: str, resource: str = "", **payload: Any) -> None:
-        """Emit a structured event. Delegates to EventBus.emit()."""
-        return self._emit_event(event_name, resource, payload)
-
-    def on_event(self, pattern: str, callback: Callable[[Any], None]) -> Any | None:
-        """Subscribe to structured events for the life of this execution.
-
-        The inbound counterpart to :meth:`emit` — lets code holding a
-        RunContext (notably a job-owned UI, which receives the context via
-        its ``TTY`` handle) observe events as they happen, including those
-        emitted by children started with :meth:`invoke`.
-
-        Args:
-            pattern: Exact event name, prefix wildcard (``"job.*"``), or
-                the global wildcard (``"*"``).
-            callback: Receives a StructuredEvent. Called synchronously on the
-                emitting thread — which is a worker thread for most job
-                events, so a UI callback must marshal onto its own loop.
-
-        Returns:
-            A SubscriptionHandle for :meth:`off_event`, or None when no
-            EventBus is reachable (e.g. a RunContext built outside the
-            engine), so callers can subscribe unconditionally.
-        """
-        event_bus = self._resolve_event_bus()
-        if event_bus is None:
-            return None
-        return event_bus.subscribe(pattern, callback)
-
-    def off_event(self, handle: Any) -> None:
-        """Remove a subscription created by :meth:`on_event`.
-
-        Accepts None (what ``on_event`` returns when no bus was reachable)
-        so teardown paths need no guard of their own.
-        """
-        if handle is None:
-            return
-        event_bus = self._resolve_event_bus()
-        if event_bus is not None:
-            event_bus.unsubscribe(handle)
-
-    def _emit_event(
-        self, event_name: str, resource: str, payload: dict[str, Any]
-    ) -> None:
-        """Internal emit implementation — resolves EventBus and dispatches."""
-        event_bus = self._resolve_event_bus()
-        if event_bus is not None:
-            event_bus.emit(event_name, resource=resource, **payload)
-        app = (
-            getattr(self._execution_engine, "_app", None)
-            if self._execution_engine
-            else None
-        )
-        if app is not None and not any(
-            event_name.startswith(p) for p in self._FRAMEWORK_EVENT_PREFIXES
-        ):
-            _dispatch_to_surfaces(app, event_name, resource, payload)
-
     # --- Logging ---
+
+    def _cap_or_none(self, cap_type: type) -> Any | None:
+        """This run's instance of ``cap_type``, or None.
+
+        The one lookup behind every `rc.X` that has a capability underneath it
+        (ADR-021). It **never constructs**: `Sources` and `Freshness` are
+        injected empty and completed after the pre-flight decision, so a
+        resolver that helpfully built one would hand back an empty map with no
+        error.
+        """
+        if self._caps is None:
+            return None
+        return self._caps.get(cap_type)
 
     def _log_sink(self) -> Log | None:
         """Return the job's own Log capability, or None when it has none.
@@ -534,367 +589,39 @@ class RunContext:
 
     # --- Run Status ---
 
-    def track_run_status(
-        self,
-        run_status: RunStatus = RunStatus.RUNNING,
-        failure_message: str = "",
-    ) -> None:
-        current_status = self._metadata["run_status"]
-        if current_status in _TERMINAL_STATES:
-            raise InvalidStateTransitionError(
-                f"Cannot transition from terminal state {current_status.value} "
-                f"to {run_status.value}"
-            )
-        self._metadata["run_status"] = run_status
-        if run_status in _TERMINAL_STATES:
-            self._metadata["end_time"] = datetime.now(UTC)
-            start_time = self._metadata["start_time"]
-            if start_time is not None:
-                self._metadata["duration"] = (
-                    self._metadata["end_time"] - start_time
-                ).total_seconds()
-        if failure_message:
-            self._logger.error(f"Run status: {run_status.value} - {failure_message}")
-
-    def set_run_status(self, status: RunStatus, message: str = "") -> None:
-        old_status = self._metadata["run_status"]
-        self.track_run_status(run_status=status, failure_message=message)
-        # Invoke status callbacks
-        for cb in self._status_callbacks:
-            try:
-                cb(old_status, status, message)
-            except Exception:
-                self._logger.warning(
-                    "Status change callback %r raised an exception", cb, exc_info=True
-                )
-
     # --- Perf Timeline ---
-
-    @property
-    def _timeline(self) -> PerfTimeline:
-        if self._perf_timeline is not None:
-            return self._perf_timeline
-        from functualize._events.perf import perf_timeline
-
-        return perf_timeline
-
-    def _validate_mark_name(self, name: str) -> None:
-        if not name or len(name) > 256:
-            raise ValueError(
-                "Mark name must be a non-empty string of at most 256 characters."
-            )
-
-    def perf_mark(self, name: str) -> None:
-        self._validate_mark_name(name)
-        tl = self._timeline
-        if tl.enabled:
-            tl.mark(f"{self._name}.{name}")
-
-    def perf_mark_start(self, name: str) -> None:
-        self._validate_mark_name(name)
-        tl = self._timeline
-        if tl.enabled:
-            tl.mark(f"{self._name}.{name}.start")
-
-    def perf_mark_end(self, name: str) -> None:
-        self._validate_mark_name(name)
-        tl = self._timeline
-        if tl.enabled:
-            tl.mark(f"{self._name}.{name}.end")
-
-    def get_perf_phases(
-        self,
-        include: str | None = None,
-        exclude: str | None = None,
-    ) -> list[Phase]:
-        from functualize._events._pattern_matcher import filter_phases
-
-        report = self._timeline.report()
-        prefix = f"{self._name}."
-        job_phases = [p for p in report.phases if p.name.startswith(prefix)]
-        unprefixed = [p.name[len(prefix) :] for p in job_phases]
-        matching = set(filter_phases(unprefixed, include, exclude))
-        return [p for p, u in zip(job_phases, unprefixed, strict=True) if u in matching]
-
-    # --- Plugin Config ---
-
-    @property
-    def plugin_configs(self) -> MappingProxyType[str, BaseModel]:
-        if self._plugin_configs is None:
-            self._plugin_configs = {}
-        return MappingProxyType(self._plugin_configs)
-
-    def get_plugin_config(self, section: str) -> BaseModel:
-        if self._plugin_configs is None or section not in self._plugin_configs:
-            available = list((self._plugin_configs or {}).keys())
-            raise KeyError(
-                f"No plugin config for section '{section}'. Available: {available}"
-            )
-        return self._plugin_configs[section]
-
-    def with_plugin_config(self, section: str, **overrides: Any) -> RunContext:
-        current = self.get_plugin_config(section)
-        model_class = type(current)
-        new_config = model_class(**{**current.model_dump(), **overrides})
-        new_configs = dict(self._plugin_configs or {})
-        new_configs[section] = new_config
-        return RunContext(
-            name=self._name,
-            config=self._config,
-            logger=self._logger,
-            metadata=self._metadata,
-            plugin_configs=new_configs,
-            state_store=self._state_store,
-            resources=self._resources,
-            perf_timeline=self._perf_timeline,
-            _di_registry=self._di_registry,
-            _caps=self._caps,
-        )
 
     # --- State Store ---
 
     @property
-    def state(self) -> StateStore:
-        if self._workflow_scope is not None:
-            return cast("StateStore", self._workflow_scope.state_store)
-        if self._state_store is None:
-            from functualize._engine.capabilities.state_store import (
-                StateStore as _StateStore,
-            )
+    def state(self) -> State:
+        """`rc.state` — the run's shared, durable key-value store.
 
-            self._state_store = _StateStore()
-        return self._state_store
+        The **same object** a `state: State` parameter receives (ADR-021).
+        Resolved through the capability map so the two doors cannot drift; the
+        scope is consulted only to build one when the job declared no `state:`
+        parameter and nothing has therefore materialised it yet.
+        """
+        from functualize._engine.capabilities.state import State as _State
 
-    # --- Resources ---
-
-    @property
-    def resources(self) -> MappingProxyType[str, Any]:
-        if self._resources is None:
-            self._resources = {}
-        return MappingProxyType(self._resources)
-
-    def get_resource(self, name: str, type_: type[T]) -> T:
-        if self._resources is None or name not in self._resources:
-            available = list((self._resources or {}).keys())
-            raise KeyError(f"Resource '{name}' not found. Available: {available}")
-        resource = self._resources[name]
-        if not isinstance(resource, type_):
-            raise TypeError(
-                f"Resource '{name}': expected {type_.__name__}, "
-                f"got {type(resource).__name__}"
-            )
-        return resource
+        cached = self._cap_or_none(_State)
+        if cached is not None:
+            return cast("State", cached)
+        if self._state is not None:
+            return self._state
+        scope = self._workflow_scope
+        built = _State(scope.state_store if scope is not None else None)
+        # Cached in both places on purpose. The caps map is the shared one, and
+        # is what makes `rc.state` and a `state:` parameter one object; the
+        # attribute covers a context built with no map at all, where two calls
+        # to `rc.state` must still be the same object rather than two views
+        # that happen to agree.
+        if self._caps is not None:
+            self._caps[_State] = built
+        self._state = built
+        return built
 
     # --- Job Schema ---
-
-    def get_job_schema(self, job_name: str) -> Any:
-        from functualize._engine.errors import JobNotFoundError
-
-        if self._execution_engine is None:
-            raise RuntimeError(
-                "Cannot get job schema: RunContext was not created by JobExecutionEngine"
-            )
-        try:
-            return self._execution_engine._app.job_registry.get_descriptor(job_name)
-        except KeyError:
-            raise JobNotFoundError(job_name) from None
-
-    def list_jobs(self) -> list[dict[str, Any]]:
-        """Return read-only summaries of every registered job.
-
-        For job-owned UIs that browse jobs (a launcher, a picker) — the
-        counterpart to :meth:`get_job_schema` for one job. Returns plain
-        dicts, not callables or descriptors, so a UI cannot accidentally
-        reach into the registry or force a lazy job to materialize::
-
-            for job in rc.list_jobs():
-                print(job["name"], "—", job["description"])
-
-        Each entry has ``name``, ``group``, ``description`` (the docstring's
-        first line), and ``requires_tty``. Returns an empty list outside a
-        real execution context.
-        """
-        if self._execution_engine is None:
-            return []
-        app = getattr(self._execution_engine, "_app", None)
-        if app is None:
-            return []
-
-        getter = getattr(app, "get_jobs", None)
-        if not callable(getter):
-            return []
-        try:
-            descriptors = getter()
-        except Exception:
-            return []
-
-        summaries: list[dict[str, Any]] = []
-        for descriptor in descriptors or []:
-            name = str(getattr(descriptor, "name", "") or "")
-            if not name:
-                continue
-            docstring = getattr(descriptor, "docstring", "") or ""
-            summaries.append(
-                {
-                    "name": name,
-                    "group": name.rsplit(".", 1)[0] if "." in name else "",
-                    "description": docstring.strip().splitlines()[0]
-                    if docstring.strip()
-                    else "",
-                    "requires_tty": bool(getattr(descriptor, "requires_tty", False)),
-                }
-            )
-        return summaries
-
-    # --- Prompt System ---
-
-    def _get_input_provider(self) -> Any | None:
-        """Return the collector that should answer this job's prompts.
-
-        Only surfaces that actually implement ``collect`` are eligible — a
-        render-only surface (flow-viz) must never be handed a prompt it
-        cannot answer.
-
-        Stack-scoped: top-of-stack wins, so the phase that owns the terminal
-        collects; see ``_engine/surface_routing.active_collector`` and
-        contributor/adr/001-surface-architecture-collapse.md.
-        """
-        if self._execution_engine is None:
-            return None
-        app = getattr(self._execution_engine, "_app", None)
-        if app is None:
-            return None
-
-        # Stack-scoped resolution: the topmost pushed surface that can collect
-        # (the phase that owns the terminal), else the first registered
-        # collector, else the kernel's TTY-gated stdin fallback (None off a
-        # terminal — preserving default / InputNotAvailable behavior there).
-        from functualize._engine.surface_routing import active_collector
-
-        return active_collector(app)
-
-    def prompt(self, request: PromptRequest) -> PromptResponse:
-        from functualize._types.interactivity import InputNotAvailable
-        from functualize._types.interactivity import PromptResponse as _PromptResponse
-
-        filled = dataclasses.replace(request, source_job=self._name)
-        provider = self._get_input_provider()
-        if provider is None:
-            if filled.required and filled.default is None:
-                raise InputNotAvailable(
-                    f"No InputProvider registered and prompt requires input "
-                    f"(job='{self._name}', question='{filled.question}')"
-                )
-            return _PromptResponse(value=filled.default, source="default")
-        return cast("PromptResponse", provider.collect(filled))
-
-    def prompt_confirm(
-        self,
-        question: str,
-        *,
-        destructive: bool = False,
-        default: bool | None = None,
-        context_message: str | None = None,
-        context_data: dict[str, Any] | None = None,
-    ) -> bool:
-        from functualize._types.interactivity import (
-            PromptIntent,
-            severity_for_intent,
-        )
-        from functualize._types.interactivity import (
-            PromptRequest as _PromptRequest,
-        )
-
-        intent = (
-            PromptIntent.CONFIRM_DESTRUCTIVE
-            if destructive
-            else PromptIntent.CONFIRM_NEUTRAL
-        )
-        # Derived, not hand-mapped — one source of truth for the styling.
-        severity = severity_for_intent(intent)
-        response = self.prompt(
-            _PromptRequest(
-                question=question,
-                intent=intent,
-                severity=severity,
-                default=default,
-                context_message=context_message,
-                context_data=context_data,
-                required=default is None,
-            )
-        )
-        if response.was_cancelled:
-            return False
-        value = response.value
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, str):
-            return value.lower() in ("yes", "y", "true", "1")
-        return bool(value) if value is not None else False
-
-    def prompt_choice(
-        self,
-        question: str,
-        choices: list[str] | list[PromptChoice],
-        *,
-        default: str | None = None,
-        context_message: str | None = None,
-    ) -> str:
-        from functualize._types.interactivity import (
-            PromptChoice as _PromptChoice,
-        )
-        from functualize._types.interactivity import (
-            PromptIntent,
-        )
-        from functualize._types.interactivity import (
-            PromptRequest as _PromptRequest,
-        )
-
-        normalized = [
-            _PromptChoice(value=c) if isinstance(c, str) else c for c in choices
-        ]
-        response = self.prompt(
-            _PromptRequest(
-                question=question,
-                intent=PromptIntent.SELECT,
-                choices=normalized,
-                default=default,
-                context_message=context_message,
-                required=default is None,
-            )
-        )
-        return str(response.value) if response.value is not None else ""
-
-    def prompt_text(
-        self,
-        question: str,
-        *,
-        default: str | None = None,
-        secret: bool = False,
-        placeholder: str | None = None,
-        validator: str | Any | None = None,
-        context_message: str | None = None,
-    ) -> str:
-        from functualize._types.interactivity import (
-            PromptIntent,
-        )
-        from functualize._types.interactivity import (
-            PromptRequest as _PromptRequest,
-        )
-
-        intent = PromptIntent.SECRET_INPUT if secret else PromptIntent.TEXT_INPUT
-        response = self.prompt(
-            _PromptRequest(
-                question=question,
-                intent=intent,
-                default=default,
-                placeholder=placeholder,
-                validator=validator,
-                context_message=context_message,
-                required=default is None,
-            )
-        )
-        return str(response.value) if response.value is not None else ""
 
 
 def inject_resource(rc: RunContext, name: str, resource: Any) -> None:

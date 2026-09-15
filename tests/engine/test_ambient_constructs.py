@@ -53,7 +53,7 @@ def app() -> FunctualizeApp:
 
 
 def test_registered_construct_resolves_for_a_job(app: FunctualizeApp) -> None:
-    app.register_ambient_construct(_Construct)
+    app.extensions.register_ambient_construct(_Construct)
 
     resolved = resolve_ambient_constructs(app, _Descriptor())
 
@@ -68,7 +68,7 @@ def test_no_registrations_resolves_empty(app: FunctualizeApp) -> None:
 
 def test_each_resolution_yields_a_fresh_instance(app: FunctualizeApp) -> None:
     """State from one run must never bleed into the next."""
-    app.register_ambient_construct(_Construct)
+    app.extensions.register_ambient_construct(_Construct)
 
     first = resolve_ambient_constructs(app, _Descriptor())[0]
     first.state.append("from-run-1")
@@ -81,19 +81,19 @@ def test_each_resolution_yields_a_fresh_instance(app: FunctualizeApp) -> None:
 def test_registering_an_instance_is_rejected(app: FunctualizeApp) -> None:
     """An instance would share state across runs — reject it loudly."""
     with pytest.raises(TypeError, match="factory"):
-        app.register_ambient_construct(_Construct())  # type: ignore[arg-type]
+        app.extensions.register_ambient_construct(_Construct())  # type: ignore[arg-type]
 
 
 def test_registration_is_idempotent_by_name(app: FunctualizeApp) -> None:
     """A plugin loaded twice must not double-render its construct."""
-    app.register_ambient_construct(_Construct)
-    app.register_ambient_construct(_Construct)
+    app.extensions.register_ambient_construct(_Construct)
+    app.extensions.register_ambient_construct(_Construct)
 
     assert len(resolve_ambient_constructs(app, _Descriptor())) == 1
 
 
 def test_name_defaults_to_the_factory_name_attribute(app: FunctualizeApp) -> None:
-    app.register_ambient_construct(_Construct)
+    app.extensions.register_ambient_construct(_Construct)
 
     assert suppressed_names(app, _Descriptor(suppress_live=["demo"])) == {"demo"}
     assert resolve_ambient_constructs(app, _Descriptor(suppress_live=["demo"])) == []
@@ -103,7 +103,7 @@ def test_name_defaults_to_the_factory_name_attribute(app: FunctualizeApp) -> Non
 
 
 def test_predicate_gates_resolution(app: FunctualizeApp) -> None:
-    app.register_ambient_construct(
+    app.extensions.register_ambient_construct(
         _Construct, predicate=lambda d: getattr(d, "uses_invoke", False)
     )
 
@@ -119,7 +119,7 @@ def test_a_raising_predicate_is_treated_as_not_eligible(
     def boom(descriptor: Any) -> bool:
         raise RuntimeError("bad predicate")
 
-    app.register_ambient_construct(_Construct, predicate=boom)
+    app.extensions.register_ambient_construct(_Construct, predicate=boom)
 
     assert resolve_ambient_constructs(app, _Descriptor()) == []
 
@@ -133,8 +133,8 @@ def test_a_raising_factory_costs_only_its_own_construct(
         def __init__(self) -> None:
             raise RuntimeError("cannot build")
 
-    app.register_ambient_construct(_Broken)
-    app.register_ambient_construct(_Construct)
+    app.extensions.register_ambient_construct(_Broken)
+    app.extensions.register_ambient_construct(_Construct)
 
     resolved = resolve_ambient_constructs(app, _Descriptor())
 
@@ -147,13 +147,13 @@ def test_a_raising_factory_costs_only_its_own_construct(
 
 def test_job_declaration_suppresses(app: FunctualizeApp) -> None:
     """@job(suppress_live=[...]) → descriptor.suppress_live."""
-    app.register_ambient_construct(_Construct)
+    app.extensions.register_ambient_construct(_Construct)
 
     assert resolve_ambient_constructs(app, _Descriptor(suppress_live=["demo"])) == []
 
 
 def test_job_declaration_accepts_a_bare_string(app: FunctualizeApp) -> None:
-    app.register_ambient_construct(_Construct)
+    app.extensions.register_ambient_construct(_Construct)
 
     assert resolve_ambient_constructs(app, _Descriptor(suppress_live="demo")) == []
 
@@ -161,7 +161,7 @@ def test_job_declaration_accepts_a_bare_string(app: FunctualizeApp) -> None:
 def test_suppressing_a_different_name_leaves_it_mounted(
     app: FunctualizeApp,
 ) -> None:
-    app.register_ambient_construct(_Construct)
+    app.extensions.register_ambient_construct(_Construct)
 
     assert (
         len(resolve_ambient_constructs(app, _Descriptor(suppress_live=["other"]))) == 1
@@ -178,7 +178,7 @@ def test_config_suppresses(
             return ["demo"] if key == "live.suppress" else default
 
     monkeypatch.setattr(app, "settings", _Settings(), raising=False)
-    app.register_ambient_construct(_Construct)
+    app.extensions.register_ambient_construct(_Construct)
 
     assert resolve_ambient_constructs(app, _Descriptor()) == []
 
@@ -191,7 +191,7 @@ def test_config_suppress_accepts_a_comma_string(
             return "demo, other" if key == "live.suppress" else default
 
     monkeypatch.setattr(app, "settings", _Settings(), raising=False)
-    app.register_ambient_construct(_Construct)
+    app.extensions.register_ambient_construct(_Construct)
 
     assert resolve_ambient_constructs(app, _Descriptor()) == []
 
@@ -202,7 +202,7 @@ def test_config_suppress_accepts_a_comma_string(
 def test_has_eligible_ambient_tracks_predicate_and_suppression(
     app: FunctualizeApp,
 ) -> None:
-    app.register_ambient_construct(
+    app.extensions.register_ambient_construct(
         _Construct, predicate=lambda d: getattr(d, "uses_invoke", False)
     )
 

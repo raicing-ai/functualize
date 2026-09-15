@@ -36,10 +36,43 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from functualize.types import http_status_for_status
+from functualize.types import (
+    Family,
+    RunRequest,
+    http_status_for_status,
+    request_from_envelope,
+)
 
 if TYPE_CHECKING:
     from functualize.app.core import FunctualizeApp
+
+
+#: The boundary this surface delivers across (`run-outcome-authority` AC-3).
+#:
+#: A **constant, not a docstring.** AC-3 says "each delivery surface names its
+#: family in one place, and the name is greppable", and T6's gate checked that
+#: with `rg -c 'Family.WIRE' <file>` — which the prose paragraph nearby
+#: satisfied on its own, while `Family.WIRE` had no code consumer anywhere in
+#: the tree. A gate matching its own explanation is `AUDIT.md`'s hazard #1, and
+#: an enum member nothing imports is vocabulary, not a mechanism.
+#:
+#: `tests/types/test_every_surface_declares_its_family.py` reads this and checks
+#: it against what the surface actually does with a BLOCKED result, which is the
+#: one status the four families disagree about.
+OUTCOME_FAMILY = Family.WIRE
+
+
+def _envelope(payload: dict[str, Any], job_name: str) -> RunRequest:
+    """This surface's wire payload, parsed by the one shared contract.
+
+    The envelope's shape, why job arguments are nested, and what breaks if they
+    are not, are documented once — on
+    :func:`functualize.types.request_from_envelope`. This function existed as a
+    byte-identical copy of the Lambda one differing only in the ``surface``
+    literal, with the contract's breaking change documented separately in each
+    (rre F12). The literal is now the argument.
+    """
+    return request_from_envelope(payload, job_name=job_name, surface="lambda")
 
 
 def _response(result: Any) -> dict[str, Any]:
@@ -59,6 +92,12 @@ def _response(result: Any) -> dict[str, Any]:
 
     ``status`` and ``error`` are added rather than substituted: a caller
     reading ``body`` on success keeps reading exactly what it read before.
+
+    This surface declares :attr:`~functualize.types.Family.WIRE`: a finished
+    run reads as an HTTP status code, and the outcome authority's WIRE table
+    renders it -- BLOCKED is 202, resumable rather than an error. The family
+    used to be implied by importing the WIRE table's function; naming it
+    keeps the surface-to-family map greppable when a status lands.
     """
     status = result.status
     payload: dict[str, Any] = {
@@ -154,9 +193,9 @@ class LambdaAdapter:
 
         def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             """Thin Lambda handler for job '{job_name}'."""
-            job_kwargs = event.get("kwargs", {})
             try:
-                return _response(app.execute(job_name, **job_kwargs))
+                request = _envelope(event, job_name)
+                return _response(app.execute(request))
             except Exception as exc:
                 return {"statusCode": 500, "body": str(exc)}
 
@@ -191,10 +230,9 @@ class LambdaAdapter:
                 "body": f"Missing required field 'job' in event: {exc}",
             }
 
-        job_kwargs = event.get("kwargs", {})
-
         try:
-            return _response(self._app.execute(job_name, **job_kwargs))
+            request = _envelope(event, job_name)
+            return _response(self._app.execute(request))
         except Exception as exc:
             return {"statusCode": 500, "body": str(exc)}
 

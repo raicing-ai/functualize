@@ -73,6 +73,9 @@ def _register_entry_point_displays(app: FunctualizeInlineTUI) -> None:
     An entry point may resolve to either a provider class or a zero-arg
     callable returning one, so a package can decide lazily.
     """
+    # Deliberate exception to the `_primitives.entry_points` cache: `_cli`
+    # may not import internal packages (import-linter contract, same note as
+    # `plugin_cmd.py`), and no public seam re-exports the cached helper.
     try:
         from importlib.metadata import entry_points
 

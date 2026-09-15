@@ -88,7 +88,7 @@ Fingerprint(sources: list[str] | None = None, method: str = "sha256", key: str |
 - `method`: hash algorithm.
 - `key`: explicit override (bypasses file hashing).
 
-Fingerprints live in the **runtime state store** (`.functualize/state.json`), NOT the
+Fingerprints live in the **runtime state store** (`.functualize/fresh.json`), NOT the
 discovery cache. The key includes the resolved config/args hash, so the same job with
 different arguments gets different fingerprints.
 

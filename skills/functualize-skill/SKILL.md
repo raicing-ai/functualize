@@ -126,7 +126,7 @@ What each part buys:
 - **`[tool.functualize] job = "fetch"`** — declares that this file *is* that
   job, so the command line belongs to the job. Without it, `func file.py --url x`
   reads `--url` as a function name and fails.
-- **`Stdout.emit`** — `--output json` gives the agent parseable output instead
+- **`Stdout.emit`** — `--emit-format json` gives the agent parseable output instead
   of scraped text.
 - **Secret-marked config** — wrap credentials in `Secret(...)` at the point
   they enter job code and they render as `•••` in every log line, traceback,

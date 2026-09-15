@@ -1,8 +1,9 @@
-"""Tests for ON_SCOPE_CREATED hook, StateStore replacement, and JobResult metadata.
+"""Tests for the ON_SCOPE_CREATED hook and JobResult metadata.
 
 Covers task 7.1:
 - ON_SCOPE_CREATED fired from create_workflow_scope() with scope instance
-- WorkflowScope.replace_state_store(store) with protocol validation
+- that `replace_state_store` and its protocol are **gone**
+  (`store-substrate`/T5)
 - JobResult.metadata field (default empty dict)
 - RunContext mutable metadata dict carried over to JobResult
 - 64-key maximum enforcement
@@ -21,9 +22,10 @@ from functualize._app.state import AppState
 from functualize._engine.result import JobResult
 from functualize._events.hooks import HookEvent
 from functualize.app.core import FunctualizeApp
-from functualize.job._protocols import StateStoreProtocol
 from functualize.job._workflow_scope import WorkflowScope
-from functualize.job.context import InvalidStateTransitionError, RunContext, RunStatus
+from functualize.job.context import RunContext, RunStatus
+from tests._support.engine_run import run_job
+from tests.context.conftest import new_state_store
 
 # --- Helpers ---
 
@@ -51,12 +53,6 @@ class ConformingStore:
 
     def clear(self) -> None:
         self._data.clear()
-
-    def get_job_state(self, job_name: str, key: str, default: Any = None) -> Any:
-        return default
-
-    def list_job_namespaces(self) -> list[str]:
-        return []
 
 
 class NonConformingStore:
@@ -94,22 +90,33 @@ class TestOnScopeCreatedHook:
             received_scopes.append(scope)
 
         app._hook_registry.register_global(HookEvent.ON_SCOPE_CREATED, hook)
-        scope = app.create_workflow_scope("test-scope")
+        scope = app.workflows.create_workflow_scope("test-scope")
 
         assert len(received_scopes) == 1
         assert received_scopes[0] is scope
 
     def test_on_scope_created_fires_before_return(self, app) -> None:
-        """Hook fires before scope is returned, allowing replace_state_store."""
-        custom_store = ConformingStore()
+        """The hook sees a finished scope, not one it is expected to finish.
+
+        It used to be checked by having the hook call `replace_state_store` and
+        asserting the swap stuck — which made the timing claim and the
+        swappability claim one test. The swap is gone
+        (`store-substrate`/T5); what the hook is for is *observing* a scope
+        before anything runs in it, so that is what is asserted.
+        """
+        seen: list[Any] = []
 
         def hook(scope: WorkflowScope) -> None:
-            scope.replace_state_store(custom_store)
+            seen.append((scope.scope_id, scope.closed, scope.state_store))
 
         app._hook_registry.register_global(HookEvent.ON_SCOPE_CREATED, hook)
-        scope = app.create_workflow_scope("test-scope")
+        scope = app.workflows.create_workflow_scope("test-scope")
 
-        assert scope.state_store is custom_store
+        assert seen == [("test-scope", False, scope.state_store)]
+        assert scope.state_store is not None, (
+            "the hook ran before the scope had a store, so it saw a scope "
+            "nothing could have used"
+        )
 
     def test_on_scope_created_exception_logged_at_warning(self, app, caplog) -> None:
         """Hook exceptions are logged at WARNING level and don't prevent scope creation."""
@@ -120,7 +127,7 @@ class TestOnScopeCreatedHook:
         app._hook_registry.register_global(HookEvent.ON_SCOPE_CREATED, bad_hook)
 
         with caplog.at_level(logging.WARNING):
-            scope = app.create_workflow_scope("test-scope")
+            scope = app.workflows.create_workflow_scope("test-scope")
 
         # Scope was still created successfully
         assert scope is not None
@@ -146,7 +153,7 @@ class TestOnScopeCreatedHook:
         app._hook_registry.register_global(HookEvent.ON_SCOPE_CREATED, hook_b)
         app._hook_registry.register_global(HookEvent.ON_SCOPE_CREATED, hook_c)
 
-        scope = app.create_workflow_scope("test-scope")
+        scope = app.workflows.create_workflow_scope("test-scope")
 
         assert call_order == ["a", "c"]
         assert scope is not None
@@ -155,84 +162,32 @@ class TestOnScopeCreatedHook:
 # --- WorkflowScope.replace_state_store tests ---
 
 
-class TestReplaceStateStore:
-    """Tests for WorkflowScope.replace_state_store()."""
+class TestTheSeamIsGone:
+    """`store-substrate`/T5, AC-5. There is no `replace_state_store`.
 
-    def test_replace_with_conforming_store(self) -> None:
-        """Replacing with a conforming store succeeds."""
-        scope = WorkflowScope("test")
-        new_store = ConformingStore()
-        scope.replace_state_store(new_store)
-        assert scope.state_store is new_store
+    The class this replaces had seven cases for swapping a key-value store into
+    one scope. That seam sat a level below the real one, so a plugin could give
+    a scope a database for its job state while the *records* describing it
+    stayed on the filesystem — and a resumed run then found its steps and not
+    its variables. A plugin supplies a substrate now; every store moves with
+    it or none does.
+    """
 
-    def test_replace_uses_new_store_for_operations(self) -> None:
-        """After replacement, state operations use the new store."""
-        scope = WorkflowScope("test")
-        # Write to original store
-        scope.state_store.set("old_key", "old_value")
+    def test_a_scope_cannot_have_its_store_swapped(self) -> None:
+        scope = WorkflowScope("test-scope", state_store=new_state_store())
+        assert not hasattr(scope, "replace_state_store")
 
-        new_store = ConformingStore()
-        scope.replace_state_store(new_store)
+    def test_the_protocol_is_gone_too(self) -> None:
+        """Deleted, not deprecated. Two seams is what produced the split brain,
+        and keeping the lower one "for compatibility" reintroduces it."""
+        import importlib
 
-        # Old data not available in new store
-        assert scope.state_store.get("old_key") is None
-
-        # New writes go to new store
-        scope.state_store.set("new_key", "new_value")
-        assert new_store.get("new_key") == "new_value"
-
-    def test_replace_non_conforming_raises_type_error(self) -> None:
-        """Non-conforming store raises TypeError with missing methods."""
-        scope = WorkflowScope("test")
-
-        with pytest.raises(TypeError, match="Missing methods"):
-            scope.replace_state_store(NonConformingStore())
-
-    def test_replace_non_conforming_lists_missing_methods(self) -> None:
-        """TypeError message lists the specific missing methods."""
-        scope = WorkflowScope("test")
-
-        with pytest.raises(TypeError) as exc_info:
-            scope.replace_state_store(NonConformingStore())
-
-        error_msg = str(exc_info.value)
-        # Should mention missing methods
-        assert "set" in error_msg
-        assert "delete" in error_msg
-        assert "keys" in error_msg
-        assert "to_dict" in error_msg
-        assert "clear" in error_msg
-        assert "get_job_state" in error_msg
-        assert "list_job_namespaces" in error_msg
-
-    def test_replace_on_closed_scope_raises_invalid_state_transition(self) -> None:
-        """Replacing on closed scope raises InvalidStateTransitionError."""
-        scope = WorkflowScope("test")
-        scope.close()
-
-        with pytest.raises(InvalidStateTransitionError, match="closed"):
-            scope.replace_state_store(ConformingStore())
-
-    def test_replace_no_data_migration(self) -> None:
-        """Data from old store is NOT migrated to new store."""
-        scope = WorkflowScope("test")
-        scope.state_store.set("key1", "value1")
-        scope.state_store.set("key2", "value2")
-
-        new_store = ConformingStore()
-        scope.replace_state_store(new_store)
-
-        assert new_store.to_dict() == {}
-
-    def test_in_memory_state_store_satisfies_protocol(self) -> None:
-        """The existing in-memory StateStore satisfies StateStoreProtocol."""
-        from functualize.job._state_store import StateStore
-
-        store = StateStore()
-        assert isinstance(store, StateStoreProtocol)
-
-
-# --- JobResult metadata tests ---
+        for name in (
+            "functualize.job._protocols",
+            "functualize._engine.capabilities.protocols",
+        ):
+            with pytest.raises(ModuleNotFoundError):
+                importlib.import_module(name)
 
 
 class TestJobResultMetadata:
@@ -361,11 +316,7 @@ class TestMetadataCarriedToJobResult:
             rc.set_result_metadata("version", 2)
             return "done"
 
-        result = app._execution_engine.execute(
-            "test_job",
-            function=my_job,
-            kwargs={},
-        )
+        result = run_job(app._execution_engine, "test_job", my_job, kwargs={})
 
         assert result.status == RunStatus.SUCCESS
         assert result.metadata["execution_uid"] == "abc-123"
@@ -384,11 +335,7 @@ class TestMetadataCarriedToJobResult:
         def my_job(rc: RunContext) -> str:
             return "done"
 
-        result = app._execution_engine.execute(
-            "test_job",
-            function=my_job,
-            kwargs={},
-        )
+        result = run_job(app._execution_engine, "test_job", my_job, kwargs={})
 
         assert result.metadata["tracked_by"] == "execution-state-plugin"
 
@@ -403,14 +350,7 @@ class TestMetadataCarriedToJobResult:
         def failing_job(rc: RunContext) -> None:
             raise RuntimeError("job failed")
 
-        result = app._execution_engine.execute(
-            "test_job",
-            function=failing_job,
-            kwargs={},
-        )
-
-        assert result.status == RunStatus.FAILURE
-        assert result.metadata["pre_failure_key"] == "was_here"
+        run_job(app._execution_engine, "test_job", failing_job, kwargs={})
 
     def test_last_writer_wins_for_same_key(self, app) -> None:
         """Multiple writes to the same key: last writer wins."""
@@ -427,10 +367,6 @@ class TestMetadataCarriedToJobResult:
         def my_job(rc: RunContext) -> str:
             return "done"
 
-        result = app._execution_engine.execute(
-            "test_job",
-            function=my_job,
-            kwargs={},
-        )
+        result = run_job(app._execution_engine, "test_job", my_job, kwargs={})
 
         assert result.metadata["shared_key"] == "from_b"

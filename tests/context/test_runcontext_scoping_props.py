@@ -100,7 +100,7 @@ class TestGetPerfPhasesScoping:
 
         # Create RunContext for target job
         rc = make_run_context(target_job, timeline)
-        result = rc.get_perf_phases()
+        result = rc.events.get_perf_phases()
 
         # All returned phases must start with "{target_job}."
         prefix = f"{target_job}."
@@ -149,7 +149,7 @@ class TestGetPerfPhasesScoping:
                 record_phase(timeline, other_job, phase)
 
         rc = make_run_context(target_job, timeline)
-        result = rc.get_perf_phases()
+        result = rc.events.get_perf_phases()
 
         # Count: we should get exactly len(target_phases) phases
         # (only target job's phases)
@@ -194,7 +194,7 @@ class TestGetPerfPhasesScoping:
         # Use the first target phase name as an include filter (prefix match)
         # This should match against the unprefixed name, not the full name
         filter_phase = target_phases[0]
-        result = rc.get_perf_phases(include=filter_phase)
+        result = rc.events.get_perf_phases(include=filter_phase)
 
         # All results should still be prefixed with target job
         prefix = f"{target_job}."
@@ -250,7 +250,7 @@ class TestGetPerfPhasesScoping:
 
         # Exclude the first target phase by its unprefixed name
         excluded_phase = target_phases[0]
-        result = rc.get_perf_phases(exclude=excluded_phase)
+        result = rc.events.get_perf_phases(exclude=excluded_phase)
 
         # The excluded phase should NOT be in results
         excluded_full_name = f"{target_job}.{excluded_phase}"

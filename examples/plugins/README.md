@@ -6,7 +6,7 @@ Examples of creating custom plugins and adapters for the functualize ecosystem. 
 
 | Directory | Description |
 |-----------|-------------|
-| `custom_state_backend/` | Implement the `StateBackend` protocol (Redis-like storage) — a packaged domain provider |
+| `custom_state_backend/` | Implement the `StoreSubstrate` port — bring your own storage |
 | `custom_adapter/` | Implement the `AdapterPlugin` protocol (webhook delivery) — a packaged delivery plugin |
 | `file_based_plugin/` | Zero packaging: a single `.py` file in `.functualize/plugins/`, discovered at boot |
 
@@ -38,7 +38,7 @@ determined by the plugin's metadata attributes (`adapter_type`, `plugin_type`).
 
 | Protocol | Category Attribute | Domain |
 |----------|-------------------|--------|
-| `StateBackend` | `plugin_type = "state_provider"` | Persistence |
+| `StoreSubstrate` | `plugin_type = "state_provider"` | Where functualize keeps its bookkeeping |
 | `AIProvider` | `plugin_type = "ai_provider"` | AI/LLM |
 | `TaskProvider` | `plugin_type = "tasks_provider"` | Task management |
 | `InputProvider` / `OutputRenderer` | `plugin_type = "interactivity"` | User I/O |

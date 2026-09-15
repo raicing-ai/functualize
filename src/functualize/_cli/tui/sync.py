@@ -9,7 +9,7 @@ Integration wiring:
     OverrideReset). The controller/app that owns both the SmartBar and the
     ConfigTablePanel should listen for these messages and call
     `sync_overrides_to_bar(command_path, fields)` to rebuild bar text, then
-    update the SmartBar's saved state via `bar.save_state()` so that
+    update the SmartBar's saved state via `bar.save_fresh()` so that
     restore_state uses the most recent synced text.
 
     This is also the single source of truth for reconstructing bar text
@@ -144,8 +144,6 @@ def build_command_line(
     job_overrides: list[tuple[str, str, bool, str | None]],
     group_values: dict[str, Any],
     trie: Any | None = None,
-    *,
-    omit_defaults: bool = False,
 ) -> str:
     """Build the canonical CLI text for a job and the group flags around it.
 
@@ -168,16 +166,6 @@ def build_command_line(
             shape both the walk and the engine's own merge use.
         trie: The group trie. ``None`` degrades to the flat dotted spelling,
             which is what the trie-less resolver reads back.
-        omit_defaults: Drop a group value equal to its declared default
-            (SBR.3). **Off by default, deliberately.** ``group_values`` usually
-            holds what the user actually typed, and dropping `--env staging`
-            because staging is the default would delete their keystrokes. Turn
-            it on only when passing fully *resolved* values, where every field
-            is present and most of them are defaults nobody chose.
-
-            Note that it cannot fire for a secret field: a credential's default
-            is not written to the cache, so the comparison has nothing to
-            compare against and the flag is always emitted.
 
     Returns:
         Bar text whose walk yields back ``job_name``, ``group_values`` and the
@@ -207,8 +195,6 @@ def build_command_line(
             # where the user happened to type it last.
             emitted.add(name)
             value = group_values[name]
-            if omit_defaults and value == getattr(field_desc, "default", None):
-                continue
             path_tokens.extend(
                 _group_flag_tokens(field_desc, value, [f.name for f in spec.fields])
             )

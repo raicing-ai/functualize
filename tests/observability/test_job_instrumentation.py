@@ -21,6 +21,7 @@ from functualize._events.bus import EventBus
 from functualize._events.hooks import HookRegistry
 from functualize._events.middleware_stack import MiddlewareStack
 from functualize.job._middleware import MiddlewareRegistry
+from tests._support.engine_run import register
 
 
 def _build_cli(app_mock, registry: JobRegistry) -> click.Group:
@@ -36,8 +37,14 @@ def _build_cli(app_mock, registry: JobRegistry) -> click.Group:
     for prefix, entry in registry._registered_jobs.items():
         if entry.function is None:
             continue
+        # Register the job with the engine so engine.run() can resolve by name
+        register(app_mock._execution_engine, prefix, entry.function)
         command = create_job_click_command(
-            prefix, entry.function, entry.config_class, app=app_mock
+            prefix,
+            entry.function,
+            entry.config_class,
+            app=app_mock,
+            surface="app.cli",
         )
         group.add_command(command, name=prefix)
     return group
@@ -122,8 +129,16 @@ class TestJobExecuteInstrumentation:
         assert "duration_ms" in end_event.payload
         assert end_event.payload["duration_ms"] >= 0
 
-    def test_job_execute_emits_start_and_error_on_failure(self, tmp_path):
-        """Failing job emits job.execute.start and job.execute.error events."""
+    def test_job_execute_emits_start_and_end_on_failure(self, tmp_path):
+        """A failing job emits `job.execute.start` and `job.execute.end`.
+
+        **`job.execute.end` carries `status="failure"`; there is no separate
+        error event.** The name in this docstring said otherwise, and the
+        assertion twenty lines down already carried the correction as a
+        comment — so the test was right and its title was not, for a
+        `job.execute.error` that `adjacent-defects` T6 removed from the catalog
+        precisely because nothing emitted it (adj §4).
+        """
         modules = {
             "failing": """\
                 def fail_job():
@@ -298,7 +313,7 @@ class TestInstrumentationFaultTolerance:
         registry = JobRegistry()
         registry.scan_and_register(None, [jobs_dir])
 
-        result = CliRunner().invoke(_build_cli(None, registry), ["basic"])
+        result = CliRunner().invoke(_build_cli(MagicMock(), registry), ["basic"])
         assert result.exit_code != 0
         assert result.exception is not None
         assert isinstance(result.exception, RuntimeError)

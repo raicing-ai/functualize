@@ -198,9 +198,9 @@ def _make_hook_decorator(
     """Factory for hook decorators that support bare/@()/@ ("name") forms.
 
     The returned decorator handles three invocation patterns:
-    1. @app.on_job_failure        → fn is the decorated function (bare)
-    2. @app.on_job_failure()      → fn_or_name is None (empty parens)
-    3. @app.on_job_failure("x")   → fn_or_name is a string (job-scoped)
+    1. @app.hooks.on_job_failure        → fn is the decorated function (bare)
+    2. @app.hooks.on_job_failure()      → fn_or_name is None (empty parens)
+    3. @app.hooks.on_job_failure("x")   → fn_or_name is a string (job-scoped)
 
     Algorithm:
     - If called with a callable → bare decorator, register globally, return fn
@@ -223,12 +223,12 @@ def _make_hook_decorator(
     def decorator(
         fn_or_name: str | Callable[..., Any] | None = None,
     ) -> Any:
-        # Case 1: Bare decorator — @app.on_job_failure applied directly to fn
+        # Case 1: Bare decorator — @app.hooks.on_job_failure applied directly to fn
         if callable(fn_or_name):
             register_global(fn_or_name)
             return fn_or_name
 
-        # Case 2: Empty parens — @app.on_job_failure()
+        # Case 2: Empty parens — @app.hooks.on_job_failure()
         if fn_or_name is None:
 
             def _global_wrapper(fn: F) -> F:
@@ -237,7 +237,7 @@ def _make_hook_decorator(
 
             return _global_wrapper
 
-        # Case 3: Job name string — @app.on_job_failure("deploy")
+        # Case 3: Job name string — @app.hooks.on_job_failure("deploy")
         if not isinstance(fn_or_name, str):
             raise TypeError(
                 f"Expected a callable or job name string, "
@@ -262,7 +262,7 @@ def _make_global_only_decorator(
     """Factory for decorators that only support global registration (no job scoping).
 
     Supports bare usage only:
-        @app.on_phase_failure
+        @app.hooks.on_phase_failure
         def my_hook(rc, phase_name, status, msg): ...
 
     The decorated function is registered globally and returned unchanged.
@@ -281,8 +281,8 @@ def _make_middleware_decorator(
     """Factory for the middleware decorator.
 
     Supports:
-    1. @app.run_middleware              → bare, priority=0
-    2. @app.run_middleware(priority=5)  → parameterized with priority
+    1. @app.hooks.run_middleware              → bare, priority=0
+    2. @app.hooks.run_middleware(priority=5)  → parameterized with priority
 
     Validates that the decorated function is a generator function
     (contains yield). Raises TypeError if not.
@@ -300,7 +300,7 @@ def _make_middleware_decorator(
         priority: int = 0,
     ) -> Any:
         if fn is not None:
-            # Bare: @app.run_middleware
+            # Bare: @app.hooks.run_middleware
             if not inspect.isgeneratorfunction(fn):
                 raise TypeError(
                     f"Middleware must be a generator function "
@@ -309,7 +309,7 @@ def _make_middleware_decorator(
             register(fn, priority)
             return fn
 
-        # Parameterized: @app.run_middleware(priority=5)
+        # Parameterized: @app.hooks.run_middleware(priority=5)
         def wrapper(f: F) -> F:
             if not inspect.isgeneratorfunction(f):
                 raise TypeError(

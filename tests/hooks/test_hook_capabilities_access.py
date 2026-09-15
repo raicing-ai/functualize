@@ -17,6 +17,7 @@ import pytest
 from functualize._events.hooks import HookDecision, HookEvent, HookRegistry
 from functualize.job.capabilities import Log, Perf, State
 from functualize.job.context import RunContext
+from tests.context.conftest import new_state_store
 
 
 @pytest.fixture
@@ -36,7 +37,7 @@ def sample_capabilities():
     """Create sample capabilities dict keyed by type."""
     return {
         Log: Log(),
-        State: State(),
+        State: State(new_state_store()),
         Perf: Perf(),
     }
 

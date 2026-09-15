@@ -30,7 +30,8 @@ All are exported from `functualize.job`.
 | `Live` | Live-updating display | `.add(construct)` / `.panel(construct)` → a handle with `.update()`, `.push()`, `.remove()`; `.suppress(name)` |
 | `TTY` | Direct terminal control | `.run(app)`, `.ctx()` |
 | `Sources` | The files this job's own `Fingerprint(sources=...)` resolved to | mapping of project-relative path → `{mtime, size, sha256}`: `.keys()`, `.items()`, `.get(path)`, `in`, `len()`; plus `.declared`, `.generates` |
-| `JobContext` | Metadata about this invocation | `.name`, `.trace_id`, `.deadline`, `.cwd`, `.job_directory`, `.invoke_depth`, `.scope_id`, `.metadata` |
+| `JobContext` | Metadata about this invocation | `.name`, `.trace_id`, `.span_id`, `.cwd`, `.job_directory`, `.invoke_depth`, `.scope_id`, `.metadata` |
+| `Freshness` | The verdict this job's own `Fingerprint` produced | `.verdict()` → the state, key, recorded value, declared sources and generates, and the resolved source map; no verdict at all when the job declares no `Fingerprint`. Reading it does not oblige a skip |
 | `JobConfigView` | Raw resolved config | key access with source tracking |
 
 Confirm against the installed version rather than this table:
@@ -100,11 +101,11 @@ log.error("failed")
 Returning a value does not print it. See the main skill's contract 2.3.
 
 ```python
-out.emit({"status": "ok"})   # serialized per --output: json | ndjson | raw | none
+out.emit({"status": "ok"})   # serialized per --emit-format: json | ndjson | raw | none
 out.write("raw text")        # verbatim, no serialization, no newline
 ```
 
-`emit(None)` writes nothing regardless of format, and `--output=none` suppresses
+`emit(None)` writes nothing regardless of format, and `--emit-format=none` suppresses
 everything. `emit([a, b, c])` is one JSON array under `json` and one line per
 item under `ndjson`; to stream rows explicitly, loop and emit each.
 
@@ -152,19 +153,29 @@ state.get("parsed_count", default=0)
 state.keys(prefix="cache:")
 ```
 
-Three different things in this project are called "state", and only one of them
-survives a process:
+Several things here were called "state", which is why two of them have been
+renamed. What each one is, and how long it lasts:
 
 | Name | Reached by | Scope | Survives the process? |
 | --- | --- | --- | --- |
-| `State` (capability) | a job parameter | one invocation | **no** |
-| `StateStore` (runtime) | `functualize.app.utils` | the project | **yes** — `.functualize/state.json` |
+| `State` (capability) | `rc.state` or a `state: State` parameter | **one run**, shared by every job in it | **yes** — `.functualize/scope-state/<id>.json` |
+| `FreshStore` (runtime) | `functualize.app.utils` | the project | yes — `.functualize/fresh.json` |
 | The discovery cache | `func builtin cache` | the project | yes, but it is not yours |
 
-For a value that must outlive the run, write a file you own, or use the runtime
-store — never `State`. `func builtin state show` prints where the runtime store
-lives; see [config-and-secrets.md](config-and-secrets.md) for the two modes it
-resolves between.
+**`State` is durable now.** It was a per-invocation dict that vanished when the
+process ended; `rc.state.set(...)` is written to disk and a resumed run reads
+back what it stored. If you read an older version of this page saying
+otherwise, that is what changed.
+
+**What `State` is *not*** is a place to keep things between unrelated runs. Its
+scope is one run — a workflow and every step, dependency and invoked child
+inside it. For a value that must outlive the run, write a file you own.
+
+`FreshStore` is a different thing entirely despite the old name: it holds the
+*freshness verdicts* that decide whether a job can skip work. You rarely touch
+it directly. `func builtin data show` prints where every store lives; see
+[config-and-secrets.md](config-and-secrets.md) for the two modes it resolves
+between.
 
 ## Sources — `declared` is not "non-empty"
 
