@@ -211,7 +211,7 @@ class CachedDirectoryScanProvider:
         changed = False
 
         # New files: import and add to cache
-        for source_file in on_disk - cached_files:
+        for source_file in sorted(on_disk - cached_files):
             if self._should_import_with_cache(source_file):
                 descriptors = self._safe_import(source_file)
                 for desc in descriptors:
@@ -220,17 +220,17 @@ class CachedDirectoryScanProvider:
                     changed = True
 
         # Deleted files: remove from cache
-        for source_file in cached_files - on_disk:
+        for source_file in sorted(cached_files - on_disk):
             self._remove_entries_for_file(source_file)
             changed = True
 
         # Clean up pre-filter decisions for deleted files
-        for source_file in set(self._pre_filter_decisions.keys()) - on_disk:
+        for source_file in sorted(set(self._pre_filter_decisions.keys()) - on_disk):
             del self._pre_filter_decisions[source_file]
             self._dirty = True
 
         # Existing files: tiered validation, re-import if stale
-        for source_file in on_disk & cached_files:
+        for source_file in sorted(on_disk & cached_files):
             if not self._validate_entries_for_file(source_file):
                 self._remove_entries_for_file(source_file)
                 descriptors = self._safe_import(source_file)
