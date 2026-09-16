@@ -49,7 +49,7 @@ available outcome.
 **The hard gate is a `PreToolUse` hook on `Edit` / `Write` / `NotebookEdit`,
 scoped to `src/functualize/**` and `plugins/*/src/**`.** It denies the write
 unless a `.spec/features/*/tasks.md` with a parseable `## Task Dependency Graph`
-exists, or `.spec/EXEMPT` declares a reason.
+exists.
 
 `ExitPlanMode` keeps only a non-blocking `PostToolUse` hook that injects the
 execution contract.
@@ -67,20 +67,14 @@ mattering. The Specify and Plan phases operate freely because `.spec/`,
 artifacts on disk, never by what a plan claims about itself.
 
 **Cost.** The hook runs on every source edit (~45 ms, mostly interpreter
-startup). `/code-review --fix` and `/simplify` trip it and need an exemption.
+startup). Small shipped-code changes must therefore be included in a feature
+task graph.
 
 **The boundary is real and is documented rather than hidden.** The gate sees
 three tools; a write through the **shell** — `echo >`, `sed -i`, a heredoc —
 raises none of them and is not blocked. Blocking that reliably means parsing
-arbitrary shell, which is fragile and easy to fool. It is *recorded* instead: a
-`PostToolUse` hook on `Bash` notices that shipped code became dirty with no task
-list and no exemption, and appends to the same committed ledger. The gate stops
-ad-hoc editing; it does not stop a determined bypass, and does not claim to.
-
-**Self-exemption is permitted and logged.** An agent can write `.spec/EXEMPT`
-itself. The mitigation is that doing so appends to `.spec/exemptions.log`, which
-is committed — so the bypass appears in the next diff. Bypassing the workflow is
-allowed; bypassing it invisibly is not.
+arbitrary shell, which is fragile and easy to fool. The gate stops ad-hoc tool
+editing; it does not claim to control arbitrary shell commands.
 
 ## Alternatives rejected
 

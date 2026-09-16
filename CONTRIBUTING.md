@@ -248,6 +248,63 @@ uv run pre-commit run --all-files
 | PR Title | PRs (opened, edited) | Lint the PR title as a conventional commit |
 | Docs | Push to `master` | Build docs (strict) → deploy to GitHub Pages |
 
+### Spec-driven PR validation and cleanup
+
+Feature specifications are tracked on the PR branch so reviewers can inspect
+the behavior, contracts, plan, and task graph. They are temporary branch
+artifacts: before merge, preserve durable decisions in `.spec/STATUS.md` or
+`contributor/`, store the complete feature record in a durable external archive
+site, and delete the tracked `.spec/features/` files.
+
+The pre-merge sequence uses two pushes:
+
+```text
+Feature-bearing push
+        │
+        ▼
+spec-only-change
+        │
+        └─ Not cleanup → run all validation jobs
+              ├─ lint, lint-imports, typecheck
+              ├─ test-fast
+              ├─ test-full on Python 3.11, 3.12, 3.13
+              ├─ examples, plugin-mcp, clean-clone-examples
+              └─ doc-verify, docs-build
+        │
+        └─ spec-artifacts-cleared fails while .spec/features/ remains
+```
+
+That artifact check is expected to fail on the feature-bearing push. The
+validation jobs must pass; the failing artifact check records that cleanup has
+not happened yet.
+
+After validation, make the final commit deletion-only under
+`.spec/features/`:
+
+```text
+Deletion-only cleanup push
+        │
+        ▼
+spec-only-change
+        │
+        ├─ Confirm every changed path is a deletion under .spec/features/
+        ├─ Find the cleanup commit's parent PR run
+        ├─ Verify every parent validation job succeeded
+        └─ .github/scripts/verify_cleanup_predecessor.py
+              │
+              ├─ Evidence valid → skip redundant validation
+              │                    └─ spec-artifacts-cleared still runs
+              │
+              └─ Evidence missing, incomplete, or not green
+                                   └─ run the full validation jobs
+```
+
+The cleanup optimization is not triggered merely because `.spec/features/`
+is empty. A mixed cleanup commit, any source/documentation/workflow change, or
+an unavailable or non-green predecessor run causes full validation instead.
+`spec-only-change` itself remains a required check, and
+`spec-artifacts-cleared` remains required on the cleanup push.
+
 ## Branching Strategy
 
 Trunk-based development with release tags:

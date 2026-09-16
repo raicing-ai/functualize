@@ -246,7 +246,7 @@ Presets are factory functions: `classic()`, `twelve_factor()`, `env_only()`, `re
 ## Workflow
 
 This project uses spec-driven development. The contract is in
-`.claude/rules/spec-workflow.md` — phases, what is enforced, the exemption, and
+`.claude/rules/spec-workflow.md` — phases, what is enforced, and
 the version-control lifecycle. This section covers only what is specific to
 running it.
 
@@ -272,7 +272,7 @@ inside it.
 ### .spec/ directory
 
 Committed reference: `ARCHITECTURE.md`, `CONSTITUTION.md`, `TESTING.md`,
-`STATUS.md`, `exemptions.log`.
+`STATUS.md`.
 
 Committed **on the branch only**, cleared before merge: `features/<name>/` —
 `spec.md`, `contracts.md`, `plan.md`, `schema.md`, `research.md`, `tasks.md`.

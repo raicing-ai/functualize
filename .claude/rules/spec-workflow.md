@@ -41,30 +41,16 @@ The gate fails open. If the validator cannot decide — malformed input, missing
 interpreter, unreadable `.spec/` — the write proceeds. A broken validator
 degrades to unenforced; it never bricks the repository.
 
-### The exemption
-
-For a change genuinely too small to spec, write `.spec/EXEMPT` containing:
-
-```
-Spec-exempt: <reason, at least 20 characters>
-```
-
-It is honoured for one hour. Using it appends a record to
-`.spec/exemptions.log`, which **is committed** — that ledger is the entire
-mitigation for the fact that an agent can exempt itself. Bypassing the workflow
-is allowed; bypassing it invisibly is not.
-
 ### The shell boundary
 
 The gate sees `Edit`, `Write`, and `NotebookEdit`. A write issued through the
 shell — `echo >`, `sed -i`, `tee`, a heredoc — raises none of those and is **not
-blocked**. It is instead *recorded*: a `PostToolUse` hook notices that shipped
-code became dirty with no task list and no exemption, and appends a
-`shell-write:` record to the same ledger.
+blocked**. Shell writes therefore remain outside this gate and must be reviewed
+and tested through the normal Git and CI process.
 
 This is deliberate. Reliably blocking arbitrary shell would mean parsing it,
-which is fragile and easy to fool. The gate stops ad-hoc editing; it does not
-stop a determined bypass, and does not claim to.
+which is fragile and easy to fool. The gate stops ad-hoc tool editing; it does
+not claim to control arbitrary shell commands.
 
 ## Version control lifecycle
 

@@ -262,7 +262,9 @@ trades real functionality for tidiness.
   `info`/`why`, `--format json` on the newer commands). This feature adopts
   `--format` for new commands and rides `--json` where it extends an existing
   one, so it adds no new inconsistency and normalizes none. Normalizing is a
-  separate breaking change — see `.spec/shape-intents/output-flag-normalization.md`.
+  separate breaking change — see the `output-flag-normalization` shape intent
+  (Confluence, *Software Development* → *Functualize & FuncCloud — Product Design
+  Workspace* → *10 — Shape Intents*), specified but not yet decided.
 
 ## Alternatives Considered
 
@@ -275,6 +277,15 @@ trades real functionality for tidiness.
 | One `install` command with a `--plugin` flag | Smaller surface | No home for plugin-specific behaviour | `plugin install` is a seam worth keeping |
 | Differencing captures over `(name, version)` | Catches version changes too | Pins distribution-shipped packages back, undoing the upgrade | Silently defeats the upgrade it is meant to protect |
 | Dropping unrenderable uv receipt keys | Always succeeds | Silently changes what is installed | A clear refusal plus an escape hatch is strictly better |
+| *Guidance-only* `self update` — prints the install-script one-liner and exits; the binary never rewrites itself | Simplest and most honest; matches what a fresh binary should do until self-replace exists | The user still has to run a second command by hand instead of one that "just updates" | Self-replacing (chosen; see Correction above) was judged worth the added surface — release-channel knowledge, checksum verification, atomic replace-on-Windows — because `self update` is expected to actually update |
+| Re-enabling PyApp's own updater (`PYAPP_EXPOSE_UPDATE=1`, drop `PYAPP_SKIP_INSTALL`) | Cheapest to build — no new code | Discards the entire reason the pre-baked binary exists: it `pip install --upgrade`s from an index, so the first run after an update would need a package index again | Defeats the offline-complete guarantee this ADR is built around |
+
+**Addendum (2026-09-16).** The two `self update` rows above were migrated from
+`.spec/shape-intents/standalone-self-management.md` when that file was retired
+(superseded by this ADR, so nothing was lost) — they are the "why not"
+reasoning the shape intent existed to preserve, for the two of three shapes
+that were considered and not taken. Self-replacing, the third shape, is what
+shipped; it is documented above under *Correction*.
 
 ## Verification
 
