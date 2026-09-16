@@ -13,18 +13,22 @@ The files committed here are the canonical design reference. The [spec-driven-de
 
 ## Shape Intents
 
-**`shape-intents/`** contains design documents that are "specified, not yet implemented." These describe desired behavior changes at the assertion level, with per-assertion PASS/GAP verification against the current codebase. They are fully self-contained — no external files needed to start work.
+`shape-intents/` describes design documents that are "specified, not yet implemented" —
+behavior changes written up at the assertion level, with per-assertion PASS/GAP verification
+against the current codebase. **The directory itself is kept empty in this repository.**
+Once such a document is written, it is published to Confluence (raicing-ai's *Software
+Development* space → *Functualize & FuncCloud — Product Design Workspace* → *10 — Shape
+Intents*) rather than committed here, so an open design question doesn't sit as a stale,
+unlinked file on the branch that specified it. This repo's own contributor docs (this README
+included) reference `.spec/` and `contributor/` paths, never Confluence URLs, because a
+Confluence link is not reachable by anyone without access to that instance; ask a maintainer
+for the Confluence link if you need to read a shape intent.
 
-| Intent | Assertions |
-|--------|-----------|
-| [Builtins as Jobs](shape-intents/builtins-as-jobs.md) | 19 (9 pass, 10 gaps) — **undecided**, see B1 |
-| [Output-Flag Normalization](shape-intents/output-flag-normalization.md) | 16 (6 confirmed, 10 gaps) — **D1 open** |
-| [A GitHub Action for functualize](shape-intents/github-action.md) | 16 (1 pass, 15 gaps) — **B1 open: ship it at all?** |
-| [Workflow Run Parameters](shape-intents/workflow-run-parameters.md) | 7 (2 pass, 5 gaps) |
-| [Remote Config Source](shape-intents/remote-config-source.md) | 4 (1 pass, 3 gaps) |
-| [Boolean Flag Negation](shape-intents/boolean-flag-negation.md) | 6 (1 pass, 5 gaps) — counts predate #17, which shipped the feature; needs re-verification or retirement |
-
-When a shape intent graduates to implementation, it is atomized into a task list under `.spec/features/<name>/` and executed via the spec-driven-developer workflow. Before the branch merges, both are cleared: the durable half moves to `STATUS.md` and an ADR, and the artifacts are removed. Standalone Distribution & Self-Management shipped that way on 2026-09-04 — see [ADR-015](../contributor/adr/015-standalone-distribution-and-self-management.md).
+When a shape intent graduates to implementation, it is atomized into a task list under
+`.spec/features/<name>/` and executed via the spec-driven-developer workflow. Before the
+branch merges, both are cleared: the durable half moves to `STATUS.md` and an ADR. Standalone
+Distribution & Self-Management shipped that way on 2026-09-04 — see
+[ADR-015](../contributor/adr/015-standalone-distribution-and-self-management.md).
 
 ## Workflow
 
@@ -39,7 +43,7 @@ New features follow the spec-driven-development phases described in `.claude/age
 | 4: Execute | Tasks ready | Implementation + `[x]` checkmarks |
 | 5: Verify | All `[x]` | Gate passes, ROADMAP.md updated |
 
-Session-local files (`STATE.md`, `proposals/`, `scrutiny-reports/`) are gitignored. `features/` is tracked on the working branch so its acceptance gates can be reviewed, then cleared in a deletion-only final commit after validation and archive. That final push skips redundant validation only when the previous PR run's validation jobs were green; `spec-artifacts-cleared` still runs. Master keeps only permanent design decisions and shape intents.
+Session-local files (`STATE.md`, `proposals/`, `scrutiny-reports/`) are gitignored. `features/` is tracked on the working branch so its acceptance gates can be reviewed, then cleared in a deletion-only final commit after validation and archive. That final push skips redundant validation only when the previous PR run's validation jobs were green; `spec-artifacts-cleared` still runs. Master keeps only permanent design decisions; shape intents live in Confluence, not on any branch.
 
 ## Session documents vs. the committed record
 
@@ -51,7 +55,7 @@ Session-local files (`STATE.md`, `proposals/`, `scrutiny-reports/`) are gitignor
 | A scrutiny, audit, or review report | `.spec/scrutiny-reports/` | **No** — gitignored |
 | The decision a proposal argued for | `contributor/adr/NNN-*.md` | **Yes** |
 | A behaviour rule the review produced | `contributor/guides/*.md` | **Yes** |
-| A design "specified, not yet implemented" | `.spec/shape-intents/` | **Yes** |
+| A design "specified, not yet implemented" | Confluence (`10 — Shape Intents`) | **No** — repo-committed only via `.spec/features/` once it graduates |
 
 The reason is that a proposal is an *argument at a moment* — it cites line numbers, it is superseded by its own implementation, and it goes stale the day it lands. An ADR is a *decision*, and stays true. Committing the argument means the repository accumulates documents that contradict the code and each other, and a reader cannot tell which one is current.
 

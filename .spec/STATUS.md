@@ -87,8 +87,8 @@ Two guards were missing, and either would have caught the examples defect at
 
 ### Ship-blocking — landed, but the cut is **HELD**
 
-Items 1-6 and 9 are landed on `release/0.1.1`; item 7 is deferred to
-[`shape-intents/remote-config-source.md`](shape-intents/remote-config-source.md);
+Items 1-6 and 9 are landed on `release/0.1.1`; item 7 was deferred to a shape intent
+and has since shipped — see [ADR-016](../contributor/adr/016-remote-source-activation.md);
 item 8 was already fixed. The decision and its reasoning are in
 [ADR-010](../contributor/adr/010-discovery-cache-filter-awareness.md).
 
@@ -299,10 +299,12 @@ sound and does not need re-auditing. What follows is what it did **not** cover.
    **without** `--include="*.md"` is what found the second one. The deferral
    and the finding as originally written follow, unchanged.
 
-   **DEFERRED to a shape intent (2026-08-29).** Taken out of the 0.1.1 cut by
-   decision; the full evidence and the two coherent end states now live in
-   [`.spec/shape-intents/remote-config-source.md`](shape-intents/remote-config-source.md),
-   which is committed and self-contained. The finding as originally written
+   **DEFERRED to a shape intent (2026-08-29), resolved 2026-09-06.** Taken out
+   of the 0.1.1 cut by decision; the full evidence and the two coherent end
+   states lived in a shape intent (since implemented and superseded by
+   [ADR-016](../contributor/adr/016-remote-source-activation.md); the original
+   design doc is archived in Confluence, `10 — Shape Intents` →
+   *Local Vault CLI and Lifecycle*). The finding as originally written
    follows, unchanged.
 
    **The `remote_first` gate is scope-blind; the stale promise survives in the
@@ -561,13 +563,23 @@ task's `[F]`, and outside the "34/34 tasks, 16/16 acceptance criteria" claim.
 
 ## Shape Intents (Specified, Not Yet Implemented)
 
-Committed design documents with per-assertion PASS/GAP verification against the current codebase. Fully self-contained — no external files needed to start work.
+Design documents with per-assertion PASS/GAP verification against the current codebase,
+written up at the point something is specified but not yet decided or built. **As of
+2026-09-16 these are no longer committed to `.spec/shape-intents/` in this repo** — they
+are published to Confluence (raicing-ai's *Software Development* space →
+*Functualize & FuncCloud — Product Design Workspace* → *10 — Shape Intents*) instead, so an
+open design question doesn't sit as a stale file on whichever branch specified it. Ask a
+maintainer for the Confluence link if you need to read one. `remote-config-source` and
+`eager-boot-uses-the-provider-it-builds` are omitted from this table on purpose: the former
+shipped (see below) and the latter is fully written up in follow-up #30, so neither needs a
+separate pointer.
 
 | Shape intent | Scope |
 |---|---|
-| [`remote-config-source.md`](shape-intents/remote-config-source.md) — **RESOLVED 2026-09-06, wired; see ADR-016** | `RemoteSource` is defined, exported and documented with **zero construction sites in `src/`**, and the `remote_first` preset's docstring promises a chain the boot path does not build. Wire it or remove it — correcting only the docstrings is explicitly not an option. Carries the finding that the original gate passed *because of* its `--include="*.md"` scoping. |
-| [`eager-boot-uses-the-provider-it-builds.md`](shape-intents/eager-boot-uses-the-provider-it-builds.md) — **RESOLVED 2026-09-08 by `eager-boot-provider`** | `JobSources(lazy=False)` registers jobs through a second directory scanner instead of the filtered provider `boot_standard` already built and added to the pipeline. Four defects follow: every job module **imported twice** whenever a second provider exists (measured 2 modules → 4 imports, and a regression introduced by wiring `JobSources.functions`), `_registered_commands` keyed by the Python name so `refresh()` leaves phantom entries, discovery filters ignored, and filters half-applied. None reachable from `func`. Read STATUS #32 first — its fix unblocks this one. |
-| [`workflow-run-parameters.md`](shape-intents/workflow-run-parameters.md) | **The silent-drop half shipped 2026-09-03** (`feat/workflow-run-params`): a `@workflow` job now refuses a launch argument its signature cannot accept before the graph walks, so the approval is no longer spent on a run that was never going to succeed. **What remains is the run-scoped parameter layer**, and it is a correctness defect on its own: no per-run channel exists, so a value set for a walk does **not survive a gate** — re-measured 2026-09-08, `LAB__STRICT=true` walks to the gate with `strict=True` and the resume in a shell without it runs `check.signoff`, the step whose whole purpose is to apply strict mode, with `strict=False`. One `scope_id`, two answers, selected by the resuming shell. The three trigger plugins can parameterize a single job and not a walk. Implement a run-scoped layer or declare walks unparameterizable and enforce it. |
+| Builtins as Jobs | Whether first-party CLI commands (`skills`, `scaffold`, …) should be implemented as functualize jobs rather than click callbacks, so terminal ownership is declared on the function instead of duplicated on a registry entry. **Undecided — B1 open**: convert anything at all? |
+| A GitHub Action for functualize | Whether to ship a `setup-functualize`-style GitHub Action now that standalone binaries exist (ADR-015), versus documenting the two-line `uv tool install` recipe. **Undecided — B1 open**: is the non-Python-repo CI audience real? |
+| Output-Flag Normalization | Six builtin commands answer "text or JSON?" with two spellings (`--json` / `--format`) and three different behaviors. **D1 open**: which spelling and vocabulary wins across all six. |
+| Workflow Run Parameters | **The silent-drop half shipped 2026-09-03** (`feat/workflow-run-params`): a `@workflow` job now refuses a launch argument its signature cannot accept before the graph walks, so the approval is no longer spent on a run that was never going to succeed. **What remains is the run-scoped parameter layer**, and it is a correctness defect on its own: no per-run channel exists, so a value set for a walk does **not survive a gate** — re-measured 2026-09-08, `LAB__STRICT=true` walks to the gate with `strict=True` and the resume in a shell without it runs `check.signoff`, the step whose whole purpose is to apply strict mode, with `strict=False`. One `scope_id`, two answers, selected by the resuming shell. The three trigger plugins can parameterize a single job and not a walk. Implement a run-scoped layer or declare walks unparameterizable and enforce it. |
 
 ## Open Features
 
@@ -686,9 +698,8 @@ Five features, one branch. The `.spec/features/` artifacts are cleared; the
 durable half is here and in
 [ADR-018](../contributor/adr/018-unsatisfiable-jobs-are-reported-not-fatal.md).
 
-Closes **#30**, **#32**, the
-[`eager-boot-uses-the-provider-it-builds`](shape-intents/eager-boot-uses-the-provider-it-builds.md)
-shape intent, and the remainder of **#18**.
+Closes **#30**, **#32**, the `eager-boot-uses-the-provider-it-builds` shape intent
+(see #30 below), and the remainder of **#18**.
 
 | Feature | What it closed |
 |---|---|
@@ -829,7 +840,7 @@ the install script picking musl and refusing a tampered archive before
 unpacking it.
 ### Boolean flag negation (2026-09-03, `feat/workflow-run-params`)
 
-`shape-intents/boolean-flag-negation.md` is **implemented**. A boolean set
+The `boolean-flag-negation` shape intent is **implemented**. A boolean set
 `true` in a config file can now be turned off from the command line, on both
 surfaces. The config ladder promised CLI > env > file; for booleans it was
 three-quarters true and nothing said so.
@@ -931,9 +942,8 @@ deliberately.
 
 ### Workflow launch validation (2026-09-03, `feat/workflow-run-params`)
 
-The first acceptance item of
-[`shape-intents/workflow-run-parameters.md`](shape-intents/workflow-run-parameters.md)
-is **implemented**. A `@workflow` job now refuses a launch argument its
+The first acceptance item of the `workflow-run-parameters` shape intent (Confluence,
+`10 — Shape Intents`) is **implemented**. A `@workflow` job now refuses a launch argument its
 signature cannot accept **before the graph walks**, instead of running every
 step, blocking at a gate, waiting for a person to approve, and failing at the
 epilogue — spending the approval on a run that was never going to succeed.
@@ -1865,14 +1875,15 @@ Items identified during development that are worth doing but not yet designed:
 30. **RESOLVED 2026-09-08 by `eager-boot-provider`.** The eager boot path
     bypasses the provider it just built — four defects, one root cause.
     Supersedes the original narrower note. Audited 2026-09-07;
-    every number below was measured, not inferred. The verified analysis lives
-    in
-    [`.spec/shape-intents/eager-boot-uses-the-provider-it-builds.md`](shape-intents/eager-boot-uses-the-provider-it-builds.md)
-    (spec + contracts, no tasks — the work is **parked**, see the end of this
-    entry). It lived under `.spec/features/` until that directory was cleared
-    for the PR #29 merge, and was migrated rather than deleted: the 13
-    acceptance criteria carry authoring-time measurements that would be
-    expensive to re-derive.
+    every number below was measured, not inferred. The verified analysis is
+    written out in full below (spec + contracts, no tasks — the work is
+    **parked**, see the end of this entry). It previously lived under
+    `.spec/features/`, then `.spec/shape-intents/` after that directory was
+    cleared for the PR #29 merge, and was migrated here rather than deleted:
+    the 13 acceptance criteria carry authoring-time measurements that would be
+    expensive to re-derive. The `.spec/shape-intents/` copy was removed
+    2026-09-16 once this entry was confirmed to carry the same content in
+    full.
 
     `_app/boot.py` `boot_standard` builds a `DirectoryScanProvider` from the
     resolved `DiscoveryConfig` — with `pre_filter` and `job_filter` — and adds it
@@ -2322,9 +2333,10 @@ See `CONSTITUTION.md` for quality gates that apply to all changes.
 
 A standalone binary can manage itself. The design record is
 `contributor/adr/015-standalone-distribution-and-self-management.md`, whose
-**Correction** section supersedes the original decision; the analysis of why
-PyApp's own updater cannot be used is kept in
-`.spec/shape-intents/standalone-self-management.md`.
+**Correction** section explains why PyApp's own updater cannot be used and
+supersedes the original decision; the two rejected `self update` shapes
+(guidance-only, and re-enabling PyApp's updater) are recorded in that ADR's
+**Alternatives Considered** table.
 
 What building a real binary found that no gate had:
 
