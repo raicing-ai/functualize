@@ -125,12 +125,18 @@ examples/plugins/file_based_plugin/.functualize/plugins/*
 #   zvec-grep index entries are keyed by ABSOLUTE path — copying one and rewriting
 #             its manifest yields 0% coverage and a full re-embed. Never tracked;
 #             each workspace builds its own (~21s scoped).
-#   serena    cache/ pickles hold absolute file:// URIs. project.yml and memories/
-#             are plain text and portable; serena's own .serena/.gitignore already
-#             excludes cache/ and project.local.yml.
+#   serena    cache/ pickles hold absolute file:// URIs, so those and
+#             project.local.yml are machine-local; serena's own
+#             .serena/.gitignore already excludes cache/ and project.local.yml.
+#             memories/ is plain text and portable, but not tracked anyway: it
+#             duplicated contract docs that already have a committed home
+#             (`.claude/rules/spec-workflow.md`, `.spec/ARCHITECTURE.md`,
+#             AGENTS.md) and went stale the moment those changed underneath
+#             it. project.yml stays tracked and portable.
 graphify-out/*
 !graphify-out/graph.json
 !graphify-out/GRAPH_REPORT.md
 .zvec-grep/
 .serena/cache/
 .serena/project.local.yml
+.serena/memories/
