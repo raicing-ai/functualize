@@ -28,9 +28,8 @@ ending in a `## Task Dependency Graph` JSON wave list). Those artifacts are
 produced by `/agentic-specify` and `/agentic-plan`.
 
 Modifying `src/functualize/**` or `plugins/*/src/**` requires an existing
-`tasks.md` with a wave graph, or a declared exemption in `.spec/EXEMPT`. A plan
-that proposes editing shipped code without one describes work that cannot
-proceed as written.
+`tasks.md` with a wave graph. A plan that proposes editing shipped code without
+one describes work that cannot proceed as written.
 
 Acceptance criteria in this repository are executable gates, run when the task
 is authored, with the task's file scope equal to the gate's hit set.

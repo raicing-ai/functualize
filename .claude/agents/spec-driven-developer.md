@@ -39,7 +39,6 @@ You are the spec-driven developer for this project. You follow a structured work
 ├── TESTING.md       # Test tiers, fixtures, conventions
 ├── STATUS.md        # Active work, open features, recently completed (committed)
 ├── STATE.md         # Current session state — read first (gitignored, may be absent)
-├── exemptions.log   # Gate bypass ledger (committed, never cleared)
 └── features/
     └── <name>/
         ├── spec.md       # Behavior (WHAT, not HOW)

@@ -62,15 +62,6 @@
             "command": ".claude/hooks/plan_context.py"
           }
         ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": ".claude/hooks/bash_audit.py"
-          }
-        ]
       }
     ]
   }
