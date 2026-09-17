@@ -13,7 +13,6 @@ import ast
 from pathlib import Path
 
 from functualize._config.vault_paths import (
-    VAULT_MODES,
     project_root_for,
     vault_path_for_project,
 )
@@ -77,10 +76,7 @@ class TestProjectIdentity:
         nested = tmp_path / "a" / "b"
         nested.mkdir(parents=True)
 
-        root, mode = project_root_for(nested)
-
-        assert root == tmp_path.resolve()
-        assert mode == "project"
+        assert project_root_for(nested) == tmp_path.resolve()
 
     def test_without_a_marker_the_starting_directory_is_the_root(
         self, tmp_path: Path
@@ -88,10 +84,7 @@ class TestProjectIdentity:
         """Standalone mode is the fallback, not a failure — `func` runs over
         loose scripts anywhere, and littering a `.functualize/` beside each one
         would be worse than a keyed directory."""
-        root, mode = project_root_for(tmp_path)
-
-        assert root == tmp_path.resolve()
-        assert mode == "standalone"
+        assert project_root_for(tmp_path) == tmp_path.resolve()
 
     def test_two_projects_do_not_share_a_vault(self, tmp_path: Path) -> None:
         one = tmp_path / "one"
@@ -117,6 +110,3 @@ class TestProjectIdentity:
         assert compute_project_id(str(resolved)) in str(
             vault_path_for_project(resolved)
         )
-
-    def test_modes_are_exactly_two(self) -> None:
-        assert VAULT_MODES == ("project", "standalone")

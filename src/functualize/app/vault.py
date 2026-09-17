@@ -56,6 +56,9 @@ if TYPE_CHECKING:
     from datetime import datetime
     from pathlib import Path
 
+    from functualize._config.vault import SecretsVault
+    from functualize._config.vault_keys import KeyResolution
+
 __all__ = [
     "Readability",
     "ResolvedVaultPath",
@@ -427,8 +430,7 @@ def _project_id(cwd: str | Path | None) -> str:
     from functualize._config.vault_paths import project_root_for
     from functualize._primitives.locator import compute_project_id
 
-    root, _mode = project_root_for(cwd)
-    return compute_project_id(str(root))
+    return compute_project_id(str(project_root_for(cwd)))
 
 
 #: What a stock install meets first, so it teaches both routes rather than
@@ -480,14 +482,21 @@ def _init_with(provider: Any, project_id: str) -> VaultInitReport:
     return VaultInitReport(key_provider=identifier, created=True)
 
 
-def _open_store(cwd: str | Path | None = None) -> Any:
+def _open_store(cwd: str | Path | None = None) -> SecretsVault:
+    """This project's store.
+
+    Annotated concretely rather than as ``Any``. The verify phase's orphan scan
+    resolves call targets through return types, and an ``Any`` here made
+    ``SecretsVault.delete`` look like it had no production caller at all — the
+    scan is a repo discipline, so blinding it has a real cost.
+    """
     from functualize._config.vault import SecretsVault
     from functualize._config.vault_paths import vault_path_for_project
 
     return SecretsVault(vault_path_for_project(cwd))
 
 
-def _resolve_key(cwd: str | Path | None = None) -> Any:
+def _resolve_key(cwd: str | Path | None = None) -> KeyResolution:
     """The vault key, or a refusal that names how to supply one."""
     from functualize._config.vault_keys import resolve_vault_key
 

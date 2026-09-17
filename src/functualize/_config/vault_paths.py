@@ -34,35 +34,31 @@ from pathlib import Path
 from functualize._primitives.fresh_format import find_functualize_dir
 from functualize._primitives.locator import _xdg_data_dir, compute_project_id
 
-__all__ = ["VAULT_MODES", "project_root_for", "vault_path_for_project"]
-
-#: The two ways a project can be identified. Pinned as exactly two strings so a
-#: caller can match on them, mirroring ``fresh_format.FRESH_MODES``.
-VAULT_MODES = ("project", "standalone")
+__all__ = ["project_root_for", "vault_path_for_project"]
 
 
-def project_root_for(cwd: str | Path | None = None) -> tuple[Path, str]:
-    """The project directory a vault belongs to, and which mode that is.
+def project_root_for(cwd: str | Path | None = None) -> Path:
+    """The project directory a vault belongs to.
 
     Args:
         cwd: Where to start the search. Defaults to the working directory.
 
     Returns:
-        ``(root, mode)``. ``project`` means a ``.functualize/`` directory was
-        found walking upward and its parent is the root; ``standalone`` means
-        none was, and the resolved starting directory is the root.
+        The parent of the nearest ``.functualize/`` found walking upward, or the
+        resolved starting directory when there is none. The fallback is not a
+        failure: ``func`` is meant to run over loose scripts anywhere, and
+        littering a ``.functualize/`` beside each one would be worse than a
+        keyed directory.
 
-    The mode is *returned* rather than left to be re-derived, for the reason
-    ``ARCHITECTURE.md`` gives about runtime storage: deriving it means repeating
-    the upward walk, and two walks can disagree about which project they are in.
-    A vault surface that wants to explain *why* it chose a location needs the
-    mode, and asking for it a second time is how the two answers drift apart.
+    An earlier version also returned *which* of those two happened, mirroring
+    ``fresh_format.resolve_fresh_location``. That is the right shape there
+    because the mode is reported by ``func builtin data show``; here nothing
+    consumed it, so it was speculative generality and is gone. Bring it back
+    when a surface has something to say about it.
     """
     start = Path(cwd).resolve() if cwd is not None else Path.cwd().resolve()
     functualize_dir = find_functualize_dir(start)
-    if functualize_dir is not None:
-        return functualize_dir.parent, "project"
-    return start, "standalone"
+    return functualize_dir.parent if functualize_dir is not None else start
 
 
 def vault_path_for_project(cwd: str | Path | None = None) -> Path:
@@ -71,7 +67,7 @@ def vault_path_for_project(cwd: str | Path | None = None) -> Path:
     Keyed by ``compute_project_id`` of the **project root**, so every
     subdirectory of one project reaches one vault. The file need not exist.
     """
-    root, _mode = project_root_for(cwd)
+    root = project_root_for(cwd)
     return (
         _xdg_data_dir()
         / "functualize"
