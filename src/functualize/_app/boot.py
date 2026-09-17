@@ -787,23 +787,14 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
                 Path(candidate).suffix or "(no extension)",
             )
         AppState.set("config_directory", app._config_path)
-        # A non-default file_pattern must reach FileSource, not just anchor
-        # discovery; the dataclass class attribute holds the field default.
-        default_file_regex = type(app._config_sources).file_pattern
-        custom_regex = (
-            app._config_file_regex
-            if app._config_file_regex != default_file_regex
-            else None
-        )
-        app._resolution_chain = build_resolution_chain(
-            app._config_path,
-            app.name,
-            app.config_registry,
-            file_regex=custom_regex,
-            environment=app._environment,
-            event_bus=app.event_bus,
-            remote_source=build_remote_source(app),
-        )
+        # Through `_build_resolution_chain`, not directly: boot and `refresh()`
+        # must produce the same chain, and the way to guarantee that is for
+        # there to be one call site rather than two kept equal by a comment.
+        # They drifted twice that way -- once on `environment`, once on
+        # `remote_source`.
+        from functualize._app.impl import _build_resolution_chain
+
+        app._resolution_chain = _build_resolution_chain(app)
     perf_timeline.mark("boot.config_resolution.end")
 
     # 7. Fire AFTER_CONFIG_INIT hook

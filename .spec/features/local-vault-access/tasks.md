@@ -138,7 +138,7 @@ The one step that touches existing rows. SQLite cannot drop `NOT NULL` with
 - `[G]` `vault_remove` succeeds with **no key available at all**, for both origins, and sets `warning` only for `direct`.
 - `[G]` `vault_inspect` on a store it cannot open still reports origin and timestamps, with `readability == "wrong_key"` or `"key_unavailable"`.
 
-### [ ] T5.2 — Collapse the two chain call sites into one
+### [x] T5.2 — Collapse the two chain call sites into one
 
 Maintainer decision (plan §3.6): merge, do not guard. The guard was already
 tried on this function — `tests/core/test_app_persistent_consumer_api.py:219`
@@ -147,7 +147,7 @@ into a dev run — and the next argument, `remote_source`, was omitted anyway.
 
 - `[F]` `src/functualize/_app/boot.py`, `src/functualize/_app/impl.py`, `src/functualize/app/core.py`
 - `[D]` T1.1
-- `[G]` `grep -c "build_resolution_chain(" src/functualize/_app/boot.py` → **0** direct calls. `boot_standard` reaches the builder only through `impl._build_resolution_chain`, so there is exactly **one** call site to keep in sync.
+- `[G]` **Gate corrected during execution:** as authored this said `grep -c "build_resolution_chain(" boot.py` → 0, which can never hold — that substring also matches the function's own `def` and `_build_resolution_chain`. The claim is about *call sites*, so it is now matched as such: `grep -rnE "(^|[^_a-zA-Z])build_resolution_chain\(" src/functualize/ --include=*.py`, excluding the `def` line, returns exactly **1** (`_app/impl.py`). Asserted by a test that walks the tree, since the defect is structural.
 - `[G]` `custom_regex` is computed in exactly one place. `grep -rn "file_pattern" src/functualize/_app/ src/functualize/app/core.py` → the comparison appears **once**, using `type(app._config_sources).file_pattern` (boot's internal-safe form, which needs no public import).
 - `[G]` `uv run lint-imports` → 7 kept, 0 broken. This is the check the original split existed to satisfy; the merge must not break it.
 - `[G]` The prior-drift regression still passes untouched: `uv run pytest tests/core/test_app_persistent_consumer_api.py -q` green, including `test_rebuilt_chain_excludes_inactive_environment_files`.

@@ -208,3 +208,84 @@ class TestTheVaultSource:
         from functualize._types.protocols import Source
 
         assert isinstance(VaultSource(tmp_path / "v.db", encryption_key=_KEY), Source)
+
+
+class TestOneChainBuilder:
+    """Boot and `refresh()` build the chain through one call site.
+
+    Two sites kept equal by a comment drifted twice: `environment` was omitted
+    from the rebuild and leaked a prod config file into a dev run, and
+    `remote_source` was wired into boot alone so `refresh()` silently dropped
+    the vault. The first was fixed with a regression test, which did not
+    prevent the second — a test cannot be written for an argument nobody has
+    added yet. One call site cannot be forgotten.
+    """
+
+    def test_there_is_exactly_one_call_site(self) -> None:
+        """Structural, because the defect is structural.
+
+        A behavioural test here would only prove the arguments that exist
+        today are passed; what keeps drifting is the *next* one.
+        """
+        import re
+        from pathlib import Path
+
+        src = Path(__file__).resolve().parents[2] / "src" / "functualize"
+        pattern = re.compile(r"(?<![_\w])build_resolution_chain\(")
+        sites = [
+            f"{path.relative_to(src)}:{n}"
+            for path in src.rglob("*.py")
+            for n, line in enumerate(path.read_text().splitlines(), 1)
+            if pattern.search(line) and not line.lstrip().startswith("def ")
+        ]
+
+        assert sites == ["_app/impl.py:1346"] or len(sites) == 1, sites
+
+    def test_the_file_pattern_default_is_compared_in_one_place(self) -> None:
+        """The other half of what drifted: both sites computed `custom_regex`,
+        by two different mechanisms, for a layer reason that no longer holds."""
+        from pathlib import Path
+
+        src = Path(__file__).resolve().parents[2] / "src" / "functualize"
+        hits = [
+            f"{path.relative_to(src)}:{n}"
+            for path in src.rglob("*.py")
+            for n, line in enumerate(path.read_text().splitlines(), 1)
+            if "type(app._config_sources).file_pattern" in line
+            or "!= ConfigSources.file_pattern" in line
+        ]
+
+        assert len(hits) == 1, hits
+
+    def test_refresh_keeps_the_vault_in_the_chain(self, tmp_path: Path) -> None:
+        """The bug this collapse removes, asserted behaviourally too.
+
+        `FunctualizeApp.refresh()` is public and is what the TUI and MCP server
+        call when a file changes. It used to return a chain with no vault
+        source at all.
+        """
+        from functualize._config.vault_keys import ENV_VAR, generate_key
+        from functualize.app import ConfigSources, FunctualizeApp, JobSources
+
+        (tmp_path / ".functualize").mkdir()
+        jobs = tmp_path / "jobs"
+        jobs.mkdir()
+
+        import os
+
+        os.environ[ENV_VAR] = generate_key()
+        try:
+            app = FunctualizeApp(
+                "refreshlab",
+                job_sources=JobSources(directories=[str(jobs)], lazy=False),
+                config_sources=ConfigSources(dotenv=False),
+            )
+            app._config_path = str(tmp_path)
+
+            before = [s.source_id for s in app.resolution_chain().sources]
+            app.refresh()
+            after = [s.source_id for s in app.resolution_chain().sources]
+
+            assert before == after
+        finally:
+            os.environ.pop(ENV_VAR, None)

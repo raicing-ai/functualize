@@ -1305,15 +1305,43 @@ def _file_source_infos(app: Any) -> list[ConfigFileInfo]:
     return []
 
 
-def _build_resolution_chain(app: Any, custom_regex: str | None) -> ResolutionChain:
-    """Build a ResolutionChain [CLI → Env → Files → Defaults].
+def _build_resolution_chain(
+    app: Any, custom_regex: str | None = None
+) -> ResolutionChain:
+    """Build this app's resolution chain. **The only place that does.**
 
-    Must stay argument-for-argument equivalent to the boot path's own
-    call (``_app/boot.py`` step 6) — a rebuild that omits ``environment``
-    silently disables overlay banding, so every ``config.<slot>.*`` file
-    would merge in discovery order instead of only the active one.
+    Boot and ``refresh()`` both come through here. They used to each call
+    ``build_resolution_chain`` themselves, kept equivalent by a comment asking
+    for "argument-for-argument" equality — and they drifted twice:
+
+    * ``environment`` was omitted from the rebuild, which made
+      ``roles.classify()`` return BASE for every slot, so a non-active
+      environment's config file leaked into a ``dev`` run;
+    * ``remote_source`` was added for ADR-016 and wired into boot alone, so
+      calling public ``refresh()`` silently removed the vault from the chain.
+
+    The first was fixed with a regression test. That test did not prevent the
+    second, because the failure mode is *forgetting to pass a new argument* and
+    no test can be written for an argument nobody has added yet. One call site
+    can't be forgotten, so there is one.
+
+    ``custom_regex`` remains a parameter for the caller that already computed
+    it, and is derived here when absent. The derivation reads the dataclass
+    *class attribute* off the instance the app is holding, which is how boot
+    has always done it — ``_app`` may not import ``functualize.app`` to read
+    ``ConfigSources.file_pattern`` (the "Internal never imports public"
+    contract), and that restriction is exactly why the computation was pushed
+    into the public layer in the first place. It no longer has to be.
     """
-    from functualize._app.boot import build_resolution_chain
+    from functualize._app.boot import build_remote_source, build_resolution_chain
+
+    if custom_regex is None:
+        default_file_regex = type(app._config_sources).file_pattern
+        custom_regex = (
+            app._config_file_regex
+            if app._config_file_regex != default_file_regex
+            else None
+        )
 
     return build_resolution_chain(
         app._config_path,
@@ -1322,6 +1350,7 @@ def _build_resolution_chain(app: Any, custom_regex: str | None) -> ResolutionCha
         file_regex=custom_regex,
         environment=app._environment,
         event_bus=app.event_bus,
+        remote_source=build_remote_source(app),
     )
 
 
