@@ -15,7 +15,10 @@ monkey-patching had.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from functualize.plugin import PluginHost
 
 __all__ = ["gate_checkpoints", "mcp_state", "pending_gate_input"]
 
@@ -23,7 +26,7 @@ __all__ = ["gate_checkpoints", "mcp_state", "pending_gate_input"]
 _NAMESPACE = "mcp"
 
 
-def mcp_state(app: Any) -> dict[str, Any]:
+def mcp_state(app: PluginHost) -> dict[str, Any]:
     """Return MCP's extension-state namespace, creating it if needed."""
     # Through `app.extensions` since `engine-sealed-construction`/T9. Read
     # defensively at both hops: an app predating the facade, or a bare test
@@ -39,11 +42,11 @@ def mcp_state(app: Any) -> dict[str, Any]:
     return namespace  # type: ignore[no-any-return]
 
 
-def gate_checkpoints(app: Any) -> dict[str, Any]:
+def gate_checkpoints(app: PluginHost) -> dict[str, Any]:
     """Return the gate-checkpoint store (model name -> checkpoint dict)."""
     return mcp_state(app).setdefault("gate_checkpoints", {})  # type: ignore[no-any-return]
 
 
-def pending_gate_input(app: Any) -> dict[str, Any]:
+def pending_gate_input(app: PluginHost) -> dict[str, Any]:
     """Return the pending-gate-input store (model/step name -> input dict)."""
     return mcp_state(app).setdefault("pending_gate_input", {})  # type: ignore[no-any-return]

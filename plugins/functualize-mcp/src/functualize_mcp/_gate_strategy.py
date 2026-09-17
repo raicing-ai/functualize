@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
     from functualize._gate._context import GateContext
+    from functualize.plugin import PluginHost
 
 __all__ = [
     "AIOutboundGateResolver",
@@ -56,7 +57,7 @@ class AIOutboundGateResolver:
         app: The FunctualizeApp instance for accessing workflow state.
     """
 
-    def __init__(self, app: Any = None) -> None:
+    def __init__(self, app: PluginHost | None = None) -> None:
         self._app = app
 
     def resolve(self, ctx: GateContext) -> BaseModel:
@@ -182,7 +183,7 @@ class AIOutboundGateResolver:
         return pending_store.pop(model_key, None)
 
 
-def register_ai_outbound_gate_strategy(app: Any) -> None:
+def register_ai_outbound_gate_strategy(app: PluginHost) -> None:
     """Register the 'ai_outbound' gate strategy and preset with the app.
 
     This should be called during the MCP plugin boot phase to enable

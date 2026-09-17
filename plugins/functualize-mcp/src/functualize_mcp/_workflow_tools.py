@@ -33,7 +33,7 @@ from __future__ import annotations
 import functools
 import logging
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from functualize.app.utils import (
     LIVE_STATUSES as _LIVE_STATUSES,
@@ -67,6 +67,8 @@ from functualize.app.utils import (
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+    from functualize.plugin import PluginHost
 
 __all__ = ["GateToolPolicy", "WorkflowToolProvider"]
 
@@ -131,7 +133,7 @@ class WorkflowToolProvider:
 
     def __init__(
         self,
-        app: Any,
+        app: PluginHost,
         *,
         store: ScopeStore | None = None,
         run_store: Any | None = None,
@@ -444,7 +446,19 @@ class WorkflowToolProvider:
         """
         workflow_name = scope.get("workflow")
         try:
-            entry = self._app.execution_engine.materialize_job(workflow_name)
+            # The one member this plugin needs that `PluginHost` does not
+            # carry. `materialize_job` lives on the execution engine, and a
+            # single call site did not earn the engine a place on an
+            # eleven-member port -- putting it there would bless handing every
+            # plugin the whole engine to serve this line (`contracts.md` §1).
+            #
+            # `cast` rather than `app: Any` on the constructor: this way the
+            # escape is one visible line instead of erasing all eleven members
+            # for the other five methods of this class. Behaviour is
+            # unchanged -- a host without the attribute raises `AttributeError`
+            # into the same `except` below, exactly as before.
+            engine = cast("Any", self._app).execution_engine
+            entry = engine.materialize_job(workflow_name)
             declaration = entry.function.__functualize_workflow__
             for node in declaration.gates():
                 for spec in node.tool_specs():

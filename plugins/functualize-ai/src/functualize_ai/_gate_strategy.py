@@ -7,7 +7,7 @@ for unresolved_fields.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from functualize_ai._errors import AINotAvailableError
 
@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
     from functualize._gate._context import GateContext
+    from functualize.plugin import PluginHost
     from functualize_ai._ai import AI
 
 
@@ -120,7 +121,7 @@ class AIInboundGateResolver:
         return result
 
 
-def register_ai_inbound_gate_strategy(app: Any, ai: AI) -> None:
+def register_ai_inbound_gate_strategy(app: PluginHost, ai: AI) -> None:
     """Register the 'ai_inbound' gate strategy and gate presets with the app.
 
     This should be called during the AI domain boot phase to enable

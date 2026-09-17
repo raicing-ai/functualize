@@ -21,7 +21,10 @@ set of facts instead of two.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from functualize.plugin import PluginHost
 
 __all__ = ["MCPHistoryToolRegistry"]
 
@@ -36,7 +39,7 @@ def _error_response(code: str, message: str) -> dict[str, Any]:
 class MCPHistoryToolRegistry:
     """Registers the two history tools against a FastMCP server."""
 
-    def __init__(self, app: Any, *, run_store: Any = None) -> None:
+    def __init__(self, app: PluginHost, *, run_store: Any = None) -> None:
         self._app = app
         self._run_store = run_store
 

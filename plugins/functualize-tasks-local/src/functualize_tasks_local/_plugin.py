@@ -10,11 +10,14 @@ Registered via entry point ``functualize.tasks_providers`` with name "local".
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING
 
 from functualize_tasks import TaskProvider
 
 from functualize_tasks_local._provider import LocalTaskProvider, TaskDocument
+
+if TYPE_CHECKING:
+    from functualize.plugin import PluginHost
 
 __all__ = ["LocalTasksPlugin"]
 
@@ -44,14 +47,14 @@ class LocalTasksPlugin:
         """The LocalTaskProvider instance (available after APP_READY)."""
         return self._provider
 
-    def __call__(self, app: Any) -> None:
+    def __call__(self, app: PluginHost) -> None:
         """Register the plugin with the application instance.
 
         Hooks into APP_READY for initialization and DI registration.
         """
         app.hooks.on_ready(self._on_app_ready)
 
-    def _on_app_ready(self, app: Any) -> None:
+    def _on_app_ready(self, app: PluginHost) -> None:
         """Initialize LocalTaskProvider and register with DI registry.
 
         Backed by the **app's own substrate** (`store-substrate`/T6), not by a

@@ -10,11 +10,14 @@ Registered via entry point `functualize.ai_providers` with name "pydantic".
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from functualize_ai import AI, AIConfig
 
 from functualize_ai_pydantic._provider import PydanticAIProvider
+
+if TYPE_CHECKING:
+    from functualize.plugin import PluginHost
 
 __all__ = ["PydanticAIPlugin"]
 
@@ -48,7 +51,7 @@ class PydanticAIPlugin:
         """The PydanticAIProvider instance (available after APP_READY)."""
         return self._provider
 
-    def __call__(self, app: Any) -> None:
+    def __call__(self, app: PluginHost) -> None:
         """Register the plugin with the application instance.
 
         Hooks into APP_READY for initialization and DI registration.
@@ -58,7 +61,7 @@ class PydanticAIPlugin:
         # APP_READY: initialize provider and register with DI
         app.hooks.on_ready(self._on_app_ready)
 
-    def _on_app_ready(self, app: Any) -> None:
+    def _on_app_ready(self, app: PluginHost) -> None:
         """Initialize PydanticAI instances and register with DI registry.
 
         Reads AIConfig from the [ai] config section, creates a
@@ -108,7 +111,7 @@ class PydanticAIPlugin:
 
     # ─── Internal Helpers ─────────────────────────────────────────────
 
-    def _resolve_ai_config(self, app: Any) -> AIConfig:
+    def _resolve_ai_config(self, app: PluginHost) -> AIConfig:
         """Resolve AIConfig from the app's [ai] config section.
 
         Falls back to default AIConfig values if no configuration is found.
@@ -123,7 +126,7 @@ class PydanticAIPlugin:
             )
             return AIConfig()
 
-    def _resolve_state_namespace(self, app: Any) -> Any:
+    def _resolve_state_namespace(self, app: PluginHost) -> Any:
         """Resolve the AI state namespace for budget tracking.
 
         Uses the AI SDK's resolve_ai_state_backend helper, which returns an

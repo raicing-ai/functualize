@@ -17,10 +17,13 @@ from __future__ import annotations
 
 import importlib.metadata
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from functualize_ai._config import AIConfig
 from functualize_ai._errors import AINotAvailableError
+
+if TYPE_CHECKING:
+    from functualize.plugin import PluginHost
 
 logger = logging.getLogger(__name__)
 
@@ -177,7 +180,7 @@ def _load_entry_point(ep: importlib.metadata.EntryPoint) -> Any:
 
 
 def resolve_ai_provider(
-    app: Any | None = None,
+    app: PluginHost | None = None,
     *,
     config: AIConfig | None = None,
 ) -> Any:
@@ -199,9 +202,24 @@ def resolve_ai_provider(
         AINotAvailableError: If no provider can be resolved.
     """
     if config is None:
+        # `hasattr(app, "resolve_model")` is **always False**: `resolve_model`
+        # lives on `app.configuration`, never on the app itself -- verified
+        # against a live app, not read off the source. So the branch below has
+        # never run, the `[ai]` section has never been read here, and every
+        # caller that passes an `app` has silently received `AIConfig()`
+        # defaults.
+        #
+        # Left standing on purpose. Fixing the probe *changes behaviour* --
+        # projects with an `[ai]` section would start being honoured -- and
+        # that is not an annotation sweep's call to make. Fourth dead probe of
+        # this exact shape in this feature, after the two AC-7 deleted
+        # (`functualize-mcp/_task_tools.py`, `functualize-ai-pydantic`), and
+        # recorded for adjudication in `tasks.md` against T11.
         if app is not None and hasattr(app, "resolve_model"):
             try:
-                config = app.configuration.resolve_model("ai", AIConfig)
+                config = cast(
+                    "AIConfig", app.configuration.resolve_model("ai", AIConfig)
+                )
             except Exception:
                 # Config section may not exist; use defaults
                 config = AIConfig()

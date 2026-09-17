@@ -9,13 +9,16 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from functualize._types.interactivity import (
     PromptIntent,
     PromptRequest,
     PromptResponse,
 )
+
+if TYPE_CHECKING:
+    from functualize.plugin import PluginHost
 
 __all__ = ["InlinePlugin"]
 
@@ -53,7 +56,7 @@ class InlinePlugin:
     version: str = "0.1.0"
     description: str = "Textual inline terminal prompts"
 
-    def __call__(self, app: Any) -> None:
+    def __call__(self, app: PluginHost) -> None:
         """Register this plugin as a PromptCollector with the application."""
         try:
             app.extensions.register_surface(self)

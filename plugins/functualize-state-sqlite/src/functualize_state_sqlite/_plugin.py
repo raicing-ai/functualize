@@ -23,9 +23,12 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, cast
 
 from functualize_state_sqlite.substrate import SQLiteSubstrate
+
+if TYPE_CHECKING:
+    from functualize.plugin import PluginHost
 
 __all__ = ["SQLiteStatePlugin"]
 
@@ -52,10 +55,10 @@ class SQLiteStatePlugin:
         """The substrate this plugin installed, or None before APP_READY."""
         return self._substrate
 
-    def __call__(self, app: Any) -> None:
+    def __call__(self, app: PluginHost) -> None:
         app.hooks.on_ready(self._on_app_ready)
 
-    def _on_app_ready(self, app: Any) -> None:
+    def _on_app_ready(self, app: PluginHost) -> None:
         """Choose the substrate, once, before anything has resolved one.
 
         `APP_READY` is the right moment and not an arbitrary one: the engine
@@ -80,7 +83,7 @@ class SQLiteStatePlugin:
             return
         logger.debug("sqlite-state installed a substrate at %s", self._substrate.path)
 
-    def _db_path(self, app: Any) -> Path:
+    def _db_path(self, app: PluginHost) -> Path:
         """``plugin.sqlite-state.db_path``, or beside the project's other state.
 
         Resolved from :attr:`fresh_root` rather than the cwd, so a later
@@ -93,7 +96,7 @@ class SQLiteStatePlugin:
         return Path(app.fresh_root) / ".functualize" / DEFAULT_DB_NAME
 
     @staticmethod
-    def _configured_path(app: Any) -> str | None:
+    def _configured_path(app: PluginHost) -> str | None:
         try:
             from pydantic import BaseModel, Field
 
@@ -103,8 +106,13 @@ class SQLiteStatePlugin:
                     description="Where this project's SQLite state lives.",
                 )
 
-            resolved = app.configuration.resolve_model(
-                "plugin.sqlite-state", _SqliteConfig
+            # `resolve_model` is declared `-> object` on the facade and so on
+            # the port, so the caller narrows -- it is the one that named the
+            # model class. Under `app: Any` this read was unchecked; the cast
+            # is where that check now happens.
+            resolved = cast(
+                "_SqliteConfig",
+                app.configuration.resolve_model("plugin.sqlite-state", _SqliteConfig),
             )
             return resolved.db_path
         except Exception:

@@ -10,13 +10,16 @@ and ``func mcp tools`` CLI commands.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from functualize_mcp._translator import (
     JobToolTranslator,
     MCPToolDef,
     read_cached_group_options,
 )
+
+if TYPE_CHECKING:
+    from functualize.plugin import PluginHost
 
 __all__ = ["SchemaExporter"]
 
@@ -48,7 +51,7 @@ class SchemaExporter:
         self,
         translator: JobToolTranslator | None = None,
         *,
-        app: Any = None,
+        app: PluginHost | None = None,
     ) -> None:
         """
         Args:

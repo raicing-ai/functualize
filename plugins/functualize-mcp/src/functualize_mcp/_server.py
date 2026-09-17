@@ -28,6 +28,7 @@ from functualize_mcp._translator import (
 from functualize_mcp._workflow_tools import GateToolPolicy, WorkflowToolProvider
 
 if TYPE_CHECKING:
+    from functualize.plugin import PluginHost
     from functualize_mcp._config import MCPConfig
 
 __all__ = ["MCPServer"]
@@ -56,7 +57,7 @@ class MCPServer:
         config: MCPConfig controlling transport, filtering, and features.
     """
 
-    def __init__(self, app: Any, *, config: MCPConfig) -> None:
+    def __init__(self, app: PluginHost, *, config: MCPConfig) -> None:
         # functualize owns this server process: every boot is a tool-serving
         # automation event, and FastMCP's default update check would fire a
         # PyPI request (egress) plus an ASCII banner on each one. Default to
@@ -167,7 +168,7 @@ class MCPServer:
 
 
 def _build_tool_function(
-    job_name: str, tool_def: MCPToolDef, app: Any, policy: Any = None
+    job_name: str, tool_def: MCPToolDef, app: PluginHost, policy: Any = None
 ) -> Any:
     """Build a dynamically-typed async function for a job tool.
 
@@ -261,7 +262,7 @@ def _build_tool_function(
 
 
 def _execute_job(
-    app: Any,
+    app: PluginHost,
     job_name: str,
     kwargs: dict[str, Any],
     policy: Any = None,

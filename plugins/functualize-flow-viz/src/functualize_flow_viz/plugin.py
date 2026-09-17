@@ -27,7 +27,10 @@ from __future__ import annotations
 import contextlib
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from functualize.plugin import PluginHost
 
 __all__ = ["FlowVizConstruct", "FlowVizPlugin", "TreeNode"]
 
@@ -331,7 +334,7 @@ class FlowVizPlugin:
     version: str = "0.2.0"
     description: str = "Inline flow visualization for job execution"
 
-    def __call__(self, app: Any) -> None:
+    def __call__(self, app: PluginHost) -> None:
         """Register the construct as an ambient default, unless disabled."""
         if not _enabled(app):
             return
@@ -357,7 +360,7 @@ def _renders_for(descriptor: Any) -> bool:
     return bool(steps) and len(steps) > 1
 
 
-def _enabled(app: Any) -> bool:
+def _enabled(app: PluginHost) -> bool:
     """Whether ``[flow-viz] enabled`` permits registration (default True)."""
     try:
         settings = getattr(app, "settings", None)

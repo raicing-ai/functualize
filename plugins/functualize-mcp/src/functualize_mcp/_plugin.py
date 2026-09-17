@@ -9,7 +9,10 @@ Registered via entry point ``functualize.plugins`` with name "mcp".
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from functualize.plugin import PluginHost
 
 __all__ = ["MCPAdapterPlugin"]
 
@@ -56,7 +59,7 @@ class MCPAdapterPlugin:
             self._server = MCPServer(self._app, config=self._config)
         return self._server
 
-    def __call__(self, app: Any) -> None:
+    def __call__(self, app: PluginHost) -> None:
         """Register the MCP adapter plugin with the application.
 
         Hooks into APP_READY for initialization and server setup.
@@ -67,7 +70,7 @@ class MCPAdapterPlugin:
         self._app = app
         app.hooks.on_ready(self._on_app_ready)
 
-    def _on_app_ready(self, app: Any) -> None:
+    def _on_app_ready(self, app: PluginHost) -> None:
         """Register MCP plugin with DI and defer heavy initialization.
 
         Config resolution, gate strategy registration, and CLI commands
@@ -108,7 +111,7 @@ class MCPAdapterPlugin:
 
     # ─── Internal Helpers ─────────────────────────────────────────────
 
-    def _resolve_mcp_config(self, app: Any) -> Any:
+    def _resolve_mcp_config(self, app: PluginHost) -> Any:
         """Resolve MCPConfig from the app's [mcp] config section.
 
         Falls back to default MCPConfig values if no configuration is found.
@@ -130,7 +133,7 @@ class MCPAdapterPlugin:
             )
             return MCPConfig()
 
-    def _register_ai_outbound_strategy(self, app: Any) -> None:
+    def _register_ai_outbound_strategy(self, app: PluginHost) -> None:
         """Register the AI_OUTBOUND gate strategy and preset.
 
         Registers the ai_outbound strategy unconditionally when the MCP
@@ -159,7 +162,7 @@ class MCPAdapterPlugin:
                 "MCPAdapterPlugin: Failed to register ai_outbound strategy: %s", e
             )
 
-    def _register_cli_commands(self, app: Any) -> None:
+    def _register_cli_commands(self, app: PluginHost) -> None:
         """Register MCP CLI commands with the application.
 
         Registers the following commands under the 'mcp' group:
@@ -183,7 +186,7 @@ class MCPAdapterPlugin:
         except Exception as e:
             logger.warning("MCPAdapterPlugin: Failed to register CLI commands: %s", e)
 
-    def _register_serve_command(self, app: Any) -> None:
+    def _register_serve_command(self, app: PluginHost) -> None:
         """Register the 'func mcp serve' command."""
         plugin = self
 
@@ -217,7 +220,7 @@ class MCPAdapterPlugin:
             needs_terminal=True,
         )
 
-    def _register_start_command(self, app: Any) -> None:
+    def _register_start_command(self, app: PluginHost) -> None:
         """Register the 'func mcp start' command."""
 
         def start_command(
@@ -252,7 +255,7 @@ class MCPAdapterPlugin:
             namespace="mcp",
         )
 
-    def _register_list_command(self, app: Any) -> None:
+    def _register_list_command(self, app: PluginHost) -> None:
         """Register the 'func mcp list' command."""
 
         def list_command() -> None:
@@ -290,7 +293,7 @@ class MCPAdapterPlugin:
             namespace="mcp",
         )
 
-    def _register_stop_command(self, app: Any) -> None:
+    def _register_stop_command(self, app: PluginHost) -> None:
         """Register the 'func mcp stop' command."""
 
         def stop_command(
@@ -334,7 +337,7 @@ class MCPAdapterPlugin:
             namespace="mcp",
         )
 
-    def _register_schema_command(self, app: Any) -> None:
+    def _register_schema_command(self, app: PluginHost) -> None:
         """Register the 'func mcp schema' command."""
 
         def schema_command(
@@ -374,7 +377,7 @@ class MCPAdapterPlugin:
             namespace="mcp",
         )
 
-    def _register_tools_command(self, app: Any) -> None:
+    def _register_tools_command(self, app: PluginHost) -> None:
         """Register the 'func mcp tools' command."""
 
         def tools_command() -> None:

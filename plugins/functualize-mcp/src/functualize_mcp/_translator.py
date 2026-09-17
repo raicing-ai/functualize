@@ -11,12 +11,13 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from functualize.plugin import PluginHost
     from functualize_mcp._config import MCPConfig
 
 __all__ = ["JobToolTranslator", "MCPToolDef", "read_cached_group_options"]
 
 
-def read_cached_group_options(app: Any = None) -> dict[str, Any]:
+def read_cached_group_options(app: PluginHost | None = None) -> dict[str, Any]:
     """The cached ``{group path: GroupOptionsSpec}`` map, or empty (S6a).
 
     Read from the same discovery cache the CLI dispatcher reads, so the tool

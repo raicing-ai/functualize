@@ -12,7 +12,10 @@ from __future__ import annotations
 import contextlib
 import logging
 from dataclasses import asdict
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from functualize.plugin import PluginHost
 
 __all__ = ["MCPTaskToolRegistry"]
 
@@ -51,7 +54,7 @@ class MCPTaskToolRegistry:
             argument; this one reads nothing from it (see `_get_tasks`).
     """
 
-    def __init__(self, app: Any) -> None:
+    def __init__(self, app: PluginHost) -> None:
         self._app = app
         self._tasks: Any = None
 

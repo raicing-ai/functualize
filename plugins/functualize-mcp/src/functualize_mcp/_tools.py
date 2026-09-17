@@ -27,6 +27,7 @@ from functualize.types import Family, RunRequest, wire_value
 from functualize_mcp._translator import JobToolTranslator
 
 if TYPE_CHECKING:
+    from functualize.plugin import PluginHost
     from functualize_mcp._config import MCPConfig
 
 __all__ = ["MCPToolRegistry"]
@@ -129,7 +130,9 @@ class MCPToolRegistry:
         config: MCPConfig controlling visibility and filtering.
     """
 
-    def __init__(self, app: Any, *, config: MCPConfig, gate_policy: Any = None) -> None:
+    def __init__(
+        self, app: PluginHost, *, config: MCPConfig, gate_policy: Any = None
+    ) -> None:
         self._app = app
         self._config = config
         self._gate_policy = gate_policy
