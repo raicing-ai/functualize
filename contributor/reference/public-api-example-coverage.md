@@ -47,24 +47,33 @@ moment the surface is added, when writing the example costs one file.
 
 | Population | Total | Has an `examples/` reference | Has none |
 |---|---:|---:|---:|
-| Symbols in public `__all__` (`app job plugin types testing workflow ui`) | 161 | 53 | **108** (67%) |
-| Public members of `FunctualizeApp` | 41 defs / **38 distinct** | 10 | **31 defs / 29 distinct** |
+| Symbols in public `__all__`, at `79545ef` | 161 | 53 | **108** (67%) |
+| Symbols in public `__all__`, after `plugin-host-protocol` | 162 | 57 | **105** (65%) |
+| `FunctualizeApp` members, at `79545ef` | 41 defs / **38 distinct** | 10 | **31 defs / 29 distinct** |
+| `FunctualizeApp` members, after `plugin-host-protocol` | **40 distinct** | 19 | **21** |
 
-The 29 unexercised `FunctualizeApp` members (`cli_command` and `substrate`
-each have more than one `def`, which is why the def count is 31):
+The 21 still unexercised:
 
 ```
-cache_stats, cli_command, collector, configuration, di, domain_registry,
-execute_parallel, execution_engine, explain, explain_data, explain_verdicts,
-extensions, fresh_root, gates, get_descriptor, get_job, live_zone,
+cache_stats, cli_command, collector, domain_registry, execute_parallel,
+explain, explain_data, explain_verdicts, get_descriptor, live_zone,
 max_invoke_depth, middleware, perf_timeline, pop_surface, push_surface,
-refresh, registered_jobs, replace_job, resolution_chain, run_log, scope_for,
-workflows
+registered_jobs, replace_job, resolution_chain, run_log, scope_for, workflows
 ```
 
-Note what that list contains: `di`, `gates`, `extensions` and `configuration` —
-the six typed facades are the *headline* of the post-#39 plugin surface, and
-no example touches four of them.
+**What moved, and why it is worth reading.** The original list opened with the
+observation that *"`di`, `gates`, `extensions` and `configuration` — the six
+typed facades are the headline of the post-#39 plugin surface, and no example
+touches four of them."* `examples/standalone/plugin_host/` is that example:
+`di`, `extensions` and `hooks` are called, `configuration` and `gates` are
+named, and `execute`, `get_jobs`, `get_job`, `fresh_root`, `substrate` and
+`install_substrate` came with the rest of the feature. Eight members left the
+list; the total rose by two, because T3 split one name into three.
+
+`cache_stats` and `domain_registry` remain, and they are the pair the
+dead-code audit reported as dead on zero references — the case that produced
+this rule (see above). They are still the most valuable two to write next,
+for exactly that reason.
 
 **This is a baseline, not a pass/fail.** 108 is the number to compare against
 next time; a change that grows it is a change a reviewer should be able to see.
@@ -104,7 +113,8 @@ print(f"public symbols={len(symbols)} uncovered={len(missing)}")
 
 **Read the limitation before trusting the number.** This census is a
 word-boundary text search, so a symbol merely *named in an example's prose*
-counts as covered. The true gap is therefore **at least** 108, never fewer —
+counts as covered. The true gap is therefore **at least** the number shown,
+never fewer —
 the same lesson as counting annotations with `rg` instead of `ast`
 (`.claude/rules/spec-workflow.md` → *Retrieval discipline*). Tightening it to
 "imported and called in a `.py` file under `examples/`" would raise the number;
