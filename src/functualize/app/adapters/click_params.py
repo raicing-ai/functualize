@@ -1168,6 +1168,7 @@ def prelude_refusal() -> Iterator[None]:
         NotifierUnavailableError,
     )
     from functualize.app.utils import ScopeCancelledError, ScopeStoreUnreadableError
+    from functualize.app.vault import VaultEntryUnreadableError
 
     try:
         yield
@@ -1182,6 +1183,15 @@ def prelude_refusal() -> Iterator[None]:
         # something no registration can supply, so nothing ran and nothing
         # failed. A refusal (3), not an error (1).
         NotifierUnavailableError,
+        # `local-vault-access`, and found the same way the agent-step pair
+        # above was: by running the CLI path rather than reading it. The vault
+        # holds a value for this field and cannot open it, so the refusal is
+        # raised during config resolution, which is outside the try that builds
+        # a `JobResult` — it escaped to the process boundary as a ~20-frame
+        # traceback with exit 1. The message it carries already names the three
+        # commands that fix it, two of which need no key; burying that under
+        # stack frames is the opposite of what it is for.
+        VaultEntryUnreadableError,
     ) as exc:
         click.echo(f"Error: {exc}", err=True)
         raise SystemExit(ExitCode.REFUSED) from exc

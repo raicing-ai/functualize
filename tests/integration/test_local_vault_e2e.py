@@ -12,6 +12,8 @@ makes no provider call).
 
 from __future__ import annotations
 
+import os
+import pathlib
 from pathlib import Path
 from typing import Any
 
@@ -244,3 +246,112 @@ class TestTheRunIsOffline:
             _app(project).execute(request_for("deploy")).return_value
             == f"Secret:{_SECRET}"
         )
+
+
+class TestTheRefusalReachesTheUserAsALine:
+    """What an operator actually sees when the vault will not open.
+
+    Found by the verify phase running the CLI in a real terminal, not by a
+    failing test — every unit test asserted the exception type and message and
+    passed while the user got a ~20-frame traceback and exit 1.
+
+    The refusal is raised during config resolution, which is outside the try
+    that builds a `JobResult`, so it escapes `engine.run()` and never reaches
+    `deliver_job_result`. `prelude_refusal` is where it lands, and its
+    docstring already records the identical incident for the agent-step errors:
+    "both errors derive from Exception and escaped to the process boundary as a
+    full traceback with exit 1 — the exact code the table says a refusal must
+    not use."
+    """
+
+    def _provisioned_then_rotated(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Provision through a real `func`, then rotate the key.
+
+        Out of process on both halves deliberately. Provisioning in-process and
+        then reading out-of-process makes the two disagree about which vault
+        they mean, and the test then fails for a reason that has nothing to do
+        with what it is checking.
+        """
+        import subprocess
+
+        from functualize._config.vault_keys import ENV_VAR, generate_key
+
+        # A separate `func` cannot see the JobSources the in-process app is
+        # built with, so the project declares its jobs on disk.
+        (project / "pyproject.toml").write_text(
+            '[tool.functualize]\njobs_directories = ["jobs"]\n'
+        )
+        stored = subprocess.run(
+            [
+                str(self._func()),
+                "builtin",
+                "vault",
+                "put",
+                "deploy.api_token",
+                "--stdin",
+            ],
+            cwd=project,
+            input=_SECRET,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "COLUMNS": "100"},
+        )
+        assert stored.returncode == ExitCode.OK, stored.stderr
+
+        monkeypatch.setenv(ENV_VAR, generate_key())
+
+    @staticmethod
+    def _func() -> pathlib.Path:
+        import sys
+
+        func = pathlib.Path(sys.executable).parent / "func"
+        if not func.exists():  # pragma: no cover - editable installs have it
+            pytest.skip("no `func` console script in this environment")
+        return func
+
+    def _run_out_of_process(self, project: Path) -> Any:
+        """A real process, because this is a claim about what reaches a
+        terminal — exit code and stderr — not about an exception object."""
+        import subprocess
+
+        # The console script, not `python -m functualize._cli.main`: that
+        # module has no `__main__` guard, so running it that way exits 0 having
+        # done nothing — which looks exactly like a pass.
+        return subprocess.run(
+            [str(self._func()), "deploy"],
+            cwd=project,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "COLUMNS": "100"},
+        )
+
+    def test_it_exits_refused_not_job_raised(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Exit 3, because nothing about the invocation was wrong.
+
+        The request was well-formed; the tool declined to answer it with a
+        value it could not verify. Exit 1 would make it indistinguishable from
+        a job that ran and threw — the distinction `_types/exit_codes.py` draws
+        in its own words.
+        """
+        self._provisioned_then_rotated(project, monkeypatch)
+        completed = self._run_out_of_process(project)
+
+        assert completed.returncode == ExitCode.REFUSED, completed.stderr[-800:]
+
+    def test_it_is_a_message_not_a_traceback(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Zero stack frames. The message names three commands that fix it and
+        says which need no key; burying that under frames is the opposite of
+        what it is for."""
+        self._provisioned_then_rotated(project, monkeypatch)
+        completed = self._run_out_of_process(project)
+
+        assert 'File "' not in completed.stderr, completed.stderr[-800:]
+        assert "Traceback" not in completed.stderr
+        assert "vault remove" in completed.stderr
+        assert "need no key" in completed.stderr
