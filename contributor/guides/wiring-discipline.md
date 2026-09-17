@@ -171,6 +171,10 @@ This is a **review item, not a hard gate** — it has real false positives (publ
 API meant for users, plugin extension points, and symbols called from within
 their own defining module). Treat a hit as a question to answer, not a failure.
 
+**And an LSP-based scan has a fourth false positive since `plugin-host-protocol`
+— see rule 16.** A member reached only through a Protocol annotation looks
+orphaned on the concrete class.
+
 ### 7. A stage is done when its declared surface is walked
 
 Green tests are necessary, not sufficient. At a stage boundary, walk that stage's
@@ -360,6 +364,45 @@ compared against another component's behaviour, derive the expectation from that
 component rather than transcribing its output — `TestReadinessAgreesWithClick`
 reads `build_click_params_from_fields` itself, so the day the param builder
 changes a rule, a test says so.
+
+### 16. A port annotation hides its own callers from the orphan scan
+
+`plugin-host-protocol` annotated 44 plugin parameters `app: PluginHost` instead
+of `Any` or `FunctualizeApp`. That is the point of the feature — and it blinded
+serena to every one of those call sites.
+
+Measured during that feature's Verify pass. `find_referencing_symbols` on
+`FunctualizeApp/install_substrate` returned **test references only**:
+
+```
+tests/primitives/test_one_substrate_choice.py  (2 references)
+```
+
+Read literally, that is a public `src/` symbol nothing in production calls —
+rule 6's exact signature for unwired code. It is wrong. `rg` finds two
+production callers:
+
+```
+plugins/functualize-state-sqlite/src/functualize_state_sqlite/_plugin.py:77
+examples/plugins/custom_state_backend/src/functualize_state_memory/_plugin.py:59
+```
+
+Both are invisible to the LSP because both are reached through `app`, which is
+typed `PluginHost`. The call resolves to `PluginHost.install_substrate` — the
+Protocol member — not to the concrete `FunctualizeApp` member the scan asked
+about. Nothing is broken; the question was asked about the wrong symbol.
+
+**So: when an orphan scan reports a `FunctualizeApp` member as test-only, ask
+the same question of the port before believing it.** Either scan
+`PluginHost.<member>` as well, or confirm with `rg`. The more thoroughly the
+codebase is typed against its ports, the more often rule 6 will lie in this
+direction — and it lies toward *deleting reachable code*, which is the
+expensive direction.
+
+The same blind spot bites through `@property`. `contracts.md` for that feature
+recorded it independently: `find_referencing_symbols` on `HooksFacade/on_ready`
+returned nothing, and the second doc surface teaching the raw registry was
+found by `rg`, not by the LSP.
 
 ## The one-line version
 

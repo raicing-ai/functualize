@@ -105,7 +105,15 @@ class TestWhatTheJobSees:
 
 class TestRegistrationHappened:
     def test_the_plugin_command_is_registered(self, app: FunctualizeApp) -> None:
-        """`app.extensions.register_plugin_command` — `func budget` exists.
+        """`app.extensions.register_plugin_command` — the command is registered.
+
+        Registered *on this app*, which is what the port's member does. It is
+        not an invocable `func budget` here: this example is a plugin module
+        plus tests, with no project config and no entry point, so there is no
+        CLI for a command to appear on. Verified — `uv run func budget` in this
+        directory answers "Unknown command". Getting one requires installing
+        the plugin into a real project, which is what the four shipped plugins
+        that register commands do.
 
         Read back through `get_plugin_commands()`, which is on the *facade* and
         deliberately **not** on the port: it returns `_app.models.PluginCommand`,

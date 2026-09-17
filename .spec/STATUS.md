@@ -2176,6 +2176,81 @@ Items identified during development that are worth doing but not yet designed:
 |---------|-------------|
 | mcp-server-fixes | `fix/mcp-server-fixes`: `func mcp serve` crashed on grouped jobs with parameters — the plugin compiled `async def {dotted_job_name}(...)` via `exec`, a SyntaxError that killed registration (found live by the NOOA integration probe; verified against 0.2.3 and still present on master). Fix: codegen under a sanitized identifier, dotted name restored on the function object; descriptions attach as `__doc__` instead of being interpolated into source (a `'''` in a docstring broke compilation the same way). Server boots no longer run FastMCP's PyPI update check or print its banner unless `FASTMCP_*` env vars opt back in. `fastmcp` dependency bounded to `<5`. Regression net: unit + registration tests, a live subprocess stdio capability test, and a `grouped_tools` example with its own serve harness. Full plugin + examples suites green; ruff clean. See `.spec/features/mcp-server-fixes/` on the branch (cleared before merge). |
 
+### plugin-host-protocol
+
+`feat/plugin-host-protocol`: plugins annotated the application `Any` in **40 of
+44** parameters (91%), so nothing checked what a plugin reached for. Two shipped
+plugins had reached past the facades into `app._di_registry`, and four `hasattr`
+probes were permanently dead inside bare `except Exception: pass` — asking for
+members (`app.resolve`, `app._tasks`, `app.resolve_model`) that are `False` on a
+live app. Now `functualize.plugin.PluginHost`: a `@runtime_checkable` Protocol
+of **11 members**, with five view protocols standing in for the facades.
+
+**The decision worth keeping.** *The port lives in `_types/`, not next to the
+facades it names.* `_app/host.py` was the obvious home and is wrong: `_types`
+may not import `_app`, so `AdapterPlugin.__call__` — the framework's own front
+door — could never have named the port, and the retype would have been
+unreachable from the protocol that matters. Putting it in `_types/host.py` cost
+five view protocols (the facades' concrete types are unnameable from that
+layer) and bought a port the lifecycle protocols can actually declare.
+`_types/protocols.py` was rejected too, at 882 lines and already diagnosed a
+god module.
+
+**Membership is measured, not remembered.** Members with ≥2 first-party plugin
+clients, plus `hooks.on_ready` and the storage trio. `hook_registry` is
+excluded because four of its seven methods *fire* lifecycle events — on the
+port, any plugin could fire them. `event_bus` and `workflows` have **zero**
+plugin clients. Both remain public on `FunctualizeApp`; a plugin that needs one
+annotates the concrete app and says why (`contributor/guides/plugin-development.md`
+→ *Observer Plugin*).
+
+**Rules that outlive the feature:**
+
+- **A retype with no static consumer is inert, and a green suite will not tell
+  you.** `AdapterPlugin.__call__(app: PluginHost)` changes nothing on its own:
+  reverted to `app: Any`, `uv run mypy` stays green on **all 364 files**,
+  because the repository contains nothing that statically accepts an
+  `AdapterPlugin` — its only consumer does a runtime `isinstance`, blind to
+  signatures, and is called from tests only. The fixture
+  `tests/spec/fixtures/adapters_against_the_port.py` is the missing consumer,
+  and is what makes the declaration bite. Ask of any retype: *what would fail
+  if I put it back?*
+- **`isinstance` against a `@runtime_checkable` Protocol checks attribute
+  presence, never signatures.** So conformance needs two tests, not one, and
+  neither substitutes for the other.
+- **An orphan scan lies about ported members** — new rule 16 in
+  `contributor/guides/wiring-discipline.md`. Annotating a call site against a
+  Protocol hides it from `find_referencing_symbols` on the concrete class, and
+  it lies toward deleting reachable code.
+- **`exclude_type_checking_imports = true` means import-linter cannot see a
+  `TYPE_CHECKING` edge at all.** Measured: a live `_types → _app` deferred
+  import leaves `lint-imports` reporting "7 kept, 0 broken". A layer rule that
+  matters is enforced by a test that reads the import lines, not by the linter.
+- **A reachability gate written at Plan time is a hypothesis, not a gate.** All
+  **six** written for this feature were false when run: five named a test that
+  did not cover the seam and whose sabotage passed, and twice the seam had no
+  caller anywhere in the tree. Six greps also could not reach their stated
+  target, and three counts were low because the path list omitted `examples/`.
+  Write the gate at Plan time; **re-derive it at Execute time**, and never mark
+  `[x]` on a gate that passed under sabotage.
+- **`examples/` is part of the repository's call graph.** Three separate counts
+  in this feature were wrong for leaving it out. It is pytest-collected, and a
+  plugin under `examples/plugins/` is a real client.
+
+**Known gaps, recorded not closed:** `MCPAdapterPlugin` claims `AdapterPlugin`
+in its name, `adapter_type` and docstring but has neither `run` nor `shutdown`
+(unchecked because `validate_adapter` is called from tests only);
+`functualize-ai/_provider_discovery.py:205` still probes
+`hasattr(app, "resolve_model")`, always `False`, so its `[ai]` section has never
+been read there — fixing it changes behaviour; `functualize_ai/__init__.py`'s
+lazy `__getattr__` table has no `TYPE_CHECKING` block, which is why
+`ai-pydantic` sits at 47–48 mypy errors. All three are routed to
+`.spec/features/plugin-taxonomy`. Separately, `scaffold add plugin` writes a
+plugin where job discovery misreads it as a job (pre-existing, proven by
+reverting the annotation). AC-18 asked for four adapters widened and two were:
+`CliAdapter` reads `app.name` and `TuiAdapter` hands the app to
+`launch_inline_tui`, neither on the port, and both core rather than plugins.
+
 ### workflow-continuation
 
 Roadmap items 1–6 of the pi-workflows parity study, landed as `0.3.0`. The verbs
