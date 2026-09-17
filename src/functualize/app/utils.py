@@ -2331,9 +2331,14 @@ def vault_sync(app: Any, cwd: str | Path | None = None) -> VaultSyncReport:
         vault.put(
             key,
             value,
+            encryption_key=resolution.key,
             annotation=declared[key],
             provider=provider_id,
-            encryption_key=resolution.key,
+            # Refreshing is what sync is *for*, so it says so rather than
+            # leaning on a permissive default. A *direct* entry at this key is
+            # still refused: that is an origin conflict, which `replace` does
+            # not override.
+            replace=True,
         )
         synced.append((key, provider_id))
 

@@ -18,8 +18,10 @@ from functualize._config.vault import (
     KEY_BYTES,
     SecretsVault,
     VaultDecryptionError,
+    VaultEntryExistsError,
     VaultError,
     VaultOrigin,
+    VaultOriginConflictError,
     vault_path_for_project,
 )
 
@@ -483,3 +485,229 @@ class TestTheInPlaceUpgrade:
             "a direct entry was relabelled provider-written by the upgrade"
         )
         assert origins["a.synced"] is VaultOrigin.PROVIDER
+
+
+class TestTheKeyCheckValue:
+    """Answering "is this the key this store was written with?" cheaply."""
+
+    def test_it_recognises_the_writing_key(self, vault: SecretsVault) -> None:
+        vault.put("a.b", _SECRET, encryption_key=_KEY_A, provider="p", annotation="x")
+
+        assert vault.opens_with(_KEY_A) is True
+
+    def test_it_rejects_a_different_key(self, vault: SecretsVault) -> None:
+        vault.put("a.b", _SECRET, encryption_key=_KEY_A, provider="p", annotation="x")
+
+        assert vault.opens_with(_KEY_B) is False
+
+    def test_an_unwritten_store_answers_unknown_not_false(self, tmp_path: Path) -> None:
+        """`None` is the answer that keeps the upgrade safe.
+
+        A store upgraded from before the check row existed has none until its
+        next write. Reporting that as `False` would make every pre-existing
+        vault look like it was written under the wrong key, turning a working
+        setup into a refusing one on upgrade.
+        """
+        path = tmp_path / "vault.db"
+        _write_v0_store(path, rows=2)
+        upgraded = SecretsVault(path)
+        upgraded.list_entries()
+
+        assert upgraded.opens_with(_KEY_A) is None
+
+    def test_it_decrypts_no_stored_secret(self, vault: SecretsVault) -> None:
+        """The property that lets `inspect` report readability holding nothing.
+
+        Asserted by removing every secret's ciphertext: if the answer still
+        comes back, it was never read.
+        """
+        vault.put("a.b", _SECRET, encryption_key=_KEY_A, provider="p", annotation="x")
+        with sqlite3.connect(vault.path) as conn:
+            conn.execute("UPDATE secrets SET ciphertext = X'00'")
+
+        assert vault.opens_with(_KEY_A) is True
+
+    def test_the_check_row_is_not_rewritten_by_a_later_key(
+        self, vault: SecretsVault
+    ) -> None:
+        """Overwriting it would erase the evidence it exists to preserve."""
+        vault.put("a.b", _SECRET, encryption_key=_KEY_A, provider="p", annotation="x")
+        vault.put("c.d", _SECRET, encryption_key=_KEY_B, provider="p", annotation="y")
+
+        assert vault.opens_with(_KEY_A) is True
+        assert vault.opens_with(_KEY_B) is False
+
+    def test_the_check_row_holds_no_secret(self, vault: SecretsVault) -> None:
+        """It is a known plaintext by design; it must not be a stored value."""
+        vault.put("a.b", _SECRET, encryption_key=_KEY_A, provider="p", annotation="x")
+
+        assert _SECRET.encode() not in vault.path.read_bytes()
+
+
+class TestOverwriteRules:
+    def test_a_second_write_without_replace_is_refused(
+        self, vault: SecretsVault
+    ) -> None:
+        """`put` used to upsert unconditionally, which is right for sync and
+        wrong for a person at a prompt."""
+        vault.put("a.b", _SECRET, encryption_key=_KEY_A, provider="p", annotation="x")
+
+        with pytest.raises(VaultEntryExistsError, match="--replace"):
+            vault.put(
+                "a.b", "other", encryption_key=_KEY_A, provider="p", annotation="x"
+            )
+
+    def test_replace_permits_it(self, vault: SecretsVault) -> None:
+        vault.put("a.b", _SECRET, encryption_key=_KEY_A, provider="p", annotation="x")
+        vault.put(
+            "a.b",
+            "second",
+            encryption_key=_KEY_A,
+            provider="p",
+            annotation="x",
+            replace=True,
+        )
+
+        assert vault.get("a.b", encryption_key=_KEY_A) == "second"
+
+    def test_replace_preserves_when_the_entry_first_appeared(
+        self, vault: SecretsVault
+    ) -> None:
+        """created_at is a fact about the entry, not about the latest write."""
+        vault.put("a.b", _SECRET, encryption_key=_KEY_A, provider="p", annotation="x")
+        first = vault.list_entries()[0]
+        vault.put(
+            "a.b",
+            "second",
+            encryption_key=_KEY_A,
+            provider="p",
+            annotation="x",
+            replace=True,
+        )
+        second = vault.list_entries()[0]
+
+        assert second.created_at == first.created_at
+        assert second.updated_at >= first.updated_at
+
+    def test_sync_cannot_overwrite_a_direct_entry(self, vault: SecretsVault) -> None:
+        """The rule that makes a typed-in value safe to keep.
+
+        Refused even with replace=True: sync passes that on every write, so a
+        guard that `replace` overrode would be no guard at all.
+        """
+        vault.put("a.b", _SECRET, encryption_key=_KEY_A, origin=VaultOrigin.DIRECT)
+
+        with pytest.raises(VaultOriginConflictError, match="direct"):
+            vault.put(
+                "a.b",
+                "from-aws",
+                encryption_key=_KEY_A,
+                origin=VaultOrigin.PROVIDER,
+                provider="aws-sm",
+                annotation="aws-sm://x",
+                replace=True,
+            )
+        assert vault.get("a.b", encryption_key=_KEY_A) == _SECRET
+
+    def test_a_direct_write_cannot_take_over_a_provider_entry(
+        self, vault: SecretsVault
+    ) -> None:
+        """Refused in the other direction too, so the next sync's conflict
+        stays explainable."""
+        vault.put("a.b", _SECRET, encryption_key=_KEY_A, provider="p", annotation="x")
+
+        with pytest.raises(VaultOriginConflictError):
+            vault.put(
+                "a.b",
+                "typed",
+                encryption_key=_KEY_A,
+                origin=VaultOrigin.DIRECT,
+                replace=True,
+            )
+
+    def test_a_direct_entry_records_no_provider_metadata(
+        self, vault: SecretsVault
+    ) -> None:
+        vault.put("a.b", _SECRET, encryption_key=_KEY_A, origin=VaultOrigin.DIRECT)
+        entry = vault.list_entries()[0]
+
+        assert entry.origin is VaultOrigin.DIRECT
+        assert entry.annotation is None
+        assert entry.provider is None
+        assert entry.synced_at is None
+        assert entry.created_at is not None
+
+
+class TestDelete:
+    def test_it_removes_an_entry_and_reports_what_went(
+        self, vault: SecretsVault
+    ) -> None:
+        vault.put("a.b", _SECRET, encryption_key=_KEY_A, origin=VaultOrigin.DIRECT)
+
+        removed = vault.delete("a.b")
+
+        assert removed is not None
+        assert removed.origin is VaultOrigin.DIRECT
+        assert vault.list_entries() == []
+
+    def test_a_missing_entry_is_success_not_an_error(self, vault: SecretsVault) -> None:
+        """Asking for something to be gone that is already gone is satisfied."""
+        assert vault.delete("never.stored") is None
+
+    def test_it_takes_no_key(self, vault: SecretsVault) -> None:
+        """The property that makes it the recovery path.
+
+        Signature-level, because a key parameter with a default would still
+        make this useless on a store whose key is lost.
+        """
+        import inspect
+
+        params = set(inspect.signature(SecretsVault.delete).parameters)
+        assert params == {"self", "key"}
+
+    def test_it_works_on_a_store_this_machine_cannot_open(
+        self, vault: SecretsVault
+    ) -> None:
+        """The scenario ADR-023 §3 exists for: the key rotated, and the only
+        way out must not itself require the key."""
+        vault.put("a.b", _SECRET, encryption_key=_KEY_A, provider="p", annotation="x")
+        assert vault.opens_with(_KEY_B) is False
+
+        assert vault.delete("a.b") is not None
+        assert vault.list_entries() == []
+
+    def test_it_removes_a_provider_entry_too(self, vault: SecretsVault) -> None:
+        """Safe: the value is authoritative upstream and sync refills it."""
+        vault.put("a.b", _SECRET, encryption_key=_KEY_A, provider="p", annotation="x")
+
+        removed = vault.delete("a.b")
+
+        assert removed is not None
+        assert removed.origin is VaultOrigin.PROVIDER
+
+
+class TestAuditActions:
+    def test_a_direct_write_is_not_recorded_as_a_sync(
+        self, vault: SecretsVault
+    ) -> None:
+        """The only trace of a typed-in value must not say it came from a
+        provider it never touched."""
+        vault.put("a.b", _SECRET, encryption_key=_KEY_A, origin=VaultOrigin.DIRECT)
+
+        actions = [r[3] for r in vault.audit_records()]
+
+        assert "put" in actions
+        assert "sync" not in actions
+
+    def test_a_provider_write_still_records_a_sync(self, vault: SecretsVault) -> None:
+        vault.put("a.b", _SECRET, encryption_key=_KEY_A, provider="p", annotation="x")
+
+        assert "sync" in [r[3] for r in vault.audit_records()]
+
+    def test_the_audit_never_holds_the_value(self, vault: SecretsVault) -> None:
+        vault.put("a.b", _SECRET, encryption_key=_KEY_A, origin=VaultOrigin.DIRECT)
+        vault.delete("a.b")
+
+        assert all(
+            _SECRET not in str(field) for r in vault.audit_records() for field in r
+        )

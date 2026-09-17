@@ -82,7 +82,9 @@ __all__ = [
     "VaultDecryptionError",
     "VaultEntry",
     "VaultOrigin",
+    "VaultEntryExistsError",
     "VaultError",
+    "VaultOriginConflictError",
     "format_duration",
     "parse_duration",
     "resolve_max_age",
@@ -196,6 +198,27 @@ class VaultOrigin(StrEnum):
 
     DIRECT = "direct"
     PROVIDER = "provider"
+
+
+class VaultEntryExistsError(VaultError):
+    """A write would have overwritten an entry without being asked to.
+
+    ``put`` used to upsert unconditionally, which is right for ``sync`` — it
+    exists to refresh — and wrong for a person typing a value at a prompt, who
+    gets no second chance to notice they overwrote something.
+    """
+
+
+class VaultOriginConflictError(VaultError):
+    """A write would have changed what wrote an entry.
+
+    Refused in **both** directions and regardless of ``replace``, because the
+    two failures are different and both are bad: ``sync`` silently replacing a
+    typed-in value destroys the only copy there is, and a typed-in value
+    quietly taking over a provider entry's key makes the next sync's conflict
+    unexplainable. Changing provenance is a decision, so it is made explicitly
+    (delete, then write) rather than as a side effect (ADR-023 §3).
+    """
 
 
 @dataclass(frozen=True)
@@ -408,21 +431,35 @@ class SecretsVault:
         key: str,
         value: str,
         *,
-        annotation: str,
-        provider: str,
         encryption_key: bytes,
+        origin: VaultOrigin = VaultOrigin.PROVIDER,
+        annotation: str | None = None,
+        provider: str | None = None,
+        replace: bool = False,
     ) -> None:
-        """Encrypt and store one value, replacing any previous entry.
+        """Encrypt and store one value.
 
         Args:
             key: Config key, e.g. ``"database.password"``.
             value: The plaintext secret. Never logged, never audited.
-            annotation: The ``provider://reference`` it was declared as.
-            provider: Which provider actually answered.
             encryption_key: 32 bytes.
+            origin: What is doing the writing. ``PROVIDER`` is the default
+                because ``sync`` is the older caller and the one that must not
+                change behavior.
+            annotation: The ``provider://reference`` it was declared as.
+                ``None`` for a direct write — a typed-in value was not declared
+                anywhere.
+            provider: Which provider answered. ``None`` for a direct write.
+            replace: Permit overwriting an existing entry of the *same* origin.
+                ``sync`` passes it, because refreshing is what it is for; an
+                interactive ``put`` does not, so a person cannot destroy a
+                value by not knowing it was there.
 
         Raises:
             VaultError: If the key is not exactly :data:`KEY_BYTES` long.
+            VaultEntryExistsError: An entry exists and ``replace`` is False.
+            VaultOriginConflictError: An entry exists with a different origin.
+                Never overridden by ``replace``; see that class.
         """
         _require_key(encryption_key)
         nonce = _random_nonce()
@@ -430,14 +467,37 @@ class SecretsVault:
             nonce, value.encode("utf-8"), key.encode("utf-8")
         )
         now = _utcnow().isoformat()
+        synced_at = now if origin is VaultOrigin.PROVIDER else None
         with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT origin, created_at FROM secrets WHERE key = ?", (key,)
+            ).fetchone()
+            if existing is not None:
+                if VaultOrigin(existing[0]) is not origin:
+                    msg = (
+                        f"{key!r} already holds a {existing[0]} entry and this "
+                        f"write is {origin.value}. Changing what wrote an entry "
+                        f"is not a side effect of writing it: remove the entry "
+                        f"first if that is what you mean."
+                    )
+                    raise VaultOriginConflictError(msg)
+                if not replace:
+                    msg = (
+                        f"{key!r} already holds a value. Pass --replace to "
+                        f"overwrite it deliberately."
+                    )
+                    raise VaultEntryExistsError(msg)
+
+            # Preserved across a replace: when the entry first appeared is a
+            # fact about the entry, not about this write.
+            created_at = existing[1] if existing is not None else now
+
             conn.execute(
                 "INSERT INTO secrets"
                 " (key, origin, annotation, provider, nonce, ciphertext,"
                 "  created_at, updated_at, synced_at, key_provider)"
-                " VALUES (?, 'provider', ?, ?, ?, ?, ?, ?, ?, ?)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 " ON CONFLICT(key) DO UPDATE SET"
-                " origin='provider',"
                 " annotation=excluded.annotation, provider=excluded.provider,"
                 " nonce=excluded.nonce, ciphertext=excluded.ciphertext,"
                 " updated_at=excluded.updated_at,"
@@ -445,17 +505,23 @@ class SecretsVault:
                 " key_provider=excluded.key_provider",
                 (
                     key,
+                    origin.value,
                     annotation,
                     provider,
                     nonce,
                     ciphertext,
+                    created_at,
                     now,
-                    now,
-                    now,
+                    synced_at,
                     self._key_provider_id,
                 ),
             )
-            self._audit(conn, key, "sync", "ok", provider)
+            self._ensure_check_value(conn, encryption_key)
+            # The action names what happened. Recording a typed-in value as a
+            # "sync" would make the only trace of it say it came from a
+            # provider it never touched.
+            action = "sync" if origin is VaultOrigin.PROVIDER else "put"
+            self._audit(conn, key, action, "ok", provider)
 
     def get(self, key: str, *, encryption_key: bytes) -> str | None:
         """Decrypt and return one value, or None when it is not stored.
@@ -492,6 +558,86 @@ class SecretsVault:
                 raise VaultDecryptionError(msg) from exc
             self._audit(conn, key, "read", "ok")
             return plaintext.decode("utf-8")
+
+    def _ensure_check_value(
+        self, conn: sqlite3.Connection, encryption_key: bytes
+    ) -> None:
+        """Write the key check row if this store has none yet.
+
+        Called from the write path rather than from ``init``, so that
+        ``vault init --key-source env`` stays genuinely read-only and the vault
+        file continues to appear on first *write* rather than before it.
+
+        Never overwrites an existing row. If the store already has one written
+        under a different key, replacing it here would erase the only evidence
+        that the key changed — which is the thing the row exists to report.
+        """
+        if conn.execute("SELECT 1 FROM vault_meta WHERE id = 1").fetchone():
+            return
+        nonce = _random_nonce()
+        conn.execute(
+            "INSERT INTO vault_meta (id, nonce, ciphertext, created_at)"
+            " VALUES (1, ?, ?, ?)",
+            (
+                nonce,
+                AESGCM(encryption_key).encrypt(nonce, _CHECK_PLAINTEXT, _CHECK_AAD),
+                _utcnow().isoformat(),
+            ),
+        )
+
+    def opens_with(self, encryption_key: bytes) -> bool | None:
+        """Whether this key is the one this store was written with.
+
+        Returns:
+            ``True`` or ``False`` once the store has a check row; ``None`` when
+            it has none and the question cannot be answered.
+
+        ``None`` is not a failure and must not be treated as one. A store
+        upgraded from before this existed has no check row until its next
+        write, and so does one that was created but never written. Callers
+        treat unknown as "proceed as before", which is what keeps the upgrade
+        from turning a working vault into a refusing one.
+
+        **Decrypts no secret.** The check row is a fixed, non-secret plaintext,
+        so this answers the key question without any value passing through the
+        process — which is what lets ``inspect`` and ``status`` report
+        readability while holding no plaintext at all (ADR-023 §2).
+        """
+        _require_key(encryption_key)
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT nonce, ciphertext FROM vault_meta WHERE id = 1"
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            AESGCM(encryption_key).decrypt(bytes(row[0]), bytes(row[1]), _CHECK_AAD)
+        except InvalidTag:
+            return False
+        return True
+
+    def delete(self, key: str) -> VaultEntry | None:
+        """Remove one entry of either origin, returning what was removed.
+
+        **Takes no encryption key, deliberately.** Metadata is stored in clear
+        and a delete decrypts nothing, so this works on a store this machine
+        cannot open — which is the whole point: it is the recovery path for a
+        rotated or lost key, and requiring the key it is meant to rescue you
+        from would make it useless exactly when it is needed (ADR-023 §3).
+
+        Returns:
+            The removed entry, or ``None`` if the key held nothing. A miss is
+            success, not an error: asking for something to be gone that is
+            already gone has been satisfied.
+        """
+        entries = {entry.key: entry for entry in self.list_entries()}
+        removed = entries.get(key)
+        if removed is None:
+            return None
+        with self._connect() as conn:
+            conn.execute("DELETE FROM secrets WHERE key = ?", (key,))
+            self._audit(conn, key, "remove", "ok", removed.provider)
+        return removed
 
     def list_entries(self) -> list[VaultEntry]:
         """Every stored entry's metadata. Requires **no** key.

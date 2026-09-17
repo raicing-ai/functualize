@@ -88,7 +88,7 @@ The one step that touches existing rows. SQLite cannot drop `NOT NULL` with
 
 ## Wave 2 — store operations
 
-### [ ] T3.1 — Check value, no-clobber `put`, `delete`, honest audit
+### [x] T3.1 — Check value, no-clobber `put`, `delete`, honest audit
 
 - `[F]` `src/functualize/_config/vault.py`, `tests/config/test_vault_store.py`
 - `[D]` T2.2
