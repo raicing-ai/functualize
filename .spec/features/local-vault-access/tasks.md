@@ -103,7 +103,7 @@ The one step that touches existing rows. SQLite cannot drop `NOT NULL` with
 
 ## Wave 3 — the seam and the resolution change
 
-### [ ] T4.1 — `app/vault.py`: canonical paths and report types
+### [x] T4.1 — `app/vault.py`: canonical paths and report types
 
 - `[F]` `src/functualize/app/vault.py` (new), `tests/app/test_vault_paths.py` (new)
 - `[D]` T3.1, T2.1
@@ -213,6 +213,21 @@ into a dev run — and the next argument, `remote_source`, was omitted anyway.
 - `[G]` For a distinctive submitted secret, the exact bytes are absent from stdout, stderr, logs, JSON, exception text, the database file **and its `-wal` / `-shm` sidecars** — WAL is on (`PRAGMA journal_mode=WAL`), so the sidecars are real and must be scanned.
 - `[G]` Swept across `init`, `put`, `inspect`, `list`, `status`, `remove`, `clear`, `sync` and a job run.
 
+### [ ] T8.4 — An example project that uses the public vault API
+
+**Added during Execute, at maintainer request.** The public seam is only proven
+public if something outside the framework uses it the way a user would. The
+`_cli` layer dogfoods it, but `_cli` is ours; an example is theirs.
+
+- `[F]` `examples/quickstart/step9_vault/` (`secrets_job.py`, `test_step9.py`, `conftest.py`), `examples/quickstart/README.md`
+- `[D]` T5.1 (the operations), T6.1 (the commands it documents)
+- `[G]` The example job declares a `Secret[str]` config field and receives the value from the vault — through `FunctualizeApp`, not through `func`, so it proves the seam is reachable without the CLI.
+- `[G]` It calls `vault_init`, `vault_put`, `vault_inspect` and `vault_remove` from `functualize.app.vault` — the public path, never `_config`.
+- `[G]` `grep -rn "functualize\._" examples/quickstart/step9_vault/` → **0 hits**. An example reaching into an internal package would be documenting a layer violation.
+- `[G]` `uv run pytest examples/quickstart/step9_vault/ -v` green. Note `testpaths = ["tests"]`, so the root pytest run does not collect it; CI's `examples` job does.
+- `[G]` It runs with **no keyring and no network** — the env-key route — so it works in the CI examples job and on a stock install.
+- `[G]` The submitted secret does not appear in the example's own output.
+
 ### [ ] T8.3 — Documentation
 
 - `[F]` `docs/guides/configuration.md`, `README.md`, `CHANGELOG.md`
@@ -237,7 +252,7 @@ into a dev run — and the next argument, `remote_source`, was omitted anyway.
     { "id": 5, "tasks": ["5.3"] },
     { "id": 6, "tasks": ["6.1"] },
     { "id": 7, "tasks": ["7.1"] },
-    { "id": 8, "tasks": ["8.1", "8.2", "8.3"] }
+    { "id": 8, "tasks": ["8.1", "8.2", "8.3", "8.4"] }
   ]
 }
 ```
