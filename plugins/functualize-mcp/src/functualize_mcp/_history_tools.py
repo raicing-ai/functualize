@@ -51,7 +51,7 @@ class MCPHistoryToolRegistry:
         if self._run_store is None:
             from functualize._primitives.run_store import RunStore
 
-            self._run_store = RunStore(self._app.execution_engine.substrate)
+            self._run_store = RunStore(self._app.substrate)
         return self._run_store
 
     def register_tools(self, mcp: Any) -> None:

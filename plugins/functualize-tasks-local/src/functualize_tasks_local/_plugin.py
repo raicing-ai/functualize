@@ -63,7 +63,7 @@ class LocalTasksPlugin:
         answered "where does state live" separately.
         """
         try:
-            backend = TaskDocument(app.execution_engine.substrate)
+            backend = TaskDocument(app.substrate)
             self._provider = LocalTaskProvider(backend=backend)
 
             # Register as TaskProvider

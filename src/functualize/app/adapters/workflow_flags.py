@@ -235,7 +235,7 @@ def _store(app: Any) -> Any:
     """
     from functualize.app.utils import ScopeStore
 
-    return ScopeStore(app.execution_engine.substrate)
+    return ScopeStore(app.substrate)
 
 
 def _deposit(flags: dict[str, Any]) -> tuple[str | None, dict[str, Any]] | None | Any:

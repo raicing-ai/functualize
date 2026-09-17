@@ -182,23 +182,24 @@ class TestGetExecutionDetail:
 
 
 class TestItReadsTheAppsSubstrate:
-    def test_the_store_is_resolved_through_the_engine(self, tmp_path: Path) -> None:
+    def test_the_store_is_resolved_through_the_app(self, tmp_path: Path) -> None:
         """Not from the cwd — so a database plugin's documents are what it reads.
 
         Resolving independently is how the MCP surface and the run that wrote
         the records could end up reading different backends, which is the
         failure `store-substrate` exists to remove.
+
+        Asked of `app.substrate` since `plugin-host-protocol`/T4. It used to
+        reach `app.execution_engine.substrate`, a message chain through the
+        engine that existed only because `app.substrate` meant the install
+        slot rather than the storage in effect.
         """
-        substrate = JsonFileSubstrate(tmp_path)
-
-        class _Engine:
-            pass
-
-        engine = _Engine()
-        engine.substrate = substrate  # type: ignore[attr-defined]
+        installed = JsonFileSubstrate(tmp_path)
 
         class _App:
-            execution_engine = engine
+            """No engine at all — the chain it had to walk is gone."""
+
+            substrate = installed
 
         registry = MCPHistoryToolRegistry(app=_App())
-        assert registry.run_store.substrate is substrate
+        assert registry.run_store.substrate is installed

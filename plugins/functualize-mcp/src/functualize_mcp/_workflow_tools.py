@@ -144,7 +144,7 @@ class WorkflowToolProvider:
     def store(self) -> ScopeStore:
         """The scope store, resolved from the cwd on first use."""
         if self._store is None:
-            self._store = ScopeStore(self._app.execution_engine.substrate)
+            self._store = ScopeStore(self._app.substrate)
         return self._store
 
     @property
@@ -159,7 +159,7 @@ class WorkflowToolProvider:
         if self._run_store is None:
             from functualize._primitives.run_store import RunStore
 
-            self._run_store = RunStore(self._app.execution_engine.substrate)
+            self._run_store = RunStore(self._app.substrate)
         return self._run_store
 
     def register_tools(self, mcp: Any) -> None:

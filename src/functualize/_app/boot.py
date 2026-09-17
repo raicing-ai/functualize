@@ -126,7 +126,7 @@ def init_observability(app: Any) -> None:
         """
         from functualize._primitives.run_store import RunStore
 
-        return RunStore(app.execution_engine.substrate)
+        return RunStore(app.substrate)
 
     app._run_log = _install_run_log(app._event_bus, _run_store_for_project)
 
@@ -143,7 +143,7 @@ def init_observability(app: Any) -> None:
         event and the step it describes cannot land in different backends."""
         from functualize._primitives.scope_store import ScopeStore
 
-        return ScopeStore(app.execution_engine.substrate)
+        return ScopeStore(app.substrate)
 
     # The return is discarded: unlike the run log, nothing calls back into
     # this subscriber — it has no buffer to flush and no run to close — and the

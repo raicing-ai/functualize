@@ -1063,7 +1063,7 @@ def register_builtin_commands(cli_group: Any) -> None:
         """
         from functualize.app.utils import ScopeStore
 
-        return ScopeStore(_workflow_app_ref(ctx).execution_engine.substrate)
+        return ScopeStore(_workflow_app_ref(ctx).substrate)
 
     @contextlib.contextmanager
     def _workflow_refusal() -> Any:
