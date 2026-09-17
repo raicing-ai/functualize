@@ -28,7 +28,12 @@ VaultPath := <command-segment>("."<command-segment>)*"."<field-name>
 - Example: command path `infra deploy`, field `api_token` →
   `infra.deploy.api_token`.
 
-Nested field paths are not accepted in this increment.
+Nested field paths are not accepted in this increment, and there is no distinct
+reason code for them. The rightmost split makes one structurally impossible to
+express: `deploy.config.token` parses as job `deploy.config` plus field `token`
+and is refused as `unknown_job`, which is the truthful answer — there is no such
+job. A `nested_field_not_supported` code was declared in an earlier draft and
+removed here, because nothing could ever emit it.
 
 **Store location.** The project is the directory found by walking upward for
 `.functualize/`, falling back to hashing the working directory. Every surface
@@ -66,7 +71,6 @@ Reason codes:
 - `unknown_key_source`
 - `key_source_unavailable`
 - `key_source_not_initializable`
-- `key_missing`
 
 `key_source_unavailable` on a stock install is the teaching surface: its
 `message` names both `pip install 'functualize[keychain]'` and the
@@ -100,7 +104,6 @@ Reason codes:
 - `unknown_field`
 - `field_not_secret`
 - `field_not_config_model`
-- `nested_field_not_supported`
 - `input_source_required`
 - `conflicting_input_sources`
 - `invalid_utf8`

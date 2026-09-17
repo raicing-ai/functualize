@@ -309,14 +309,13 @@ def _resolve_field(descriptor: Any, field_part: str, path: str) -> Any:
             path=path,
         )
 
-    if "." in field_part:  # pragma: no cover - rpartition leaves no dots
-        raise VaultPathError(
-            "nested_field_not_supported",
-            f"{path!r} names a nested field. This increment stores top-level "
-            f"fields only.",
-            path=path,
-        )
-
+    # No `nested_field_not_supported` branch. It was written, and it was
+    # unreachable: `rpartition` takes everything after the *last* dot, so
+    # `field_part` cannot contain one. A nested path like
+    # `deploy.config.token` parses as job `deploy.config` + field `token` and
+    # comes back as `unknown_job`, which is the truthful answer — there is no
+    # such job. Removed rather than left behind a `pragma: no cover`, which
+    # would have read as "tested elsewhere".
     raise VaultPathError(
         "unknown_field",
         f"{_descriptor_name(descriptor)!r} has no field {field_part!r}. "

@@ -1319,3 +1319,144 @@ class TestSyncRefusesARotatedKey:
         _run(["sync", "--json"], app=_app())
 
         assert {e.key for e in SecretsVault(vault_location()).list_entries()} == before
+
+
+class TestTheDeclaredReasonCodesAreReachable:
+    """Two codes `contracts.md` declares that nothing asserted until now.
+
+    Found by the verify phase's walk of the declared surface rather than by a
+    failing test — which is the point of that walk. A reason code is a promise
+    to a script author: it is how they classify a failure without parsing
+    prose, so one that is never exercised is a promise nobody has checked.
+    """
+
+    def test_provider_entry_conflict_reaches_the_json_envelope(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        """`put` over a synced entry. The seam test covers the exception; this
+        covers the code a caller actually branches on."""
+        SecretsVault(vault_location()).put(
+            "deploy.api_token",
+            "from-aws",
+            encryption_key=_KEY,
+            annotation="fake-sm://prod/token",
+            provider="fake-sm",
+        )
+
+        result = _run(
+            ["put", "deploy.api_token", "--stdin", "--replace", "--json"],
+            app=local_app,
+            stdin=_CONSPICUOUS,
+        )
+
+        assert result.exit_code == ExitCode.REFUSED
+        assert json.loads(result.stdout)["reason"] == "provider_entry_conflict"
+
+    def test_key_unavailable_reaches_the_json_envelope(
+        self, project: Path, local_app: FunctualizeApp, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`put` with no key available at all."""
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        monkeypatch.setattr(
+            "functualize._config.vault_keys.KeychainKeyProvider.is_available",
+            lambda self: False,
+        )
+
+        result = _run(
+            ["put", "deploy.api_token", "--stdin", "--json"],
+            app=local_app,
+            stdin=_CONSPICUOUS,
+        )
+
+        assert result.exit_code == ExitCode.REFUSED
+        assert json.loads(result.stdout)["reason"] == "key_unavailable"
+
+    def test_every_code_the_cli_can_emit_is_declared(self) -> None:
+        """The other direction, so the two cannot drift apart.
+
+        A code emitted but never declared is as bad as one declared but never
+        emitted: a caller branching on the documented set silently falls into
+        its `else`.
+        """
+        import re
+        from pathlib import Path as _Path
+
+        src = _Path(__file__).resolve().parents[2] / "src" / "functualize"
+        emitted = set()
+        for module in ("_cli/vault_cmd.py", "app/vault.py"):
+            text = (src / module).read_text()
+            emitted |= set(re.findall(r'_fail\(\s*"([a-z_]+)"', text))
+            emitted |= set(re.findall(r'VaultPathError\(\s*"([a-z_]+)"', text))
+            emitted |= set(re.findall(r'VaultKeySourceError\(\s*"([a-z_]+)"', text))
+
+        declared = {
+            "unknown_key_source",
+            "key_source_unavailable",
+            "key_source_not_initializable",
+            "unknown_job",
+            "unknown_field",
+            "field_not_secret",
+            "field_not_config_model",
+            "input_source_required",
+            "conflicting_input_sources",
+            "invalid_utf8",
+            "empty_value",
+            "entry_exists",
+            "provider_entry_conflict",
+            "key_unavailable",
+            "confirmation_required",
+            "key_mismatch",
+        }
+
+        assert emitted <= declared, f"emitted but undeclared: {emitted - declared}"
+
+    def test_put_json_success_matches_the_declared_payload(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        """contracts.md §2.2's success object, field for field.
+
+        Only `put`'s *failure* envelopes were asserted before the verify phase
+        walked the declared surface — the shape a script reads on the happy
+        path was documented and unchecked.
+        """
+        result = _run(
+            ["put", "deploy.api_token", "--stdin", "--json"],
+            app=local_app,
+            stdin=_CONSPICUOUS,
+        )
+        payload = json.loads(result.stdout)
+
+        assert result.exit_code == ExitCode.OK
+        assert set(payload) == {
+            "ok",
+            "path",
+            "origin",
+            "created",
+            "replaced",
+            "updated_at",
+        }
+        assert payload["ok"] is True
+        assert payload["path"] == "deploy.api_token"
+        assert payload["origin"] == "direct"
+        assert payload["created"] is True
+        assert payload["replaced"] is False
+        assert payload["updated_at"]
+        assert _CONSPICUOUS not in result.stdout
+
+    def test_put_json_reports_a_replacement_as_one(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        """`created` and `replaced` are the two halves of the same fact, and a
+        caller distinguishing "new secret" from "rotated secret" reads them."""
+        _run(["put", "deploy.api_token", "--stdin"], app=local_app, stdin="first")
+
+        payload = json.loads(
+            _run(
+                ["put", "deploy.api_token", "--stdin", "--replace", "--json"],
+                app=local_app,
+                stdin="second",
+            ).stdout
+        )
+
+        assert payload["created"] is False
+        assert payload["replaced"] is True
