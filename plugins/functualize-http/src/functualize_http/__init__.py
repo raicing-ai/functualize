@@ -37,7 +37,7 @@ from functualize.types import (
 if TYPE_CHECKING:
     from asyncio import AbstractEventLoop
 
-    from functualize.app.core import FunctualizeApp
+    from functualize.plugin import PluginHost
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +94,7 @@ class HttpServerCore:
     to avoid code duplication.
     """
 
-    def __init__(self, app: FunctualizeApp) -> None:
+    def __init__(self, app: PluginHost) -> None:
         self._app = app
         self._server: asyncio.Server | None = None
 
@@ -365,14 +365,16 @@ class HttpAdapter:
     adapter_type: str = "http"
 
     def __init__(self) -> None:
-        self._app: FunctualizeApp | None = None
+        self._app: PluginHost | None = None
         self._core: HttpServerCore | None = None
 
-    def __call__(self, app: FunctualizeApp) -> None:
+    def __call__(self, app: PluginHost) -> None:
         """Setup phase — store app reference and create server core.
 
         Args:
-            app: The FunctualizeApp kernel instance.
+            app: The host, as the plugin port. Nothing in this
+                adapter reaches past its eleven members — measured,
+                by widening the annotation and running mypy.
         """
         self._app = app
         self._core = HttpServerCore(app)
@@ -437,14 +439,16 @@ class HttpServerPlugin:
     description: str = "Registers a 'serve' command for HTTP serving"
 
     def __init__(self) -> None:
-        self._app: FunctualizeApp | None = None
+        self._app: PluginHost | None = None
         self._core: HttpServerCore | None = None
 
-    def __call__(self, app: FunctualizeApp) -> None:
+    def __call__(self, app: PluginHost) -> None:
         """Register the 'serve' command on the app.
 
         Args:
-            app: The FunctualizeApp kernel instance.
+            app: The host, as the plugin port. Nothing in this
+                adapter reaches past its eleven members — measured,
+                by widening the annotation and running mypy.
         """
         self._app = app
         self._core = HttpServerCore(app)

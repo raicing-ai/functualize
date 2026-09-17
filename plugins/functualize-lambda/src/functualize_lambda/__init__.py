@@ -44,7 +44,7 @@ from functualize.types import (
 )
 
 if TYPE_CHECKING:
-    from functualize.app.core import FunctualizeApp
+    from functualize.plugin import PluginHost
 
 
 #: The boundary this surface delivers across (`run-outcome-authority` AC-3).
@@ -131,13 +131,15 @@ class LambdaAdapter:
     adapter_type: str = "lambda"
 
     def __init__(self) -> None:
-        self._app: FunctualizeApp | None = None
+        self._app: PluginHost | None = None
 
-    def __call__(self, app: FunctualizeApp) -> None:
+    def __call__(self, app: PluginHost) -> None:
         """Setup phase — store app reference.
 
         Args:
-            app: The FunctualizeApp kernel instance.
+            app: The host, as the plugin port. Nothing in this
+                adapter reaches past its eleven members — measured,
+                by widening the annotation and running mypy.
         """
         self._app = app
 
