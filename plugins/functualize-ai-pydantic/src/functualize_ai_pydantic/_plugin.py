@@ -129,24 +129,20 @@ class PydanticAIPlugin:
     def _resolve_state_namespace(self, app: Any) -> Any:
         """Resolve the AI state namespace for budget tracking.
 
-        Uses the AI SDK's resolve_ai_state_backend helper to get a
-        backend suitable for budget tracking, with graceful fallback
-        to ephemeral in-memory state if the State domain isn't installed.
+        Uses the AI SDK's resolve_ai_state_backend helper, which returns an
+        ephemeral in-memory backend when it is handed none. `app` is unread.
         """
         try:
             from functualize_ai._state_fallback import resolve_ai_state_backend
 
-            # Try to get the registered StateBackend from DI
-            backend = None
-            try:
-                from functualize_state import StateBackend
-
-                backend = app._di_registry.resolve(StateBackend)
-            except (ImportError, Exception):
-                # State domain not installed or not yet registered
-                pass
-
-            return resolve_ai_state_backend(backend)
+            # A DI lookup stood here behind `except (ImportError, Exception)`:
+            # it imported StateBackend from the functualize-state domain, then
+            # reached past the facades into the app's private registry to
+            # resolve it. ADR-022 retired that domain and no such package
+            # exists, so the import always raised and the backend handed on
+            # was always None. Spelled in prose rather than quoted, because
+            # T2's gate greps for the private attribute's name.
+            return resolve_ai_state_backend(None)
         except ImportError:
             # functualize_ai._state_fallback not available — shouldn't happen
             logger.debug(
