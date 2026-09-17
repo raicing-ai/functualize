@@ -724,7 +724,7 @@ run — not merely name it.
   `app.di.provide(...)` fails the two `TestWhatTheJobSees` tests.
 - **Done** `b95a94a`.
 
-## T16 · Verify
+## T16 · Verify — [x]
 
 `[F]` — (no source files)
 
@@ -740,6 +740,64 @@ run — not merely name it.
 - `uv run ruff check` and `uv run ruff format --check`
 - the orphan scan (`/agentic-verify`'s serena pass): nothing this feature added
   is unreachable
+
+### Results
+
+| Check | Result |
+|---|---|
+| `uv run pytest` (root) | **10,681 passed**, 1,601 skipped, 0 failed |
+| `uv run pytest examples/` | **212 passed** (was 204) |
+| each `plugins/*/tests` separately | **436 passed**, 1 skipped, 12 packages |
+| `uv run lint-imports` | **7 kept, 0 broken** |
+| `uv run mypy` | **green, 364 files** |
+| `uv run ruff check src/ tests/ plugins/ examples/` | clean (CI's scope) |
+| `uv run ruff format --check src/ tests/ plugins/ examples/` | 1,440 formatted |
+| plugin mypy, package-local | all at baseline but two: `state-sqlite` **1 → 0**, `ai-pydantic` **47 → 48** (cause upstream, → `plugin-taxonomy`) |
+| `FUNCTUALIZE_TEST_SUBSTRATE=sqlite … --run-slow` | 12,035 passed, **4 failed — pre-existing** |
+
+**The four sqlite failures are not this feature's, and that was proved rather
+than argued.** `tests/integration/test_crash_and_resume.py` (2) and
+`test_notify_exactly_once.py` (2) fail at
+`assert scope and scope.get("lease"), "the crashed runner left no lease"`.
+
+Proof: a throwaway worktree at `origin/master` (`11d77f6`), synced and run with
+the same command, fails **the same four**. This branch never touched either
+file.
+
+Mechanism, for whoever owns `store-substrate`'s second pass:
+`tests/conftest.py::_alternate_substrate` is an **in-process `monkeypatch`** of
+`JsonFileSubstrate.for_project`. These four tests spawn a real runner and
+SIGKILL it. A subprocess does not inherit a monkeypatch, so the child writes
+its lease through `JsonFileSubstrate` while the parent reads `SQLiteSubstrate`
+and finds nothing. The fixture's docstring anticipated subprocesses — *"a
+second process cannot see another's dictionaries"* — and chose SQLite to solve
+shared *visibility*; it does not solve patch *inheritance*. → owed elsewhere.
+
+**Bare `uv run ruff check` reports 7, and all 7 are outside CI's scope.** CI
+runs `ruff check src/ tests/ plugins/ examples/`. Three are `SIM105` in
+`.claude/hooks/*.py`, present on master and untouched by this branch (only
+`.claude/**/*.md` changed here). The other four were in this feature's own
+`count_app_annots.py`, now fixed — it also gained the docstring explaining why
+it is an `ast` walk and not an `rg`.
+
+**Orphan scan.** Every symbol this feature added has a production consumer:
+
+| Symbol | Production files | |
+|---|---:|---|
+| `PluginHost` | 26 | |
+| `install_substrate` | 6 | |
+| `OnReadyHandler` | 5 | |
+| `substrate_override` | 4 | |
+| the five views | 1 each | **see below** |
+
+The five views are named **only** in `host.py` (plus a comment in
+`plugin/__init__.py`), which reads like an orphan and is not one: their
+consumer is `PluginHost`'s own member annotations, and mypy applies them to
+every `app.di.provide(...)` in every plugin. Demonstrated, not asserted —
+removing `ConfigurationView.resolve_model` produces an error in **four**
+plugin packages (`ai`, `ai-pydantic`, `mcp`, `state-sqlite`), and making
+`DependencyView.provide`'s `qualifier` required produces four more. A symbol
+whose deletion breaks four packages is reachable.
 
 ## Task Dependency Graph
 
