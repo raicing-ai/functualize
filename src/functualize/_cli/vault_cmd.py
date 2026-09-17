@@ -87,9 +87,15 @@ def vault_keygen() -> None:
 def vault_list(json_out: bool) -> None:
     """List what the vault holds — names and freshness, never values.
 
-    Needs no key. `key`, `annotation`, `provider` and `synced_at` are
-    stored in clear on purpose so this command works on a machine that
-    cannot open the store; only the value is encrypted.
+    Needs no key. `key`, `origin`, `annotation`, `provider` and the
+    timestamps are stored in clear on purpose so this command works on a
+    machine that cannot open the store; only the value is encrypted.
+
+    **`provider`, `annotation` and `synced_at` can be null.** They describe
+    where a value was fetched *from*, and a value typed in by hand was not
+    fetched from anywhere. This renderer used to assume all three were
+    present — it measured `len(entry.provider)` and called
+    `entry.synced_at.isoformat()` — and would raise on the first direct entry.
     """
     from functualize.app.utils import vault_entries, vault_location
 
@@ -101,9 +107,12 @@ def vault_list(json_out: bool) -> None:
                 "entries": [
                     {
                         "key": e.key,
+                        "origin": str(e.origin),
                         "annotation": e.annotation,
                         "provider": e.provider,
-                        "synced_at": e.synced_at.isoformat(),
+                        "created_at": e.created_at,
+                        "updated_at": e.updated_at,
+                        "synced_at": e.synced_at,
                     }
                     for e in entries
                 ],
@@ -112,16 +121,30 @@ def vault_list(json_out: bool) -> None:
         return
 
     if not entries:
-        click.echo("The vault is empty. Run `func builtin vault sync` to fill it.")
+        click.echo(
+            "The vault is empty. Store one with `func builtin vault put "
+            "<job>.<field>`, or fill it from a provider with "
+            "`func builtin vault sync`."
+        )
         return
 
+    def _origin_column(entry: Any) -> str:
+        # A direct entry has no provider to name, so the origin is what a
+        # reader needs in that column. Printing "None" would be an answer to a
+        # question nobody asked.
+        return entry.provider if entry.provider else str(entry.origin)
+
+    def _when(entry: Any) -> str:
+        stamp = entry.synced_at or entry.updated_at or entry.created_at
+        return stamp.isoformat(timespec="seconds") if stamp else "-"
+
     key_width = max(len(e.key) for e in entries)
-    provider_width = max(len(e.provider) for e in entries)
+    origin_width = max(len(_origin_column(e)) for e in entries)
     for entry in entries:
         click.echo(
             f"{entry.key:<{key_width}}  "
-            f"{entry.provider:<{provider_width}}  "
-            f"{entry.synced_at.isoformat(timespec='seconds')}  {entry.annotation}"
+            f"{_origin_column(entry):<{origin_width}}  "
+            f"{_when(entry)}  {entry.annotation or ''}".rstrip()
         )
 
 
@@ -163,6 +186,9 @@ def vault_status_command(ctx: click.Context, json_out: bool) -> None:
                 "max_age_seconds": int(report.max_age.total_seconds()),
                 "stale": report.stale,
                 "providers": list(report.providers),
+                "direct_entries": report.direct_entries,
+                "provider_entries": report.provider_entries,
+                "key_matches_store": report.key_matches_store,
             }
         )
         return
@@ -171,7 +197,10 @@ def vault_status_command(ctx: click.Context, json_out: bool) -> None:
 
     click.echo(f"Path:         {report.path}")
     click.echo(f"Exists:       {'yes' if report.exists else 'no'}")
-    click.echo(f"Entries:      {report.entry_count}")
+    click.echo(
+        f"Entries:      {report.entry_count} "
+        f"({report.direct_entries} direct, {report.provider_entries} synced)"
+    )
     click.echo(f"Key provider: {report.key_provider or '(none available)'}")
     if report.age is not None:
         marker = "  ← stale" if report.stale else ""
@@ -180,6 +209,21 @@ def vault_status_command(ctx: click.Context, json_out: bool) -> None:
         click.echo("Last synced:  never")
     click.echo(f"Max age:      {vault_duration(report.max_age)}")
     click.echo("Providers:    " + (", ".join(report.providers) or "(none registered)"))
+    if report.key_matches_store is False:
+        # The state that explains an otherwise baffling refusal at run time.
+        # Nothing could report it before the check value existed.
+        click.echo("")
+        click.echo(
+            "This vault was written with a different key, so its entries "
+            "cannot be read.",
+            err=True,
+        )
+        click.echo(
+            "Refresh them with `func builtin vault sync`, or drop them with "
+            "`func builtin vault remove <path>` / `clear` — neither needs a "
+            "key.",
+            err=True,
+        )
     if report.stale:
         click.echo("")
         click.echo("Run `func builtin vault sync` to refresh it.")
@@ -193,24 +237,66 @@ def vault_status_command(ctx: click.Context, json_out: bool) -> None:
     default=False,
     help="Do not ask for confirmation.",
 )
-def vault_clear_command(assume_yes: bool) -> None:
-    """Delete this project's vault.
+@click.option(
+    "--json", "json_out", is_flag=True, default=False, help="Emit the report as JSON."
+)
+def vault_clear_command(assume_yes: bool, json_out: bool) -> None:
+    """Delete this project's whole vault. Needs no key.
 
-    Confirms first. The values live authoritatively in the remote store and
-    a sync refills the vault, but a secret whose remote entry has since
-    been deleted is gone -- and this command cannot tell the two apart.
+    The sledgehammer to `remove`'s scalpel, and still the thing to reach for
+    when a store cannot be opened at all.
+
+    **The confirmation now says what would be lost, by kind.** A synced value
+    comes back on the next `vault sync`; a value typed in through `vault put`
+    has no upstream copy and is simply gone. Counting them together would put
+    the two behind one number and let someone say yes to the wrong one.
     """
-    from functualize.app.utils import vault_clear, vault_location
+    from functualize.app.utils import vault_clear, vault_entries, vault_location
 
     path = vault_location()
     if not path.exists():
-        click.echo(f"No vault to clear at {path}")
+        if json_out:
+            _vault_json(
+                {
+                    "ok": True,
+                    "path": str(path),
+                    "cleared": False,
+                    "direct_entries": 0,
+                    "provider_entries": 0,
+                }
+            )
+        else:
+            click.echo(f"No vault to clear at {path}")
         return
-    if not assume_yes and not click.confirm(f"Delete {path}?", default=False):
-        click.echo("Left alone.")
-        return
+
+    from functualize.app.vault import VaultOrigin
+
+    entries = vault_entries()
+    direct = sum(1 for e in entries if e.origin is VaultOrigin.DIRECT)
+    synced = len(entries) - direct
+
+    if not assume_yes:
+        click.echo(f"{path} holds {len(entries)} entries:")
+        click.echo(f"  {synced} synced   — a `vault sync` refills these")
+        if direct:
+            click.echo(f"  {direct} direct   — typed in here, with no upstream copy")
+        if not click.confirm("Delete all of them?", default=False):
+            click.echo("Left alone.")
+            return
+
     vault_clear()
-    click.echo(f"Cleared {path}")
+    if json_out:
+        _vault_json(
+            {
+                "ok": True,
+                "path": str(path),
+                "cleared": True,
+                "direct_entries": direct,
+                "provider_entries": synced,
+            }
+        )
+        return
+    click.echo(f"Cleared {path} ({direct} direct, {synced} synced).")
 
 
 @vault_app.command("sync")
@@ -234,13 +320,35 @@ def vault_sync_command(ctx: click.Context, json_out: bool) -> None:
     have worked. The exit code is non-zero when anything was declared and
     did not land, so a pipeline still notices.
     """
-    from functualize.app.utils import VaultKeyUnavailableError, vault_sync
+    from functualize.app.utils import (
+        VaultKeyMismatchError,
+        VaultKeyUnavailableError,
+        vault_sync,
+    )
 
-    app = _vault_app(ctx)
+    app = _vault_app(ctx, "vault sync")
     try:
         report = vault_sync(app)
+    except VaultKeyMismatchError as exc:
+        # Refused *before* writing, so the store is exactly as it was. The
+        # orphan list is what makes this actionable rather than alarming.
+        if json_out:
+            _vault_json(
+                {
+                    "ok": False,
+                    "reason": "key_mismatch",
+                    "message": str(exc),
+                    "would_orphan": list(exc.orphans),
+                }
+            )
+        else:
+            click.echo(f"Error: {exc}", err=True)
+        raise SystemExit(ExitCode.REFUSED) from exc
     except VaultKeyUnavailableError as exc:
-        click.echo(f"Error: {exc}", err=True)
+        if json_out:
+            _vault_json({"ok": False, "reason": "key_unavailable", "message": str(exc)})
+        else:
+            click.echo(f"Error: {exc}", err=True)
         raise SystemExit(ExitCode.REFUSED) from exc
 
     if json_out:

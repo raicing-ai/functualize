@@ -1108,3 +1108,214 @@ class TestTheAppContextMessage:
 
         assert result.exit_code == ExitCode.USAGE
         assert "vault put" in result.output
+
+
+class TestOriginAwareListing:
+    def test_list_renders_a_mixed_store_without_raising(
+        self, project: Path, local_app: FunctualizeApp, register: Any
+    ) -> None:
+        """The renderer used to assume provider and synced_at were present.
+
+        It measured `len(entry.provider)` and called
+        `entry.synced_at.isoformat()`, so the first direct entry would have
+        raised — a crash in the command you reach for to find out what is in
+        your vault.
+        """
+        from functualize._config.vault import VaultOrigin
+
+        vault = SecretsVault(vault_location())
+        vault.put(
+            "report.password",
+            _CONSPICUOUS,
+            encryption_key=_KEY,
+            annotation="fake-sm://prod/db",
+            provider="fake-sm",
+        )
+        vault.put(
+            "deploy.api_token",
+            _CONSPICUOUS,
+            encryption_key=_KEY,
+            origin=VaultOrigin.DIRECT,
+        )
+
+        result = _run(["list"])
+
+        assert result.exit_code == ExitCode.OK
+        assert "deploy.api_token" in result.stdout
+        assert "direct" in result.stdout
+        assert _CONSPICUOUS not in result.stdout
+
+    def test_list_json_nulls_what_a_direct_entry_lacks(self, project: Path) -> None:
+        from functualize._config.vault import VaultOrigin
+
+        SecretsVault(vault_location()).put(
+            "deploy.api_token",
+            _CONSPICUOUS,
+            encryption_key=_KEY,
+            origin=VaultOrigin.DIRECT,
+        )
+
+        entry = json.loads(_run(["list", "--json"]).stdout)["entries"][0]
+
+        assert entry["origin"] == "direct"
+        assert entry["provider"] is None
+        assert entry["annotation"] is None
+        assert entry["synced_at"] is None
+        assert entry["created_at"] is not None
+
+    def test_list_json_keeps_every_pre_existing_field(self, project: Path) -> None:
+        """Additive for a synced entry: nothing removed, nothing renamed."""
+        SecretsVault(vault_location()).put(
+            "report.password",
+            _CONSPICUOUS,
+            encryption_key=_KEY,
+            annotation="fake-sm://prod/db",
+            provider="fake-sm",
+        )
+
+        entry = json.loads(_run(["list", "--json"]).stdout)["entries"][0]
+
+        assert {"key", "annotation", "provider", "synced_at"} <= set(entry)
+        assert entry["provider"] == "fake-sm"
+
+
+class TestStatusCountsAndKeyState:
+    def test_it_counts_the_two_kinds_separately(self, project: Path) -> None:
+        from functualize._config.vault import VaultOrigin
+
+        vault = SecretsVault(vault_location())
+        vault.put(
+            "report.password",
+            "v",
+            encryption_key=_KEY,
+            annotation="fake-sm://x",
+            provider="fake-sm",
+        )
+        vault.put(
+            "deploy.api_token", "v", encryption_key=_KEY, origin=VaultOrigin.DIRECT
+        )
+
+        payload = json.loads(_run(["status", "--json"]).stdout)
+
+        assert payload["direct_entries"] == 1
+        assert payload["provider_entries"] == 1
+        assert payload["key_matches_store"] is True
+
+    def test_it_reports_a_key_that_does_not_open_the_store(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Nothing could say this before the check value existed."""
+        SecretsVault(vault_location()).put(
+            "report.password",
+            "v",
+            encryption_key=_KEY,
+            annotation="fake-sm://x",
+            provider="fake-sm",
+        )
+        monkeypatch.setenv("FUNCTUALIZE_VAULT_KEY", (b"\x99" * KEY_BYTES).hex())
+
+        result = _run(["status"])
+
+        assert "written with a different key" in result.output
+        assert (
+            json.loads(_run(["status", "--json"]).stdout)["key_matches_store"] is False
+        )
+
+
+class TestClearIsOriginAware:
+    def test_the_confirmation_separates_the_two_kinds(self, project: Path) -> None:
+        """Counting them together would put a recoverable value and an
+        unrecoverable one behind one number."""
+        from functualize._config.vault import VaultOrigin
+
+        vault = SecretsVault(vault_location())
+        vault.put(
+            "report.password",
+            "v",
+            encryption_key=_KEY,
+            annotation="fake-sm://x",
+            provider="fake-sm",
+        )
+        vault.put(
+            "deploy.api_token", "v", encryption_key=_KEY, origin=VaultOrigin.DIRECT
+        )
+
+        result = CliRunner().invoke(
+            _cli(), ["builtin", "vault", "clear"], obj={}, input="n\n"
+        )
+
+        assert "1 synced" in result.stdout
+        assert "1 direct" in result.stdout
+        assert "no upstream copy" in result.stdout
+        assert "Left alone" in result.stdout
+
+    def test_json_reports_what_was_cleared(self, project: Path) -> None:
+        SecretsVault(vault_location()).put(
+            "report.password",
+            "v",
+            encryption_key=_KEY,
+            annotation="fake-sm://x",
+            provider="fake-sm",
+        )
+
+        payload = json.loads(_run(["clear", "--yes", "--json"]).stdout)
+
+        assert payload["cleared"] is True
+        assert payload["provider_entries"] == 1
+        assert not vault_location().exists()
+
+    def test_it_still_needs_no_key(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        SecretsVault(vault_location()).put(
+            "report.password",
+            "v",
+            encryption_key=_KEY,
+            annotation="fake-sm://x",
+            provider="fake-sm",
+        )
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+
+        assert _run(["clear", "--yes"]).exit_code == ExitCode.OK
+
+
+class TestSyncRefusesARotatedKey:
+    def test_it_refuses_before_writing_and_names_the_orphans(
+        self, project: Path, register: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Without this, sync would report ok: true while creating rows that
+        can never be read again."""
+        register()
+        SecretsVault(vault_location()).put(
+            "report.legacy",
+            "v",
+            encryption_key=_KEY,
+            annotation="fake-sm://old",
+            provider="fake-sm",
+        )
+        monkeypatch.setenv("FUNCTUALIZE_VAULT_KEY", (b"\x77" * KEY_BYTES).hex())
+
+        result = _run(["sync", "--json"], app=_app())
+        payload = json.loads(result.stdout)
+
+        assert result.exit_code == ExitCode.REFUSED
+        assert payload["reason"] == "key_mismatch"
+        assert "report.legacy" in payload["would_orphan"]
+
+    def test_the_store_is_untouched_by_the_refusal(
+        self, project: Path, register: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        register()
+        SecretsVault(vault_location()).put(
+            "report.legacy",
+            "v",
+            encryption_key=_KEY,
+            annotation="fake-sm://old",
+            provider="fake-sm",
+        )
+        before = {e.key for e in SecretsVault(vault_location()).list_entries()}
+        monkeypatch.setenv("FUNCTUALIZE_VAULT_KEY", (b"\x77" * KEY_BYTES).hex())
+
+        _run(["sync", "--json"], app=_app())
+
+        assert {e.key for e in SecretsVault(vault_location()).list_entries()} == before

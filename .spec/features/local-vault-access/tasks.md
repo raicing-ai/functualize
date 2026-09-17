@@ -180,7 +180,7 @@ into a dev run — and the next argument, `remote_source`, was omitted anyway.
 
 ## Wave 6 — existing CLI commands
 
-### [ ] T7.1 — Origin-aware `list`/`status`/`clear`/`sync`
+### [x] T7.1 — Origin-aware `list`/`status`/`clear`/`sync`
 
 - `[F]` `src/functualize/_cli/vault_cmd.py`, `tests/cli/test_vault_commands.py`
 - `[D]` T6.1 (same file), T3.1

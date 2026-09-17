@@ -311,6 +311,7 @@ __all__ = [
     "vault_location",
     "vault_status",
     "vault_sync",
+    "VaultKeyMismatchError",
     "VaultKeyUnavailableError",
     "VaultStatusReport",
     "VaultSyncReport",
@@ -2060,6 +2061,22 @@ def read_display_modules_from_cache(
 # ---------------------------------------------------------------------------
 
 
+class VaultKeyMismatchError(RuntimeError):
+    """The resolved key does not open this store, so syncing would orphan rows.
+
+    Distinct from :class:`VaultKeyUnavailableError`, which is "no key at all".
+    Here a key is present and simply is not the one this vault was written
+    with — a state nothing could report before the store carried a key check
+    value.
+    """
+
+    def __init__(self, message: str, *, orphans: tuple[str, ...] = ()) -> None:
+        super().__init__(message)
+        self.orphans = orphans
+        """Stored keys the sync would not have rewritten, so a caller can list
+        exactly what would have been lost rather than saying "some entries"."""
+
+
 class VaultKeyUnavailableError(RuntimeError):
     """No key provider could supply a key, so the vault cannot be written."""
 
@@ -2080,6 +2097,14 @@ class VaultStatusReport:
         stale: Whether ``age`` exceeds ``max_age``.
         providers: Identifiers of the registered remote providers, so
             ``status`` can say what a sync would even be able to fetch.
+        direct_entries: Values typed in through ``vault put``. These have no
+            upstream copy, which is why they are counted separately from the
+            ones a sync can refill.
+        provider_entries: Values a sync fetched. Recoverable from upstream.
+        key_matches_store: Whether the resolved key opens this store, from its
+            key check value. ``None`` when the store does not exist or was
+            written before check values did, in which case the question has no
+            answer rather than a negative one.
     """
 
     path: Path
@@ -2091,6 +2116,9 @@ class VaultStatusReport:
     max_age: Any
     stale: bool
     providers: tuple[str, ...]
+    direct_entries: int = 0
+    provider_entries: int = 0
+    key_matches_store: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -2198,6 +2226,20 @@ def vault_status(app: Any = None, cwd: str | Path | None = None) -> VaultStatusR
     if registry is not None:
         providers = tuple(sorted(registry.list_remote_providers()))
 
+    from functualize._config.vault import VaultOrigin
+
+    # Counted separately because they recover differently: a provider entry
+    # comes back from upstream on the next sync, a direct one is the only copy
+    # that exists. `clear` needs the distinction to warn honestly.
+    direct = sum(1 for e in entries if e.origin is VaultOrigin.DIRECT)
+
+    # Non-interactive throughout, as this function already is: `status` must
+    # answer on a machine whose keychain is locked without raising a prompt,
+    # because "why can I not read my vault?" is exactly when it gets run.
+    key_matches = (
+        vault.opens_with(resolution.key) if exists and resolution is not None else None
+    )
+
     return VaultStatusReport(
         path=path,
         exists=exists,
@@ -2208,6 +2250,9 @@ def vault_status(app: Any = None, cwd: str | Path | None = None) -> VaultStatusR
         max_age=max_age,
         stale=age is not None and age > max_age,
         providers=providers,
+        direct_entries=direct,
+        provider_entries=len(entries) - direct,
+        key_matches_store=key_matches,
     )
 
 
@@ -2319,6 +2364,29 @@ def vault_sync(app: Any, cwd: str | Path | None = None) -> VaultSyncReport:
         raise VaultKeyUnavailableError(msg)
 
     vault = SecretsVault(path, key_provider_id=resolution.provider_id)
+
+    # Before writing anything. `sync` only ever writes, and only the keys that
+    # are *currently declared* as annotations -- so under a changed key it would
+    # cheerfully add fresh rows beside ones it can no longer read, and report
+    # ok: true. Every undeclared row and every direct entry would be stranded
+    # under the old key, permanently, and under ADR-023 §1 each one becomes a
+    # hard refusal at run time. Naming them is the whole point of refusing.
+    if vault.opens_with(resolution.key) is False:
+        orphans = sorted(
+            entry.key
+            for entry in vault.list_entries()
+            if entry.key not in scan.annotations
+        )
+        listed = "\n".join(f"  {key}" for key in orphans)
+        msg = (
+            "This vault was written with a different key, and syncing now "
+            "would write new values beside ones that can no longer be read.\n\n"
+            + (f"These would be stranded permanently:\n{listed}\n\n" if orphans else "")
+            + "Supply the original key, or drop the store with "
+            "`func builtin vault clear` — it needs no key."
+        )
+        raise VaultKeyMismatchError(msg, orphans=tuple(orphans))
+
     synced: list[tuple[str, str]] = []
     failed: list[tuple[str, str]] = []
 
