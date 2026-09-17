@@ -236,7 +236,7 @@ public if something outside the framework uses it the way a user would. The
 - `[G]` It runs with **no keyring and no network** — the env-key route — so it works in the CI examples job and on a stock install.
 - `[G]` The submitted secret does not appear in the example's own output.
 
-### [ ] T8.3 — Documentation
+### [x] T8.3 — Documentation
 
 - `[F]` `docs/guides/configuration.md`, `README.md`, `CHANGELOG.md`
 - `[D]` all prior

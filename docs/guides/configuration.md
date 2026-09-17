@@ -461,6 +461,50 @@ lives and never carries its **value** (ADR-016).
 There is no `[secrets]` section. A credential is a field in its job's own
 section, marked secret — one concept, not two.
 
+## A secret of your own
+
+The vault started as a cache for values fetched from AWS Secrets Manager or
+Bitwarden. It is also, and more simply, somewhere to put **one secret you have**
+— no provider, no account, no preset:
+
+```console
+$ func builtin vault init                    # once per machine
+$ func builtin vault put deploy.api_token    # masked prompt
+$ func deploy                                # the job receives it
+```
+
+`deploy.api_token` is a **canonical path**: the job's published name, then one
+of its config fields. The field must be declared `Secret[str]` (or marked
+secret), because the vault stores only what a job has said is sensitive — a
+value cannot be put somewhere it would later be printed. The path is checked
+against the live job schema *before* the value is read, so a typo costs you
+nothing you have already typed.
+
+The stored value resolves through the ordinary configuration chain, above the
+environment and config files and below an explicit argument:
+
+```text
+explicit argument  >  vault  >  environment  >  config file  >  model default
+```
+
+Nothing changes for a project that has never used the vault.
+
+### In CI, and without a keyring
+
+Neither `init` nor a keyring is required. The store is created by the first
+write, so the whole recipe is:
+
+```bash
+export FUNCTUALIZE_VAULT_KEY="$CI_VAULT_KEY"
+func builtin vault init --key-source env     # optional: fail fast if unset
+echo "$TOKEN" | func builtin vault put deploy.api_token --stdin
+func deploy
+```
+
+`put` never prompts when it has no terminal — it refuses and tells you to pass
+`--stdin` or `--file`, because a pipeline that blocks on input nobody is sending
+never reports anything at all.
+
 ## Remote Configuration
 
 A config value can name **where** a credential lives instead of carrying it:
@@ -557,17 +601,41 @@ from `classic()` worth knowing before you switch.
 The vault key is resolved by a `VaultKeyProvider`, non-interactive sources
 first:
 
-| Provider | Source | Interactive |
-|---|---|---|
-| `env` | `$FUNCTUALIZE_VAULT_KEY` (64 hex characters) | no |
-| `keychain` | the OS keyring | yes |
+| Provider | Source | Interactive | Installed by default |
+|---|---|---|---|
+| `env` | `$FUNCTUALIZE_VAULT_KEY` (64 hex characters) | no | yes |
+| `keychain` | the OS keyring | yes | no — `functualize[keychain]` |
 
 The environment wins **when set**, so an automated run is deterministic and
 never blocks on a prompt. Interactive providers are consulted only on a real
 terminal — a Lambda must not hang on a keychain dialog.
 
-With no key at all the vault does not open. There is **no plaintext fallback**:
-resolution falls through to the next source, and says so.
+**One key, every project.** Both shipped providers are user-scoped: the same key
+opens every project's vault on this machine. The vaults stay separate — one
+encrypted file each — so isolation comes from the files, not from the keys. A
+third-party provider may still hold one key per project; scope is the
+provider's choice.
+
+With no key at all the vault does not open, and there is **no plaintext
+fallback**. What happens next depends on whether anything is actually stored
+for the key being resolved:
+
+```text
+the vault holds nothing for this key  ->  resolution continues to the next
+                                          source, and says so
+the vault HOLDS a value for this key  ->  the run refuses
+```
+
+The second case is the one worth understanding. A stored value is the one you
+provisioned; continuing past it to an environment variable would hand the job a
+*different* secret while the run reported success. The refusal names the three
+ways out, two of which need no key:
+
+```text
+func builtin vault sync                    refresh from upstream
+func builtin vault remove <path>           drop this entry
+func builtin vault clear                   drop the whole store
+```
 
 ### Three things that warn rather than fail
 
@@ -610,14 +678,28 @@ because the alternative is a job receiving the literal string as its password.
 ### The `builtin vault` commands
 
 ```bash
+func builtin vault init      # ensure this machine has a key -- never prints it
+func builtin vault put       # store one secret at <job>.<field>
+func builtin vault inspect   # explain a path -- never the value
+func builtin vault remove    # drop one entry, needs no key
 func builtin vault sync      # fetch every annotation, write the vault
-func builtin vault list      # names, providers, synced_at -- never values
-func builtin vault status    # key provider in use, age, entry count
-func builtin vault clear     # delete this project's vault
+func builtin vault list      # names, origins, timestamps -- never values
+func builtin vault status    # key provider in use, age, entry counts
+func builtin vault clear     # delete this project's vault, needs no key
 func builtin vault keygen    # print a fresh 32-byte key, hex-encoded
 ```
 
-`sync`, `list` and `status` take `--json`.
+All of them take `--json`.
+
+The first four are the **local** lifecycle: they need no remote provider and no
+cloud account. See *A secret of your own* above. `sync` is the remote one, and
+the only thing here that touches the network.
+
+`put` stores what you type; `sync` stores what a provider answered. Entries
+remember which, because they recover differently — a synced value comes back on
+the next `sync`, a typed-in one has no upstream copy at all. Neither silently
+replaces the other: a `sync` that finds a typed-in value at its key reports the
+conflict rather than overwriting it, and `put` refuses a path a provider owns.
 
 `list` and `status` need **no key** — they read the cleartext metadata columns,
 which is what makes them useful on the machine where something is wrong.
@@ -627,7 +709,7 @@ which is what makes them useful on the machine where something is wrong.
 $ func builtin vault status
 Path:         ~/.local/share/functualize/vaults/0f8c5900f3b1/vault.db
 Exists:       yes
-Entries:      3
+Entries:      3 (1 direct, 2 synced)
 Key provider: env
 Last synced:  4d 2h ago  ← stale
 Max age:      1d

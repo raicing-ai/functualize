@@ -543,11 +543,13 @@ class TestTheWarningOnTheRunPath:
         """
         from functualize._config.vault import VaultEntryUnreadableError
 
-        with caplog.at_level(logging.WARNING):
-            with pytest.raises(VaultEntryUnreadableError):
-                _source(stale, max_age=timedelta(hours=24), key=None).get(
-                    "password", "database"
-                )
+        with (
+            caplog.at_level(logging.WARNING),
+            pytest.raises(VaultEntryUnreadableError),
+        ):
+            _source(stale, max_age=timedelta(hours=24), key=None).get(
+                "password", "database"
+            )
         assert caplog.records == []
 
     def test_an_unopenable_vault_still_falls_through_for_a_key_it_lacks(
