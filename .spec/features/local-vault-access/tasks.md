@@ -213,18 +213,26 @@ into a dev run — and the next argument, `remote_source`, was omitted anyway.
 - `[G]` For a distinctive submitted secret, the exact bytes are absent from stdout, stderr, logs, JSON, exception text, the database file **and its `-wal` / `-shm` sidecars** — WAL is on (`PRAGMA journal_mode=WAL`), so the sidecars are real and must be scanned.
 - `[G]` Swept across `init`, `put`, `inspect`, `list`, `status`, `remove`, `clear`, `sync` and a job run.
 
-### [ ] T8.4 — An example project that uses the public vault API
+### [x] T8.4 — An example project that uses the public vault API
 
 **Added during Execute, at maintainer request.** The public seam is only proven
 public if something outside the framework uses it the way a user would. The
 `_cli` layer dogfoods it, but `_cli` is ours; an example is theirs.
 
-- `[F]` `examples/quickstart/step9_vault/` (`secrets_job.py`, `test_step9.py`, `conftest.py`), `examples/quickstart/README.md`
+- `[F]` `examples/standalone/secrets_lab/README.md`, `examples/standalone/secrets_lab/tests/test_vault_lifecycle.py`
+
+  **Location changed during execution, with the reason.** Planned as a new
+  `examples/quickstart/step9_vault/`. `secrets_lab` is the better home: it is
+  already *"how a credential is declared, resolved, and — everywhere it is
+  rendered — withheld"*, and it ends on `func report` failing for want of a
+  `REPORT_TOKEN`. The vault is the missing half of that same sentence — how you
+  *supply* the credential you just declared — and a new quickstart step would
+  have duplicated its `Secret[str]` job to tell a worse-connected story.
 - `[D]` T5.1 (the operations), T6.1 (the commands it documents)
 - `[G]` The example job declares a `Secret[str]` config field and receives the value from the vault — through `FunctualizeApp`, not through `func`, so it proves the seam is reachable without the CLI.
 - `[G]` It calls `vault_init`, `vault_put`, `vault_inspect` and `vault_remove` from `functualize.app.vault` — the public path, never `_config`.
-- `[G]` `grep -rn "functualize\._" examples/quickstart/step9_vault/` → **0 hits**. An example reaching into an internal package would be documenting a layer violation.
-- `[G]` `uv run pytest examples/quickstart/step9_vault/ -v` green. Note `testpaths = ["tests"]`, so the root pytest run does not collect it; CI's `examples` job does.
+- `[G]` `grep -rn "functualize\._" examples/standalone/secrets_lab/` → **0 hits**. An example reaching into an internal package would be documenting a layer violation.
+- `[G]` `uv run pytest examples/standalone/secrets_lab/ -v` green. Note `testpaths = ["tests"]`, so the root pytest run does not collect it; CI's `examples` job does.
 - `[G]` It runs with **no keyring and no network** — the env-key route — so it works in the CI examples job and on a stock install.
 - `[G]` The submitted secret does not appear in the example's own output.
 
