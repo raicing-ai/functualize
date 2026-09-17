@@ -53,12 +53,10 @@ class MyPlugin:
     name = "state-my-substrate"
 
     def __call__(self, app):
-        from functualize._events.hooks import HookEvent
-
-        app.hook_registry.register_global(HookEvent.APP_READY, self._on_app_ready)
+        app.hooks.on_ready(self._on_app_ready)
 
     def _on_app_ready(self, app):
-        app.substrate = MySubstrate()
+        app.install_substrate(MySubstrate())
 ```
 
 `APP_READY` and not later: the engine resolves its substrate lazily, on the

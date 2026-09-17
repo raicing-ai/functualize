@@ -388,8 +388,12 @@ A substrate is six methods — `read`, `write`, `lock`, `clear`, `delete`,
 
 ```python
 def _on_app_ready(self, app):
-    app.substrate = MySubstrate(...)
+    app.install_substrate(MySubstrate(...))
 ```
+
+A call, not an assignment: installing after the engine has already resolved a
+substrate is **refused** rather than half-applied, and a property setter has
+nowhere to say so. `app.substrate` now reads the storage *in effect*.
 
 Two things a backend without a shared filesystem must get right:
 

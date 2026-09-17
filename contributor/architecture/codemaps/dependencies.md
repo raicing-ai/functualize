@@ -22,15 +22,19 @@ See `contributor/architecture/dependency-graph.md` for the authoritative, human-
                    _cli/            <- DELIVERY (public API only -- no `_` imports)
 ```
 
-Enforced in CI by `import-linter` (`uv run lint-imports`), five contracts defined in `pyproject.toml` `[tool.importlinter]`:
+Enforced in CI by `import-linter` (`uv run lint-imports`), seven contracts defined in `pyproject.toml` `[tool.importlinter]`:
 
 1. "Peer layers are independent" — independence contract over `_discovery`, `_config`, `_engine`, `_plugins`.
-2. "Primitives import nothing internal" — forbidden contract.
-3. "Types import nothing internal" — forbidden contract.
-4. "Internal never imports public" — forbidden contract (blocks `_app` etc. from importing `functualize.app`).
-5. "`_cli` uses public API only" — forbidden contract (blocks `_cli` from importing any `_`-prefixed package).
+2. "Events depends on foundation only" — forbidden contract.
+3. "Primitives import nothing internal" — forbidden contract.
+4. "Types import nothing internal" — forbidden contract. This is what keeps `PluginHost` nameable by a plugin: `_types/host.py` imports stdlib and `_types` only, so annotating against the port never drags in the application.
+5. "Internal never imports public" — forbidden contract (blocks `_app` etc. from importing `functualize.app`).
+6. "`_cli` uses public API only" — forbidden contract (blocks `_cli` from importing any `_`-prefixed package).
+7. "Delivery adapters go through the request, not the engine" — forbidden contract.
 
-`exclude_type_checking_imports = true` — imports inside `if TYPE_CHECKING:` blocks are not evaluated by the contracts.
+The list above previously named five of the seven and the prose said "five"; `pyproject.toml` and `.spec/CONSTITUTION.md` both said "six". All three are now the number `grep -c '^\[\[tool.importlinter.contracts\]\]' pyproject.toml` returns (`plugin-host-protocol` AC-21).
+
+`exclude_type_checking_imports = true` — imports inside `if TYPE_CHECKING:` blocks are not evaluated by the contracts. **This is a real hole, not a footnote**: a deferred `_types → _app` import leaves `lint-imports` reporting "7 kept, 0 broken", measured by adding one. Where that matters, a test reads the import lines instead — see `tests/types/test_plugin_host_port.py` and `contributor/architecture/layer-contract-blind-spot.md` §7.
 
 **Verified compliant**: a grep across `_discovery/`, `_config/`, `_engine/`, `_plugins/` found exactly one cross-peer reference — `_engine/capabilities/runcontext.py:31` imports `functualize._config.job_config.JobConfigView`, but it's inside `TYPE_CHECKING` and therefore excluded by contract 1. No runtime peer-layer violation exists.
 

@@ -8,7 +8,7 @@ Non-negotiables. Violating these requires explicit user approval.
 
 The internal package structure follows a strict dependency order. Each layer may
 only import from layers above it in this chain. These rules are enforced by the
-six `[tool.importlinter]` contracts in `pyproject.toml` — that config is the
+seven `[tool.importlinter]` contracts in `pyproject.toml` — that config is the
 source of truth and this table is a summary of it (`uv run lint-imports`).
 
 ```

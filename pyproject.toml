@@ -233,7 +233,7 @@ ignore_missing_imports = true
 root_package = "functualize"
 # Unchanged deliberately, and measured rather than assumed: an import inside
 # `if TYPE_CHECKING:` is not an edge in import-linter's graph, so it can cross a
-# boundary the six contracts below refuse while CI stays green. The hole is
+# boundary the seven contracts below refuse while CI stays green. The hole is
 # 155 statements wide, of which **8 would be refused as direct edges** — five
 # package pairs, named one by one in
 # `contributor/architecture/layer-contract-blind-spot.md` along with why each is

@@ -50,7 +50,7 @@ from functualize_my_plugin.plugin import MyPlugin
 __all__ = ["MyPlugin"]
 
 # src/functualize_my_plugin/plugin.py
-from typing import Any
+from functualize.plugin import PluginHost
 
 
 class MyPlugin:
@@ -66,12 +66,12 @@ class MyPlugin:
     # config_model = MyPluginConfig
     # config_section = "my_plugin"
 
-    def __call__(self, app: Any) -> None:
+    def __call__(self, app: PluginHost) -> None:
         """Called during boot. Register hooks, middleware, etc."""
         # Examples:
-        # app.provide(MyService, MyServiceImpl())
-        # app.register_plugin_command("my-cmd", self._handle, "Help text")
-        # app.event_bus.subscribe("job.execute.*", self._on_job)
+        # app.di.provide(MyService, MyServiceImpl())
+        # app.extensions.register_plugin_command("my-cmd", self._handle, "Help text")
+        # app.hooks.on_ready(self._on_app_ready)
         pass
 ```
 

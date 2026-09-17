@@ -18,6 +18,31 @@
                    _cli/            ← DELIVERY (public API only — no _ imports)
 ```
 
+## The Two Ports in `_types/`
+
+`_types/` holds two host ports, and they are peers with different audiences.
+Both exist so a dependent can name what it is handed without importing the
+application.
+
+| Port | File | Audience | Members |
+|---|---|---|---|
+| `EngineHost` | `_types/protocols.py` | the execution engine, inside this repo | job lookup, config/gate resolution, `fresh_root`, `substrate_override`, … |
+| `PluginHost` | `_types/host.py` | **plugin authors, outside this repo** — reached as `functualize.plugin.PluginHost` | 11: the five facades as views, `get_jobs`/`get_job`, `execute`, `substrate`/`install_substrate`/`fresh_root` |
+
+`_types/host.py` is its own module rather than another class in
+`protocols.py`, which is 910 lines and fourteen protocols. It also carries the
+five **view** protocols (`DependencyView`, `ExtensionsView`,
+`ConfigurationView`, `GatesView`, `HooksView`): the concrete facades live in
+`_app/`, which `_types/` may not name, so a view describes the part of one
+facade that plugins call from the layer allowed to describe it.
+
+**The `TYPE_CHECKING` escape is refused here, not merely unavailable.**
+`exclude_type_checking_imports = true` means a deferred `_types → _app` import
+passes `lint-imports` **with "7 kept, 0 broken"** — measured, by adding one.
+`layer-contract-blind-spot.md` §7 forbids it in terms, and
+`tests/types/test_plugin_host_port.py` reads the module's import lines to hold
+the line where `lint-imports` cannot.
+
 ## Allowed Imports Matrix
 
 | Layer | May Import From | Must NOT Import From |
