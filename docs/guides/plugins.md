@@ -77,12 +77,14 @@ class PluginMetadata(Protocol):
 In addition to metadata attributes, a plugin **must be callable**. The `PluginLoader` invokes the plugin object with the application instance as the sole argument; its CLI command surface is a Click `Group`, reached via `app.cli_command`. This is the registration step where your plugin hooks into the application.
 
 ```python
+from functualize.plugin import PluginHost
+
 class MyPlugin:
     name = "my-plugin"
     version = "1.0.0"
     description = "Adds a greeting command"
 
-    def __call__(self, app):  # (1)!
+    def __call__(self, app: PluginHost) -> None:  # (1)!
         """Register plugin functionality with the app."""
         def greet(name: str = "World"):
             """Say hello."""

@@ -69,7 +69,7 @@ class GateResolver(Protocol):
     def resolve(self, ctx: GateContext) -> BaseModel: ...
 ```
 
-**Registered, never auto-discovered** (`app.register_gate_strategy()`). A missing
+**Registered, never auto-discovered** (`app.gates.register_gate_strategy()`). A missing
 implementation is reported as *"unregistered … install `<pkg>` to register it"* via
 `GateResolutionError.last_error` (`_gate/_registry.py:24-37`, `:180-203`).
 

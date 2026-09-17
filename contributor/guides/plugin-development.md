@@ -114,6 +114,9 @@ def test_plugin_loads():
 
 ## Plugin Patterns
 
+Each pattern below assumes `from functualize.plugin import PluginHost`.
+*Observer Plugin* is the one exception, and says why.
+
 ### Capability Plugin (registers a CLI command)
 
 ```python
@@ -122,8 +125,8 @@ class HttpServerPlugin:
     version = "1.0.0"
     description = "HTTP server for job execution"
 
-    def __call__(self, app):
-        app.register_plugin_command("serve", self._start_server, "Start HTTP server")
+    def __call__(self, app: PluginHost) -> None:
+        app.extensions.register_plugin_command("serve", self._start_server, "Start HTTP server")
 
     def _start_server(self, port: int = 8000):
         # Start server using app reference
@@ -168,7 +171,7 @@ class LambdaAdapter:
     description = "AWS Lambda adapter"
     adapter_type = "lambda"
 
-    def __call__(self, app):
+    def __call__(self, app: PluginHost) -> None:
         self._app = app
 
     def run(self, event, context):
@@ -182,6 +185,18 @@ class LambdaAdapter:
 ```
 
 ### Observer Plugin (subscribes to events)
+
+**The one pattern that cannot take `PluginHost`.** `event_bus` is not a port
+member, so `app` here is the concrete `FunctualizeApp`. That is a measured
+exclusion, not an oversight: the port takes the members with two or more
+first-party plugin clients, and `rg 'app[.]event_bus' plugins/*/src` finds
+**zero** — every shipped subscriber is in `src/`. `event_bus` remains a public
+member of `FunctualizeApp`, so this example is correct as written; it is simply
+outside the narrow door. The same is true of `hook_registry` for every event but
+`APP_READY` (see `docs/guides/hooks.md`).
+
+If you write a plugin that needs either, annotate it
+`app: FunctualizeApp` and say so — do not reach for `Any`.
 
 ```python
 class SlackNotifier:
@@ -206,8 +221,8 @@ class InlinePromptPlugin:
     version = "1.0.0"
     description = "Inline Textual prompts"
 
-    def __call__(self, app):
-        app.register_surface(self)
+    def __call__(self, app: PluginHost) -> None:
+        app.extensions.register_surface(self)
 
     # Surface method — receives the StructuredEvent fan-out:
     def handle_event(self, event) -> None: ...

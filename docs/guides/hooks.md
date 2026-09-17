@@ -55,6 +55,13 @@ class AuditPlugin:
         rc.log(f"[audit] Job '{rc.name}' starting")
 ```
 
+!!! note "Why `app` is untyped here"
+    `hook_registry` is not a `PluginHost` member — only `APP_READY` has a
+    port door, `app.hooks.on_ready`. Every other event still goes through
+    `app.hook_registry`, which is public on `FunctualizeApp` but off the
+    narrow plugin port, so annotate such a plugin `app: FunctualizeApp`
+    rather than `Any`.
+
 **Directly in app bootstrap** (for project-specific concerns):
 
 ```python

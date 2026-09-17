@@ -785,8 +785,8 @@ class DBPlugin:
             """Seed sample data."""
             print(f"Seeding {count} records")
 
-        app.register_plugin_command("migrate", migrate, group="db", help_text="Run migrations")
-        app.register_plugin_command("seed", seed, group="db", help_text="Seed data")
+        app.extensions.register_plugin_command("migrate", migrate, group="db", help_text="Run migrations")
+        app.extensions.register_plugin_command("seed", seed, group="db", help_text="Seed data")
 ```
 
 This creates `my-app db migrate` and `my-app db seed` commands.

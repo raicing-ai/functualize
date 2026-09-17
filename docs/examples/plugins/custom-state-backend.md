@@ -49,10 +49,12 @@ and reports refusal rather than assuming a lock was held.
 ## Plugin Boot Class
 
 ```python
+from functualize.plugin import PluginHost
+
 class MyPlugin:
     name = "state-my-substrate"
 
-    def __call__(self, app):
+    def __call__(self, app: PluginHost) -> None:
         app.hooks.on_ready(self._on_app_ready)
 
     def _on_app_ready(self, app):

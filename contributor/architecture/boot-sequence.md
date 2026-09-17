@@ -46,16 +46,16 @@ Within step 4, plugins load in three sub-phases:
 2. **Ordering**: Topological sort via `depends_on` (Kahn's algorithm)
 3. **Registration**: Each plugin's `__call__(app)` invoked in sorted order
 
-Plugins may call `app.provide()`, `app.register_plugin_command()`, subscribe to EventBus, register middleware — all during their `__call__`.
+Plugins may call `app.di.provide()`, `app.extensions.register_plugin_command()`, subscribe to EventBus, register middleware — all during their `__call__`.
 
 ## DI Registry Lifecycle
 
 ```
 UNFROZEN (during boot)                    FROZEN (after APP_READY)
 ─────────────────────────                 ────────────────────────
-app.provide(Type, inst)     ← allowed     RegistryFrozenError
-app.provide_factory(...)    ← allowed     RegistryFrozenError
-app.provide_named(...)      ← allowed     RegistryFrozenError
+app.di.provide(Type, inst)  ← allowed     RegistryFrozenError
+app.di.provide_factory(...) ← allowed     RegistryFrozenError
+app.di.provide_named(...)   ← allowed     RegistryFrozenError
 
 resolve(Type)               ← works       resolve(Type) ← still works
 ```

@@ -42,6 +42,13 @@ class MetricsPlugin:
             rc.log(f"[metrics] Job completed in {duration:.3f}s")
 ```
 
+!!! note "Why `app` is untyped here"
+    `hook_registry` is not a `PluginHost` member — only `APP_READY` has a
+    port door, `app.hooks.on_ready`. Every other event still goes through
+    `app.hook_registry`, which is public on `FunctualizeApp` but off the
+    narrow plugin port, so annotate such a plugin `app: FunctualizeApp`
+    rather than `Any`.
+
 But plugins can also do things hooks cannot:
 
 - Add CLI commands (via `app.cli_command`)
