@@ -84,6 +84,14 @@ override layer over `project.yml`.
 Hybrid lexical + semantic search over a local embedding index. Indexes markdown
 as well as code, which is why it is the only tool that can answer "why".
 
+**Always build the index. Never route around a missing one.** A checkout
+without an index is a checkout where the Specify phase's prose pass cannot run,
+and that pass is not optional. `INDEX_MISSING` from the MCP tool is an
+instruction to build, not a reason to fall back to `rg` — `rg` cannot find an
+argument, which is the entire point of the pass. This is a standing
+authorization: build it in any checkout of this repo, without asking, the first
+time a prose question has nowhere to go.
+
 ```bash
 # Build (or rebuild) this repo's index — scoped, see below
 zg index "$(git rev-parse --show-toplevel)" \
@@ -92,8 +100,19 @@ zg index "$(git rev-parse --show-toplevel)" \
 zg status
 ```
 
-Measured on this repo: **21 s / 48 MB** scoped, versus 49 s / 128 MB unscoped.
-Free — the embedding model runs locally.
+Cost, measured twice on this repo:
+
+| Where | Files | Entities | Time | On disk |
+|---|---|---|---|---|
+| main checkout, scoped (2026-09-08) | — | — | 21 s | 48 MB |
+| `feat/plugin-host-protocol` worktree, scoped (2026-09-16) | 780 | 12 627 | **1 m 17 s** | **81 MB** (+32 MB shared model cache in `~/.zvec-grep`) |
+
+Unscoped was 49 s / 128 MB. Free either way — the embedding model runs locally.
+Budget a minute-plus, not twenty seconds, and start it in the background while
+doing the `rg` half of the same pass.
+
+`.zvec-grep/` is gitignored (`.gitignore:139`), so a per-worktree index costs
+nothing but local disk.
 
 **Always pass an explicit absolute root.** Without one, `zg` walks up the
 directory tree and silently adopts an ancestor's index — so a worktree under
@@ -166,6 +185,32 @@ Repo config already in place:
 Append here when a tool surprises you. Keep entries one or two lines, dated,
 and factual — a measured number beats an impression. Prune anything that later
 turns out to be wrong rather than leaving it to mislead.
+
+- **2026-09-16** — **A fresh worktree has no zvec-grep index, and the MCP tool
+  fails closed.** `zvec_grep_search` in a new worktree returns
+  `[INDEX_MISSING] … Creating or rebuilding a persistent index requires
+  explicit user authorization`, which reads like a dead end and is not one.
+  Maintainer ruling: **always build it** (see zvec-grep above) — the standing
+  authorization is recorded so no future session has to stop and ask.
+
+- **2026-09-16** — Index cost in a worktree measured at **780 files / 12 627
+  entities / 1 m 17 s / 81 MB**, versus the 21 s / 48 MB logged for the main
+  checkout. Both figures kept above; assume the larger. Run it with `nohup … &`
+  and do the `rg` half of the Specify pass while it builds.
+
+- **2026-09-16** — `zg status` can fail with
+  `ZVEC_GREP.ENGINE.LOCK.BUSY` naming another PID as `ownerOperation: index`,
+  because the MCP server schedules background updates (`autoUpdate` defaults
+  true). The index is fine; the lock is. Read the build log instead of retrying
+  `status`, and do not conclude the index is broken.
+
+- **2026-09-16** — `rg` counted **docstrings as annotations**. The census
+  `rg -oN "app: *[A-Za-z_|\" ]+" plugins/*/src` reported 42 `app: Any` because
+  Google-style docstring lines (`app: The FunctualizeApp instance`) match the
+  same pattern. The AST count is 40 of 44 parameters. **Any count that is really
+  a question about syntax — annotations, signatures, call arity — belongs in an
+  `ast` walk, not a regex**, and a spec artifact that cites the regex number
+  inherits the error.
 
 - **2026-09-08** — Established the routing table above from a head-to-head test:
   same two questions to all three tools. serena gave exact reference counts
