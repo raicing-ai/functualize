@@ -340,3 +340,56 @@ class TestPluginShutdown:
             app.run()
 
         plugin.on_shutdown.assert_called_once_with(app)
+
+
+class TestTheOnReadyDecoratorRegisters:
+    """`app.hooks.on_ready` is the door `plugin-host-protocol` retypes — AC-5.
+
+    Written at T5 because the seam had **no caller anywhere**: not in
+    production, where all five shipped plugins call
+    `app.hook_registry.register_global(HookEvent.APP_READY, ...)` directly, and
+    not in the test suite, where the nearest thing exercises
+    `_make_global_only_decorator` with a fake registry instead. So the property
+    could have been retyped, or deleted, with every test still green.
+
+    T5's reachability gate named this file, and this file did not mention
+    `on_ready` — the fourth gate in this feature whose named coverage did not
+    exist. These three tests are what makes the gate true; T6 is what gives the
+    property production callers.
+    """
+
+    def test_it_registers_the_handler_for_app_ready(self) -> None:
+        """The decorator's whole job: the handler lands on APP_READY."""
+        app = FunctualizeApp(name="testapp")
+
+        def handler(host: Any) -> None: ...
+
+        app.hooks.on_ready(handler)
+
+        assert handler in app._hook_registry._global_hooks[HookEvent.APP_READY]
+
+    def test_it_returns_the_handler_unchanged(self) -> None:
+        """Identity-preserving, which is what makes the bare form usable.
+
+        `@app.hooks.on_ready` above a `def` leaves the name bound to the
+        function, so the plugin can still call its own handler. The retyped
+        signature says exactly this — `Callable[[OnReadyHandler],
+        OnReadyHandler]` — and would be a lie if the decorator wrapped.
+        """
+        app = FunctualizeApp(name="testapp")
+
+        def handler(host: Any) -> None: ...
+
+        assert app.hooks.on_ready(handler) is handler
+
+    def test_a_non_callable_is_refused_at_registration(self) -> None:
+        """The runtime half of the type. Now mypy's job too, but not only.
+
+        A plugin author reaching this seam from untyped code gets a TypeError
+        naming the hook, rather than an APP_READY firing that fails much later
+        with `'str' object is not callable`.
+        """
+        app = FunctualizeApp(name="testapp")
+
+        with pytest.raises(TypeError, match="on_ready expects a callable"):
+            app.hooks.on_ready("not a function")  # type: ignore[arg-type]

@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
 
+    from functualize._types.host import OnReadyHandler
     from functualize.app.core import FunctualizeApp
 
 __all__ = ["HooksFacade"]
@@ -119,8 +120,20 @@ class HooksFacade:
         return make_on_invoke_end_decorator(self._app)
 
     @property
-    def on_ready(self) -> Callable[..., Any]:
-        """Decorator: register APP_READY hook (global only)."""
+    def on_ready(self) -> Callable[[OnReadyHandler], OnReadyHandler]:
+        """Decorator: register APP_READY hook (global only).
+
+        The one member here that names the handler it takes. Its siblings are
+        still `Callable[..., Any]`, which accepts a non-callable and a
+        three-parameter lambda without complaint; `APP_READY` is typed first
+        because it is the hook every plugin registers, so it is where a wrong
+        signature costs the most (`plugin-host-protocol` AC-5).
+
+        Returns the handler unchanged, which is what
+        `_app/decorators._make_global_only_decorator` does — so
+        ``@app.hooks.on_ready`` leaves the decorated name bound to the function
+        rather than to the decorator's return value.
+        """
         from functualize._app.impl import make_on_ready_decorator
 
         return make_on_ready_decorator(self._app)
