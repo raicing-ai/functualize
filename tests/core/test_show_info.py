@@ -401,10 +401,15 @@ class TestShowInfoDotenv:
             ],
         )
         assert result.exit_code == 0
-        # Rich may wrap long paths across lines; check that "Dotenv File" panel is shown
-        # and that the .env filename appears somewhere in the output
+        # Packed, because Rich folds *inside* the path when it is longer than
+        # the panel. Measured at width 80, which is what a captured run gets:
+        # the 78-character path does not fit the 76-column interior, so the
+        # line breaks after "shows_path0/." and "env" lands on the next one --
+        # ".env" is then nowhere in the raw output. Only `-n auto` reaches that
+        # length, because the worker directory ("popen-gw0") is part of the
+        # path. `_packed` is in this file for exactly this reason.
         assert "Dotenv File" in result.output
-        assert ".env" in result.output
+        assert ".env" in _packed(result.output)
 
     def test_dotenv_loaded_shows_contents(self, dotenv_file, config_dir):
         app = FunctualizeApp(name="testapp")
