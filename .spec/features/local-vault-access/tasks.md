@@ -62,7 +62,7 @@ Pure mechanical move, **no behavior change**, following the `plugin_cmd.py` /
 
 ## Wave 1 — key providers and the store schema
 
-### [ ] T2.1 — One key per user; keyring becomes an extra (D5, D6)
+### [x] T2.1 — One key per user; keyring becomes an extra (D5, D6)
 
 - `[F]` `src/functualize/_config/vault_keys.py`, `pyproject.toml`, `tests/config/test_vault_keys.py`
 - `[D]` T1.2

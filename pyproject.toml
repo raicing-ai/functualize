@@ -86,6 +86,22 @@ docs = [
 ]
 
 [project.optional-dependencies]
+# The OS keyring, for `func builtin vault init` on a workstation. An extra
+# rather than core, and the distinction from `cryptography` above is real:
+# cryptography is what makes the vault *work at all*, while keyring is one key
+# *source* among several whose absence is already a designed-for state --
+# `KeychainKeyProvider.is_available()` reports it, and the environment route
+# works identically with or without it. The surprise that argument warns about
+# is avoided by `init` refusing with instructions naming both routes, rather
+# than by shipping a keyring into every CI image and Lambda bundle that will
+# never have a keyring to talk to (ADR-023 s4).
+#
+# This also *declares* what was previously an accident: the provider has always
+# imported keyring lazily and tolerated its absence, relying on it being present
+# transitively in some environments.
+keychain = [
+    "keyring>=24.0.0",
+]
 cli = [
     "click>=8.0.0",
     "rich>=13.0.0",
@@ -95,6 +111,7 @@ cli = [
 ]
 all = [
     "functualize[cli]",
+    "functualize[keychain]",
     "functualize-state-sqlite",
     "functualize-http",
     "functualize-lambda",
