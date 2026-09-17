@@ -12,7 +12,7 @@ command or an observable · `[D]` depends on.
 
 ## Wave 0 — foundation
 
-### T1.1 — Extract the vault path, walking up like discovery (D4)
+### [x] T1.1 — Extract the vault path, walking up like discovery (D4)
 
 `vault_path_for_project` hashes the working directory; discovery walks upward
 for `.functualize/` first. Move the function to a **crypto-free** module and fix
@@ -24,10 +24,10 @@ the disagreement in that one place, so every surface inherits it.
 - `[G]` `grep -rn "^from cryptography\|^import cryptography" src/functualize/_config/vault_paths.py` → **0 hits**. The module must be importable without `cryptography`; it is the cold-boot gate.
 - `[G]` `python -c "import functualize._config.vault_paths"` with `cryptography` uninstallable is out of scope to test, so assert the weaker, checkable form: `vault_paths` imports only from `functualize._primitives`.
 - `[G]` A vault written from `<project>/` is found from `<project>/src/`. New test.
-- `[G]` The two existing importers are untouched: `grep -rln "vault_path_for_project" src/functualize/` still returns **3 files** (`_app/boot.py`, `_config/vault.py`, `app/utils.py`) — the re-export keeps them working.
+- `[G]` The two existing importers are untouched. **Gate corrected during execution:** as authored this predicted the grep would "still return 3 files", but after the move the new definition site matches its own grep, so the honest count is **4** (`_app/boot.py`, `_config/vault.py`, `_config/vault_paths.py`, `app/utils.py`). Counting files was the wrong instrument for the claim, which is that the re-export works — now asserted directly: `functualize._config.vault.vault_path_for_project is functualize._config.vault_paths.vault_path_for_project`, and both importing modules import cleanly.
 - `[G]` `uv run pytest tests/config/ -q` green.
 
-### T1.2 — `VaultKeyInitializer` protocol
+### [ ] T1.2 — `VaultKeyInitializer` protocol
 
 Additive structural capability beside `VaultKeyProvider`; read-only providers
 stay valid.
@@ -37,7 +37,7 @@ stay valid.
 - `[G]` `from functualize.plugin import VaultKeyInitializer` imports.
 - `[G]` `uv run lint-imports` → 7 kept, 0 broken.
 
-### T1.3 — ADR-023, and the ADR-016 amendment
+### [ ] T1.3 — ADR-023, and the ADR-016 amendment
 
 One ADR covers both: the new public protocol, and narrowing ADR-016 §7 for
 present-but-unopenable entries (spec §8.1). Prior art is contradicted in
@@ -47,7 +47,7 @@ writing, not silently.
 - `[G]` ADR-016 §7 links forward to ADR-023; ADR-023 states what still falls through (absent entry, declared-but-unsynced annotation) and what now refuses.
 - `[G]` ADR-023 records the D6 trade-off: one user key now reaches every project's vault.
 
-### T1.4 — Move the vault command group out of `builtins.py`
+### [ ] T1.4 — Move the vault command group out of `builtins.py`
 
 Pure mechanical move, **no behavior change**, following the `plugin_cmd.py` /
 `self_cmd.py` precedent. Done first so every later CLI task edits the new file.
@@ -62,7 +62,7 @@ Pure mechanical move, **no behavior change**, following the `plugin_cmd.py` /
 
 ## Wave 1 — key providers and the store schema
 
-### T2.1 — One key per user; keyring becomes an extra (D5, D6)
+### [ ] T2.1 — One key per user; keyring becomes an extra (D5, D6)
 
 - `[F]` `src/functualize/_config/vault_keys.py`, `pyproject.toml`, `tests/config/test_vault_keys.py`
 - `[D]` T1.2
@@ -71,7 +71,7 @@ Pure mechanical move, **no behavior change**, following the `plugin_cmd.py` /
 - `[G]` `initialize_key` is idempotent — two calls return identical bytes, `len == KEY_BYTES` (32).
 - `[G]` `tests/config/test_vault_store.py::TestProjectScoping::test_one_project_cannot_read_anothers_entry` passes **unchanged**. It already uses one key across two files and asserts isolation comes from the files, so it encodes D6's position; if it fails, D6 was implemented wrong.
 
-### T2.2 — Schema v1 and the in-place upgrade (D1)
+### [ ] T2.2 — Schema v1 and the in-place upgrade (D1)
 
 The one step that touches existing rows. SQLite cannot drop `NOT NULL` with
 `ALTER`, so `secrets` is rebuilt inside one transaction — see `schema.md` §3.
@@ -88,7 +88,7 @@ The one step that touches existing rows. SQLite cannot drop `NOT NULL` with
 
 ## Wave 2 — store operations
 
-### T3.1 — Check value, no-clobber `put`, `delete`, honest audit
+### [ ] T3.1 — Check value, no-clobber `put`, `delete`, honest audit
 
 - `[F]` `src/functualize/_config/vault.py`, `tests/config/test_vault_store.py`
 - `[D]` T2.2
@@ -103,7 +103,7 @@ The one step that touches existing rows. SQLite cannot drop `NOT NULL` with
 
 ## Wave 3 — the seam and the resolution change
 
-### T4.1 — `app/vault.py`: canonical paths and report types
+### [ ] T4.1 — `app/vault.py`: canonical paths and report types
 
 - `[F]` `src/functualize/app/vault.py` (new), `tests/app/test_vault_paths.py` (new)
 - `[D]` T3.1, T2.1
@@ -114,7 +114,7 @@ The one step that touches existing rows. SQLite cannot drop `NOT NULL` with
 - `[G]` Every report dataclass is reflected over: no field named `value`, `ciphertext`, `nonce` or `key`, and no field typed to hold one.
 - `[G]` `uv run lint-imports` → 7 kept. `app/vault.py` imports no peer layer.
 
-### T4.2 — `VaultSource`: present-but-unopenable refuses (D2)
+### [ ] T4.2 — `VaultSource`: present-but-unopenable refuses (D2)
 
 - `[F]` `src/functualize/_config/vault_source.py`, `tests/config/test_vault_miss.py`
 - `[D]` T3.1
@@ -129,7 +129,7 @@ The one step that touches existing rows. SQLite cannot drop `NOT NULL` with
 
 ## Wave 4 — operations and composition
 
-### T5.1 — `app/vault.py`: the four operations
+### [ ] T5.1 — `app/vault.py`: the four operations
 
 - `[F]` `src/functualize/app/vault.py`, `tests/app/test_vault_seam.py` (new)
 - `[D]` T4.1
@@ -138,7 +138,7 @@ The one step that touches existing rows. SQLite cannot drop `NOT NULL` with
 - `[G]` `vault_remove` succeeds with **no key available at all**, for both origins, and sets `warning` only for `direct`.
 - `[G]` `vault_inspect` on a store it cannot open still reports origin and timestamps, with `readability == "wrong_key"` or `"key_unavailable"`.
 
-### T5.2 — Collapse the two chain call sites into one
+### [ ] T5.2 — Collapse the two chain call sites into one
 
 Maintainer decision (plan §3.6): merge, do not guard. The guard was already
 tried on this function — `tests/core/test_app_persistent_consumer_api.py:219`
@@ -153,7 +153,7 @@ into a dev run — and the next argument, `remote_source`, was omitted anyway.
 - `[G]` The prior-drift regression still passes untouched: `uv run pytest tests/core/test_app_persistent_consumer_api.py -q` green, including `test_rebuilt_chain_excludes_inactive_environment_files`.
 - `[G]` `FunctualizeApp.refresh()` leaves a vault source in the chain — the defect that exists today.
 
-### T5.3 — Dormant vault source (spec §8 rule 2)
+### [ ] T5.3 — Dormant vault source (spec §8 rule 2)
 
 - `[F]` `src/functualize/_app/boot.py`, `tests/app/test_remote_first.py`
 - `[D]` T5.2, T4.2
@@ -166,7 +166,7 @@ into a dev run — and the next argument, `remote_source`, was omitted anyway.
 
 ## Wave 5 — new CLI commands
 
-### T6.1 — `init`, `put`, `inspect`, `remove`
+### [ ] T6.1 — `init`, `put`, `inspect`, `remove`
 
 - `[F]` `src/functualize/_cli/vault_cmd.py`, `tests/cli/test_vault_commands.py`
 - `[D]` T5.1, T1.4
@@ -180,7 +180,7 @@ into a dev run — and the next argument, `remote_source`, was omitted anyway.
 
 ## Wave 6 — existing CLI commands
 
-### T7.1 — Origin-aware `list`/`status`/`clear`/`sync`
+### [ ] T7.1 — Origin-aware `list`/`status`/`clear`/`sync`
 
 - `[F]` `src/functualize/_cli/vault_cmd.py`, `tests/cli/test_vault_commands.py`
 - `[D]` T6.1 (same file), T3.1
@@ -195,7 +195,7 @@ into a dev run — and the next argument, `remote_source`, was omitted anyway.
 
 ## Wave 7 — proof
 
-### T8.1 — Reachability and cold/warm parity (AC-2, AC-3, AC-13)
+### [ ] T8.1 — Reachability and cold/warm parity (AC-2, AC-3, AC-13)
 
 - `[F]` `tests/integration/test_local_vault_e2e.py` (new)
 - `[D]` all prior
@@ -206,14 +206,14 @@ into a dev run — and the next argument, `remote_source`, was omitted anyway.
 - `[G]` **Sabotage, per `contributor/guides/wiring-discipline.md` §3 — commit first.** Break each composition wire in turn (`boot.build_vault_source`, `impl._build_resolution_chain`) and confirm a test fails for each. Then `git checkout --`.
 - `[G]` Offline: the job run succeeds with outbound access denied and makes no provider call.
 
-### T8.2 — No plaintext anywhere (AC-10)
+### [ ] T8.2 — No plaintext anywhere (AC-10)
 
 - `[F]` `tests/integration/test_local_vault_no_plaintext.py` (new)
 - `[D]` all prior
 - `[G]` For a distinctive submitted secret, the exact bytes are absent from stdout, stderr, logs, JSON, exception text, the database file **and its `-wal` / `-shm` sidecars** — WAL is on (`PRAGMA journal_mode=WAL`), so the sidecars are real and must be scanned.
 - `[G]` Swept across `init`, `put`, `inspect`, `list`, `status`, `remove`, `clear`, `sync` and a job run.
 
-### T8.3 — Documentation
+### [ ] T8.3 — Documentation
 
 - `[F]` `docs/guides/configuration.md`, `README.md`, `CHANGELOG.md`
 - `[D]` all prior

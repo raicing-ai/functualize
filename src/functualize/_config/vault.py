@@ -40,9 +40,15 @@ back on the run path, which is the thing this store exists to remove.
 Scope
 -----
 
-One vault per project, keyed by the same ``compute_project_id`` the discovery
-cache uses. A repository you cloned to look at cannot read the secrets of a
-project you actually work on.
+One vault per project. *Which* project is decided by
+:mod:`~functualize._config.vault_paths`, which walks upward for
+``.functualize/`` exactly as the discovery cache does — so every subdirectory of
+one project reaches one vault. A repository you cloned to look at cannot read
+the secrets of a project you actually work on.
+
+This module used to make that claim while hashing the working directory
+unconditionally, which is not the same rule and disagreed wherever a
+``.functualize/`` directory existed.
 """
 
 from __future__ import annotations
@@ -59,7 +65,9 @@ from typing import TYPE_CHECKING
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from functualize._primitives.locator import _xdg_data_dir, compute_project_id
+# Re-exported so the two existing importers (`_app/boot.py`, `app/utils.py`)
+# keep working: the function moved for a cold-boot reason, not an API one.
+from functualize._config.vault_paths import vault_path_for_project
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -271,16 +279,6 @@ def resolve_max_age(configured: str | None = None) -> timedelta:
         except InvalidDurationError as exc:
             logger.warning("Ignoring the vault max_age from %s: %s", origin, exc)
     return parse_duration(DEFAULT_MAX_AGE)
-
-
-def vault_path_for_project(cwd: str | Path | None = None) -> Path:
-    """Return the vault file path for a project directory.
-
-    Mirrors the discovery cache's per-project layout, using the same
-    ``compute_project_id``, so the two agree on what "this project" means.
-    """
-    project_id = compute_project_id(cwd if cwd is not None else Path.cwd())
-    return _xdg_data_dir() / "functualize" / "vaults" / project_id / "vault.db"
 
 
 def _utcnow() -> datetime:
