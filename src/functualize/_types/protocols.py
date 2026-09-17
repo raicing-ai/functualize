@@ -56,8 +56,14 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from functualize._types.descriptors import JobDescriptor, RegisteredJob
+    from functualize._types.host import PluginHost
     from functualize._types.run_request import RunRequest
     from functualize._types.workflow import Notification
+
+# `PluginHost` is deferred to break a declaration cycle inside this package, not
+# to dodge a layer rule: `_types/host.py` names `StoreSubstrate` from here, and
+# the two ports are peers. Both sides are `TYPE_CHECKING`, so there is no
+# runtime import either way.
 
 
 @runtime_checkable
@@ -100,8 +106,21 @@ class AdapterPlugin(Protocol):
     description: str
     adapter_type: str  # "cli", "http", "lambda", "mcp"
 
-    def __call__(self, app: Any) -> None:
-        """Setup phase — called during boot to wire the adapter."""
+    def __call__(self, app: PluginHost) -> None:
+        """Setup phase — called during boot to wire the adapter.
+
+        ``app: PluginHost`` since `plugin-host-protocol`/T9, replacing ``Any``.
+        This is the framework's own front door: an adapter is the thing the
+        kernel hands itself to, so if any signature in the repository should
+        name what it is being handed, it is this one.
+
+        **Widening, not narrowing.** An adapter that declares
+        ``app: FunctualizeApp`` no longer satisfies this protocol — a parameter
+        type is contravariant, so an implementation must accept *at least* what
+        the protocol promises to pass, and ``FunctualizeApp`` is one
+        ``PluginHost`` rather than any. The four concrete adapters that did
+        were widened by T10.
+        """
         ...
 
     def run(self, *args: Any, **kwargs: Any) -> Any:
@@ -121,11 +140,14 @@ class PluginWithShutdown(Protocol):
     reverse loading order when the application completes execution.
     """
 
-    def on_shutdown(self, app: Any) -> None:
+    def on_shutdown(self, app: PluginHost) -> None:
         """Called during application shutdown for resource cleanup.
 
         Args:
-            app: The application instance being shut down.
+            app: The host being shut down, as the plugin port rather than
+                ``Any`` (`plugin-host-protocol`/T9). A shutdown handler that
+                reaches past these eleven members is reaching into an
+                application that is already tearing itself down.
         """
         ...
 
