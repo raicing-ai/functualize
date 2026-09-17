@@ -194,6 +194,66 @@ class TestTheEngineResolvesOnce:
         assert engine._scope_store().substrate is substrate  # noqa: SLF001
 
 
+class TestTheEngineHonoursAnInstalledOverride:
+    """The half of the seam that had no fast test.
+
+    `plugin-host-protocol`/T3 named `EngineHost.substrate_override` — and
+    making the engine ignore it entirely (`chosen = None`) left every test in
+    this file green. The only thing that noticed was
+    `tests/integration/test_substrate_durability.py`, which needs
+    `--run-slow`, spawns two worker processes and takes 14 s. A plugin's whole
+    reason for existing should not be covered only there.
+    """
+
+    def test_the_engine_uses_what_the_host_installed(self, tmp_path: Path) -> None:
+        from functualize._engine.executor import JobExecutionEngine
+        from functualize._engine.middleware import ExecutionMiddlewareChain
+        from functualize._events.bus import EventBus
+        from functualize._events.hooks import HookRegistry
+        from functualize._primitives.di import DIRegistry
+
+        installed = JsonFileSubstrate(tmp_path / "installed")
+
+        class _Host:
+            substrate_override = installed
+            fresh_root = tmp_path
+
+        engine = JobExecutionEngine(
+            di_registry=DIRegistry(),
+            event_bus=EventBus(),
+            hook_registry=HookRegistry(),
+            middleware_chain=ExecutionMiddlewareChain(),
+            fresh_root=tmp_path,
+            host=_Host(),  # type: ignore[arg-type]
+        )
+
+        assert engine.substrate is installed
+
+    def test_the_app_reports_what_a_plugin_installed(self, tmp_path: Path) -> None:
+        """Through the public door, which is what a plugin actually calls."""
+        from functualize.app import FunctualizeApp
+
+        installed = JsonFileSubstrate(tmp_path / "via-app")
+        app = FunctualizeApp("probe")
+        app.install_substrate(installed)
+
+        assert app.substrate_override is installed, "the slot holds it"
+        assert app.substrate is installed, "and it is the storage in effect"
+
+    def test_a_late_install_is_refused_rather_than_half_applied(
+        self, tmp_path: Path
+    ) -> None:
+        from functualize.app import FunctualizeApp
+
+        app = FunctualizeApp("probe")
+        resolved = app.substrate
+
+        with pytest.raises(RuntimeError, match="one backend"):
+            app.install_substrate(JsonFileSubstrate(tmp_path / "too-late"))
+
+        assert app.substrate is resolved, "and the first one still stands"
+
+
 class TestItIsStillASubstrate:
     def test_the_one_decision_returns_the_port(self, tmp_path: Path) -> None:
         from functualize._types.protocols import StoreSubstrate as Port
