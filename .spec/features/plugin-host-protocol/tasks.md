@@ -327,7 +327,7 @@ register a lifecycle hook.
 - **Done** `deb268a`, `1eb1f65`, `cade950`. **Five sites, not four** —
   `examples/plugins/custom_state_backend` again (see the note above).
 
-## T7 · Write the port and the five views
+## T7 · Write the port and the five views — [x]
 
 `[F]` `src/functualize/_types/host.py`
 
@@ -336,26 +336,63 @@ register a lifecycle hook.
 facades, exactly as listed in `contracts.md` §2, including the two documented
 deviations (`resolver: Any`; `get_plugin_commands` absent).
 
-- **Gate** `uv run lint-imports` — `now: 7 kept, 0 broken` · `after: 7 kept, 0 broken`
-- **Gate** an unmodified app satisfies it, **both ways** (AC-3):
-  `isinstance(app, PluginHost)` → `True`, **and** a mypy-checked assignment to a
-  `PluginHost` parameter. Runtime alone proves member presence, never signatures.
-- **Gate** `rg -c "_app" src/functualize/_types/host.py` — `after: 0` (no `_app`
-  import, in a `TYPE_CHECKING` block or otherwise — AC-1b)
-- **Gate** `wc -l src/functualize/_types/protocols.py` — `now: 882` · `after: 882`
-  (the port did **not** go there; smell #3 in `plan.md` §2)
+`[F]` **second file, added at execute time:**
+`tests/types/test_plugin_host_port.py` + `tests/types/fixtures/plugin_host_conformance.py`.
+The conformance gate below has to live somewhere a later wave cannot silently
+break, and T9's test file is the *adapter* door, not this one.
 
-## T8 · Re-export and cover the public surface
+- **Gate** `uv run lint-imports` — `now: 7 kept, 0 broken` ·
+  `after: 7 kept, 0 broken` ✅
+- **Gate** an unmodified app satisfies it, **both ways** (AC-3) ✅ —
+  `isinstance` True, and mypy accepts handing a real `FunctualizeApp` to a
+  `PluginHost` parameter. The task's reason for wanting both is now
+  **demonstrated, not just stated**: sabotaging `get_job` to
+  `(name: int, extra: str)` — the right name, the wrong signature — fails the
+  mypy half and **passes** the `isinstance` half.
+- **Gate** ~~`rg -c "_app" src/functualize/_types/host.py` — `after: 0`~~ —
+  **unreachable, fifth mis-written grep gate.** Every view docstring cites the
+  facade its signature was copied from (`_app/gates_facade.py:31`,
+  `_app/models.py`, `_app/boot.py`, and the two in the module docstring), and
+  citing them is the whole basis of "copied from the live facade". Measured: 5
+  matches, all prose; **0 imports of `_app`**, which is what the gate meant.
+  Asserted now by `TestThePortNamesNoForbiddenLayer`, which reads the import
+  lines rather than the file.
+  **And the blind spot it guards is real, measured:** with a live
+  `if TYPE_CHECKING: from functualize._app.di_facade import DependencyFacade`
+  in `host.py`, `uv run lint-imports` reports **"7 kept, 0 broken"**. So
+  `layer-contract-blind-spot.md` §7 is not a theoretical worry here, and
+  AC-1b cannot be held by `lint-imports` alone.
+- **Gate** `wc -l src/functualize/_types/protocols.py` — ~~`now: 882` ·
+  `after: 882`~~ → **888 · 888**. The baseline moved because **T3** added six
+  lines to `EngineHost.substrate_override`'s docstring, so this is drift from
+  our own work rather than a mis-measurement. The gate's point holds unchanged:
+  the port did not go into `protocols.py`.
+- **Done** `0719a49`. Eleven port members and ten view members, both pinned by
+  tests, along with the six members argued off the port. Three sabotages: a
+  missing member fails 3 of 12 tests, a wrong signature fails only the mypy
+  one, a `TYPE_CHECKING` `_app` import fails only the two import-line ones.
+
+## T8 · Re-export and cover the public surface — [x]
 
 `[F]` `src/functualize/plugin/__init__.py`, `tests/test_public_api_surface.py`
 
 `from functualize._types.host import PluginHost`, add to `__all__`, and add
 `"PluginHost"` to the surface test's expected set.
 
-- **Gate** `python -c "from functualize.plugin import PluginHost; print(PluginHost)"` — `now: ImportError` · `after: prints`
-- **Gate** `uv run pytest tests/test_public_api_surface.py` — `now: green` · `after: green with PluginHost listed`
+- **Gate** `python -c "from functualize.plugin import PluginHost; print(PluginHost)"`
+  — `now: ImportError` ✅ · `after: prints` ✅
+- **Gate** `uv run pytest tests/test_public_api_surface.py` — green, 43 tests,
+  with `PluginHost` listed ✅. **Non-vacuous**: removing the entry from the
+  expected set while leaving the export fails
+  `test_no_unexpected_additions[functualize.plugin]`.
+- **Decision** `PluginHost` alone is exported, **not** its five views. `app.di`
+  is already typed `DependencyView` by the port, so a plugin author never has
+  to name a view to write a plugin. That also keeps the example-coverage
+  obligation (`contributor/guides/adding-public-api.md` step 8) at **one**
+  symbol rather than seven — T15 supplies that caller.
+- **Done** `c7cf866`.
 
-## T9 · Retype the lifecycle protocols, with the door that makes it bite
+## T9 · Retype the lifecycle protocols, with the door that makes it bite — [x]
 
 `[F]` `src/functualize/_types/protocols.py`,
 `tests/spec/test_adapters_conform_to_the_port.py`
@@ -366,14 +403,41 @@ conformance assertions, in the same task. The retype alone is provably inert:
 nothing statically accepts `AdapterPlugin` today (`validate_adapter(obj: Any)`,
 tests-only), so mypy reports nothing (`contracts.md` §3).
 
-- **Gate** `rg -n ': AdapterPlugin' src plugins tests` — `now: 0` · `after: ≥1` (the door exists)
-- **Gate** the new test file type-checks and **fails before T10**: the four
-  concrete adapters become `[arg-type]` errors naming Expected `PluginHost` vs
-  Got `FunctualizeApp`. A green result here means the door is not wired.
-- **Reachability** `app/adapters/_validation.py:30`'s runtime `isinstance` is
-  unaffected (`__call__` presence unchanged) — `tests/test_adapter_protocol.py`.
+`[F]` **the fixture is a third file:**
+`tests/spec/fixtures/adapters_against_the_port.py`.
 
-## T10 · Widen the four concrete adapters
+- **Gate** `rg -n ': AdapterPlugin' src plugins tests` — ~~`now: 0`~~ ·
+  `after: ≥1`. **`now` is 1, not 0** — and the one hit is
+  `tests/test_adapter_protocol.py:408`, *a comment heading*
+  (`# Property Tests: AdapterPlugin structural typing`). The gate's point
+  survives intact, and is in fact sharper: the only mention of the type in an
+  annotation-shaped position was a comment.
+- **Gate** the new test file type-checks and **fails before T10** — done as a
+  **strict `# want-error` marker set** rather than a red test, so the tree
+  stays green while the same truth is stated in both directions. Unlike an
+  `xfail` it also fails when the door *stops* biting, which is the direction
+  the task cared about.
+  **The inert state is reproduced, not assumed:** reverting
+  `__call__` to `app: Any` leaves `uv run mypy` **green on all 364 files**, and
+  the door test fails with `no error at marked line(s) [54, 55, 56, 57]`.
+- **Five marks, not four, and one is not T10's.** `MCPAdapterPlugin` has **no
+  `run` and no `shutdown`** — two of `AdapterPlugin`'s three methods — while
+  being named `…AdapterPlugin`, setting `adapter_type = "mcp"`, and claiming
+  *"Implements the AdapterPlugin protocol"* in its docstring. Nothing checked,
+  because it loads as a plain `functualize.plugins` entry point and never
+  reaches `validate_adapter` — which `rg` shows is **called from tests only**,
+  never from production. → `plugin-taxonomy`.
+- **`HttpServerPlugin` is not an adapter** and is outside this door; its own
+  docstring says so. T10 still widens its `app` parameter, so T10's count is
+  five annotation sites across four files plus this one.
+- **Reachability** `app/adapters/_validation.py:30`'s runtime `isinstance` is
+  unaffected (`__call__` presence unchanged) ✅ — 74 tests green across
+  `tests/test_adapter_protocol.py`, `tests/test_cli_adapter.py`,
+  `tests/adapters/test_lambda_adapter.py`.
+- **Done** `9aae8ef`. `protocols.py` 888 → 910 lines (the two retypes carry
+  their reasoning), so T7's "did not go there" gate is unaffected.
+
+## T10 · Widen the four concrete adapters — [x]
 
 `[F]` `src/functualize/app/adapters/tui.py`, `src/functualize/app/adapters/cli.py`,
 `plugins/functualize-http/src/functualize_http/__init__.py`,
@@ -382,13 +446,47 @@ tests-only), so mypy reports nothing (`contracts.md` §3).
 `app: FunctualizeApp` → `app: PluginHost` at `tui.py:39`, `cli.py:823`,
 `http:371,443`, `lambda:136`.
 
-- **Measure first, then decide.** `cli.py:823`'s body is large. If it reaches an
-  app member the 11-member port lacks, **the port does not grow**: `CliAdapter`
-  is core, not a plugin, and may keep `FunctualizeApp` with T9's assertion
-  scoped to the plugin adapters. Record the measurement and the decision either
-  way (`plan.md` §6).
-- **Gate** T9's conformance test — `now (post-T9): 4 errors` · `after: 0`
-- **Gate** `rg -c "app: FunctualizeApp" src/functualize/app/adapters plugins/*/src` — `now: 5` · `after: 0 or the recorded exception`
+- **Measured, then decided.** The measurement *is* widening all five and
+  reading mypy:
+
+  | site | reaches | outcome |
+  |---|---|---|
+  | `functualize-http` `HttpAdapter` | `execute`, `get_job`, `get_jobs` | **widened**, 0 errors |
+  | `functualize-http` `HttpServerPlugin` | `execute`, `extensions` | **widened**, 0 errors |
+  | `functualize-lambda` `LambdaAdapter` | `execute` | **widened**, 0 errors |
+  | `app/adapters/cli.py` `CliAdapter` | `app.name`, + `register_discovered_jobs`/`register_plugin_commands` which take the whole app | **keeps `FunctualizeApp`** |
+  | `app/adapters/tui.py` `TuiAdapter` | nothing in `__call__`; `run()` hands it to `launch_inline_tui(app: FunctualizeApp)` | **keeps `FunctualizeApp`** |
+
+  `name` is not on the port and must not be: `rg 'app[.]name' plugins/*/src
+  examples/*/*/src` → **zero plugin clients**, failing the same client-count
+  rule every port member had to pass. The task pre-authorised this for
+  `CliAdapter`; the same argument covers `TuiAdapter`, because both live in
+  `src/functualize/` and the port is the **plugin** boundary.
+
+  ⚠️ **AC-18 says four adapters; the answer is two.** Deviation recorded here
+  rather than absorbed. The two that stay are core, not plugins, and T9's
+  conformance marks for them are now permanent decisions rather than pending
+  work.
+
+  Bonus, and the clearest evidence the feature does what it claims: **neither
+  plugin package imports `FunctualizeApp` any more.** The annotation was its
+  last use in both.
+- **Gate** T9's conformance test — `now (post-T9): 4 errors` ·
+  ~~`after: 0`~~ → **after: 2**, plus MCP's unrelated third. The two removed
+  marks are exactly the two adapters widened.
+- **Gate** `rg -c "app: FunctualizeApp" src/functualize/app/adapters plugins/*/src`
+  — ~~`now: 5` · `after: 0`~~. **`now` was 25, an undercount by 20**: only 5
+  were adapter `__call__` sites, the other 20 being module-level core helpers
+  in `cli.py` (13) and `click_params.py` (3) plus the `_app` attributes.
+  `after: 0` is unreachable. Real result: **18, all core**, and **0 in
+  `plugins/*/src`** — which is the half the gate was reaching for.
+  Sixth mis-written grep gate.
+- **Reachability** the widening is load-bearing: removing `execute` from the
+  port fails **3 sites across both plugins** (`functualize_lambda:200,237`,
+  `functualize_http:210`); removing `extensions` fails `functualize_http:456`.
+  Under `app: Any` neither was reported.
+- **Done** `3768d24`. http 59 tests, lambda 55, `tests/spec` 13; mypy green on
+  364 core files and on both plugin packages; lint-imports 7 kept / 0 broken.
 
 ## T11 · Annotate the forty `Any` sites
 
