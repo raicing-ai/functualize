@@ -544,9 +544,16 @@ tests-only), so mypy reports nothing (`contracts.md` §3).
   `resolve_ai_provider` has **never** read the `[ai]` config section, and every
   caller passing an `app` has silently received `AIConfig()` defaults. Same
   shape as the two probes AC-7 deleted (T1, T2).
-  **Left standing**: fixing it changes behaviour — projects with an `[ai]`
-  section would start being honoured — which is not an annotation sweep's call.
-  Stated at the site, and **needs a maintainer decision**.
+  **Left standing**, and the decision is taken: *"Lets fix pydantic-ai issue
+  during plugin taxonomy"* (maintainer, 2026-09-17). So both AI-package
+  findings go to `plugin-taxonomy`:
+  1. this dead `hasattr(app, "resolve_model")` probe, whose fix changes
+     behaviour (an `[ai]` section would start being honoured);
+  2. `functualize_ai/__init__.py`'s lazy `__getattr__` table with no
+     `TYPE_CHECKING` block, which is why `AI`/`AIConfig` are variables rather
+     than types and why `ai-pydantic` sits at 47–48 mypy errors.
+  Stated at the site in `_provider_discovery.py` so the next reader is not
+  misled by a probe that looks live.
 - **The one excluded member is now one visible line.**
   `_workflow_tools.py:449` reaches `execution_engine` for `materialize_job`,
   the single client that did not earn the engine a port seat. A `cast` at that
@@ -554,18 +561,37 @@ tests-only), so mypy reports nothing (`contracts.md` §3).
   methods keep eleven checked members. Behaviour unchanged.
 - **Done** `57efc55`. All twelve plugin suites green (436 tests).
 
-## T12 · Make the rule executable
+## T12 · Make the rule executable — [x]
 
-`[F]` `tests/spec/test_the_port_is_not_leaked.py`
+`[F]` ~~`tests/spec/test_the_port_is_not_leaked.py`~~ →
+**`tests/spec/test_the_plugin_host_cannot_be_bypassed.py`** +
+`tests/spec/fixtures/the_host_cannot_be_bypassed.py`.
+
+The named file is **`store-substrate`'s**, about the *substrate* port and the
+filesystem. Sharing it would give one file two unrelated reasons to change —
+the *divergent change* smell that decided this port's own home (`spec.md` §E3).
 
 A static negative test: a misspelled `PluginHost` member is a mypy error, and a
-`PluginHost`-typed parameter cannot reach `_di_registry`.
+`PluginHost`-typed parameter cannot reach `_di_registry`. **Nine refusals**, not
+two — every member argued off the port in `contracts.md` §1 is checked, plus
+both of the original reaches and a misspelling one level down inside a view.
 
-- **Gate** the file fails when the misspelling is corrected to a real member —
-  a negative test that cannot fail is prose
-- **Gate** documents the second pass: `FUNCTUALIZE_TEST_SUBSTRATE=sqlite`
+**The fixture carries the positive half too**: nine calls a shipped plugin
+really makes, which must type-check clean. A port that refused everything would
+pass a negatives-only file while being useless.
 
-## T13 · Documentation, ADR and the counts
+- **Gate** the file fails when the misspelling is corrected to a real member ✅
+  — correcting `app.dii` to `app.di` fails **two** tests: the refusal-case
+  inventory (`refusal case(s) removed from the fixture: ['app.dii']`) and the
+  marker comparison. Adding `execution_engine` back to the port fails **three**
+  across two files, T7's member pin and exclusion pin included.
+- **Gate** ~~documents the second pass: `FUNCTUALIZE_TEST_SUBSTRATE=sqlite`~~ —
+  **not applicable, and copied from `store-substrate`.** That flag selects a
+  second *substrate implementation*; this port has one implementation
+  (`FunctualizeApp`), so there is no second pass to document. Nothing was run
+  for this gate and nothing could be.
+
+## T13 · Documentation, ADR and the counts — [x]
 
 `[F]` `contributor/guides/plugin-development.md`, `docs/guides/hooks.md`,
 `docs/guides/workflows.md`, `docs/examples/plugins/custom-state-backend.md`,
@@ -586,7 +612,25 @@ A static negative test: a misspelled `PluginHost` member is a mypy error, and a
 - **AC-21**: `pyproject.toml:236` and `CONSTITUTION.md` say six contracts,
   `codemaps/dependencies.md:25` says five, there are **seven**
 
-- **Gate** `rg -c "app: Any" contributor/guides/plugin-development.md` — `now: 1` · `after: 0`
+- **Gate** `rg -c "app: Any" contributor/guides/plugin-development.md` —
+  `now: 1` · `after: 0` ✅. And the guide taught **two members that do not
+  exist**: `app.provide` and `app.register_plugin_command`, both `hasattr`
+  False on a live app. All three members it now teaches resolve.
+- **Gate** `grep -c '^\[\[tool.importlinter.contracts\]\]' pyproject.toml` = the
+  number the prose claims ✅ — **seven**, and three documents disagreed:
+  `pyproject.toml:236` "six" *(in the same file as the contracts it
+  miscounted)*, `CONSTITUTION.md:11` "six",
+  `codemaps/dependencies.md:25` "five" **and a list naming five of seven** — so
+  list and prose agreed with each other and both were wrong. All three fixed,
+  the list completed, and **made executable** beyond the task's hand-run grep in
+  `tests/spec/test_the_contract_count_is_one_number.py`: restoring each old
+  number fails that document's case.
+- **Also fixed, not in the file list:** `contributor/adr/022-…md:75` told plugin
+  authors to install "via `EngineHost.substrate`", the name T3 split in three
+  (found during T3, absent from this task's list); ADR-020 gained a note that
+  `EngineHost` has since acquired a storage member, had it renamed, and grown a
+  peer; `dependency-graph.md` gained *The Two Ports in `_types/`*.
+- **Done** `9a089c0`.
 - **Gate** `rg -c "hook_registry" docs/ contributor/guides/` — ~~`now: ≥3` ·
   `after: 0`~~. **`after: 0` would delete the documentation of a public
   method.** Measured at T6: **27 matches in `docs/`**, of which
@@ -608,7 +652,7 @@ A static negative test: a misspelled `PluginHost` member is a mypy error, and a
   correct.
 - **Gate** `grep -c '^\[\[tool.importlinter.contracts\]\]' pyproject.toml` = the number the prose claims — `now: 7 vs "six"` · `after: 7 vs "seven"`
 
-## T14 · Scaffold templates — both of them
+## T14 · Scaffold templates — both of them — [x]
 
 > **"Both" verified at T6.** `find src/functualize/_cli/scaffold/templates
 > -name '*plugin*.j2'` returns **six** files, but only two annotate a host:
@@ -624,11 +668,30 @@ A static negative test: a misspelled `PluginHost` member is a mypy error, and a
 `src/functualize/_cli/scaffold/templates/domain-plugin/_plugin.py.j2`
 
 - **Gate** `rg -n 'app: (Any|FunctualizeApp)' src/functualize/_cli/scaffold/templates/`
-  — `now: 2` · `after: 0`. The pattern must be the alternation: a locator for
-  `app: FunctualizeApp` alone silently misses `domain-plugin/_plugin.py.j2:20`.
-- **Gate** a scaffolded plugin type-checks against the port out of the box
+  — `now: 2` · `after: 0` ✅. The alternation mattered exactly as the task
+  warned: the two templates were wrong in *different* ways, so a one-spelling
+  pattern would have passed one of them.
+- **Gate** a scaffolded plugin type-checks against the port out of the box ✅ —
+  **actually scaffolded**, through `func builtin scaffold add plugin` in both
+  its forms (bare, and `--domain ai --name my-provider`), then `mypy --strict`
+  clean, `ruff check` clean, `ruff format --check` clean, and `register(app)`
+  called against a live `FunctualizeApp`.
+  `ruff check` needed one extra fix to be true: the simple template put **two**
+  blank lines between its import and the following comment (`I001`).
+  Pre-existing — the old `FunctualizeApp` version produced it too.
+- **Beyond scope, added:** `tests/scaffold/test_plugin_templates_annotate_the_port.py`
+  makes AC-11 executable rather than a hand-run grep. Four checks, and the grep
+  is the weakest: that **exactly two** of the six `*plugin*.j2` templates take a
+  host (so a third cannot appear annotated `Any` unnoticed), that neither names
+  `Any`/`FunctualizeApp`, that the **rendered AST** annotates `PluginHost` (so a
+  docstring mention does not satisfy it), and that the rendered file passes
+  `mypy --strict` importing the real port.
+  Sabotage: reverting the domain template to `app: Any` fails **three of four**,
+  each naming that template — including the mypy one, which also catches that
+  `Any` is then unimported.
+- **Done** `c85e6b7`. All 261 existing scaffold tests still green.
 
-## T15 · The example (AC-22)
+## T15 · The example (AC-22) — [x]
 
 `[F]` `examples/standalone/<topic>/plugin_host/` (+ its `test_*.py`)
 
@@ -637,10 +700,29 @@ The first public symbol subject to
 the port — import `PluginHost`, annotate a plugin function with it, register and
 run — not merely name it.
 
-- **Gate** `uv run pytest examples/` — `now: green` · `after: green, one test more`
-- **Gate** the coverage census: `PluginHost` is not in the uncovered set
-- **Note** this AC does not reduce the 108-symbol backlog; it declines to add
-  to it.
+- **Gate** `uv run pytest examples/` — `now: green` · ~~`after: green, one test
+  more`~~ → **green, 204 → 212**. Eight, not one: the port's refusals and the
+  budget's own behaviour are separate claims, and the example has to *do*
+  something or it demonstrates nothing.
+- **Gate** the coverage census: `PluginHost` is not in the uncovered set ✅
+- **Note** ~~this AC does not reduce the 108-symbol backlog; it declines to add
+  to it.~~ — **it reduces it.** Measured: public `__all__` **161 → 162** symbols
+  with uncovered **108 → 105**, and the `FunctualizeApp`-members half moved
+  further, **29 → 21** uncovered of 40 distinct. Eight members left that list,
+  and they are the ones the rule's own note singled out: *"the six typed facades
+  are the headline of the post-#39 plugin surface, and no example touches four
+  of them."* This is that example. `public-api-example-coverage.md`'s baseline
+  table is updated, which is what it asks for.
+- **Design forced by the code, worth recording:** the first draft asserted the
+  DI registration by reading it back through `app.di`. That does not work —
+  `DependencyFacade` is **write-only**, which is the asymmetry that drove two
+  plugins into `app._di_registry` in the first place. The example now checks it
+  the way a user observes it: a job run through `app.execute(...)` collecting
+  the capability with `rc[JobBudget]`.
+- **Reachability** both halves sabotaged in the example: deleting
+  `app.hooks.on_ready(...)` fails the two `TestTheReadyHookRan` tests; deleting
+  `app.di.provide(...)` fails the two `TestWhatTheJobSees` tests.
+- **Done** `b95a94a`.
 
 ## T16 · Verify
 
