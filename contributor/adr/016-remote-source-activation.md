@@ -142,6 +142,13 @@ its own entry-point group. Two implementations ship:
   environment variables only."*
 - **Keychain** — the first *interactive* implementation.
 
+> **Amended by [ADR-023](023-local-vault-access.md) §4.** The keychain provider
+> was project-scoped here and the environment provider user-scoped, so which
+> scope applied depended on whether `$FUNCTUALIZE_VAULT_KEY` happened to be
+> exported. Both shipped providers are now user-scoped. `project_id` stays in
+> the signature — key scope remains a *provider's* choice, and the seam below is
+> unchanged.
+
 The keychain is one implementation of the seam, **not** the seam itself. KMS,
 1Password and a future FuncCloud provider are the same protocol with no core
 change. Hardcoding "keychain, with an env fallback" would have made the common
@@ -187,6 +194,16 @@ The value is never printed. `is_secret_field` (`_types/redaction.py`) stays the
 single answer to "is this a secret" and `MASK = "•••"` stays canonical, per
 ADR-008. This feature adds no second opinion; ADR-008's own docstring explains
 why two would be a leak.
+
+> **Amended by [ADR-023](023-local-vault-access.md) §1.** What is written above
+> is about a **miss** — a declared annotation with nothing stored for it — and
+> stands unchanged: an absent entry still falls through, and still warns.
+>
+> ADR-023 separates out a case this section did not: an entry that **is** stored
+> but cannot be opened. That now refuses rather than falling through, because
+> falling past a stored value to a lower-priority source hands the job a
+> different secret than the operator intended — the substitution this ADR exists
+> to prevent, arriving through the one door it left open.
 
 ### 8. Annotations make config files discoverable without making them leak
 

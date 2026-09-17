@@ -37,7 +37,7 @@ stay valid.
 - `[G]` `from functualize.plugin import VaultKeyInitializer` imports.
 - `[G]` `uv run lint-imports` → 7 kept, 0 broken.
 
-### [ ] T1.3 — ADR-023, and the ADR-016 amendment
+### [x] T1.3 — ADR-023, and the ADR-016 amendment
 
 One ADR covers both: the new public protocol, and narrowing ADR-016 §7 for
 present-but-unopenable entries (spec §8.1). Prior art is contradicted in
