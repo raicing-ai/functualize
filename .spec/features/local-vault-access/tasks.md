@@ -166,7 +166,7 @@ into a dev run — and the next argument, `remote_source`, was omitted anyway.
 
 ## Wave 5 — new CLI commands
 
-### [ ] T6.1 — `init`, `put`, `inspect`, `remove`
+### [x] T6.1 — `init`, `put`, `inspect`, `remove`
 
 - `[F]` `src/functualize/_cli/vault_cmd.py`, `tests/cli/test_vault_commands.py`
 - `[D]` T5.1, T1.4

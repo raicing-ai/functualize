@@ -224,8 +224,12 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
     ),
     BuiltinCommand(
         "vault",
-        "Sync and inspect this project's encrypted secrets vault",
+        "Store, inspect and sync this project's encrypted secrets",
         (
+            ("init", "Ensure this machine has a vault key — never prints it"),
+            ("put", "Store one secret at a canonical path"),
+            ("inspect", "Explain a path: eligibility, provenance, readability"),
+            ("remove", "Remove one entry — needs no vault key"),
             ("sync", "Fetch every declared annotation and store it"),
             ("list", "List what is stored — names and freshness, never values"),
             ("status", "Show the key provider in use, the age, and the count"),
@@ -233,9 +237,11 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
             ("keygen", "Print a fresh vault key"),
         ),
         requires_subcommand=True,
-        # None of the five takes the terminal. `keygen` writes to stdout so it
-        # can be piped, and the interactive key provider is the *keychain*,
-        # which prompts through the OS rather than through this process.
+        # `put` prompts when it has a TTY and no explicit input option, but it
+        # does not *take* the terminal in the sense this flag means: it reads
+        # one masked line and returns. `keygen` writes to stdout so it can be
+        # piped, and the interactive key provider is the keychain, which
+        # prompts through the OS rather than through this process.
     ),
     BuiltinCommand(
         "info",

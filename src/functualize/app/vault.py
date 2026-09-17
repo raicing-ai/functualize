@@ -40,7 +40,17 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
-from functualize._config.vault import VaultOrigin
+# Re-exported, not re-defined. `_cli` may import only public API, so the
+# delivery layer needs these names from somewhere public -- and there must
+# be exactly one set of them, or a CLI `except` clause would silently stop
+# catching what the store actually raises.
+from functualize._config.vault import (
+    VaultEntryExistsError,
+    VaultEntryUnreadableError,
+    VaultError,
+    VaultOrigin,
+    VaultOriginConflictError,
+)
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -52,7 +62,11 @@ __all__ = [
     "VaultInitReport",
     "VaultInspectionReport",
     "VaultMutationReport",
+    "VaultEntryExistsError",
+    "VaultEntryUnreadableError",
+    "VaultError",
     "VaultOrigin",
+    "VaultOriginConflictError",
     "VaultKeySourceError",
     "VaultPathError",
     "vault_init",
@@ -516,8 +530,6 @@ def vault_put(
     not cost someone the secret they already typed. This re-validates anyway,
     because a public function cannot assume its caller did.
     """
-    from functualize._config.vault import VaultOrigin as _Origin
-
     resolved = resolve_canonical_path(app, path)
     resolution = _resolve_key(cwd)
     store = _open_store(cwd)
@@ -527,7 +539,7 @@ def vault_put(
         resolved.config_key,
         value,
         encryption_key=resolution.key,
-        origin=_Origin.DIRECT,
+        origin=VaultOrigin.DIRECT,
         replace=replace,
     )
     entry = next(e for e in store.list_entries() if e.key == resolved.config_key)
@@ -563,8 +575,6 @@ def vault_remove(
     canonicalized so flag spelling works; one that does not is used verbatim
     and simply matches nothing if it was a typo.
     """
-    from functualize._config.vault import VaultOrigin as _Origin
-
     try:
         target = resolve_canonical_path(app, path).config_key
     except VaultPathError:
@@ -581,7 +591,7 @@ def vault_remove(
         updated_at=removed.updated_at,
         warning=(
             "no upstream copy; this value is gone"
-            if removed.origin is _Origin.DIRECT
+            if removed.origin is VaultOrigin.DIRECT
             else None
         ),
     )

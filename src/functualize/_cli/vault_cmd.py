@@ -38,12 +38,19 @@ vault_app = click.Group(
 )
 
 
-def _vault_app(ctx: click.Context) -> Any:
+def _vault_app(ctx: click.Context, command: str = "vault sync") -> Any:
+    """The booted app, or a usage error naming the command that needed it.
+
+    The message used to say "vault sync" unconditionally, because that was the
+    only command here that needed an app. `put` and `inspect` need one too --
+    they validate against the job schema -- so a caller of those would have been
+    told to check a command they had not run.
+    """
     obj = ctx.find_root().obj
     if obj is None or "app" not in obj:
         click.echo(
-            "Error: `vault sync` needs the application, and no app context "
-            "is available here.",
+            f"Error: `{command}` needs the application, and no app context "
+            f"is available here.",
             err=True,
         )
         raise SystemExit(ExitCode.USAGE)
@@ -279,3 +286,349 @@ def vault_sync_command(ctx: click.Context, json_out: bool) -> None:
 
     if not report.ok:
         raise SystemExit(ExitCode.REFUSED)
+
+
+# --- The local lifecycle: init -> put -> run (ADR-023) -------------------
+#
+# These four reach `functualize.app.vault`, the public seam, and hold no
+# opinion of their own about eligibility, key selection or provenance. A second
+# opinion here is how `func` and an embedding application come to disagree
+# about what a path means.
+
+
+def _fail(
+    reason: str,
+    message: str,
+    *,
+    json_out: bool,
+    code: ExitCode,
+    path: str | None = None,
+) -> None:
+    """Emit one failure shape and exit.
+
+    JSON mode returns an envelope with a stable `reason`, so a caller
+    classifies a failure without parsing prose — `contracts.md` §3. Human mode
+    writes the same message to stderr. Neither carries a value: every caller
+    below constructs `message` from metadata only.
+    """
+    if json_out:
+        payload: dict[str, Any] = {"ok": False, "reason": reason, "message": message}
+        if path is not None:
+            payload["path"] = path
+        _vault_json(payload)
+    else:
+        click.echo(f"Error: {message}", err=True)
+    raise SystemExit(code)
+
+
+def _read_secret(
+    *, use_stdin: bool, file: str | None, json_out: bool, path: str
+) -> str:
+    """Obtain the value, or refuse in a way that never hangs.
+
+    The non-TTY refusal is the one that matters. Reading stdin implicitly when
+    it is not a terminal would make `func builtin vault put x.y` inside a
+    pipeline block forever on input nobody is sending, and an unattended run
+    that blocks is worse than one that fails.
+    """
+    import sys
+
+    if use_stdin and file:
+        _fail(
+            "conflicting_input_sources",
+            "--stdin and --file cannot both be given.",
+            json_out=json_out,
+            code=ExitCode.USAGE,
+            path=path,
+        )
+
+    if file:
+        from pathlib import Path
+
+        try:
+            value = Path(file).read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            _fail(
+                "invalid_utf8",
+                f"{file} is not valid UTF-8. This increment stores text; "
+                f"binary values are out of scope.",
+                json_out=json_out,
+                code=ExitCode.USAGE,
+                path=path,
+            )
+        except OSError as exc:
+            _fail(
+                "input_source_required",
+                f"Could not read {file}: {exc.strerror}.",
+                json_out=json_out,
+                code=ExitCode.USAGE,
+                path=path,
+            )
+    elif use_stdin:
+        raw = sys.stdin.read()
+        # Exactly one trailing newline, because `echo` adds one and a secret
+        # that silently gained a "\n" authenticates nowhere. Anything else --
+        # interior newlines, a deliberate blank last line -- is preserved.
+        if raw.endswith("\r\n"):
+            value = raw[:-2]
+        elif raw.endswith("\n"):
+            value = raw[:-1]
+        else:
+            value = raw
+    elif sys.stdin.isatty() and sys.stdout.isatty():
+        value = click.prompt("Value", hide_input=True, show_default=False)
+    else:
+        _fail(
+            "input_source_required",
+            "Not a terminal, so there is nothing to prompt. Pass --stdin or "
+            "--file. Refusing rather than reading stdin implicitly: a pipeline "
+            "that blocks on input nobody is sending never reports anything.",
+            json_out=json_out,
+            code=ExitCode.USAGE,
+            path=path,
+        )
+
+    if not value:
+        _fail(
+            "empty_value",
+            "An empty value is refused. Use `vault remove` to clear an entry.",
+            json_out=json_out,
+            code=ExitCode.USAGE,
+            path=path,
+        )
+    return value
+
+
+@vault_app.command("init")
+@click.option(
+    "--key-source",
+    default=None,
+    help="Which key provider to use, e.g. 'env' or 'keychain'.",
+)
+@click.option("--json", "json_out", is_flag=True, default=False, help="Emit JSON.")
+def vault_init_command(key_source: str | None, json_out: bool) -> None:
+    """Ensure this machine has a vault key. Never prints it.
+
+    Needs no app and no project: one key opens every project's vault, so this
+    is run once per machine. It is a preflight, never a gate — `put` and `sync`
+    work without it whenever a key is already resolvable.
+    """
+    from functualize.app.vault import VaultKeySourceError, vault_init
+
+    try:
+        report = vault_init(key_source=key_source)
+    except VaultKeySourceError as exc:
+        _fail(exc.reason, str(exc), json_out=json_out, code=ExitCode.REFUSED)
+        return
+
+    if json_out:
+        _vault_json(
+            {
+                "ok": True,
+                "key_scope": report.key_scope,
+                "key_provider": report.key_provider,
+                "created": report.created,
+            }
+        )
+        return
+
+    # Says which of the two things happened. A generic "initialized" would read
+    # as "a key was created" in the `--key-source env` case, where nothing was
+    # written anywhere.
+    if report.created:
+        click.echo(f"Created a vault key in the {report.key_provider!r} key store.")
+        click.echo("It opens every project's vault on this machine.")
+    else:
+        click.echo(f"A vault key is already available from {report.key_provider!r}.")
+        click.echo("Nothing was written.")
+
+
+@vault_app.command("put")
+@click.argument("path")
+@click.option("--stdin", "use_stdin", is_flag=True, default=False, help="Read stdin.")
+@click.option("--file", default=None, help="Read the value from a file.")
+@click.option("--replace", is_flag=True, default=False, help="Overwrite an entry.")
+@click.option("--json", "json_out", is_flag=True, default=False, help="Emit JSON.")
+@click.pass_context
+def vault_put_command(
+    ctx: click.Context,
+    path: str,
+    use_stdin: bool,
+    file: str | None,
+    replace: bool,
+    json_out: bool,
+) -> None:
+    """Store one secret at PATH, e.g. `deploy.api_token`.
+
+    PATH is validated against the job schema **before** the value is read, so a
+    typo costs you nothing you have already typed.
+    """
+    from functualize.app.vault import (
+        VaultEntryExistsError,
+        VaultKeySourceError,
+        VaultOriginConflictError,
+        VaultPathError,
+        resolve_canonical_path,
+        vault_put,
+    )
+
+    app = _vault_app(ctx, "vault put")
+
+    try:
+        resolved = resolve_canonical_path(app, path)
+    except VaultPathError as exc:
+        _fail(exc.reason, str(exc), json_out=json_out, code=ExitCode.USAGE, path=path)
+        return
+
+    value = _read_secret(
+        use_stdin=use_stdin, file=file, json_out=json_out, path=resolved.path
+    )
+
+    try:
+        report = vault_put(app, resolved.path, value, replace=replace)
+    except VaultEntryExistsError as exc:
+        _fail(
+            "entry_exists",
+            str(exc),
+            json_out=json_out,
+            code=ExitCode.REFUSED,
+            path=resolved.path,
+        )
+        return
+    except VaultOriginConflictError as exc:
+        _fail(
+            "provider_entry_conflict",
+            str(exc),
+            json_out=json_out,
+            code=ExitCode.REFUSED,
+            path=resolved.path,
+        )
+        return
+    except VaultKeySourceError as exc:
+        _fail(
+            exc.reason,
+            str(exc),
+            json_out=json_out,
+            code=ExitCode.REFUSED,
+            path=resolved.path,
+        )
+        return
+
+    if json_out:
+        _vault_json(
+            {
+                "ok": True,
+                "path": report.path,
+                "origin": str(report.origin) if report.origin else None,
+                "created": report.created,
+                "replaced": report.replaced,
+                "updated_at": report.updated_at,
+            }
+        )
+        return
+    click.echo(f"Stored {report.path} ({'replaced' if report.replaced else 'new'}).")
+
+
+@vault_app.command("inspect")
+@click.argument("path")
+@click.option("--json", "json_out", is_flag=True, default=False, help="Emit JSON.")
+@click.pass_context
+def vault_inspect_command(ctx: click.Context, path: str, json_out: bool) -> None:
+    """Explain PATH: eligibility, provenance, freshness — never the value.
+
+    Readability comes from the store's key check value, so this reports whether
+    a key opens the vault without decrypting anything stored in it.
+    """
+    from functualize.app.vault import vault_inspect
+
+    report = vault_inspect(_vault_app(ctx, "vault inspect"), path)
+
+    if json_out:
+        _vault_json(
+            {
+                "ok": True,
+                "path": report.path,
+                "eligible": report.eligible,
+                "exists": report.exists,
+                "origin": str(report.origin) if report.origin else None,
+                "provider": report.provider,
+                "reference": report.reference,
+                "created_at": report.created_at,
+                "updated_at": report.updated_at,
+                "synced_at": report.synced_at,
+                "key_provider": report.key_provider,
+                "readability": str(report.readability),
+                "stale": report.stale,
+                "winning_source": str(report.winning_source),
+            }
+        )
+        return
+
+    click.echo(f"Path:       {report.path}")
+    click.echo(f"Eligible:   {'yes' if report.eligible else 'no'}")
+    click.echo(f"Stored:     {'yes' if report.exists else 'no'}")
+    if report.exists:
+        click.echo(f"Origin:     {report.origin}")
+        if report.provider:
+            click.echo(f"Provider:   {report.provider}")
+        if report.reference:
+            click.echo(f"Reference:  {report.reference}")
+        click.echo(f"Readable:   {report.readability}")
+        click.echo(f"Would win:  {report.winning_source}")
+
+
+@vault_app.command("remove")
+@click.argument("path")
+@click.option("--yes", "assume_yes", is_flag=True, default=False, help="No prompt.")
+@click.option("--json", "json_out", is_flag=True, default=False, help="Emit JSON.")
+@click.pass_context
+def vault_remove_command(
+    ctx: click.Context, path: str, assume_yes: bool, json_out: bool
+) -> None:
+    """Remove the entry at PATH. Needs no vault key.
+
+    Works on a store this machine cannot open, which is the situation it exists
+    for. A direct value has no upstream copy, so removing one warns.
+    """
+    import sys
+
+    from functualize.app.vault import vault_remove
+
+    app = _vault_app(ctx, "vault remove")
+
+    interactive = sys.stdin.isatty() and sys.stdout.isatty()
+    if not assume_yes:
+        if not interactive:
+            _fail(
+                "confirmation_required",
+                "Removing an entry is destructive and this is not a terminal. "
+                "Pass --yes.",
+                json_out=json_out,
+                code=ExitCode.REFUSED,
+                path=path,
+            )
+            return
+        if not click.confirm(f"Remove {path}?", default=False):
+            click.echo("Left alone.")
+            return
+
+    report = vault_remove(app, path)
+
+    if json_out:
+        _vault_json(
+            {
+                "ok": True,
+                "path": report.path,
+                "origin": str(report.origin) if report.origin else None,
+                "removed": report.removed,
+                **({"warning": report.warning} if report.warning else {}),
+            }
+        )
+        return
+
+    if not report.removed:
+        click.echo(f"Nothing stored at {report.path}.")
+        return
+    click.echo(f"Removed {report.path} ({report.origin}).")
+    if report.warning:
+        click.echo(f"Warning: {report.warning}", err=True)
