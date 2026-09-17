@@ -15,6 +15,10 @@ from functualize._config.errors import (
     UnsupportedFormatError,
 )
 from functualize._config.protocols import FormatProvider, RemoteProvider
+from functualize._primitives.entry_point_groups import (
+    FORMAT_PROVIDERS,
+    REMOTE_PROVIDERS,
+)
 from functualize._primitives.entry_points import entry_points
 
 logger = logging.getLogger(__name__)
@@ -166,7 +170,7 @@ class ProviderRegistry:
 
     def _discover_format_entry_points(self) -> None:
         """Load format providers from the entry point group."""
-        eps = entry_points(group="functualize.format_providers")
+        eps = entry_points(group=FORMAT_PROVIDERS)
         for ep in eps:
             try:
                 provider_obj = ep.load()
@@ -190,7 +194,7 @@ class ProviderRegistry:
 
     def _discover_remote_entry_points(self) -> None:
         """Load remote providers from the entry point group."""
-        eps = entry_points(group="functualize.remote_providers")
+        eps = entry_points(group=REMOTE_PROVIDERS)
         for ep in eps:
             try:
                 provider_obj = ep.load()

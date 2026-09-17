@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from functualize._plugins.config import PluginConfigRegistry
+from functualize._primitives.entry_point_groups import PLUGINS
 from functualize._primitives.entry_points import entry_points
 
 if TYPE_CHECKING:
@@ -246,7 +247,7 @@ class PluginLoader:
     - Plugins without config attributes are loaded without config resolution
     """
 
-    def __init__(self, group: str = "functualize.plugins"):
+    def __init__(self, group: str = PLUGINS):
         self._group = group
         self._loaded: dict[str, str] = {}  # plugin name -> entry point name
         self._loaded_instances: list[Any] = []  # plugin instances in loading order

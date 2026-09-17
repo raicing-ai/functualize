@@ -214,7 +214,7 @@ They pass once the plugins are really installed, which `--all-packages
 
 ## Wave 2 — one rule for entry-point groups
 
-### [ ] T4 · `_primitives/entry_point_groups.py`, and nine readers import it
+### [x] T4 · `_primitives/entry_point_groups.py`, and nine readers import it
 
 `plan.md` §1.1 and §3. The set of groups core reads is currently implicit —
 three inline string literals, three module constants in three layers, two
@@ -245,9 +245,44 @@ dynamic. Nothing can compare it against what the ecosystem declares.
 | `uv run mypy` | green, 364 files | green |
 
 **Reachability — run the sabotage first.** Change one member of `READ_GROUPS`
-to a typo (`functualize.pluginz`). Expected: the plugin-loading tests fail —
-`uv run pytest tests/plugins -q` goes red. If green, no reader actually reads
-the constant and the wiring is cosmetic.
+to a typo (`functualize.pluginz`). Planned expectation: `tests/plugins` goes red.
+
+**DONE** (`15647db`). The planned scope was **the wrong suite, and nearly
+produced a false negative.** `tests/plugins` fails **1** — `test_init_default_group`,
+which asserts the literal equals the literal. That is a unit test of a constant,
+not evidence of a call path, and on its own it would have been indistinguishable
+from cosmetic wiring: 687 tests in that directory passed with the group name
+typo'd, because they mock `entry_points`.
+
+Widening to `tests/core tests/_cli tests/cli tests/app` gives **11 more, 12 in
+total**, and the meaningful ones are behavioural:
+
+- `tests/cli/test_plugin_command_dispatch.py` — **6 failures**. Plugin commands
+  stop being dispatched at all: with the group misspelled, no installed plugin
+  is discovered, so its CLI commands simply do not exist.
+- `tests/cli/test_schema_surface_parity.py` — **3 failures**. CLI/MCP schema
+  parity breaks because the MCP plugin never loads.
+- `tests/core/test_app.py`, `test_config_objects.py`,
+  `tests/cli/test_info_subcommands.py` — 1 each.
+
+**Production call path:** `FunctualizeApp.__init__` → `_app/boot.py` →
+`PluginLoader(group=PLUGINS)` → `entry_points(group=self._group)` → the
+installed distribution's `plugin.__call__(app)` → the CLI commands it registers.
+Restored; 49 passed.
+
+**Gate met:** `git grep -c 'entry_points(group="functualize' -- src/` **3 → 0**.
+lint-imports 7/0; mypy clean on **357** files; 3,477 tests green across plugins,
+config, core, app, primitives and `_cli`.
+
+**One design decision taken here, not in the plan.** The task said "nine readers
+import it"; **six do**. `_discovery/providers.py:790` takes its group from the
+caller (a job source's own) and was already out of scope. The other two are
+`_cli/skills.py` and `_cli/tui/display_provider_discovery.py`, and the
+`_cli uses public API only` contract forbids that layer importing `_primitives`.
+Routing the constants through `functualize.app.utils` would widen the **public**
+API — and `contributor/reference/public-api-example-coverage.md` makes every
+public symbol owe a caller in `examples/` — to buy nothing at runtime. Those two
+constants stay where they are and are tied to `READ_GROUPS` **by test**, in T6.
 
 ---
 

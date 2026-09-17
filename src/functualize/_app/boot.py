@@ -201,9 +201,10 @@ def wire_entry_point_jobs(app: Any) -> None:
     existing zero-import test would notice: both drive
     ``CachedDirectoryScanProvider`` directly rather than a composed boot.
     """
+    from functualize._primitives.entry_point_groups import JOBS
     from functualize._primitives.entry_points import entry_points
 
-    if not entry_points(group="functualize.jobs"):
+    if not entry_points(group=JOBS):
         return
 
     from functualize._discovery.providers import EntryPointProvider

@@ -24,11 +24,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from functualize._plugins.domain_metadata import DomainMetadata
+from functualize._primitives.entry_point_groups import DOMAINS
 from functualize._primitives.entry_points import entry_points
 
 logger = logging.getLogger(__name__)
 
-DOMAINS_ENTRY_POINT_GROUP = "functualize.domains"
+DOMAINS_ENTRY_POINT_GROUP = DOMAINS
 
 
 @dataclass
