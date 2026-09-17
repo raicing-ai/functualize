@@ -195,7 +195,7 @@ into a dev run — and the next argument, `remote_source`, was omitted anyway.
 
 ## Wave 7 — proof
 
-### [ ] T8.1 — Reachability and cold/warm parity (AC-2, AC-3, AC-13)
+### [x] T8.1 — Reachability and cold/warm parity (AC-2, AC-3, AC-13)
 
 - `[F]` `tests/integration/test_local_vault_e2e.py` (new)
 - `[D]` all prior
