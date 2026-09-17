@@ -59,6 +59,7 @@ import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -80,6 +81,7 @@ __all__ = [
     "SecretsVault",
     "VaultDecryptionError",
     "VaultEntry",
+    "VaultOrigin",
     "VaultError",
     "format_duration",
     "parse_duration",
@@ -122,14 +124,41 @@ _DURATION_RE = re.compile(r"(?:\d+[wdhms])+$")
 #: of the mode entirely, so it is never derived from the key or the row.
 _NONCE_BYTES = 12
 
+#: Bumped when the table shapes below change. Stamped into ``PRAGMA
+#: user_version`` by :func:`_upgrade`, which is what makes the upgrade run once.
+_SCHEMA_VERSION = 1
+
+#: The one row of :data:`_SCHEMA`'s ``vault_meta`` table, encrypted under the
+#: vault key. Fixed and non-secret on purpose: this is a **known-plaintext
+#: check** of the key, which AES-GCM is designed to withstand, and it exists so
+#: that "does this key open this store?" can be answered without decrypting
+#: anybody's secret. It is *not* a key verifier in the KDF sense (ADR-023 §2).
+_CHECK_PLAINTEXT = b"functualize-vault-check-v1"
+
+#: Associated data for the check row. Distinct from a secret's AAD (its key
+#: name), so a check row and a secret row can never be substituted for one
+#: another even by an attacker who can edit the file.
+_CHECK_AAD = b"functualize-vault-check"
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS secrets (
-    key         TEXT PRIMARY KEY,
-    annotation  TEXT NOT NULL,
-    provider    TEXT NOT NULL,
-    nonce       BLOB NOT NULL,
-    ciphertext  BLOB NOT NULL,
-    synced_at   TEXT NOT NULL
+    key          TEXT PRIMARY KEY,
+    origin       TEXT NOT NULL DEFAULT 'provider',
+    annotation   TEXT,
+    provider     TEXT,
+    nonce        BLOB NOT NULL,
+    ciphertext   BLOB NOT NULL,
+    created_at   TEXT,
+    updated_at   TEXT,
+    synced_at    TEXT,
+    key_provider TEXT
+);
+
+CREATE TABLE IF NOT EXISTS vault_meta (
+    id         INTEGER PRIMARY KEY CHECK (id = 1),
+    nonce      BLOB NOT NULL,
+    ciphertext BLOB NOT NULL,
+    created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -156,18 +185,45 @@ class VaultDecryptionError(VaultError):
     """
 
 
+class VaultOrigin(StrEnum):
+    """What wrote an entry. A :class:`~enum.StrEnum` so it serializes to the
+    documented spelling without a second mapping.
+
+    The distinction is not cosmetic: a provider entry is recoverable from
+    upstream by ``vault sync`` and a direct one is not, so deletion, refresh and
+    conflict all read this field (ADR-023 §3).
+    """
+
+    DIRECT = "direct"
+    PROVIDER = "provider"
+
+
 @dataclass(frozen=True)
 class VaultEntry:
     """One stored secret's metadata. Deliberately carries no value.
 
     Returned by listing and status surfaces, which must be able to describe the
     vault without opening it.
+
+    **Three fields are nullable and were not.** ``annotation``, ``provider`` and
+    ``synced_at`` describe where a value was fetched *from*, and a value typed
+    in by hand was not fetched from anywhere. Filler was rejected: a row
+    claiming ``provider = "direct"`` makes every reader see a provider name that
+    is not one, and a ``synced_at`` meaning "when I typed it" is untrue.
+
+    One flat record rather than a per-origin hierarchy, because every consumer
+    wants the whole row; splitting it would push an ``isinstance`` branch into
+    ``list``, ``status`` and ``inspect`` alike.
     """
 
     key: str
-    annotation: str
-    provider: str
-    synced_at: datetime
+    origin: VaultOrigin
+    annotation: str | None
+    provider: str | None
+    created_at: datetime | None
+    updated_at: datetime | None
+    synced_at: datetime | None
+    key_provider: str | None
 
 
 class InvalidDurationError(VaultError):
@@ -330,6 +386,7 @@ class SecretsVault:
         # edge case. Reads are frequent; writes happen only during `vault sync`.
         conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(_SCHEMA)
+        _upgrade(conn)
         return conn
 
     def _audit(
@@ -372,22 +429,30 @@ class SecretsVault:
         ciphertext = AESGCM(encryption_key).encrypt(
             nonce, value.encode("utf-8"), key.encode("utf-8")
         )
+        now = _utcnow().isoformat()
         with self._connect() as conn:
             conn.execute(
                 "INSERT INTO secrets"
-                " (key, annotation, provider, nonce, ciphertext, synced_at)"
-                " VALUES (?, ?, ?, ?, ?, ?)"
+                " (key, origin, annotation, provider, nonce, ciphertext,"
+                "  created_at, updated_at, synced_at, key_provider)"
+                " VALUES (?, 'provider', ?, ?, ?, ?, ?, ?, ?, ?)"
                 " ON CONFLICT(key) DO UPDATE SET"
+                " origin='provider',"
                 " annotation=excluded.annotation, provider=excluded.provider,"
                 " nonce=excluded.nonce, ciphertext=excluded.ciphertext,"
-                " synced_at=excluded.synced_at",
+                " updated_at=excluded.updated_at,"
+                " synced_at=excluded.synced_at,"
+                " key_provider=excluded.key_provider",
                 (
                     key,
                     annotation,
                     provider,
                     nonce,
                     ciphertext,
-                    _utcnow().isoformat(),
+                    now,
+                    now,
+                    now,
+                    self._key_provider_id,
                 ),
             )
             self._audit(conn, key, "sync", "ok", provider)
@@ -429,17 +494,28 @@ class SecretsVault:
             return plaintext.decode("utf-8")
 
     def list_entries(self) -> list[VaultEntry]:
-        """Every stored entry's metadata. Requires **no** key."""
+        """Every stored entry's metadata. Requires **no** key.
+
+        Requiring no key is what makes this the basis for both the listing
+        surfaces and the recovery ones: ``vault remove`` has to work on a store
+        this machine cannot open, and it learns what is there from here.
+        """
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT key, annotation, provider, synced_at FROM secrets ORDER BY key"
+                "SELECT key, origin, annotation, provider, created_at,"
+                " updated_at, synced_at, key_provider"
+                " FROM secrets ORDER BY key"
             ).fetchall()
         return [
             VaultEntry(
                 key=r[0],
-                annotation=r[1],
-                provider=r[2],
-                synced_at=_parse_ts(r[3]),
+                origin=VaultOrigin(r[1]),
+                annotation=r[2],
+                provider=r[3],
+                created_at=_parse_ts(r[4]) if r[4] else None,
+                updated_at=_parse_ts(r[5]) if r[5] else None,
+                synced_at=_parse_ts(r[6]) if r[6] else None,
+                key_provider=r[7],
             )
             for r in rows
         ]
@@ -451,6 +527,9 @@ class SecretsVault:
         is only as fresh as the value most likely to have been rotated behind
         it.
         """
+        # SQLite's MIN ignores NULLs, which is exactly right now that direct
+        # entries carry none: a value typed in by hand has never been synced,
+        # so it cannot make the vault look stale (or look fresh).
         with self._connect() as conn:
             row = conn.execute("SELECT MIN(synced_at) FROM secrets").fetchone()
         return _parse_ts(row[0]) if row and row[0] else None
@@ -484,6 +563,65 @@ class SecretsVault:
         self._path.unlink(missing_ok=True)
         for suffix in ("-wal", "-shm"):
             self._path.with_name(self._path.name + suffix).unlink(missing_ok=True)
+
+
+def _upgrade(conn: sqlite3.Connection) -> None:
+    """Bring an older store up to :data:`_SCHEMA_VERSION`, in place and once.
+
+    Runs after ``_SCHEMA``, which uses ``CREATE TABLE IF NOT EXISTS`` and so
+    adds the *missing* tables but cannot reshape an existing one. A store
+    written before origin tracking has ``annotation``, ``provider`` and
+    ``synced_at`` as ``NOT NULL``, and SQLite cannot drop a ``NOT NULL`` with
+    ``ALTER TABLE`` — so the table is rebuilt.
+
+    Idempotent twice over, deliberately. ``PRAGMA user_version`` is the fast
+    path, and the column check behind it is the honest one: a freshly created
+    store is already v1-shaped but still stamped 0, and rebuilding it would be
+    pointless work on every first connection. Trusting the version alone would
+    also mean a store whose stamp was lost could never be repaired.
+
+    Existing rows are carried across untouched — ``nonce`` and ``ciphertext``
+    are copied, never re-encrypted, because this function has no key and must
+    never need one. Migrated rows take ``origin = 'provider'``, which is not a
+    guess: before this version, ``sync`` was the only writer.
+    """
+    if conn.execute("PRAGMA user_version").fetchone()[0] >= _SCHEMA_VERSION:
+        return
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(secrets)")}
+    if columns and "origin" not in columns:
+        # One transaction. A half-rebuilt store is worse than an old one: the
+        # values are only recoverable from here.
+        conn.execute("""
+            CREATE TABLE secrets_upgraded (
+                key          TEXT PRIMARY KEY,
+                origin       TEXT NOT NULL DEFAULT 'provider',
+                annotation   TEXT,
+                provider     TEXT,
+                nonce        BLOB NOT NULL,
+                ciphertext   BLOB NOT NULL,
+                created_at   TEXT,
+                updated_at   TEXT,
+                synced_at    TEXT,
+                key_provider TEXT
+            )
+        """)
+        # `synced_at` fills both timestamps: it is the only one a v0 row has,
+        # and it is truthful for each -- that *is* when the row was written.
+        conn.execute("""
+            INSERT INTO secrets_upgraded
+                (key, origin, annotation, provider, nonce, ciphertext,
+                 created_at, updated_at, synced_at, key_provider)
+            SELECT key, 'provider', annotation, provider, nonce, ciphertext,
+                   synced_at, synced_at, synced_at, NULL
+            FROM secrets
+        """)
+        conn.execute("DROP TABLE secrets")
+        conn.execute("ALTER TABLE secrets_upgraded RENAME TO secrets")
+
+    # Not parameterizable -- PRAGMA takes no placeholders. The value is our own
+    # module constant, never caller input.
+    conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION:d}")
 
 
 def _require_key(key: bytes) -> None:

@@ -71,7 +71,7 @@ Pure mechanical move, **no behavior change**, following the `plugin_cmd.py` /
 - `[G]` `initialize_key` is idempotent — two calls return identical bytes, `len == KEY_BYTES` (32).
 - `[G]` `tests/config/test_vault_store.py::TestProjectScoping::test_one_project_cannot_read_anothers_entry` passes **unchanged**. It already uses one key across two files and asserts isolation comes from the files, so it encodes D6's position; if it fails, D6 was implemented wrong.
 
-### [ ] T2.2 — Schema v1 and the in-place upgrade (D1)
+### [x] T2.2 — Schema v1 and the in-place upgrade (D1)
 
 The one step that touches existing rows. SQLite cannot drop `NOT NULL` with
 `ALTER`, so `secrets` is rebuilt inside one transaction — see `schema.md` §3.
