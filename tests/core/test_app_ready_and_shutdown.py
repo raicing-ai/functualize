@@ -382,6 +382,40 @@ class TestTheOnReadyDecoratorRegisters:
 
         assert app.hooks.on_ready(handler) is handler
 
+    def test_a_plugin_registering_through_it_is_fired_at_boot(self) -> None:
+        """The whole chain, which neither half proved on its own.
+
+        The two tests above use the real app but call the property directly;
+        the five plugins' own suites assert they *ask* for `on_ready`, using a
+        fake hooks object. Between them nothing showed that a plugin
+        registering this way is actually called at `APP_READY` — which is the
+        only claim T6's migration makes.
+
+        This is the form all five shipped plugins now use, loaded the way
+        plugins are really loaded.
+        """
+        ready_received: list[Any] = []
+
+        class TestPlugin:
+            name = "test-on-ready-plugin"
+            version = "1.0.0"
+            description = "Registers through app.hooks.on_ready"
+
+            def __call__(self, app: Any) -> None:
+                app.hooks.on_ready(self._on_app_ready)
+
+            def _on_app_ready(self, app: Any) -> None:
+                ready_received.append(app)
+
+        mock_ep = MagicMock()
+        mock_ep.name = "test-on-ready-plugin"
+        mock_ep.load.return_value = TestPlugin()
+
+        with patch("functualize._plugins.loader.entry_points", return_value=[mock_ep]):
+            app = FunctualizeApp(name="testapp")
+
+        assert ready_received == [app]
+
     def test_a_non_callable_is_refused_at_registration(self) -> None:
         """The runtime half of the type. Now mypy's job too, but not only.
 
