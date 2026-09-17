@@ -49,9 +49,7 @@ class LocalTasksPlugin:
 
         Hooks into APP_READY for initialization and DI registration.
         """
-        from functualize._events.hooks import HookEvent
-
-        app.hook_registry.register_global(HookEvent.APP_READY, self._on_app_ready)
+        app.hooks.on_ready(self._on_app_ready)
 
     def _on_app_ready(self, app: Any) -> None:
         """Initialize LocalTaskProvider and register with DI registry.

@@ -53,9 +53,7 @@ class SQLiteStatePlugin:
         return self._substrate
 
     def __call__(self, app: Any) -> None:
-        from functualize._events.hooks import HookEvent
-
-        app.hook_registry.register_global(HookEvent.APP_READY, self._on_app_ready)
+        app.hooks.on_ready(self._on_app_ready)
 
     def _on_app_ready(self, app: Any) -> None:
         """Choose the substrate, once, before anything has resolved one.

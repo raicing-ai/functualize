@@ -65,23 +65,23 @@ class TestProviderRegistration:
         assert "PydanticAI" in plugin.description
 
     def test_plugin_registers_hook_on_call(self) -> None:
-        """Calling the plugin with an app registers the APP_READY hook."""
-        plugin = PydanticAIPlugin()
+        """Calling the plugin with an app registers the APP_READY hook.
 
-        # Create a fake app with a mock hook_registry
-        fake_hook_registry = MagicMock()
+        Through `app.hooks.on_ready` since `plugin-host-protocol`/T6, which
+        names the event in the method rather than passing
+        `HookEvent.APP_READY` to a generic registrar — so this no longer
+        imports from `functualize._events`.
+
+        A `MagicMock` app answers any attribute, so the assertion has to name
+        the door: it is the handler and the member that are checked, not merely
+        that *something* was registered.
+        """
+        plugin = PydanticAIPlugin()
         fake_app = MagicMock()
-        fake_app.hook_registry = fake_hook_registry
 
         plugin(fake_app)
 
-        # Verify that register_global was called with HookEvent.APP_READY
-        fake_hook_registry.register_global.assert_called_once()
-        call_args = fake_hook_registry.register_global.call_args
-        # First positional arg is the HookEvent
-        from functualize._events.hooks import HookEvent
-
-        assert call_args[0][0] == HookEvent.APP_READY
+        fake_app.hooks.on_ready.assert_called_once_with(plugin._on_app_ready)
 
 
 # ---------------------------------------------------------------------------

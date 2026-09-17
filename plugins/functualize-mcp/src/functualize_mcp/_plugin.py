@@ -64,10 +64,8 @@ class MCPAdapterPlugin:
         Args:
             app: The FunctualizeApp instance.
         """
-        from functualize._events.hooks import HookEvent
-
         self._app = app
-        app.hook_registry.register_global(HookEvent.APP_READY, self._on_app_ready)
+        app.hooks.on_ready(self._on_app_ready)
 
     def _on_app_ready(self, app: Any) -> None:
         """Register MCP plugin with DI and defer heavy initialization.

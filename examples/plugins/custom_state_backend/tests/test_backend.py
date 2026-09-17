@@ -171,14 +171,23 @@ class TestThePlugin:
         assert app.installed is plugin.substrate
 
     def test_it_registers_on_app_ready_and_not_before(self):
+        """Through `app.hooks.on_ready`, which is the whole public surface.
+
+        Until `plugin-host-protocol`/T6 this said
+        `app.hook_registry.register_global(HookEvent.APP_READY, …)` — three
+        names deep, and two of them (`hook_registry`, `HookEvent`) reached into
+        `functualize._events`, a private package. An example that has to import
+        an underscore module to register a hook is teaching the wrong thing.
+        """
         registered = []
 
         class _Hooks:
-            def register_global(self, event, handler):
-                registered.append((event, handler))
+            def on_ready(self, handler):
+                registered.append(handler)
+                return handler
 
         class _App:
-            hook_registry = _Hooks()
+            hooks = _Hooks()
 
             def install_substrate(self, substrate):  # pragma: no cover
                 raise AssertionError("installing before APP_READY is too early")
@@ -186,8 +195,5 @@ class TestThePlugin:
         plugin = MemoryStatePlugin()
         plugin(_App())
 
-        assert len(registered) == 1
-        from functualize._events.hooks import HookEvent
-
-        assert registered[0][0] == HookEvent.APP_READY
+        assert registered == [plugin._on_app_ready]
         assert plugin.substrate is None, "installing before APP_READY is too early"

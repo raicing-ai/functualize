@@ -54,12 +54,9 @@ class PydanticAIPlugin:
         Hooks into APP_READY for initialization and DI registration.
         """
         self._app = app
-        hook_registry = app.hook_registry
-
-        from functualize._events.hooks import HookEvent
 
         # APP_READY: initialize provider and register with DI
-        hook_registry.register_global(HookEvent.APP_READY, self._on_app_ready)
+        app.hooks.on_ready(self._on_app_ready)
 
     def _on_app_ready(self, app: Any) -> None:
         """Initialize PydanticAI instances and register with DI registry.

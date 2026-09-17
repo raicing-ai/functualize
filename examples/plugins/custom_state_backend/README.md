@@ -59,9 +59,7 @@ memory = "functualize_state_memory:MemoryStatePlugin"
 ```python
 class MemoryStatePlugin:
     def __call__(self, app):
-        from functualize._events.hooks import HookEvent
-
-        app.hook_registry.register_global(HookEvent.APP_READY, self._on_app_ready)
+        app.hooks.on_ready(self._on_app_ready)
 
     def _on_app_ready(self, app):
         app.install_substrate(MemorySubstrate())
