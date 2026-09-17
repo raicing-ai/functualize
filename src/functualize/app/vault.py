@@ -44,6 +44,7 @@ from functualize._config.vault import VaultOrigin
 
 if TYPE_CHECKING:
     from datetime import datetime
+    from pathlib import Path
 
 __all__ = [
     "Readability",
@@ -52,7 +53,12 @@ __all__ = [
     "VaultInspectionReport",
     "VaultMutationReport",
     "VaultOrigin",
+    "VaultKeySourceError",
     "VaultPathError",
+    "vault_init",
+    "vault_inspect",
+    "vault_put",
+    "vault_remove",
     "WinningSource",
     "resolve_canonical_path",
 ]
@@ -316,3 +322,334 @@ def _match_field(fields: list[Any], wanted: str) -> Any | None:
         if name in (wanted, normalized):
             return field
     return None
+
+
+class VaultKeySourceError(RuntimeError):
+    """No key source could do what was asked, and why.
+
+    Carries a stable ``reason`` so a delivery surface classifies without
+    parsing prose, and a message that teaches: on a stock install this is the
+    first thing a user meets, so it names *both* routes forward rather than
+    only the one that happens to be unavailable.
+    """
+
+    def __init__(self, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
+def vault_init(
+    *, key_source: str | None = None, cwd: str | Path | None = None
+) -> VaultInitReport:
+    """Ensure a vault key exists, without ever showing it.
+
+    Takes **no app**: the shipped providers are user-scoped (ADR-023 §4), so
+    there is no discovery to run and this is done once per machine rather than
+    once per project.
+
+    It does still resolve a ``project_id``, cheaply and without booting, and
+    hands it to the provider. Both shipped providers ignore it — but key scope
+    is a *provider's* choice, and a third-party KMS may legitimately hold one
+    key per project. Passing a placeholder would quietly break exactly those.
+
+    Args:
+        key_source: A provider identifier such as ``"env"`` or ``"keychain"``.
+            ``None`` picks the first available one, non-interactive first —
+            the ordering ADR-016 §5 made part of the contract, because
+            reversed, an unattended run blocks on a prompt nobody can answer.
+        cwd: Where to resolve the project from. Defaults to the working
+            directory.
+
+    Returns:
+        A report naming the provider and whether a key was **created**.
+        ``created=False`` means one already existed or was merely validated —
+        the ``--key-source env`` case, where nothing is written anywhere.
+
+    Raises:
+        VaultKeySourceError: No usable source. Never falls back to printing a
+            key: ``keygen`` exists for that and is explicitly the operator's to
+            place.
+
+    Writes nothing to the vault file. The key check value is written by the
+    first *store* write, so ``vault_init(key_source="env")`` is genuinely
+    read-only and the vault file still appears on first write.
+    """
+    from functualize._config.vault_keys import default_providers
+
+    project_id = _project_id(cwd)
+    providers = list(default_providers())
+
+    if key_source is not None:
+        chosen = next((p for p in providers if p.identifier() == key_source), None)
+        if chosen is None:
+            known = ", ".join(sorted(p.identifier() for p in providers))
+            raise VaultKeySourceError(
+                "unknown_key_source",
+                f"No key source named {key_source!r}. Available: {known}.",
+            )
+        return _init_with(chosen, project_id)
+
+    for provider in _non_interactive_first(providers):
+        if not provider.is_available():
+            continue
+        return _init_with(provider, project_id)
+
+    raise VaultKeySourceError("key_source_unavailable", _NO_KEY_STORE_MESSAGE)
+
+
+def _non_interactive_first(providers: list[Any]) -> list[Any]:
+    """Two passes rather than a sort, matching `resolve_vault_key`.
+
+    An interactive provider must not be consulted merely because it sorted
+    first; the split is the contract, not a tiebreak.
+    """
+    return [p for p in providers if not p.interactive()] + [
+        p for p in providers if p.interactive()
+    ]
+
+
+def _project_id(cwd: str | Path | None) -> str:
+    """This project's identity, without booting anything."""
+    from functualize._config.vault_paths import project_root_for
+    from functualize._primitives.locator import compute_project_id
+
+    root, _mode = project_root_for(cwd)
+    return compute_project_id(str(root))
+
+
+#: What a stock install meets first, so it teaches both routes rather than
+#: naming only the one that is missing. `keyring` is an optional extra, and the
+#: environment route needs no install at all.
+_NO_KEY_STORE_MESSAGE = (
+    "No key store is available on this machine.\n\n"
+    "Two ways forward:\n\n"
+    "  pip install 'functualize[keychain]'\n"
+    "     then re-run this command\n\n"
+    "  func builtin vault keygen\n"
+    "     export FUNCTUALIZE_VAULT_KEY=<it>\n"
+    "     func builtin vault init --key-source env"
+)
+
+
+def _init_with(provider: Any, project_id: str) -> VaultInitReport:
+    """Create or validate through one provider, reporting which happened."""
+    from functualize.plugin import VaultKeyInitializer
+
+    identifier = provider.identifier()
+
+    if provider.get_key(project_id) is not None:
+        # Idempotent, and honest about it: nothing was written, so the report
+        # must not say "created". `--key-source env` always lands here, which
+        # is what makes it a pure preflight.
+        return VaultInitReport(key_provider=identifier, created=False)
+
+    if not isinstance(provider, VaultKeyInitializer):
+        detail = (
+            "Run `func builtin vault keygen` and export $FUNCTUALIZE_VAULT_KEY."
+            if identifier == "env"
+            else _NO_KEY_STORE_MESSAGE
+        )
+        raise VaultKeySourceError(
+            "key_source_not_initializable",
+            f"The {identifier!r} key source can only read a key, not create "
+            f"one — only you can set it. {detail}",
+        )
+
+    if not provider.is_available():
+        raise VaultKeySourceError(
+            "key_source_unavailable",
+            f"The {identifier!r} key source is not available here.\n\n"
+            f"{_NO_KEY_STORE_MESSAGE}",
+        )
+
+    provider.initialize_key(project_id)
+    return VaultInitReport(key_provider=identifier, created=True)
+
+
+def _open_store(cwd: str | Path | None = None) -> Any:
+    from functualize._config.vault import SecretsVault
+    from functualize._config.vault_paths import vault_path_for_project
+
+    return SecretsVault(vault_path_for_project(cwd))
+
+
+def _resolve_key(cwd: str | Path | None = None) -> Any:
+    """The vault key, or a refusal that names how to supply one."""
+    from functualize._config.vault_keys import resolve_vault_key
+
+    resolution = resolve_vault_key(_project_id(cwd))
+    if resolution is None:
+        raise VaultKeySourceError(
+            "key_unavailable",
+            "No vault key is available, so nothing can be encrypted or read.\n\n"
+            + _NO_KEY_STORE_MESSAGE,
+        )
+    return resolution
+
+
+def vault_put(
+    app: Any,
+    path: str,
+    value: str,
+    *,
+    replace: bool = False,
+    cwd: str | Path | None = None,
+) -> VaultMutationReport:
+    """Store one value against a canonical path.
+
+    Args:
+        app: A booted app, for the job schema the path is checked against.
+        path: ``<job>.<field>``. Validated *before* anything else happens.
+        value: The plaintext. Never logged, never returned, never in a report.
+        replace: Permit overwriting an existing direct entry.
+        cwd: Project directory. Defaults to the working directory.
+
+    Raises:
+        VaultPathError: The path names nothing the vault could supply.
+        VaultKeySourceError: No key is available to encrypt with.
+        VaultEntryExistsError: An entry exists and ``replace`` is False.
+        VaultOriginConflictError: A provider entry holds this path. Changing
+            what wrote an entry is never a side effect of writing it.
+
+    The caller is expected to have validated the path with
+    :func:`resolve_canonical_path` before collecting ``value`` — a typo must
+    not cost someone the secret they already typed. This re-validates anyway,
+    because a public function cannot assume its caller did.
+    """
+    from functualize._config.vault import VaultOrigin as _Origin
+
+    resolved = resolve_canonical_path(app, path)
+    resolution = _resolve_key(cwd)
+    store = _open_store(cwd)
+
+    existed = any(e.key == resolved.config_key for e in store.list_entries())
+    store.put(
+        resolved.config_key,
+        value,
+        encryption_key=resolution.key,
+        origin=_Origin.DIRECT,
+        replace=replace,
+    )
+    entry = next(e for e in store.list_entries() if e.key == resolved.config_key)
+    return VaultMutationReport(
+        path=resolved.path,
+        origin=entry.origin,
+        created=not existed,
+        replaced=existed,
+        updated_at=entry.updated_at,
+    )
+
+
+def vault_remove(
+    app: Any, path: str, *, cwd: str | Path | None = None
+) -> VaultMutationReport:
+    """Remove one entry of either origin. Needs no vault key.
+
+    Args:
+        app: Used only to canonicalize ``path``. A path that does **not**
+            resolve is still attempted literally — see below.
+        path: The canonical path, or the stored key itself.
+        cwd: Project directory.
+
+    Returns:
+        What was removed. ``removed=False`` with ``origin=None`` when nothing
+        was there, which is success: asking for something gone to be gone has
+        been satisfied.
+
+    **An unresolvable path is not refused.** This is the recovery command, and
+    the entries most needing removal are the ones whose job has since been
+    renamed or deleted — validating against the current schema would make the
+    orphans it exists to clear unreachable. A path that resolves is
+    canonicalized so flag spelling works; one that does not is used verbatim
+    and simply matches nothing if it was a typo.
+    """
+    from functualize._config.vault import VaultOrigin as _Origin
+
+    try:
+        target = resolve_canonical_path(app, path).config_key
+    except VaultPathError:
+        target = path
+
+    removed = _open_store(cwd).delete(target)
+    if removed is None:
+        return VaultMutationReport(path=target, origin=None, removed=False)
+
+    return VaultMutationReport(
+        path=target,
+        origin=removed.origin,
+        removed=True,
+        updated_at=removed.updated_at,
+        warning=(
+            "no upstream copy; this value is gone"
+            if removed.origin is _Origin.DIRECT
+            else None
+        ),
+    )
+
+
+def vault_inspect(
+    app: Any, path: str, *, cwd: str | Path | None = None
+) -> VaultInspectionReport:
+    """Describe a path without holding its value.
+
+    Answers eligibility, existence, provenance and readability. Readability
+    comes from the store's key check value, so **no stored secret is decrypted
+    to produce this report** — which is what makes the security claim about
+    this command true rather than aspirational.
+
+    An ineligible path is reported as ``eligible=False`` rather than raised,
+    because "why can I not store this here?" is the question the command exists
+    to answer.
+    """
+    from functualize._config.vault_keys import resolve_vault_key
+
+    try:
+        resolved = resolve_canonical_path(app, path)
+        key = resolved.config_key
+        eligible = True
+        display = resolved.path
+    except VaultPathError:
+        key, eligible, display = path, False, path
+
+    store = _open_store(cwd)
+    entry = next((e for e in store.list_entries() if e.key == key), None)
+    if entry is None:
+        return VaultInspectionReport(
+            path=display,
+            eligible=eligible,
+            exists=False,
+            readability=Readability.ABSENT,
+            winning_source=WinningSource.MISSING,
+        )
+
+    resolution = resolve_vault_key(_project_id(cwd))
+    if resolution is None:
+        readability = Readability.KEY_UNAVAILABLE
+    else:
+        opens = store.opens_with(resolution.key)
+        # `None` means the store predates the check row. Reporting that as
+        # readable would be a guess; reporting it as wrong would libel every
+        # vault written before this feature. Unknown is neither, so it maps to
+        # the state that says "a key is present but unverified".
+        readability = (
+            Readability.READABLE if opens is not False else Readability.WRONG_KEY
+        )
+
+    return VaultInspectionReport(
+        path=display,
+        eligible=eligible,
+        exists=True,
+        origin=entry.origin,
+        provider=entry.provider,
+        reference=entry.annotation,
+        created_at=entry.created_at,
+        updated_at=entry.updated_at,
+        synced_at=entry.synced_at,
+        key_provider=entry.key_provider,
+        readability=readability,
+        winning_source=(
+            WinningSource.VAULT
+            if readability is Readability.READABLE
+            else WinningSource.MISSING
+        ),
+    )

@@ -331,7 +331,9 @@ decision for Plan and, because it adds public API, requires an ADR.
 The delivery-neutral public seam must provide operations equivalent to:
 
 ```python
-vault_init(app: FunctualizeApp, *, key_source: str | None = None) -> VaultInitReport
+vault_init(
+    *, key_source: str | None = None, cwd: str | Path | None = None
+) -> VaultInitReport
 
 vault_put(
     app: FunctualizeApp,
@@ -339,15 +341,37 @@ vault_put(
     value: str,
     *,
     replace: bool = False,
+    cwd: str | Path | None = None,
 ) -> VaultMutationReport
 
-vault_inspect(app: FunctualizeApp, path: str) -> VaultInspectionReport
+vault_inspect(
+    app: FunctualizeApp, path: str, *, cwd: str | Path | None = None
+) -> VaultInspectionReport
 
 vault_remove(
-    app: FunctualizeApp,
-    path: str,
+    app: FunctualizeApp, path: str, *, cwd: str | Path | None = None
 ) -> VaultMutationReport
 ```
+
+**`vault_init` takes no app.** It carried one in the first draft; D6 removed the
+need. A user-scoped key means there is no project to discover and no schema to
+check, so requiring a booted app would be asking for something the operation
+does not use — and would make `init` impossible on a project that cannot boot,
+which is one of the moments you most want it.
+
+It still resolves a `project_id` (cheaply, without booting) and passes it to the
+provider. Both shipped providers ignore it, but key scope is a *provider's*
+choice and a third-party KMS may hold one key per project; passing a placeholder
+would quietly break exactly those.
+
+`cwd` is on each operation so a caller can act on a project other than the
+working directory — an embedding application, or a test.
+
+**`vault_remove` does not require `path` to be eligible.** It canonicalizes a
+path that resolves, so flag spelling works, and uses one that does not
+verbatim. The entries most needing removal are the ones whose job has since been
+renamed or deleted; validating against the current schema would make the
+orphans this command exists to clear unreachable.
 
 The precise module and report class layout are settled by the architecture
 gate. The behavior is fixed:

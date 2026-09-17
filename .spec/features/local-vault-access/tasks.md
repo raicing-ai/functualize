@@ -129,7 +129,7 @@ The one step that touches existing rows. SQLite cannot drop `NOT NULL` with
 
 ## Wave 4 — operations and composition
 
-### [ ] T5.1 — `app/vault.py`: the four operations
+### [x] T5.1 — `app/vault.py`: the four operations
 
 - `[F]` `src/functualize/app/vault.py`, `tests/app/test_vault_seam.py` (new)
 - `[D]` T4.1
