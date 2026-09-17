@@ -47,7 +47,7 @@ writing, not silently.
 - `[G]` ADR-016 §7 links forward to ADR-023; ADR-023 states what still falls through (absent entry, declared-but-unsynced annotation) and what now refuses.
 - `[G]` ADR-023 records the D6 trade-off: one user key now reaches every project's vault.
 
-### [ ] T1.4 — Move the vault command group out of `builtins.py`
+### [x] T1.4 — Move the vault command group out of `builtins.py`
 
 Pure mechanical move, **no behavior change**, following the `plugin_cmd.py` /
 `self_cmd.py` precedent. Done first so every later CLI task edits the new file.
