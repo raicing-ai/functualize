@@ -60,7 +60,11 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from functualize._config.annotations import scan_annotations
-from functualize._config.vault import SecretsVault, format_duration
+from functualize._config.vault import (
+    SecretsVault,
+    VaultEntryUnreadableError,
+    format_duration,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -112,6 +116,9 @@ class VaultSource:
         self._providers = frozenset(providers)
         self._max_age = max_age
         self._staleness_checked = False
+        self._opens_asked = False
+        self._opens: bool | None = None
+        self._keys_seen: frozenset[str] | None = None
         self._warned: set[str] = set()
         self.misses: list[str] = []
         """Fully-qualified keys this source was asked for and did not hold.
@@ -155,20 +162,48 @@ class VaultSource:
         return f"{section}.{key}" if section else key
 
     def get(self, key: str, section: str | None = None) -> Any | None:
-        """Return a synced value, or None to defer to the next source.
+        """Return a stored value, or None to defer to the next source.
+
+        **Presence decides, not origin** (ADR-023 §1). An absent entry falls
+        through, exactly as before. An entry that *is* stored is the intended
+        value, so failing to open it refuses the run rather than quietly
+        selecting something weaker — the operator would otherwise get a
+        different secret than they provisioned, with the run reporting success.
 
         Raises:
-            VaultDecryptionError: If a stored value will not authenticate. This
-                is *not* softened into a miss: a vault that cannot be read is a
-                different situation from one that does not hold the key, and
-                collapsing them would hide a wrong-key configuration behind a
-                silent fall-through.
+            VaultEntryUnreadableError: An entry exists for this key and no
+                usable key is available for it.
+            VaultDecryptionError: A stored value will not authenticate.
         """
-        if not self.usable:
+        # No file at all: nothing was ever stored, so there is nothing this
+        # source could be hiding. Checked before anything else because it is
+        # the common case for every project that does not use the vault.
+        if not self._vault.path.exists():
             return None
-        self._warn_if_stale()
+
         qualified = self._qualified(key, section)
-        assert self._key is not None  # narrowed by `usable`
+
+        if self._key is None:
+            self._refuse_if_stored(
+                qualified,
+                "no vault key is available on this machine",
+            )
+            return None
+
+        self._warn_if_stale()
+
+        # The check value answers "is this the key this store was written
+        # with?" without decrypting anybody's secret. `None` means the store
+        # predates the check row, in which case the old behaviour stands and
+        # `get` below is left to discover a wrong key the expensive way.
+        if self._opens_with_key() is False:
+            self._refuse_if_stored(
+                qualified,
+                f"the key supplied by the {self._key_provider_id!r} provider "
+                f"does not open this vault",
+            )
+            return None
+
         # VaultDecryptionError deliberately propagates. A vault that cannot be
         # read is a different situation from one that does not hold the key,
         # and collapsing them would hide a wrong-key configuration behind a
@@ -178,6 +213,58 @@ class VaultSource:
             self.misses.append(qualified)
             return None
         return value
+
+    def _opens_with_key(self) -> bool | None:
+        """Whether this key opens this store, asked once per run.
+
+        A separate `_opens_asked` flag rather than a sentinel value, because
+        `None` is already a real answer here — "this store has no check row, so
+        the question cannot be answered" — and overloading it with "not yet
+        asked" is how the two get confused.
+        """
+        if not self._opens_asked:
+            assert self._key is not None
+            self._opens = self._vault.opens_with(self._key)
+            self._opens_asked = True
+        return self._opens
+
+    def _stored_keys(self) -> frozenset[str]:
+        """Every key the store holds, read once and without the vault key.
+
+        Metadata is stored in clear precisely so this is possible: the question
+        "is something stored here?" has to be answerable on a machine that
+        cannot decrypt anything, or the refusal below could not be raised at
+        all.
+
+        Read once per source. The source is built at boot and the chain is
+        rebuilt on `refresh()`, so a `vault put` from a separate process is
+        picked up by the next run — which is the only sequence that occurs.
+        """
+        if self._keys_seen is None:
+            self._keys_seen = frozenset(e.key for e in self._entries())
+        return self._keys_seen
+
+    def _refuse_if_stored(self, qualified: str, because: str) -> None:
+        """Raise when this key names something the store actually holds.
+
+        Deliberately asked in this order: the store is only consulted on the
+        path that was about to fall through, so an ordinary resolution that
+        finds its value pays nothing for this.
+        """
+        if qualified not in self._stored_keys():
+            return
+        msg = (
+            f"The vault holds a value for {qualified!r}, but {because}. "
+            f"Refusing rather than falling through to the environment or a "
+            f"config file: a stored value is the one you provisioned, and "
+            f"running on a different one would look like success.\n\n"
+            f"Fix it with one of:\n"
+            f"  func builtin vault sync                 refresh from upstream\n"
+            f"  func builtin vault remove {qualified}   drop this entry\n"
+            f"  func builtin vault clear                drop the whole store\n"
+            f"The last two need no key."
+        )
+        raise VaultEntryUnreadableError(msg)
 
     def has(self, key: str, section: str | None = None) -> bool:
         """Whether the vault holds this key, without decrypting it."""

@@ -7,6 +7,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — a secret you have, not only one a provider holds
+
+The encrypted vault was a cache for values fetched from AWS Secrets Manager or
+Bitwarden. It is now also somewhere to put one secret you already have, with no
+provider, no account and no preset:
+
+```bash
+func builtin vault init                    # once per machine
+func builtin vault put deploy.api_token    # masked prompt
+func deploy                                # the job receives it
+```
+
+`deploy.api_token` is the job's published name plus one of its config fields,
+which must be declared `Secret[str]` or marked secret — the vault stores only
+what a job has said is sensitive. The path is validated against the live job
+schema *before* the value is read, so a typo costs you nothing already typed.
+The stored value resolves through the ordinary chain, above the environment and
+below an explicit argument.
+
+Four commands (`init`, `put`, `inspect`, `remove`) and the same lifecycle as
+public API in `functualize.app.vault`, so an embedding application does not
+shell out to `func`. Nothing changes for a project that has never used the
+vault, and a boot that finds no vault file imports no cipher.
+
+`keyring` becomes an optional extra, `functualize[keychain]`. It was previously
+undeclared and relied upon to be present transitively. `init` without it refuses
+and names both ways forward rather than failing obscurely.
+
+### Changed — a stored vault entry is used, or the run stops
+
+**Behavioural.** Resolution used to fall through to the environment or a config
+file whenever the vault could not be opened — including when the vault held a
+value for the key being resolved. The job then ran on a different secret than
+the one provisioned, and reported success.
+
+Now:
+
+```text
+the vault holds nothing for this key  ->  falls through, as before
+the vault HOLDS a value for this key  ->  the run refuses
+```
+
+The first case is unchanged, which is what keeps a first run after adding an
+annotation possible and offline work working. The refusal names three
+recoveries, two of which need no key (`vault remove`, `vault clear`).
+
+CI is structurally unaffected: a fresh runner has no vault file, so no entries,
+so nothing to refuse. If you cache `~/.local/share/functualize` across runs
+*and* rotate the key, `vault sync` now refuses before writing and names what it
+would have stranded, rather than adding rows that can never be read again.
+
+Recorded in [ADR-023](contributor/adr/023-local-vault-access.md), which amends
+ADR-016 §5 and §7.
+
+### Changed — one vault key per user, not per project
+
+**Behavioural.** The keychain provider stored a key per project while the
+environment provider held one for all of them, so which scope applied depended
+on whether `$FUNCTUALIZE_VAULT_KEY` happened to be exported. Both are now
+user-scoped; the vaults stay separate, one encrypted file each.
+
+Nothing in functualize has ever written a keychain key, so in practice this
+affects only someone who ran `keyring set functualize-vault <project-id>` by
+hand. `func builtin vault init` is the supported way to create one.
+
+### Changed — `vault list --json` gains nullable fields
+
+`provider`, `annotation` and `synced_at` may now be `null`: they describe where
+a value was *fetched from*, and a value typed in through `vault put` was not
+fetched from anywhere. `origin`, `created_at` and `updated_at` are added. No
+field is removed or renamed, but a consumer that assumed `provider` was always a
+string must handle `null`.
+
+The store gains those columns and upgrades itself in place on first open.
+Existing rows and their ciphertext are preserved byte for byte.
+
 ### Changed — a cycle in a workflow graph is refused instead of run once
 
 **Breaking.** A `@workflow` whose edges form a cycle now raises

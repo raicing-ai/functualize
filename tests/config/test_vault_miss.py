@@ -14,13 +14,19 @@ noisy at the far end and mute at the near one, which is precisely backwards.
 from __future__ import annotations
 
 import logging
+import sqlite3
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from functualize._config.chain import ResolutionChain
-from functualize._config.vault import KEY_BYTES, SecretsVault
+from functualize._config.vault import (
+    KEY_BYTES,
+    SecretsVault,
+    VaultEntryUnreadableError,
+    VaultOrigin,
+)
 from functualize._config.vault_source import VaultSource
 
 _KEY = b"\x11" * KEY_BYTES
@@ -438,3 +444,105 @@ class TestFallthroughRecordsStillFeedDiagnostics:
             chain.resolve("password", "database")
         assert source.misses == ["database.port", "database.password"]
         assert len(caplog.records) == 1
+
+
+class TestPresenceDecides:
+    """ADR-023 §1. The rule is about what is *stored*, not about what wrote it.
+
+    The pair of tests that matter are the first two: an absent entry must still
+    fall through (ADR-016 §7, untouched), and a stored one must refuse. Getting
+    only the second right would make a first run impossible; getting only the
+    first right is the substitution this feature exists to close.
+    """
+
+    def test_an_absent_entry_still_falls_through(self, synced_vault: Path) -> None:
+        """Unchanged, and the half that keeps offline work possible."""
+        below = _StaticSource("env", "env", {"database.password": "from-env"})
+        chain = _chain(_source(synced_vault, key=None), below)
+
+        assert chain.resolve("password", "database").value == "from-env"
+
+    def test_a_stored_entry_with_no_key_refuses(self, synced_vault: Path) -> None:
+        """The substitution being closed.
+
+        `database.username` *is* stored. Returning the lower-priority value
+        would hand the job a different credential than the one provisioned,
+        and the run would report success.
+        """
+        below = _StaticSource("env", "env", {"database.username": "wrong-user"})
+        chain = _chain(_source(synced_vault, key=None), below)
+
+        with pytest.raises(VaultEntryUnreadableError):
+            chain.resolve("username", "database")
+
+    def test_a_stored_entry_with_the_wrong_key_refuses(
+        self, synced_vault: Path
+    ) -> None:
+        other = b"\x09" * len(_KEY)
+        below = _StaticSource("env", "env", {"database.username": "wrong-user"})
+        chain = _chain(_source(synced_vault, key=other), below)
+
+        with pytest.raises(VaultEntryUnreadableError):
+            chain.resolve("username", "database")
+
+    def test_it_refuses_for_a_provider_entry_too(self, synced_vault: Path) -> None:
+        """Origin does not enter into it.
+
+        `database.username` is provider-written. ADR-023 chose presence over
+        origin precisely so there is one rule to explain rather than two that
+        differ for a reason the user cannot see.
+        """
+        entry = SecretsVault(synced_vault).list_entries()[0]
+        assert entry.origin is VaultOrigin.PROVIDER
+
+        with pytest.raises(VaultEntryUnreadableError):
+            _source(synced_vault, key=None).get("username", "database")
+
+    def test_a_missing_vault_file_is_silent(self, tmp_path: Path) -> None:
+        """Nothing stored anywhere, so nothing to refuse and nothing to say."""
+        below = _StaticSource("env", "env", {"database.username": "from-env"})
+        chain = _chain(_source(tmp_path / "absent.db", key=None), below)
+
+        assert chain.resolve("username", "database").value == "from-env"
+
+    def test_the_refusal_names_the_keyless_recoveries(self, synced_vault: Path) -> None:
+        """A refusal that does not say how to proceed is a dead end.
+
+        `remove` and `clear` need no key, which is what makes them usable in
+        exactly the situation that produced this error.
+        """
+        with pytest.raises(VaultEntryUnreadableError) as exc:
+            _source(synced_vault, key=None).get("username", "database")
+
+        message = str(exc.value)
+        assert "vault remove database.username" in message
+        assert "vault clear" in message
+        assert "need no key" in message
+
+    def test_the_refusal_carries_no_value(self, synced_vault: Path) -> None:
+        with pytest.raises(VaultEntryUnreadableError) as exc:
+            _source(synced_vault, key=None).get("username", "database")
+
+        assert "app" not in str(exc.value).split()
+
+    def test_a_store_without_a_check_row_behaves_as_before(
+        self, tmp_path: Path
+    ) -> None:
+        """Upgrade safety, at the resolution layer.
+
+        A vault written before the check row existed answers `None` to "does
+        this key open you?". Treating unknown as "wrong key" would make every
+        pre-existing vault refuse on the first run after upgrading.
+        """
+        path = tmp_path / "vault.db"
+        SecretsVault(path).put(
+            "database.username",
+            "app",
+            annotation="fake-sm://prod/db-username",
+            provider="fake-sm",
+            encryption_key=_KEY,
+        )
+        with sqlite3.connect(path) as conn:
+            conn.execute("DELETE FROM vault_meta")
+
+        assert _source(path).get("username", "database") == "app"

@@ -210,9 +210,22 @@ class TestTheFamilyIsRegistered:
         declared = next(c for c in BUILTIN_COMMANDS if c.name == "vault")
         assert declared.terminal_subcommands == ()
 
-    def test_the_five_documented_names(self) -> None:
+    def test_the_documented_names(self) -> None:
+        """Nine, and the five that were here before are all still among them.
+
+        Written as two assertions rather than one set so the compatibility
+        claim is legible: this feature is additive, and no existing subcommand
+        was renamed or dropped (spec §14.5).
+        """
         declared = next(c for c in BUILTIN_COMMANDS if c.name == "vault")
-        assert set(declared.subcommand_map) == {
+        names = set(declared.subcommand_map)
+
+        assert {"sync", "list", "status", "clear", "keygen"} <= names
+        assert names == {
+            "init",
+            "put",
+            "inspect",
+            "remove",
             "sync",
             "list",
             "status",
@@ -852,3 +865,598 @@ class TestSyncFailures:
         (project / "config.dev.toml").write_text('[report]\nusername = "app"\n')
         _run(["sync"], app=_app())
         assert not vault_location().exists()
+
+
+_LOCAL_JOB = '''
+from pydantic import BaseModel, Field
+
+from functualize.job import RunContext
+from functualize.job.decorators import job
+from functualize.types import Secret
+
+
+class DeployConfig(BaseModel):
+    region: str = Field(default="eu-west-1")
+    api_token: Secret[str] = Field(description="Required credential")
+
+
+@job
+def deploy(config: DeployConfig, rc: RunContext) -> str:
+    """Deploy something."""
+    return "deployed"
+'''
+
+
+@pytest.fixture
+def local_app(project: Path) -> FunctualizeApp:
+    """An ordinary discovery-mode app — no remote provider anywhere."""
+    from functualize.app import JobSources
+
+    jobs = project / "jobs"
+    jobs.mkdir()
+    (jobs / "deploy.py").write_text(_LOCAL_JOB)
+    return FunctualizeApp(
+        "vaulttest", job_sources=JobSources(directories=[str(jobs)], lazy=False)
+    )
+
+
+class TestInitCommand:
+    def test_env_source_reports_that_nothing_was_written(self, project: Path) -> None:
+        """A generic "initialized" would read as "a key was created"."""
+        result = _run(["init", "--key-source", "env"])
+
+        assert result.exit_code == ExitCode.OK
+        assert "Nothing was written" in result.stdout
+        assert not vault_location().exists()
+
+    def test_json_carries_the_scope_and_never_a_key(self, project: Path) -> None:
+        result = _run(["init", "--key-source", "env", "--json"])
+        payload = json.loads(result.stdout)
+
+        assert payload == {
+            "ok": True,
+            "key_scope": "user",
+            "key_provider": "env",
+            "created": False,
+        }
+        assert _KEY_HEX not in result.stdout
+
+    def test_an_unknown_source_is_a_stable_reason(self, project: Path) -> None:
+        result = _run(["init", "--key-source", "nope", "--json"])
+
+        assert result.exit_code == ExitCode.REFUSED
+        assert json.loads(result.stdout)["reason"] == "unknown_key_source"
+
+
+class TestPutCommand:
+    def test_it_stores_from_stdin(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        result = _run(
+            ["put", "deploy.api_token", "--stdin"],
+            app=local_app,
+            stdin=_CONSPICUOUS,
+        )
+
+        assert result.exit_code == ExitCode.OK
+        entry = SecretsVault(vault_location()).list_entries()[0]
+        assert entry.key == "deploy.api_token"
+        assert _CONSPICUOUS not in result.stdout
+
+    def test_stdin_strips_exactly_one_trailing_newline(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        """`echo secret | ...` must not store a trailing newline, and a value
+        that genuinely ends in one must not lose two."""
+        _run(
+            ["put", "deploy.api_token", "--stdin"],
+            app=local_app,
+            stdin=_CONSPICUOUS + "\n\n",
+        )
+
+        stored = SecretsVault(vault_location()).get(
+            "deploy.api_token", encryption_key=_KEY
+        )
+        assert stored == _CONSPICUOUS + "\n"
+
+    def test_a_non_tty_without_an_input_option_refuses_and_does_not_hang(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        """The refusal that matters: reading stdin implicitly would make this
+        block forever inside a pipeline nobody is feeding."""
+        result = _run(["put", "deploy.api_token", "--json"], app=local_app)
+
+        assert result.exit_code == ExitCode.USAGE
+        assert json.loads(result.stdout)["reason"] == "input_source_required"
+
+    def test_an_empty_value_is_refused(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        result = _run(
+            ["put", "deploy.api_token", "--stdin", "--json"],
+            app=local_app,
+            stdin="",
+        )
+
+        assert json.loads(result.stdout)["reason"] == "empty_value"
+
+    def test_a_plain_field_is_refused_before_input_is_read(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        result = _run(
+            ["put", "deploy.region", "--stdin", "--json"],
+            app=local_app,
+            stdin=_CONSPICUOUS,
+        )
+
+        assert result.exit_code == ExitCode.USAGE
+        assert json.loads(result.stdout)["reason"] == "field_not_secret"
+        assert not vault_location().exists()
+
+    def test_the_path_is_checked_before_the_input_is_touched(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        """Ordering, asserted by which of two failures wins.
+
+        Found by sabotage: the previous test claimed "before input is read" but
+        only asserted that no vault file appeared — true whichever order the
+        two steps run in, so it passed with the validation moved *after* the
+        read. The ordering is the whole point at a TTY, where reading first
+        means the user types their secret and only then learns the path was
+        wrong.
+
+        Here both steps would fail: the field is not secret, and the file does
+        not exist. Whichever error comes back names which step ran first.
+        """
+        result = _run(
+            ["put", "deploy.region", "--file", "/nonexistent/secret.txt", "--json"],
+            app=local_app,
+        )
+
+        assert json.loads(result.stdout)["reason"] == "field_not_secret", (
+            "the input was read before the path was validated"
+        )
+
+    def test_a_second_write_needs_replace(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        _run(["put", "deploy.api_token", "--stdin"], app=local_app, stdin="first")
+        result = _run(
+            ["put", "deploy.api_token", "--stdin", "--json"],
+            app=local_app,
+            stdin="second",
+        )
+
+        assert result.exit_code == ExitCode.REFUSED
+        assert json.loads(result.stdout)["reason"] == "entry_exists"
+
+    def test_conflicting_input_options_are_refused(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        result = _run(
+            ["put", "deploy.api_token", "--stdin", "--file", "x", "--json"],
+            app=local_app,
+            stdin="v",
+        )
+
+        assert json.loads(result.stdout)["reason"] == "conflicting_input_sources"
+
+
+class TestInspectCommand:
+    def test_it_reports_metadata_and_no_value(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        _run(
+            ["put", "deploy.api_token", "--stdin"],
+            app=local_app,
+            stdin=_CONSPICUOUS,
+        )
+
+        result = _run(["inspect", "deploy.api_token", "--json"], app=local_app)
+        payload = json.loads(result.stdout)
+
+        assert payload["exists"] is True
+        assert payload["origin"] == "direct"
+        assert payload["readability"] == "readable"
+        assert _CONSPICUOUS not in result.stdout
+
+    def test_an_ineligible_path_is_explained(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        result = _run(["inspect", "deploy.region", "--json"], app=local_app)
+
+        assert json.loads(result.stdout)["eligible"] is False
+
+
+class TestRemoveCommand:
+    def test_it_removes_and_warns_for_a_direct_entry(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        _run(["put", "deploy.api_token", "--stdin"], app=local_app, stdin=_CONSPICUOUS)
+
+        result = _run(["remove", "deploy.api_token", "--yes", "--json"], app=local_app)
+        payload = json.loads(result.stdout)
+
+        assert payload["removed"] is True
+        assert payload["warning"]
+        assert SecretsVault(vault_location()).list_entries() == []
+
+    def test_a_missing_entry_is_success(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        result = _run(["remove", "deploy.api_token", "--yes", "--json"], app=local_app)
+
+        assert result.exit_code == ExitCode.OK
+        assert json.loads(result.stdout)["removed"] is False
+
+    def test_a_non_tty_requires_yes(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        _run(["put", "deploy.api_token", "--stdin"], app=local_app, stdin=_CONSPICUOUS)
+
+        result = _run(["remove", "deploy.api_token", "--json"], app=local_app)
+
+        assert result.exit_code == ExitCode.REFUSED
+        assert json.loads(result.stdout)["reason"] == "confirmation_required"
+
+
+class TestTheAppContextMessage:
+    def test_it_names_the_command_that_needed_an_app(self, project: Path) -> None:
+        """It used to say `vault sync` for every command here, so a `put` user
+        was told to check something they had not run."""
+        result = _run(["put", "deploy.api_token"])
+
+        assert result.exit_code == ExitCode.USAGE
+        assert "vault put" in result.output
+
+
+class TestOriginAwareListing:
+    def test_list_renders_a_mixed_store_without_raising(
+        self, project: Path, local_app: FunctualizeApp, register: Any
+    ) -> None:
+        """The renderer used to assume provider and synced_at were present.
+
+        It measured `len(entry.provider)` and called
+        `entry.synced_at.isoformat()`, so the first direct entry would have
+        raised — a crash in the command you reach for to find out what is in
+        your vault.
+        """
+        from functualize._config.vault import VaultOrigin
+
+        vault = SecretsVault(vault_location())
+        vault.put(
+            "report.password",
+            _CONSPICUOUS,
+            encryption_key=_KEY,
+            annotation="fake-sm://prod/db",
+            provider="fake-sm",
+        )
+        vault.put(
+            "deploy.api_token",
+            _CONSPICUOUS,
+            encryption_key=_KEY,
+            origin=VaultOrigin.DIRECT,
+        )
+
+        result = _run(["list"])
+
+        assert result.exit_code == ExitCode.OK
+        assert "deploy.api_token" in result.stdout
+        assert "direct" in result.stdout
+        assert _CONSPICUOUS not in result.stdout
+
+    def test_list_json_nulls_what_a_direct_entry_lacks(self, project: Path) -> None:
+        from functualize._config.vault import VaultOrigin
+
+        SecretsVault(vault_location()).put(
+            "deploy.api_token",
+            _CONSPICUOUS,
+            encryption_key=_KEY,
+            origin=VaultOrigin.DIRECT,
+        )
+
+        entry = json.loads(_run(["list", "--json"]).stdout)["entries"][0]
+
+        assert entry["origin"] == "direct"
+        assert entry["provider"] is None
+        assert entry["annotation"] is None
+        assert entry["synced_at"] is None
+        assert entry["created_at"] is not None
+
+    def test_list_json_keeps_every_pre_existing_field(self, project: Path) -> None:
+        """Additive for a synced entry: nothing removed, nothing renamed."""
+        SecretsVault(vault_location()).put(
+            "report.password",
+            _CONSPICUOUS,
+            encryption_key=_KEY,
+            annotation="fake-sm://prod/db",
+            provider="fake-sm",
+        )
+
+        entry = json.loads(_run(["list", "--json"]).stdout)["entries"][0]
+
+        assert {"key", "annotation", "provider", "synced_at"} <= set(entry)
+        assert entry["provider"] == "fake-sm"
+
+
+class TestStatusCountsAndKeyState:
+    def test_it_counts_the_two_kinds_separately(self, project: Path) -> None:
+        from functualize._config.vault import VaultOrigin
+
+        vault = SecretsVault(vault_location())
+        vault.put(
+            "report.password",
+            "v",
+            encryption_key=_KEY,
+            annotation="fake-sm://x",
+            provider="fake-sm",
+        )
+        vault.put(
+            "deploy.api_token", "v", encryption_key=_KEY, origin=VaultOrigin.DIRECT
+        )
+
+        payload = json.loads(_run(["status", "--json"]).stdout)
+
+        assert payload["direct_entries"] == 1
+        assert payload["provider_entries"] == 1
+        assert payload["key_matches_store"] is True
+
+    def test_it_reports_a_key_that_does_not_open_the_store(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Nothing could say this before the check value existed."""
+        SecretsVault(vault_location()).put(
+            "report.password",
+            "v",
+            encryption_key=_KEY,
+            annotation="fake-sm://x",
+            provider="fake-sm",
+        )
+        monkeypatch.setenv("FUNCTUALIZE_VAULT_KEY", (b"\x99" * KEY_BYTES).hex())
+
+        result = _run(["status"])
+
+        assert "written with a different key" in result.output
+        assert (
+            json.loads(_run(["status", "--json"]).stdout)["key_matches_store"] is False
+        )
+
+
+class TestClearIsOriginAware:
+    def test_the_confirmation_separates_the_two_kinds(self, project: Path) -> None:
+        """Counting them together would put a recoverable value and an
+        unrecoverable one behind one number."""
+        from functualize._config.vault import VaultOrigin
+
+        vault = SecretsVault(vault_location())
+        vault.put(
+            "report.password",
+            "v",
+            encryption_key=_KEY,
+            annotation="fake-sm://x",
+            provider="fake-sm",
+        )
+        vault.put(
+            "deploy.api_token", "v", encryption_key=_KEY, origin=VaultOrigin.DIRECT
+        )
+
+        result = CliRunner().invoke(
+            _cli(), ["builtin", "vault", "clear"], obj={}, input="n\n"
+        )
+
+        assert "1 synced" in result.stdout
+        assert "1 direct" in result.stdout
+        assert "no upstream copy" in result.stdout
+        assert "Left alone" in result.stdout
+
+    def test_json_reports_what_was_cleared(self, project: Path) -> None:
+        SecretsVault(vault_location()).put(
+            "report.password",
+            "v",
+            encryption_key=_KEY,
+            annotation="fake-sm://x",
+            provider="fake-sm",
+        )
+
+        payload = json.loads(_run(["clear", "--yes", "--json"]).stdout)
+
+        assert payload["cleared"] is True
+        assert payload["provider_entries"] == 1
+        assert not vault_location().exists()
+
+    def test_it_still_needs_no_key(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        SecretsVault(vault_location()).put(
+            "report.password",
+            "v",
+            encryption_key=_KEY,
+            annotation="fake-sm://x",
+            provider="fake-sm",
+        )
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+
+        assert _run(["clear", "--yes"]).exit_code == ExitCode.OK
+
+
+class TestSyncRefusesARotatedKey:
+    def test_it_refuses_before_writing_and_names_the_orphans(
+        self, project: Path, register: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Without this, sync would report ok: true while creating rows that
+        can never be read again."""
+        register()
+        SecretsVault(vault_location()).put(
+            "report.legacy",
+            "v",
+            encryption_key=_KEY,
+            annotation="fake-sm://old",
+            provider="fake-sm",
+        )
+        monkeypatch.setenv("FUNCTUALIZE_VAULT_KEY", (b"\x77" * KEY_BYTES).hex())
+
+        result = _run(["sync", "--json"], app=_app())
+        payload = json.loads(result.stdout)
+
+        assert result.exit_code == ExitCode.REFUSED
+        assert payload["reason"] == "key_mismatch"
+        assert "report.legacy" in payload["would_orphan"]
+
+    def test_the_store_is_untouched_by_the_refusal(
+        self, project: Path, register: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        register()
+        SecretsVault(vault_location()).put(
+            "report.legacy",
+            "v",
+            encryption_key=_KEY,
+            annotation="fake-sm://old",
+            provider="fake-sm",
+        )
+        before = {e.key for e in SecretsVault(vault_location()).list_entries()}
+        monkeypatch.setenv("FUNCTUALIZE_VAULT_KEY", (b"\x77" * KEY_BYTES).hex())
+
+        _run(["sync", "--json"], app=_app())
+
+        assert {e.key for e in SecretsVault(vault_location()).list_entries()} == before
+
+
+class TestTheDeclaredReasonCodesAreReachable:
+    """Two codes `contracts.md` declares that nothing asserted until now.
+
+    Found by the verify phase's walk of the declared surface rather than by a
+    failing test — which is the point of that walk. A reason code is a promise
+    to a script author: it is how they classify a failure without parsing
+    prose, so one that is never exercised is a promise nobody has checked.
+    """
+
+    def test_provider_entry_conflict_reaches_the_json_envelope(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        """`put` over a synced entry. The seam test covers the exception; this
+        covers the code a caller actually branches on."""
+        SecretsVault(vault_location()).put(
+            "deploy.api_token",
+            "from-aws",
+            encryption_key=_KEY,
+            annotation="fake-sm://prod/token",
+            provider="fake-sm",
+        )
+
+        result = _run(
+            ["put", "deploy.api_token", "--stdin", "--replace", "--json"],
+            app=local_app,
+            stdin=_CONSPICUOUS,
+        )
+
+        assert result.exit_code == ExitCode.REFUSED
+        assert json.loads(result.stdout)["reason"] == "provider_entry_conflict"
+
+    def test_key_unavailable_reaches_the_json_envelope(
+        self, project: Path, local_app: FunctualizeApp, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`put` with no key available at all."""
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        monkeypatch.setattr(
+            "functualize._config.vault_keys.KeychainKeyProvider.is_available",
+            lambda self: False,
+        )
+
+        result = _run(
+            ["put", "deploy.api_token", "--stdin", "--json"],
+            app=local_app,
+            stdin=_CONSPICUOUS,
+        )
+
+        assert result.exit_code == ExitCode.REFUSED
+        assert json.loads(result.stdout)["reason"] == "key_unavailable"
+
+    def test_every_code_the_cli_can_emit_is_declared(self) -> None:
+        """The other direction, so the two cannot drift apart.
+
+        A code emitted but never declared is as bad as one declared but never
+        emitted: a caller branching on the documented set silently falls into
+        its `else`.
+        """
+        import re
+        from pathlib import Path as _Path
+
+        src = _Path(__file__).resolve().parents[2] / "src" / "functualize"
+        emitted = set()
+        for module in ("_cli/vault_cmd.py", "app/vault.py"):
+            text = (src / module).read_text()
+            emitted |= set(re.findall(r'_fail\(\s*"([a-z_]+)"', text))
+            emitted |= set(re.findall(r'VaultPathError\(\s*"([a-z_]+)"', text))
+            emitted |= set(re.findall(r'VaultKeySourceError\(\s*"([a-z_]+)"', text))
+
+        declared = {
+            "unknown_key_source",
+            "key_source_unavailable",
+            "key_source_not_initializable",
+            "unknown_job",
+            "unknown_field",
+            "field_not_secret",
+            "field_not_config_model",
+            "input_source_required",
+            "conflicting_input_sources",
+            "invalid_utf8",
+            "empty_value",
+            "entry_exists",
+            "provider_entry_conflict",
+            "key_unavailable",
+            "confirmation_required",
+            "key_mismatch",
+        }
+
+        assert emitted <= declared, f"emitted but undeclared: {emitted - declared}"
+
+    def test_put_json_success_matches_the_declared_payload(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        """contracts.md §2.2's success object, field for field.
+
+        Only `put`'s *failure* envelopes were asserted before the verify phase
+        walked the declared surface — the shape a script reads on the happy
+        path was documented and unchecked.
+        """
+        result = _run(
+            ["put", "deploy.api_token", "--stdin", "--json"],
+            app=local_app,
+            stdin=_CONSPICUOUS,
+        )
+        payload = json.loads(result.stdout)
+
+        assert result.exit_code == ExitCode.OK
+        assert set(payload) == {
+            "ok",
+            "path",
+            "origin",
+            "created",
+            "replaced",
+            "updated_at",
+        }
+        assert payload["ok"] is True
+        assert payload["path"] == "deploy.api_token"
+        assert payload["origin"] == "direct"
+        assert payload["created"] is True
+        assert payload["replaced"] is False
+        assert payload["updated_at"]
+        assert _CONSPICUOUS not in result.stdout
+
+    def test_put_json_reports_a_replacement_as_one(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        """`created` and `replaced` are the two halves of the same fact, and a
+        caller distinguishing "new secret" from "rotated secret" reads them."""
+        _run(["put", "deploy.api_token", "--stdin"], app=local_app, stdin="first")
+
+        payload = json.loads(
+            _run(
+                ["put", "deploy.api_token", "--stdin", "--replace", "--json"],
+                app=local_app,
+                stdin="second",
+            ).stdout
+        )
+
+        assert payload["created"] is False
+        assert payload["replaced"] is True

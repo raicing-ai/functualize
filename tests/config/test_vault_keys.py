@@ -162,11 +162,12 @@ class TestTheKeychainProvider:
     def test_a_missing_keyring_reports_unavailable_rather_than_raising(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """STATUS #1's lesson: a missing optional dep degrades, never crashes.
+        """A missing optional dep degrades, never crashes.
 
-        `keyring` is not a declared dependency of functualize -- it is present
-        in some environments transitively, and relying on that accident is the
-        bug this test prevents.
+        `keyring` is now a declared extra (`functualize[keychain]`) rather than
+        something present transitively by accident, but declaring it does not
+        make it installed: a base `pip install functualize` has no keyring, and
+        that must stay a reported state rather than an ImportError.
         """
         monkeypatch.setitem(__import__("sys").modules, "keyring", None)
         provider = KeychainKeyProvider()
@@ -211,3 +212,153 @@ class TestKeyResolutionIsSafeToLog:
         assert got is not None
         assert _HEX_B not in repr(got)
         assert "bytes" in repr(got)
+
+
+class _FakeKeyring:
+    """A keyring backend in a dict, so scope can be asserted on the real API.
+
+    Mocking `get_key` would assert nothing: the whole change is *which
+    (service, account) pair* the provider reads and writes, so the fake has to
+    be at the `keyring` module boundary where that pair is visible.
+    """
+
+    def __init__(self) -> None:
+        self.store: dict[tuple[str, str], str] = {}
+        self.locked = False
+
+    def get_password(self, service: str, account: str) -> str | None:
+        if self.locked:
+            raise RuntimeError("keyring is locked")
+        return self.store.get((service, account))
+
+    def set_password(self, service: str, account: str, password: str) -> None:
+        if self.locked:
+            raise RuntimeError("keyring is locked")
+        self.store[(service, account)] = password
+
+
+@pytest.fixture
+def fake_keyring(monkeypatch: pytest.MonkeyPatch) -> _FakeKeyring:
+    import sys
+
+    fake = _FakeKeyring()
+    monkeypatch.setitem(sys.modules, "keyring", fake)
+    return fake
+
+
+class TestKeychainKeyScope:
+    """One key for every project (ADR-023 §4)."""
+
+    def test_two_projects_read_the_same_key(self, fake_keyring: _FakeKeyring) -> None:
+        """The change itself. The provider used to key on project_id."""
+        from functualize._config.vault_keys import (
+            KEYCHAIN_ACCOUNT,
+            KEYCHAIN_SERVICE,
+            KeychainKeyProvider,
+        )
+
+        fake_keyring.store[(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)] = generate_key()
+        provider = KeychainKeyProvider()
+
+        assert provider.get_key("project-aaa") == provider.get_key("project-bbb")
+        assert provider.get_key("project-aaa") is not None
+
+    def test_it_never_reads_a_project_scoped_entry(
+        self, fake_keyring: _FakeKeyring
+    ) -> None:
+        """A key left at the old per-project address is not picked up.
+
+        Stated as a test because it is the one visible consequence for anyone
+        who had manually run `keyring set functualize-vault <project_id>`:
+        nothing in functualize has ever written such an entry, so this is
+        expected to affect nobody, but it should fail loudly if it does rather
+        than resolve a key the current code would not have written.
+        """
+        from functualize._config.vault_keys import (
+            KEYCHAIN_SERVICE,
+            KeychainKeyProvider,
+        )
+
+        fake_keyring.store[(KEYCHAIN_SERVICE, "some-project-id")] = generate_key()
+
+        assert KeychainKeyProvider().get_key("some-project-id") is None
+
+    def test_it_agrees_with_the_environment_provider(
+        self, fake_keyring: _FakeKeyring, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Both shipped providers ignore project_id. The hazard this closes is
+        that *which* scope applied depended on whether the env var was set."""
+        from functualize._config.vault_keys import (
+            ENV_VAR,
+            EnvKeyProvider,
+            KeychainKeyProvider,
+        )
+
+        key = generate_key()
+        monkeypatch.setenv(ENV_VAR, key)
+        env = EnvKeyProvider()
+
+        assert env.get_key("a") == env.get_key("b")
+        assert KeychainKeyProvider().get_key("a") == KeychainKeyProvider().get_key("b")
+
+
+class TestKeychainInitialize:
+    def test_it_creates_and_persists_a_key(self, fake_keyring: _FakeKeyring) -> None:
+        from functualize._config.vault_keys import (
+            KEYCHAIN_ACCOUNT,
+            KEYCHAIN_SERVICE,
+            KeychainKeyProvider,
+        )
+
+        created = KeychainKeyProvider().initialize_key("proj")
+
+        assert len(created) == KEY_BYTES
+        assert (KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT) in fake_keyring.store
+
+    def test_it_is_idempotent(self, fake_keyring: _FakeKeyring) -> None:
+        """A second call must return what the first persisted.
+
+        Generating a fresh key here would strand every value already written
+        under the old one — silently, because nothing in the store records
+        which key wrote a row.
+        """
+        provider = KeychainKeyProvider()
+
+        first = provider.initialize_key("proj")
+        second = provider.initialize_key("proj")
+
+        assert first == second
+        assert len(fake_keyring.store) == 1
+
+    def test_it_returns_the_same_key_for_any_project(
+        self, fake_keyring: _FakeKeyring
+    ) -> None:
+        provider = KeychainKeyProvider()
+
+        assert provider.initialize_key("one") == provider.initialize_key("two")
+
+    def test_a_locked_keyring_refuses_rather_than_returning_a_stray_key(
+        self, fake_keyring: _FakeKeyring
+    ) -> None:
+        from functualize._config.vault import VaultError
+
+        fake_keyring.locked = True
+
+        with pytest.raises(VaultError, match="keyring"):
+            KeychainKeyProvider().initialize_key("proj")
+
+    def test_it_satisfies_the_initializer_protocol(
+        self, fake_keyring: _FakeKeyring
+    ) -> None:
+        """T1.2 shipped the port unwired; this is the shipped implementor."""
+        from functualize.plugin import VaultKeyInitializer
+
+        assert isinstance(KeychainKeyProvider(), VaultKeyInitializer)
+
+    def test_the_environment_provider_is_not_an_initializer(self) -> None:
+        """It cannot be: only the operator can set an environment variable."""
+        from functualize.plugin import VaultKeyInitializer, VaultKeyProvider
+
+        provider = EnvKeyProvider()
+        assert isinstance(provider, VaultKeyProvider)
+        assert not isinstance(provider, VaultKeyInitializer)

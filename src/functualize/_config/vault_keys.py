@@ -26,10 +26,20 @@ a Lambda invocation, ``builtin parallel`` — would block forever on a prompt
 nobody can answer.
 
 ``keyring`` is imported lazily and its absence is reported through
-``is_available()`` rather than raised. It is **not** a declared dependency of
-functualize: it happens to be present in some environments transitively, and
-depending on that accident is how a missing optional dependency turns into a
-crash instead of a degraded feature (`.spec/STATUS.md` follow-up #1).
+``is_available()`` rather than raised. It is an **optional extra**,
+``functualize[keychain]`` — declared, where it used to be an undeclared
+accident relied upon to be present transitively. Depending on that accident is
+how a missing optional dependency turns into a crash instead of a degraded
+feature; declaring it makes the degradation a supported state with a name.
+
+Key scope
+---------
+
+Both shipped providers are **user-scoped**: one key opens every project's
+vault, and isolation between projects is the separate vault files. The keychain
+provider used to be project-scoped, which meant the effective scope depended on
+whether ``$FUNCTUALIZE_VAULT_KEY`` was exported. See
+:class:`KeychainKeyProvider` and ADR-023 §4.
 """
 
 from __future__ import annotations
@@ -48,6 +58,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ENV_VAR",
+    "KEYCHAIN_ACCOUNT",
     "KEYCHAIN_SERVICE",
     "EnvKeyProvider",
     "KeychainKeyProvider",
@@ -59,8 +70,13 @@ __all__ = [
 #: Where the non-interactive provider looks. Hex-encoded, 64 characters.
 ENV_VAR = "FUNCTUALIZE_VAULT_KEY"
 
-#: Service name under which the keychain provider stores per-project keys.
+#: Service name under which the keychain provider stores the vault key.
 KEYCHAIN_SERVICE = "functualize-vault"
+
+#: Account name under that service. **Fixed, not the project id** — the key is
+#: user-scoped, so one entry serves every project (ADR-023 §4). See
+#: :class:`KeychainKeyProvider` for why this changed.
+KEYCHAIN_ACCOUNT = "vault-key"
 
 
 def generate_key() -> str:
@@ -125,7 +141,29 @@ class EnvKeyProvider:
 
 
 class KeychainKeyProvider:
-    """Reads the vault key from the OS keyring. May prompt to unlock."""
+    """Reads and creates the vault key in the OS keyring. May prompt to unlock.
+
+    **One key for every project**, stored at a fixed account rather than one per
+    project id (ADR-023 §4). This changed: the provider used to be
+    project-scoped, while :class:`EnvKeyProvider` — which cannot be anything
+    else, since the environment holds one value — has always been user-scoped.
+
+    Two providers disagreeing about scope meant *which* scope applied depended
+    on whether ``$FUNCTUALIZE_VAULT_KEY`` happened to be exported, because
+    non-interactive providers are consulted first. Exporting it once and
+    syncing re-encrypted each project's store under the shared key; unsetting it
+    later left every one of them unopenable by the keychain, with nothing
+    recording which key had written what.
+
+    Isolation between projects is the separate vault files, not separate keys —
+    the position :meth:`EnvKeyProvider.get_key` already documented. This is not
+    a reopening of ADR-006's rejected "secrets in the XDG config directory":
+    that was *plaintext* secrets in one shared file. Here the secrets stay in
+    per-project encrypted stores and only the key is shared.
+
+    The cost is stated rather than elided: one lost or compromised key now
+    reaches every project's vault instead of one.
+    """
 
     def identifier(self) -> str:
         return "keychain"
@@ -150,22 +188,67 @@ class KeychainKeyProvider:
             return False
 
     def get_key(self, project_id: str) -> bytes | None:
-        """Return this project's key from the keyring, or None.
+        """Return the vault key from the keyring, or None.
 
-        Keys are stored per project, matching the per-project vault, so a
-        keychain user's blast radius is one project rather than all of them.
+        Args:
+            project_id: Ignored. Kept for the protocol, which carries it so a
+                third-party provider *may* scope per project; this one does not
+                (see the class docstring).
         """
         try:
             import keyring
         except ImportError:
             return None
         try:
-            raw = keyring.get_password(KEYCHAIN_SERVICE, project_id)
+            raw = keyring.get_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
         except Exception:  # noqa: BLE001 - a locked or broken keyring defers
             return None
         if not raw:
             return None
         return _decode(raw, source=f"the OS keyring ({KEYCHAIN_SERVICE})")
+
+    def initialize_key(self, project_id: str) -> bytes:
+        """Return the stored key, creating and persisting one if absent.
+
+        Satisfies :class:`~functualize.plugin.VaultKeyInitializer`. Idempotent
+        by construction: the read comes first, so a second call returns what the
+        first one persisted. Generating a fresh key here instead would strand
+        every value already written under the old one — silently, since nothing
+        in the store records which key wrote a row.
+
+        Args:
+            project_id: Ignored, as in :meth:`get_key`.
+
+        Raises:
+            VaultError: If no keyring backend is available. `init` turns this
+                into a refusal naming both routes forward; it is not a crash,
+                and it never falls back to printing a key.
+        """
+        existing = self.get_key(project_id)
+        if existing is not None:
+            return existing
+
+        try:
+            import keyring
+        except ImportError as exc:  # pragma: no cover - guarded by is_available
+            msg = (
+                "No OS keyring is available, so a vault key cannot be stored. "
+                "Install it with `pip install 'functualize[keychain]'`, or set "
+                f"${ENV_VAR} instead — `func builtin vault keygen` prints one."
+            )
+            raise VaultError(msg) from exc
+
+        created = generate_key()
+        try:
+            keyring.set_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, created)
+        except Exception as exc:  # noqa: BLE001 - a locked backend is a refusal
+            msg = (
+                f"The OS keyring ({KEYCHAIN_SERVICE}) refused to store the "
+                f"vault key: {type(exc).__name__}. Unlock it and retry, or set "
+                f"${ENV_VAR} instead."
+            )
+            raise VaultError(msg) from exc
+        return _decode(created, source=f"the OS keyring ({KEYCHAIN_SERVICE})")
 
 
 class KeyResolution:

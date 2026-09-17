@@ -686,6 +686,22 @@ ENVIRONMENT=prod func data-sync
 >
 > Full guide: [Remote Configuration](docs/guides/configuration.md#remote-configuration).
 
+> **One secret of your own needs none of that.** The same encrypted vault stores
+> a value you simply have, with no provider, no account and no preset — the
+> ordinary `classic()` chain reads it:
+>
+> ```bash
+> func builtin vault init                    # once per machine
+> func builtin vault put deploy.api_token    # masked prompt
+> func deploy                                # the job receives it
+> ```
+>
+> `deploy.api_token` is the job's name and one of its config fields, which must
+> be declared `Secret[str]`. Nothing changes for a project that has never used
+> the vault. In CI, `init` is optional and the value arrives on stdin.
+>
+> Full guide: [A secret of your own](docs/guides/configuration.md#a-secret-of-your-own).
+
 Presets are selected in your project's `main.py` when constructing `FunctualizeApp`:
 
 ```python

@@ -154,6 +154,7 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "StatusBarItemProvider",
         "FormatProvider",
         "ThemeProvider",
+        "VaultKeyInitializer",
         "VaultKeyProvider",
         # The agent step port (agent-step-port F6): one Protocol a plugin
         # implements, plus the capability flags it declares and the payload
