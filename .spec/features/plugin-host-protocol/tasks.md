@@ -488,18 +488,71 @@ tests-only), so mypy reports nothing (`contracts.md` §3).
 - **Done** `3768d24`. http 59 tests, lambda 55, `tests/spec` 13; mypy green on
   364 core files and on both plugin packages; lint-imports 7 kept / 0 broken.
 
-## T11 · Annotate the forty `Any` sites
+## T11 · Annotate the forty `Any` sites — [x]
 
 `[F]` the hit set of `.spec/features/plugin-host-protocol/count_app_annots.py`
 (40 `Any` params across `plugins/*/src`)
 
-- **Gate** `uv run python .spec/features/plugin-host-protocol/count_app_annots.py`
-  — `now: TOTAL 44 / Any-typed 40 / FunctualizeApp 4 / 91%` ·
-  `after: TOTAL 44 / Any-typed 0 / PluginHost 44 / 0%`
-- **Gate** the plugin type-check is **package-local or focused**, never the
-  aggregate: `uv run mypy plugins/*/src` is `now: Found 120 errors in 22 files`
-  on an untouched tree, so no all-green claim over it is possible (AC-20).
-  Record each package's own baseline before and after.
+- **Gate** the census ✅ exactly as specified:
+  `now: TOTAL 44 / Any-typed 40 / PluginHost 4 / 91%` ·
+  `after: TOTAL 44 / Any-typed 0 / PluginHost 44 / 0%`.
+  (The `now` line reads `PluginHost 4`, not `FunctualizeApp 4`, because **T10
+  already widened those four** — the four in `functualize-http` and
+  `functualize-lambda`.)
+- **Gate** package-local mypy, never the aggregate (AC-20) ✅. The aggregate is
+  **116** errors, not the 120 the task claims — T1, T2, T6 and T10 removed
+  four. Baselines before → after:
+
+  | package | before | after | |
+  |---|---|---|---|
+  | `functualize-ai-pydantic` | 47 | **48** | +1, cause upstream — see below |
+  | `functualize-state-sqlite` | 1 | **0** | improved by the port |
+  | `functualize-ai` | 4 | 4 | |
+  | `functualize-mcp` | 13 | 13 | |
+  | `functualize-inline` | 41 | 41 | |
+  | `functualize-aws` | 6 | 6 | |
+  | `functualize-http` / `-lambda` | 0 | 0 | |
+  | bitwarden / flow-viz / tasks-local / tasks | 1 | 1 | each |
+
+  **`state-sqlite` 1 → 0**: `resolved.db_path` was `Any`; the port's
+  `resolve_model(...) -> object` forces the caller that named the model class
+  to narrow to it, and the `no-any-return` went away. The feature paying for
+  itself.
+
+  **`ai-pydantic` 47 → 48**, and the cause is not this task. It hands `AI` and
+  `AIConfig` to `di.provide` and `configuration.resolve_model`, and those names
+  are **lazy-import variables, not types**: `functualize_ai/__init__.py`
+  resolves them through a `__getattr__` table with no `TYPE_CHECKING` block, so
+  mypy says `Variable "functualize_ai.AIConfig" is not valid as a type`. That
+  is also where most of its 47-error baseline comes from. **Adding that
+  `TYPE_CHECKING` block is worth doing and belongs in `functualize-ai`** — not
+  in an annotation sweep. → owed elsewhere.
+- **Reachability** two sabotages of the port, measured per package:
+  removing `di` → **5 errors** (ai-pydantic 2, mcp 2, tasks-local 1); keeping
+  `di.provide` but making `qualifier` **required** — the right name with the
+  wrong signature, which `isinstance` can never catch → **4 errors**
+  (ai-pydantic 2, mcp 1, tasks-local 1). Under `app: Any`, neither sabotage
+  produced a single error anywhere.
+- **Three sites were secretly optional.** `_gate_strategy.py:60`,
+  `_schema_export.py:54`, `_translator.py:20` were `app: Any = None` — a `None`
+  default under a non-optional annotation, invisible while the annotation was
+  `Any`. Now `PluginHost | None`, which is what they always were.
+- 🚩 **A fourth dead probe, and it is a behaviour bug.**
+  `functualize-ai/_provider_discovery.py:205` guards on
+  `hasattr(app, "resolve_model")`, which is **always False** — measured against
+  a live app; `resolve_model` is on `app.configuration`, never on the app. So
+  `resolve_ai_provider` has **never** read the `[ai]` config section, and every
+  caller passing an `app` has silently received `AIConfig()` defaults. Same
+  shape as the two probes AC-7 deleted (T1, T2).
+  **Left standing**: fixing it changes behaviour — projects with an `[ai]`
+  section would start being honoured — which is not an annotation sweep's call.
+  Stated at the site, and **needs a maintainer decision**.
+- **The one excluded member is now one visible line.**
+  `_workflow_tools.py:449` reaches `execution_engine` for `materialize_job`,
+  the single client that did not earn the engine a port seat. A `cast` at that
+  line rather than `app: Any` on the constructor, so the class's other five
+  methods keep eleven checked members. Behaviour unchanged.
+- **Done** `57efc55`. All twelve plugin suites green (436 tests).
 
 ## T12 · Make the rule executable
 
