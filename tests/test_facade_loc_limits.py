@@ -58,11 +58,39 @@ _SRC = _ROOT / "src" / "functualize"
 #: line and costs the consistency — one port on the app, its twin on the
 #: engine, with no reason a reader could find except this ceiling.
 #:
+#: **303 → 305, 2026-09-17** (`plugin-host-protocol`/T3). One name became
+#: three, because `substrate` was two things: the slot a plugin installs into
+#: and the storage in effect. Verified not the same object. So `substrate` is
+#: now the storage in effect (replacing ten `app.execution_engine.substrate`
+#: reaches), `substrate_override` is the slot the engine reads through
+#: `EngineHost`, and `install_substrate` is the write door. Measured: the
+#: getter and setter were 7 executable lines; the three are 9. **+2, to
+#: exactly 305.**
+#:
+#: The two cheaper answers, tried first:
+#:
+#: 1. *Make the write a setter on `substrate_override` rather than a method* —
+#:    identical line count, and a setter is the wrong shape: installing is an
+#:    event with an ordering rule the guard enforces, not an assignment.
+#: 2. *Drop `substrate_override` and let the engine read `app._substrate`* —
+#:    refused. The engine reaching into a private is precisely what
+#:    `EngineHost` exists to prevent, and it would cost one line to undo the
+#:    port.
+#:
+#: A third answer was offered and **rejected**: the dead-code audit reports
+#: `cache_stats` and `domain_registry` as having zero internal references, and
+#: deleting them (6 lines) would have landed at 299 with no raise at all. Both
+#: are public members of a public class, which the audit's own contract
+#: excludes by design — an end user's call site is not in this repository. The
+#: rule that public API needs an `examples/` caller
+#: (`contributor/reference/public-api-example-coverage.md`) exists so that
+#: finding cannot recur as a deletion.
+#:
 #: No headroom added on top. A tight ceiling that is raised to exactly what fits
 #: still binds the next addition; one raised to the next round number does not.
 _BUDGETS: list[tuple[str, str, int]] = [
     ("_engine/capabilities/runcontext.py", "RunContext", 500),
-    ("app/core.py", "FunctualizeApp", 303),
+    ("app/core.py", "FunctualizeApp", 305),
 ]
 
 

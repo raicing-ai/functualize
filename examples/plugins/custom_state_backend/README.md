@@ -64,7 +64,7 @@ class MemoryStatePlugin:
         app.hook_registry.register_global(HookEvent.APP_READY, self._on_app_ready)
 
     def _on_app_ready(self, app):
-        app.substrate = MemorySubstrate()
+        app.install_substrate(MemorySubstrate())
 ```
 
 `APP_READY` and not later: the engine resolves its substrate lazily, on the

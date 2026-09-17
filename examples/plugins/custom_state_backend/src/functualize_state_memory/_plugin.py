@@ -58,5 +58,5 @@ class MemoryStatePlugin:
         another is the state the substrate seam exists to make unreachable.
         """
         self._substrate = MemorySubstrate()
-        app.substrate = self._substrate
+        app.install_substrate(self._substrate)
         logger.debug("state-memory installed an in-memory substrate")

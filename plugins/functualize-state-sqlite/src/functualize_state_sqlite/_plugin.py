@@ -73,7 +73,7 @@ class SQLiteStatePlugin:
         """
         try:
             self._substrate = SQLiteSubstrate(self._db_path(app))
-            app.substrate = self._substrate
+            app.install_substrate(self._substrate)
         except Exception:
             logger.exception(
                 "sqlite-state could not install its substrate; this project "

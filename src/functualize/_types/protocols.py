@@ -398,17 +398,23 @@ class EngineHost(Protocol):
         ...
 
     @property
-    def substrate(self) -> StoreSubstrate | None:
-        """Where this project's documents live, or None for the default.
+    def substrate_override(self) -> StoreSubstrate | None:
+        """The override a plugin installed, or None for "resolve the default".
 
         The **one** place a configured backend is chosen
-        (`store-substrate`/T5). A plugin that wants a database sets this at
+        (`store-substrate`/T5). A plugin that wants a database installs one at
         boot and every store the engine builds follows, so scope records and
         the job state inside them cannot end up in different backends.
 
         None means "resolve the filesystem default from :attr:`fresh_root`",
         which is what an app with no such plugin does. It is not an error and
         not a missing feature — it is the ordinary case.
+
+        **Named `substrate_override` since `plugin-host-protocol`/T3.** It was
+        `substrate`, which collided with the *storage in effect*: the host's
+        member is the slot, and the engine's resolved value is the answer, and
+        ten call sites had to reach through the engine to tell them apart.
+        One name each now.
 
         Deliberately **here rather than discovered by `_primitives`**. The one
         decision lives in `substrate_for_project`, which may not import

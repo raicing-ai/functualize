@@ -94,12 +94,12 @@ from functualize.app.adapters import CliAdapter
 app = FunctualizeApp("w", job_sources=JobSources(directories=["jobs"]))
 
 # The substrate a plugin would install, installed here directly so the test
-# does not also depend on entry-point discovery. `EngineHost.substrate` is the
-# member; `APP_READY` is when a real plugin sets it.
+# does not also depend on entry-point discovery. `install_substrate` is the
+# door; `APP_READY` is when a real plugin knocks on it.
 sys.path.insert(0, {plugin_src!r})
 from functualize_state_sqlite.substrate import SQLiteSubstrate
 
-app.substrate = SQLiteSubstrate({db!r})
+app.install_substrate(SQLiteSubstrate({db!r}))
 
 adapter = CliAdapter()
 

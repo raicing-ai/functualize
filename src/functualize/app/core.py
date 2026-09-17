@@ -61,6 +61,7 @@ if TYPE_CHECKING:
         JobDescriptor,
         RegisteredJob,
     )
+    from functualize._types.protocols import StoreSubstrate
     from functualize.job._workflow_scope import WorkflowScope
 
 DEFAULT_CONFIG_FILE_REGEX = r"^config\.(\w+)\.(\w+)$"
@@ -194,7 +195,7 @@ class FunctualizeApp:
         self._state_root = Path.cwd()
         #: Installed by a plugin at boot; None means the filesystem
         #: default. See the :attr:`substrate` property.
-        self._substrate: Any = None
+        self._substrate: StoreSubstrate | None = None
         #: Set by boot_standard once `general.max_invoke_depth` resolves.
         self._resolved_max_invoke_depth: int | None = None
 
@@ -317,26 +318,50 @@ class FunctualizeApp:
             jobs[current.name] = replacement
 
     @property
-    def substrate(self) -> Any:
-        """Where this project's documents live, or None for the default.
+    def substrate(self) -> StoreSubstrate:
+        """The storage in effect for this app. Resolved once, then held.
 
-        The :class:`~functualize._types.protocols.EngineHost` member a plugin
-        sets to install a database (`store-substrate`/T5). None — the ordinary
-        case — means the engine resolves the filesystem default from
-        :attr:`fresh_root`.
+        Never ``None``: the engine resolves the filesystem default when no
+        plugin installed anything, so there is always an answer. That is the
+        whole reason this name moved — it used to mean the *install slot*,
+        which is ``None`` in the ordinary case, and ten call sites wanting the
+        storage in effect had to say ``app.execution_engine.substrate`` to get
+        it. Two meanings under one name, and the two objects were verifiably
+        not the same one.
 
-        A plain attribute rather than a registry: there is exactly one, it is
-        chosen once at boot, and a second one is the split brain this feature
-        exists to make unreachable.
+        The install slot is now :attr:`substrate_override`; the write door is
+        :meth:`install_substrate`.
+        """
+        return self.execution_engine.substrate
+
+    @property
+    def substrate_override(self) -> StoreSubstrate | None:
+        """The override a plugin installed, or None for "resolve the default".
+
+        The :class:`~functualize._types.protocols.EngineHost` member the engine
+        reads (`store-substrate`/T5, renamed by `plugin-host-protocol`/T3). It
+        exists so the engine asks a *port* rather than reaching
+        ``app._substrate``, which is the reach `EngineHost` was introduced to
+        prevent.
+
+        ``None`` is not an error and not a missing feature — it is what an app
+        with no storage plugin has, and it means "resolve the filesystem
+        default from :attr:`fresh_root`".
         """
         return self._substrate
 
-    @substrate.setter
-    def substrate(self, value: Any) -> None:
-        """Install a substrate. **Boot only, and before the engine resolves one.**"""
+    def install_substrate(self, substrate: StoreSubstrate) -> None:
+        """Install a backend. **Boot only** — refused once the engine resolved one.
+
+        A method rather than a setter because installing is an *event* with an
+        ordering rule, not an assignment: after the engine has resolved a
+        substrate, a second one would leave some of a run's documents in one
+        backend and some in the other. The guard that refuses it lives in
+        ``_app/impl.py`` — real logic, and this class has a line budget.
+        """
         from functualize._app.impl import install_substrate
 
-        install_substrate(self, value)
+        install_substrate(self, substrate)
 
     @property
     def fresh_root(self) -> Path:
