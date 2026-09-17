@@ -143,6 +143,7 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "PromptSeverity",
         "PromptChoice",
         "PluginMetadata",
+        "PluginHost",
         "PluginWithShutdown",
         # Pre-import discovery predicate (third-party-host-seams/1.3). Promoted
         # from _primitives so a host can supply one; `fingerprint()` is part of
