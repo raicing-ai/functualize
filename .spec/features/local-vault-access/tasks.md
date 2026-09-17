@@ -27,7 +27,7 @@ the disagreement in that one place, so every surface inherits it.
 - `[G]` The two existing importers are untouched. **Gate corrected during execution:** as authored this predicted the grep would "still return 3 files", but after the move the new definition site matches its own grep, so the honest count is **4** (`_app/boot.py`, `_config/vault.py`, `_config/vault_paths.py`, `app/utils.py`). Counting files was the wrong instrument for the claim, which is that the re-export works — now asserted directly: `functualize._config.vault.vault_path_for_project is functualize._config.vault_paths.vault_path_for_project`, and both importing modules import cleanly.
 - `[G]` `uv run pytest tests/config/ -q` green.
 
-### [ ] T1.2 — `VaultKeyInitializer` protocol
+### [x] T1.2 — `VaultKeyInitializer` protocol
 
 Additive structural capability beside `VaultKeyProvider`; read-only providers
 stay valid.

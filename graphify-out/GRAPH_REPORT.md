@@ -1,1449 +1,1597 @@
-# Graph Report - functualize  (2026-09-08)
+# Graph Report - feat-local-vault-access  (2026-09-17)
 
 ## Corpus Check
 - cluster-only mode — file stats not available
 
 ## Summary
-- 8608 nodes · 17052 edges · 292 communities (273 shown, 18 thin omitted)
-- Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 918 edges (avg confidence: 0.93)
-- Token cost: 20,931 input · 12,781 output
+- 9571 nodes · 19598 edges · 336 communities (299 shown, 36 thin omitted)
+- Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 1243 edges (avg confidence: 0.92)
+- Token cost: 170,150 input · 4,539 output
 
 ## Graph Freshness
-- Built from commit: `78d9ff49`
+- Built from commit: `97932cc9`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- TUI Action Bindings
-- Discovery Filter Factories
-- Job Registration & Naming
-- App Facade & Execution
-- Live Display Zones
-- Discovery Cache Provider
+- Config Snapshot Persistence
+- CLI App Entry Points
+- Inline TUI Application
+- Click CLI Adapter Layer
 - Job Execution Engine
-- Shell Capability
-- Discovery Utilities
-- App Core & Decorators
-- App Config Dataclasses
-- Job Providers & Live Panels
-- Vault & Project Config
-- Click Command Building
-- Interactive CLI Prompts
-- CLI Help & Epilog
-- TUI App Composition Root
-- Execution Context & Executor
-- Vault Keys & Providers
-- Workflow Graph Model
-- Pending Execution & Snapshots
-- Job Context Capabilities
-- Environment & Config Roles
-- Programmatic Job Invocation
-- Builtin Click Commands
-- Event Bus & Sinks
-- Live Construct Handles
-- SQLite Backend Core
-- App Boot Orchestration
-- Run Context Facade
-- Config Resolution Chain
-- Path Field Editing
-- TUI Focus Zone Cycling
-- Packaging & Install Detection
-- Config Table Panel
-- _config/sources.py
-- StateStore
-- tui/__init__.py
-- PanelHost
-- ResourceLocator
-- JobGraph
-- smart_bar_autocomplete.py
-- StdoutEmitter
-- hierarchy.py
-- ServerManager
-- plugin/protocols.py
-- chain_resolution.py
-- SmartBarAutoComplete
-- WorkflowToolProvider
-- FuncSettingsStore
-- ShortcutSaveModal
-- FlowVizConstruct
-- self_cmd.py
-- Any
-- loader.py
-- ConfigTarget
-- ConfigFilesPanel
-- HttpServerCore
-- PydanticAIProvider
-- resolve_tui_command
-- _ai.py
-- _server.py
-- job/__init__.py
-- .__init__
-- PerfTimeline
-- tokenize_bar_text
-- DomainRegistry
-- GroupOptionsSpec
-- VaultSource
-- di.py
-- ToolScope
-- FieldDescriptor
-- _cli/manifest.py
-- FormatProvider
-- _events/__init__.py
-- SQLiteStateStore
-- DropdownItem
-- FileScope
-- toml.py
-- ring_models.py
-- MCPAdapterPlugin
-- MCPToolRegistry
-- state_format.py
-- SmartBar
-- DepScheduler
-- AI
-- SQLiteExecutionStore
-- functualize_state/__init__.py
-- EnvSource
-- ._update_status_bar
-- PanelRingController
-- JobBrowserPanel
-- WorkflowShape
-- SQLiteStateBackend
-- ExecutionStatePlugin
-- dispatch.py
-- scaffold/cli.py
-- FunctualizeAutoComplete
-- ScaffoldGenerator
-- Secret
-- CLI Command Planning
-- Tool Definition Translation
-- MCP Adapter and Schema Export
-- TUI Delivery Adapter
-- Fingerprint Computation
-- TUI Theme Management
-- Job Tool Translator
-- CLI Config Resolution
-- Insert Mode Controller
-- Focus Mode State
-- Binary Self-Update
-- Tasks Domain SDK
-- Prompt Modal Widget
-- Shell Settings Catalog
-- Agent Skills Management
-- Job Registry Scanning
-- Click CLI Adapter
-- Inline Shell Launch
-- SmartBar Completion Parsing
-- CLI Settings Source
-- Workflow Frontier Expansion
-- Job Input Sources
-- Job Run Explanation
-- Source Chain Table View
-- Event Metadata Catalog
-- Middleware Stack
-- Job Step References
-- Workflow Walk Execution
-- State Namespace Scoping
-- File Config Source
-- Job Result Delivery
-- Settings Catalog Views
-- App Settings Projection
-- In-Process Introspection
-- Remote Provider Registry
-- State Storage Protocols
-- Stdout Surface Gate
-- Parallel Output Writing
-- Inline Prompt Widgets
-- In-Memory State Store
-- Job Preflight Decision
-- Hook Registry
-- Middleware Chain Executor
-- MCP Task Tools
-- Execution Tracking
-- Static Shell Completions
-- Config Files Panel
-- Settings Chain Provider
-- Settings Schema Validation
-- AST Dependency Extraction
-- AI Model Invocation
-- Bitwarden Secrets Provider
-- Local Task Provider
-- PEP 723 Script Metadata
-- Panel Ring Navigation
-- Remote Annotation Scanning
-- Fullscreen TUI App
-- Bitwarden Client Auth
-- Gate Registry Presets
-- Annotation Parsing Utilities
-- File Picker View
-- Job Candidate Filtering
-- SQLite State Plugin
-- AWS Session Management
-- Confirm Prompt Widgets
-- Lambda Delivery Adapter
-- Package Install Modes
-- Config Edit Messages
-- Editable Table Widget
+- Click Parameter Building
+- Engine Construction Presets
+- App Config Source Settings
+- Execution Context Middleware
+- Interactive Prompt Plugin
+- Observability Event Wiring
+- Boot Composition Root
+- Job Descriptor Registry
+- Job Invocation Capabilities
+- Job Discovery Utilities
+- Observability Facade Timeline
+- Smart Bar Cursor Parsing
+- Remote Source Annotations
+- Workflow Scope Surfaces
+- Job Browser Listing
+- Plugin Header Status Bars
+- Textual Prompt Apps
+- Hook Middleware Decorators
+- Config Chain Detail View
+- Source Chain Detail Rows
 - Live Panel Widget
-- Frontier Walk State
 - Plugin Config Registry
-- AI Outbound Gate Resolver
-- Panel Live Zone
-- Panel Config Actions
-- Config Error Types
-- Prompt Gate Resolver
-- Guard Evaluation
-- Contextual Display Widgets
-- AI Provider Discovery
-- AWS Secrets Providers
-- Inline Prompt App
-- Autocomplete Dropdown Widgets
-- Module Group Transform
-- Gate Resolution System
-- Local Tasks Plugin
-- UV Tool Requirements
-- Atomic TOML Writer
-- Table Cursor Navigation
-- Kwargs Validation
-- Input Mode Registry
-- AI State Fallback
-- In-Memory Task Provider
-- Fingerprint Recording
-- Gate Strategy Protocols
-- Config View Refresh
-- Panel Ring Management
-- Lazy Job Loading
-- Perf Phase Filtering
-- Fullscreen Shell Widgets
-- Tool Gate Policy
+- Discovery Config Objects
+- Scaffolding Generator Commands
+- Workflow Walk Ledger
+- Path Completion Editor
+- Install Mode Detection
+- Builtin Config Commands
+- Agent Step Registry
+- Config Target Source Chain
+- Dynamic Footer Hints
+- Job Context Logging
+- Job Dependency Graph
+- Job Run Explanation
+- Builtin Command Registration
+- Config Table Panel
+- AWS Parameter Store Provider
+- Job Registry Hooks
+- Panel Insert Mode Messages
+- Workflow Type Definitions
+- Discovery Module Prefilters
+- Command Tree Nodes
+- Preflight Guard Staleness
+- Job Filter Factories
+- Plugin Extensions Facade
+- Project Hierarchy Validation
+- MCP Management Tools
+- Scope Store Persistence
+- Package Install Operations
+- Job Command Node
+- Autocomplete Shell Mode
+- Framework Settings Registry
+- AI Tool Scope Filtering
+- AI Capability Facade
+- Flow Viz Plugin
+- Dynamic Job Registration
+- Workflow Gate Controls
+- Panel Ring Command Panels
+- Stdout Capability Channel
+- Config Discovery Builder
+- Func Settings Store
+- Surface Routing Stdin
+- Workflow Frontier Leases
+- Workflow Orchestration Walk
+- Builtin Info Commands
+- Builtin Job Execution Bridge
+- Gate Strategy Registry
+- JSON File Substrate
+- MCP Job Tools
+- MCP Workflow Tools
+- Run Record Store
+- Workflow Scope View
+- CLI Install Manifest
+- Job Browser Panel
+- Shell History Store
+- INI Format Provider
+- Config Provider Protocols
+- Scope Record Mutations
+- MCP Adapter Plugin
+- SQLite State Plugin
+- Encrypted Local Vault
+- Vault Key Providers
+- Scope State Store
+- Domain SDK Registry
+- Job Provider Extraction
+- Dependency Scheduler
+- MCP History Tools
+- Plugin Catalog Commands
+- Smart Bar Key Dispatch
+- Panel Ring Controller
+- Job Declaration Value Objects
+- PydanticAI Provider Plugin
+- AI Outbound Gate Strategy
+- Event Bus Middleware Stack
+- Self Diagnostic Checks
+- New File Picker Flow
+- Panel Drill-Down State
+- Job Discovery Transforms
+- Stdout Live Surface
+- Run History View
+- Run Request & Dependencies
+- Editor Focus Modes
+- Workflow Frontier Walk
+- Fingerprint Source Binding
+- App Runtime Facade
+- Agent Skills Packaging
+- Schema Annotation Builder
+- Workflow Gate Answering
 - Config Target Discovery
-- State Store Errors
-- Exec Retry Policy
-- Job Resolution & DI Validation
-- Destructive Confirmation Widget
-- Bitwarden Reference Parsing
+- Binary Self-Update
+- Job Schema Export
+- Plugin Extensions Facade
+- Settings Catalog Projection
+- Config Format Providers
+- Live Zone Constructs
+- Shell Capability Wiring
+- Framework Event Catalog
+- Gate Tool References
+- Stdin & Workflow Flags
+- Tasks Domain SDK
+- Vault & Cache Paths
+- Notifier Registry
+- Local Tasks Plugin
+- PydanticAI Provider
+- In-Process CLI Introspection
+- Display Slot Views
+- Shell Command Execution
+- Fresh Fingerprint Store
+- Workflow Scope Format
+- AI Budget Enforcement
+- Local Task Provider
+- Subprocess Watchers & PTY
+- Workflow CLI Flags
+- Autocomplete Candidates
+- Field Descriptor Extraction
+- Precondition Guards
+- TUI Autocomplete Widget
+- Stdout Surface Gating
+- Hook & Middleware Decorators
+- Job Phase Tracking
+- Retry & Dedup Policy
+- Fresh File Format & Locking
+- Middleware Chain
+- Prompt Modal Widget
+- MCP Task Tools
+- Delivery Adapters
+- Group Options Extraction
+- Shell Completion Scripts
+- Parallel Output Multiplexing
+- Lazy Job Loading
+- Job Directory Scanning
+- Argument Validation
+- Stdout Result Emission
+- Wiring Facade
+- AI State Fallback
+- Scaffold CLI
+- Config Snapshot Store
+- PEP 723 Script Metadata
+- Resolved Config Fields
+- Environment Config Source
+- Vault Config Source
+- AST Dependency Extraction
+- AI Agent Loop
+- AWS Lambda Adapter
+- Dynamic Input Bar
+- Panel Ring State
+- Shortcut Save Modal
+- Workflow Graph Cache
+- Bitwarden Client
+- Annotation Parsing
+- Setting Value Validation
+- Display Provider Discovery
+- Display Registration Ring
+- Job Config View
+- Cached Job Scanning
+- Job Reference Markers
+- Secrets Manager Provider
+- Shortcut File Generation
+- Editable Table Widget
+- App Substrate & CLI
+- Shell Capability Protocol
+- Scope Step Records
+- Textual App Bridge
+- AI Provider Discovery
+- Panel Navigation
+- Func Settings Provider
+- Module Grouping Transform
+- Run Log Format
+- Config Drill-Down Handlers
+- Tasks Capability
+- Task Provider Core
+- UV Tool Receipts
+- TOML Section Writer
+- Display Refresh Workers
+- SmartBar Protocol
+- Job Descriptor Registry
+- MCP Tool Server
+- Run History Store
+- TUI Breadcrumb Header
+- Panel Ring Structure
+- PydanticAI Plugin Integration
+- Ambient Construct Resolution
+- Display Slot Navigation
+- Panel Host Chrome
+- Entry Point Job Provider
+- Job Performance Timing
+- Field Descriptor Serialization
+- Workflow Graph Declaration
+- AI Provider Protocol
+- Bitwarden Secret References
 - Argument History Persistence
-- Scaffold Context Detection
-- Source Chain Detail View
-- Resolution Pipeline
-- Fullscreen TUI App Shell
-- AWS Reference Parsing
-- Inline TUI Plugin
-- MCP Gate State
-- SQLite Schema Migrations
-- Render Surface Resolution
-- Source Chain Edit Handling
-- Insert Mode Editing
-- Detail Row Rendering
-- Entry Point Job Discovery
-- Workflow Runner
-- Agent Help Epilog
+- Shortcut Save Dialog
+- Display Zone Mounting
+- Config Source Protocol
+- Module Discovery Cache
+- Job Declaration Decorator
+- Stdout Capability
 - Job Input JSON Schema
-- Import Pre-Filter
-- Streaming Log Panel
-- Terminal Ownership
-- Status Bar Widget
-- Insert Request Handling
-- Strict State Backend Wrapper
-- Workflow Gate Resume
-- Config Override Application
-- Live Panel Handles
-- Cross-Thread UI Marshaling
-- Panel Text Filtering
+- HTTP Server Plugin
+- HTTP Request Handling
+- Dependency Injection Facade
+- Inline Choice Editing
+- Config Value Resolution
+- Cache Invalidation Hashing
+- Directory Module Scanning
+- Agent Step Execution
+- Job Discovery Facade
+- Run Log Buffering
+- Agent Help Epilog
+- Import-Based Module Prefilter
+- Job Name Resolution
+- HTTP Delivery Adapter
+- TUI Screen Management
 - Preflight Summary Formatting
-- Provider Registry & Entry Points
-- Namespace Prefix Transform
-- Job Hiding Transform
-- Task Update Events
-- AWS Secret Providers
-- Command Fallback Suggestions
-- Edit Confirmation Messages
+- Cache Entry Validation
+- Group Options Declaration
+- Shell Capability
+- Display Cache Entries
+- Fullscreen TUI App
+- TUI Status Bar
+- TUI Log Panel
+- Flow Tree Widget
+- Insert Mode Routing
+- New Config File Locations
+- HTTP Server Core
+- Prompt Input Handlers
+- Autocomplete Dropdown Stub
+- Config Event Emission
+- Shell Execution Engine
+- Run Context Stack
+- Parameter Type Classification
+- Plugin Kind Classification
+- Inline Edit Confirmation
 - Insert Mode Exit
-- Execution Retry Logic
+- Panel Collapse Handling
+- Type Hint Formatting
+- Job Config Resolution
+- Job Config Type Validation
 - Lazy Cached Descriptor
-- Main Screen Layout
+- Workflow Step References
+- TUI Main Screen
 - Domain SDK Metadata
-- File Source Info
-- File Picker Navigation
-- Construct Drill-Down View
-- Panel Setting Validation
+- Provider Locator Builders
+- Catalog Defaults View
+- Provider Refresh Workers
+- Autocomplete Candidate Delegation
+- Config Layer Merging
 - Hierarchy Error Types
-- Job Group Filtering
-- Job Renaming Transform
-- Signature Introspection Utilities
-- Task Listing
-- Config Table Editing
-- Identity Transform
-- State Store Replacement
-- Precondition Cache
-- Resilient Iteration
-- Project State Store
-- AI Gate Resolution
-- Reference Fetch Clients
-- UI Mode Messages
-- NotSet Sentinel Value
-- Panel Widget Unmounting
-- DataTable Composition
-- Shortcut Save Form
+- Parallel Job Observer
+- Workflow Failure Routing
+- Signature Introspection
+- Group Options Detection
+- TCP Connection Handling
+- Builtin Command Metadata
+- Panel Ring Activation
+- Panel Chrome Updates
+- Descriptor Entry Indexing
+- File Postfix Prefilter
+- Install Mode Enum
+- Command Completer Protocol
+- Insert Mode Messages
+- Unset Value Sentinel
+- Sub-View Stack
+- Shortcut Form Composition
 - Interactivity Config Mixin
-- Minimal Config View Stub
-- Check Status
-- Version Comparison
+- Job Transform Registration
+- Minimal Config View
+- Project Fresh State Root
+- Scope Record Removal
+- MCP Plugin Lazy Loading
+- Config Source Bus Init
 - Choice Navigation Down
 - Table Cursor Down
 - Table Cursor Up
 - Choice Selection
-- Dropdown Item Stub
-- Ambiguous Secret Key Error
-- Editor Widget Composition
+- Panel Index Accessors
+- Vault Source Initialization
+- Shell Output Channel Binding
+- Missing Value Error
+- Keyword Argument Error Handling
+- Workflow Nesting Depth Limits
+- Job Execution Policy
+- Decorator Name Extraction
+- Ambiguous Secret Key Lookup
+- Prompt Collector Plugin Registration
+- Table And Input Composition
+- Panel Ring Index
 - Execution Result Metadata
-- Validation Error Fields
-- Middleware Check
-- Generic Initialization
-- CLI Delivery Layer
-- Footer Available Actions
-- TUI Modal Dialogs
-- TUI Data Models
-- Zone Visibility Toggle
-- Programmatic Job Registration
+- Widget Composition
+- Generic Initializer
+- CLI Delivery Layer Package
+- Default URL Opener
+- Footer Action Discovery
+- TUI Modals Package
+- TUI Data Models Package
+- Cursor Context Candidates
+- Job Name Attribution
+- User Input Response Flag
+- Prompt Cancellation Flag
+- Prompt Timeout Flag
+- State Store
+- Any Type
+- Log Record
+- Named Tuple
+- Type Variable
+- Subprocess Popen
+- Domain Metadata
+- AST Statement
+- In-Memory String Buffer
+- Rich Text
 
 ## God Nodes (most connected - your core abstractions)
-1. `FunctualizeApp` - 214 edges
-2. `FunctualizeInlineTUI` - 199 edges
-3. `JobDescriptor` - 117 edges
-4. `JobExecutionEngine` - 95 edges
-5. `RunContext` - 88 edges
-6. `FieldDef` - 56 edges
-7. `DisplaySlot` - 53 edges
-8. `StateStore` - 52 edges
-9. `PromptRequest` - 51 edges
-10. `SQLiteBackend` - 50 edges
+1. `FunctualizeApp` - 204 edges
+2. `FunctualizeInlineTUI` - 200 edges
+3. `JobDescriptor` - 127 edges
+4. `JobExecutionEngine` - 108 edges
+5. `register_builtin_commands()` - 100 edges
+6. `ScopeStore` - 91 edges
+7. `RunContext` - 69 edges
+8. `FieldDef` - 56 edges
+9. `DisplaySlot` - 53 edges
+10. `boot_standard()` - 53 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `InlinePlugin` --uses--> `PromptIntent`  [INFERRED]
-  plugins/functualize-inline/src/functualize_inline/plugin.py → src/functualize/_types/interactivity.py
-- `WorkflowToolProvider` --uses--> `FromStep`  [INFERRED]
-  plugins/functualize-mcp/src/functualize_mcp/_workflow_tools.py → src/functualize/_types/from_job.py
-- `SQLiteStatePlugin` --uses--> `HookEvent`  [INFERRED]
-  plugins/functualize-state-sqlite/src/functualize_state_sqlite/_plugin.py → src/functualize/_events/hooks.py
+- `HttpAdapter` --uses--> `FunctualizeApp`  [INFERRED]
+  plugins/functualize-http/src/functualize_http/__init__.py → src/functualize/app/core.py
+- `HttpServerCore` --uses--> `FunctualizeApp`  [INFERRED]
+  plugins/functualize-http/src/functualize_http/__init__.py → src/functualize/app/core.py
+- `HttpServerPlugin` --uses--> `FunctualizeApp`  [INFERRED]
+  plugins/functualize-http/src/functualize_http/__init__.py → src/functualize/app/core.py
 - `LambdaAdapter` --uses--> `FunctualizeApp`  [INFERRED]
   plugins/functualize-lambda/src/functualize_lambda/__init__.py → src/functualize/app/core.py
-- `AIInboundGateResolver` --uses--> `GateContext`  [INFERRED]
-  plugins/functualize-ai/src/functualize_ai/_gate_strategy.py → src/functualize/_gate/_context.py
+- `LocalTasksPlugin` --uses--> `HookEvent`  [INFERRED]
+  plugins/functualize-tasks-local/src/functualize_tasks_local/_plugin.py → src/functualize/_events/hooks.py
 
 ## Import Cycles
 - None detected.
 
-## Communities (292 total, 18 thin omitted)
+## Communities (336 total, 36 thin omitted)
 
-### Community 0 - "TUI Action Bindings"
+### Community 0 - "Config Snapshot Persistence"
 Cohesion: 0.02
-Nodes (97): FunctualizeInlineTUI, The effective ``tui.default_surface`` value (default < file < env). Consulted…, Toggle autocomplete dropdown visibility. If the dropdown is currently visible…, V3 TUI composition root — thin orchestrator delegating to v3 modules., Execute the current command if bar is READY, show preflight if PENDING., Run ``text`` through the sigil mode that owns it. The caller has already…, Execute a job from parsed tokens and display output in the RichLog. Args:…, Run a job in-process through the FunctualizeApp execution API. Captures output… (+89 more)
+Nodes (125): ConfigSnapshot, ConfigSnapshotStore persistence for execution history. Pure-logic module with…, Immutable record of config values used in a past execution. Attributes:…, PendingExecution, Any, PendingExecution state model for config views. Pure-logic module with no…, Check if a field has an active override. Args: field_name: The field to check.…, Return the number of active overrides. Returns: The count of overridden fields. (+117 more)
 
-### Community 1 - "Discovery Filter Factories"
-Cohesion: 0.03
-Nodes (79): expr, build_job_filter_from_config(), build_pre_filter_from_config(), Path, Factories for constructing discovery filter stacks from DiscoveryConfig. Two…, Build a job-level (function-level) filter stack from a DiscoveryConfig. Covers…, Build a composable pre-filter stack from a DiscoveryConfig. Filter order within…, get_default_pre_filter() (+71 more)
-
-### Community 2 - "Job Registration & Naming"
-Cohesion: 0.04
-Nodes (95): Register a callable as an executable job at runtime. Args: app: The…, register_dynamic_job(), Job finding pipeline package for functualize internal layers. Contains the…, qualified_name(), Job and group identity: construction, normalization, and resolution. The one…, Build a qualified job name, normalized to canonical hyphenated form. Every…, _annotation_to_type_str(), _base_type_name() (+87 more)
-
-### Community 3 - "App Facade & Execution"
+### Community 1 - "CLI App Entry Points"
 Cohesion: 0.02
-Nodes (59): FunctualizeApp, Any, Instantiate the ambient constructs eligible for ``descriptor``. The public…, Push a phase-scoped surface onto the surface stack. Used by ``TTY.run`` and the…, Pop the top surface (or ``surface`` if given) off the stack. Tolerant of an…, Return all registered plugin commands., Decorator: register AFTER_FAILURE hook (global or job-scoped)., Decorator: register AFTER_SUCCESS hook (global or job-scoped). (+51 more)
+Nodes (116): _launch_shell(), Launch the inline shell and return its exit code. A one-line indirection so the…, _detect_app_name(), TUI delivery adapter using the inline TUI. This module provides the TuiAdapter…, Detect the CLI application name from sys.argv[0]. Returns the basename of the…, build_command_tree(), ClickCommandProvider, JobCommandProvider (+108 more)
 
-### Community 4 - "Live Display Zones"
+### Community 2 - "Inline TUI Application"
+Cohesion: 0.02
+Nodes (83): BackRequested, FunctualizeInlineTUI, Widget, Resolve settings at startup and apply them., Re-resolve settings and push them into the Settings panel, if built., The SettingsPanel in the General ring, if one was built., Staged changes were written → pop the view and re-resolve. The kernel parsed…, A quick edit in the Settings table → apply it to the running app. This is the… (+75 more)
+
+### Community 3 - "Click CLI Adapter Layer"
+Cohesion: 0.02
+Nodes (127): HelpFormatter, Restrict AI tool visibility to jobs in the specified group. Args: group_name:…, AgentEpilogGroup, _apply_setting_overrides(), _attach_group_options(), _bare_tty_available(), _build_job_command(), check_name_conflicts() (+119 more)
+
+### Community 4 - "Job Execution Engine"
+Cohesion: 0.02
+Nodes (80): The job execution engine (read-only property)., Execute a job — the single surface-facing entry. Takes a :class:`RunRequest`…, setter, ExecutionContext, Elapsed time in milliseconds since context creation., Whether execution has been blocked by middleware., Context object passed through the execution middleware chain. Carries all state…, _is_promptable() (+72 more)
+
+### Community 5 - "Click Parameter Building"
 Cohesion: 0.03
-Nodes (64): Whether the user is interacting with the display zone right now. Consulted by…, DisplaySlot, Any, ComposeResult, Path, Vertical, Widget, Compose an empty container — content is mounted dynamically. (+56 more)
+Nodes (126): _print_validation_error(), Print a Pydantic ValidationError as a clean Rich-formatted panel. Args:…, build_click_params(), build_click_params_from_descriptor(), build_click_params_from_fields(), build_job_engine_callback(), wrapper(), _click_type_for() (+118 more)
 
-### Community 5 - "Discovery Cache Provider"
+### Community 6 - "Engine Construction Presets"
 Cohesion: 0.03
-Nodes (67): CachedDirectoryScanProvider, Any, Path, Cache-backed job discovery provider — the single discovery cache system.…, Return all valid job descriptors via incremental cache validation. Performs: 1.…, Modules this provider's last pass could not parse or import. Empty when the…, Retrieve a specific job by name with O(1) dict lookup. Flow: 1. Dict lookup in…, Return True if the job-level filter admits this descriptor. (+59 more)
+Nodes (82): build_engine(), _config_view_factory(), Construct the engine, complete, for the host that owns it. The **one**…, Return the config resolution chain [CLI → Env → Files → Defaults]. The…, Build a ResolutionChain [CLI → Env → Files → Defaults]. The regex comparison…, env_only(), Preset factory functions for common configuration strategies. Each function…, CLI → Env → Defaults. No file discovery. Sets an explicit resolution chain that… (+74 more)
 
-### Community 6 - "Job Execution Engine"
-Cohesion: 0.04
-Nodes (58): The job execution engine (read-only property)., setter, _is_promptable(), JobExecutionEngine, _per_invocation_types(), Any, BaseException, Path (+50 more)
-
-### Community 7 - "Shell Capability"
-Cohesion: 0.04
-Nodes (68): _as_pattern(), _default_shell_program(), _derive_label(), _drive_watchers(), _make_shell(), _pattern_repr(), Any, Pattern (+60 more)
-
-### Community 8 - "Discovery Utilities"
-Cohesion: 0.04
-Nodes (90): auto_discover(), build_discovery_cache_provider(), build_job_filter(), coerce_kwargs(), _collect_convention_directories(), _convention_subdir_name(), declared_config_values(), DiscoveryOverrides (+82 more)
-
-### Community 9 - "App Core & Decorators"
-Cohesion: 0.05
-Nodes (82): _is_dynamic(), FunctualizeApp public facade. Thin public-facing class (≤300 LOC) that…, True if the descriptor was registered from code rather than discovered., Return statistics about the job discovery cache. Returns a CacheInfo dataclass…, _make_global_only_decorator(), _make_hook_decorator(), _make_middleware_decorator(), Any (+74 more)
-
-### Community 10 - "App Config Dataclasses"
-Cohesion: 0.04
-Nodes (85): pass_context, invoke_command_capturing(), Run ``command`` over ``args`` and return its exit code. For **jobs** (the…, ConfigSources, DiscoveryConfig, ExecutionConfig, JobSources, PluginSources (+77 more)
-
-### Community 11 - "Job Providers & Live Panels"
-Cohesion: 0.04
-Nodes (63): Register a job provider with optional provider-scoped transforms., DynamicInputBar — the input row's host, one content region per active mode. The…, LivePanelWidget — a job-scoped LiveConstruct hosted as a PanelHost panel.…, PanelLiveZone — the ``Live`` capability's binding for PANEL execution. A…, _missing_protocol_members(), ProviderEntry, Any, Resolution pipeline for the Provider/Transform architecture. Orchestrates the… (+55 more)
-
-### Community 12 - "Vault & Project Config"
-Cohesion: 0.04
-Nodes (83): generate_vault_key(), Everything ``func builtin vault status`` prints. Carries no value. Attributes:…, A fresh hex-encoded 32-byte vault key, for ``$FUNCTUALIZE_VAULT_KEY``., Where this project's vault lives. The file need not exist., Metadata for every stored secret, ordered by key. **No key required.** Each row…, Describe the vault without opening it. Args: app: The booted app, when one is…, Delete this project's vault. Returns whether a file was there. Safe by…, Walk upward from cwd, collect and merge project configs. Uses ResourceLocator… (+75 more)
-
-### Community 13 - "Click Command Building"
-Cohesion: 0.05
-Nodes (82): build_click_params(), build_click_params_from_descriptor(), build_click_params_from_fields(), build_job_engine_callback(), _click_type_for(), _config_field_help(), _config_field_option(), _config_option_params() (+74 more)
-
-### Community 14 - "Interactive CLI Prompts"
-Cohesion: 0.05
-Nodes (47): InlinePlugin, Any, Plain CLI fallback using standard input/print. Used when Textual inline mode is…, CLI fallback for CONFIRM_DESTRUCTIVE: requires typing 'yes'., CLI fallback for CONFIRM_NEUTRAL: Y/n prompt., CLI fallback for SELECT: numbered list., CLI fallback for MULTI_SELECT: numbered list with comma-separated input., CLI fallback for SECRET_INPUT: uses getpass for masked input. (+39 more)
-
-### Community 15 - "CLI Help & Epilog"
-Cohesion: 0.04
-Nodes (73): HelpFormatter, AgentEpilogGroup, _apply_setting_overrides(), _attach_group_options(), _bare_tty_available(), _build_job_command(), check_name_conflicts(), _config_source_hint() (+65 more)
-
-### Community 16 - "TUI App Composition Root"
-Cohesion: 0.04
-Nodes (58): V3 TUI composition root — thin orchestrator delegating to v3 modules. Replaces…, Enter INSERT mode for the focused field. Gets the cursor field from…, Reset the current field override. Delegates to the panel to reset its visual…, Build general panels (always available, not job-specific). Returns panels for:…, Sync SmartBar text to reflect current PendingExecution overrides. Rebuilds the…, group_option_specs_on_path(), The group-option specs a job inherits, outermost first (or ``[]``). The job's…, get_descriptor_fields() (+50 more)
-
-### Community 17 - "Execution Context & Executor"
-Cohesion: 0.04
-Nodes (56): ExecutionContext, Execution context — the input to the middleware chain. ExecutionContext carries…, Context object passed through the execution middleware chain. Carries all state…, Elapsed time in milliseconds since context creation., Whether execution has been blocked by middleware., EventBus, Job execution engine — single execution path for all entry points. Provides…, Execution lifecycle package for functualize. Contains the job execution engine,… (+48 more)
-
-### Community 18 - "Vault Keys & Providers"
-Cohesion: 0.04
-Nodes (53): datetime, format_duration(), InvalidDurationError, _decode(), default_providers(), EnvKeyProvider, generate_key(), KeychainKeyProvider (+45 more)
-
-### Community 19 - "Workflow Graph Model"
-Cohesion: 0.05
-Nodes (47): graph_model_of(), Compile a declaration into the shared graph model (§A.7 one-engine rule).…, Flatten an edge target, mapping the `END` sentinel to the walk marker. A node…, _target_name(), Functualize - A reusable Python CLI framework., Public RunContext facade for job authors. Re-exports from the private…, _as_tool(), ConditionalEdge (+39 more)
-
-### Community 20 - "Pending Execution & Snapshots"
-Cohesion: 0.04
-Nodes (47): ConfigSnapshot, ConfigSnapshotStore persistence for execution history. Pure-logic module with…, Immutable record of config values used in a past execution. Attributes:…, PendingExecution, Any, PendingExecution state model for config views. Pure-logic module with no…, Check if a field has an active override. Args: field_name: The field to check.…, Return the number of active overrides. Returns: The count of overridden fields. (+39 more)
-
-### Community 21 - "Job Context Capabilities"
-Cohesion: 0.04
-Nodes (45): Per-invocation capability implementations. These are the canonical…, JobContext, _make_job_context(), Any, JobContext frozen dataclass — immutable execution context metadata. Provides…, Immutable execution context for the current job invocation. Attributes: name:…, Wire JobContext with the identity of the invocation in progress., Log (+37 more)
-
-### Community 22 - "Environment & Config Roles"
-Cohesion: 0.04
-Nodes (47): detect_environment(), Active-environment detection from the process environment. Lives in ``_app/``…, Resolve the active environment name and where it came from. Precedence is…, classify(), parse_slot(), Environment-slot parsing and role classification for config files. Pure…, Return the environment slot in ``config.<slot>.<ext>``, else None. None means…, Classify a config file's role under ``environment``. Matching is case-… (+39 more)
-
-### Community 23 - "Programmatic Job Invocation"
-Cohesion: 0.04
-Nodes (43): Look up a registered job by name for programmatic invocation. Args: name: The…, Invoke, InvokeResult, _make_invoke(), ParallelObserver, Any, BaseModel, Path (+35 more)
-
-### Community 24 - "Builtin Click Commands"
+### Community 7 - "App Config Source Settings"
 Cohesion: 0.03
-Nodes (40): builtin_context_obj(), _builtin_needs_terminal(), ClickCommandNode, ClickCommandProvider, JobCommandProvider, JobNode, _param_public_name(), Any (+32 more)
+Nodes (107): pass_context, invoke_command_capturing(), Run ``command`` over ``args`` and return its exit code. For **jobs** (the…, ConfigSources, JobSources, PluginSources, Plugin discovery settings. Controls how plugins are found and loaded: -…, All job source configuration. Controls where the application discovers job… (+99 more)
 
-### Community 25 - "Event Bus & Sinks"
+### Community 8 - "Execution Context Middleware"
+Cohesion: 0.03
+Nodes (73): Execution context — the input to the middleware chain. ExecutionContext carries…, _missing_required_fields(), Job execution engine — single execution path for all entry points. Provides…, Top-level field names a :class:`ValidationError` reports as *absent*. Only…, Execution lifecycle package for functualize. Contains the job execution engine,…, execute_middleware_chain(), MiddlewareEntry, Any (+65 more)
+
+### Community 9 - "Interactive Prompt Plugin"
+Cohesion: 0.05
+Nodes (65): InlinePlugin, Plain CLI fallback using standard input/print. Used when Textual inline mode is…, CLI fallback for CONFIRM_DESTRUCTIVE: requires typing 'yes'., CLI fallback for CONFIRM_NEUTRAL: Y/n prompt., CLI fallback for SELECT: numbered list., CLI fallback for MULTI_SELECT: numbered list with comma-separated input., CLI fallback for SECRET_INPUT: uses getpass for masked input., CLI fallback for ACKNOWLEDGE: press Enter to continue. (+57 more)
+
+### Community 10 - "Observability Event Wiring"
+Cohesion: 0.03
+Nodes (73): init_observability(), Initialize observability subsystem (idempotent). Sets up EventBus,…, install_config_event_sink(), Cross-layer event wiring, owned by the composition root. `_config/_emit.py`…, Route config resolution events through ``event_bus``. Installs an…, Replace the global event sink. Called by observability adapter. After the…, set_event_sink(), EventBusAdapter (+65 more)
+
+### Community 11 - "Boot Composition Root"
 Cohesion: 0.04
-Nodes (45): The central event bus for structured event emission and subscription., emit(), EventSink, Any, Forward-compatible emit points for observability instrumentation. These…, Protocol for receiving structured config events. The EventBusAdapter implements…, Replace the global event sink. Called by observability adapter. After the…, Emit a structured event if a sink is registered, otherwise no-op. Zero-cost… (+37 more)
+Nodes (88): admitted_module_names(), adopt_descriptor_declaration(), boot_standard(), boot_static(), build_remote_source(), build_resolution_chain(), discover_config_path(), load_boot_dotenv() (+80 more)
 
-### Community 26 - "Live Construct Handles"
+### Community 12 - "Job Descriptor Registry"
+Cohesion: 0.03
+Nodes (67): The descriptor for ``name``, or None when nothing is registered., Return all discovered job descriptors (Layer 2 memoized)., builtin_descriptions(), Return ``{name: description}`` for what a builtin occupies at top level. That…, CompletionProvenanceClassifier, ProvenanceInfo, Job origin classification for TUI provenance badges. Classifies jobs by their…, Check if source_file is within configured job directories. Args: job: The job… (+59 more)
+
+### Community 13 - "Job Invocation Capabilities"
+Cohesion: 0.03
+Nodes (62): Per-invocation capability implementations. These are the canonical…, Invoke, InvokeResult, _make_invoke(), Any, BaseModel, Invoke capability — job-to-job invocation interface. Defines the Invoke class…, Invoke a job by name or function reference. Args: job_or_fn: Job name string or… (+54 more)
+
+### Community 14 - "Job Discovery Utilities"
+Cohesion: 0.04
+Nodes (93): diagnostic_boot(), Boot inside this block reports project-wide contradictions, not exits. ``func…, auto_discover(), build_discovery_cache_provider(), coerce_kwargs(), _collect_convention_directories(), _convention_subdir_name(), declared_config_values() (+85 more)
+
+### Community 15 - "Observability Facade Timeline"
+Cohesion: 0.03
+Nodes (50): datetime, The global PerfTimeline singleton instance., ObservabilityFacade, Any, Everything a job can observe about its own run — `rc.events`. Extracted from…, Resolve the EventBus from the host the engine was built for., Emit a structured event. Delegates to EventBus.emit()., Subscribe to structured events for the life of this execution. The inbound… (+42 more)
+
+### Community 16 - "Smart Bar Cursor Parsing"
+Cohesion: 0.04
+Nodes (60): builtin_child_descriptions(), Return ``{name: description}`` for every command *under* ``builtin``., _count_positional_tokens(), CursorContext, parse_cursor_context(), Cursor context parsing for TUI smart bar value completion. Tokenizes the smart…, Parse smart bar text and cursor position into a semantic context. Determines…, Semantic position of the cursor within the smart bar text. Determines what kind… (+52 more)
+
+### Community 17 - "Remote Source Annotations"
+Cohesion: 0.04
+Nodes (54): Emit a structured event if an event bus is configured., AnnotationResolutionFailure, Remote fetch exceeded timeout. Attributes: provider: The remote provider…, A parsed 'provider://reference' annotation., Records a failure when resolving a source annotation., RemoteTimeoutError, SourceAnnotation, classify() (+46 more)
+
+### Community 18 - "Workflow Scope Surfaces"
+Cohesion: 0.03
+Nodes (51): Any, Create a new WorkflowScope with the given identifier., Retrieve an existing WorkflowScope by identifier., Path, RunSurface, InvalidStateTransitionError, Exception, Raised when attempting to transition from a terminal state. (+43 more)
+
+### Community 19 - "Job Browser Listing"
+Cohesion: 0.03
+Nodes (56): command_kind(), Which provider produced ``node`` — for display and filtering only. Never branch…, Build general panels (always available, not job-specific). Returns panels for:…, build_general_panels(), command_tree_rows(), count_jobs_in_cwd(), Any, Path (+48 more)
+
+### Community 20 - "Plugin Header Status Bars"
+Cohesion: 0.04
+Nodes (57): _collect_items(), find_bar_renderer(), Any, Plugin-provided header and status bar items (pure logic, no Textual).…, Render plugin header bar content, or None when nothing contributes., Render plugin status bar content, or None when nothing contributes., Collect (item_id, text) pairs from providers, priority-sorted. Args: plugins:…, Return the last-registered BarRenderer for the bar type, or None. (+49 more)
+
+### Community 21 - "Textual Prompt Apps"
+Cohesion: 0.04
+Nodes (38): Input, InlinePromptApp, Any, ComposeResult, on, Textual inline applications for prompt rendering. Uses Textual's `inline=True`…, A short-lived Textual app that renders a prompt widget inline. Returns a tuple…, Start timeout timer if configured. (+30 more)
+
+### Community 22 - "Hook Middleware Decorators"
 Cohesion: 0.05
-Nodes (38): Live, LiveHandle, _make_live(), Any, Live capability — a per-surface live-display channel. A job that wants a live-…, Hide every ambient construct for this invocation., Mount an interactive construct as a PanelHost panel (j/k/Enter). Requires an…, Bind to the active live-capable surface. The CLI's StdoutSurface, or a job… (+30 more)
+Nodes (54): `app.hooks` — every hook and middleware registration point. Fifteen members…, _make_global_only_decorator(), _make_hook_decorator(), decorator(), _make_middleware_decorator(), decorator(), Any, F (+46 more)
 
-### Community 27 - "SQLite Backend Core"
+### Community 23 - "Config Chain Detail View"
 Cohesion: 0.05
-Nodes (36): Cursor, Any, Connection, Path, Whether the backend has been initialized (schema created)., Create the database directory, open connection, enable WAL, and run schema.…, Get the active database connection. Raises: RuntimeError: If the backend has…, Execute a SQL statement with error handling. Args: sql: SQL statement to… (+28 more)
+Nodes (57): Render the resolution chain detail view for a field. Shows field metadata,…, BarReadiness, Enum, Current readiness state., State machine for the SmartBar's visual readiness indicator., build_command_panels(), build_group_field_defs(), compute_chain_detail_rows() (+49 more)
 
-### Community 28 - "App Boot Orchestration"
-Cohesion: 0.06
-Nodes (64): adopt_descriptor_declaration(), boot_standard(), boot_static(), build_remote_source(), build_resolution_chain(), discover_config_path(), init_observability(), load_boot_dotenv() (+56 more)
+### Community 24 - "Source Chain Detail Rows"
+Cohesion: 0.04
+Nodes (39): A write failed — tell the user rather than silently doing nothing., User tried to edit a source they cannot write., The value as text, or an em-dash placeholder when unset., Delegate focus to the inner DataTable., _DetailRow, InsertRequested, ComposeResult, Message (+31 more)
 
-### Community 29 - "Run Context Facade"
+### Community 25 - "Live Panel Widget"
+Cohesion: 0.04
+Nodes (41): LivePanelWidget, Any, ComposeResult, Widget, LivePanelWidget — a job-scoped LiveConstruct hosted as a PanelHost panel.…, j / down — scroll the construct body., k / up — scroll the construct body., Enter — delegate to the construct's optional hook; inert otherwise. (+33 more)
+
+### Community 26 - "Plugin Config Registry"
+Cohesion: 0.04
+Nodes (52): PluginConfigRegistry, Any, Plugin config registry for storing resolved plugin config model instances. Only…, Stores resolved plugin config model instances keyed by config_section. Thread-…, Register a resolved plugin config. Args: section: The config section namespace…, Retrieve a plugin config by section. Args: section: The config section…, Return a copy of all registered configs., Check if a section is registered. (+44 more)
+
+### Community 27 - "Discovery Config Objects"
+Cohesion: 0.04
+Nodes (50): DiscoveryConfig, Frozen dataclass configuration objects for FunctualizeApp constructor. These…, All discovery-related settings for job discovery filtering. When all…, Register a job provider with optional provider-scoped transforms., Return True if a directory name should be skipped during CWD scan. Skips…, Scan CWD for directories containing qualifying Python files. Traverses…, _scan_cwd_directories(), _should_skip_directory() (+42 more)
+
+### Community 28 - "Scaffolding Generator Commands"
 Cohesion: 0.05
-Nodes (25): MappingProxyType, _dispatch_to_surfaces(), inject_resource(), Any, BaseModel, Logger, Path, T (+17 more)
+Nodes (51): Environment, domain(), init(), job(), plugin(), argument, command, option (+43 more)
 
-### Community 30 - "Config Resolution Chain"
+### Community 29 - "Workflow Walk Ledger"
 Cohesion: 0.05
-Nodes (51): Display resolved JobConfig values for a specific job., _show_job_config(), ResolutionChain orchestrator for the pluggable configuration system. Consults…, Orchestrates value resolution across ordered sources. Sources are consulted in…, ResolutionChain, MissingKeyError, Typed error hierarchy for the configuration resolution system. All errors…, Key not found in any source and no default exists. Attributes: key: The missing… (+43 more)
+Nodes (42): deque, Exception, A parked walk's graph is not the graph that is loaded now. Resuming would…, WorkflowGraphChangedError, _gate_strategy_list(), _iteration_hash(), _key(), _Ledger (+34 more)
 
-### Community 31 - "Path Field Editing"
+### Community 30 - "Path Completion Editor"
 Cohesion: 0.05
 Nodes (39): PathSuggestion, Path suggestion model for filesystem completion. Relocated from…, A filesystem path completion suggestion. Used by both Config Table inline edit…, Confirmed, Dismissed, PathFieldEditor, Changed, ComposeResult (+31 more)
 
-### Community 32 - "TUI Focus Zone Cycling"
-Cohesion: 0.05
-Nodes (36): Check if autocomplete dropdown is currently visible., Cycle focus between visible zones (Shift+Tab)., Align FocusMode with the zone Shift+Tab just landed on. Landing on DISPLAY with…, FocusState subscriber: update mode indicator + contextual hints. Also applies…, Update the display footer with focus-aware hints (R7-AC1, R7-AC2). When DISPLAY…, Return the set of currently visible zones for zone cycling., FocusMode, FocusState (+28 more)
-
-### Community 33 - "Packaging & Install Detection"
+### Community 31 - "Install Mode Detection"
 Cohesion: 0.06
 Nodes (61): _bundled_pip(), capture(), capture_environment(), _declares_functualize(), detect(), _detect_mode(), Detection, drop_from_receipt() (+53 more)
 
-### Community 34 - "Config Table Panel"
+### Community 32 - "Builtin Config Commands"
 Cohesion: 0.05
-Nodes (34): The field currently being edited, or None if not in INSERT mode., Set the callback invoked when an edit is confirmed and valid. The callback…, ConfigTablePanel, DrillDownRequested, FieldDef, InsertRequested, OverrideReset, Message (+26 more)
+Nodes (61): job_config_fields(), A job's config as ``ResolvedField`` rows — the one resolution seam. Re-exported…, Walk upward from cwd, collect and merge project configs. Uses ResourceLocator…, resolve_project_config(), builtin_subcommand_names(), builtin_subcommands(), _determine_source(), _emit_config_field() (+53 more)
 
-### Community 35 - "_config/sources.py"
+### Community 33 - "Agent Step Registry"
 Cohesion: 0.05
-Nodes (38): AnnotationResolutionError, AnnotationResolutionFailure, A parsed 'provider://reference' annotation., Records a failure when resolving a source annotation., All sources in a fallback chain failed. Attributes: key: The configuration key…, SourceAnnotation, deep_merge(), merge_config_layers() (+30 more)
+Nodes (34): missing_executor_hint(), Which package registers each agent step executor — the fixed answer to "why is…, AgentStepRegistry, The agent-step port's registry, and the two refusals that guard it. An…, Every registered executor name, sorted — for diagnostics., The executor that services ``step``, or a refusal saying why not. Raises:…, Refuse every agent step in ``declaration`` that cannot be serviced. Raises:…, Run one agent step through the executor that services it. ``request`` is the… (+26 more)
 
-### Community 36 - "StateStore"
-Cohesion: 0.06
-Nodes (30): Any, Return the fingerprint record for ``key``, or None., Store the fingerprint record for ``key``., Remove a fingerprint record (no-op if absent)., All fingerprint keys, optionally filtered by prefix., Return the scope record, or None if the scope is unknown., Create the scope record if absent (idempotent)., Set a scope's status (running/blocked/completed/failed/cancelled). (+22 more)
-
-### Community 37 - "tui/__init__.py"
+### Community 34 - "Config Target Source Chain"
 Cohesion: 0.05
-Nodes (40): BackRequested, Widget, Active widget for KeyDispatcher target resolution — zone-aware. With the…, Toggle the command panel ring (Ctrl+R). If already active and showing the…, Toggle the general panel ring (Ctrl+E). If already active and showing the…, Mount a job's ``live.panel(...)`` construct as a general-ring panel. Auto-…, Unmount a ``live.panel`` construct's panel (job ended). Drops it from the…, Exit panel / NORMAL mode back to COMMAND mode (Escape in NORMAL). If breadcrumb… (+32 more)
+Nodes (38): Config target model for persistence destinations. Relocated from…, Return each setting's full source chain., Build a provider over the config files the panel is showing., Push a Detail view over a (possibly not-yet-existing) config file., Shared model for "a key resolved through an ordered source chain". Job config…, The highest-precedence source that actually sets a value., The value that actually takes effect, or empty if nothing sets it., The ``source_id`` of the winning source, or empty if none. (+30 more)
 
-### Community 38 - "PanelHost"
-Cohesion: 0.06
-Nodes (30): PanelHost, setter, Widget, Set the ordered list of (title, widget) pairs in the ring. Uses mount-once…, Show the host, display panel at start_index, update chrome, focus panel. Args:…, Hide the host, drop any sub-views, clear chrome., Whether the panel host is currently visible/active., Public setter for the ring's breadcrumb type-prefix. (+22 more)
-
-### Community 39 - "ResourceLocator"
-Cohesion: 0.06
-Nodes (37): Candidate, Self, LocateResult, Any, Exception, Path, ResourceLocator — fluent builder for ordered resource location with read/write…, Add an explicit directory as a read source. The directory is resolved to an… (+29 more)
-
-### Community 40 - "JobGraph"
-Cohesion: 0.06
-Nodes (41): JobGraph, Any, The job dependency graph — one construction, one resolver, one validation.…, Resolve every reference and reject unknown refs and cycles., Transitive dependencies of ``root``, excluding ``root``., Resolve every declared reference, then check for cycles., One reference resolved to a registered job name. Turns a reference into a…, Resolve a batch of references, preserving order. (+33 more)
-
-### Community 41 - "smart_bar_autocomplete.py"
+### Community 35 - "Dynamic Footer Hints"
 Cohesion: 0.05
-Nodes (35): builtin_child_descriptions(), builtin_descriptions(), builtin_subcommand_names(), builtin_subcommands(), Return ``{name: description}`` for what a builtin occupies at top level. That…, Return ``{name: description}`` for every command *under* ``builtin``., Return two-level nested subcommand maps. Outer key → middleware key → inner…, Return two-level nested subcommand-name tuples. Outer key → middleware key →… (+27 more)
+Nodes (39): FocusState subscriber: update mode indicator + contextual hints. Also applies…, Update the display footer with focus-aware hints (R7-AC1, R7-AC2). When DISPLAY…, Dynamic footer renderer for panel action hints. Renders action tuples from…, Render action tuples as 'key label' pairs separated by double spaces. Each…, render_footer(), DynamicFooterWidget, Static, DynamicFooter widget for context-sensitive panel action hints. A simple Textual… (+31 more)
 
-### Community 42 - "StdoutEmitter"
-Cohesion: 0.07
-Nodes (33): _make_stdout(), Any, IO, ``Stdout`` capability implementation — the explicit stdout data channel.…, Write ``data`` to stdout verbatim — no serialization, no newline. ``bytes`` go…, Build the wired stdout channel for this invocation., Engine-side ``Stdout`` capability (proposal Part C, revised). Args:…, Add values to mask in anything written from now on. Called by the engine after… (+25 more)
+### Community 36 - "Job Context Logging"
+Cohesion: 0.04
+Nodes (38): JobContext, _make_job_context(), Any, JobContext frozen dataclass — immutable execution context metadata. Provides…, Immutable execution context for the current job invocation. Attributes: name:…, Wire JobContext with the identity of the invocation in progress., Log, Log capability — structured logging for job functions. Provides a simple… (+30 more)
 
-### Community 43 - "hierarchy.py"
-Cohesion: 0.06
-Nodes (35): Child project composition for hierarchical functualize projects. Discovers…, ErrorFormatter, HierarchyValidationError, HierarchyValidator, Exception, Path, Hierarchy validation for parent-child project relationships. Provides cycle…, Validate a single child project before mounting. Performs in order: 1. Depth… (+27 more)
-
-### Community 44 - "ServerManager"
-Cohesion: 0.06
-Nodes (30): _error_response(), MCPManagementToolRegistry, Any, MCP management meta-tools — manage background MCP servers via MCP. Provides…, List all managed MCP servers with their current status. Returns a list of all…, Stop a managed MCP server by name. Sends SIGTERM to the server process and…, Discover tools available on a named managed server. Proxies a discover_jobs…, Proxy a tool discovery request to a managed server via HTTP. Makes an HTTP… (+22 more)
-
-### Community 45 - "plugin/protocols.py"
+### Community 37 - "Job Dependency Graph"
 Cohesion: 0.05
-Nodes (39): _collect_items(), find_bar_renderer(), Any, Plugin-provided header and status bar items (pure logic, no Textual).…, Render plugin header bar content, or None when nothing contributes., Render plugin status bar content, or None when nothing contributes., Collect (item_id, text) pairs from providers, priority-sorted. Args: plugins:…, Return the last-registered BarRenderer for the bar type, or None. (+31 more)
+Nodes (44): JobGraph, Any, The job dependency graph — one construction, one resolver, one validation.…, Resolve every reference and reject unknown refs and cycles., Transitive dependencies of ``root``, excluding ``root``., Resolve every declared reference, then check for cycles., One reference resolved to a registered job name. Turns a reference into a…, Resolve a batch of references, preserving order. (+36 more)
 
-### Community 46 - "chain_resolution.py"
-Cohesion: 0.07
-Nodes (43): Return the config resolution chain [CLI → Env → Files → Defaults]. The…, Build command panels based on current job's field definitions. Looks at the…, Render the resolution chain detail view for a field. Shows field metadata,…, build_command_panels(), build_group_field_defs(), compute_chain_detail_rows(), file_resolution_disabled(), Any (+35 more)
-
-### Community 47 - "SmartBarAutoComplete"
+### Community 38 - "Job Run Explanation"
 Cohesion: 0.06
-Nodes (29): CursorContext, Semantic position of the cursor within the smart bar text. Determines what kind…, Create the SmartBarAutoComplete completer instance., _extract_short_names(), _make_dropdown_item(), Any, Context-aware autocomplete for the functualize SmartBar. Subclasses textual-…, Map job_name → count of positional (Arg-annotated) parameters. (+21 more)
+Nodes (45): IntEnum, explain(), explain_data(), explain_verdicts(), config_for(), verdict_for(), FunctualizeApp internal method implementations (heavy lifting). Contains…, `func builtin why --json` — the same verdicts, as data. `ExitCode.STALE` (4)… (+37 more)
 
-### Community 48 - "WorkflowToolProvider"
+### Community 39 - "Builtin Command Registration"
+Cohesion: 0.06
+Nodes (56): generate_vault_key(), A fresh hex-encoded 32-byte vault key, for ``$FUNCTUALIZE_VAULT_KEY``., Render a duration the way the staleness warning says it aloud. Re-exported so…, vault_duration(), _completions_install_path(), Resolve editor from $VISUAL → $EDITOR → platform default. Returns the editor…, Where ``--install`` writes ``init.{bash,zsh,fish}`` (T44b). ``<cache…, Mount the reserved ``builtin`` subtree on a click.Group. Every first-party… (+48 more)
+
+### Community 40 - "Config Table Panel"
+Cohesion: 0.05
+Nodes (32): ConfigTablePanel, DrillDownRequested, InsertRequested, OverrideReset, Message, Widget, Posted when a field value is edited via INSERT mode., Posted when a field source is changed via OptionList chooser. (+24 more)
+
+### Community 41 - "AWS Parameter Store Provider"
+Cohesion: 0.06
+Nodes (46): _AwsProvider, _guard_missing(), _not_found(), ParameterStoreProvider, Any, KeyError, AWS remote configuration providers for functualize. Two providers over one…, Run an AWS call, turning its 'not found' codes into one exception. Secrets… (+38 more)
+
+### Community 42 - "Job Registry Hooks"
+Cohesion: 0.04
+Nodes (36): Access to the hook system., _global_wrapper(), _job_wrapper(), JobRegistry, Return all retained JobDescriptor instances. Returns all descriptors produced…, Return the JobDescriptor matching the given job name. Args: job_name: The job…, Scans directories for job modules and registers them as CLI commands. The…, Re-resolve configurations after global options are processed. Called when… (+28 more)
+
+### Community 43 - "Panel Insert Mode Messages"
+Cohesion: 0.05
+Nodes (31): Enter INSERT mode for the focused field. Gets the cursor field from…, DrillDownRequested, InsertRequested, Any, ComposeResult, Message, Path, Widget (+23 more)
+
+### Community 44 - "Workflow Type Definitions"
 Cohesion: 0.08
-Nodes (30): _canonical(), _error(), _job_input_schema(), _job_of(), _now(), Any, MCP workflow tools — discover and advance blocked workflow scopes. These tools…, MCP tools over persisted workflow scopes. Args: app: The FunctualizeApp, used… (+22 more)
+Nodes (43): Functualize - A reusable Python CLI framework., AgentStep, ConditionalEdge, Edge, _EndSentinel, Gate, implied_capabilities(), Loop (+35 more)
 
-### Community 49 - "FuncSettingsStore"
-Cohesion: 0.06
-Nodes (34): _inline_tui_enabled(), The `cli.inline_tui` setting — does a bare TTY invocation open a shell?…, One config file participating in `func`'s own settings resolution.…, Whether the file is present on disk., SettingsFileInfo, FuncSettingsStore, _functualize_table_of(), _is_writable() (+26 more)
+### Community 45 - "Discovery Module Prefilters"
+Cohesion: 0.04
+Nodes (32): DecoratorModulePreFilter, DisplayClassPreFilter, FilePrefixPreFilter, _fingerprint(), GlobExcludePreFilter, GroupOptionsPreFilter, MarkerModulePreFilter, Path (+24 more)
 
-### Community 50 - "ShortcutSaveModal"
+### Community 46 - "Command Tree Nodes"
+Cohesion: 0.04
+Nodes (30): _builtin_needs_terminal(), ClickCommandNode, PluginCommandNode, PluginNamespaceNode, Direct children, sorted — straight off the trie, no imports., A :class:`~functualize.plugin.CommandNode` over a ``click`` command. Wraps the…, The **registration key**, not ``click.Command.name``. They can differ:…, Resolved once, at construction — see the ``CommandNode`` docstring.… (+22 more)
+
+### Community 47 - "Preflight Guard Staleness"
 Cohesion: 0.07
-Nodes (35): append_or_write_python_shortcut(), _collapse_blank_line_runs(), _escape_python_string(), _generate_python_shortcut(), generate_shortcut_content(), Shortcut file content generation (Python-only). Generates valid Python shortcut…, Collapse runs of 3+ consecutive blank lines down to ``max_consecutive``. Used…, Write a Python shortcut, appending to an existing file rather than overwriting.… (+27 more)
+Nodes (49): Return the ordered list of sources., Declared outputs, as project-relative POSIX paths., Preflight, Any, The decision to run a job, or not (§D.2, §D.3). Everything a job declares about…, Evaluates guards and file staleness for one job. Args: store: State store…, Decide whether ``job_name`` should run. ``args_hash`` defaults to the hash of…, Write the fingerprint for a run that just succeeded. A no-op when the job… (+41 more)
 
-### Community 51 - "FlowVizConstruct"
+### Community 48 - "Job Filter Factories"
+Cohesion: 0.05
+Nodes (37): build_job_filter_from_config(), _fingerprint_contribution(), Factories for constructing discovery filter stacks from DiscoveryConfig. Two…, Build a job-level (function-level) filter stack from a DiscoveryConfig. Covers…, What a field contributes to the digest, which is not always its value. Nine of…, Foundation utilities package for functualize internal layers. Contains…, AllJobFilters, JobCandidate (+29 more)
+
+### Community 49 - "Plugin Extensions Facade"
+Cohesion: 0.04
+Nodes (49): Retrieve a single job descriptor by name., Return the FileSource's per-file info, or [] if there is none., Everything a plugin registers into the app — `app.extensions`. Extracted from…, Decorator: subscribe to custom events matching ``pattern``., _build_resolution_chain(), config_files(), create_workflow_scope(), execute_parallel() (+41 more)
+
+### Community 50 - "Project Hierarchy Validation"
+Cohesion: 0.06
+Nodes (35): NamedTuple, Child project composition for hierarchical functualize projects. Discovers…, ErrorFormatter, HierarchyValidationError, HierarchyValidator, Exception, Path, Hierarchy validation for parent-child project relationships. Provides cycle… (+27 more)
+
+### Community 51 - "MCP Management Tools"
+Cohesion: 0.06
+Nodes (31): _error_response(), MCPManagementToolRegistry, Any, MCP management meta-tools — manage background MCP servers via MCP. Provides…, List all managed MCP servers with their current status. Returns a list of all…, Stop a managed MCP server by name. Sends SIGTERM to the server process and…, Discover tools available on a named managed server. Proxies a discover_jobs…, Proxy a tool discovery request to a managed server via HTTP. Makes an HTTP… (+23 more)
+
+### Community 52 - "Scope Store Persistence"
+Cohesion: 0.06
+Nodes (24): The scope store, resolved from the cwd on first use., _scope_store_for_project(), Any, Typed read/write access to ``.functualize/scopes.json``. Args: substrate: Where…, Where the scope records live, for `func builtin data show`., Where the *job state* inside those scopes lives, in aggregate. One document per…, Whether anything has ever been stored here. Distinct from "holds no scopes":…, Fence writes **to ``scope_id``** on this store to ``generation``. Set by a walk… (+16 more)
+
+### Community 53 - "Package Install Operations"
+Cohesion: 0.07
+Nodes (51): NoReturn, detect_from_process(), :func:`detect` against the running process. The production entry point., announce(), _call(), clear_pending(), load_pending(), pending_path() (+43 more)
+
+### Community 54 - "Job Command Node"
+Cohesion: 0.06
+Nodes (29): JobNode, CLI-facing parameters, read from **cached** descriptor metadata. Deliberately…, Run this node's job. **This is the call that imports the module.**, The descriptor, with an entry-point job's metadata filled in. A job published…, A :class:`~functualize.plugin.CommandNode` over one namespace-trie node. Wraps…, True when the job takes over the terminal. For a job node this is the…, build_group_trie(), Build the namespace trie — the public, pre-boot access path. Wraps the single… (+21 more)
+
+### Community 55 - "Autocomplete Shell Mode"
+Cohesion: 0.05
+Nodes (39): executable_candidates(), path_candidates(), SwappableCompleter — strategy pattern for mode-aware autocomplete. Provides…, Filesystem candidates for ``text``, max 20. Uses the parent directory of the…, Executables on ``$PATH`` starting with ``prefix``, max 50. The scan is **cached…, Sorted, de-duplicated executable names on ``$PATH``., _scan_path_executables(), _job_worker_running() (+31 more)
+
+### Community 56 - "Framework Settings Registry"
+Cohesion: 0.06
+Nodes (38): _as_setting(), clear_preboot_overrides(), clear_registered_settings(), _current_settings(), early_flag_specs(), env_var_for(), func_setting(), FuncSetting (+30 more)
+
+### Community 57 - "AI Tool Scope Filtering"
+Cohesion: 0.07
+Nodes (36): _annotation_to_json_type(), _callable_to_tool_def(), _descriptor_to_tool_def(), _fields_to_schema(), _filter_descriptors(), _get_descriptors(), _get_tags(), Any (+28 more)
+
+### Community 58 - "AI Capability Facade"
+Cohesion: 0.08
+Nodes (33): AI, _EventBus, Any, Protocol, T, AI capability class — provider-agnostic LLM interaction. The AI class provides…, Run a prompt with optional tool calling, structured output, and limits. When a…, Extract structured data from text. Validates the provider response against the… (+25 more)
+
+### Community 59 - "Flow Viz Plugin"
 Cohesion: 0.07
 Nodes (32): Functualize Flow Viz Plugin - Inline execution tree visualization., _depth_of(), _enabled(), FlowVizConstruct, FlowVizPlugin, _format_duration(), Any, Functualize Flow Viz Plugin — inline execution tree visualization. Renders a… (+24 more)
 
-### Community 52 - "self_cmd.py"
+### Community 60 - "Dynamic Job Registration"
+Cohesion: 0.08
+Nodes (40): Register a callable as an executable job at runtime. Args: app: The…, register_dynamic_job(), qualified_name(), Job and group identity: construction, normalization, and resolution. The one…, Build a qualified job name, normalized to canonical hyphenated form. Every…, extract_capability_markers(), extract_ext_metadata(), Harvest TTY/Live capability declarations from a function signature. Returns a… (+32 more)
+
+### Community 61 - "Workflow Gate Controls"
+Cohesion: 0.08
+Nodes (41): advanceable_scopes(), _bound_values(), call_gate_tool(), cancel_scope(), _canonical(), _clear_epilogue(), _cutoff(), _error() (+33 more)
+
+### Community 62 - "Panel Ring Command Panels"
+Cohesion: 0.05
+Nodes (27): Any, Changed, ComposeResult, RichLog, Extract effective config values for snapshot recording. Uses…, Navigate to next panel in the active ring., Navigate to previous panel in the active ring., Navigate to first panel in the active ring. (+19 more)
+
+### Community 63 - "Stdout Capability Channel"
+Cohesion: 0.06
+Nodes (28): GenericAlias, _make_stdout(), Any, IO, ``Stdout`` capability implementation — the explicit stdout data channel.…, Write ``data`` to stdout verbatim — no serialization, no newline. ``bytes`` go…, Build the wired stdout channel for this invocation., Engine-side ``Stdout`` capability (proposal Part C, revised). Args:… (+20 more)
+
+### Community 64 - "Config Discovery Builder"
+Cohesion: 0.08
+Nodes (27): Candidate, Self, Any, Path, Add an explicit directory as a read source. The directory is resolved to an…, Add upward directory traversal as a read source. Walks from `start` (default:…, Add XDG platform cache as a read source. Location:…, Add XDG user data directory as a read source. Location:… (+19 more)
+
+### Community 65 - "Func Settings Store"
+Cohesion: 0.06
+Nodes (31): One config file participating in `func`'s own settings resolution.…, Whether the file is present on disk., SettingsFileInfo, FuncSettingsStore, _functualize_table_of(), _is_writable(), Any, Path (+23 more)
+
+### Community 66 - "Surface Routing Stdin"
+Cohesion: 0.06
+Nodes (30): The surface that should host ``Live`` constructs, or None. Top of the pushed…, The one surface that should answer a prompt, or None. None is not an error: it…, get_stdin_collector(), Return a process-wide cached :class:`StdinCollector`, or ``None``. Returns the…, Return ``True`` only when both stdin and stdout are TTYs. Mirrors the…, The app this engine was built for, or None when it had none. Read-only and…, active_collector(), active_live_zone() (+22 more)
+
+### Community 67 - "Workflow Frontier Leases"
 Cohesion: 0.09
-Nodes (45): detect_from_process(), :func:`detect` against the running process. The production entry point., announce(), Print the exact commands, then ask — unless ``--yes`` was given. ``--yes``…, Run each command in order, stopping at the first non-zero exit., run_commands(), build_report(), Check (+37 more)
+Nodes (35): Runtime frontier expansion — push mode over the shared graph (§D.7a). The…, The node this scope was on when its holder stopped reporting. None unless the…, check_generation(), claim(), _expiry(), is_expired(), Lease, LeaseHeldError (+27 more)
 
-### Community 53 - "Any"
+### Community 68 - "Workflow Orchestration Walk"
 Cohesion: 0.07
-Nodes (23): job(), Declare a job's identity and operational contract (proposal §A.3–A.6). Identity…, Call, Deps, Exec, Fingerprint, Guards, JobDeclaration (+15 more)
+Nodes (34): Outcome markers for one **step record**. A third vocabulary, deliberately:…, Outcome markers for a frontier walk., StepStatus, WalkState, Any, The `@workflow` prelude: walk the graph, and say what the body should do., Walk a `@workflow` job's graph before its body runs. Returns the runner (so the…, WorkflowOrchestrator (+26 more)
 
-### Community 54 - "loader.py"
-Cohesion: 0.07
-Nodes (33): CircularDependencyError, _has_config_declaration(), MissingDependencyError, PluginLoader, PluginWithConfigResolved, Any, EventBus, Exception (+25 more)
-
-### Community 55 - "ConfigTarget"
-Cohesion: 0.06
-Nodes (29): ConfigTarget, Config target model for persistence destinations. Relocated from…, A writable persistence destination for config overrides. Represents one entry…, Format for display in the target selector list., Shared model for "a key resolved through an ordered source chain". Job config…, The highest-precedence source that actually sets a value., The value that actually takes effect, or empty if nothing sets it., The ``source_id`` of the winning source, or empty if none. (+21 more)
-
-### Community 56 - "ConfigFilesPanel"
-Cohesion: 0.06
-Nodes (29): ConfigFilesPanel, DrillDownRequested, FileSaved, _format_environment(), _format_status(), NewFileRequested, ComposeResult, Message (+21 more)
-
-### Community 57 - "HttpServerCore"
-Cohesion: 0.06
-Nodes (27): AbstractEventLoop, HttpAdapter, HttpServerCore, HttpServerPlugin, PluginMetadata, Any, Functualize HTTP Plugin - HTTP delivery adapter using asyncio. Provides HTTP…, Route and handle a single HTTP request. Args: method: HTTP method (GET, POST,… (+19 more)
-
-### Community 58 - "PydanticAIProvider"
-Cohesion: 0.08
-Nodes (28): Any, T, Async Bridge — Bridges async PydanticAI calls to functualize's sync engine.…, Run an async coroutine synchronously. Bridges async PydanticAI calls to…, run_sync(), functualize-ai-pydantic — PydanticAI-backed AI implementation plugin. Provides…, Any, PydanticAIPlugin (+20 more)
-
-### Community 59 - "resolve_tui_command"
-Cohesion: 0.07
-Nodes (40): Register all discovered jobs on a click.Group. Panel grouping is derived from…, register_discovered_jobs(), build_group_trie(), Build the namespace trie — the public, pre-boot access path. Wraps the single…, Read the declared per-group flags from an existing cache file. Fast path for…, read_group_options_from_cache(), _builtin_structure(), _dedupe() (+32 more)
-
-### Community 60 - "_ai.py"
-Cohesion: 0.07
-Nodes (30): AI capability class — provider-agnostic LLM interaction. The AI class provides…, BudgetEnforcer, Any, Budget enforcement logic for the AI Domain SDK. Provides budget tracking…, Check if the timeout has been exceeded. Args: start_time: The wall-clock time…, Check all run-level limits and return the reason for termination. This is a…, Enforces AI call budget, tool call, and timeout limits. The enforcer uses a…, Return the current cumulative spend from state. Returns: The cumulative spend… (+22 more)
-
-### Community 61 - "_server.py"
-Cohesion: 0.08
-Nodes (30): MCPConfig, BaseModel, MCP adapter configuration model. Defines MCPConfig pydantic model with…, Configuration for the MCP delivery adapter. Read from the ``[mcp]`` config…, _error_response(), _execution_record_to_dict(), MCPHistoryToolRegistry, _phase_record_to_dict() (+22 more)
-
-### Community 62 - "job/__init__.py"
-Cohesion: 0.07
-Nodes (37): Factory for the middleware decorator. Supports: 1. @app.run_middleware → bare,…, Factory for hook decorators that support bare/@()/@ ("name") forms. The…, Factory for decorators that only support global registration (no job scoping).…, is_stdin_available(), iter_stdin_ndjson(), Any, Stdin pipe detection and reading for Stdin-marked parameters. Handles non-…, Populate Stdin-marked params from stdin pipe if no CLI value provided.… (+29 more)
-
-### Community 63 - ".__init__"
-Cohesion: 0.06
-Nodes (25): ConfigSnapshotStore, Any, Path, Get recent snapshots for a job in reverse chronological order. Args: job_name:…, Serialize the store to a dict for JSON persistence. Returns: A dict…, Deserialize a store from a dict. Args: data: A dict previously produced by…, Load a store from disk. If the file doesn't exist, returns an empty store. If…, Atomically write store to disk using tempfile + os.replace. No-op if path is… (+17 more)
-
-### Community 64 - "PerfTimeline"
-Cohesion: 0.06
-Nodes (24): The global PerfTimeline singleton instance., PerfReport, PerfTimeline, Phase, setter, Lightweight performance timeline for startup and runtime profiling. Records…, Return a human-readable summary of the performance report. Includes total time…, Return a JSON representation of the performance report. Args: include: Optional… (+16 more)
-
-### Community 65 - "tokenize_bar_text"
-Cohesion: 0.06
-Nodes (24): Any, Changed, ComposeResult, RichLog, Whether the sigil mode owning ``text`` considers it submittable., Check whether plain Enter should execute, used by ``KeyDispatcher``. Each input…, Save current command as a shortcut (Ctrl+S). A shortcut is a generated file…, Confirm the current edit in INSERT mode. (+16 more)
-
-### Community 66 - "DomainRegistry"
-Cohesion: 0.08
-Nodes (29): DomainMetadata, Centralized DomainMetadata dataclass for domain SDK self-description. Each…, Self-describing metadata for a domain SDK. Attributes: name: Short identifier…, boot_domain_registry(), discover_domains(), DomainInfo, DomainRegistry, Any (+21 more)
-
-### Community 67 - "GroupOptionsSpec"
-Cohesion: 0.07
-Nodes (28): GroupOptionsSpec, A group's declared CLI flags, as pure cached data (S6a). Extracted from a…, _Building, _check_segments(), GroupTrie, _job_segments(), NodeKind, Enum (+20 more)
-
-### Community 68 - "VaultSource"
-Cohesion: 0.07
-Nodes (22): Any, Consult every source in order and record provenance. Shared by :meth:`resolve`…, Tell a source that answered nothing which source answered instead. Opt-in and…, Resolve all keys in a section by querying each source. Gathers all keys that…, Resolve a key and always gather all alternatives. Same as resolve but…, A resolved configuration value with provenance metadata. Attributes: value: The…, Resolve a key by consulting sources in precedence order. The first source…, ResolvedValue (+14 more)
-
-### Community 69 - "di.py"
-Cohesion: 0.07
-Nodes (24): AmbiguousProviderError, DIValidationError, MissingProviderError, Provide, Any, Exception, Dependency Injection Registry with type-based resolution, scoping, and freeze…, A single registration in the DIRegistry. (+16 more)
-
-### Community 70 - "ToolScope"
-Cohesion: 0.07
-Nodes (25): _extract_tool_calls(), _extract_usage(), Any, Continue a conversation from message history. Resumes an AI conversation using…, Resolve a ToolScope into a list of ToolDef instances., Async implementation of the agent loop using PydanticAI Agent. Creates a…, Async implementation of conversation continuation. Creates a PydanticAI Agent…, Extract tool call records from a PydanticAI RunResult. PydanticAI stores tool… (+17 more)
-
-### Community 71 - "FieldDescriptor"
+### Community 69 - "Builtin Info Commands"
 Cohesion: 0.09
-Nodes (34): Bridge click's own params onto ``FieldDescriptor``. Not a parallel param model:…, extract_group_options_fields(), extract_group_options_spec(), Any, BaseModel, Extract a cacheable :class:`GroupOptionsSpec` from a ``GroupOptions`` class.…, Extract the option fields declared on a ``GroupOptions`` subclass. Args:…, Build the cacheable spec for one bound ``GroupOptions`` subclass. Args:… (+26 more)
+Nodes (42): Path, The resolved state path, its mode, and the directory that decided it. One…, Render the state-store mode for a human. Both modes name what put them there,…, data_show(), _emit_json(), info_all(), _info_app_and_config(), info_group() (+34 more)
 
-### Community 72 - "_cli/manifest.py"
+### Community 70 - "Builtin Job Execution Bridge"
+Cohesion: 0.07
+Nodes (36): LogRecord, builtin_context_obj(), The click context object the builtin commands read. ``builtin info`` reads…, Run a job in-process through the FunctualizeApp execution API. Captures output…, _build_builtin_cli(), _builtin_context_obj(), execute_builtin_sync(), _write() (+28 more)
+
+### Community 71 - "Gate Strategy Registry"
+Cohesion: 0.08
+Nodes (25): Access the registered gate strategies dict., Gate context dataclass for gate resolution. Carries all information a gate…, Gate resolution system. Provides the gate strategy enum, resolver protocol,…, GateRegistry, Any, BaseModel, Gate strategy and preset registry. Provides storage and lookup for registered…, Resolve a gate by applying the resolution algorithm. Steps: 1. Determine… (+17 more)
+
+### Community 72 - "JSON File Substrate"
+Cohesion: 0.08
+Nodes (25): Commands typed in the TUI's shell mode — `.functualize/shell-history.json`.…, _human_size(), JsonFileSubstrate, Any, Path, One JSON file per key — today's storage, behind the port. `store-substrate`/T1.…, The file a key maps to. Rejects a key that could escape the root rather than…, Replace the document, refusing when ``expect`` no longer matches. **Does not… (+17 more)
+
+### Community 73 - "MCP Job Tools"
+Cohesion: 0.11
+Nodes (27): AsyncExecution, _error_response(), _get_attr_or_key(), MCPToolRegistry, _not_runnable_response(), Any, Core MCP tools — discover, inspect, and execute functualize jobs. Provides the…, Registers and manages core MCP tools for job interaction. Provides methods to… (+19 more)
+
+### Community 74 - "MCP Workflow Tools"
+Cohesion: 0.11
+Nodes (18): _canonical(), _error(), _now(), Any, MCP workflow tools — discover and advance blocked workflow scopes. These tools…, A tool name in the canonical form jobs are registered under., MCP tools over persisted workflow scopes. Args: app: The FunctualizeApp, used…, The run log, resolved from the cwd on first use. Separate from `store` because… (+10 more)
+
+### Community 75 - "Run Record Store"
+Cohesion: 0.08
+Nodes (24): _run_store_for_project(), _now(), Any, Read and write run records and their events., Where the run log lives, for `func builtin data show`., Read the stored envelope, discarding anything unusable. Never refuses. A run…, Current envelope — the open batch if one is active, else storage., Apply ``mutate`` to the envelope, honouring an open batch. Outside a batch, a… (+16 more)
+
+### Community 76 - "Workflow Scope View"
 Cohesion: 0.10
-Nodes (33): _canonical(), forget_addition(), InstallRecord, load(), _locked(), Manifest, manifest_path(), marker_path() (+25 more)
+Nodes (37): The permitted jobs, or None when nothing is restricted., pending_gates(), Gates in this scope with an empty payload slot, in name order. Pure: reads only…, derived_state(), _describe(), describe_scope(), _gate_summary(), _job_input_schema() (+29 more)
 
-### Community 73 - "FormatProvider"
-Cohesion: 0.06
-Nodes (19): FormatProvider, Any, Protocol definitions for the pluggable configuration system. Defines the…, Protocol for configuration file format plugins. Implementations parse…, Return file extensions this provider handles (e.g., ['.toml']). Each extension…, Parse a configuration file and return a normalized dictionary. Args: path:…, Serialize a configuration dictionary to the provider's format. Args: data:…, Source (+11 more)
+### Community 77 - "CLI Install Manifest"
+Cohesion: 0.10
+Nodes (31): _canonical(), forget_addition(), InstallRecord, load(), _locked(), Manifest, manifest_path(), marker_path() (+23 more)
 
-### Community 74 - "_events/__init__.py"
-Cohesion: 0.08
-Nodes (31): ConfigHookEvent, HookDecision, Lifecycle hook registry for managing global and job-scoped hooks. HookRegistry…, Constants for configuration lifecycle hook events. These events fire during the…, Return type for PRE_EXECUTE hooks. PRE_EXECUTE hooks can return a HookDecision…, Create a PROCEED decision — continue execution unchanged., Create a BLOCK decision — skip job execution with a reason. Args: reason:…, True if this decision blocks execution. (+23 more)
-
-### Community 75 - "SQLiteStateStore"
+### Community 78 - "Job Browser Panel"
 Cohesion: 0.07
-Nodes (24): ExecutionStateConfig, BaseModel, Execution State Plugin — entry point integrating with functualize lifecycle…, Configuration for the execution state plugin., SQLite backend for execution state persistence. Manages the SQLite database…, _deserialize_value(), Any, SQLite-backed state store implementing StateStoreProtocol. Provides persistent… (+16 more)
+Nodes (22): ComposeResult, _display_command(), JobBrowserPanel, JobSelected, _normalize_for_filter(), ComposeResult, Message, Widget (+14 more)
 
-### Community 76 - "DropdownItem"
-Cohesion: 0.07
-Nodes (24): CommandCompleterCallback, DropdownItem, executable_candidates(), path_candidates(), SwappableCompleter — strategy pattern for mode-aware autocomplete. Provides…, Return candidates for current text and mode. In command mode, delegates to the…, Delegate to the command callback for COMMAND mode candidates., Generate candidates for edit mode (choices or paths). (+16 more)
-
-### Community 77 - "FileScope"
+### Community 79 - "Shell History Store"
 Cohesion: 0.06
-Nodes (21): DrillDownRequested, NewFileRequested, Path, Handle drill-down request from ConfigTablePanel — show resolution chain.…, Enter on a config file → push the interactive file Detail view. Rows are the…, Build a provider over the config files the panel is showing., Enter on a settings file → push the file Detail view. Rows are the settings…, `n` on Config Files → pick a conventional location for a new file. (+13 more)
+Nodes (19): Where this store's documents live., Any, Add one command, trimming to :data:`SHELL_HISTORY_LIMIT`. Read-modify-write…, Commands **newest first**, optionally capped at ``limit``. Newest first matches…, How many commands are recorded., The commands typed in shell mode, newest last on disk. Deliberately small. It…, Where shell history lives, for `func builtin data show`., Forget every recorded command. True if there was anything to forget. Deleted… (+11 more)
 
-### Community 78 - "toml.py"
+### Community 80 - "INI Format Provider"
 Cohesion: 0.09
 Nodes (29): FormatParseError, Errors parsing a configuration file. Attributes: path: The file path that…, IniFormatProvider, Any, Built-in INI format provider. Provides parsing and serialization for…, Format provider for INI configuration files. Uses configparser with…, Return file extensions handled by this provider., Parse an INI configuration file into a nested dictionary. Args: path: Absolute… (+21 more)
 
-### Community 79 - "ring_models.py"
-Cohesion: 0.07
-Nodes (26): BreadcrumbHeader, Static, BreadcrumbHeader widget for panel navigation display. A simple Textual widget…, Displays the breadcrumb navigation header for the active panel. Renders a…, Update the displayed breadcrumb from a BreadcrumbState. Calls state.render() to…, Clear the breadcrumb display (empty content)., Dynamic footer renderer for panel action hints. Renders action tuples from…, Render action tuples as 'key label' pairs separated by double spaces. Each… (+18 more)
-
-### Community 80 - "MCPAdapterPlugin"
-Cohesion: 0.09
-Nodes (20): __getattr__(), Functualize MCP Plugin — exposes jobs as MCP tools via FastMCP. Provides an MCP…, Lazy-load heavy symbols on first access (PEP 562)., MCPAdapterPlugin, Any, Resolve MCPConfig from the app's [mcp] config section. Falls back to default…, Register the AI_OUTBOUND gate strategy and preset. Registers the ai_outbound…, Register MCP CLI commands with the application. Registers the following… (+12 more)
-
-### Community 81 - "MCPToolRegistry"
-Cohesion: 0.12
-Nodes (23): AsyncExecution, _error_response(), _get_attr_or_key(), MCPToolRegistry, _not_runnable_response(), Any, Core MCP tools — discover, inspect, and execute functualize jobs. Provides the…, Discover available jobs and return their summaries. Returns a list of visible… (+15 more)
-
-### Community 82 - "state_format.py"
-Cohesion: 0.11
-Nodes (32): _acquire_lock(), _acquire_lock_windows(), empty_state(), find_functualize_dir(), load_state(), _msvcrt_locking(), normalize_state(), Any (+24 more)
-
-### Community 83 - "SmartBar"
+### Community 81 - "Config Provider Protocols"
 Cohesion: 0.08
-Nodes (24): BarReadiness, _is_negative_number(), Any, Enum, Message, SmartBar widget — command input with readiness state machine. Extends Textual's…, Current readiness state., Human-readable reason for current readiness (for display). (+16 more)
+Nodes (23): No provider registered for a file extension. Attributes: extension: The…, UnsupportedFormatError, FormatProvider, Protocol, Protocol definitions for the pluggable configuration system. Defines the…, Protocol for remote secret/configuration providers. Implementations fetch…, Return the provider identifier used in 'provider://reference' syntax. E.g.,…, Check if the provider is properly configured with credentials. Credentials MUST… (+15 more)
 
-### Community 84 - "DepScheduler"
+### Community 82 - "Scope Record Mutations"
+Cohesion: 0.09
+Nodes (22): _blank_scope(), datetime, Apply ``mutate`` to the envelope, honoring an open batch. **Where fencing…, Record which graph this scope's walk was started against (T11). Written once,…, Append one event to a scope's log, returning its sequence number. ``seq`` is…, Persist a blocked gate: model name, input schema, payload., Discard the gate's draft. False if no such gate. The key is *removed*, not set…, Take the scope. Returns the lease at its **new** generation. Raises:… (+14 more)
+
+### Community 83 - "MCP Adapter Plugin"
+Cohesion: 0.09
+Nodes (21): MCPAdapterPlugin, list_command(), schema_command(), start_command(), stop_command(), Any, Resolve MCPConfig from the app's [mcp] config section. Falls back to default…, Register the AI_OUTBOUND gate strategy and preset. Registers the ai_outbound… (+13 more)
+
+### Community 84 - "SQLite State Plugin"
+Cohesion: 0.08
+Nodes (19): SQLite-backed runtime state for functualize. One substrate, installed at boot.…, Any, Path, The plugin: install a SQLite substrate, and nothing else. `store-substrate`/T5,…, Installs a :class:`SQLiteSubstrate` as the app's substrate at boot., The substrate this plugin installed, or None before APP_READY., Choose the substrate, once, before anything has resolved one. `APP_READY` is…, ``plugin.sqlite-state.db_path``, or beside the project's other state. Resolved… (+11 more)
+
+### Community 85 - "Encrypted Local Vault"
+Cohesion: 0.09
+Nodes (28): InvalidDurationError, parse_duration(), _parse_ts(), Connection, datetime, Exception, timedelta, _random_nonce() (+20 more)
+
+### Community 86 - "Vault Key Providers"
+Cohesion: 0.06
+Nodes (21): _decode(), default_providers(), EnvKeyProvider, KeychainKeyProvider, KeyResolution, Where the vault's encryption key comes from (ADR-016). The key source is a…, Reads the vault key from the environment. Never prompts., Return the key, or None when the variable is unset. The key is shared across a… (+13 more)
+
+### Community 87 - "Scope State Store"
+Cohesion: 0.09
+Nodes (21): _apply(), _Missing, Any, RuntimeError, setter, One run's job state, in one file — `.functualize/scope-state/<id>.json`.…, The document name this scope's state lives under., This scope's stored state, or `{}` if it has none yet. (+13 more)
+
+### Community 88 - "Domain SDK Registry"
+Cohesion: 0.09
+Nodes (23): DomainMetadata, DomainMetadata, Centralized DomainMetadata dataclass for domain SDK self-description. Each…, Self-describing metadata for a domain SDK. Attributes: name: Short identifier…, boot_domain_registry(), DomainInfo, DomainRegistry, Any (+15 more)
+
+### Community 89 - "Job Provider Extraction"
+Cohesion: 0.10
+Nodes (29): Job finding pipeline package for functualize internal layers. Contains the…, _annotation_to_type_str(), _base_type_name(), _extract_enum_choices(), extract_parameters_from_signature(), _extract_suppress_live(), _extract_surface_hint(), _has_from_job() (+21 more)
+
+### Community 90 - "Dependency Scheduler"
 Cohesion: 0.10
 Nodes (21): DepScheduler, NodeOutcome, NodeResult, _normalize(), Any, Enum, Dependency execution: ordering, failure policy, and `--from` (§D.1). Scheduling…, Schedules a job's dependency graph (§D.1). Args: dependencies: ``{node: [nodes… (+13 more)
 
-### Community 85 - "AI"
-Cohesion: 0.11
-Nodes (21): AI, _EventBus, Any, T, Run a prompt with optional tool calling, structured output, and limits. When a…, Stream a response as incremental text chunks. Args: prompt: The prompt text to…, Extract structured data from text. Validates the provider response against the…, Duck-typed EventBus — only requires an emit method. (+13 more)
+### Community 91 - "MCP History Tools"
+Cohesion: 0.10
+Nodes (23): MCPConfig, BaseModel, MCP adapter configuration model. Defines MCPConfig pydantic model with…, Configuration for the MCP delivery adapter. Read from the ``[mcp]`` config…, _error_response(), MCPHistoryToolRegistry, Any, MCP tools over the run log: what ran, and what happened inside one run. `store-… (+15 more)
 
-### Community 86 - "SQLiteExecutionStore"
+### Community 92 - "Plugin Catalog Commands"
 Cohesion: 0.09
-Nodes (19): SQLite StateBackend implementation. Implements the StateBackend protocol from…, Any, Connection, Path, SQLite implementation of the ExecutionStore protocol. Provides persistent…, Insert an execution record, returning the execution ID. Ensures the session…, Update fields on an existing execution record. Supports updating: status,…, Get execution records for a session, ordered by start time descending. Args:… (+11 more)
+Nodes (30): available(), available_rows(), AvailableRow, CatalogEntry, discover_extensions(), ExtensionEntry, extensions_from(), _fetch_remote_distributions() (+22 more)
 
-### Community 87 - "functualize_state/__init__.py"
-Cohesion: 0.09
-Nodes (24): KeyNotFoundError, Exception, Error classes for the State Domain SDK., Raised when a requested key is not found in the state backend., Raised when a state backend is not available., StateNotAvailableError, Event name constants for the State Domain SDK., functualize-state: State Domain SDK for state persistence and execution… (+16 more)
-
-### Community 88 - "EnvSource"
-Cohesion: 0.08
-Nodes (20): env_only(), Preset factory functions for common configuration strategies. Each function…, CLI → Env → Defaults. No file discovery. Sets an explicit resolution chain that…, CLI → Env → Defaults. Minimal configuration. Like twelve_factor but with dotenv…, twelve_factor(), DefaultSource, EnvSource, Reads configuration from os.environ using SECTION_KEY convention. Key lookup… (+12 more)
-
-### Community 89 - "._update_status_bar"
+### Community 93 - "Smart Bar Key Dispatch"
 Cohesion: 0.07
-Nodes (22): Resolve settings at startup and apply them., A quick edit in the Settings table → apply it to the running app. This is the…, Loaded plugin instances, for bar item collection., Update header with app name, job counts, and plugin header items., Discover and register DisplayProviders with the DisplaySlot. Scans for a…, Update the status bar with mode + zone + readiness (R8-AC1, R8-AC3). Format:…, Render the active environment, and whether anything selected it. The…, Return a colored readiness string for the status bar (R8-AC6). Returns: '●… (+14 more)
+Nodes (17): Check if autocomplete dropdown is currently visible., Whether the sigil mode owning ``text`` considers it submittable., Check whether plain Enter should execute, used by ``KeyDispatcher``. Each input…, Accept the booted FunctualizeApp for job discovery and execution., Create the SmartBarAutoComplete completer instance., KeyDispatcher, Any, Centralized key dispatch: reads FocusState, looks up keymap, calls action.… (+9 more)
 
-### Community 90 - "PanelRingController"
+### Community 94 - "Panel Ring Controller"
 Cohesion: 0.07
 Nodes (19): Category, PanelRingController, Enum, PanelRingController — pure state machine for panel ring navigation. Manages…, Pop sub-panel label. Returns popped label or None if at root., Current breadcrumb stack depth., Return the current index for the active category., Get the index for the active category. (+11 more)
 
-### Community 91 - "JobBrowserPanel"
+### Community 95 - "Job Declaration Value Objects"
 Cohesion: 0.09
-Nodes (19): _display_command(), JobBrowserPanel, JobSelected, _normalize_for_filter(), Message, Widget, Populate the table after mount if set_jobs was called pre-mount., Populate the table with job descriptors. Clears existing rows and rebuilds.… (+11 more)
+Nodes (16): Call, Fingerprint, Guards, Precondition, Any, Frozen value objects for the ``@job`` declaration model. These grouped, typed…, Build a parameterized dependency reference (proposal §A.4). Example::…, Reconstruct from cache form. Opaque callable refs materialize as their recorded… (+8 more)
 
-### Community 92 - "WorkflowShape"
-Cohesion: 0.07
-Nodes (22): _field_from_dict(), _field_to_dict(), Any, Serialize to a JSON-compatible dict., Deserialize from a JSON dict. Raises: ValueError: If required keys are missing…, Serialize to a JSON-compatible dict for cache persistence. Uses config_fields…, Serialize a FieldDescriptor to a JSON-compatible dict., Convert a default value to a JSON-serializable form. A secret field's default… (+14 more)
-
-### Community 93 - "SQLiteStateBackend"
+### Community 96 - "PydanticAI Provider Plugin"
 Cohesion: 0.09
-Nodes (16): Any, Connection, Path, Delete a key from the state backend. No-op if the key does not exist., Close the database connection., Escape special characters in a LIKE pattern., Context manager entry — initialize if needed., Context manager exit — close connection. (+8 more)
+Nodes (20): Any, T, Async Bridge — Bridges async PydanticAI calls to functualize's sync engine.…, Run an async coroutine synchronously. Bridges async PydanticAI calls to…, run_sync(), functualize-ai-pydantic — PydanticAI-backed AI implementation plugin. Provides…, PydanticAI Plugin — DI registration and boot logic. Registers both the generic…, PydanticAI Provider — AIProvider protocol implementation. Implements the… (+12 more)
 
-### Community 94 - "ExecutionStatePlugin"
-Cohesion: 0.09
-Nodes (20): ExecutionStatePlugin, _get_duration_ms(), Any, Exception, Close the SQLiteBackend on application shutdown., Initialize the SQLiteBackend and ExecutionTracker on app boot., Record execution start and attach execution_uid to rc metadata., Record successful execution end. (+12 more)
+### Community 97 - "AI Outbound Gate Strategy"
+Cohesion: 0.10
+Nodes (24): AIOutboundGateResolver, Any, BaseModel, AI_OUTBOUND gate strategy resolver — pauses for external AI input via MCP.…, Validate pending input against the gate's model and construct it. Args: ctx:…, Serialize workflow checkpoint state for MCP exposure. Stores the gate's pending…, Check for pending external input stored for this gate. The MCP workflow tools…, Register the 'ai_outbound' gate strategy and preset with the app. This should… (+16 more)
 
-### Community 95 - "dispatch.py"
+### Community 98 - "Event Bus Middleware Stack"
 Cohesion: 0.08
-Nodes (31): Record an early flag's value for stores built later in this process., set_preboot_override(), _assign_option(), detect_mode(), _extract_global_options(), _flag_aliases(), GroupWalk, _match_group_flag() (+23 more)
+Nodes (21): Initialize observability subsystem (idempotent)., The central event bus for structured event emission and subscription., Per-operation-point middleware registry for observability., MiddlewareHandle, MiddlewareStack, OperationMiddlewareEntry, Any, BaseException (+13 more)
 
-### Community 96 - "scaffold/cli.py"
-Cohesion: 0.10
-Nodes (31): add_app(), domain(), init(), job(), list_app(), list_domains(), plugin(), argument (+23 more)
-
-### Community 97 - "FunctualizeAutoComplete"
-Cohesion: 0.09
-Nodes (19): AutoComplete, FunctualizeAutoComplete, _Widget, Switch candidate source to field-specific choices for INSERT mode. Args:…, Restore candidate source back to normal command/flag completions., Fully suppress the autocomplete — hide dropdown and ignore all events. Used…, Re-enable autocomplete after suppression., Rebuild options against the current target state and show/hide as needed.… (+11 more)
-
-### Community 98 - "ScaffoldGenerator"
-Cohesion: 0.11
-Nodes (20): Environment, _load_jinja_env(), Any, Path, Scaffold generator for creating new functualize projects and components., Create a project from a named template. Validates the project name, looks up…, Create a Jinja2 environment loading templates from the templates directory., Build a mapping from template output names to their target paths. Different… (+12 more)
-
-### Community 99 - "Secret"
-Cohesion: 0.09
-Nodes (21): GenericAlias, collect_secret_values(), display_value(), is_secret_annotation(), is_secret_field(), Any, Shared secret-redaction utility (proposal §B.6). One redaction module, consumed…, Emit ``{"secret": true}`` so the marker survives into the cache. The TUI panels… (+13 more)
-
-### Community 100 - "CLI Command Planning"
-Cohesion: 0.09
-Nodes (29): NoReturn, plan_or_exit(), The console script the user actually typed, for use in guidance. Never a hard-…, Explain why functualize will not manage this installation, and stop. Guidance…, Run a command-planning call, mapping its refusals onto exit codes. Both…, refuse(), script_name(), _binary_and_config() (+21 more)
-
-### Community 101 - "Tool Definition Translation"
-Cohesion: 0.10
-Nodes (27): Any, Translate a list of ToolDef instances into PydanticAI Tool objects. Each…, Translate a single ToolDef into a PydanticAI Tool. Uses Tool.from_schema() to…, _annotation_to_json_type(), _callable_to_tool_def(), _descriptor_to_tool_def(), _fields_to_schema(), _filter_descriptors() (+19 more)
-
-### Community 102 - "MCP Adapter and Schema Export"
-Cohesion: 0.10
-Nodes (19): MCP Adapter Plugin — DI registration and boot. Registers the MCP delivery…, Any, Multi-format schema export for functualize jobs. Exports job schemas in MCP…, Export job schemas in OpenAI function calling JSON format. Produces a JSON…, Export job schemas as TypeScript type definitions. Generates one interface per…, Translate JobDescriptors into MCPToolDefs. If descriptors are already…, Convert an MCPToolDef to a markdown document with parameters table., Convert an MCPToolDef to a TypeScript interface definition. (+11 more)
-
-### Community 103 - "TUI Delivery Adapter"
-Cohesion: 0.08
-Nodes (22): __getattr__(), Any, Built-in delivery adapters for FunctualizeApp. This sub-package contains the…, Lazy import adapters on first access to avoid CLI dependency loading., _detect_app_name(), FunctualizeTUI, Any, TUI delivery adapter using the inline TUI. This module provides the TuiAdapter… (+14 more)
-
-### Community 104 - "Fingerprint Computation"
+### Community 99 - "Self Diagnostic Checks"
 Cohesion: 0.12
-Nodes (31): build_source_map(), canonical_json(), compute_declaration_hash(), _describe_changes(), evaluate(), _evaluate_checksum(), _evaluate_timestamp(), expand_generates() (+23 more)
+Nodes (28): Resolve the XDG config directory for functualize. Uses…, resolve_user_config_dir(), build_report(), Check, _check_boot(), _check_cli_extras(), _check_install(), _check_python() (+20 more)
 
-### Community 105 - "TUI Theme Management"
+### Community 100 - "New File Picker Flow"
 Cohesion: 0.08
-Nodes (17): DarkTheme, LightTheme, MinimalTheme, Theme management for the TUI. Registers ThemeProviders, loads CSS, manages…, Fall back to transparent theme., Built-in transparent theme (default fallback)., Built-in light theme., Built-in minimal theme. (+9 more)
+Nodes (17): Path, A location was chosen — replace the picker with the Detail view. Nothing is…, Push a Detail view over a (possibly not-yet-existing) settings file., NewFileCandidate, NewFilePickerView, ComposeResult, Message, Widget (+9 more)
 
-### Community 106 - "Job Tool Translator"
-Cohesion: 0.13
-Nodes (17): Get a value from an object by attribute or dict key. Handles both…, _get_attr_or_key(), JobToolTranslator, Any, The group-options specs bound to ``group`` or any ancestor. Outermost first,…, Fold a job's inherited group options into its input schema. The job's own…, Translate multiple JobDescriptors, applying visibility filters. Applies…, Extract tool description from the job's docstring. Uses the first paragraph (up… (+9 more)
+### Community 101 - "Panel Drill-Down State"
+Cohesion: 0.07
+Nodes (17): Restore the panel view after exiting a drill-down sub-view. Removes the chain…, Clear the drill-down state and restore the table view. Called when Esc pops the…, Filterable, PanelActions, Any, Protocol, Drill down into nested config for the current selection., Clear any active drill-down state. (+9 more)
 
-### Community 107 - "CLI Config Resolution"
-Cohesion: 0.13
-Nodes (29): CliConfig, _functualize_table(), _get_value(), _merge_lists_dedup(), _parse_bool_env(), _parse_toml_or_empty(), Any, Path (+21 more)
+### Community 102 - "Job Discovery Transforms"
+Cohesion: 0.07
+Nodes (18): GroupFilterTransform, IdentityTransform, Job transform implementations for the discovery pipeline. Concrete transforms…, Identity transform (pass-through). Returns inputs unchanged. Useful as a…, Pass through the list unchanged., Pass through the descriptor unchanged., Filter jobs by group membership. Satisfies the JobTransform Protocol via…, Filter job list by group membership. (+10 more)
 
-### Community 108 - "Insert Mode Controller"
+### Community 103 - "Stdout Live Surface"
+Cohesion: 0.09
+Nodes (14): Any, Console, Group, Pre-mount the ambient constructs eligible for this job., Drop a mounted ambient construct by name (``live.suppress``)., Drop every mounted ambient construct (``live.suppress_all``)., Mount an interactive construct. STDOUT has no event loop, so it degrades to a…, Append an event line to scrollback, above the live zone. A hosted construct… (+6 more)
+
+### Community 104 - "Run History View"
+Cohesion: 0.12
+Nodes (28): One run and the events it emitted, in sequence order., _derive_state(), _describe(), describe_run(), _duration_ms(), _is_a_launch(), job_history(), list_runs() (+20 more)
+
+### Community 105 - "Run Request & Dependencies"
 Cohesion: 0.08
-Nodes (13): InsertModeController, Any, setter, Enter INSERT mode for the given field. Saves bar state, populates with field…, Confirm the edit: validate, apply, restore, exit INSERT. Returns: A tuple…, Cancel and exit INSERT mode without applying any changes. Restores bar state…, Called when bar input changes — clears INVALID state. If the bar is in INVALID…, Validate a value against the field's validator. If no validator is defined,… (+5 more)
+Nodes (21): One builder for the ``RunRequest`` both click constructors emit.…, The observability context module (PropagationContext API)., _do_execute(), DependencyRunner, run_node(), Any, Running a job's declared dependency graph, before its own pre-flight. Extracted…, Runs the upstreams a job declared, in an order that runs each once. (+13 more)
 
-### Community 109 - "Focus Mode State"
+### Community 106 - "Editor Focus Modes"
 Cohesion: 0.11
 Nodes (15): FocusMode, FocusState, FocusZone, Enum, Centralized focus state machine for the TUI. Defines a Finite State Machine…, Centralized focus state manager — single source of truth. All components read…, For status bar: '-- NORMAL --', '-- INSERT --', etc. Empty for COMMAND., Subscribe to mode/zone changes. (+7 more)
 
-### Community 110 - "Binary Self-Update"
-Cohesion: 0.11
-Nodes (27): Opener, Available, ChecksumMismatchError, default_opener(), extract_executable(), latest_release(), perform(), Path (+19 more)
+### Community 107 - "Workflow Frontier Walk"
+Cohesion: 0.08
+Nodes (18): FrontierWalk, GraphModel, Any, Expands a graph's frontier at runtime, persisting position and records. Args:…, Give up the claim, leaving the scope immediately claimable. Best-effort: a walk…, Begin (or resume) the walk, returning the nodes now runnable. Resuming is…, Record ``node`` as finished and expand the frontier past it. For a conditional…, Persist a BLOCKED position and its gate payload slot (§D.7b/c). The walk stops… (+10 more)
 
-### Community 111 - "Tasks Domain SDK"
-Cohesion: 0.12
-Nodes (17): Error classes for the Tasks Domain SDK., Event name constants for the Tasks Domain SDK. Events follow the…, functualize-tasks — Tasks Domain SDK. Provides the Tasks capability class,…, Tasks domain protocol — TaskProvider. Defines the protocol interface that task…, Protocol for task storage implementation plugins. Implementation plugins (e.g.,…, Create a new task and return its generated unique ID. Args: title: Human-…, Delete a task by its ID. Args: task_id: The unique identifier of the task to…, TaskProvider (+9 more)
-
-### Community 112 - "Prompt Modal Widget"
+### Community 108 - "Fingerprint Source Binding"
 Cohesion: 0.09
-Nodes (17): Pressed, _format_context_data(), PromptModal, Any, ComposeResult, on, OptionSelected, Submitted (+9 more)
+Nodes (15): ItemsView, KeysView, _bind_from_preflight(), Any, Truthy when at least one input resolved. Note this is emptiness, not…, Hand the pre-flight's resolved source map to the injected instance. A job whose…, The files this job's ``Fingerprint(sources=...)`` resolved to. Reads as a…, Fill in the resolved map once the pre-flight has produced it. Private, and… (+7 more)
 
-### Community 113 - "Shell Settings Catalog"
-Cohesion: 0.10
-Nodes (27): _as_setting(), clear_preboot_overrides(), clear_registered_settings(), env_var_for(), func_setting(), FuncSetting, preboot_overrides(), The catalog and resolution chain for `func`'s own settings. One catalog covers… (+19 more)
+### Community 109 - "App Runtime Facade"
+Cohesion: 0.07
+Nodes (18): Any, RunSurface, The domain SDK registry (discovered at boot time)., The run-log subscriber (`EngineHost.run_log`), or None. None before…, The scope named by ``scope_id``, created and announced if new. The engine's…, Execute jobs concurrently, returning results in input order (T40)., The machine-readable half of :meth:`explain`, off the same verdicts., Push a phase-scoped surface onto the surface stack. Used by ``TTY.run`` and the… (+10 more)
 
-### Community 114 - "Agent Skills Management"
+### Community 110 - "Agent Skills Packaging"
 Cohesion: 0.12
 Nodes (26): directory_stem(), _entry_point_locations(), _functualize_version(), list_skills(), materialize_skills(), materialized_root(), parse_frontmatter(), Path (+18 more)
 
-### Community 115 - "Job Registry Scanning"
-Cohesion: 0.10
-Nodes (16): JobRegistry, Any, BaseModel, Return all retained JobDescriptor instances. Returns all descriptors produced…, Return the JobDescriptor matching the given job name. Args: job_name: The job…, Scan all job directories and register discovered functions. Iterates over each…, Scan all job directories and register discovered functions (no CLI wiring).…, Import (or refresh) a module, ensuring it comes from jobs_path. A same-named… (+8 more)
-
-### Community 116 - "Click CLI Adapter"
-Cohesion: 0.08
-Nodes (17): deleter, CliAdapter, CLI delivery adapter using Click. Satisfies the AdapterPlugin Protocol. Two…, Setup phase — wire the click command tree from app state. Args: app: The…, The underlying click command group this adapter populated., Register the standard group callback with global options. Handles: --log-level,…, setter, Entry point — delegates to the active adapter. (+9 more)
-
-### Community 117 - "Inline Shell Launch"
-Cohesion: 0.09
-Nodes (26): _handle_bare_invocation(), _launch_shell(), Launch the inline shell for a bare invocation, or print help. Three cases, and…, Launch the inline shell and return its exit code. A one-line indirection so the…, build_command_tree(), The shell's **one** command tree: user jobs plus the reserved subtree.…, Walk ``tokens`` down the tree, returning ``(deepest_node, leftovers)``. Stops…, resolve_command_path() (+18 more)
-
-### Community 118 - "SmartBar Completion Parsing"
-Cohesion: 0.10
-Nodes (22): _count_positional_tokens(), parse_cursor_context(), Cursor context parsing for TUI smart bar value completion. Tokenizes the smart…, Parse smart bar text and cursor position into a semantic context. Determines…, Tokenize text respecting quoted strings (single and double quotes). Uses…, Count non-flag tokens after the job name, skipping flag values. A "flag" token…, _smart_split(), filter_used_flags() (+14 more)
-
-### Community 119 - "CLI Settings Source"
+### Community 111 - "Schema Annotation Builder"
 Cohesion: 0.11
-Nodes (21): create_cli_source_from_context(), create_cli_source_from_params(), extract_explicit_params(), map_option_name_to_key(), Any, Context, CLI/TUI adapter integration for the pluggable configuration system. Provides an…, Validate that all provided CLI keys exist in the active Settings_Model. Checks… (+13 more)
+Nodes (15): Get a value from an object by attribute or dict key. Handles both…, _get_attr_or_key(), Any, Translate a single JobDescriptor into an MCPToolDef. Args: descriptor: A…, The group-options specs bound to ``group`` or any ancestor. Outermost first,…, Fold a job's inherited group options into its input schema. The job's own…, Translate multiple JobDescriptors, applying visibility filters. Applies…, Extract tool description from the job's docstring. Uses the first paragraph (up… (+7 more)
 
-### Community 120 - "Workflow Frontier Expansion"
+### Community 112 - "Workflow Gate Answering"
+Cohesion: 0.13
+Nodes (26): answer_gate(), _downstream_of(), _drafted_message(), _error(), gate_draft(), Any, Answering a gate: partial, whole, or corrected. ``answer`` **records**.…, What has been supplied, what is still missing, and what is invalid. The one… (+18 more)
+
+### Community 113 - "Config Target Discovery"
+Cohesion: 0.11
+Nodes (22): ConfigTarget, A writable persistence destination for config overrides. Represents one entry…, Format for display in the target selector list., _build_env_var_target(), discover_config_targets(), _discover_project_files(), _get_user_config_target(), Path (+14 more)
+
+### Community 114 - "Binary Self-Update"
+Cohesion: 0.12
+Nodes (25): Opener, Available, ChecksumMismatchError, extract_executable(), latest_release(), perform(), Path, RuntimeError (+17 more)
+
+### Community 115 - "Job Schema Export"
+Cohesion: 0.13
+Nodes (16): Any, Multi-format schema export for functualize jobs. Exports job schemas in MCP…, Export job schemas in OpenAI function calling JSON format. Produces a JSON…, Export job schemas as TypeScript type definitions. Generates one interface per…, Translate JobDescriptors into MCPToolDefs. If descriptors are already…, Convert an MCPToolDef to a markdown document with parameters table., Convert an MCPToolDef to a TypeScript interface definition., Map a JSON Schema property definition to a TypeScript type. (+8 more)
+
+### Community 116 - "Plugin Extensions Facade"
 Cohesion: 0.09
-Nodes (20): GraphModel, Runtime frontier expansion — push mode over the shared graph (§D.7a). The…, Per-scope step-record key: ``<job_name>::<args_hash>`` (§D.7d)., A workflow graph in the shape both modes consume. Attributes: entry: The node…, Successors of ``node``; ``choice`` selects a conditional target., Outcome markers for a frontier walk., step_key(), WalkState (+12 more)
+Nodes (14): `app.extensions` — what a plugin registers: commands, providers, surfaces,…, ExtensionsFacade, Any, Register a notifier that delivers ``Notify`` declarations. Registered, never…, Mutable namespace for consumer-owned state keyed by consumer name. A sanctioned…, Register a live construct that renders by default for eligible jobs., Instantiate the ambient constructs eligible for ``descriptor``. The public…, Decorator to register a function as middleware for an operation point. (+6 more)
 
-### Community 121 - "Job Input Sources"
-Cohesion: 0.10
-Nodes (12): ItemsView, KeysView, _bind_from_preflight(), Any, Sources capability — the resolved inputs this job's own ``Fingerprint``…, Truthy when at least one input resolved. Note this is emptiness, not…, Hand the pre-flight's resolved source map to the injected instance. A job whose…, The files this job's ``Fingerprint(sources=...)`` resolved to. Reads as a… (+4 more)
+### Community 117 - "Settings Catalog Projection"
+Cohesion: 0.09
+Nodes (16): _func_schema(), _ProjectedView, The live catalog projected onto the public, app-agnostic ``Setting``., `func`'s settings declaration, over the live catalog. Passing a different one…, AppSettingsSchema, App-parameterized settings declaration — ``Setting`` / ``AppSettingsSchema``.…, The full settings declaration one app hands to the store. Attributes: settings:…, The environment variable that overrides ``setting``. Byte-identical to the… (+8 more)
 
-### Community 122 - "Job Run Explanation"
-Cohesion: 0.10
-Nodes (20): Render why ``job_name`` would or would not run (§D.6). The prose half of…, The raw material behind `func builtin why`. Returns ``(target_verdict,…, `func builtin why --json` — the same verdicts, as data. `ExitCode.STALE` (4)…, One line about an unusable recorded return value, or ""., explain_exit_code(), model_name(), _name_of(), Explainability renderer for `func why` and `--explain` (§D.6). With guards,… (+12 more)
-
-### Community 123 - "Source Chain Table View"
+### Community 118 - "Config Format Providers"
 Cohesion: 0.08
-Nodes (13): Delegate focus to the inner DataTable., ComposeResult, Widget, Re-resolve from the provider and rebuild the rows., Which axis this view renders., The source_id (file flavor) or key name (key flavor) in view., Index of the highlighted row., Whether anything is staged but not yet written. (+5 more)
+Nodes (13): Any, Parse a configuration file and return a normalized dictionary. Args: path:…, Serialize a configuration dictionary to the provider's format. Args: data:…, Any, Setup phase — called during boot to wire the adapter., Universal entrypoint with platform-specific signatures., Called during application shutdown for resource cleanup. Args: app: The…, Retrieve a value for the given key. Args: key: The configuration key name.… (+5 more)
 
-### Community 124 - "Event Metadata Catalog"
+### Community 119 - "Live Zone Constructs"
+Cohesion: 0.09
+Nodes (16): Live, LiveHandle, _make_live(), Any, Live capability — a per-surface live-display channel. A job that wants a live-…, Hide every ambient construct for this invocation., Mount an interactive construct as a PanelHost panel (j/k/Enter). Requires an…, Bind to the active live-capable surface. The CLI's StdoutSurface, or a job… (+8 more)
+
+### Community 120 - "Shell Capability Wiring"
+Cohesion: 0.10
+Nodes (21): _as_pattern(), _default_shell_program(), _make_shell(), _pattern_repr(), Any, Pattern, _quote(), Shell capability implementation (proposal Part B). ``WiredShell`` is the… (+13 more)
+
+### Community 121 - "Framework Event Catalog"
 Cohesion: 0.10
 Nodes (18): Machine-readable metadata for a registered instrumentation point. Used by the…, get_framework_event_catalog(), EventMetadata, Framework-defined event catalog entries. Contains metadata for all…, Return all framework-defined event metadata entries. Covers domains: job,…, EventCatalog, Machine-readable registry of event metadata for plugin introspection., Register event metadata. Overwrites if event_name already exists. (+10 more)
 
-### Community 125 - "Middleware Stack"
+### Community 122 - "Gate Tool References"
 Cohesion: 0.10
-Nodes (18): MiddlewareHandle, MiddlewareStack, OperationMiddlewareEntry, Any, BaseException, Per-operation-point middleware registry and execution. DISTINCT from…, True if any middleware is registered at any operation point. Useful for fast…, Register middleware for an operation point. Args: operation_point: The… (+10 more)
+Nodes (12): _as_tool(), _job_ref_name(), Any, The graph key for this node (the referenced job's name)., A job offered at a gate, with some of its arguments fixed by the gate. A tool…, Arguments this gate fixes, as a copy., The referenced job's name., Normalize any accepted tool reference to a `Tool`. (+4 more)
 
-### Community 126 - "Job Step References"
-Cohesion: 0.09
-Nodes (11): FromJob, FromStep, Any, The referenced job, as written., Whether resolving this reference may execute the upstream., The upstream job's name., Reject the subscript form with the syntax that actually works. ``X[...]`` is…, A read of *this walk's* recorded result for one step (resolved Q20).… (+3 more)
-
-### Community 127 - "Workflow Walk Execution"
-Cohesion: 0.12
-Nodes (17): deque, _key(), _now(), Any, What one invocation of the walk did. ``executed`` and ``replayed`` are split…, True only when the walk reached ``END``., Executes one workflow declaration over a persisted scope. Args: declaration:…, Walk to `END`, to a gate with no input, or to a failure. (+9 more)
-
-### Community 128 - "State Namespace Scoping"
-Cohesion: 0.09
-Nodes (15): Any, StateNamespace utility for prefix-scoped state operations., Prefix-scoped view over a StateBackend. All key operations are transparently…, Get a value by key, scoped to this namespace's prefix., Set a value for a key, scoped to this namespace's prefix., Delete a key, scoped to this namespace's prefix., Return all keys in this namespace with the prefix stripped., StateNamespace (+7 more)
-
-### Community 129 - "File Config Source"
-Cohesion: 0.12
-Nodes (14): Emit a structured event if an event bus is configured., FileSource, Any, Discovers, parses, and deep-merges configuration files. Uses a FileResolver…, Return 'file' source type identifier., Return comma-separated discovered file paths., Return each parsed file's own config, in discovery order. Discovery order is…, Initialize the file source. Discovers files using the path resolver and parses… (+6 more)
-
-### Community 130 - "Job Result Delivery"
-Cohesion: 0.10
-Nodes (22): IntEnum, deliver_job_result(), _exit_quietly_on_broken_pipe(), _force_requested(), Turn a ``JobResult`` into stdout, an exit code, or a return value. **The single…, Did the caller ask to run anyway? Deposited on the app by whichever CLI parsed…, Redirect stdout to ``/dev/null`` and exit 0 after a broken pipe. The redirect…, make_lazy_command() (+14 more)
-
-### Community 131 - "Settings Catalog Views"
+### Community 123 - "Stdin & Workflow Flags"
 Cohesion: 0.11
-Nodes (10): _current_settings(), _DefaultsView, early_flag_specs(), _NamesView, ``(flag, dotted name)`` for settings whose flag must be read pre-boot. Empty…, The live catalog: registered settings first, then the base ones., The live catalog, readable as a sequence., Catalog names, in display order. (+2 more)
+Nodes (20): The nine flags, in the order they read on ``--help``. Added only to a job that…, workflow_flag_options(), is_stdin_available(), iter_stdin_ndjson(), Any, Which of ``function``'s parameters carry a ``Stdin`` marker. Re-derived from…, Which ``Stdin``-marked params are typed as a stream (§C.2). A parameter…, read_stdin() (+12 more)
 
-### Community 132 - "App Settings Projection"
+### Community 124 - "Tasks Domain SDK"
+Cohesion: 0.12
+Nodes (15): Error classes for the Tasks Domain SDK., Event name constants for the Tasks Domain SDK. Events follow the…, functualize-tasks — Tasks Domain SDK. Provides the Tasks capability class,…, Protocol, Tasks domain protocol — TaskProvider. Defines the protocol interface that task…, Protocol for task storage implementation plugins. Implementation plugins (e.g.,…, Create a new task and return its generated unique ID. Args: title: Human-…, Delete a task by its ID. Args: task_id: The unique identifier of the task to… (+7 more)
+
+### Community 125 - "Vault & Cache Paths"
 Cohesion: 0.10
-Nodes (16): _func_schema(), _ProjectedView, The live catalog projected onto the public, app-agnostic ``Setting``., `func`'s settings declaration, over the live catalog. Passing a different one…, AppSettingsSchema, _default_file_section_prefixes(), App-parameterized settings declaration — ``Setting`` / ``AppSettingsSchema``.…, The full settings declaration one app hands to the store. Attributes: settings:… (+8 more)
+Nodes (23): project_root_for(), Path, Where a project's vault lives — and **which project that is**. Split out of…, The project directory a vault belongs to, and which mode that is. Args: cwd:…, Return the vault file path for a project directory. Keyed by…, vault_path_for_project(), compute_discovery_hash(), _normalize_discovery_value() (+15 more)
 
-### Community 133 - "In-Process Introspection"
+### Community 126 - "Notifier Registry"
+Cohesion: 0.11
+Nodes (16): LogNotifier, NotifierRegistry, missing_notifier_hint(), Which package registers each notifier — the fixed answer to "why is this name…, Delivering a workflow's declared notifications — the port, and core's own.…, Every registered notifier name, sorted — for diagnostics., The notifier that delivers ``declared``, or a refusal saying why not. Raises:…, Refuse every notification in ``declaration`` that cannot be delivered. Before… (+8 more)
+
+### Community 127 - "Local Tasks Plugin"
+Cohesion: 0.11
+Nodes (12): Register the plugin with the application instance. Hooks into APP_READY for…, Functualize Tasks Local Plugin — state-backed task storage. Provides a…, LocalTasksPlugin, Any, Local Tasks Plugin — DI registration. Registers LocalTaskProvider as…, Plugin that registers a local substrate-backed TaskProvider. At boot time…, The LocalTaskProvider instance (available after APP_READY)., Initialize LocalTaskProvider and register with DI registry. Backed by the… (+4 more)
+
+### Community 128 - "PydanticAI Provider"
+Cohesion: 0.13
+Nodes (16): Any, PydanticAIProvider, Stream response tokens as an iterator of string chunks. Uses PydanticAI's…, Extract structured data from text using the given model. Creates a PydanticAI…, Build model settings dict from AIConfig and overrides. Combines the base…, Convert functualize AILimits into PydanticAI UsageLimits. Args: limits:…, Extract tool call records from PydanticAI result messages. Inspects the message…, Convert PydanticAI RunUsage into functualize TokenUsage. Args: usage: The… (+8 more)
+
+### Community 129 - "In-Process CLI Introspection"
 Cohesion: 0.10
 Nodes (14): InProcessIntrospector, Get the effective field list for a job. Prefers config_fields (expanded…, Format help text for a specific job., Parse help text to determine if command is executable., Check if command is executable. A command is executable if it matches a known…, Parse sub-commands from help text., Get completion suggestions from in-process job metadata. Returns list of (name,…, A suggested value for a field. (+6 more)
 
-### Community 134 - "Remote Provider Registry"
-Cohesion: 0.10
-Nodes (14): Protocol for remote secret/configuration providers. Implementations fetch…, Return the provider identifier used in 'provider://reference' syntax. E.g.,…, Check if the provider is properly configured with credentials. Credentials MUST…, Fetch a value from the remote system. Args: reference: The key/path in the…, RemoteProvider, ProviderRegistry, Get the remote provider registered for an identifier. Args: identifier: The…, Return a copy of the current identifier-to-provider mapping. Returns:… (+6 more)
+### Community 130 - "Display Slot Views"
+Cohesion: 0.09
+Nodes (14): DisplaySlot, Widget, Update the display_auto_switch setting ('auto', 'indicator', 'off')., Whether any displays are currently visible., Number of currently visible displays., The currently shown DisplayProvider, or None., Supply the running Textual app used for workers and marshaling. Needed because…, The widget that owns the keys while the DISPLAY zone is focused. The top drill-… (+6 more)
 
-### Community 135 - "State Storage Protocols"
-Cohesion: 0.10
-Nodes (12): Any, Protocol definitions for the context module. Defines the structural typing…, Runtime-checkable protocol defining the key-value state storage contract. Any…, Retrieve a value by key, returning default if not found., Store a value under the given key., Return all stored key names., Remove all stored state., Read a value from another job's namespace. Args: job_name: The job namespace to… (+4 more)
-
-### Community 136 - "Stdout Surface Gate"
-Cohesion: 0.12
-Nodes (20): _explicit_stdout_preference(), Any, Direct-run StdoutSurface gate, shared by both CLI command paths. A direct…, Whether a plugin's ambient construct would render for this job. Kept tolerant:…, Decide whether a direct run should register a ``StdoutSurface``. Args: app: The…, True when hint or setting explicitly resolves to STDOUT. Best-effort: a…, wants_ambient(), wants_stdout_surface() (+12 more)
-
-### Community 137 - "Parallel Output Writing"
-Cohesion: 0.12
-Nodes (10): ParallelOutput, Any, IO, Three ways to show the output of jobs that all run at once (T40). Concurrency…, Bind the calling thread's output to ``job_name``., Emit what the calling thread buffered, and unbind it., A stdout stand-in that sends each thread's writes to its own sink., Routes concurrent job output according to the chosen mode. Used as a context… (+2 more)
-
-### Community 138 - "Inline Prompt Widgets"
+### Community 131 - "Shell Command Execution"
 Cohesion: 0.11
-Nodes (10): AcknowledgeWidget, Widget, Custom Textual widgets for inline prompt rendering. Each widget corresponds to…, OptionList widget for SELECT intent with max 12 visible items., Text input widget for TEXT_INPUT intent., Masked input widget for SECRET_INPUT intent., Any-key dismiss widget for ACKNOWLEDGE intent., SecretInputWidget (+2 more)
+Nodes (15): _derive_label(), Derive a perf/event label from a command when none is given (§B.8). Uses the…, Resolve the working directory: per-call ``cwd`` wins, else the cd stack joined…, Run a command in one of the three forms (§B.1) and return a result. ``stream``…, Run the command, re-running on retryable failure. Returns ``(result,…, Emit ``shell.command.start`` (masked command in payload, §B.8)., Emit ``shell.command.end`` with the outcome (§B.8)., Start a command without waiting (``background=True``, §B.5). Returns a result… (+7 more)
 
-### Community 139 - "In-Memory State Store"
+### Community 132 - "Fresh Fingerprint Store"
+Cohesion: 0.13
+Nodes (10): FreshStore, _apply(), Any, Where the freshness ledger lives, for `func builtin data show`., Whether anything has ever been stored here., Read the stored envelope, degrading to an empty one. Every section here is…, Current state — the open batch if one is active, else storage., Apply ``mutate`` to the state, honoring an open batch. Outside a batch this is… (+2 more)
+
+### Community 133 - "Workflow Scope Format"
+Cohesion: 0.12
+Nodes (19): _count_scopes(), empty_scopes(), _found_version(), normalize_scopes(), Any, Workflow-scope file format: the record half of the runtime state store. Scopes…, Evict the oldest **finished** scopes until the file fits the cap. Two things…, The payload to store: the current version stamped on, and the cap applied.… (+11 more)
+
+### Community 134 - "AI Budget Enforcement"
+Cohesion: 0.12
+Nodes (14): BudgetEnforcer, Any, Budget enforcement logic for the AI Domain SDK. Provides budget tracking…, Check if the timeout has been exceeded. Args: start_time: The wall-clock time…, Check all run-level limits and return the reason for termination. This is a…, Enforces AI call budget, tool call, and timeout limits. The enforcer uses a…, Return the current cumulative spend from state. Returns: The cumulative spend…, Check if the budget limit has been reached before making a call. Args: limits:… (+6 more)
+
+### Community 135 - "Local Task Provider"
+Cohesion: 0.15
+Nodes (13): LocalTaskProvider, Return the full state key for a task ID., Serialize a TaskItem to JSON string., Deserialize a JSON string to a TaskItem., Retrieve a task by ID, raising TaskNotFoundError if it doesn't exist., Create a new task and return its generated unique ID., List tasks, optionally filtered by status or title substring., Update a task's status and/or notes. Raises: TaskNotFoundError: If the task_id… (+5 more)
+
+### Community 136 - "Subprocess Watchers & PTY"
+Cohesion: 0.14
+Nodes (15): Popen, _drive_watchers(), Apply ``watchers`` to the ``combined`` output so far (§B.4). For each new match…, Run one attempt. Returns ``(result, timed_out)``. On POSIX the child gets its…, Run one attempt with stdin kept open so ``watchers`` can answer live prompts.…, POSIX pty attempt: child sees a real terminal; output is merged onto the pty…, Build the result for an interactive attempt (shared pty/pipe tail). A…, Kill the child's process group (POSIX) or the process (Windows). (+7 more)
+
+### Community 137 - "Workflow CLI Flags"
+Cohesion: 0.19
+Nodes (23): _deposit(), Any, The ``--wf-*`` family: workflow control on the job command itself. Tier 3 of…, Consume the ``--wf-*`` kwargs and decide what happens. **Pops every flag from…, An optional-value flag's value, or None when it was given bare., The scope records, on the app's substrate. Resolved through the engine rather…, ``(gate, values)`` from ``--wf-input``/``--wf-gate``, or an error., ``--wf-status`` — this workflow's scopes, then exit 0. (+15 more)
+
+### Community 138 - "Autocomplete Candidates"
 Cohesion: 0.11
-Nodes (12): Return a copy of all state as a plain dict., Any, Read a value from another job's namespace. In the in-memory implementation, job…, Return all job namespaces that have stored state. Returns: List of job names…, Store a value under a job namespace (internal use). Args: job_name: The job…, Typed key-value state container. Validates JSON-serializability at write time.…, Load state from a dict (used by Workflow_Scope hydration). Replaces the current…, Mark the store as closed (no further mutations allowed). (+4 more)
+Nodes (12): DropdownItem, Return candidates for current text and mode. In command mode, delegates to the…, Delegate to the command callback for COMMAND mode candidates., Generate candidates for edit mode (choices or paths)., Filter choices by case-insensitive prefix match, max 50., Scan filesystem for path completion candidates, max 20. Thin wrapper over the…, Lightweight autocomplete candidate. Compatible with the interface expected by…, Provides autocomplete candidates based on current mode. In COMMAND mode,… (+4 more)
 
-### Community 140 - "Job Preflight Decision"
+### Community 139 - "Field Descriptor Extraction"
+Cohesion: 0.18
+Nodes (22): Extract a cacheable :class:`GroupOptionsSpec` from a ``GroupOptions`` class.…, _extract_choices(), _extract_default(), extract_field_descriptors(), _map_all_of(), _map_any_of(), _map_json_schema_type(), _map_ref() (+14 more)
+
+### Community 140 - "Precondition Guards"
+Cohesion: 0.13
+Nodes (14): _call_guard(), guard_key(), GuardEvaluator, PreconditionCache, Any, Stable cache key for a guard: the command string, or callable identity., Runs the §D.2 pipeline for a job. Args: shell_runner: Runs a guard's shell…, Evaluate the pipeline and return the verdict. Args: platforms: Allowed… (+6 more)
+
+### Community 141 - "TUI Autocomplete Widget"
 Cohesion: 0.12
-Nodes (17): The key an **engine-triggered** run of ``job_name`` writes under. The reader-…, Preflight, PreflightDecision, Any, Path, The decision to run a job, or not (§D.2, §D.3). Everything a job declares about…, Decide whether ``job_name`` should run. ``args_hash`` defaults to the hash of…, Run a guard's shell string; True on exit 0. Guards are a pre-flight question,… (+9 more)
+Nodes (14): AutoComplete, FunctualizeAutoComplete, _Widget, Switch candidate source to field-specific choices for INSERT mode. Args:…, Restore candidate source back to normal command/flag completions., Fully suppress the autocomplete — hide dropdown and ignore all events. Used…, Re-enable autocomplete after suppression., Rebuild options against the current target state and show/hide as needed.… (+6 more)
 
-### Community 141 - "Hook Registry"
-Cohesion: 0.12
-Nodes (14): _accepts_keyword(), HookRegistry, Any, BaseException, Manages lifecycle hooks for job execution. Global hooks are invoked for all…, Register a hook that fires for all jobs on the given event. Args: event: The…, Register a hook scoped to a specific job. Args: job_name: The name of the job…, Invoke all hooks registered for the given event and job. Global hooks are… (+6 more)
+### Community 142 - "Stdout Surface Gating"
+Cohesion: 0.13
+Nodes (21): _explicit_stdout_preference(), Any, Direct-run StdoutSurface gate, shared by both CLI command paths. A direct…, Whether a plugin's ambient construct would render for this job. Kept tolerant:…, True when hint or setting explicitly resolves to STDOUT. Best-effort: a…, wants_ambient(), has_eligible_ambient(), Would a plugin's ambient construct render for this job? Same corridor, same… (+13 more)
 
-### Community 142 - "Middleware Chain Executor"
+### Community 143 - "Hook & Middleware Decorators"
+Cohesion: 0.14
+Nodes (17): Factory for the middleware decorator. Supports: 1. @app.hooks.run_middleware →…, Factory for hook decorators that support bare/@()/@ ("name") forms. The…, Factory for decorators that only support global registration (no job scoping).…, Public RunContext facade for job authors. Re-exports from the private…, _make_global_only_decorator(), _make_hook_decorator(), _make_middleware_decorator(), decorator() (+9 more)
+
+### Community 144 - "Job Phase Tracking"
+Cohesion: 0.11
+Nodes (14): Any, Logger, TypedDict, Fire a phase lifecycle hook with error isolation. Looks up hooks from the…, Record a perf start mark for a phase., Record a perf end mark for a phase., A single tracked job phase., Manages job phase lifecycle within a job execution. Tracks named phases with… (+6 more)
+
+### Community 145 - "Retry & Dedup Policy"
+Cohesion: 0.13
+Nodes (13): Sleep between retry attempts per the backoff policy (§A.5)., _sleep_backoff(), ExecPolicy, Any, BaseException, Job-level `Exec` policy: retry and run-mode dedup (§A.5). `Exec` was accepted…, Run ``body`` under ``exec_decl``, retrying per its policy. ``failure_of`` maps…, Whether this failure is one the policy said to retry. (+5 more)
+
+### Community 146 - "Fresh File Format & Locking"
+Cohesion: 0.19
+Nodes (20): _acquire_lock(), _acquire_lock_windows(), atomic_write_json(), empty_fresh(), file_lock(), find_functualize_dir(), _lock_timeout(), _msvcrt_locking() (+12 more)
+
+### Community 147 - "Middleware Chain"
 Cohesion: 0.15
 Nodes (17): MiddlewareChain, _MiddlewareEntry, _propagate_exception(), BaseException, Generic middleware executor with yield-based generators. Provides…, Execute the middleware chain around an operation. Middleware runs in ascending…, Return middleware sorted by priority then registration order (cached)., Resume generators in reverse order, sending the operation result. If a… (+9 more)
 
-### Community 143 - "MCP Task Tools"
+### Community 148 - "Prompt Modal Widget"
+Cohesion: 0.12
+Nodes (12): How to name this reference in an error. Never a value., _format_context_data(), PromptModal, Any, ComposeResult, OptionSelected, Compose the appropriate input widget for the prompt intent., Handle option selection for SELECT intent. (+4 more)
+
+### Community 149 - "MCP Task Tools"
 Cohesion: 0.16
 Nodes (13): _error_response(), MCPTaskToolRegistry, Any, MCP Task tools — manage tasks via MCP when the Tasks domain is active. Provides…, Create a new task with an optional link. Args: title: Human-readable title for…, List tasks, optionally filtered by status or title substring. Args: status:…, Update a task's status and/or notes. Args: task_id: The unique identifier of…, Convert a TaskItem to a serializable dict. Args: task: A TaskItem instance.… (+5 more)
 
-### Community 144 - "Execution Tracking"
-Cohesion: 0.10
-Nodes (12): The ExecutionTracker instance (available after APP_READY)., ExecutionTracker, Any, Record the start of a job execution. Ensures a session is active, generates a…, Record the end of a job execution. Updates the execution record with completion…, Get recent executions for the current session. Args: limit: Maximum number of…, Get the total number of executions in the current session. Returns: The count…, Generate a plain-text summary for AI assistant consumption. Returns a formatted… (+4 more)
+### Community 150 - "Delivery Adapters"
+Cohesion: 0.12
+Nodes (16): __getattr__(), Any, Built-in delivery adapters for FunctualizeApp. This sub-package contains the…, Lazy import adapters on first access to avoid CLI dependency loading., TUI delivery adapter using the built-in inline TUI. Satisfies the AdapterPlugin…, Setup phase — store app reference., TuiAdapter, _get_missing_adapter_members() (+8 more)
 
-### Community 145 - "Static Shell Completions"
+### Community 151 - "Group Options Extraction"
+Cohesion: 0.13
+Nodes (15): _param_public_name(), Bridge click's own params onto ``FieldDescriptor``. Not a parallel param model:…, The name a *caller types*, not the Python identifier click binds to. Across the…, The callback's own signature, bridged onto ``FieldDescriptor``. Reuses the…, extract_group_options_fields(), extract_group_options_spec(), Any, BaseModel (+7 more)
+
+### Community 152 - "Shell Completion Scripts"
 Cohesion: 0.15
 Nodes (20): CompletionData, The word lists a static completion script needs. Attributes: command_tree:…, Every command path with completions, sorted — for a stable script., _fish_arg(), _fish_cond(), _fish_squote(), Static completion scripts — the shell half of the direnv model (T44b). Consumes…, A zsh completion over the same word-list map, using ``compadd``. Written to be… (+12 more)
 
-### Community 146 - "Config Files Panel"
+### Community 153 - "Parallel Output Multiplexing"
+Cohesion: 0.13
+Nodes (9): ParallelOutput, Any, IO, Bind the calling thread's output to ``job_name``., Emit what the calling thread buffered, and unbind it. Takes the run's…, A stdout stand-in that sends each thread's writes to its own sink., Routes concurrent job output according to the chosen mode. Used as a context…, Where a buffered block is finally written. Whatever ``sys.stdout`` was when the… (+1 more)
+
+### Community 154 - "Lazy Job Loading"
 Cohesion: 0.12
-Nodes (17): ConfigFileEntry, A single config file entry for display in the ConfigFilesPanel. ``status``…, The config file entries this panel is showing. Public accessor so the app can…, TUI panels subpackage — PanelRing and panel widgets., # NOTE: public contract with fan-in from app.py's message, build_settings_file_entries(), DrillDownRequested, NewFileRequested (+9 more)
+Nodes (17): _detect_config_class(), _import_real_function(), LazyJobFunction, Any, CLI-free lazy job machinery for warm boot. Provides LazyJobFunction (deferred-…, Deferred-import stand-in for a job function. Construction does NOT import the…, Import the module (once) and return (real_fn, config_class). Idempotent and…, The warm-boot entry point to the one config-class rule. Delegates to… (+9 more)
 
-### Community 147 - "Settings Chain Provider"
-Cohesion: 0.10
-Nodes (13): file_source_id(), FuncSettingsChainProvider, Path, `func`'s own settings, backed by ``FuncSettingsStore``. The chain spans the…, Args: store: The settings chain to read and write. apply_hook: Optional…, The underlying settings store., Re-read every settings source., Map a file source id back to its path, if it is one of ours. (+5 more)
+### Community 155 - "Job Directory Scanning"
+Cohesion: 0.13
+Nodes (12): Any, BaseModel, Scan all job directories and register discovered functions. Iterates over each…, Scan all job directories and register discovered functions (no CLI wiring).…, Import (or refresh) a module, ensuring it comes from jobs_path. A same-named…, Scan a single directory for job modules without CLI wiring. Performs discovery…, Scan a single directory for job modules. Args: app: The Click application to…, Extract job descriptors from a module without any CLI wiring. Imports the named… (+4 more)
 
-### Community 148 - "Settings Schema Validation"
-Cohesion: 0.20
-Nodes (18): Validate a value against the catalog schema for ``name``., validate_func_setting(), Setting schemas and value validation. Validates user input against defined…, Validate a value against an explicit schema. The schema-first entry point: the…, Schema definition for a single TUI setting., Result of validating a setting value., Validate a TUI setting value against its schema, looked up by name. Args:…, SettingSchema (+10 more)
+### Community 156 - "Argument Validation"
+Cohesion: 0.13
+Nodes (16): ArgValidator, _build_validation_model(), Any, BaseModel, Delivery-agnostic argument validation for job functions. Provides: -…, Validate kwargs against Field-annotated parameters of function. Returns a new…, Retrieve cached model or build one for the function., Introspect function signature, extract Field-annotated params, build a dynamic… (+8 more)
 
-### Community 149 - "AST Dependency Extraction"
+### Community 157 - "Stdout Result Emission"
+Cohesion: 0.21
+Nodes (13): _compact_json(), _is_streaming(), Any, IO, Stdout emission for Unix pipe composability (§C.2 serialization contract). The…, Write *return_value* to stdout according to the resolved format.…, Collect a generator into a list for one-document JSON, spill-aware. Non-…, A generator/iterator return streams row-wise; str/bytes/mapping do not. (+5 more)
+
+### Community 158 - "Wiring Facade"
+Cohesion: 0.12
+Nodes (13): MappingProxyType, `rc.wiring` — the plugin configs and resources this app provides., Any, BaseModel, T, What the *app* wired up, that this job can look up — `rc.wiring`. Extracted…, Every resolved plugin config section, read-only., The resolved config for ``section``. Raises: KeyError: No such section, naming… (+5 more)
+
+### Community 159 - "AI State Fallback"
+Cohesion: 0.14
+Nodes (10): EphemeralStateBackend, Any, AI state fallback logic for graceful degradation. When the State domain…, In-memory state backend used as a fallback when State domain is absent.…, Return all keys matching the given prefix., Wrapper around a real StateBackend that propagates all runtime errors. When the…, Delegate to real backend — propagates any runtime error., Resolve the state backend for the AI domain. Determines whether to use a real… (+2 more)
+
+### Community 160 - "Scaffold CLI"
+Cohesion: 0.12
+Nodes (19): domains_list(), add_app(), list_app(), list_domains(), group, Scaffold sub-command for the unified func/functualize CLI. Provides project and…, Create new projects and add components to existing ones., List all discovered domains and their available scaffold templates. (+11 more)
+
+### Community 161 - "Config Snapshot Store"
+Cohesion: 0.13
+Nodes (12): ConfigSnapshotStore, Any, Path, Get recent snapshots for a job in reverse chronological order. Args: job_name:…, Serialize the store to a dict for JSON persistence. Returns: A dict…, Deserialize a store from a dict. Args: data: A dict previously produced by…, Load a store from disk. If the file doesn't exist, returns an empty store. If…, Atomically write store to disk using tempfile + os.replace. No-op if path is… (+4 more)
+
+### Community 162 - "PEP 723 Script Metadata"
+Cohesion: 0.16
+Nodes (19): check_deps_available(), declared_job(), _extract_package_name(), maybe_delegate_to_uv(), parse_pep723_deps(), parse_script_metadata(), _parse_tool_table(), Any (+11 more)
+
+### Community 163 - "Resolved Config Fields"
+Cohesion: 0.14
+Nodes (18): _chain_resolve(), _coerce(), env_name_for(), _model_default(), _origin_for(), Any, The one answer to "what value will this config field have?". Four…, Resolve every field of ``config_class`` with its provenance. Precedence is CLI,… (+10 more)
+
+### Community 164 - "Environment Config Source"
+Cohesion: 0.12
+Nodes (10): EnvSource, Return all keys available for the given section., Reads configuration from os.environ using SECTION_KEY convention. Key lookup…, Return 'env' source type identifier., Return 'environ' source identifier., Initialize the environment source. Args: environ: Optional dict to use instead…, Get the environment dict (os.environ or injected override)., Retrieve a value from environment variables. (+2 more)
+
+### Community 165 - "Vault Config Source"
+Cohesion: 0.12
+Nodes (11): format_duration(), Render a duration the way the staleness warning says it aloud. Two units at…, Any, Whether this source can answer anything at all. Both halves matter, and for…, Whether a key is available, regardless of what is stored. Deliberately distinct…, Return a synced value, or None to defer to the next source. Raises:…, Whether the vault holds this key, without decrypting it., Every key the vault holds for a section, without decrypting any. (+3 more)
+
+### Community 166 - "AST Dependency Extraction"
 Cohesion: 0.19
 Nodes (19): AST, _add_dependency(), extract_first_level_dependencies(), _get_relative_base(), _is_within(), Path, AST-based first-level dependency extraction for cache invalidation. Parses…, Resolve a dotted module name to a file path within project_root. Checks two… (+11 more)
 
-### Community 150 - "AI Model Invocation"
-Cohesion: 0.13
-Nodes (12): Any, Stream response tokens as an iterator of string chunks. Uses PydanticAI's…, Extract structured data from text using the given model. Creates a PydanticAI…, Build model settings dict from AIConfig and overrides. Combines the base…, Convert functualize AILimits into PydanticAI UsageLimits. Args: limits:…, Extract tool call records from PydanticAI result messages. Inspects the message…, Convert PydanticAI RunUsage into functualize TokenUsage. Args: usage: The…, Complete a prompt, optionally returning a structured response. Creates a… (+4 more)
-
-### Community 151 - "Bitwarden Secrets Provider"
-Cohesion: 0.14
-Nodes (14): organization_for(), The organization to search for a key-name reference. Raises:…, Any, KeyError, Resolve one reference to its value. Args: reference: Everything after…, Turn a key name into a secret id, or explain why it cannot., The reference is well-formed and nothing is stored under it., ``bws://<uuid>`` or ``bws://<key>`` — Bitwarden Secrets Manager. (+6 more)
-
-### Community 152 - "Local Task Provider"
+### Community 167 - "AI Agent Loop"
 Cohesion: 0.17
-Nodes (11): LocalTaskProvider, List tasks, optionally filtered by status or title substring., Update a task's status and/or notes. Raises: TaskNotFoundError: If the task_id…, Delete a task by its ID. Raises: TaskNotFoundError: If the task_id does not…, Associate a task with a job, workflow step, or job phase. Raises:…, TaskProvider implementation using StateBackend with ``tasks:`` prefix. Each…, Return the full state key for a task ID., Serialize a TaskItem to JSON string. (+3 more)
+Nodes (14): _extract_tool_calls(), _extract_usage(), Any, PydanticAI, Continue a conversation from message history. Resumes an AI conversation using…, Resolve a ToolScope into a list of ToolDef instances., Async implementation of the agent loop using PydanticAI Agent. Creates a…, Async implementation of conversation continuation. Creates a PydanticAI Agent… (+6 more)
 
-### Community 153 - "PEP 723 Script Metadata"
-Cohesion: 0.17
-Nodes (19): check_deps_available(), declared_job(), _extract_package_name(), maybe_delegate_to_uv(), parse_pep723_deps(), parse_script_metadata(), _parse_tool_table(), Any (+11 more)
+### Community 168 - "AWS Lambda Adapter"
+Cohesion: 0.15
+Nodes (13): _envelope(), LambdaAdapter, handler(), Any, Functualize Lambda Adapter Plugin — AWS Lambda delivery for FunctualizeApp.…, AWS Lambda delivery adapter. Satisfies the AdapterPlugin Protocol. Supports…, Setup phase — store app reference. Args: app: The FunctualizeApp kernel…, Fat Lambda entrypoint — route event to the correct job. Parses the event to… (+5 more)
 
-### Community 154 - "Panel Ring Navigation"
+### Community 169 - "Dynamic Input Bar"
+Cohesion: 0.12
+Nodes (12): DynamicInputBar, ComposeResult, Vertical, Widget, Sigil of the mode currently active., The mode currently active, or None if no default is registered., The widget the active mode is using. The default widget unless the active mode…, Point the host at the mode owning ``text``. Returns True if it changed. Called… (+4 more)
+
+### Community 170 - "Panel Ring State"
 Cohesion: 0.10
 Nodes (11): PanelRing, PanelRing — pure state machine for ordered panel navigation with wrapping. Zero…, Replace the panel list, clamping index if it exceeds the new length. If the new…, Manages ordered panel list with wrapping navigation. Attributes: prefix:…, Return the current panel index., Return the current panel ID, or None if the ring is empty., Format: ``[R:1/3] Config Table``. Returns empty string if the panel list is…, Advance index by one, wrapping from N-1 to 0. No-op if the panel list is empty.… (+3 more)
 
-### Community 155 - "Remote Annotation Scanning"
-Cohesion: 0.14
-Nodes (17): AnnotationScan, Deciding which config values are remote annotations (ADR-016). A config value…, The result of scanning resolved config for remote annotations., True when anything remote was declared at all., Every ``scheme`` in a value, treating a fallback chain as its parts. Returns an…, Find the remote annotations in a mapping of config values. Args: values: Config…, A value shaped like an annotation whose provider is not registered. Carries no…, scan_annotations() (+9 more)
+### Community 171 - "Shortcut Save Modal"
+Cohesion: 0.13
+Nodes (12): Changed, Submitted, Set the border title and generate the initial preview. ``border_title`` is a…, Update preview when any input changes., Confirm on Enter inside any field — terminal-independent path. ``ctrl+enter``…, Regenerate the preview content from current input values. No-op once the…, Detach the preview from auto-regeneration on real user edits. Only a genuine…, Refresh the ``Preview:`` label to show the detached indicator. (+4 more)
 
-### Community 156 - "Fullscreen TUI App"
-Cohesion: 0.12
-Nodes (11): FullscreenTuiApp — a shipped TextualApp subclass (the fullscreen shell). A…, Shared prompt modal for job-owned Textual apps. A ``PromptRequest`` rendered as…, FuncEvent, Any, Message, on, A functualize ``StructuredEvent`` delivered onto the Textual message pump.…, Textual ``App`` that satisfies both ``Surface`` and ``PromptCollector``. See… (+3 more)
+### Community 172 - "Workflow Graph Cache"
+Cohesion: 0.11
+Nodes (12): One node of a cached graph: its key, its kind, and (gates) its model. ``model``…, One edge of a cached graph. ``None`` as a target means ``END`` — it terminates…, The cache-serializable projection of a :class:`WorkflowDeclaration`. A…, The node the walk starts from — the first declared node., Names of every `Step` node, in declaration order., Names of every `Gate` node, in declaration order., Serialize to the schema §2 ``workflow`` cache entry., Rebuild from a cache entry, tolerating anything malformed. A corrupt or partial… (+4 more)
 
-### Community 157 - "Bitwarden Client Auth"
+### Community 173 - "Bitwarden Client"
 Cohesion: 0.18
 Nodes (17): BitwardenAuthError, BitwardenRequestError, build_client(), clear_client_cache(), MissingOrganizationError, Any, RuntimeError, Building and authenticating the Bitwarden Secrets Manager client.… (+9 more)
 
-### Community 158 - "Gate Registry Presets"
-Cohesion: 0.13
-Nodes (13): Register an ordered fallback list of strategies under a preset name. Args:…, GateRegistry, Any, BaseModel, Resolve a gate by applying the resolution algorithm. Steps: 1. Determine…, Convert the gate_strategy parameter into an ordered list of (name,…, Registry for gate resolution strategies and presets. Manages the mapping of…, Retrieve a registered preset by name. Returns: The ordered list of strategy… (+5 more)
-
-### Community 159 - "Annotation Parsing Utilities"
+### Community 174 - "Annotation Parsing"
 Cohesion: 0.18
 Nodes (18): AnnotationInfo, _is_basemodel_subclass(), _is_cli_marker(), _is_di_type(), _is_field_info(), _is_provide_marker(), parse_annotation(), Any (+10 more)
 
-### Community 160 - "File Picker View"
-Cohesion: 0.13
-Nodes (8): NewFilePickerView, ComposeResult, Widget, The locations on offer., The candidate under the cursor, or None when empty., Move down one row, wrapping., Move up one row, wrapping., Row-navigable list of conventional file locations. Same interaction contract as…
+### Community 175 - "Setting Value Validation"
+Cohesion: 0.22
+Nodes (16): Validate a value against the catalog schema for ``name``., validate_func_setting(), Setting schemas and value validation. Validates user input against defined…, Validate a value against an explicit schema. The schema-first entry point: the…, Result of validating a setting value., Validate a TUI setting value against its schema, looked up by name. Args:…, validate_against(), _validate_bool() (+8 more)
 
-### Community 161 - "Job Candidate Filtering"
-Cohesion: 0.11
-Nodes (10): JobCandidate, Return True if the function name starts with the configured prefix. Matched…, Return True if the function name ends with the configured postfix. Matched…, Return True if the function carries any configured decorator., Return True if every configured filter admits the candidate., The minimum a job-level filter needs to judge a candidate. ``JobDescriptor``…, Bare function name (the portion after the last dot)., The function's Python ``__name__``. Distinct from :attr:`func_name`, which is… (+2 more)
-
-### Community 162 - "SQLite State Plugin"
-Cohesion: 0.14
-Nodes (10): Register the plugin with the application instance. Hooks into APP_READY for…, Any, Plugin that registers SQLite-backed StateBackend and ExecutionStore. At boot…, Initialize SQLite instances and register with DI registry. Creates…, Replace the scope's in-memory state store with SQLite-backed state. Creates a…, Resolve database path from app configuration. Returns None to use the default…, The SQLiteStateBackend instance (available after APP_READY)., The SQLiteExecutionStore instance (available after APP_READY). (+2 more)
-
-### Community 163 - "AWS Session Management"
-Cohesion: 0.19
-Nodes (15): AwsReference, What distinguishes one credential resolution from another. ``name`` is…, A parsed reference: what to fetch, and whose credentials to fetch it with., AccountMismatchError, _assert_account(), _assume(), _Assumed, _base_session() (+7 more)
-
-### Community 164 - "Confirm Prompt Widgets"
-Cohesion: 0.18
-Nodes (9): ConfirmNeutralWidget, PromptResult, Message, on, OptionSelected, Submitted, Message posted when a widget produces a result., Toggle selection on the chosen option. (+1 more)
-
-### Community 165 - "Lambda Delivery Adapter"
-Cohesion: 0.14
-Nodes (11): LambdaAdapter, Any, Functualize Lambda Adapter Plugin — AWS Lambda delivery for FunctualizeApp.…, Fat Lambda entrypoint — route event to the correct job. Parses the event to…, Create a thin-Lambda handler bound to a specific job. Returns a callable with…, No-op shutdown. Lambda functions are stateless., Internal: parse event and execute the job. Args: event: Lambda event dict with…, Turn a finished run into a Lambda proxy response. Both handler shapes -- fat… (+3 more)
-
-### Community 166 - "Package Install Modes"
+### Community 176 - "Display Provider Discovery"
 Cohesion: 0.15
-Nodes (16): InstallMode, StrEnum, Whether functualize declines to manage this installation. Derived rather than…, The vocabulary that reaches JSON output and the override variable. A…, _call(), clear_pending(), load_pending(), pending_path() (+8 more)
+Nodes (17): Display-provider discovery for the inline TUI. Displays reach the TUI by three…, Register displays from the discovery cache's ``displays`` section. The job scan…, Scan for a 'displays.py' in the CWD and register what it defines. If found,…, Discover and register DisplayProviders with the DisplaySlot., The display_ids already registered with the DisplaySlot. Used to dedupe across…, Register displays published by installed packages. An entry point may resolve…, _register_cached_displays(), _register_cwd_displays() (+9 more)
 
-### Community 167 - "Config Edit Messages"
-Cohesion: 0.13
-Nodes (11): A write failed — tell the user rather than silently doing nothing., InsertRequested, Message, Stage an edit for a row via the app's SmartBar INSERT flow. Carries a…, Alias for readers that think in terms of the edited field., Staged changes were written. Carries what changed, for refresh., A write failed — surfaced rather than swallowed., Args: provider: The domain adapter to render and save through. flavor:… (+3 more)
+### Community 177 - "Display Registration Ring"
+Cohesion: 0.12
+Nodes (10): Path, Register a DisplayProvider into the ring. Inserts sorted by display_priority…, Remove a display from the ring by ID., Update the current working directory and recompute visibility., Recompute which displays are visible based on should_show(cwd, app)., Remove all children from the display content container., Drop a display's executor without waiting for its hung call., Stop and remove a refresh timer for a display. (+2 more)
 
-### Community 168 - "Editable Table Widget"
+### Community 178 - "Job Config View"
+Cohesion: 0.19
+Nodes (18): coerce_value(), _get_field_type(), _is_enum_subclass(), _is_supported_type(), Any, JobConfigView — scoped, read-write config access for job execution. Wraps…, Extract the type annotation from a Pydantic field info object. Handles both…, Check if a type is an Enum subclass (but not Enum itself). (+10 more)
+
+### Community 179 - "Cached Job Scanning"
+Cohesion: 0.14
+Nodes (10): CachedDirectoryScanProvider, Return all valid job descriptors via incremental cache validation. Performs: 1.…, Modules this provider's last pass could not parse or import. Empty when the…, Return True if the job-level filter admits this descriptor., Pass the descriptor through the job-level filter (None if rejected). A…, Return cache statistics (entry count, stale count, file size, path). Staleness…, Rebuild the name index from retained entries, reporting collisions. Delegates…, Return the set of source file paths currently in the cache. Includes display-… (+2 more)
+
+### Community 180 - "Job Reference Markers"
+Cohesion: 0.12
+Nodes (8): FromJob, Any, The referenced job, as written., Whether resolving this reference may execute the upstream., The upstream job's name., Reject the subscript form with the syntax that actually works. ``X[...]`` is…, The referenced step, as written., A reference to another job, used in a parameter annotation. See the module…
+
+### Community 181 - "Secrets Manager Provider"
+Cohesion: 0.16
+Nodes (13): organization_for(), The organization to search for a key-name reference. Raises:…, Any, KeyError, Resolve one reference to its value. Args: reference: Everything after…, Turn a key name into a secret id, or explain why it cannot., The reference is well-formed and nothing is stored under it., ``bws://<uuid>`` or ``bws://<key>`` — Bitwarden Secrets Manager. (+5 more)
+
+### Community 182 - "Shortcut File Generation"
+Cohesion: 0.18
+Nodes (16): append_or_write_python_shortcut(), _collapse_blank_line_runs(), _escape_python_string(), _generate_python_shortcut(), generate_shortcut_content(), Shortcut file content generation (Python-only). Generates valid Python shortcut…, Collapse runs of 3+ consecutive blank lines down to ``max_consecutive``. Used…, Write a Python shortcut, appending to an existing file rather than overwriting.… (+8 more)
+
+### Community 183 - "Editable Table Widget"
 Cohesion: 0.12
 Nodes (10): EditableTable, Widget, Reusable editable table widget built on Textual's DataTable. Provides: - Proper…, Configure the DataTable on mount., Set column headers (e.g., ['Setting', 'Value', 'Source']). Args: columns: List…, Set row data: list of (row_key, cell_values, choices_for_value | None). Args:…, Update a single row's cell values without full rebuild. Args: row_key: The key…, Reusable table widget with inline editing and choice autocomplete. Provides: -… (+2 more)
 
-### Community 169 - "Live Panel Widget"
+### Community 184 - "App Substrate & CLI"
 Cohesion: 0.12
-Nodes (10): LivePanelWidget, Any, ComposeResult, Widget, j / down — scroll the construct body., k / up — scroll the construct body., Footer hints — the construct's own, else scroll/back defaults., Interactive PanelHost panel wrapping a job's ``LiveConstruct``. (+2 more)
+Nodes (13): deleter, setter, Where this project's documents live, or None for the default. The…, Install a substrate. **Boot only, and before the engine resolves one.**, The CLI command tree — a ``click.Group``, lazily built. Holds discovered jobs…, Allow setting cli_command (patch support)., Allow deleting cli_command (patch restore)., Entry point — delegates to the active adapter. (+5 more)
 
-### Community 170 - "Frontier Walk State"
+### Community 185 - "Shell Capability Protocol"
+Cohesion: 0.13
+Nodes (10): AbstractContextManager, Any, Protocol, DI-injectable shell-command capability (proposal Part B). Three command forms…, Run commands in ``path`` for the duration of the block (§B.3). Nestable — a…, Prepend ``command`` to every command in the block (§B.3). ``with…, Register a cleanup command to run when the job exits (§B.5). Deferred commands…, Run and clear all deferred commands, LIFO (engine-owned, §B.5). Best-effort: a… (+2 more)
+
+### Community 186 - "Scope Step Records"
+Cohesion: 0.13
+Nodes (12): Take the scope, and fence every write this walk makes. Returns the generation…, Write the one thing a taken-over scope can honestly say. Nothing preempts a…, True when this step already completed in this scope (§D.7d). Resume re-invokes…, Per-scope step-record key: ``<job_name>::<args_hash>`` (§D.7d)., step_key(), current_iteration(), iteration_step_key(), Any (+4 more)
+
+### Community 187 - "Textual App Bridge"
 Cohesion: 0.14
-Nodes (10): FrontierWalk, Any, Record ``node`` as finished and expand the frontier past it. For a conditional…, Persist a BLOCKED position and its gate payload slot (§D.7b/c). The walk stops…, Deposited input for a gate, or None while still blocked., Every step recorded in this scope (drives replay-skip)., True when this step already completed in this scope (§D.7d). Resume re-invokes…, Return the branch to take, preferring the one already recorded. Recording on… (+2 more)
+Nodes (9): FuncEvent, Any, Message, on, A functualize ``StructuredEvent`` delivered onto the Textual message pump.…, Textual ``App`` that satisfies both ``Surface`` and ``PromptCollector``. See…, Deliver an engine event onto the loop thread (buffered pre-mount). Called from…, Render one engine event. Override point; runs on the loop thread. (+1 more)
 
-### Community 171 - "Plugin Config Registry"
-Cohesion: 0.12
-Nodes (10): PluginConfigRegistry, Any, Plugin config registry for storing resolved plugin config model instances. Only…, Stores resolved plugin config model instances keyed by config_section. Thread-…, Register a resolved plugin config. Args: section: The config section namespace…, Retrieve a plugin config by section. Args: section: The config section…, Return a copy of all registered configs., Check if a section is registered. (+2 more)
-
-### Community 172 - "AI Outbound Gate Resolver"
-Cohesion: 0.20
-Nodes (12): AIOutboundGateResolver, Any, BaseModel, Validate pending input against the gate's model and construct it. Args: ctx:…, Serialize workflow checkpoint state for MCP exposure. Stores the gate's pending…, Check for pending external input stored for this gate. The MCP workflow tools…, Register the 'ai_outbound' gate strategy and preset with the app. This should…, Gate resolver that pauses execution for external AI input via MCP. When a… (+4 more)
-
-### Community 173 - "Panel Live Zone"
-Cohesion: 0.19
-Nodes (8): PanelLiveZone, Pre-mount the ambient constructs eligible for this job. Goes through the app…, Build + mount the panel widget. Loop thread only (via marshal)., Repaint the zone from the current constructs (thread-safe)., Forward events to hosted constructs that consume them. Mirrors…, A live zone backed by a Textual ``Static`` in the TUI output area. Satisfies…, Drop a mounted ambient construct by name (``live.suppress``)., Drop every mounted ambient construct (``live.suppress_all``).
-
-### Community 174 - "Panel Config Actions"
-Cohesion: 0.12
-Nodes (10): PanelActions, Any, Drill down into nested config for the current selection., Clear any active drill-down state., Exit the panel's detail sub-view, if one is active., Panel capability: optional panel-owned action surface. Declares the optional…, Return the field definition at the current cursor position., Reset the override for the currently selected field. (+2 more)
-
-### Community 175 - "Config Error Types"
-Cohesion: 0.14
-Nodes (11): ConfigurationError, PresetNotFoundError, Exception, Referenced provider is not registered. Attributes: provider_name: The…, Remote fetch exceeded timeout. Attributes: provider: The remote provider…, Referenced configuration preset does not exist. Attributes: name: The preset…, Base for all configuration system errors., No provider registered for a file extension. Attributes: extension: The… (+3 more)
-
-### Community 176 - "Prompt Gate Resolver"
-Cohesion: 0.18
-Nodes (12): _build_question(), PromptGateResolver, Any, BaseModel, PROMPT gate strategy resolver — collects gate inputs via a Surface. Uses the…, Register the prompt gate strategy on ``app``. ``collector_factory`` resolves…, Build a human-readable question from field name and description. Args:…, Gate resolver that collects field values via interactive prompts. Uses the… (+4 more)
-
-### Community 177 - "Guard Evaluation"
-Cohesion: 0.21
-Nodes (11): _call_guard(), guard_key(), GuardEvaluator, GuardVerdict, Any, Stable cache key for a guard: the command string, or callable identity., Runs the §D.2 pipeline for a job. Args: shell_runner: Runs a guard's shell…, Evaluate the pipeline and return the verdict. Args: platforms: Allowed… (+3 more)
-
-### Community 178 - "Contextual Display Widgets"
-Cohesion: 0.12
-Nodes (12): Display, DrillDown, ComposeResult, Message, Path, Widget, Whether this display is relevant to ``cwd``. Runs on the event-loop thread for…, Yield the widget tree for this display's body. (+4 more)
-
-### Community 179 - "AI Provider Discovery"
+### Community 188 - "AI Provider Discovery"
 Cohesion: 0.24
 Nodes (15): _auto_select_provider(), discover_ai_providers(), _load_entry_point(), Any, EntryPoint, AI provider discovery and auto-selection. Reads the [ai] config section and…, Auto-select a provider when none is explicitly configured. If exactly one…, Load an entry point and return the plugin object. Args: ep: The entry point to… (+7 more)
 
-### Community 180 - "AWS Secrets Providers"
-Cohesion: 0.16
-Nodes (10): _AwsProvider, _guard_missing(), ParameterStoreProvider, Any, Run an AWS call, turning its 'not found' codes into one exception. Secrets…, ``aws-sm://<secret-id>[?...]`` — AWS Secrets Manager., ``aws-ssm://<parameter-name>[?...]`` — SSM Parameter Store. ``WithDecryption``…, Shared behaviour: parse, build a client, fetch, never log the value. (+2 more)
+### Community 189 - "Panel Navigation"
+Cohesion: 0.15
+Nodes (8): Advance to the next panel in the ring (wraps)., Move to the previous panel in the ring (wraps)., Jump to the first panel in the ring., Jump to the last panel in the ring., Push a sub-level onto the breadcrumb stack (max 2 sub-levels)., Pop one sub-level. Returns True if popped, False if at root., Show only the widget that currently owns the screen, hide the rest. With a sub-…, Update breadcrumb header and dynamic footer for the current panel. Delegates to…
 
-### Community 181 - "Inline Prompt App"
-Cohesion: 0.12
-Nodes (9): InlinePromptApp, Any, ComposeResult, on, Textual inline applications for prompt rendering. Uses Textual's `inline=True`…, A short-lived Textual app that renders a prompt widget inline. Returns a tuple…, Start timeout timer if configured., Auto-dismiss on timeout. (+1 more)
-
-### Community 182 - "Autocomplete Dropdown Widgets"
+### Community 190 - "Func Settings Provider"
 Cohesion: 0.14
-Nodes (11): _EmptyOptionList, FunctualizeDropdownItem, Any, Custom AutoComplete subclass for functualize SmartBar. Overrides textual-…, Override to short-circuit when suppressed., DropdownItem subclass that separates display text from insertion value. In…, # NOTE: Textual's Input.value setter posts Input.Changed, but the, Stands in for the dropdown's option list (always empty). (+3 more)
+Nodes (9): FuncSettingsChainProvider, `func`'s own settings, backed by ``FuncSettingsStore``. The chain spans the…, Args: store: The settings chain to read and write. apply_hook: Optional…, The underlying settings store., Re-read every settings source., Map a file source id back to its path, if it is one of ours., Describe the settings file behind ``source_id``., Persist settings to the file behind ``source_id``. Edits are keyed by dotted… (+1 more)
 
-### Community 183 - "Module Group Transform"
+### Community 191 - "Module Grouping Transform"
 Cohesion: 0.20
 Nodes (9): GroupByModuleTransform, Any, Path, Set group field from module-level variable for each job., Read the module-level variable, set group, and rewrite name to qualified form., Read the configured attribute from the job's source module. Attempts to find…, Find a module in sys.modules that corresponds to the source file., Load a module from a source file for attribute extraction. (+1 more)
 
-### Community 184 - "Gate Resolution System"
-Cohesion: 0.18
-Nodes (11): Gate context dataclass for gate resolution. Carries all information a gate…, Gate resolution system. Provides the gate strategy enum, resolver protocol,…, Gate strategy and preset registry. Provides storage and lookup for registered…, Name the unregistered strategies, and the package each one needs. This is the…, _unregistered_message(), Gate resolver protocol definition. Defines the interface that gate strategy…, Default gate resolver that constructs a model from resolved fields. This…, ResolveResolver (+3 more)
+### Community 192 - "Run Log Format"
+Cohesion: 0.19
+Nodes (14): empty_runs(), normalize_runs(), Any, Run-log file format: the third sibling, and the one that discards.…, The payload to store: the current version stamped on, and the cap applied. A…, Hold both rings to their caps, newest kept. Runs are sorted by id, which is a…, Return a fresh run envelope. Three keys, no more., Coerce stored content into a run envelope, discarding anything unusable.… (+6 more)
 
-### Community 185 - "Local Tasks Plugin"
-Cohesion: 0.16
-Nodes (8): Functualize Tasks Local Plugin — state-backed task storage. Provides a…, LocalTasksPlugin, Any, Local Tasks Plugin — DI registration. Registers LocalTaskProvider as…, Plugin that registers a local StateBackend-backed TaskProvider. At boot time…, The LocalTaskProvider instance (available after APP_READY)., Initialize LocalTaskProvider and register with DI registry. Resolves the…, Local TaskProvider implementation backed by StateBackend. Stores tasks as JSON…
+### Community 193 - "Config Drill-Down Handlers"
+Cohesion: 0.15
+Nodes (8): DrillDownRequested, Handle drill-down request from ConfigTablePanel — show resolution chain.…, Enter on a config file → push the interactive file Detail view. Rows are the…, Enter on a settings file → push the file Detail view. Rows are the settings…, Enter on a setting → push the interactive key Detail view. Rows are the…, A settings provider whose saves take effect immediately., Path, Initialise a vault over a file path. Args: path: The vault database. Parent…
 
-### Community 186 - "UV Tool Requirements"
+### Community 194 - "Tasks Capability"
+Cohesion: 0.17
+Nodes (9): Emit an event if an event bus is available., _EventBus, Any, Protocol, Task management capability — mutable planning scratchpad. Provides methods to…, Create a new task and return its generated unique ID. Emits a…, Update a task's status and/or notes. Emits ``tasks.task.updated`` when the…, Delete a task by its ID. Emits a ``tasks.task.deleted`` event with the task id.… (+1 more)
+
+### Community 195 - "Task Provider Core"
+Cohesion: 0.20
+Nodes (8): Exception, Raised when a task operation targets a task_id that does not exist., TaskNotFoundError, _InMemoryTaskProvider, Associate a task with a job, workflow step, or job phase. Args: task_id: The…, Simple in-memory TaskProvider used when no external provider is configured.…, Specifies what a task is optionally linked to. Attributes: kind: The type of…, TaskLink
+
+### Community 196 - "UV Tool Receipts"
 Cohesion: 0.20
 Nodes (9): LossyReceiptError, MissingToolError, RuntimeError, The external tool this mode's commands are built from is not present. Distinct…, A uv receipt carries a key this module cannot render back. Raised rather than…, One entry from a uv tool receipt's ``requirements`` list. ``fields`` holds the…, Reconstruct the requirement string uv was originally given. A ``directory``…, How this requirement is restated to ``uv tool install``. Editability is a… (+1 more)
 
-### Community 187 - "Atomic TOML Writer"
+### Community 197 - "TOML Section Writer"
 Cohesion: 0.20
 Nodes (14): _apply_section_changes(), _apply_top_level_changes(), format_toml_value(), _normalize_hint(), Path, _quote(), Atomic TOML section writer for TUI-staged config edits. The TUI edits every…, Write edits and removals to a TOML section atomically. Strategy: - If file… (+6 more)
 
-### Community 188 - "Table Cursor Navigation"
+### Community 198 - "Display Refresh Workers"
+Cohesion: 0.16
+Nodes (8): _callback(), The Textual app to dispatch workers / marshal UI writes through., Synchronize refresh timers with the currently visible displays. Starts timers…, Create a refresh callback bound to a specific display_id., Dispatch a provider refresh onto a thread worker. Called from a…, Return the visible provider with this id, or None., Repaint after a successful refresh (loop thread)., Bring the mounted content up to date after a refresh (loop thread). - A drill-…
+
+### Community 199 - "SmartBar Protocol"
+Cohesion: 0.16
+Nodes (5): Any, Protocol, setter, Protocol defining the SmartBar interface needed by InsertModeController., SmartBarProtocol
+
+### Community 200 - "Job Descriptor Registry"
 Cohesion: 0.15
-Nodes (5): Move cursor down one row, wrapping from last to first., Move cursor up one row, wrapping from first to last., Move cursor right one column, clamping at last column., Move cursor left one column, clamping at first column., Synchronize the DataTable's visual cursor with internal state.
+Nodes (8): Any, Look up a descriptor by name, then by its canonical form., Retrieve a specific job by name with O(1) dict lookup. Flow: 1. Dict lookup in…, Remove all entries (jobs, displays, group options) for a source file., Import a module and extract job descriptors. Silent on failure. Also records…, Drop both claimants and the contested path from the cache. Called when a module…, Sync the group-options section with what an import pass just found. Raises:…, Sync the display section with what an import pass just found.
 
-### Community 189 - "Kwargs Validation"
-Cohesion: 0.17
-Nodes (12): ArgValidator, _build_validation_model(), Any, BaseModel, Collection, Validate kwargs against Field-annotated parameters of function. Returns a new…, Retrieve cached model or build one for the function., Introspect function signature, extract Field-annotated params, build a dynamic… (+4 more)
+### Community 201 - "MCP Tool Server"
+Cohesion: 0.16
+Nodes (10): _build_tool_function(), _no_params_handler(), _execute_job(), Any, Register a single job as an MCP tool with FastMCP. Dynamically creates a typed…, Start the MCP server using stdio transport. This is the default transport for…, Start the MCP server using HTTP+SSE transport. Used when ``func mcp serve…, Build a dynamically-typed async function for a job tool. Creates a function… (+2 more)
 
-### Community 190 - "Input Mode Registry"
-Cohesion: 0.13
-Nodes (7): InputModeRegistry, Input modes — what the shell's input bar is currently doing. The bar has…, The mode that owns ``text``, by its first character. Falls back to the default…, Registered sigils, default first., The mode registered for ``sigil``, if any., Sigil -> mode. One default mode, any number of sigil modes. Registration is…, Add ``mode``. Raises: ValueError: another mode already claims this sigil, or…
+### Community 202 - "Run History Store"
+Cohesion: 0.16
+Nodes (10): One line per run record, across both namespaces (T42). The ring holds two…, data_clear(), history_command(), _render_history(), Path, Path, Build a store on the project's resolved substrate., Path (+2 more)
 
-### Community 191 - "AI State Fallback"
+### Community 203 - "TUI Breadcrumb Header"
 Cohesion: 0.15
-Nodes (9): EphemeralStateBackend, is_state_domain_available(), AI state fallback logic for graceful degradation. When the State domain…, Check if the functualize-state package is importable. This is a simple…, In-memory state backend used as a fallback when State domain is absent.…, Return all keys matching the given prefix., Resolve the state backend for the AI domain. Determines whether to use a real…, resolve_ai_state_backend() (+1 more)
+Nodes (10): BreadcrumbHeader, Static, Displays the breadcrumb navigation header for the active panel. Renders a…, Update the displayed breadcrumb from a BreadcrumbState. Calls state.render() to…, Clear the breadcrumb display (empty content)., BreadcrumbState, Immutable breadcrumb state for rendering. Represents the current panel position…, Render as '[R:1/3] Config Table > Field Detail: region'. Format: [TYPE:N/M]… (+2 more)
 
-### Community 192 - "In-Memory Task Provider"
-Cohesion: 0.23
-Nodes (7): Exception, Raised when a task operation targets a task_id that does not exist., TaskNotFoundError, _InMemoryTaskProvider, Simple in-memory TaskProvider used when no external provider is configured.…, A single task with id, title, status, and optional metadata. Attributes: id:…, TaskItem
-
-### Community 193 - "Fingerprint Recording"
-Cohesion: 0.14
-Nodes (10): Source, EventBus, Initialize with an ordered list of sources. Args: sources: List of Source…, Return the ordered list of sources., Declared outputs, as project-relative POSIX paths., Write the fingerprint for a run that just succeeded. A no-op when the job…, classify_return_value(), make_record() (+2 more)
-
-### Community 194 - "Gate Strategy Protocols"
-Cohesion: 0.15
-Nodes (8): Register a gate resolution strategy by name. Args: name: Strategy identifier…, Access the registered gate strategies dict., Retrieve a registered strategy by name. Returns: The GateResolver instance, or…, GateResolver, BaseModel, Protocol for gate strategy implementations. Any class implementing this…, Attempt to resolve a gate's input model. Args: ctx: The gate context with model…, Resolve the gate model from the config chain's resolved fields. Args: ctx: The…
-
-### Community 195 - "Config View Refresh"
-Cohesion: 0.14
-Nodes (7): Re-resolve settings and push them into the Settings panel, if built., The SettingsPanel in the General ring, if one was built., Staged changes were written → pop the view and re-resolve. The kernel parsed…, Callback from InsertModeController when an edit is confirmed. Updates the…, Refresh all config views from the current PendingExecution state. Updates: pre-…, Handle OverrideReset message from ConfigTablePanel. When the panel resets a…, Handle FileSaved → pop breadcrumb, rebuild PendingExecution, refresh. R2-AC14:…
-
-### Community 196 - "Panel Ring Management"
+### Community 204 - "Panel Ring Structure"
 Cohesion: 0.15
 Nodes (9): PanelRing, Remove a panel by ID. Returns new ring size, or None if not found., A panel registered in a ring. Frozen so it can be used as a stable reference;…, An ordered ring of panels within a single category. Maintains sorted order by…, Return the number of panels in this ring., Return the panel at the given index, or None if out of bounds., Set an anchor position ("first" or "last") for a panel_id., Insert a panel sorted by priority, respecting anchors. Anchored panels: -… (+1 more)
 
-### Community 197 - "Lazy Job Loading"
+### Community 205 - "PydanticAI Plugin Integration"
+Cohesion: 0.22
+Nodes (7): Any, PydanticAIPlugin, Resolve AIConfig from the app's [ai] config section. Falls back to default…, Resolve the AI state namespace for budget tracking. Uses the AI SDK's…, Plugin that registers PydanticAI-backed AI implementation. At boot time…, The PydanticAIProvider instance (available after APP_READY)., Initialize PydanticAI instances and register with DI registry. Reads AIConfig…
+
+### Community 206 - "Ambient Construct Resolution"
 Cohesion: 0.21
-Nodes (9): _detect_config_class(), _import_real_function(), LazyJobFunction, Any, CLI-free lazy job machinery for warm boot. Provides LazyJobFunction (deferred-…, Deferred-import stand-in for a job function. Construction does NOT import the…, Import the module (once) and return (real_fn, config_class). Idempotent and…, The warm-boot entry point to the one config-class rule. Delegates to… (+1 more)
+Nodes (11): Is there a real terminal for a job that declares ``tty: TTY``? Published here…, terminal_available(), has_eligible_ambient(), Any, Ambient constructs — plugin-provided live constructs that render by default.…, Instantiate the ambient constructs that should render for this run. Returns…, Whether any ambient construct would render for this job. Lets the CLI decide to…, Whether this entry should render for ``descriptor``. A predicate that raises is… (+3 more)
 
-### Community 198 - "Perf Phase Filtering"
-Cohesion: 0.19
-Nodes (12): filter_phases(), _glob_to_regex(), matches_any(), matches_pattern(), parse_patterns(), Pattern, Internal pattern matching for perf phase filtering., Check if a phase name matches a single pattern. Rules: - No '*' in pattern:… (+4 more)
-
-### Community 199 - "Fullscreen Shell Widgets"
-Cohesion: 0.19
-Nodes (9): Main split-pane screen for the fullscreen TUI shell. The prompt modal now lives…, FlowTreeWidget, Custom Textual widgets for the fullscreen TUI shell. Provides the flow tree…, Update a job node's status icon and optional message. Args: job_name: The job…, Add or update a workflow step under a job node. Args: job_name: The parent job…, Get the status icon for a given status string., Displays job execution hierarchy as a tree with status icons. Shows the root…, Add a job node to the tree. Args: job_name: The name of the job to add.… (+1 more)
-
-### Community 200 - "Tool Gate Policy"
-Cohesion: 0.19
-Nodes (7): GateToolPolicy, StateStore, True when ``tool_name`` may run right now. The requested name is canonicalized…, The permitted job tools, or None when nothing is restricted., The error envelope for a refused call., The state store, resolved from the cwd on first use., Decides whether a job tool may run while a gate is waiting. `Gate(name, awaits,…
-
-### Community 201 - "Config Target Discovery"
-Cohesion: 0.24
-Nodes (12): _build_env_var_target(), discover_config_targets(), _discover_project_files(), _get_user_config_target(), Path, Config file discovery for the target selector. Builds the ordered list of…, Build the user-level config target. Always shown even if the file doesn't exist…, Build the environment variable target. Pattern: {JOB_NAME}_{FIELD} in… (+4 more)
-
-### Community 202 - "State Store Errors"
+### Community 207 - "Display Slot Navigation"
 Cohesion: 0.15
-Nodes (8): InvalidStateTransitionError, Exception, Raised when attempting to transition from a terminal state., State store module providing typed key-value state container. The StateStore…, Remove all stored state. Raises: InvalidStateTransitionError: If the store is…, Remove a key from the store. No-op if key doesn't exist. Args: key: The state…, Mark scope as completed and close the underlying StateStore. Prevents further…, State store implementation — re-exports from canonical internal location.
+Nodes (6): Notify the slot that the recognized job has changed. Triggers auto-switch…, Navigate to the next visible display (Ctrl+I)., Navigate to the previous visible display (Ctrl+U)., Pop the sub-view and restore the display's base content. Returns True if a view…, Mount the currently indexed display's content. Rebuilding always returns to the…, Apply job-linked auto-switch behavior based on setting. - "auto": switch to the…
 
-### Community 203 - "Exec Retry Policy"
-Cohesion: 0.21
-Nodes (6): ExecPolicy, Job-level `Exec` policy: retry and run-mode dedup (§A.5). `Exec` was accepted…, Remembers what ran this session, for ``Exec.run`` dedup. In-memory and per-…, True when this job already ran under ``mode`` this session., Applies `Exec` to one invocation. Args: run_mode_cache: Session dedup store,…, RunModeCache
-
-### Community 204 - "Job Resolution & DI Validation"
+### Community 208 - "Panel Host Chrome"
 Cohesion: 0.15
-Nodes (7): Resolve a Pydantic config model and inject into context. Uses the resolution…, Look up a job and guarantee its function is the real callable. Same lookup…, Resolve a job's config model to a validated instance, without running it. The…, Materialize a lazily-registered entry; no-op for live entries. Imports the job…, Validate that all registered jobs have satisfiable DI bindings. Inspects each…, Collect DI binding errors for a single job function. The per-job body of…, Look up a registered job by qualified name, with fallback. Delegates to…
+Nodes (7): PanelHost, Whether the panel host is currently visible/active., Public setter for the ring's breadcrumb type-prefix., Return the current breadcrumb depth (0 = root level)., How many sub-views are stacked on the ring panel., Return the title of the currently displayed panel., Unified panel chrome and navigation for any panel ring type. Composes:…
 
-### Community 205 - "Destructive Confirmation Widget"
+### Community 209 - "Entry Point Job Provider"
+Cohesion: 0.19
+Nodes (7): EntryPointProvider, Retrieve a specific job by name. None if not found. Descriptors carry the…, Jobs published by an installed distribution under ``functualize.jobs``. A…, Every published job, as a lazy descriptor. Imports nothing., One job, fully resolved — **this is the call that imports.** Accepts the…, Build a lazy descriptor per entry point, without loading any.…, Import ``lazy``'s module and rebuild it with everything readable. Falls back to…
+
+### Community 210 - "Job Performance Timing"
+Cohesion: 0.22
+Nodes (7): Any, The engine-connected Perf — one timeline, shared with ``rc.events``. Every…, Record an instant mark, prefixed with the job name., Open a named timing phase., Close a named timing phase., The phases recorded for this job, filtered., WiredPerf
+
+### Community 211 - "Field Descriptor Serialization"
+Cohesion: 0.23
+Nodes (9): _field_from_dict(), _field_to_dict(), Any, Deserialize from a JSON dict. Raises: ValueError: If required keys are missing…, Serialize to a JSON-compatible dict for cache persistence. Uses config_fields…, Serialize a FieldDescriptor to a JSON-compatible dict., Convert a default value to a JSON-serializable form. A secret field's default…, Deserialize a FieldDescriptor from a JSON dict. Supports both the new key names… (+1 more)
+
+### Community 212 - "Workflow Graph Declaration"
+Cohesion: 0.15
+Nodes (7): The frozen graph attached by ``@workflow`` (mirrors ``JobDeclaration``). Holds…, Every declared notification that fires on ``status``., The node the walk starts from — the first declared node. Declaration order is…, Every `Step`'s job reference, in declaration order. Boot resolves these against…, Every `Gate` node, in declaration order., Names of every node reachable in one hop from ``source``. ``END`` is not a node…, WorkflowDeclaration
+
+### Community 213 - "AI Provider Protocol"
 Cohesion: 0.21
-Nodes (4): Input, ConfirmDestructiveWidget, ComposeResult, Red-bordered widget requiring the user to type 'yes' to confirm.
+Nodes (8): Stream a response as incremental text chunks. Args: prompt: The prompt text to…, AIProvider, Any, Protocol, Protocol that AI implementation plugins must satisfy. Defines the interface for…, Complete a prompt, optionally returning structured output. Args: prompt: The…, Run a prompt with optional tool calling and limits. Args: prompt: The prompt…, Extract structured data from text. Args: text: The text to extract data from.…
 
-### Community 206 - "Bitwarden Reference Parsing"
+### Community 214 - "Bitwarden Secret References"
 Cohesion: 0.26
 Nodes (11): Split the override block into key/value pairs. Hand-rolled rather than…, _fail(), InvalidReferenceError, _is_uuid(), parse_reference(), ValueError, The ``bws://`` reference grammar. :: bws://<secret-uuid>[?<key>=<value>[&...]]…, Parse a ``bws://`` reference into its parts. Args: reference: Everything after… (+3 more)
 
-### Community 207 - "Argument History Persistence"
+### Community 215 - "Argument History Persistence"
 Cohesion: 0.20
 Nodes (7): Any, Path, Reconstruct from deserialized JSON dict. Args: data: A dict previously produced…, XDG data dir: ~/.local/share/functualize/argument_history.json. Uses…, Load from XDG data dir or given path. Returns empty on failure. Args: path:…, Write to disk atomically (temp file + rename). Uses…, Serialize to JSON-compatible dict. Returns: A dict with ``version`` and…
 
-### Community 208 - "Scaffold Context Detection"
-Cohesion: 0.21
-Nodes (9): ContextType, detect_context(), Enum, Path, Context detection for scaffold commands. Determines whether the current working…, Classification of the current working directory., Result of context detection for the current working directory., Detect the scaffold context for the given or current directory. Classification… (+1 more)
-
-### Community 209 - "Source Chain Detail View"
+### Community 216 - "Shortcut Save Dialog"
 Cohesion: 0.17
-Nodes (7): What the Detail view needs from a domain to render and save it. Implemented by…, Re-read every source and return the current resolution., Describe the destination behind ``source_id``, if it is writable., Persist staged changes to ``source_id``'s destination atomically., Apply saved values to the running app. A no-op for job config (nothing is live…, SourceChainProvider, SourceChainDetailView — the shared Detail screen for config precedence. One…
+Nodes (9): _is_newer(), key(), Whether ``available`` should be installed over ``current``. A numeric…, Message, Shortcut file was written successfully., User cancelled the save dialog., Handle Ctrl+Enter (confirm), Escape (cancel). ``ctrl+enter`` is the key Textual…, ShortcutCancelled (+1 more)
 
-### Community 210 - "Resolution Pipeline"
+### Community 217 - "Display Zone Mounting"
 Cohesion: 0.17
-Nodes (7): EventBus, Execute full list_jobs resolution pipeline. Pipeline order: 1. Each provider's…, Execute get_job resolution for a single name. Queries providers in registration…, Number of registered providers., Number of registered app-level transforms., Orchestrates Provider → Transform → Registry resolution. Maintains registration…, ResolutionPipeline
+Nodes (7): Whether the user is interacting with the display zone right now. Consulted by…, ComposeResult, Vertical, Compose an empty container — content is mounted dynamically., Whether a display is still awaiting its first completed refresh. Chrome…, Awaited sub-view mount (loop thread)., Awaited content swap for the current display (loop thread). Waits for the…
 
-### Community 211 - "Fullscreen TUI App Shell"
+### Community 218 - "Config Source Protocol"
 Cohesion: 0.17
-Nodes (7): FullscreenTuiApp, Any, Full-screen split-pane app: flow tree (30%) + streaming log panel (70%)., Push the main screen on mount. Buffer flushing is handled separately by the…, Access the main screen., Render one engine event into the log panel (loop thread)., Fullscreen TUI shell for functualize.ui — a shipped TextualApp subclass.
+Nodes (5): Check if this source can provide a value for the key., Protocol for configuration value sources in the Resolution Chain. Each source…, Source type identifier (e.g., 'cli', 'env', 'remote', 'file', 'default')., Source identifier (e.g., file path, provider name, 'environ')., Source
 
-### Community 212 - "AWS Reference Parsing"
-Cohesion: 0.27
-Nodes (10): _fail(), InvalidReferenceError, parse_reference(), ValueError, The ``aws-sm://`` / ``aws-ssm://`` reference grammar. Core treats everything…, Name the intended key when a typo is close enough to guess., Parse an ``aws-sm``/``aws-ssm`` reference into its parts. Args: reference:…, A reference this provider cannot make sense of. Raised at parse time, before… (+2 more)
+### Community 219 - "Module Discovery Cache"
+Cohesion: 0.23
+Nodes (6): Path, Attempt to find a job by name via targeted module discovery. Scans directories…, Load cache from disk. Silent recovery on any failure. Applies the format-…, Delete a stale cache file from disk. Logs warning on failure., Scan configured directories for Python module files (no imports). Returns…, Apply pre-filter to decide if a module should be imported. Returns True if no…
 
-### Community 213 - "Inline TUI Plugin"
+### Community 220 - "Job Declaration Decorator"
 Cohesion: 0.18
-Nodes (6): Functualize Inline Plugin - Textual inline interactivity for terminal prompts., _is_inline_available(), Functualize Inline Plugin — a PromptCollector using Textual inline mode.…, Check if Textual inline mode is available. Returns False if: - stdin/stdout is…, MultiSelectWidget, Checkbox list for MULTI_SELECT intent.
+Nodes (6): job(), Declare a job's identity and operational contract (proposal §A.3–A.6). Identity…, Deps, JobDeclaration, A job's dependency set and its failure policy (proposal §A.4). Refs are…, The frozen, aggregate declaration attached by ``@job`` (proposal §A.3).…
 
-### Community 214 - "MCP Gate State"
-Cohesion: 0.29
-Nodes (9): AI_OUTBOUND gate strategy resolver — pauses for external AI input via MCP.…, gate_checkpoints(), mcp_state(), pending_gate_input(), Any, MCP's slice of the kernel's sanctioned extension-state namespace. The MCP…, Return MCP's extension-state namespace, creating it if needed., Return the gate-checkpoint store (model name -> checkpoint dict). (+1 more)
+### Community 221 - "Stdout Capability"
+Cohesion: 0.18
+Nodes (8): Stdout capability — the explicit stdout data channel for job functions. Re-…, Any, Protocol, ``Stdout`` capability vocabulary — the explicit stdout data channel (Part C).…, DI-injectable explicit stdout data channel (proposal Part C, revised). Two…, Serialize ``value`` to stdout per the resolved ``--emit-format`` format., Write ``data`` to stdout verbatim (no serialization)., Stdout
 
-### Community 215 - "SQLite Schema Migrations"
-Cohesion: 0.29
-Nodes (10): _ensure_schema_version_table(), get_current_version(), migrate(), _migration_v1(), Connection, Schema migration system for the SQLite state plugin. Provides version tracking…, Apply all pending migrations to bring the database up to LATEST_VERSION.…, Initial migration: create state, executions, phases, and sessions tables. (+2 more)
+### Community 222 - "Job Input JSON Schema"
+Cohesion: 0.26
+Nodes (10): field_property(), input_schema(), _is_json_native(), job_input_schema(), Any, JSON Schema for a job's inputs — one renderer, every surface. A job's published…, One ``FieldDescriptor`` as a JSON Schema property. Shared by a job's own fields…, A JSON Schema ``object`` over ``fields``. ``required`` is omitted rather than… (+2 more)
 
-### Community 216 - "Render Surface Resolution"
-Cohesion: 0.29
-Nodes (10): explicit_surface(), _parse(), Enum, Terminal orchestrator — resolve where a job renders. The rendering surface (who…, Where a job renders. - ``PANEL``: the func TUI owns the terminal; the job runs…, Resolve the rendering surface by the precedence ladder (top wins). 1. **HARD…, The ladder's *preference* rungs only: job hint, then setting. Returns None when…, Parse a preference string into a non-exclusive surface, or None. (+2 more)
+### Community 223 - "HTTP Server Plugin"
+Cohesion: 0.18
+Nodes (7): HttpServerPlugin, PluginMetadata, Functualize HTTP Plugin - HTTP delivery adapter using asyncio. Provides HTTP…, Capability plugin that registers a 'serve' CLI command. This plugin registers a…, Register the 'serve' command on the app. Args: app: The FunctualizeApp kernel…, Start the HTTP server (CLI command handler). Args: host: Host address to bind…, Metadata for the functualize-http plugin package.
 
-### Community 217 - "Source Chain Edit Handling"
-Cohesion: 0.20
-Nodes (6): User tried to edit a source they cannot write., User tried to edit a source they cannot write (env, default)., The row under the cursor, or None if the view is empty., Stage an edit for the current row via the SmartBar INSERT flow., Toggle a staged removal on the current row (the `d` key). Only meaningful for a…, ReadOnlyRejected
+### Community 224 - "HTTP Request Handling"
+Cohesion: 0.24
+Nodes (7): _envelope(), Any, Route and handle a single HTTP request. Args: method: HTTP method (GET, POST,…, Execute a job with kwargs from the request body. Uses asyncio.to_thread() to…, Attempt to serialize a return value to JSON-compatible form., Start the HTTP server (blocking). Accepts keyword arguments: host: Host address…, This surface's wire payload, parsed by the one shared contract. The envelope's…
 
-### Community 218 - "Insert Mode Editing"
+### Community 225 - "Dependency Injection Facade"
+Cohesion: 0.24
+Nodes (6): `app.di` — register what jobs can ask for by type or name., DependencyFacade, Any, Register a singleton instance in the DI registry., Register a factory in the DI registry., Register a string-keyed value in the DI registry.
+
+### Community 226 - "Inline Choice Editing"
 Cohesion: 0.18
 Nodes (6): Changed, Enter INSERT mode — show Input for current row., Begin inline editing of the value column for the cursor row., Populate the OptionList with the given choices., Filter the choices based on current input text., Filter choices when input text changes.
 
-### Community 219 - "Detail Row Rendering"
-Cohesion: 0.25
-Nodes (6): The value as text, or an em-dash placeholder when unset., _DetailRow, The value cell, including any staged-change marker. A secret's value is never…, ``MASK`` for a set secret, the raw text otherwise, em-dash if unset., Current rows — for tests and for the app's chrome., One rendered row, flattened from whichever axis we're viewing.
+### Community 227 - "Config Value Resolution"
+Cohesion: 0.18
+Nodes (7): _env_token(), T, ``(source_type, source_id, value)`` for ``key``, or None if unset. The…, Store a value in the in-memory override layer. Does NOT write to disk. Override…, Resolve a Pydantic model from configuration values. For each field in the…, Build the ``SECTION_KEY`` token used for env and override lookup. Hyphens…, Retrieve a configuration value. Resolution priority: 1. In-memory overrides…
 
-### Community 220 - "Entry Point Job Discovery"
-Cohesion: 0.22
-Nodes (6): EntryPointProvider, Retrieve a specific job by name. None if not found. Descriptors carry the…, Discover jobs from installed packages via entry points. Discovers and loads…, Return all job descriptors discovered from entry points. Results are cached…, Retrieve a specific job by name, canonical or Python spelling., Load entry points and build descriptors.
-
-### Community 221 - "Workflow Runner"
+### Community 228 - "Cache Invalidation Hashing"
 Cohesion: 0.20
-Nodes (7): new_scope_id(), Any, Walk the graph and decide whether the body runs., Record the epilogue so a replay of this scope does not re-run it., A fresh scope identifier for one workflow invocation., Runs a workflow job's graph and guards its epilogue body. Args: store: State…, WorkflowRunner
+Nodes (9): Write the current cache state to disk. Silent on failure., Check if global invalidation triggers require cache discard., compute_deps_hash(), _extract_dependencies_section(), get_functualize_version(), Path, Get the currently installed functualize version., Compute sha256 hash of pyproject.toml's [project.dependencies] section. Returns… (+1 more)
 
-### Community 222 - "Agent Help Epilog"
+### Community 229 - "Directory Module Scanning"
+Cohesion: 0.20
+Nodes (7): Path, Scan a single directory for job modules and extract descriptors., Import a module and extract its job descriptors. Delegates to…, iter_module_files(), Path, Module file discovery utilities. Only imports from _types/ and stdlib — zero…, Yield Path objects for each .py file in the given directory. Non-recursive scan…
+
+### Community 230 - "Agent Step Execution"
+Cohesion: 0.22
+Nodes (7): CliPromptExecutor, Any, Core's own agent step executor: it asks a person to perform the step. Declares…, Ask the active surface to perform ``ctx``'s step. Raises: InputNotAvailable: No…, AgentStepContext, Everything an executor is given to perform one agent step. It **carries** the…, Perform one agent step. Args: ctx: The step, its inputs, and the request that…
+
+### Community 231 - "Job Discovery Facade"
+Cohesion: 0.22
+Nodes (6): DiscoveryFacade, Any, What a job can ask about *other* jobs — `rc.discovery`. Extracted from…, The descriptor for ``job_name``. Raises: JobNotFoundError: Nothing is…, Read-only summaries of every registered job. For job-owned UIs that browse jobs…, `rc.discovery` — read-only questions about the registered jobs.
+
+### Community 232 - "Run Log Buffering"
+Cohesion: 0.18
+Nodes (7): Any, Buffers a run's events in memory, writes them once when it ends. One instance…, Args: store_for: Called with no arguments to get the `RunStore` to write to. A…, Bus callback. Buffers; never writes. Exceptions are swallowed by the bus, but…, Flush ``run_id``'s buffer to the store. One write, at the end. Best-effort and…, Drop a run's buffer without writing it. For a run whose record could not be…, RunLogSubscriber
+
+### Community 233 - "Agent Help Epilog"
 Cohesion: 0.24
 Nodes (10): agent_epilog(), epilog_width(), Any, The `--help` block that tells an agent where the machine-readable surface is.…, Columns the widest rendered line occupies, for the narrow-terminal cap., Write the block to a click ``HelpFormatter``, verbatim. The one place the…, `(command, description)` with the program name already substituted., The block as click's `epilog`, with commands spelled for `prog`. `prog` is what… (+2 more)
 
-### Community 223 - "Job Input JSON Schema"
-Cohesion: 0.29
-Nodes (10): field_property(), input_schema(), _is_json_native(), job_input_schema(), Any, JSON Schema for a job's inputs — one renderer, every surface. A job's published…, One ``FieldDescriptor`` as a JSON Schema property. Shared by a job's own fields…, A JSON Schema ``object`` over ``fields``. ``required`` is omitted rather than… (+2 more)
-
-### Community 224 - "Import Pre-Filter"
+### Community 234 - "Import-Based Module Prefilter"
 Cohesion: 0.22
-Nodes (6): ImportModulePreFilter, stmt, Require the file to import from a specified package (via AST). Parses the…, Return True if the file imports from the configured package., Recursively check statements for matching imports. Walks into try/except and if…, Check if a module path starts with the configured package name.
+Nodes (6): ImportModulePreFilter, Require the file to import from a specified package (via AST). Parses the…, Return True if the file imports from the configured package., Recursively check statements for matching imports. Walks into try/except and if…, Check if a module path starts with the configured package name., stmt
 
-### Community 225 - "Streaming Log Panel"
-Cohesion: 0.18
-Nodes (6): LogPanelWidget, ComposeResult, Streaming log panel that displays log messages with level styling., Write a styled log message to the panel. Args: level: The log level (debug,…, Write an error message prominently to the log panel., Write an informational system message to the log panel.
+### Community 235 - "Job Name Resolution"
+Cohesion: 0.22
+Nodes (10): _check_segments(), _job_segments(), Enum, Job and group identity: normalization and resolution. The one place that…, How far a token walk got, and what was left over. Attributes: node: The deepest…, Dotted group -> segments. None/empty -> no segments (top level)., Segments for a job row. ``name`` is the descriptor's full dotted name, so the…, Reject empty segments — they would make a path unaddressable. (+2 more)
 
-### Community 226 - "Terminal Ownership"
+### Community 236 - "HTTP Delivery Adapter"
+Cohesion: 0.22
+Nodes (6): AbstractEventLoop, HttpAdapter, HTTP delivery adapter — satisfies AdapterPlugin Protocol. Starts an async HTTP…, Setup phase — store app reference and create server core. Args: app: The…, Graceful shutdown — stops the HTTP server., Get the currently running event loop, if any.
+
+### Community 237 - "TUI Screen Management"
+Cohesion: 0.20
+Nodes (6): FunctualizeTUI, Any, Run the TUI application. Requires the ``[cli]`` extras group to be installed.…, Multi-screen TUI application for functualize. Provides screen registration and…, Register a screen class with an identifier. Prevents duplicate registrations…, Cycle to the next registered screen. Does nothing if no screens are registered.
+
+### Community 238 - "Preflight Summary Formatting"
+Cohesion: 0.27
+Nodes (9): build_preflight_lines(), _line(), format_preflight_field_line(), Any, Pre-flight summary line formatting for the inline TUI. Pure text formatting —…, Compute the pre-flight summary field lines, applying the truncation cap. Splits…, Strip Rich markup tags for plain-text length calculation., Format a single field as a compact pre-flight summary line. Format:… (+1 more)
+
+### Community 239 - "Cache Entry Validation"
+Cohesion: 0.20
+Nodes (5): Validate a cache entry using Tier 1 (mtime) + Tier 2 (sha256). Tier 1: If…, Validate a cache entry using Tier 1 + Tier 2 + Tier 3 (dependencies). Tier 3:…, Check if the entries for a source file are still valid (deep check). All…, Tier 1 (mtime) + Tier 2 (sha256) validation for a group-options spec. Mirrors…, Tier 1 (mtime) + Tier 2 (sha256) validation for a display entry. Mirrors…
+
+### Community 240 - "Group Options Declaration"
+Cohesion: 0.20
+Nodes (8): __getattr__(), Any, Lazily materialize ``GroupOptions`` on first access (PEP 562). Defining a…, GroupOptions, Any, BaseModel, GroupOptions — per-group declared CLI flags (S6a). A ``GroupOptions`` subclass…, Base class for per-group option declarations. Subclass with a ``group=`` class…
+
+### Community 241 - "Shell Capability"
 Cohesion: 0.24
-Nodes (7): Any, Terminal-ownership capability delivered by DI to a job that owns its UI. You…, The RunContext for this execution — the app's API handle. Resolved lazily from…, Run a job-owned app while it owns the terminal. Raises: TerminalUnavailable: If…, TTY, Raised when a job needs an interactive terminal but none is available. A job…, TerminalUnavailable
+Nodes (7): Shell capability — subprocess execution for job functions. Re-exports the…, FailingResponder, Exception, Shell capability vocabulary — protocol, result, and error (proposal Part B).…, A :class:`Responder` that also aborts on a failure sentinel (§B.4). Responds…, Raised when a command exits non-zero under ``check=True`` (§B.2). Carries the…, ShellError
 
-### Community 227 - "Status Bar Widget"
+### Community 242 - "Display Cache Entries"
+Cohesion: 0.27
+Nodes (6): DisplayCacheEntry, PreFilterDecision, Any, Persisted negative pre-filter decision. Only negative decisions…, Persisted record of DisplayProvider classes found in a module. Written by the…, Serialize to a JSON-compatible dict.
+
+### Community 243 - "Fullscreen TUI App"
+Cohesion: 0.20
+Nodes (6): FullscreenTuiApp, Any, Full-screen split-pane app: flow tree (30%) + streaming log panel (70%)., Access the main screen., Render one engine event into the log panel (loop thread)., Fullscreen TUI shell for functualize.ui — a shipped TextualApp subclass.
+
+### Community 244 - "TUI Status Bar"
 Cohesion: 0.20
 Nodes (6): ComposeResult, Access the status bar widget., Widget, Bottom status bar showing current job status and key bindings., Update the status bar text., StatusBarWidget
 
-### Community 228 - "Insert Request Handling"
+### Community 245 - "TUI Log Panel"
+Cohesion: 0.20
+Nodes (6): Access the log panel widget., LogPanelWidget, Streaming log panel that displays log messages with level styling., Write a styled log message to the panel. Args: level: The log level (debug,…, Write an error message prominently to the log panel., Write an informational system message to the log panel.
+
+### Community 246 - "Flow Tree Widget"
+Cohesion: 0.24
+Nodes (7): FlowTreeWidget, Update a job node's status icon and optional message. Args: job_name: The job…, Add or update a workflow step under a job node. Args: job_name: The parent job…, Get the status icon for a given status string., Displays job execution hierarchy as a tree with status icons. Shows the root…, Add a job node to the tree. Args: job_name: The name of the job to add.…, _status_icon()
+
+### Community 247 - "Insert Mode Routing"
 Cohesion: 0.25
 Nodes (5): InsertRequested, Handle INSERT request from SettingsPanel — enter INSERT mode., Handle INSERT request from a Detail view — enter INSERT mode. The same handler…, Start SmartBar INSERT editing for a field, with its choices., Handle INSERT request from ConfigTablePanel — enter INSERT mode.
 
-### Community 229 - "Strict State Backend Wrapper"
-Cohesion: 0.36
-Nodes (4): Any, Wrapper around a real StateBackend that propagates all runtime errors. When the…, Delegate to real backend — propagates any runtime error., StrictStateBackendWrapper
-
-### Community 230 - "Workflow Gate Resume"
-Cohesion: 0.31
-Nodes (8): deposit_gate_input(), pending_gates(), Any, Shared workflow-gate resume logic (D2b lift). Lifted out of the MCP plugin…, Gates in this scope with an empty payload slot, in name order. Pure: reads only…, Materialize the gate's Pydantic model from the live workflow. The one place…, Validate ``payload`` against the gate's model, then deposit it. The shared…, _resolve_gate_model()
-
-### Community 231 - "Config Override Application"
-Cohesion: 0.28
-Nodes (8): apply_overrides_to_targets(), Any, Path, Override application to a persistence target (file or env). Dispatches pending…, # NOTE: target is a single call-wide Literal["file", "env"], not a, Apply all pending overrides to a single persistence target. Dispatches every…, Write a single field value to the config file using atomic rename. Reads the…, _write_to_config_file()
-
-### Community 232 - "Live Panel Handles"
-Cohesion: 0.25
-Nodes (3): PanelLiveHandle, Mount an interactive construct as a PanelHost panel. The construct joins the…, Handle to a construct mounted in the panel live zone. Used as the ``_bound`` of…
-
-### Community 233 - "Cross-Thread UI Marshaling"
-Cohesion: 0.28
-Nodes (7): Drop all constructs, unmount live panels, hide the zone (idempotent)., marshal(), needs_marshal(), Any, Cross-thread UI marshaling helpers for the inline TUI. Textual widgets may only…, Return True if a UI write from this thread must go through…, Run ``fn`` on the app's loop thread, or inline when already safe. Never raises:…
-
-### Community 234 - "Panel Text Filtering"
+### Community 248 - "New Config File Locations"
 Cohesion: 0.22
-Nodes (4): Filterable, Panel capability: supports text-based filtering of displayed content. Panels…, The currently applied filter text. Empty string means no filter., Apply a case-insensitive substring filter. Empty string resets.
+Nodes (5): NewFileRequested, `n` on Config Files → pick a conventional location for a new file., `n` on Settings Files → pick a conventional location for a new file., Conventional locations for a job-config file. The kernel's config directories…, Conventional locations for a `func` settings file.
 
-### Community 235 - "Preflight Summary Formatting"
-Cohesion: 0.28
-Nodes (8): build_preflight_lines(), format_preflight_field_line(), Any, Pre-flight summary line formatting for the inline TUI. Pure text formatting —…, Compute the pre-flight summary field lines, applying the truncation cap. Splits…, Strip Rich markup tags for plain-text length calculation., Format a single field as a compact pre-flight summary line. Format:…, _strip_rich_markup()
+### Community 249 - "HTTP Server Core"
+Cohesion: 0.22
+Nodes (5): HttpServerCore, Start the HTTP server (async). Blocks until the server is shut down via stop().…, Stop the HTTP server gracefully., Build route map from registered jobs. Returns a dict mapping (method, path)…, Shared HTTP server logic for route building and request handling. Contains: -…
 
-### Community 236 - "Provider Registry & Entry Points"
+### Community 250 - "Prompt Input Handlers"
 Cohesion: 0.25
-Nodes (7): Provider registry for discovering and managing format and remote providers.…, clear_entry_point_cache(), entry_points(), EntryPoint, One entry-point scan per process, shared by every discovery site.…, Return the entry points in ``group``, scanning the path at most once.…, Drop the snapshot so the next lookup rescans the path. For processes that…
+Nodes (6): Pressed, on, Submitted, Handle text input submission., Confirm multi-select choices., Handle acknowledge OK button.
 
-### Community 237 - "Namespace Prefix Transform"
-Cohesion: 0.28
-Nodes (5): NamespaceTransform, Prefix all job names with a namespace. Satisfies the JobTransform Protocol via…, Prepend "{prefix}{separator}" to each descriptor's name., Strip prefix for lookup, return None if name doesn't match prefix. If the name…, Return a new JobDescriptor with the prefixed name. The prefix is normalized…
-
-### Community 238 - "Job Hiding Transform"
-Cohesion: 0.28
-Nodes (5): Hide jobs by name or tag. Satisfies the JobTransform Protocol via structural…, Exclude jobs matching hidden_names or hidden_tags., Return None if the job would be hidden, otherwise pass through., Check if a job should be hidden by name or tag intersection., VisibilityTransform
-
-### Community 239 - "Task Update Events"
+### Community 251 - "Autocomplete Dropdown Stub"
 Cohesion: 0.25
-Nodes (4): Emit an event if an event bus is available., Any, Update a task's status and/or notes. Emits ``tasks.task.updated`` when the…, Delete a task by its ID. Emits a ``tasks.task.deleted`` event with the task id.…
+Nodes (6): _EmptyOptionList, Any, Override to short-circuit when suppressed., Stands in for the dropdown's option list (always empty)., Create a dropdown item with separate display and insertion values. Args: main:…, Initialize with a reference to the SmartBarAutoComplete logic. Args: target:…
 
-### Community 240 - "AWS Secret Providers"
+### Community 252 - "Config Event Emission"
+Cohesion: 0.25
+Nodes (7): emit(), EventSink, Any, Protocol, Forward-compatible emit points for observability instrumentation. These…, Protocol for receiving structured config events. The EventBusAdapter implements…, Emit a structured event if a sink is registered, otherwise no-op. Zero-cost…
+
+### Community 253 - "Shell Execution Engine"
+Cohesion: 0.25
+Nodes (4): Prepend ``command`` to every command in the block (§B.3). E.g. ``with…, Drop finished background processes (started with ``background=True``).…, Engine-connected ``Shell`` implementation for one job invocation. Args: cwd:…, WiredShell
+
+### Community 254 - "Run Context Stack"
+Cohesion: 0.31
+Nodes (8): current_run_id(), pop_run(), push_run(), Persisting what the bus emits, against the run that emitted it. `durable-run-…, The innermost run on this thread, or None outside any run., Mark ``run_id`` as the run this thread is now executing. A `None` id — an…, Undo the matching :func:`push_run`. Pops by **identity of the value**, not…, _stack()
+
+### Community 255 - "Parameter Type Classification"
+Cohesion: 0.31
+Nodes (8): _base_type(), has_explicit_cli_marker(), is_cli_value_type(), Any, What a job parameter's annotation means: a value, or a dependency. A job…, Did the author state that this parameter is caller-supplied? ``Annotated[T,…, The annotation with any ``Annotated[...]`` wrapper removed., Is this annotation a value the caller supplies, rather than a dependency? True…
+
+### Community 256 - "Plugin Kind Classification"
 Cohesion: 0.29
-Nodes (7): _not_found(), KeyError, AWS remote configuration providers for functualize. Two providers over one…, The reference parsed and the call succeeded, but nothing is there. Distinct…, SecretNotFoundError, clear_credential_cache(), Drop every cached assumption. For tests, and for a long-lived process that has…
+Nodes (6): classify_group(), PluginKind, StrEnum, What *kind* of thing a ``functualize.*`` entry-point group holds. The…, What a plugin contributes, as opposed to what it is called. ``StrEnum`` so it…, Map a ``functualize.*`` entry-point group to what it holds.…
 
-### Community 241 - "Command Fallback Suggestions"
-Cohesion: 0.25
-Nodes (8): _find_similar(), Try each fallback in order; first match wins. Falls back to discovered jobs as…, Attempt to execute a discovered job by name. Returns exit code or None., Print a 'command not found' error with suggestions., Find candidates sharing prefix or substring with target., _run_fallback_chain(), _show_command_not_found(), _try_discovered_job()
-
-### Community 242 - "Edit Confirmation Messages"
+### Community 257 - "Inline Edit Confirmation"
 Cohesion: 0.25
 Nodes (4): Confirm the edit — post ValueEdited., Confirm the edit — post ValueEdited message., Posted when a row's value is confirmed via inline edit., ValueEdited
 
-### Community 243 - "Insert Mode Exit"
+### Community 258 - "Insert Mode Exit"
 Cohesion: 0.25
 Nodes (5): InsertModeExited, Exit INSERT mode — cancel edit., Cancel the edit — hide Input/OptionList, restore normal mode., Clean up edit state and hide edit widgets., Posted when leaving INSERT mode (edit confirmed or cancelled).
 
-### Community 244 - "Execution Retry Logic"
-Cohesion: 0.36
-Nodes (5): Any, BaseException, Run ``body`` under ``exec_decl``, retrying per its policy. ``failure_of`` maps…, Whether this failure is one the policy said to retry., Back off between attempts, reusing the shell's policy (§A.5).
+### Community 259 - "Panel Collapse Handling"
+Cohesion: 0.25
+Nodes (4): Hide the host, drop any sub-views, clear chrome., Handle Esc. Returns True if handled (popped view/breadcrumb or collapsed)., Pop the top sub-view, revealing what is underneath. Returns True if a view was…, Clear breadcrumb header and footer content.
 
-### Community 245 - "Lazy Cached Descriptor"
+### Community 260 - "Type Hint Formatting"
+Cohesion: 0.32
+Nodes (7): _format_constraint(), _format_number(), format_type_hint(), Type hint formatter for FieldDescriptor display. Maps FieldDescriptor…, Format a number for display (integers without decimal)., Format a FieldDescriptor type_annotation for display. Args: type_annotation:…, Format constraint as bracket notation. - [N..M] for inclusive bounds (ge/le) -…
+
+### Community 261 - "Job Config Resolution"
+Cohesion: 0.25
+Nodes (8): _coerce_for_field(), _is_absent_cli_value(), Resolve a Pydantic job config model from CLI, env, config, and defaults.…, Whether a CLI value means "the user did not pass this". ``None`` is the usual…, Coerce a resolved value toward its declared type, best-effort. Pydantic does…, resolve_job_config(), group_env_name_for(), The environment variable that sets a **group option** — ``SCOPE__FIELD``. Group…
+
+### Community 262 - "Job Config Type Validation"
+Cohesion: 0.36
+Nodes (8): Raise when a field is annotated ``Secret[T]`` for a non-``str`` ``T``.…, Validate that all fields in a JobConfig model have supported types. Raises…, _reject_non_str_secret(), validate_job_config_types(), _is_enum(), _is_supported(), _unwrap_list(), _unwrap_optional()
+
+### Community 263 - "Lazy Cached Descriptor"
 Cohesion: 0.29
 Nodes (4): lazy_cached, Any, Lazy-cached descriptor for deferred attribute computation. Only imports from…, Descriptor that computes and caches a value on first access. Replaces the…
 
-### Community 246 - "Main Screen Layout"
+### Community 264 - "Workflow Step References"
 Cohesion: 0.25
-Nodes (5): MainScreen, Main screen with split-pane layout: flow tree (30%) + log panel (70%)., Access the flow tree widget., Access the log panel widget., Quit the application.
+Nodes (3): FromStep, A read of *this walk's* recorded result for one step (resolved Q20).…, The referenced step's canonical name.
 
-### Community 247 - "Domain SDK Metadata"
+### Community 265 - "TUI Main Screen"
+Cohesion: 0.25
+Nodes (5): Push the main screen on mount. Buffer flushing is handled separately by the…, MainScreen, Main screen with split-pane layout: flow tree (30%) + log panel (70%)., Access the flow tree widget., Quit the application.
+
+### Community 266 - "Domain SDK Metadata"
 Cohesion: 0.29
 Nodes (5): DomainMetadata, Domain metadata for the AI SDK., Self-describing metadata for a domain SDK., DomainMetadata, Domain metadata for the Tasks SDK.
 
-### Community 248 - "File Source Info"
-Cohesion: 0.29
-Nodes (3): Return the FileSource's per-file info, or [] if there is none., Return every discovered file with its role and merge rank. Includes INERT files…, Source type identifier (e.g., 'cli', 'env', 'remote', 'file', 'default').
-
-### Community 249 - "File Picker Navigation"
-Cohesion: 0.29
-Nodes (5): A location was chosen — replace the picker with the Detail view. Nothing is…, Message, Select the highlighted location (Enter)., Enter was pressed on a candidate row., Selected
-
-### Community 250 - "Construct Drill-Down View"
-Cohesion: 0.29
-Nodes (3): Enter — delegate to the construct's optional hook; inert otherwise., Repaint the body from the construct. Loop thread only., Update the widget(s). Loop thread only — always reached via marshal.
-
-### Community 251 - "Panel Setting Validation"
+### Community 267 - "Provider Locator Builders"
 Cohesion: 0.33
-Nodes (4): Any, The catalog entry for ``name``, from **this panel's** catalog., Validate against this panel's catalog rather than func's globals., Apply value edit with linked source change to 'unsaved'. Validates the new…
+Nodes (7): build_cached_provider(), build_resource_locator(), Path, Build a CachedDirectoryScanProvider with appropriate cache storage. Determines…, Build a ResourceLocator based on mode detection. - Standalone mode (no…, find_functualize_dir(), Search upward from start for a .functualize/ directory. Args: start: The…
 
-### Community 252 - "Hierarchy Error Types"
+### Community 269 - "Provider Refresh Workers"
+Cohesion: 0.29
+Nodes (4): Run ``provider.refresh()`` off the loop thread, bounded by a timeout. This is…, Per-provider refresh timeout, defaulting when unset or invalid., Return (creating if needed) the single-worker executor for a display., ThreadPoolExecutor
+
+### Community 270 - "Autocomplete Candidate Delegation"
+Cohesion: 0.29
+Nodes (4): Delegate to SmartBarAutoComplete for context-aware search string. In INSERT…, Delegate to SmartBarAutoComplete for context-aware candidates.…, Return candidates as-is without additional fuzzy filtering.…, TargetState
+
+### Community 271 - "Config Layer Merging"
+Cohesion: 0.38
+Nodes (6): deep_merge(), merge_config_layers(), Any, Deep-merge algorithm for layered configuration dictionaries. Only imports from…, Recursively merge overlay into base. - Nested dicts are merged recursively -…, Deep-merge config layers with root-stop semantics. Merges layers nearest-first…
+
+### Community 272 - "Hierarchy Error Types"
 Cohesion: 0.33
 Nodes (6): ChildPathError, NamespaceConflictError, Exception, Error types for the hierarchy module., Raised when child project namespaces conflict., Raised when a child project path is invalid.
 
-### Community 253 - "Job Group Filtering"
+### Community 273 - "Parallel Job Observer"
 Cohesion: 0.29
-Nodes (4): GroupFilterTransform, Filter jobs by group membership. Satisfies the JobTransform Protocol via…, Filter job list by group membership., Filter individual job lookup by group membership.
+Nodes (5): ParallelObserver, Protocol, Notified on the worker thread as each parallel job starts and ends. The binding…, Called on the worker thread before the job runs., Called on the same thread once it has, however it ended. The **status**, not a…
 
-### Community 254 - "Job Renaming Transform"
+### Community 274 - "Workflow Failure Routing"
 Cohesion: 0.29
-Nodes (4): Rename specific jobs by mapping old names to new names. Satisfies the…, Replace names matching keys in renames dict with corresponding values., Handle renamed job lookups., RenameTransform
+Nodes (6): _failure_branch(), _is_end(), BaseException, The branch-record key a node's failure route is stored under. Namespaced away…, True if a route target is the END sentinel rather than a node name., Where ``name``'s failure goes, or None to stop the walk. None is the answer for…
 
-### Community 255 - "Signature Introspection Utilities"
+### Community 275 - "Signature Introspection"
 Cohesion: 0.38
 Nodes (6): accepts_keyword(), filter_kwargs_for_callable(), Any, Signature introspection utilities for adaptive hook dispatch. Provides reusable…, Check if a callable accepts a specific keyword argument. Returns True if the…, Filter a kwargs dict to only include keys the callable accepts. Returns a new…
 
-### Community 256 - "Task Listing"
+### Community 276 - "Group Options Detection"
+Cohesion: 0.38
+Nodes (6): find_group_options(), is_group_options_class(), Any, Duck-type detection for ``GroupOptions`` subclasses (S6a). The single…, Duck-type check for a ``GroupOptions`` subclass bound to a group. A **non-…, Return the ``GroupOptions`` subclasses *defined in* a module. Runs on an…
+
+### Community 277 - "TCP Connection Handling"
 Cohesion: 0.40
-Nodes (4): List tasks, optionally filtered by status or title substring. Args: status: If…, StrEnum, Status of a task item., TaskStatus
+Nodes (4): Handle a single TCP connection (HTTP/1.1 basic parsing)., Send an HTTP response with JSON body., StreamReader, StreamWriter
 
-### Community 257 - "Config Table Editing"
+### Community 278 - "Builtin Command Metadata"
 Cohesion: 0.33
-Nodes (3): Rebuild the table from current state. The old file-detail view was a write-once…, Called by the app when an INSERT edit is confirmed. Stages the value — nothing…, Drop all staged changes (what Esc does before popping the view).
+Nodes (4): BuiltinCommand, Metadata for a built-in ``func`` command. This registry is the single source of…, Ordered ``{subcommand: description}`` mapping., Return True if invoking this command with ``args`` needs the terminal. On a…
 
-### Community 258 - "Identity Transform"
+### Community 279 - "Panel Ring Activation"
 Cohesion: 0.33
-Nodes (4): IdentityTransform, Identity transform (pass-through). Returns inputs unchanged. Useful as a…, Pass through the list unchanged., Pass through the descriptor unchanged.
+Nodes (3): Set the ordered list of (title, widget) pairs in the ring. Uses mount-once…, Show the host, display panel at start_index, update chrome, focus panel. Args:…, Drop every sub-view — used when the ring is rebuilt or collapsed.
 
-### Community 259 - "State Store Replacement"
+### Community 280 - "Panel Chrome Updates"
 Cohesion: 0.33
-Nodes (3): Any, Provider-specific metadata attached at creation time., Replace the backing state store with a new implementation. The new store must…
+Nodes (3): Update only the breadcrumb header (independent of focus state)., Update footer with focus-awareness. When focused=True: shows ring nav hints (if…, Get available actions from a panel widget. Falls back to [("Esc", "back")] if…
 
-### Community 261 - "Resilient Iteration"
-Cohesion: 0.33
-Nodes (5): Exception, T, Resilient iteration utility. Only imports from _types/ and stdlib — zero third-…, Yield each successfully-produced item from *iterable*. Catches exceptions…, resilient()
-
-### Community 262 - "Project State Store"
-Cohesion: 0.33
-Nodes (3): Path, Build a store at the project's resolved state path., The state file this store reads and writes.
-
-### Community 263 - "AI Gate Resolution"
+### Community 281 - "Descriptor Entry Indexing"
 Cohesion: 0.40
-Nodes (4): _build_prompt(), BaseModel, Build an LLM prompt from the gate context. Includes resolved fields as context…, Resolve gate fields by asking the AI to generate values. Args: ctx: The gate…
+Nodes (3): The retention key: one entry per *function*, not per job name. Keyed by the…, Add a descriptor to both the entries dict and the name index., Point the name index at ``descriptor`` if it outranks the incumbent. The index…
 
-### Community 264 - "Reference Fetch Clients"
+### Community 282 - "File Postfix Prefilter"
+Cohesion: 0.33
+Nodes (3): FilePostfixPreFilter, Only pass files whose stem ends with the specified postfix. Operates on the…, Return True if the file stem ends with the configured postfix.
+
+### Community 283 - "Install Mode Enum"
 Cohesion: 0.40
-Nodes (4): Resolve one reference to its value. Args: reference: Everything after ``aws-…, client_for(), Any, A client for ``service``, built for this reference's identity.…
+Nodes (4): InstallMode, StrEnum, Whether functualize declines to manage this installation. Derived rather than…, The vocabulary that reaches JSON output and the override variable. A…
 
-### Community 265 - "UI Mode Messages"
+### Community 284 - "Command Completer Protocol"
+Cohesion: 0.40
+Nodes (3): CommandCompleterCallback, Protocol, Protocol for command-mode candidate generation callback.
+
+### Community 285 - "Insert Mode Messages"
 Cohesion: 0.40
 Nodes (5): BackRequested, InsertModeEntered, Message, Posted when user presses Esc in normal mode., Posted when entering INSERT mode (editing starts).
 
-### Community 267 - "Panel Widget Unmounting"
+### Community 287 - "Sub-View Stack"
 Cohesion: 0.40
-Nodes (3): Any, Static, Remove a mounted panel widget. Loop thread only (via marshal).
+Nodes (3): Widget, Push a sub-view on top of the current ring panel. This is what makes a drill-…, Return the widget that currently owns the screen and the keys. The top sub-view…
 
-### Community 268 - "DataTable Composition"
-Cohesion: 0.40
-Nodes (3): ComposeResult, ComposeResult, Mount the inner DataTable.
-
-### Community 269 - "Shortcut Save Form"
+### Community 288 - "Shortcut Form Composition"
 Cohesion: 0.40
 Nodes (4): ComposeResult, Render shortcut save form with name, output file, preview, and error area.…, Convert a job name to a valid Python identifier default. Replaces hyphens and…, _sanitize_name_for_python()
 
-### Community 270 - "Interactivity Config Mixin"
+### Community 289 - "Interactivity Config Mixin"
 Cohesion: 0.40
 Nodes (4): InteractivityConfig, BaseModel, InteractivityConfig mixin for job configs that declare an interactivity backend., Optional mixin for job config classes that declare an interactivity backend.…
 
-### Community 272 - "Check Status"
-Cohesion: 0.50
-Nodes (3): CheckStatus, StrEnum, How a single check came out. **There is deliberately no ``SKIPPED``.** A check…
+### Community 290 - "Job Transform Registration"
+Cohesion: 0.40
+Nodes (4): _missing_protocol_members(), Any, Register an app-level job transform. App-level transforms apply to ALL jobs…, Return list of missing methods/attributes from an object.
 
-### Community 273 - "Version Comparison"
-Cohesion: 0.50
-Nodes (3): _is_newer(), Whether ``available`` should be installed over ``current``. A numeric…, The bare key inside :attr:`section`.
+### Community 292 - "Project Fresh State Root"
+Cohesion: 0.40
+Nodes (3): Where this project's derived run state (fingerprints, history, workflow scopes)…, Path, Return whether this module should be imported for discovery.
 
-### Community 279 - "Ambiguous Secret Key Error"
+### Community 294 - "MCP Plugin Lazy Loading"
+Cohesion: 0.50
+Nodes (3): __getattr__(), Functualize MCP Plugin — exposes jobs as MCP tools via FastMCP. Provides an MCP…, Lazy-load heavy symbols on first access (PEP 562).
+
+### Community 295 - "Config Source Bus Init"
+Cohesion: 0.50
+Nodes (3): Source, EventBus, Initialize with an ordered list of sources. Args: sources: List of Source…
+
+### Community 300 - "Panel Index Accessors"
+Cohesion: 0.50
+Nodes (3): setter, Return the current display index., Set the current display index.
+
+### Community 301 - "Vault Source Initialization"
+Cohesion: 0.50
+Nodes (3): Path, timedelta, Initialise the source. Args: vault_path: This project's vault file. It need not…
+
+### Community 303 - "Missing Value Error"
+Cohesion: 0.50
+Nodes (3): MissingValueError, Exception, A required value was absent and could not be collected. Carries the field and…
+
+### Community 304 - "Keyword Argument Error Handling"
+Cohesion: 0.50
+Nodes (4): Collection, The ``TypeError`` calling ``function(**kwargs)`` would raise, or ``None``.…, unexpected_keyword_error(), TypeError
+
+### Community 305 - "Workflow Nesting Depth Limits"
+Cohesion: 0.50
+Nodes (4): check_workflow_depth(), How many workflows deep ``scope_id`` sits. A top-level scope is 0. Read from…, Refuse a workflow nested deeper than ``limit``. Raises:…, workflow_depth()
+
+### Community 307 - "Decorator Name Extraction"
+Cohesion: 0.67
+Nodes (3): expr, extract_decorator_root_name(), Extract the root (leftmost) name from a decorator AST node. Handles: - Name:…
+
+### Community 308 - "Ambiguous Secret Key Lookup"
 Cohesion: 0.67
 Nodes (3): LookupError, AmbiguousKeyError, A key name matches more than one secret. Bitwarden does not require key names…
 
-### Community 282 - "Validation Error Fields"
-Cohesion: 0.67
-Nodes (3): _missing_required_fields(), Top-level field names a :class:`ValidationError` reports as *absent*. Only…, ValidationError
-
 ## Knowledge Gaps
-- **18 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **36 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `FunctualizeApp` connect `App Facade & Execution` to `TUI Action Bindings`, `Job Result Delivery`, `Job Registration & Naming`, `Live Display Zones`, `Discovery Cache Provider`, `Job Execution Engine`, `Remote Provider Registry`, `Stdout Surface Gate`, `App Core & Decorators`, `App Config Dataclasses`, `Job Providers & Live Panels`, `Job Preflight Decision`, `Click Command Building`, `Hook Registry`, `CLI Help & Epilog`, `Vault & Project Config`, `Execution Context & Executor`, `TUI App Composition Root`, `Workflow Graph Model`, `Environment & Config Roles`, `Programmatic Job Invocation`, `Builtin Click Commands`, `Event Bus & Sinks`, `Live Construct Handles`, `Config Resolution Chain`, `Gate Registry Presets`, `In-Process Introspection`, `StateStore`, `Lambda Delivery Adapter`, `tui/__init__.py`, `smart_bar_autocomplete.py`, `plugin/protocols.py`, `chain_resolution.py`, `SmartBarAutoComplete`, `Prompt Gate Resolver`, `Guard Evaluation`, `Contextual Display Widgets`, `loader.py`, `HttpServerCore`, `resolve_tui_command`, `.__init__`, `PerfTimeline`, `Gate Strategy Protocols`, `DomainRegistry`, `ring_models.py`, `Resolution Pipeline`, `TUI Delivery Adapter`, `Command Fallback Suggestions`, `Job Registry Scanning`, `Click CLI Adapter`, `Inline Shell Launch`, `File Source Info`, `Job Run Explanation`, `Middleware Stack`?**
-  _High betweenness centrality (0.208) - this node is a cross-community bridge._
-- **Why does `HookEvent` connect `App Core & Decorators` to `SQLite State Plugin`, `_events/__init__.py`, `Job Providers & Live Panels`, `MCPAdapterPlugin`, `Execution Context & Executor`, `Programmatic Job Invocation`, `Local Tasks Plugin`, `PydanticAIProvider`, `App Boot Orchestration`, `ExecutionStatePlugin`?**
-  _High betweenness centrality (0.102) - this node is a cross-community bridge._
-- **Why does `FunctualizeInlineTUI` connect `TUI Action Bindings` to `App Facade & Execution`, `Live Display Zones`, `TUI App Composition Root`, `Config Files Panel`, `Settings Chain Provider`, `Pending Execution & Snapshots`, `TUI Focus Zone Cycling`, `File Picker View`, `Config Table Panel`, `tui/__init__.py`, `PanelHost`, `Config Edit Messages`, `smart_bar_autocomplete.py`, `Live Panel Widget`, `chain_resolution.py`, `SmartBarAutoComplete`, `FuncSettingsStore`, `ShortcutSaveModal`, `ConfigTarget`, `ConfigFilesPanel`, `.__init__`, `tokenize_bar_text`, `Config View Refresh`, `FileScope`, `ring_models.py`, `SmartBar`, `Source Chain Edit Handling`, `._update_status_bar`, `JobBrowserPanel`, `FunctualizeAutoComplete`, `Insert Request Handling`, `TUI Theme Management`, `Insert Mode Controller`, `Inline Shell Launch`, `File Picker Navigation`, `Source Chain Table View`?**
-  _High betweenness centrality (0.099) - this node is a cross-community bridge._
-- **Are the 89 inferred relationships involving `FunctualizeApp` (e.g. with `HttpAdapter` and `HttpServerCore`) actually correct?**
-  _`FunctualizeApp` has 89 INFERRED edges - model-reasoned connections that need verification._
+- **Why does `FunctualizeApp` connect `CLI App Entry Points` to `Config Snapshot Persistence`, `In-Process CLI Introspection`, `Inline TUI Application`, `Click CLI Adapter Layer`, `Job Execution Engine`, `Click Parameter Building`, `Engine Construction Presets`, `App Config Source Settings`, `Execution Context Middleware`, `Display Slot Views`, `Observability Event Wiring`, `Job Descriptor Registry`, `Observability Facade Timeline`, `Smart Bar Cursor Parsing`, `Plugin Header Status Bars`, `Delivery Adapters`, `Hook Middleware Decorators`, `Plugin Config Registry`, `Discovery Config Objects`, `Agent Step Registry`, `Job Run Explanation`, `AWS Lambda Adapter`, `Job Registry Hooks`, `Workflow Type Definitions`, `Command Tree Nodes`, `Plugin Extensions Facade`, `Job Command Node`, `Autocomplete Shell Mode`, `App Substrate & CLI`, `Dynamic Job Registration`, `Surface Routing Stdin`, `Builtin Info Commands`, `Builtin Job Execution Bridge`, `Gate Strategy Registry`, `Config Provider Protocols`, `Domain SDK Registry`, `Smart Bar Key Dispatch`, `HTTP Server Plugin`, `Dependency Injection Facade`, `Event Bus Middleware Stack`, `Run Request & Dependencies`, `HTTP Delivery Adapter`, `App Runtime Facade`, `Plugin Extensions Facade`, `HTTP Server Core`, `Notifier Registry`?**
+  _High betweenness centrality (0.154) - this node is a cross-community bridge._
+- **Why does `FunctualizeInlineTUI` connect `Inline TUI Application` to `Config Snapshot Persistence`, `CLI App Entry Points`, `Display Slot Views`, `Job Descriptor Registry`, `TUI Autocomplete Widget`, `Stdout Surface Gating`, `Smart Bar Cursor Parsing`, `Job Browser Listing`, `Config Chain Detail View`, `Source Chain Detail Rows`, `Live Panel Widget`, `Config Snapshot Store`, `Config Target Source Chain`, `Dynamic Footer Hints`, `Config Table Panel`, `Dynamic Input Bar`, `Panel Insert Mode Messages`, `Shortcut Save Modal`, `Display Provider Discovery`, `Autocomplete Shell Mode`, `Panel Ring Command Panels`, `Func Settings Provider`, `Func Settings Store`, `Config Drill-Down Handlers`, `Builtin Job Execution Bridge`, `TUI Breadcrumb Header`, `Job Browser Panel`, `Panel Host Chrome`, `Display Zone Mounting`, `Smart Bar Key Dispatch`, `New File Picker Flow`, `Panel Drill-Down State`, `Insert Mode Routing`, `New Config File Locations`?**
+  _High betweenness centrality (0.067) - this node is a cross-community bridge._
+- **Why does `ScopeStore` connect `Scope Store Persistence` to `Job Execution Engine`, `Fresh Fingerprint Store`, `Workflow Scope Format`, `Execution Context Middleware`, `Workflow CLI Flags`, `Observability Event Wiring`, `Boot Composition Root`, `Job Discovery Utilities`, `Workflow Scope Surfaces`, `Fresh File Format & Locking`, `Workflow Walk Ledger`, `Scope Record Removal`, `Builtin Command Registration`, `Workflow Gate Controls`, `Workflow Frontier Leases`, `Workflow Orchestration Walk`, `JSON File Substrate`, `MCP Workflow Tools`, `Run History Store`, `Shell History Store`, `Scope Record Mutations`, `Scope State Store`, `Workflow Frontier Walk`?**
+  _High betweenness centrality (0.054) - this node is a cross-community bridge._
+- **Are the 90 inferred relationships involving `FunctualizeApp` (e.g. with `HttpAdapter` and `HttpServerCore`) actually correct?**
+  _`FunctualizeApp` has 90 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 62 inferred relationships involving `FunctualizeInlineTUI` (e.g. with `FunctualizeApp` and `CompletionProvenanceClassifier`) actually correct?**
   _`FunctualizeInlineTUI` has 62 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 21 inferred relationships involving `JobDescriptor` (e.g. with `_build_job_command()` and `_get_job_panel()`) actually correct?**
-  _`JobDescriptor` has 21 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 29 inferred relationships involving `JobExecutionEngine` (e.g. with `build_job_engine_callback()` and `FunctualizeApp`) actually correct?**
-  _`JobExecutionEngine` has 29 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 24 inferred relationships involving `JobDescriptor` (e.g. with `_build_job_command()` and `_get_job_panel()`) actually correct?**
+  _`JobDescriptor` has 24 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 32 inferred relationships involving `JobExecutionEngine` (e.g. with `FunctualizeApp` and `is_execution_engine()`) actually correct?**
+  _`JobExecutionEngine` has 32 INFERRED edges - model-reasoned connections that need verification._
