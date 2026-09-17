@@ -12,7 +12,7 @@ Plugins are grouped by **what they serve**, one level under `plugins/`:
 |---|---|---|
 | `adapters/` | ways to reach jobs — commands, delivery surfaces, terminal I/O | http, lambda, mcp, flow-viz, inline |
 | `substrates/` | where a project's documents live | state-sqlite |
-| `secrets/` | where secrets are fetched from | aws, bitwarden |
+| `credentials/` | where secrets are fetched from | aws, bitwarden |
 | `domains/` | a capability protocol, **and its implementations beside it** | ai + ai-pydantic, tasks + tasks-local |
 
 An implementation is a *sibling* of the domain it implements, not a child:

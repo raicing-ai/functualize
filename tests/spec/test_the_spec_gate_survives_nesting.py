@@ -78,7 +78,7 @@ CASES = [
     ("plugins/adapters/functualize-http/src/functualize_http/x.py", True),
     ("plugins/adapters/functualize-inline/src/functualize_inline/plugin.py", True),
     ("plugins/substrates/functualize-substrate-sqlite/src/pkg/substrate.py", True),
-    ("plugins/secrets/functualize-aws/src/functualize_aws/__init__.py", True),
+    ("plugins/credentials/functualize-aws/src/functualize_aws/__init__.py", True),
     ("plugins/domains/functualize-tasks-local/src/functualize_tasks_local/x.py", True),
     # Deliberately free, in both layouts: a plugin's tests, the shared conftest,
     # packaging metadata and prose. `spec_gate.py`'s own docstring lists these.

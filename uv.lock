@@ -1285,7 +1285,7 @@ requires-dist = [
     { name = "functualize", extras = ["cli"], marker = "extra == 'all'" },
     { name = "functualize-ai", marker = "extra == 'all'", editable = "plugins/domains/functualize-ai" },
     { name = "functualize-ai-pydantic", marker = "extra == 'all'", editable = "plugins/domains/functualize-ai-pydantic" },
-    { name = "functualize-aws", marker = "extra == 'all'", editable = "plugins/secrets/functualize-aws" },
+    { name = "functualize-aws", marker = "extra == 'all'", editable = "plugins/credentials/functualize-aws" },
     { name = "functualize-flow-viz", marker = "extra == 'all'", editable = "plugins/adapters/functualize-flow-viz" },
     { name = "functualize-http", marker = "extra == 'all'", editable = "plugins/adapters/functualize-http" },
     { name = "functualize-inline", marker = "extra == 'all'", editable = "plugins/adapters/functualize-inline" },
@@ -1307,7 +1307,7 @@ provides-extras = ["cli", "all"]
 [package.metadata.requires-dev]
 dev = [
     { name = "debugpy", specifier = ">=1.8.21" },
-    { name = "functualize-bitwarden", editable = "plugins/secrets/functualize-bitwarden" },
+    { name = "functualize-bitwarden", editable = "plugins/credentials/functualize-bitwarden" },
     { name = "hypothesis", specifier = ">=6.82.0" },
     { name = "import-linter", specifier = ">=2.0" },
     { name = "invoke", specifier = ">=2.2.0" },
@@ -1379,7 +1379,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "functualize-aws"
 version = "0.3.0"
-source = { editable = "plugins/secrets/functualize-aws" }
+source = { editable = "plugins/credentials/functualize-aws" }
 dependencies = [
     { name = "boto3" },
     { name = "functualize" },
@@ -1403,7 +1403,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "functualize-bitwarden"
 version = "0.3.0"
-source = { editable = "plugins/secrets/functualize-bitwarden" }
+source = { editable = "plugins/credentials/functualize-bitwarden" }
 dependencies = [
     { name = "bitwarden-sdk" },
     { name = "functualize" },

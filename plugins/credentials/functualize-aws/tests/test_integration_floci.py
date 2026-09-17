@@ -12,7 +12,7 @@ one. Floci (`floci/floci:latest`, port 4566) is what this was developed
 against:
 
     docker run -d --name floci -p 4566:4566 floci/floci:latest
-    AWS_ENDPOINT_URL=http://localhost:4566 uv run pytest plugins/secrets/functualize-aws
+    AWS_ENDPOINT_URL=http://localhost:4566 uv run pytest plugins/credentials/functualize-aws
 
 Without a reachable endpoint the module skips. It does *not* fall back to a
 fake: a green run that silently tested nothing is worse than a skip that says

@@ -37,7 +37,7 @@ Set `AWS_ENDPOINT_URL` and any LocalStack-compatible emulator works:
 
 ```
 docker run -d --name floci -p 4566:4566 floci/floci:latest
-AWS_ENDPOINT_URL=http://localhost:4566 uv run pytest plugins/secrets/functualize-aws
+AWS_ENDPOINT_URL=http://localhost:4566 uv run pytest plugins/credentials/functualize-aws
 ```
 
 Without it the integration tests skip.
