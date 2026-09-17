@@ -596,7 +596,7 @@ Use [GitHub Issues](https://github.com/raicing-ai/functualize/issues) with the p
 Domain SDK packages live in `plugins/` and follow a consistent structure:
 
 ```
-plugins/functualize-{domain}/
+plugins/<group>/functualize-{domain}/
 ├── pyproject.toml                    # hatchling build, pydantic-only deps
 ├── src/functualize_{domain}/
 │   ├── __init__.py                   # Re-exports all public API
@@ -662,7 +662,7 @@ uv run pytest examples/standalone/ -v
 uv run pytest examples/standalone/showcase/ -v
 
 # Per-plugin examples (run explicitly, like plugin tests)
-uv run pytest plugins/functualize-mcp/examples/ -v
+uv run pytest plugins/adapters/functualize-mcp/examples/ -v
 ```
 
 ---

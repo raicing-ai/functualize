@@ -383,7 +383,7 @@ rule 6's exact signature for unwired code. It is wrong. `rg` finds two
 production callers:
 
 ```
-plugins/functualize-state-sqlite/src/functualize_state_sqlite/_plugin.py:77
+plugins/substrates/functualize-state-sqlite/src/functualize_state_sqlite/_plugin.py:77
 examples/plugins/custom_state_backend/src/functualize_state_memory/_plugin.py:59
 ```
 

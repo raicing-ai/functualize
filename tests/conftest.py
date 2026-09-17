@@ -353,6 +353,7 @@ def _alternate_substrate(
         str(
             Path(__file__).resolve().parent.parent
             / "plugins"
+            / "substrates"
             / "functualize-state-sqlite"
             / "src"
         ),

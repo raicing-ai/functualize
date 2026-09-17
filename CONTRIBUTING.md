@@ -175,13 +175,12 @@ uv venv /tmp/func-test && \
 uv pip install --no-cache --reinstall \
   "dist/functualize-0.1.0-py3-none-any.whl[cli]" --python /tmp/func-test/bin/python && \
 uv pip install \
-  plugins/functualize-ai \
-  plugins/functualize-state \
-  plugins/functualize-tasks \
-  plugins/functualize-mcp \
-  plugins/functualize-http \
-  plugins/functualize-lambda \
-  plugins/functualize-flow-viz \
+  plugins/domains/functualize-ai \
+  plugins/domains/functualize-tasks \
+  plugins/adapters/functualize-mcp \
+  plugins/adapters/functualize-http \
+  plugins/adapters/functualize-lambda \
+  plugins/adapters/functualize-flow-viz \
   --python /tmp/func-test/bin/python && \
 cd examples/quickstart/step1_basic && \
 time /tmp/func-test/bin/func --perf-report text forecast
@@ -358,12 +357,12 @@ in the commit footer instead.
 # 1. Bump the version in all SEVENTEEN places it is declared:
 #    - pyproject.toml               version = "X.Y.Z"
 #    - src/functualize/__init__.py  __version__ = "X.Y.Z"
-#    - plugins/*/pyproject.toml     version = "X.Y.Z"   (11 packages)
+#    - plugins/*/*/pyproject.toml     version = "X.Y.Z"   (11 packages)
 #    - skills/*/SKILL.md            metadata.version    (4 skills)
 #
 #    Then verify none was missed. This must print exactly one line, "17":
 { grep -h -e '^version = ' -e '^__version__ = ' \
-    pyproject.toml src/functualize/__init__.py plugins/*/pyproject.toml
+    pyproject.toml src/functualize/__init__.py plugins/*/*/pyproject.toml
   grep -h -m1 '^  version:' skills/*/SKILL.md; } \
   | grep -o '"[^"]*"' | sort | uniq -c
 
@@ -633,10 +632,10 @@ for fast local iteration.
 
 ```bash
 # Test a specific plugin directly
-pytest plugins/functualize-lambda/tests/ -v
+pytest plugins/adapters/functualize-lambda/tests/ -v
 
 # Test a plugin + its root tests
-pytest plugins/functualize-mcp/tests/ tests/plugins/test_mcp_*.py -v
+pytest plugins/adapters/functualize-mcp/tests/ tests/plugins/test_mcp_*.py -v
 
 # Run all plugin tests
 pytest tests/plugins/ -v
@@ -657,7 +656,7 @@ mypy src/functualize
 ## Architecture
 
 ```
-plugins/functualize-{name}/
+plugins/<group>/functualize-{name}/
 ├── src/...                 # Plugin source
 ├── tests/
 │   ├── __init__.py
@@ -719,20 +718,20 @@ class TestJobExecution:
 
 ### Running multiple plugin tests together locally
 
-If you run `pytest plugins/*/tests/` in a single invocation, pytest may
+If you run `pytest plugins/*/*/tests/` in a single invocation, pytest may
 complain about conftest path collisions (`ImportPathMismatchError`) because
 multiple plugins have identically-named `tests/conftest.py`.
 
 **Workarounds:**
-- Run one plugin at a time: `pytest plugins/functualize-mcp/tests/ -v`
-- Use a loop: `for p in plugins/*/tests; do pytest "$p" -v; done`
+- Run one plugin at a time: `pytest plugins/adapters/functualize-mcp/tests/ -v`
+- Use a loop: `for p in plugins/*/*/tests; do pytest "$p" -v; done`
 
 This is by design — each plugin is independently testable, not meant to be
 collected as a single flat namespace.
 
 ## Adding Tests to a New Plugin
 
-1. Create `plugins/functualize-{name}/tests/`:
+1. Create `plugins/<group>/functualize-{name}/tests/`:
    ```
    tests/__init__.py
    tests/conftest.py

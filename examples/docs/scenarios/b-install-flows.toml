@@ -43,7 +43,7 @@ engine = "docker"
 description = "pip install functualize[cli] + functualize-mcp from source"
 image = "python:3.11-slim"
 volumes = { "." = "/src:ro" }
-workdir = "/src/plugins/functualize-mcp"
+workdir = "/src/plugins/adapters/functualize-mcp"
 command = "pip install /src[cli] . 2>&1 && echo 'OK' && functualize mcp tools"
 expected = { stdout_contains = "OK", exit_code = 0 }
 timeout = 240
@@ -53,7 +53,7 @@ engine = "docker"
 description = "pip install functualize[cli] + functualize-flow-viz from source"
 image = "python:3.11-slim"
 volumes = { "." = "/src:ro" }
-workdir = "/src/plugins/functualize-flow-viz"
+workdir = "/src/plugins/adapters/functualize-flow-viz"
 command = "pip install /src[cli] . 2>&1 && echo 'OK' && functualize --version"
 expected = { stdout_contains = "OK", exit_code = 0 }
 timeout = 240
@@ -64,7 +64,7 @@ description = "pip install functualize[cli] + functualize-tasks from source"
 image = "python:3.11-slim"
 volumes = { "." = "/src:ro" }
 workdir = "/src"
-command = "pip install '/src[cli]' /src/plugins/functualize-tasks/ 2>&1 && echo 'OK' && functualize --version"
+command = "pip install '/src[cli]' /src/plugins/domains/functualize-tasks/ 2>&1 && echo 'OK' && functualize --version"
 expected = { stdout_contains = "OK", exit_code = 0 }
 timeout = 240
 
@@ -74,7 +74,7 @@ description = "pip install functualize-ai-pydantic from workspace"
 image = "python:3.11-slim"
 volumes = { "." = "/src:ro" }
 workdir = "/src"
-command = "pip install /src/plugins/functualize-ai/ /src/plugins/functualize-ai-pydantic/ 2>&1 && echo 'OK' && python -c 'import functualize_ai; print(\"ai OK\")'"
+command = "pip install /src/plugins/domains/functualize-ai/ /src/plugins/domains/functualize-ai-pydantic/ 2>&1 && echo 'OK' && python -c 'import functualize_ai; print(\"ai OK\")'"
 expected = { stdout_contains = "ai OK", exit_code = 0 }
 timeout = 240
 

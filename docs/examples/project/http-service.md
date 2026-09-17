@@ -4,12 +4,12 @@ A full functualize project deployed as an HTTP API using the `functualize-http` 
 
 ## Source
 
-[`plugins/functualize-http/examples/http_service/`](https://github.com/raicing-ai/functualize/tree/master/plugins/functualize-http/examples/http_service)
+[`plugins/adapters/functualize-http/examples/http_service/`](https://github.com/raicing-ai/functualize/tree/master/plugins/adapters/functualize-http/examples/http_service)
 
 ## Setup and Running
 
 ```bash
-cd plugins/functualize-http/examples/http_service
+cd plugins/adapters/functualize-http/examples/http_service
 uv sync
 uv run python -m http_service   # starts on :8000
 ```

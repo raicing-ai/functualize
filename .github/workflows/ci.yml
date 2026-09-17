@@ -207,7 +207,7 @@ jobs:
   # (pyproject.toml) never collects plugin tests, and the grouped-job serve
   # crash (F1, `fix/mcp-server-fixes`) shipped precisely because no check ran
   # a live serve. The capability tests in
-  # plugins/functualize-mcp/tests/test_live_serve.py and the grouped_tools
+  # plugins/adapters/functualize-mcp/tests/test_live_serve.py and the grouped_tools
   # example harness are the regression net for it; this job is what keeps
   # that net running.
   plugin-mcp:
@@ -229,10 +229,10 @@ jobs:
         run: uv sync --all-packages
 
       - name: Run functualize-mcp plugin tests
-        run: uv run pytest plugins/functualize-mcp/tests -q
+        run: uv run pytest plugins/adapters/functualize-mcp/tests -q
 
       - name: Run functualize-mcp examples
-        run: uv run pytest plugins/functualize-mcp/examples -v
+        run: uv run pytest plugins/adapters/functualize-mcp/examples -v
 
   # Every example command this repository publishes, run from a CLEAN CLONE.
   #

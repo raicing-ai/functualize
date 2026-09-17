@@ -27,10 +27,10 @@ facade that plugins actually call, from the layer allowed to describe it. The
 concrete facades satisfy them structurally — nothing inherits, nothing is
 registered.
 
-Each view is **sized to measured use**, from ``plugins/*/src`` only::
+Each view is **sized to measured use**, from ``plugins/*/*/src`` only::
 
     $ rg -o -N 'app\\.(di|extensions|configuration|gates|hooks)\\.[a-z_]+' \\
-        plugins/*/src/ | sed 's/.*app\\.//' | sort | uniq -c | sort -rn
+        plugins/*/*/src/ | sed 's/.*app\\.//' | sort | uniq -c | sort -rn
           8 extensions.register_plugin_command
           7 di.provide
           4 configuration.resolve_model

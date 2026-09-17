@@ -62,7 +62,7 @@ Create your own plugins for the functualize ecosystem:
 
 ### Plugin usage examples
 
-Examples of *using* each first-party plugin live inside the plugin itself: `plugins/<name>/examples/` — e.g. [`functualize-mcp`](../plugins/functualize-mcp/examples/), [`functualize-http`](../plugins/functualize-http/examples/), [`functualize-flow-viz`](../plugins/functualize-flow-viz/examples/).
+Examples of *using* each first-party plugin live inside the plugin itself: `plugins/<name>/examples/` — e.g. [`functualize-mcp`](../plugins/adapters/functualize-mcp/examples/), [`functualize-http`](../plugins/adapters/functualize-http/examples/), [`functualize-flow-viz`](../plugins/adapters/functualize-flow-viz/examples/).
 
 ## Running Examples
 
@@ -89,7 +89,7 @@ uv run weather-app forecast --city Tokyo
 uv run pytest examples/ -v
 
 # Per-plugin example tests run explicitly, like plugin tests
-uv run pytest plugins/functualize-mcp/examples/ -v
+uv run pytest plugins/adapters/functualize-mcp/examples/ -v
 ```
 
 ## Dev Container

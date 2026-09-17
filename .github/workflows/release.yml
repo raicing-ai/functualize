@@ -92,7 +92,7 @@ jobs:
       - name: Set up Python
         run: uv python install 3.11
 
-      # Builds the core package plus every workspace plugin (plugins/*)
+      # Builds the core package plus every workspace plugin (plugins/*/*)
       # into dist/ — all of them are published to PyPI together below.
       - name: Build all workspace packages
         run: uv build --all-packages

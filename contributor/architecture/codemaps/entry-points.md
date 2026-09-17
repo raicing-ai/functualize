@@ -81,9 +81,9 @@ JobResult
 |---|---|---|
 | `CliAdapter` | `app/adapters/cli.py` | Click command dispatch, built into core `[cli]` extras. Builds one `click.Group` per path segment; a segment whose group declares `GroupOptions` also carries those as real click params, consumed **mid-path** (`glab deploy --env prod web run v1.2`) — see ADR-009 decision 11 |
 | `TuiAdapter` | `app/adapters/tui.py` + `_cli/tui/app.py` | inline SmartBar TUI (bare `func` on a TTY) / full-screen TUI |
-| HTTP adapter | `plugins/functualize-http` | asyncio HTTP server, `AdapterPlugin.run()` |
-| Lambda adapter | `plugins/functualize-lambda` | AWS Lambda event → `app.execute()` |
-| MCP adapter | `plugins/functualize-mcp` | FastMCP tool exposure of jobs |
+| HTTP adapter | `plugins/adapters/functualize-http` | asyncio HTTP server, `AdapterPlugin.run()` |
+| Lambda adapter | `plugins/adapters/functualize-lambda` | AWS Lambda event → `app.execute()` |
+| MCP adapter | `plugins/adapters/functualize-mcp` | FastMCP tool exposure of jobs |
 
 All delivery adapters converge on the same `engine.execute(name, fn, config_class, kwargs)` call — see `contributor/architecture/execution-flow.md` and `data-flow.md`.
 

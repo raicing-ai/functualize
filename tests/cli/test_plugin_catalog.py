@@ -70,10 +70,17 @@ class TestManifestMatchesReality:
         "`functualize-interactivity` appeared in earlier revisions of this
         document. No such package has ever existed in this repository."
         """
+        # Globbed rather than joined: `plugin-taxonomy`/T3 groups plugins by
+        # role (`plugins/adapters/`, `plugins/substrates/`, ...), and which
+        # group a distribution lives in is not this test's subject. Asking
+        # "is there a directory of this name anywhere under plugins/" keeps the
+        # assertion about the manifest and not about the layout.
         missing = [
             e.distribution
             for e in load_catalog()
-            if not (REPO_ROOT / "plugins" / e.distribution).is_dir()
+            if not any(
+                p.is_dir() for p in (REPO_ROOT / "plugins").glob(f"*/{e.distribution}")
+            )
         ]
         assert not missing, f"manifest names non-existent plugin dirs: {missing}"
 

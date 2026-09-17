@@ -13,8 +13,8 @@ Delivery-adapter projects (HTTP, Lambda) live with their plugins:
 
 | Location | Description |
 |----------|-------------|
-| [`plugins/functualize-http/examples/http_service/`](../../plugins/functualize-http/examples/http_service/) | Jobs exposed as an HTTP API |
-| [`plugins/functualize-lambda/examples/lambda_handler/`](../../plugins/functualize-lambda/examples/lambda_handler/) | Jobs deployed to AWS Lambda |
+| [`plugins/adapters/functualize-http/examples/http_service/`](../../plugins/adapters/functualize-http/examples/http_service/) | Jobs exposed as an HTTP API |
+| [`plugins/adapters/functualize-lambda/examples/lambda_handler/`](../../plugins/adapters/functualize-lambda/examples/lambda_handler/) | Jobs deployed to AWS Lambda |
 
 ## Architecture
 

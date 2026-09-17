@@ -6,8 +6,23 @@ Official plugins live in the monorepo under `plugins/` and are published as sepa
 
 ### 1. Create the package structure
 
+Plugins are grouped by **what they serve**, one level under `plugins/`:
+
+| Group | Holds | Members today |
+|---|---|---|
+| `adapters/` | ways to reach jobs — commands, delivery surfaces, terminal I/O | http, lambda, mcp, flow-viz, inline |
+| `substrates/` | where a project's documents live | state-sqlite |
+| `secrets/` | where secrets are fetched from | aws, bitwarden |
+| `domains/` | a capability protocol, **and its implementations beside it** | ai + ai-pydantic, tasks + tasks-local |
+
+An implementation is a *sibling* of the domain it implements, not a child:
+`functualize-ai` and `functualize-ai-pydantic` sort adjacent, so the tree shows
+the relationship, and **every plugin stays at exactly two levels** — the one
+depth `members = ["plugins/*/*"]` and `.claude/hooks/spec_gate.py` are taught.
+A third level would be a special case in both.
+
 ```
-plugins/functualize-my-plugin/
+plugins/<group>/functualize-my-plugin/
 ├── pyproject.toml
 ├── src/
 │   └── functualize_my_plugin/
@@ -81,7 +96,7 @@ In the root `pyproject.toml`:
 
 ```toml
 [tool.uv.workspace]
-members = ["plugins/*"]  # Already a glob — your plugin is auto-included
+members = ["plugins/*/*"]  # A glob — but two levels: see the layout below
 
 [tool.uv.sources]
 functualize-my-plugin = { workspace = true }
@@ -98,7 +113,7 @@ The workspace setup makes your plugin available in the dev environment immediate
 ### 6. Test it
 
 ```python
-# plugins/functualize-my-plugin/tests/test_my_plugin.py
+# plugins/<group>/functualize-my-plugin/tests/test_my_plugin.py
 from functualize.app import FunctualizeApp, JobSources, PluginSources
 from functualize_my_plugin import MyPlugin
 
@@ -189,7 +204,7 @@ class LambdaAdapter:
 **The one pattern that cannot take `PluginHost`.** `event_bus` is not a port
 member, so `app` here is the concrete `FunctualizeApp`. That is a measured
 exclusion, not an oversight: the port takes the members with two or more
-first-party plugin clients, and `rg 'app[.]event_bus' plugins/*/src` finds
+first-party plugin clients, and `rg 'app[.]event_bus' plugins/*/*/src` finds
 **zero** — every shipped subscriber is in `src/`. `event_bus` remains a public
 member of `FunctualizeApp`, so this example is correct as written; it is simply
 outside the narrow door. The same is true of `hook_registry` for every event but
@@ -236,7 +251,7 @@ class InlinePromptPlugin:
 Every plugin ships runnable examples in `plugins/<name>/examples/`:
 
 ```
-plugins/functualize-my-plugin/
+plugins/<group>/functualize-my-plugin/
 ├── examples/
 │   ├── README.md              ← Table of scenarios + how to run them
 │   └── <scenario>/            ← One focused scenario (jobs + optional test)
@@ -252,7 +267,7 @@ Rules:
 - **Runnable without secrets where possible** — use the domain's testing double (`MockAI`, `InMemoryState`, `AutoPrompt`, `MockTasks`). If the plugin's whole point is a real external service (e.g. `functualize-ai-pydantic`), document the required env vars in the README and skip the automated test.
 - **Interactive plugins** (inline widgets, fullscreen TUI) get a README with manual verification steps instead of a pytest file.
 - Example tests are **not collected by root pytest** (same isolation rule as `plugins/<name>/tests/`) — run them explicitly: `uv run pytest plugins/<name>/examples/ -v`.
-- Larger examples that are full projects (own `pyproject.toml`) pin workspace deps with relative `[tool.uv.sources]` paths — see `plugins/functualize-http/examples/http_service/`.
+- Larger examples that are full projects (own `pyproject.toml`) pin workspace deps with relative `[tool.uv.sources]` paths — see `plugins/adapters/functualize-http/examples/http_service/`.
 
 ## Key Rules
 

@@ -102,7 +102,7 @@ Once you know validation is needed and at what tier, find the right scenarios.
 | Project-level FunctualizeApp | `examples/project/weather_app` | — |
 | Workflow composition | `examples/quickstart/step7_workflow` | — |
 | Plugin loading | `examples/plugins/file_based_plugin` | — |
-| MCP adapter | `plugins/functualize-mcp/examples/` | — |
+| MCP adapter | `plugins/adapters/functualize-mcp/examples/` | — |
 | Scaffolding | `examples/quickstart/step8_scaffold` | — |
 | AI/invoke patterns | `examples/quickstart/step5_ai` | — |
 

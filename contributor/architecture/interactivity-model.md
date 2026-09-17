@@ -112,8 +112,8 @@ top-of-stack; `Live` binds to the active live-capable surface.
 | Kernel stdin fallback | `_engine/capabilities/stdin_collector.py` | internal |
 | `TextualApp` / `StdoutSurface` / fullscreen | `functualize/ui/` (the `[cli]` extra) | `from functualize.ui import TextualApp, StdoutSurface` |
 | Surface-resolution ladder + EXCLUSIVE handoff | `_cli/orchestrator.py`, `_cli/inline_tui.py` | internal |
-| Inline TUI plugin | `plugins/functualize-inline/` | separate package |
-| Flow visualization plugin | `plugins/functualize-flow-viz/` | separate package |
+| Inline TUI plugin | `plugins/adapters/functualize-inline/` | separate package |
+| Flow visualization plugin | `plugins/adapters/functualize-flow-viz/` | separate package |
 
 ## Design principle
 

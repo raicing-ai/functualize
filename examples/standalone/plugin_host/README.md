@@ -43,7 +43,7 @@ def __call__(self, app: PluginHost) -> None:
 `PluginHost` is the **eleven members a plugin is meant to use** — the five
 facades as narrow views, plus `get_jobs`, `get_job`, `execute`, `substrate`,
 `install_substrate` and `fresh_root`. Every one of them earned its place with a
-measured client count across `plugins/*/src`.
+measured client count across `plugins/*/*/src`.
 
 Annotate with it and each of the six lines below is a `mypy --strict` error at
 the line you wrote, instead of an `AttributeError` in someone else's release:

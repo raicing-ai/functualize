@@ -462,7 +462,7 @@ func mcp serve
 
 Now Claude can discover and call `forecast` and `travel_plan` directly, passing structured config and receiving typed results. Jobs with `visibility="internal"` are hidden from MCP.
 
-> Runnable code: [`examples/quickstart/step6_mcp/`](examples/quickstart/step6_mcp/) — full tool-surface reference in [`plugins/functualize-mcp/examples/`](plugins/functualize-mcp/examples/)
+> Runnable code: [`examples/quickstart/step6_mcp/`](examples/quickstart/step6_mcp/) — full tool-surface reference in [`plugins/adapters/functualize-mcp/examples/`](plugins/adapters/functualize-mcp/examples/)
 
 ### Step 7: Workflow checkpoints for AI agents
 
@@ -536,7 +536,7 @@ When served via MCP (`func mcp serve`), `functualize-mcp` exposes workflow tools
 
 This creates bounded AI workflows — the agent operates within defined steps rather than open-ended execution.
 
-> Runnable code: [`examples/quickstart/step7_workflow/`](examples/quickstart/step7_workflow/) — full workflow walkthrough in [`plugins/functualize-mcp/examples/`](plugins/functualize-mcp/examples/)
+> Runnable code: [`examples/quickstart/step7_workflow/`](examples/quickstart/step7_workflow/) — full workflow walkthrough in [`plugins/adapters/functualize-mcp/examples/`](plugins/adapters/functualize-mcp/examples/)
 
 ### Step 8: Scaffold and distribute as a CLI
 

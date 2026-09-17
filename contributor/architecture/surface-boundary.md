@@ -116,9 +116,9 @@ Two second-order splits sit underneath:
 |---|---|---|
 | `deliver_job_result` | `app/adapters/click_params.py` | process exit code, via `exit_code_for_status` |
 | TUI | `_cli/tui/job_execution.py:285` | exit code, via `exit_code_for_status` |
-| MCP | `plugins/functualize-mcp/_tools.py:256` | `result.status.value` as a **string** in a tool response |
-| HTTP | `plugins/functualize-http` | its own response mapping |
-| Lambda | `plugins/functualize-lambda` | its own return payload |
+| MCP | `plugins/adapters/functualize-mcp/_tools.py:256` | `result.status.value` as a **string** in a tool response |
+| HTTP | `plugins/adapters/functualize-http` | its own response mapping |
+| Lambda | `plugins/adapters/functualize-lambda` | its own return payload |
 | `Invoke` | `_engine/capabilities/invoke.py` | the `JobResult` itself, to the calling job |
 
 **Consequence to keep in mind:** a new `RunStatus` member, or a change in what

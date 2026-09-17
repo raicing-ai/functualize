@@ -39,7 +39,7 @@ All checks must pass before any change is complete: `ruff check`, `ruff format -
 
 ### Command discipline
 
-- Commands already run from the project root — never prefix with `cd <project-root> &&`. Only `cd` into subdirectories when needed (e.g. `cd plugins/functualize-inline && uv sync`).
+- Commands already run from the project root — never prefix with `cd <project-root> &&`. Only `cd` into subdirectories when needed (e.g. `cd plugins/adapters/functualize-inline && uv sync`).
 - After a change, run the **smallest relevant test scope** (specific file > `-k` keyword > directory > full suite). Run the full suite only when shared infrastructure changed.
 - Maximum 2 pytest invocations per verification: run targeted tests; if a failure appears, fix and re-run only the failing test. If still failing, stop and explain rather than cycling flag variations.
 - **Always redirect command output to a temp file** when the output may be long (pytest, linters, type checkers). Never pipe through `tail`/`head`/`sed` — truncation forces a re-run to see the full output. Use `/tmp/functualize-<command>.log` and read from it. Example: `uv run pytest tests/engine/ > /tmp/functualize-test.log 2>&1`.
@@ -284,6 +284,6 @@ Gitignored: `STATE.md` (per-session; if absent, treat as no work in flight),
 
 ## Plugin tests
 
-Plugin-specific tests live in each plugin's own `tests/` directory (e.g. `plugins/functualize-inline/tests/`).
+Plugin-specific tests live in each plugin's own `tests/` directory (e.g. `plugins/adapters/functualize-inline/tests/`).
 Run them directly with `pytest plugins/<name>/tests/`; they are not collected
 by the root `pytest` invocation.

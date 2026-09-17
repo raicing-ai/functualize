@@ -10,7 +10,7 @@ Examples of creating custom plugins and adapters for the functualize ecosystem. 
 | `custom_adapter/` | Implement the `AdapterPlugin` protocol (webhook delivery) — a packaged delivery plugin |
 | `file_based_plugin/` | Zero packaging: a single `.py` file in `.functualize/plugins/`, discovered at boot |
 
-Examples of *using* the first-party plugins live in each plugin's own folder: `plugins/<name>/examples/` (e.g. [`plugins/functualize-mcp/examples/`](../../plugins/functualize-mcp/examples/)).
+Examples of *using* the first-party plugins live in each plugin's own folder: `plugins/<name>/examples/` (e.g. [`plugins/adapters/functualize-mcp/examples/`](../../plugins/adapters/functualize-mcp/examples/)).
 
 ## Plugin Architecture
 

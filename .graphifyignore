@@ -1,4 +1,4 @@
-# Scope the knowledge graph to shipped source only: src/ and plugins/*/src/.
+# Scope the knowledge graph to shipped source only: src/ and plugins/*/*/src/.
 #
 # graphify's ignore file is EXCLUDE-ONLY -- a "!" line cannot re-include a path
 # (detect.py: "adding a .graphifyignore can only ever exclude MORE, never

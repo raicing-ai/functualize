@@ -162,14 +162,14 @@ SNAPSHOT_INCLUDE = (
     "README.md",
     "LICENSE",
     "CHANGELOG.md",
-    # The root pyproject declares a uv workspace over `plugins/*` and points
+    # The root pyproject declares a uv workspace over `plugins/*/*` and points
     # `tool.uv.sources` at every member, so uv refuses to resolve *anything*
     # unless it can see them: "references a workspace in tool.uv.sources but is
     # not a workspace member". Their manifests are enough for that — no fixture
     # installs a plugin extra, so no plugin is ever built and their source
     # stays out of /src. Add `plugins/<name>/src` here if a fixture ever needs
     # one.
-    "plugins/*/pyproject.toml",
+    "plugins/*/*/pyproject.toml",
 )
 
 

@@ -158,4 +158,4 @@ See `contributor/guides/tui-panels.md` for the hard rule every panel widget must
 | `functualize-lambda` | Delivery adapter | AWS Lambda adapter (fat/thin patterns) |
 | `functualize-mcp` | Delivery adapter | Exposes jobs as MCP tools via FastMCP |
 
-All 13 are `uv` workspace members (`plugins/*`), pinned via `[tool.uv.sources]` in the root `pyproject.toml`.
+All 13 are `uv` workspace members (`plugins/*/*`), pinned via `[tool.uv.sources]` in the root `pyproject.toml`.

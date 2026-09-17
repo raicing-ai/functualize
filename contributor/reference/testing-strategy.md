@@ -126,9 +126,9 @@ Each property test validates specific requirements (traced via `**Validates: Req
 Plugin-specific tests live in each plugin's own `tests/` directory:
 
 ```
-plugins/functualize-inline/tests/
-plugins/functualize-state-sqlite/tests/
-plugins/functualize-flow-viz/tests/
+plugins/adapters/functualize-inline/tests/
+plugins/substrates/functualize-state-sqlite/tests/
+plugins/adapters/functualize-flow-viz/tests/
 tests/ui/  # functualize.ui (TextualApp, fullscreen)
 ```
 

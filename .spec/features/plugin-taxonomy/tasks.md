@@ -107,7 +107,7 @@ always-exit-0 invariant driven end to end through `subprocess`.
 
 ## Wave 1 — the move, and nothing else in the commit
 
-### [ ] T3 · `git mv` twelve directories; update every path consumer
+### [x] T3 · `git mv` twelve directories; update every path consumer
 
 `plan.md` §3, `contracts.md` §2.1. **A move-only commit.** Git detects renames
 only for unchanged content, and T8 rewrites the sqlite plugin — so the move must
@@ -170,8 +170,45 @@ a given day against the layout of that day.
 | `ls -d plugins/*/functualize-*/ \| wc -l` | 0 | 12 |
 
 **Reachability — run the sabotage first.** Leave `members = ["plugins/*"]` after
-moving. Expected: `uv sync --all-packages` finds **0** workspace packages. If it
-still finds 12, the glob is not the mechanism and the file list is wrong.
+moving. Expected: `uv sync --all-packages` finds **0** workspace packages.
+
+**DONE** (`c232656`). Two sabotages, because the task turned out to carry two
+different failure modes:
+
+- **A — the silent one.** Revert `tests/primitives/test_entry_point_cache.py`'s
+  runtime glob to `glob("*/src")`. Before the fix that returned `[]` and the
+  scan **passed while walking zero files**. With the added non-empty assertion
+  it now errors at *collection*: `AssertionError: no plugin src/ directories
+  found`. Restored; 9 passed.
+- **B — the loud one.** `members = ["plugins/*"]` → **0** workspace packages;
+  `["plugins/*/*"]` → **12**.
+
+**Measured results:** root suite **10,697 passed / 0 failed**; examples **212**;
+twelve plugin suites run one at a time (a shared invocation collides on
+`tests.conftest`, which is why `CONTRIBUTING.md` says one at a time) —
+**436 passed**; `uv sync --all-packages --all-extras` and
+`uv build --all-packages` exit 0; mypy clean on 356 files; lint-imports 7/0.
+
+**Three root tests failed on the first full run** and were fixed here, all the
+same shape — a path built as `plugins/<distribution>/…`:
+`tests/cli/test_plugin_catalog.py::test_every_distribution_exists` (now globs
+`plugins/*/<distribution>`, so the group stops being its business),
+`tests/types/test_every_surface_declares_its_family.py` and
+`tests/types/test_run_request.py` (both hard-code three adapter paths).
+
+**An environment trap worth recording.** The task's own gate,
+`uv sync --all-packages`, **dropped the `[cli]` extra** and mypy then reported 6
+errors in `_cli/tui/functualize_autocomplete.py` — a file this task never
+touched — because `textual-autocomplete` was uninstalled. `.spec/TESTING.md`
+documents exactly this (*"the three sync flags prune each other … running one
+alone produces failures that look like real defects"*). The correct gate is
+`uv sync --all-packages --all-extras`.
+
+**Also observed:** `functualize-state-sqlite`'s suite is **25 passed / 0
+failed**. `.spec/STATE.md` recorded 4 failures there as proven pre-existing
+(subprocess tests that SIGKILL and cannot inherit an in-process `monkeypatch`).
+They pass once the plugins are really installed, which `--all-packages
+--all-extras` does. Nothing was masked — T10 re-checks this against AC-22.
 
 ---
 
@@ -373,6 +410,13 @@ fixture is not on the path it appears to be.
 - **the mypy-opaque table:** `plugins/domains/functualize-ai/src/functualize_ai/__init__.py` (140)
 - **`_state_fallback.py`** (119 LOC, retired protocol, and its advice at line 30)
 - **doc truth:** `plugins/PUBLISHING.md` (104, 113-115, 194, 226); `contributor/architecture/codemaps/overview.md` (73), `modules.md` (153), `dependencies.md` (117), `entry-points.md` (14-21 — it lists 3 groups where 7 static ones exist)
+- **added during T3**, found while fixing paths and left for this task because
+  they are *truth* problems rather than *path* problems:
+  `CONTRIBUTING.md` (459) describes `plugins/functualize-fullscreen-tui/` —
+  **the directory does not exist** (`ls` → nothing, at either depth) — and says
+  it "does not count toward the thirteen"; there are **twelve**. T3 removed the
+  one thing in that file that was a broken *command* (an install of the retired
+  `functualize-state`, dead since ADR-022) and left the prose here
 
 **Acceptance gates:**
 | AC | Gate | before | after |

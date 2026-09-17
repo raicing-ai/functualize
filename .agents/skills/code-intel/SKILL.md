@@ -141,7 +141,7 @@ every worktree and cloud worker gets a warm graph for free. Its `cache/`,
 `.gitignore` for the whitelist form and the reasoning.
 
 Repo config already in place:
-- `.graphifyignore` — scopes the graph to `src/`, `plugins/*/src/`, `docs/`,
+- `.graphifyignore` — scopes the graph to `src/`, `plugins/*/*/src/`, `docs/`,
   `contributor/`. Tests, fixtures and examples excluded. **Exclude-only**: a
   `!` line cannot re-include, so a whitelist is impossible.
 - `mise.toml` sets `GRAPHIFY_VIZ_NODE_LIMIT=12000` and `PYTHONHASHSEED=0`.
@@ -205,7 +205,7 @@ turns out to be wrong rather than leaving it to mislead.
   `status`, and do not conclude the index is broken.
 
 - **2026-09-16** — `rg` counted **docstrings as annotations**. The census
-  `rg -oN "app: *[A-Za-z_|\" ]+" plugins/*/src` reported 42 `app: Any` because
+  `rg -oN "app: *[A-Za-z_|\" ]+" plugins/*/*/src` reported 42 `app: Any` because
   Google-style docstring lines (`app: The FunctualizeApp instance`) match the
   same pattern. The AST count is 40 of 44 parameters. **Any count that is really
   a question about syntax — annotations, signatures, call arity — belongs in an

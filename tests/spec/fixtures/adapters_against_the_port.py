@@ -26,7 +26,7 @@ mypy:
 - `CliAdapter.__call__` reads `app.name` — to name the click group — and hands
   `app` to `register_discovered_jobs` and `register_plugin_commands`, two core
   helpers that take the whole `FunctualizeApp`. `name` is **not** on the port,
-  and the census says it should not be: `rg 'app[.]name' plugins/*/src
+  and the census says it should not be: `rg 'app[.]name' plugins/*/*/src
   examples/*/*/src` finds **zero** plugin clients, so it fails the same
   client-count rule every other member had to pass.
 - `TuiAdapter.__call__` reads *nothing* — it only stores the reference — but

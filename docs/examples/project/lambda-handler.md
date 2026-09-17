@@ -4,12 +4,12 @@ A functualize project deployed as AWS Lambda functions. Demonstrates both "fat L
 
 ## Source
 
-[`plugins/functualize-lambda/examples/lambda_handler/`](https://github.com/raicing-ai/functualize/tree/master/plugins/functualize-lambda/examples/lambda_handler)
+[`plugins/adapters/functualize-lambda/examples/lambda_handler/`](https://github.com/raicing-ai/functualize/tree/master/plugins/adapters/functualize-lambda/examples/lambda_handler)
 
 ## Setup
 
 ```bash
-cd plugins/functualize-lambda/examples/lambda_handler
+cd plugins/adapters/functualize-lambda/examples/lambda_handler
 uv sync
 ```
 

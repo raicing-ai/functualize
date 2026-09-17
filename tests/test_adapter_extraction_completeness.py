@@ -65,7 +65,7 @@ class TestAdapterDirectoryContents:
         http_path = SRC_ROOT / "app" / "adapters" / "http.py"
         assert not http_path.exists(), (
             "http.py should not exist in app/adapters/ — "
-            "HttpAdapter has been extracted to plugins/functualize-http/"
+            "HttpAdapter has been extracted to plugins/adapters/functualize-http/"
         )
 
     def test_no_lambda_adapter_in_app_adapters(self):
@@ -73,7 +73,7 @@ class TestAdapterDirectoryContents:
         lambda_path = SRC_ROOT / "app" / "adapters" / "lambda_.py"
         assert not lambda_path.exists(), (
             "lambda_.py should not exist in app/adapters/ — "
-            "LambdaAdapter has been extracted to plugins/functualize-lambda/"
+            "LambdaAdapter has been extracted to plugins/adapters/functualize-lambda/"
         )
 
 
@@ -85,7 +85,7 @@ class TestOldAdaptersDirectoryCleaned:
         http_path = SRC_ROOT / "adapters" / "http.py"
         assert not http_path.exists(), (
             "adapters/http.py should have been deleted — "
-            "HttpAdapter extracted to plugins/functualize-http/"
+            "HttpAdapter extracted to plugins/adapters/functualize-http/"
         )
 
     def test_no_lambda_adapter_in_old_adapters(self):
@@ -93,7 +93,7 @@ class TestOldAdaptersDirectoryCleaned:
         lambda_path = SRC_ROOT / "adapters" / "lambda_.py"
         assert not lambda_path.exists(), (
             "adapters/lambda_.py should have been deleted — "
-            "LambdaAdapter extracted to plugins/functualize-lambda/"
+            "LambdaAdapter extracted to plugins/adapters/functualize-lambda/"
         )
 
 

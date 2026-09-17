@@ -171,7 +171,7 @@ Public classes and functions exported by this plugin:
 Run plugin tests:
 
 \```bash
-uv run pytest plugins/functualize-<name>/tests/ -v
+uv run pytest plugins/<group>/functualize-<name>/tests/ -v
 \```
 ```
 

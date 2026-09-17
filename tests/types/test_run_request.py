@@ -264,8 +264,8 @@ class TestOneWireContract:
 
         plugins = Path(__file__).resolve().parents[2] / "plugins"
         for rel in (
-            "functualize-http/src/functualize_http/__init__.py",
-            "functualize-lambda/src/functualize_lambda/__init__.py",
+            "adapters/functualize-http/src/functualize_http/__init__.py",
+            "adapters/functualize-lambda/src/functualize_lambda/__init__.py",
         ):
             text = (plugins / rel).read_text(encoding="utf-8")
             assert "request_from_envelope(" in text, f"{rel} does not use the contract"

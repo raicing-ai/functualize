@@ -146,7 +146,9 @@ def _run(project: Path, *args: str) -> subprocess.CompletedProcess[str]:
 def two_workers(tmp_path: Path) -> tuple[Path, Path, Path]:
     db = tmp_path / "shared" / "state.db"
     db.parent.mkdir()
-    plugin_src = PROJECT_ROOT / "plugins" / "functualize-state-sqlite" / "src"
+    plugin_src = (
+        PROJECT_ROOT / "plugins" / "substrates" / "functualize-state-sqlite" / "src"
+    )
     first = _worker(tmp_path / "worker-a", db, plugin_src)
     second = _worker(tmp_path / "worker-b", db, plugin_src)
     return first, second, db
@@ -228,7 +230,14 @@ class TestAGateCrossesTheProcessBoundary:
         _run(first, "walk")
 
         sys.path.insert(
-            0, str(PROJECT_ROOT / "plugins" / "functualize-state-sqlite" / "src")
+            0,
+            str(
+                PROJECT_ROOT
+                / "plugins"
+                / "substrates"
+                / "functualize-state-sqlite"
+                / "src"
+            ),
         )
         from functualize_state_sqlite.substrate import SQLiteSubstrate
 
@@ -276,7 +285,10 @@ def test_the_gate_payload_survives_the_crossing(
     _run(second, "walk", "--wf-resume", scope, "--wf-input", '{"approved": "sam"}')
 
     sys.path.insert(
-        0, str(PROJECT_ROOT / "plugins" / "functualize-state-sqlite" / "src")
+        0,
+        str(
+            PROJECT_ROOT / "plugins" / "substrates" / "functualize-state-sqlite" / "src"
+        ),
     )
     from functualize_state_sqlite.substrate import SQLiteSubstrate
 

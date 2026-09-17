@@ -92,9 +92,9 @@ def test_the_declaration_is_greppable_as_code() -> None:
 
     plugins = Path(__file__).resolve().parents[2] / "plugins"
     expected = {
-        "functualize-http/src/functualize_http/__init__.py": "WIRE",
-        "functualize-lambda/src/functualize_lambda/__init__.py": "WIRE",
-        "functualize-mcp/src/functualize_mcp/_tools.py": "TOOL",
+        "adapters/functualize-http/src/functualize_http/__init__.py": "WIRE",
+        "adapters/functualize-lambda/src/functualize_lambda/__init__.py": "WIRE",
+        "adapters/functualize-mcp/src/functualize_mcp/_tools.py": "TOOL",
     }
     for rel, family in expected.items():
         text = (plugins / rel).read_text(encoding="utf-8")
