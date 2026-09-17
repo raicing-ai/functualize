@@ -27,7 +27,7 @@ interfaces), `plan.md` (technical approach), and `tasks.md` (atomized tasks
 ending in a `## Task Dependency Graph` JSON wave list). Those artifacts are
 produced by `/agentic-specify` and `/agentic-plan`.
 
-Modifying `src/functualize/**` or `plugins/*/src/**` requires an existing
+Modifying `src/functualize/**` or `plugins/**/src/**` requires an existing
 `tasks.md` with a wave graph. A plan that proposes editing shipped code without
 one describes work that cannot proceed as written.
 

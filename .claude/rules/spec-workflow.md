@@ -29,12 +29,12 @@ running the phases — not ad-hoc edits.
 
 ## What is mechanically enforced
 
-**Modifying `src/functualize/**` or `plugins/*/src/**` requires an existing
+**Modifying `src/functualize/**` or `plugins/**/src/**` requires an existing
 `.spec/features/*/tasks.md` carrying a parseable `## Task Dependency Graph`.**
 A `PreToolUse` hook denies the write otherwise.
 
 Not gated, so the Specify and Plan phases work normally: `.spec/`, `tests/`,
-`plugins/*/tests/`, `plugins/conftest.py`, every `pyproject.toml`, `docs/`,
+`plugins/**/tests/`, `plugins/conftest.py`, every `pyproject.toml`, `docs/`,
 `contributor/`, `.claude/`.
 
 The gate fails open. If the validator cannot decide — malformed input, missing

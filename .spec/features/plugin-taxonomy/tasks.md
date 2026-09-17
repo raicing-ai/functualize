@@ -1,0 +1,429 @@
+# plugin-taxonomy — tasks (PR-1)
+
+**2026-09-17 · base `feat/plugin-host-protocol` @ `80ec5f0`.** PR-1 only
+(`spec.md` §B D1′). PR-2 and PR-3 are planned and atomized when cut.
+
+Every file list below is the **hit set of the query that found it**, shown with
+the task. Every acceptance gate is a command with a `before:` measured today and
+an `after:` required value — `before:` values were produced by running the
+command, not by reading.
+
+**Prior-art note carried from `plugin-host-protocol`:** *every* reachability
+gate that feature wrote during Plan was false when run — six for six — because
+they named a test that ought to cover a seam rather than one that did. Each gate
+below therefore names the sabotage and the expected failure **count**, and the
+rule is: run the sabotage first; if the suite stays green, write the coverage
+before writing the fix.
+
+---
+
+## Wave 0 — the enforcement must survive the move
+
+### [x] T1 · `spec_gate.py` stops assuming one directory level
+
+`plan.md` §1.1, `research.md` R1. **Nothing may move before this lands**: the
+gate fails open by design, so a move-first sequence leaves `plugins/**/src/**`
+unguarded with no error, no failing test and no log line.
+
+**Files** — `git grep -n 'plugins/\*/src\|rel\[1\] == "src"\|GATED_GLOB_PARTS' -- .claude/`:
+- `.claude/hooks/spec_gate.py` (25, 87)
+- `.claude/hooks/agent_contract.py` (30)
+- `.claude/hooks/plan_context.py` (42)
+- `.claude/rules/spec-workflow.md` (32)
+
+**Do:** replace the fixed-index predicate `len(rel) >= 3 and rel[1] == "src"`
+with one that accepts a `src` segment at any depth below `plugins/` while still
+excluding `plugins/<...>/tests/` and `plugins/conftest.py`. Update
+`GATED_GLOB_PARTS` and the three prose copies.
+
+**Acceptance gate** — import and **call** the predicate:
+```python
+from spec_gate import is_gated            # loaded by path
+is_gated("plugins/functualize-http/src/functualize_http/x.py", cwd)
+is_gated("plugins/adapters/functualize-http/src/functualize_http/x.py", cwd)
+is_gated("plugins/substrates/functualize-substrate-sqlite/src/pkg/x.py", cwd)
+is_gated("plugins/functualize-http/tests/test_x.py", cwd)
+is_gated("src/functualize/_app/boot.py", cwd)
+```
+`before: True, False, False, False, True` (measured 2026-09-17)
+`after:  True, True,  True,  False, True`
+
+**Reachability:** the gate is a `PreToolUse` hook, so its production call path is
+the harness, not the test suite. Verified by T2, which is why T2 is not optional.
+
+**DONE** (`1251ef7`). Gate run: the five cases returned
+`True, False, False, False, True` before and `True, True, True, False, True`
+after — the predicate now answers *is any component `src`* rather than indexing
+`rel[1]`. `GATED_GLOB_PARTS` was **deleted, not updated**: `git grep` found only
+its own definition, so it was an unused second statement of the layout.
+
+**Two corrections to this task as planned.**
+
+1. **The prose sites were four, not three.** The hit set of
+   `git grep -n 'plugins/\*/src'` also found
+   `contributor/adr/010-spec-workflow-enforcement-point.md:50` and
+   `.spec/STATUS.md:2381`, both stating the gate's scope as current fact, and
+   `.claude/rules/spec-workflow.md`'s *not gated* list said `plugins/*/tests/`.
+   All updated.
+2. **A blocker the task did not predict.** `has_wave_graph` requires every wave
+   to carry an `"id"` key; this file shaped them with `"wave"`, so the graph did
+   not parse and the gate **denied every write to shipped code**. Fixed in the
+   same commit. The Plan-phase check that "confirmed" the graph only counted the
+   list's length — a vacuous check of exactly the kind this feature is about.
+
+---
+
+### [x] T2 · A test that fails when the gate stops guarding
+
+The mitigation for `plan.md` §5 surviving smell 1 — shotgun surgery is tolerable
+once it is not silent.
+
+**Files:** `tests/hooks/test_spec_gate_depth.py` (new). `tests/` is ungated, so
+this task needs no gate of its own to be written.
+
+**Do:** load `.claude/hooks/spec_gate.py` by path and assert the five cases
+above, parametrized, with the two-level cases named for the directory groups
+`plan.md` §3 introduces.
+
+**Acceptance gate:** `uv run pytest tests/hooks/test_spec_gate_depth.py -q`
+`before: file does not exist` · `after: 5 passed`
+
+**Reachability — run the sabotage first.** Revert T1's predicate to
+`rel[1] == "src"`. Planned expectation: **2 failed**.
+
+**DONE** (`1251ef7`). Measured: **6 failed, 13 passed** — the planned number was
+an undercount written before the case list was finalised. The six name all five
+grouped-layout paths (`adapters/`, `substrates/`, `secrets/`, `domains/`) plus
+`test_the_predicate_indexes_no_fixed_position`. Restored with
+`git checkout --`; 19 passed. The test is not vacuous.
+
+Landed at `tests/spec/` rather than `tests/hooks/`, which holds the framework's
+own `HookRegistry` tests and is a different subject. **19 tests**, not the 5 the
+task described: 16 parametrized path cases plus three that guard the
+over-correction (a file named `src`), depth independence, and the hook's
+always-exit-0 invariant driven end to end through `subprocess`.
+
+---
+
+## Wave 1 — the move, and nothing else in the commit
+
+### [ ] T3 · `git mv` twelve directories; update every path consumer
+
+`plan.md` §3, `contracts.md` §2.1. **A move-only commit.** Git detects renames
+only for unchanged content, and T8 rewrites the sqlite plugin — so the move must
+not share a commit with an edit.
+
+**Layout** — Q4 **settled** (maintainer, 2026-09-17), four groups not five:
+```
+plugins/
+  adapters/    functualize-http, functualize-lambda, functualize-mcp,
+               functualize-flow-viz, functualize-inline
+  substrates/  functualize-substrate-sqlite
+  secrets/     functualize-aws, functualize-bitwarden
+  domains/     functualize-ai, functualize-ai-pydantic,
+               functualize-tasks, functualize-tasks-local
+  conftest.py  PUBLISHING.md                    (stay at the plugins/ root)
+```
+An implementation is a **sibling** of its domain, not a child: every plugin stays
+at exactly two levels, which is the one depth `members = ["plugins/*/*"]` and
+T1's gate are taught. `functualize-inline` goes to `adapters/` because T5 moves
+it to `functualize.plugins`, the adapters' group.
+
+**Files** — the hit set of
+`git grep -n 'plugins/\*\|plugins/functualize' -- pyproject.toml evals/ tests/ .github/ contributor/ plugins/PUBLISHING.md`:
+- `pyproject.toml` (133) — `members = ["plugins/*"]` → `["plugins/*/*"]`
+- `evals/providers/_harness.py` (172)
+- `tests/conftest.py` (356)
+- `tests/integration/test_substrate_durability.py` (149, 231, 279)
+- `.github/workflows/ci.yml` (232, 235)
+- `contributor/guides/plugin-development.md` (78-89) — *"already a glob"* becomes false
+- `plugins/PUBLISHING.md` — its `plugins/<name>/…` verification commands
+
+**File list corrected during T1** — the Plan-phase query
+(`git grep -n 'plugins/\*'` over `pyproject.toml evals/ tests/ .github/`) was
+too narrow. Widening it to the whole tree found two more, and one of them fails
+the same silent way R1 does:
+
+| File | Line | What | Fails how |
+|---|---|---|---|
+| `tests/primitives/test_entry_point_cache.py` | 46 | `sorted((_ROOT / "plugins").glob("*/src"))` — a **runtime glob** | **SILENTLY.** After the move it returns `[]`, so the test walks zero plugin files, asserts nothing about them, and **stays green**. A vacuous test, which is the failure mode `plan.md` §5 entry 1 exists to make loud. Its docstrings at 11, 22, 75 also name the old layout |
+| `contributor/guides/plugin-development.md` | 192 | `rg 'app[.]event_bus' plugins/*/src` — an instruction a contributor runs | Silently — returns nothing, reads as "no clients" |
+| `src/functualize/_types/host.py` | 30, 33 | a documented census command in the port's docstring | Silently — same shape |
+| `examples/standalone/plugin_host/README.md` | 46 | "measured client count across `plugins/*/src`" | Prose |
+| `tests/spec/fixtures/adapters_against_the_port.py` | 29 | an `rg` command in a comment | Prose |
+| `.graphifyignore` | 1 | comment says the graph is scoped to `plugins/*/src/` | Prose only — the file is **exclude-only**, so the move does not change what it ingests |
+| `.agents/skills/code-intel/SKILL.md` | 144 | describes `.graphifyignore`'s scope | Prose |
+
+**Deliberately NOT changed** — dated measurement records, which would become
+false if updated: `contributor/architecture/audit-engine-encapsulation.md:26`,
+`audit-entrypoint-coverage.md:4`,
+`contributor/architecture/run-model/evidence/verified.md:45`,
+`.agents/skills/code-intel/SKILL.md:208`. Each states what a command returned on
+a given day against the layout of that day.
+
+**Acceptance gates:**
+| Gate | before | after |
+|---|---|---|
+| `uv sync --all-packages` | resolves, 12 members | resolves, 12 members |
+| `uv build --all-packages`; `echo $?` | 0 | 0 |
+| `uv run pytest tests/ -q` | 10,681 passed | 10,681 passed (+5 from T2) |
+| `ls -d plugins/*/functualize-*/ \| wc -l` | 0 | 12 |
+
+**Reachability — run the sabotage first.** Leave `members = ["plugins/*"]` after
+moving. Expected: `uv sync --all-packages` finds **0** workspace packages. If it
+still finds 12, the glob is not the mechanism and the file list is wrong.
+
+---
+
+## Wave 2 — one rule for entry-point groups
+
+### [ ] T4 · `_primitives/entry_point_groups.py`, and nine readers import it
+
+`plan.md` §1.1 and §3. The set of groups core reads is currently implicit —
+three inline string literals, three module constants in three layers, two
+dynamic. Nothing can compare it against what the ecosystem declares.
+
+**Files** — the hit set of `rg -n 'entry_points\(group=' src/functualize`:
+- `src/functualize/_primitives/entry_point_groups.py` (new) — `READ_GROUPS`
+- `src/functualize/app/utils.py` (60, 189) — re-export, the seam `_cli` must use
+- `src/functualize/_app/boot.py` (206)
+- `src/functualize/_plugins/loader.py` (326)
+- `src/functualize/_plugins/domain_registry.py` (31, 156)
+- `src/functualize/_config/registry.py` (169, 193)
+- `src/functualize/_cli/skills.py` (166)
+- `src/functualize/_cli/tui/display_provider_discovery.py` (82)
+
+`_discovery/providers.py:790` is **out of scope**: its group is caller-supplied
+(a job source's own), not a group core owns.
+
+**Layer constraint, non-negotiable:** `_cli` may not import `_primitives`
+(import-linter *"`_cli` uses public API only"*). Both `_cli` readers go through
+`functualize.app.utils`, exactly as `classify_group` already does.
+
+**Acceptance gates:**
+| Gate | before | after |
+|---|---|---|
+| `git grep -c 'entry_points(group="functualize' -- src/` | 3 | **0** |
+| `uv run lint-imports` | 7 kept / 0 broken | 7 kept / 0 broken |
+| `uv run mypy` | green, 364 files | green |
+
+**Reachability — run the sabotage first.** Change one member of `READ_GROUPS`
+to a typo (`functualize.pluginz`). Expected: the plugin-loading tests fail —
+`uv run pytest tests/plugins -q` goes red. If green, no reader actually reads
+the constant and the wiring is cosmetic.
+
+---
+
+### [ ] T5 · The three orphan groups move to `functualize.plugins`; `vault_key_providers` is deleted
+
+`spec.md` §I (Q2, Q3, Q5 — settled), `contracts.md` §3.3, §3.4.
+
+**Files** — the hit set of
+`git grep -l -E 'functualize\.(state|interactivity)_providers' -- . ':!.spec' ':!CHANGELOG.md'`, plus the two `vault_key_providers` sites:
+- `plugins/substrates/functualize-state-sqlite/pyproject.toml` (23)
+- `plugins/adapters/functualize-inline/pyproject.toml` (24)
+- `examples/plugins/custom_state_backend/pyproject.toml` (10)
+- `src/functualize/_cli/data/plugin_catalog.toml` (76, 97)
+- `src/functualize/_cli/plugin_cmd.py` (7, 86) — the docstring examples
+- `pyproject.toml` (49) — `vault_key_providers`, **deleted**
+- `src/functualize/_config/vault_keys.py` (6) — the sentence advertising it, deleted
+- `examples/plugins/custom_state_backend/README.md`, `.../_plugin.py` (3, 31)
+- `examples/plugins/README.md` (30), `docs/contributing.md` (625)
+- `plugins/adapters/functualize-inline/README.md` (36)
+- `tests/_cli/test_plugin_cmd.py` (52, 58, 104)
+- `tests/cli/test_plugin_catalog.py` (142)
+- `tests/primitives/test_plugin_kinds.py` (27, 30)
+- `tests/scaffold/test_domain_scaffold.py` (386)
+- `tests/standalone/test_domains_command.py` (78)
+
+The last five are **tests asserting the current wiring**; they change meaning,
+which is why they are in the file list rather than expected to pass unchanged.
+`test_plugin_kinds.py` keeps its cases — `classify_group` is unchanged, and the
+point of those rows is that classification is derived. Add a comment there
+recording that classifying a group is not the same as loading it.
+
+**Acceptance gates:**
+| Gate | before | after |
+|---|---|---|
+| `git grep -l -E 'functualize\.(state\|interactivity)_providers' -- . ':!.spec' ':!CHANGELOG.md' \| wc -l` | 15 | 0 |
+| `git grep -c vault_key_providers -- . ':!.spec'` | 2 files | 0 |
+| AC-3: a test boots an app with the substrate plugin installed **via its entry point** and asserts `app.substrate` is the SQLite one | absent | present, green |
+
+**Reachability — run the sabotage first.** Revert
+`functualize-state-sqlite/pyproject.toml` to `functualize.state_providers`.
+Expected: the new AC-3 test fails. **This one is likely to be wrong as written**
+— `uv sync` does not reinstall a workspace plugin's entry points without a
+re-sync, so the test must install through a `pytest` fixture that manipulates
+`importlib.metadata`, or the sabotage will pass. Establish the mechanism before
+believing the gate.
+
+---
+
+### [ ] T6 · The gate that stops an orphan group recurring
+
+`plan.md` §3, the rule in `contracts.md` §3.3.
+
+**Files:** `tests/spec/test_every_declared_group_has_a_reader.py` (new).
+
+**Do:** parse every shipped `pyproject.toml` — core, the 12 plugins, the 3
+examples — collect every `[project.entry-points."functualize.*"]` group, and
+assert each is in `READ_GROUPS` **or** is the `entry_point_group` of an
+installed `DomainMetadata`. The file list is discovered by glob, not hard-coded,
+so a new plugin is covered without editing the test.
+
+**Acceptance gate:** `uv run pytest tests/spec/test_every_declared_group_has_a_reader.py -q`
+`before: file does not exist; the rule it asserts is violated 4 times`
+`after: 1 passed`
+
+**Reachability — run the sabotage first.** Re-add
+`[project.entry-points."functualize.state_providers"]` to any plugin. Expected:
+**1 failed**, naming that file and that group.
+
+---
+
+## Wave 3 — the storage seam
+
+### [ ] T7 · Remove the middle man; the provider goes lazy and compare-and-swap
+
+`plan.md` §1.3. **One deletion closes AC-4, AC-5, AC-6, AC-7 and AC-8.**
+
+**Files** — the hit set of serena `find_referencing_symbols(TaskDocument)` plus
+`git grep -n TaskDocument`:
+- `plugins/domains/functualize-tasks-local/src/functualize_tasks_local/_provider.py` — delete `TaskDocument`; rewrite `LocalTaskProvider`
+- `plugins/domains/functualize-tasks-local/src/functualize_tasks_local/_plugin.py` (17, 31, 66-67)
+- `plugins/domains/functualize-tasks-local/tests/test_local_provider.py` (4, 12, 18-31)
+- `tests/plugins/test_tasks_local_prefix_properties.py` (16, 23, 33)
+- `plugins/substrates/functualize-state-sqlite/src/functualize_state_sqlite/_plugin.py` (70-73, 75-83) — stop swallowing; the docstring documents the swallow as deliberate, so it changes with the behaviour
+
+**Do:**
+1. `LocalTaskProvider.__init__(substrate_source: Callable[[], StoreSubstrate])`.
+   Not a port — one consumer, no discovery, no registry (`plan.md` §5 entry 3).
+2. `list()` → one `read("tasks")`.
+3. Every mutation → read → modify → `write(key, payload, expect=stored.revision)`
+   → on `False`, re-read and retry, bounded. `Stored.revision` and
+   `write(expect=)` are already in the port (`_types/protocols.py:718-800`);
+   **nothing widens**.
+4. Tasks stored as nested mappings, not `json.dumps` strings.
+5. `_plugin.py` passes `lambda: app.substrate` and does **not** touch the
+   substrate at `APP_READY`.
+6. `functualize-state-sqlite/_plugin.py` lets the install failure surface.
+
+**Acceptance gates:**
+| AC | Gate | before | after |
+|---|---|---|---|
+| AC-6 | substrate `read` calls during `list()` of 10 tasks, counted with a spy | **11** | **1** |
+| AC-5 | two concurrent `update()` on a substrate whose `lock()` is a no-op | one update lost | both land |
+| AC-7 | `func builtin data show` on a project with tasks | escaped JSON | task titles |
+| AC-4 | install a substrate after the engine resolved one | swallowed into `logger.exception` | surfaces |
+| AC-8 | the §1.2 probe, with `LocalTasksPlugin.name` forced to sort **before** the substrate plugin | `JsonFileSubstrate` | `SQLiteSubstrate` |
+| — | `git grep -c TaskDocument -- . ':!.spec'` | 5 files | 0 |
+
+**Reachability — run the sabotage first.** Restore the unconditional
+`write()` (drop `expect=`). Expected: the AC-5 test fails. Then restore the
+eager `app.substrate` read in `_plugin.py`. Expected: the AC-8 test fails.
+Two separate sabotages, because they are two separate defects at one call site.
+
+---
+
+## Wave 4 — the rename, then truth
+
+### [ ] T8 · `functualize-state-sqlite` → `functualize-substrate-sqlite`
+
+`contracts.md` §1.1, §4.1. **After T7**, because `SQLiteStatePlugin.name` is the
+sort key `plan.md` §1.2 proved load-bearing; once T7 lands, the name cannot
+matter.
+
+**Files** — the hit set of
+`git grep -l -E 'functualize-state-sqlite|functualize_state_sqlite' -- . ':!.spec' ':!CHANGELOG.md'` → **54 files**, minus 2 untracked `graphify-out/` artefacts and 3 `uv.lock`s regenerated at the end → **49 edited by hand**. Notable ones:
+- `plugins/substrates/functualize-state-sqlite/` → `functualize-substrate-sqlite/`, and `src/functualize_state_sqlite/` → `src/functualize_substrate_sqlite/`
+- class `SQLiteStatePlugin` → `SQLiteSubstratePlugin`; `name` `"sqlite-state"` → `"substrate-sqlite"`; config section `plugin.sqlite-state` → `plugin.substrate-sqlite`; `description` reworded
+- `pyproject.toml` — `[all]`, `[tool.uv.sources]`
+- `src/functualize/_cli/data/plugin_catalog.toml` (74-78)
+- `src/functualize/_cli/scaffold/templates/full-interactivity/pyproject.toml.j2` (11, 20), `main.py.j2`, `README.md.j2`; `scaffold/cli.py`, `scaffold/registry.py`
+- `tests/conftest.py` (356, 360) — path **and** name, one fixture
+- `tests/integration/test_substrate_durability.py` (149, 231, 279)
+- `src/functualize/_types/host.py`, `_primitives/fresh_store.py`, `_primitives/scope_store.py` — prose citations
+- **deletions:** `SQLiteStateBackend` in `plugins/.../README.md` (16, 19), `examples/persistent_counter/persistent_counter.py` (10, 19), `examples/persistent_counter/test_persistent_counter.py` (10, 22) — it is defined nowhere
+- 5 ADR / codemap / guide files keep the **old** name where they narrate history; they gain the new one where they describe the present
+
+**Acceptance gates:**
+| Gate | before | after |
+|---|---|---|
+| `git grep -l -F functualize-state-sqlite -- . ':!CHANGELOG.md' ':!.spec'` | 49 files | 0 |
+| `git grep -l -F functualize_state_sqlite -- . ':!CHANGELOG.md' ':!.spec'` | 14 files | 0 |
+| `git grep -l -F SQLiteStateBackend -- . ':!.spec'` | 4 files | 0 |
+| `python -c "import functualize_substrate_sqlite as m; print(m.__all__)"` | ImportError | `['SQLiteSubstrate', 'SQLiteSubstratePlugin']` |
+| AC-16: the `persistent_counter` example imports resolve **and** the directory is collected | broken, uncollected | resolves, collected |
+| `uv sync --all-packages && uv build --all-packages` | green | green |
+
+**Reachability — run the sabotage first.** Leave `tests/conftest.py:356`
+pointing at the old directory. Expected: every test using that fixture errors at
+collection. Count it before believing it — if collection still succeeds, the
+fixture is not on the path it appears to be.
+
+---
+
+### [ ] T9 · Plugin-surface honesty and documentation truth
+
+`spec.md` §D.5, §D.6, A.5, A.6.
+
+**Files** — four independent hit sets:
+- **Q6, `MCPAdapterPlugin`:** `plugins/adapters/functualize-mcp/src/functualize_mcp/_plugin.py` (22-34); `src/functualize/app/adapters/_validation.py` (28) — give `validate_adapter` a production caller
+- **the always-False probe:** `plugins/domains/functualize-ai/src/functualize_ai/_provider_discovery.py` (205-227)
+- **the mypy-opaque table:** `plugins/domains/functualize-ai/src/functualize_ai/__init__.py` (140)
+- **`_state_fallback.py`** (119 LOC, retired protocol, and its advice at line 30)
+- **doc truth:** `plugins/PUBLISHING.md` (104, 113-115, 194, 226); `contributor/architecture/codemaps/overview.md` (73), `modules.md` (153), `dependencies.md` (117), `entry-points.md` (14-21 — it lists 3 groups where 7 static ones exist)
+
+**Acceptance gates:**
+| AC | Gate | before | after |
+|---|---|---|---|
+| AC-17 | `validate_adapter` production callers; `MCPAdapterPlugin` passes it | 0 callers; 2 of 3 members missing | ≥1 caller; passes |
+| AC-18 | `git grep -n 'hasattr(app, "resolve_model")' -- plugins/` | 1 | 0 |
+| AC-19 | `uv run mypy plugins/domains/functualize-ai-pydantic` | 47 errors | recorded, **not increased**; the `__getattr__` share removed |
+| AC-20 | `git grep -l -F functualize-state -- plugins/PUBLISHING.md contributor/architecture/codemaps/` | 4 files | 0 |
+| AC-11 | live `StateBackend`/`ExecutionStore` references (imports and calls) in `docs/ examples/ plugins/`, ADRs excluded | 8 sites / 4 files | 0 |
+| AC-11b | prose mentions recording the retirement, same paths | 24 files | **≥16 preserved** — must NOT go to zero |
+
+**Reachability:** AC-18 changes behaviour — a project with an `[ai]` section
+starts being honoured. The gate is a test that resolves an AI provider against a
+config fixture with a non-default `[ai]` section and asserts the value arrives.
+`before:` that test fails (defaults are returned). CHANGELOG entry required.
+
+---
+
+## Wave 5 — close
+
+### [ ] T10 · Regenerate locks, run every gate, update `.spec/STATE.md`
+
+`uv.lock` and the two `examples/project/*/uv.lock` regenerated **once**, at the
+end. Then: root suite, `examples/`, all twelve plugin suites, `lint-imports`,
+`mypy`, `ruff`, and AC-22 — the four pre-existing `sqlite` failures
+(`.spec/STATE.md` wave 10) unchanged or fixed, **never newly masked**.
+
+---
+
+## Task Dependency Graph
+
+```json
+{
+  "waves": [
+    {"id": 0, "tasks": ["T1", "T2"], "why": "the spec gate must survive the move before anything moves; it fails open, so its breakage is silent"},
+    {"id": 1, "tasks": ["T3"], "why": "a move-only commit, so git records renames and T8's edits stay legible"},
+    {"id": 2, "tasks": ["T4", "T5", "T6"], "why": "T4 names the read set; T5 moves the orphans into it; T6 makes the rule mechanical. T5 depends on T4's constant, T6 on both"},
+    {"id": 3, "tasks": ["T7"], "why": "removes the middle man and the eager substrate read, closing AC-4 through AC-8; must precede the rename because the plugin name is the sort key that decides the substrate today"},
+    {"id": 4, "tasks": ["T8", "T9"], "why": "the rename, once the name is no longer load-bearing; and the surface/doc truth that the rename would otherwise have to carry"},
+    {"id": 5, "tasks": ["T10"], "why": "locks regenerated once, every gate run, state recorded"}
+  ],
+  "edges": [
+    {"from": "T1", "to": "T2"},
+    {"from": "T2", "to": "T3"},
+    {"from": "T3", "to": "T4"},
+    {"from": "T4", "to": "T5"},
+    {"from": "T5", "to": "T6"},
+    {"from": "T6", "to": "T7"},
+    {"from": "T7", "to": "T8"},
+    {"from": "T8", "to": "T9"},
+    {"from": "T9", "to": "T10"}
+  ]
+}
+```
