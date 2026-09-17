@@ -257,7 +257,7 @@ alternative — aliasing to `Any` would make case 7 below pass.
   not depend on that line). mypy green on 364 files; lint-imports 7 kept / 0
   broken.
 
-## T6 · Migrate the four APP_READY registrations
+## T6 · Migrate the four APP_READY registrations — [x]
 
 > **There are five, not four.** `rg -n 'register_global\(HookEvent.APP_READY'`
 > over `plugins/`, `src/`, `examples/` and `tests/` returns four in `plugins/`
@@ -275,10 +275,57 @@ alternative — aliasing to `Any` would make case 7 below pass.
 `app.hook_registry.register_global(HookEvent.APP_READY, self._on_app_ready)`
 becomes `app.hooks.on_ready(self._on_app_ready)` at lines 70/58/54/62.
 
-- **Gate** `rg -c "hook_registry.register_global" plugins/` — `now: 4` · `after: 0`
-- **Gate** the hooks still fire at boot: each plugin's own suite
-- **Reachability** break `make_on_ready_decorator`'s registration and watch all
-  four plugin suites fail.
+`[F]` **two more files**, both mirrors of the migrated code:
+`plugins/functualize-ai-pydantic/tests/test_pydantic_provider.py` (asserted on
+`register_global`) and `examples/plugins/custom_state_backend/tests/test_backend.py`
+plus that example's `README.md`.
+
+**The `HookEvent` import goes with the call.** In all five files it was a
+function-local `from functualize._events.hooks import HookEvent`, dead once the
+event moves into the method name — so after this task **no plugin or example
+imports `functualize._events` at all**. That import was the coupling worth
+deleting: every plugin reached into an underscore-prefixed internal package to
+register a lifecycle hook.
+
+- **Gate** `rg -c "hook_registry.register_global" plugins/` — `now: 4` ·
+  `after: 0` ✅ measured. `examples/` shows 1 and it is prose in a test
+  docstring explaining what was removed.
+- **Gate** the hooks still fire at boot: each plugin's own suite — mcp 32,
+  state-sqlite 25, tasks-local 9, ai-pydantic 11, examples 204, root suite
+  10,652. All green.
+- **Reachability** ~~break `make_on_ready_decorator`'s registration and watch
+  all four plugin suites fail~~ — **one fails, not four.** Measured:
+
+  | suite | under sabotage |
+  |---|---|
+  | `functualize-mcp` | **10 failed** of 32 — its commands stop appearing |
+  | `functualize-state-sqlite` | 23 passed |
+  | `functualize-tasks-local` | 7 passed |
+  | `functualize-ai-pydantic` | 11 passed |
+  | `examples/` | 204 passed |
+  | root `tests/` (plugin + lifecycle) | **7 failed** — 6 in `tests/cli/test_plugin_command_dispatch.py`, which loads the real MCP plugin |
+
+  Not indirect coverage — **absence of it.** `rg -l SQLiteStatePlugin` over the
+  whole tree returns the package, its README, a scaffold `pyproject.toml.j2`
+  and the stale graphify dump: **no test anywhere**.
+  `functualize-tasks-local/tests/test_plugin.py` held one test, which imported
+  the package. The single line T6 changed in each was covered by nothing.
+
+  Closed in two commits, two-sided because the seam has two sides:
+  - `1eb1f65` — four tests, two per plugin: it asks for `on_ready` and hands
+    over its own handler, and it installs/initialises nothing during
+    registration (a backend is chosen at `APP_READY`, ADR-022).
+  - `cade950` — the composing test: a plugin loaded through a patched
+    `entry_points`, registering via `app.hooks.on_ready`, **is fired at boot**.
+    This is the one that fails under the sabotage, with
+    `test_it_registers_the_handler_for_app_ready`.
+
+  The plugin-side tests still pass under the app-side sabotage, by design:
+  they use a fake hooks object, so they check that the plugin asks the right
+  member, not that the member works. `ai-pydantic`'s stays a `MagicMock` for
+  the same reason.
+- **Done** `deb268a`, `1eb1f65`, `cade950`. **Five sites, not four** —
+  `examples/plugins/custom_state_backend` again (see the note above).
 
 ## T7 · Write the port and the five views
 
@@ -389,10 +436,38 @@ A static negative test: a misspelled `PluginHost` member is a mypy error, and a
   `codemaps/dependencies.md:25` says five, there are **seven**
 
 - **Gate** `rg -c "app: Any" contributor/guides/plugin-development.md` — `now: 1` · `after: 0`
-- **Gate** `rg -c "hook_registry" docs/ contributor/guides/` — `now: ≥3` · `after: 0`
+- **Gate** `rg -c "hook_registry" docs/ contributor/guides/` — ~~`now: ≥3` ·
+  `after: 0`~~. **`after: 0` would delete the documentation of a public
+  method.** Measured at T6: **27 matches in `docs/`**, of which
+  `docs/guides/hooks.md:114` is the `### register_global` reference section
+  *for* `HookRegistry.register_global`, and most of the rest document hook
+  events T6 does not touch (`BEFORE_JOB`, `ON_TEARDOWN`, `PRE_EXECUTE`,
+  `JOB_REGISTERED`, `INVOKE_START/END`, `ON_SCOPE_CREATED`, `TUI_STARTED`).
+  `register_global` remains the supported way to register those; the facade is
+  the typed door for `on_ready` only (T5 typed one member of fifteen).
+  So the honest target is: **`APP_READY` examples become `app.hooks.on_ready`**
+  — `hooks.md:261` and `custom-state-backend.md:58` — and everything else
+  stays. Re-derive the count from `rg -n 'register_global\(HookEvent.APP_READY'`
+  rather than from `hook_registry`.
+- **Note, T6's residue.** `docs/examples/plugins/custom-state-backend.md:58` is
+  a **mirror of the example's own README**, which T6 updated. Between T6 and
+  T13 that page teaches code the example no longer contains. Disclosed rather
+  than silently fixed early, because `docs/` is this task's scope; the example
+  itself (`examples/plugins/custom_state_backend/README.md`) is already
+  correct.
 - **Gate** `grep -c '^\[\[tool.importlinter.contracts\]\]' pyproject.toml` = the number the prose claims — `now: 7 vs "six"` · `after: 7 vs "seven"`
 
 ## T14 · Scaffold templates — both of them
+
+> **"Both" verified at T6.** `find src/functualize/_cli/scaffold/templates
+> -name '*plugin*.j2'` returns **six** files, but only two annotate a host:
+> `domain-plugin/_plugin.py.j2:20` (`app: Any`) and `plugin.py.j2:18`
+> (`app: FunctualizeApp`). The other four take `rc: RunContext`
+> (`file_plugin.py.j2:24`, `job-folder/file_plugin.py.j2:26`) or no such
+> parameter at all (`domain-plugin/test_plugin.py.j2`,
+> `plugin-project/plugin.py.j2`). `plugin.py.j2:34` also carries a
+> **commented-out** `app.hook_registry.register_global("before_job", …)` —
+> a job hook, not `APP_READY`, so T6 leaves it alone.
 
 `[F]` `src/functualize/_cli/scaffold/templates/plugin.py.j2`,
 `src/functualize/_cli/scaffold/templates/domain-plugin/_plugin.py.j2`
