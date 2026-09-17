@@ -136,15 +136,30 @@ class TestTheVaultSource:
         assert source.get("absent", "database") is None
         assert "database.absent" in source.misses
 
-    def test_no_key_makes_the_source_inert_rather_than_fatal(
+    def test_no_key_leaves_the_source_inert_for_everything_but_a_stored_key(
         self, tmp_path: Path
     ) -> None:
-        """This path is reachable from `func --help`."""
+        """Still safe from `func --help`; no longer silent about a stored value.
+
+        **Updated for ADR-023 §1.** The inertness that mattered is intact:
+        `usable`, `has` and `keys` answer without opening anything, so the
+        paths reachable from `--help` and completion stay quiet.
+
+        What changed is `get` for a key the store actually holds. It used to
+        return None, which let the chain hand the job whatever the environment
+        happened to carry — a different secret than the one provisioned, with
+        the run reporting success.
+        """
+        from functualize._config.vault import VaultEntryUnreadableError
+
         source = VaultSource(self._vault(tmp_path), encryption_key=None)
         assert source.usable is False
-        assert source.get("password", "database") is None
         assert source.has("password", "database") is False
         assert source.keys("database") == set()
+        assert source.get("absent", "database") is None
+
+        with pytest.raises(VaultEntryUnreadableError):
+            source.get("password", "database")
 
     def test_a_missing_vault_file_is_inert(self, tmp_path: Path) -> None:
         """Nobody has run `vault sync` yet."""
@@ -173,11 +188,21 @@ class TestTheVaultSource:
         Collapsing them would hide a wrong-key configuration behind a silent
         fall-through — the shape of the defect this feature removes.
         """
-        from functualize._config.vault import VaultDecryptionError
+        from functualize._config.vault import (
+            VaultEntryUnreadableError,
+            VaultError,
+        )
 
         source = VaultSource(self._vault(tmp_path), encryption_key=b"\x09" * KEY_BYTES)
-        with pytest.raises(VaultDecryptionError):
+        with pytest.raises(VaultError) as exc:
             source.get("password", "database")
+
+        # **Updated for ADR-023 §2.** This used to be VaultDecryptionError,
+        # raised after trying to decrypt the stored value and failing. The key
+        # check value now catches it first, so the refusal happens without any
+        # secret's ciphertext being touched at all — a stricter guarantee than
+        # the one this test was written for, reached by a cheaper route.
+        assert isinstance(exc.value, VaultEntryUnreadableError)
 
     def test_it_satisfies_the_source_protocol(self, tmp_path: Path) -> None:
         from functualize._types.protocols import Source

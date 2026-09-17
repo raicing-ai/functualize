@@ -83,6 +83,7 @@ __all__ = [
     "VaultEntry",
     "VaultOrigin",
     "VaultEntryExistsError",
+    "VaultEntryUnreadableError",
     "VaultError",
     "VaultOriginConflictError",
     "format_duration",
@@ -198,6 +199,18 @@ class VaultOrigin(StrEnum):
 
     DIRECT = "direct"
     PROVIDER = "provider"
+
+
+class VaultEntryUnreadableError(VaultError):
+    """A stored entry exists and this machine cannot open it.
+
+    Distinct from a *miss*, and that distinction is the whole of ADR-023 §1.
+    An absent entry falls through to the environment or a config file, because
+    nothing was stored and a lower-priority source is the honest answer. An
+    entry that **is** stored is what the operator meant the job to use, so
+    quietly running on something else hands them a different secret than they
+    intended — while the run reports success.
+    """
 
 
 class VaultEntryExistsError(VaultError):

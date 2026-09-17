@@ -114,7 +114,7 @@ The one step that touches existing rows. SQLite cannot drop `NOT NULL` with
 - `[G]` Every report dataclass is reflected over: no field named `value`, `ciphertext`, `nonce` or `key`, and no field typed to hold one.
 - `[G]` `uv run lint-imports` → 7 kept. `app/vault.py` imports no peer layer.
 
-### [ ] T4.2 — `VaultSource`: present-but-unopenable refuses (D2)
+### [x] T4.2 — `VaultSource`: present-but-unopenable refuses (D2)
 
 - `[F]` `src/functualize/_config/vault_source.py`, `tests/config/test_vault_miss.py`
 - `[D]` T3.1
