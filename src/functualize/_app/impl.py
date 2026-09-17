@@ -1333,7 +1333,7 @@ def _build_resolution_chain(
     contract), and that restriction is exactly why the computation was pushed
     into the public layer in the first place. It no longer has to be.
     """
-    from functualize._app.boot import build_remote_source, build_resolution_chain
+    from functualize._app.boot import build_resolution_chain, build_vault_source
 
     if custom_regex is None:
         default_file_regex = type(app._config_sources).file_pattern
@@ -1350,7 +1350,7 @@ def _build_resolution_chain(
         file_regex=custom_regex,
         environment=app._environment,
         event_bus=app.event_bus,
-        remote_source=build_remote_source(app),
+        remote_source=build_vault_source(app),
     )
 
 

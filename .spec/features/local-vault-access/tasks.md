@@ -153,7 +153,7 @@ into a dev run — and the next argument, `remote_source`, was omitted anyway.
 - `[G]` The prior-drift regression still passes untouched: `uv run pytest tests/core/test_app_persistent_consumer_api.py -q` green, including `test_rebuilt_chain_excludes_inactive_environment_files`.
 - `[G]` `FunctualizeApp.refresh()` leaves a vault source in the chain — the defect that exists today.
 
-### [ ] T5.3 — Dormant vault source (spec §8 rule 2)
+### [x] T5.3 — Dormant vault source (spec §8 rule 2)
 
 - `[F]` `src/functualize/_app/boot.py`, `tests/app/test_remote_first.py`
 - `[D]` T5.2, T4.2

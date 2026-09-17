@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from functualize._app.boot import build_remote_source, build_resolution_chain
+from functualize._app.boot import build_resolution_chain, build_vault_source
 from functualize._config.registry import ProviderRegistry
 from functualize._config.vault import KEY_BYTES, SecretsVault
 from functualize._config.vault_source import VaultSource
@@ -34,7 +34,7 @@ class _FakeRemoteProvider:
 
 
 class _FakeApp:
-    """The minimum `build_remote_source` reads. Avoids a full boot."""
+    """The minimum `build_vault_source` reads. Avoids a full boot."""
 
     def __init__(self, *, remote: bool, providers: bool) -> None:
         self._config_sources = remote_first() if remote else classic()
@@ -63,28 +63,28 @@ class TestRefusalWhenNothingCouldResolve:
         """The headline behaviour. Falling back here is the original bug."""
         app = _FakeApp(remote=True, providers=False)
         with pytest.raises(RuntimeError) as exc:
-            build_remote_source(app)
+            build_vault_source(app)
         assert "remote_first()" in str(exc.value)
 
     def test_the_error_names_the_entry_point_group(self) -> None:
         """An operator needs to know what to install, not just that it failed."""
         app = _FakeApp(remote=True, providers=False)
         with pytest.raises(RuntimeError, match="functualize.remote_providers"):
-            build_remote_source(app)
+            build_vault_source(app)
 
     def test_the_error_explains_why_it_refuses(self) -> None:
         app = _FakeApp(remote=True, providers=False)
         with pytest.raises(RuntimeError, match="Refusing"):
-            build_remote_source(app)
+            build_vault_source(app)
 
 
 class TestOtherPresetsAreUntouched:
     def test_a_non_remote_app_builds_no_remote_source(self) -> None:
-        assert build_remote_source(_FakeApp(remote=False, providers=False)) is None
+        assert build_vault_source(_FakeApp(remote=False, providers=False)) is None
 
     def test_a_non_remote_app_does_not_require_providers(self) -> None:
         """classic() must not start demanding a provider plugin."""
-        assert build_remote_source(_FakeApp(remote=False, providers=True)) is None
+        assert build_vault_source(_FakeApp(remote=False, providers=True)) is None
 
 
 class TestChainComposition:
@@ -289,3 +289,119 @@ class TestOneChainBuilder:
             assert before == after
         finally:
             os.environ.pop(ENV_VAR, None)
+
+
+class TestTheDormantSource:
+    """An ordinary app reads a vault it has, and pays a `stat` when it hasn't."""
+
+    def _project(self, tmp_path: Path) -> Path:
+        (tmp_path / ".functualize").mkdir()
+        (tmp_path / "jobs").mkdir()
+        return tmp_path
+
+    def test_a_project_with_no_vault_gets_no_source(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`classic()` builds exactly the chain it always did."""
+        monkeypatch.chdir(self._project(tmp_path))
+
+        assert build_vault_source(_FakeApp(remote=False, providers=False)) is None
+
+    def test_a_project_with_a_vault_gets_one(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Without this, `vault put` would store a value that every ordinary
+        run then ignored."""
+        from functualize._config.vault import SecretsVault
+        from functualize._config.vault_paths import vault_path_for_project
+
+        project = self._project(tmp_path)
+        monkeypatch.chdir(project)
+        SecretsVault(vault_path_for_project(project)).put(
+            "deploy.api_token", "v", encryption_key=_KEY, provider="p", annotation="a"
+        )
+
+        source = build_vault_source(_FakeApp(remote=False, providers=False))
+
+        assert source is not None
+        assert source.source_id == "vault"
+
+    def test_remote_first_is_unchanged(self, tmp_path: Path) -> None:
+        """The existing preset must not have acquired new behaviour."""
+        with pytest.raises(RuntimeError, match="no remote configuration"):
+            build_vault_source(_FakeApp(remote=True, providers=False))
+
+
+class TestTheColdBootGate:
+    """`cryptography` must not reach a boot that never opens a vault.
+
+    `app/config.py` records that `_config.vault` is deliberately kept off the
+    cold boot path. Making the vault source universal would undo that for every
+    app in the package unless the existence check comes first — so the check is
+    a `stat` through a module that imports only `_primitives`.
+
+    Asserted in a subprocess because it is a statement about `sys.modules`
+    after an import, which the test session has already polluted.
+    """
+
+    def _probe(self, cwd: Path) -> set[str]:
+        import json
+        import subprocess
+        import sys
+
+        script = (
+            "import json, sys\n"
+            "from functualize._app.boot import build_vault_source\n"
+            "class A:\n"
+            "    class _config_sources:\n"
+            "        remote = False\n"
+            "    _config_sources = _config_sources()\n"
+            "assert build_vault_source(A()) is None\n"
+            "print(json.dumps([m for m in sys.modules "
+            "if m.startswith('cryptography') "
+            "or m == 'functualize._config.vault']))\n"
+        )
+        out = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return set(json.loads(out.stdout))
+
+    def test_no_vault_means_no_cipher_import(self, tmp_path: Path) -> None:
+        (tmp_path / ".functualize").mkdir()
+
+        loaded = self._probe(tmp_path)
+
+        assert loaded == set(), (
+            f"a project with no vault imported {sorted(loaded)} while deciding "
+            f"it had no vault"
+        )
+
+    def test_the_existence_check_itself_imports_no_cipher(self) -> None:
+        """The gate module is the thing that must stay cheap.
+
+        Scoped to `functualize.*` imports: stdlib is free, and the claim is
+        about which *internal* layers this module may reach — `_primitives`
+        only, because anything in `_config` risks pulling the cipher back in
+        through a sibling.
+        """
+        import ast
+
+        src = (
+            Path(__file__).resolve().parents[2]
+            / "src/functualize/_config/vault_paths.py"
+        )
+        tree = ast.parse(src.read_text())
+        imported = {
+            node.module
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.module
+        }
+        internal = {m for m in imported if m.startswith("functualize")}
+
+        assert not any(m.startswith("cryptography") for m in imported)
+        assert internal, "expected at least one internal import"
+        assert all(m.startswith("functualize._primitives") for m in internal), internal
