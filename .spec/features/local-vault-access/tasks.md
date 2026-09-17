@@ -206,7 +206,7 @@ into a dev run — and the next argument, `remote_source`, was omitted anyway.
 - `[G]` **Sabotage, per `contributor/guides/wiring-discipline.md` §3 — commit first.** Break each composition wire in turn (`boot.build_vault_source`, `impl._build_resolution_chain`) and confirm a test fails for each. Then `git checkout --`.
 - `[G]` Offline: the job run succeeds with outbound access denied and makes no provider call.
 
-### [ ] T8.2 — No plaintext anywhere (AC-10)
+### [x] T8.2 — No plaintext anywhere (AC-10)
 
 - `[F]` `tests/integration/test_local_vault_no_plaintext.py` (new)
 - `[D]` all prior
