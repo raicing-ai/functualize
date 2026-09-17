@@ -353,3 +353,56 @@ class TestItNeedsNoSharedDisk:
         RunStore(wrapped).open_run({"job": "b", "surface": "func.job"})
 
         assert seen == [], f"a store asked the substrate for {seen}"
+
+
+class TestThePluginRegistersThroughTheHooksFacade:
+    """`SQLiteStatePlugin` had **zero test references anywhere** — T6.
+
+    `rg -l SQLiteStatePlugin` over the whole tree returned its own package, its
+    README, a scaffold template's `pyproject.toml.j2`, and the stale graphify
+    dump. No test. The substrate above is thoroughly covered; the plugin that
+    installs it was not covered at all, which is why T6's reachability gate —
+    "break the registration and watch all four plugin suites fail" — saw this
+    suite stay green.
+
+    Two claims, and the second is the one the substrate tests cannot make: a
+    backend is chosen at `APP_READY` and **not** during registration, because
+    the engine resolves its substrate on first store access and a late install
+    is refused rather than half-applied (ADR-022).
+    """
+
+    def test_it_asks_for_on_ready_and_hands_over_its_handler(self) -> None:
+        from functualize_state_sqlite import SQLiteStatePlugin
+
+        handed: list[object] = []
+
+        class _Hooks:
+            def on_ready(self, handler: object) -> object:
+                handed.append(handler)
+                return handler
+
+        class _App:
+            hooks = _Hooks()
+
+        plugin = SQLiteStatePlugin()
+        plugin(_App())
+
+        assert handed == [plugin._on_app_ready]
+
+    def test_registering_installs_nothing_yet(self) -> None:
+        """Installing during `__call__` would be too early, and is refused."""
+        from functualize_state_sqlite import SQLiteStatePlugin
+
+        class _App:
+            class hooks:  # noqa: N801
+                @staticmethod
+                def on_ready(handler: object) -> object:
+                    return handler
+
+            def install_substrate(self, substrate: object) -> None:
+                raise AssertionError("installing before APP_READY is too early")
+
+        plugin = SQLiteStatePlugin()
+        plugin(_App())
+
+        assert plugin.substrate is None
