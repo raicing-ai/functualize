@@ -276,11 +276,49 @@ decrypted to make the decision.
 `remote=True`, plus a dormant source when `vault_paths.vault_path_for_project()`
 exists. The gate is a `stat` before any crypto import.
 
-### 3.6 The refresh wire (BEFORE smell 3)
+### 3.6 Collapse the two chain call sites (BEFORE smell 3)
 
-`impl._build_resolution_chain` passes the vault source. A test asserts the two
-call sites agree, so the comment stops being the only thing holding them
-together.
+Not "fix the drift and guard it" — **merge them**. The guard has already been
+tried on this function and failed.
+
+History, established by `git log -L` and `git log -S`:
+
+- Both sites date to `a7704fe` (v0.1.0). `boot_standard` builds the chain at
+  startup; `refresh()` was added for persistent consumers (TUI, MCP server)
+  whose process outlives the project state. Two triggers, so two entry points.
+- They stayed separate for a *layer* reason, recorded at `app/core.py:741`: the
+  `custom_regex` comparison needs `ConfigSources.file_pattern`, and `_app` may
+  not import a public module to read it — "reaching for it there passed ruff and
+  broke `lint-imports`". So the computation was pushed up into the public layer
+  and the delegate carries the result down.
+- **That reason is obsolete.** `boot.py:792` reads
+  `type(app._config_sources).file_pattern` — the class attribute off an instance
+  the app already holds. No import, no contract violation. Boot found the
+  internal-safe route; `core.py` kept the older workaround. Both sites now
+  compute the same value by two different mechanisms.
+- `remote_source` arrived in `78d9ff4` (ADR-016) and was wired into boot alone.
+
+The decisive evidence is `tests/core/test_app_persistent_consumer_api.py:219`,
+which exists because **this drift already happened once**, with `environment`
+rather than `remote_source`: omitting it made `roles.classify()` return BASE for
+every slot, so a prod config file leaked into a dev run. The fix at the time was
+a regression test — the same mitigation originally proposed here. It did not
+prevent the next omission. Two omissions, one function, one cause, with the
+guard already in place for the second.
+
+The merge:
+
+- `impl._build_resolution_chain(app)` becomes the single implementation and
+  computes `custom_regex` itself, using boot's internal-safe mechanism.
+- `boot_standard` calls it instead of calling `build_resolution_chain` directly,
+  so `remote_source` cannot be passed by one caller and forgotten by the other —
+  there is only one caller.
+- `core._build_resolution_chain` loses the computation whose justification no
+  longer holds. It stays as a thin delegate: `impl.refresh` reaches it through
+  the app today, and that indirection is not what this task is about.
+
+This removes the smell at the root rather than guarding it, which is what the
+architecture gate exists to find.
 
 ## 4. Codemap contradiction found
 
@@ -310,8 +348,9 @@ Hit sets from §0's blast-radius pass, not memory.
 
 **Changed:** `_config/vault.py`, `_config/vault_keys.py`,
 `_config/vault_source.py`, `_types/protocols.py`, `plugin/__init__.py`,
-`_app/boot.py`, `_app/impl.py`, `_cli/builtins.py` (mount only), `pyproject.toml`
-(extra), `docs/guides/configuration.md`, `README.md`, `CHANGELOG.md`.
+`_app/boot.py`, `_app/impl.py`, `app/core.py` (§3.6 merge),
+`_cli/builtins.py` (mount only), `pyproject.toml` (extra),
+`docs/guides/configuration.md`, `README.md`, `CHANGELOG.md`.
 
 **Tests whose meaning changes** (from `find_referencing_symbols` on
 `SecretsVault.put`): `tests/config/test_vault_store.py`,
@@ -334,9 +373,12 @@ cross-import, no global mutable state, and no ABC used as a port.
 |---|---|---|---|---|
 | 1 | **Divergent change** (ch34) | `app/utils.py`, 2380 LOC / 130 exports | Not deepened — the new lifecycle goes to `app/vault.py` — but not fixed either. Fixing it means moving or re-homing public names, which spec §14 forbids without a separate decision. | **Yes** — worth a standalone decision, not a side effect of this feature. |
 | 2 | **Divergent change** (ch34) | `_cli/builtins.py`, ~2930 LOC after the move | Improved by ~250 lines, still a bloater. Extracting the remaining eight groups is a mechanical but broad change with no behavioral content. | No — strictly better than today. |
-| 3 | **Shotgun surgery** (ch34), residual | `_app/boot.py` + `_app/impl.py` | §3.6 fixes the *drift* and adds a test that the two call sites agree, but there are still two call sites. Collapsing them into one is a boot/impl refactor far wider than this feature. | **Yes** — flagging that the fix is a guard, not a cure. |
-| 4 | **Speculative generality / dead code** (ch35) | `audit_log` in `_config/vault.py` | Write-only: `audit_records()` has no shipped reader, only tests. This feature stops direct writes being mislabelled `"sync"` but does not remove or productise the table. Spec §16 defers it. | **Yes** — keep, remove, or promote is a product call. |
+| 3 | ~~Shotgun surgery~~ — **resolved** | `_app/boot.py` + `_app/impl.py` + `app/core.py` | Maintainer decision: collapse to one call site (§3.6) rather than guard two with a test. The guard had already failed here once. No longer a surviving smell. | Decided — merge. |
+| 4 | **Speculative generality** (ch35) | `audit_log` in `_config/vault.py` | Write-only: `audit_records()` has no shipped reader, only tests. Maintainer decision: **keep**, fixing only the mislabelling of direct writes as `"sync"`. Removal is irreversible — the rows for the intervening period would simply never be written — so keeping is declining an irreversible choice, not endorsing the table. **Consequence to keep visible:** a `read` row is still written on every vault read, so making the vault a general local store raises that write volume on ordinary job runs. | Decided — keep. |
 | 5 | **Primitive obsession**, residual (ch32) | `origin` stored as a TEXT column | D1 adds the column rather than a value object. A two-valued type code in SQLite is the KISS answer; an enum table would be ceremony for two rows. | No — deliberate, and the rule of three is not met. |
 
-Entry 5 is the kind that is easy to over-fix. Entries 1, 3 and 4 are raised to
-the maintainer by name in the Execute review, per step 11.
+Entry 5 is the kind that is easy to over-fix. Entries 1, 3 and 4 were raised to
+the maintainer by name per step 11 and are all answered: **1** — leave
+`app/utils.py`, record the split as a later decision; **3** — merge the call
+sites, so it leaves this table; **4** — keep `audit_log`, fix the mislabelling
+only.

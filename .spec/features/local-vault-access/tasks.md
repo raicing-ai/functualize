@@ -138,15 +138,29 @@ The one step that touches existing rows. SQLite cannot drop `NOT NULL` with
 - `[G]` `vault_remove` succeeds with **no key available at all**, for both origins, and sets `warning` only for `direct`.
 - `[G]` `vault_inspect` on a store it cannot open still reports origin and timestamps, with `readability == "wrong_key"` or `"key_unavailable"`.
 
-### T5.2 — Composition: dormant source, and the refresh wire (spec §8 rule 2)
+### T5.2 — Collapse the two chain call sites into one
 
-- `[F]` `src/functualize/_app/boot.py`, `src/functualize/_app/impl.py`, `tests/app/test_remote_first.py`
-- `[D]` T1.1, T4.2
+Maintainer decision (plan §3.6): merge, do not guard. The guard was already
+tried on this function — `tests/core/test_app_persistent_consumer_api.py:219`
+exists because `environment` was omitted here once and leaked a prod config file
+into a dev run — and the next argument, `remote_source`, was omitted anyway.
+
+- `[F]` `src/functualize/_app/boot.py`, `src/functualize/_app/impl.py`, `src/functualize/app/core.py`
+- `[D]` T1.1
+- `[G]` `grep -c "build_resolution_chain(" src/functualize/_app/boot.py` → **0** direct calls. `boot_standard` reaches the builder only through `impl._build_resolution_chain`, so there is exactly **one** call site to keep in sync.
+- `[G]` `custom_regex` is computed in exactly one place. `grep -rn "file_pattern" src/functualize/_app/ src/functualize/app/core.py` → the comparison appears **once**, using `type(app._config_sources).file_pattern` (boot's internal-safe form, which needs no public import).
+- `[G]` `uv run lint-imports` → 7 kept, 0 broken. This is the check the original split existed to satisfy; the merge must not break it.
+- `[G]` The prior-drift regression still passes untouched: `uv run pytest tests/core/test_app_persistent_consumer_api.py -q` green, including `test_rebuilt_chain_excludes_inactive_environment_files`.
+- `[G]` `FunctualizeApp.refresh()` leaves a vault source in the chain — the defect that exists today.
+
+### T5.3 — Dormant vault source (spec §8 rule 2)
+
+- `[F]` `src/functualize/_app/boot.py`, `tests/app/test_remote_first.py`
+- `[D]` T5.2, T4.2
 - `[G]` **The cold-boot gate**: for a project with no vault file, booting imports neither `functualize._config.vault` nor `cryptography`. Assert on `sys.modules` after a boot in a subprocess.
 - `[G]` `remote=True` behavior is unchanged: the existing `build_remote_source` tests pass, renamed call included.
 - `[G]` A `classic()` app **with** a vault file gets a vault source; without one, gets `None`.
-- `[G]` **The second wire**: `FunctualizeApp.refresh()` leaves a vault source in the chain. Removing the `remote_source=` argument from `impl._build_resolution_chain` makes this test fail — the defect that exists today.
-- `[G]` A test asserts the two call sites pass the same argument set, so the comment is no longer the only thing holding them together.
+- `[G]` **Sabotage**: removing the dormant branch makes an E2E test in T8.1 fail, not only a unit test.
 
 ---
 
@@ -220,9 +234,10 @@ The one step that touches existing rows. SQLite cannot drop `NOT NULL` with
     { "id": 2, "tasks": ["3.1"] },
     { "id": 3, "tasks": ["4.1", "4.2"] },
     { "id": 4, "tasks": ["5.1", "5.2"] },
-    { "id": 5, "tasks": ["6.1"] },
-    { "id": 6, "tasks": ["7.1"] },
-    { "id": 7, "tasks": ["8.1", "8.2", "8.3"] }
+    { "id": 5, "tasks": ["5.3"] },
+    { "id": 6, "tasks": ["6.1"] },
+    { "id": 7, "tasks": ["7.1"] },
+    { "id": 8, "tasks": ["8.1", "8.2", "8.3"] }
   ]
 }
 ```
@@ -231,10 +246,14 @@ Wave construction notes:
 
 - **Disjoint file sets hold within every wave.** `_config/vault.py` is touched
   by 1.1, 2.2 and 3.1 — all in different waves, deliberately. `app/vault.py` is
-  touched by 4.1 and 5.1; `_cli/vault_cmd.py` by 1.4, 6.1 and 7.1. Each pair is
-  serialized rather than parallelized.
+  touched by 4.1 and 5.1; `_cli/vault_cmd.py` by 1.4, 6.1 and 7.1; `_app/boot.py`
+  by 5.2 and 5.3. Each pair is serialized rather than parallelized.
+- **5.2 before 5.3, in its own wave.** The merge is a behavior-preserving
+  refactor of the composition root; the dormant source is a behavior change.
+  Landing them together would make a regression in either one hard to attribute,
+  and 5.2 is the task whose whole claim is "nothing observable changed".
 - **1.4 runs first on purpose.** Moving the command group before anything is
   added to it means 6.1 and 7.1 edit one new file instead of racing
   `builtins.py`, and the move stays reviewable as a pure no-op diff.
-- **Wave 7 is a checkpoint wave.** Its three tasks touch only new test files and
+- **Wave 8 is a checkpoint wave.** Its three tasks touch only new test files and
   docs, so they are genuinely parallel, and each depends on all prior work.
