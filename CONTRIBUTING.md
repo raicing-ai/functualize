@@ -2,6 +2,9 @@
 
 Thanks for your interest in contributing! This document explains how to get started.
 
+This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md). By taking part
+you agree to uphold it.
+
 ## Development Setup
 
 ```bash
@@ -599,7 +602,9 @@ what shipped.
 | `uv.lock` | Locked dependency versions |
 | `.pre-commit-config.yaml` | Local hooks: ruff, gitleaks, standard checks |
 | `CHANGELOG.md` | Keep a Changelog format |
-| `LICENSE` | MIT |
+| `LICENSE` | Apache-2.0 |
+| `NOTICE` | Copyright attribution, required by Apache-2.0 §4(d) |
+| `CODE_OF_CONDUCT.md` | Contributor Covenant 2.1 |
 
 ## Documentation
 
@@ -622,7 +627,7 @@ Use [GitHub Issues](https://github.com/raicing-ai/functualize/issues) with the p
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+By contributing, you agree that your contributions will be licensed under the Apache License 2.0.
 
 # Testing Guide
 

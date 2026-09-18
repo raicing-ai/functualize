@@ -38,7 +38,7 @@ Two adjacent findings, both F8-sized:
 
 | | `state.json` | `scopes.json` |
 |---|---|---|
-| Owner | `_primitives/state_format.py` / `StateStore` | `_primitives/scope_format.py` / `ScopeStore` |
+| Owner | `_primitives/fresh_format.py` / `FreshStore` | `_primitives/scope_format.py` / `ScopeStore` |
 | Version | `STATE_VERSION = 1` (`:63`) | `SCOPES_VERSION = 1` (`:64`) |
 | Sections | `("fingerprints", "history", "session")` (`:71`) | `{"scopes": {id: record}}` |
 | On a bad version | **discards** the file — every section is derived | **refuses** — `ScopeStoreUnreadableError` |
@@ -81,18 +81,18 @@ history *entry*, not a bigger one.
 
 ### A.4 Atomicity is solved; mutual exclusion is not
 
-**Solved.** `atomic_write_json` (`state_format.py:194-226`): mkstemp in the target directory →
+**Solved.** `atomic_write_json` (`fresh_format.py:201-233`): mkstemp in the target directory →
 write → `fsync` → `os.replace`. And `ScopeStore.batch()` (`scope_store.py:128-150`) holds the
 lock across many mutations and writes once, all-or-nothing — which is what makes a node's
 three writes (step record, position, status) atomic. A half-written node is not possible.
 
-**Not solved.** `state_lock` (`state_format.py:240-258`) is an advisory `flock` on a `.lock`
-sidecar, and:
+**Not solved.** `file_lock` (`fresh_format.py:248-265`, formerly `state_lock`) is an advisory
+`flock` on a `.lock` sidecar, and:
 
-> after the timeout it **proceeds unlocked** — *"advisory: proceed rather than deadlock a
-> build"* (`state_format.py:276-278`)
+> after the timeout it **proceeds unlocked** — *"Advisory: proceed rather than deadlock a
+> build"* (`fresh_format.py:307`)
 
-and on a platform with neither `fcntl` nor `msvcrt` it is a **no-op** (`:261-266`). It is
+and on a platform with neither `fcntl` nor `msvcrt` it is a **no-op** (`fresh_format.py:336-337`). It is
 best-effort mutual exclusion, not a correctness boundary — a deliberate and defensible choice
 for a build tool, and not a foundation a lease can be built on top of unchanged.
 

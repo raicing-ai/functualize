@@ -5,7 +5,7 @@ description: >
   Verifies documentation integrity, runs verification commands, checks
   Python OSS best practices, and provides a gated release checklist
   culminating in a tag push that triggers GitHub Actions Trusted Publishing.
-license: MIT
+license: Apache-2.0
 metadata:
   author: raicing-ai
   version: "1.0.0"

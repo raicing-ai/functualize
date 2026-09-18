@@ -3,7 +3,7 @@ name = "functualize-tasks-local"
 version = "0.3.0"
 description = "Local state-backed task storage plugin for functualize"
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 authors = [
     { name = "Mohammad Hakim Adiprasetya", email = "viltohmyst@gmail.com" }
 ]

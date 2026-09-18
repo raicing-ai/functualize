@@ -178,3 +178,97 @@ Access dependency-injected services via subscript notation.
 ```python
 db = rc[DatabaseConnection]
 ```
+
+---
+
+### Shell Capability — Errors and Responders
+
+The `Shell` capability (`sh: Shell`) and its `ShellResult`/`Responder` types are covered in the [Shell Capability guide](../guides/shell.md). Two of its vocabulary types are documented here.
+
+#### `ShellError`
+
+Raised when a command exits non-zero under `check=True` — also on timeout, and when a `FailingResponder` sentinel appears in the live output.
+
+```python
+class ShellError(Exception):
+    def __init__(self, result: ShellResult) -> None: ...
+```
+
+| Attribute | Type | Description |
+|---|---|---|
+| `result` | `ShellResult` | The full result of the failed command, so callers can inspect `stdout`/`stderr`/`returncode`. |
+
+```python
+from functualize.job import Shell, ShellError
+
+def deploy(sh: Shell) -> None:
+    try:
+        sh(["docker", "build", "-t", "app", "."])
+    except ShellError as e:
+        print(e.result.stderr)
+```
+
+#### `FailingResponder`
+
+A `Responder` that also aborts on a failure sentinel. Responds like `Responder` — writing `response` to the child's stdin whenever `pattern` matches new output — but if `sentinel` appears the command is killed and a `ShellError` is raised. This is how a `sudo` password responder aborts on `Sorry, try again` instead of answering the re-prompt forever.
+
+```python
+from functualize.job import FailingResponder
+
+FailingResponder(
+    pattern=r"\[sudo\] password.*:",
+    response="s3cr3t\n",
+    sentinel="Sorry, try again",
+)
+```
+
+| Attribute | Type | Description |
+|---|---|---|
+| `pattern` | `str \| re.Pattern[str]` | Regex whose match in live output triggers `response` (inherited from `Responder`). |
+| `response` | `str` | Text written to the child's stdin on each match (inherited from `Responder`). |
+| `sentinel` | `str \| re.Pattern[str]` | Regex whose appearance aborts the command with `ShellError`. |
+
+Subclasses `Responder`, so it is accepted anywhere a `watchers=` sequence is.
+
+---
+
+### Freshness Capability
+
+#### `FreshnessVerdict`
+
+The verdict `functualize.job.Freshness` exposes to a job whose `@job(cache=Fingerprint(..., decides=True))` opted in to seeing its own freshness decision, instead of the engine silently returning before the body ran.
+
+```python
+@dataclass(frozen=True)
+class FreshnessVerdict:
+    state: GuardState
+    key: str
+    recorded_value: Any | None
+    declared_sources: tuple[str, ...]
+    declared_generates: tuple[str, ...]
+    source_map: Mapping[str, Mapping[str, Any]]
+```
+
+| Attribute | Type | Description |
+|---|---|---|
+| `state` | `GuardState` | The pipeline outcome — `SKIP_FRESH` when the job's declared inputs are current, `RUN` otherwise. |
+| `key` | `str` | The fingerprint key the decision was computed under. |
+| `recorded_value` | `Any \| None` | What the previous run recorded, when the pre-flight read a record and the verdict was a skip. |
+| `declared_sources` | `tuple[str, ...]` | The input patterns as the job's own `Fingerprint` declared them. |
+| `declared_generates` | `tuple[str, ...]` | The output patterns as the job's own `Fingerprint` declared them. |
+| `source_map` | `Mapping[str, Mapping[str, Any]]` | `{path: {mtime, size, sha256}}` for every match of the declared inputs. |
+| `is_fresh` (property) | `bool` | `True` only when `state is GuardState.SKIP_FRESH`. Deliberately does **not** fold in a satisfied `status` guard — "already done" is a different claim from "declared inputs are current". |
+
+```python
+from functualize.job import Freshness
+from functualize.job.decorators import job, Fingerprint
+
+@job(cache=Fingerprint(sources=["src/**/*.py"], decides=True))
+def build(fresh: Freshness) -> str:
+    verdict = fresh.verdict()
+    if verdict is not None and verdict.is_fresh:
+        return "artifact already current"
+    return rebuild()
+```
+
+`decides=True` is what makes the branch above reachable — without it the engine skips the job *for* you and returns before the body runs, so `is_fresh` is the one value that branch could never see.

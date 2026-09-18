@@ -3,7 +3,7 @@ name = "functualize-tasks"
 version = "0.3.0"
 description = "Tasks Domain SDK for functualize — task management capabilities"
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 authors = [
     { name = "Mohammad Hakim Adiprasetya", email = "viltohmyst@gmail.com" }
 ]

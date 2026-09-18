@@ -7,7 +7,7 @@ description: >
   via observe-tui (pyte probe) or other backends. Use after a significant milestone
   to confirm the implementation matches intent end-to-end — or mid-execution when
   a task annotation requests it.
-license: MIT
+license: Apache-2.0
 metadata:
   author: raicing-ai
   version: "1.0.0"

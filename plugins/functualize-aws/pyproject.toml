@@ -3,7 +3,7 @@ name = "functualize-aws"
 version = "0.3.0"
 description = "AWS Secrets Manager and SSM Parameter Store providers for functualize"
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 authors = [
     { name = "Mohammad Hakim Adiprasetya", email = "viltohmyst@gmail.com" }
 ]

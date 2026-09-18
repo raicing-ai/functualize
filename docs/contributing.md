@@ -2,6 +2,8 @@
 
 Thanks for your interest in contributing to Functualize! This guide covers everything you need to get started with development.
 
+This project follows the [Contributor Covenant](https://github.com/raicing-ai/functualize/blob/master/CODE_OF_CONDUCT.md). By taking part you agree to uphold it.
+
 ## Required Toolchain
 
 Before contributing, ensure you have the following tools installed:
@@ -669,4 +671,4 @@ uv run pytest plugins/functualize-mcp/examples/ -v
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+By contributing, you agree that your contributions will be licensed under the Apache License 2.0.

@@ -3,7 +3,7 @@ name = "functualize-flow-viz"
 version = "0.3.0"
 description = "Inline flow visualization plugin for functualize job execution"
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 authors = [
     { name = "Mohammad Hakim Adiprasetya", email = "viltohmyst@gmail.com" }
 ]

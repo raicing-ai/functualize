@@ -401,10 +401,13 @@ class TestShowInfoDotenv:
             ],
         )
         assert result.exit_code == 0
-        # Rich may wrap long paths across lines; check that "Dotenv File" panel is shown
-        # and that the .env filename appears somewhere in the output
-        assert "Dotenv File" in result.output
-        assert ".env" in result.output
+        # Rich wraps the long tmp path across lines, and where it breaks depends
+        # on the render width -- which differs under xdist, splitting even the
+        # short ".env" suffix. `_packed` removes the wrapping so this asserts on
+        # behaviour rather than on layout.
+        packed = _packed(result.output)
+        assert "DotenvFile" in packed
+        assert ".env" in packed
 
     def test_dotenv_loaded_shows_contents(self, dotenv_file, config_dir):
         app = FunctualizeApp(name="testapp")
