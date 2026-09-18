@@ -226,12 +226,41 @@ inheritance, which is the shape most likely to be *used* by a third party but
 sits oddly beside this repo's preference for composition. A parametrized
 `substrate_factory` fixture is the alternative.
 
-**Q2 — does the conformance suite cover `lock()` semantics?** `lock()` "may be a
-no-op for a backend that offers no mutual exclusion", so a conformance test
-cannot require exclusion. It *can* require that `write(expect=)` refuses a stale
-revision, which is the guarantee that survives a no-op lock. Deciding what a
-no-op-lock backend must still promise is the substantive design question here —
-and it is the one that matters for a future S3 substrate.
+**Q2 — what must a backend whose `lock()` is a no-op still promise?** `lock()`
+"may be a no-op for a backend that offers no mutual exclusion", so a conformance
+test cannot require exclusion. It *can* require that `write(expect=)` refuses a
+stale revision, which is the guarantee that survives a no-op lock. This is the
+substantive design question here, and the one that matters for a future S3
+substrate.
+
+**Evidence added 2026-09-18, from `plugin-taxonomy`/T7.** Rewriting
+`functualize-tasks-local` to be compare-and-swap found a hole the port cannot
+currently close:
+
+> `write(key, payload, expect=None)` is **unconditional**, and `expect=` takes
+> *"the revision the caller last read"*. A document that has never been written
+> has no revision, and the port offers **no way to say "expect this key to be
+> absent"**. So the first writer to a fresh document cannot detect a second one.
+
+Reproduced with a real substrate whose `lock()` was replaced by a no-op: two
+providers creating the first task, interleaved so B writes between A's read and
+A's write, and **B's task is lost**. Every *later* write is safe, because by then
+there is a revision to compare — so the hole is exactly the create path.
+
+It is bounded in practice today: the document is created once, and `lock()` is
+real on both shipped backends. It is not bounded for an object store.
+
+The provider pins the limitation rather than papering over it —
+`test_the_very_first_write_cannot_be_compare_and_swapped` asserts the lossy
+behaviour and says in its docstring that if the port gains the capability the
+test should fail and be replaced by the guarantee.
+
+**So Q2 has a concrete first sub-question:** should `StoreSubstrate.write` grow
+a way to express *create-if-absent* — a sentinel `expect=0`, an `expect_absent`
+flag, or a separate `create()` — and if not, what is a caller on a no-op-lock
+backend supposed to do about the first write? A conformance suite cannot assert
+a guarantee the port cannot offer, so this decision comes **before** the suite
+is written, not after.
 
 **Q3 — should the conformance suite be run against a deliberately broken
 substrate as its own gate?** The repo's discipline is that a test proves nothing
