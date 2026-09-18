@@ -398,7 +398,7 @@ territory and is left alone here.
 
 ---
 
-### [ ] T6 · The gate that stops an orphan group recurring
+### [x] T6 · The gate that stops an orphan group recurring
 
 `plan.md` §3, the rule in `contracts.md` §3.3.
 
@@ -417,6 +417,37 @@ so a new plugin is covered without editing the test.
 **Reachability — run the sabotage first.** Re-add
 `[project.entry-points."functualize.state_providers"]` to any plugin. Expected:
 **1 failed**, naming that file and that group.
+
+**DONE.** Two sabotages, because the gate has two directions and only one was
+planned.
+
+- **Declared → read.** Re-declared `functualize.interactivity_providers` on
+  `functualize-inline`: **1 failed, 28 passed**, and the failure id is
+  `[plugins/adapters/functualize-inline/pyproject.toml]` — the parametrisation
+  names the file to fix rather than making a reader go looking.
+- **Read → declared.** Typo'd `SKILLS` in `READ_GROUPS`: **2 failed** —
+  `test_every_read_group_is_actually_read_somewhere_in_src` and the `_cli`
+  link test. A constant whose reader was deleted is the same defect mirrored,
+  and the next manifest to declare that group would be silently dead again.
+
+Restored; **29 passed**.
+
+**Three things this task does that the plan did not ask for**, each because the
+gate would otherwise be able to pass while checking nothing:
+
+1. **Manifests are found by glob, never listed** — and
+   `test_the_manifest_scan_finds_the_shipped_plugins` asserts the glob found at
+   least thirteen. T3 moved these directories one level deeper and two globs
+   elsewhere started matching nothing *silently*; a gate with that failure mode
+   is worse than no gate.
+2. **Domain groups come from an AST walk of the shipped sources, not from
+   installed metadata.** A plain `uv sync` does not install the workspace
+   plugins, so `discover_domains()` returns nothing and the test would report
+   `functualize.ai_providers` as an orphan on a clean checkout — a false alarm
+   that teaches people to ignore the gate.
+3. **The `_cli` link T4 deferred** is asserted here: `functualize.skills` and
+   `functualize.displays` are read from a layer that may not import
+   `_primitives`, so their constants are tied to `READ_GROUPS` by test.
 
 ---
 
