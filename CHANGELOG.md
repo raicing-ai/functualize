@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-18
+
+### Changed — functualize is Apache-2.0
+
+The project moves from MIT to the Apache License 2.0, effective with this
+release. `v0.2.3` and earlier remain MIT — a relicence is not retroactive, and
+nothing already published changes terms.
+
+What you gain over MIT is an express patent grant and its termination clause
+(§3). What you take on, if you redistribute, is §4: carry the licence, preserve
+`NOTICE`, and state your changes.
+
+`LICENSE` is the verbatim upstream text, so the copyright notice lives in a new
+`NOTICE` file rather than in the licence's appendix. All thirteen packages —
+`functualize` and the twelve plugins — declare `Apache-2.0`, and each plugin
+wheel now ships the licence text itself, which none of them did before.
+
+Nothing about a *generated* project changes: `func scaffold` still writes
+`license = "MIT"` into the project it creates for you, because that is your
+choice to make rather than ours.
+
+Recorded in [ADR-024](contributor/adr/024-apache-2-0-relicensing.md).
+
 ### Added — a secret you have, not only one a provider holds
 
 The encrypted vault was a cache for values fetched from AWS Secrets Manager or
@@ -248,9 +271,6 @@ empty state. Its step records, gates and position are unaffected. The
   say which scope its branches ran in.
 - `state.batch()` held the wrong file's lock after state moved, silently voiding
   its all-or-nothing guarantee.
-
-
-## [0.3.0] - 2026-09-09
 
 ### Added — a workflow can be driven to completion without a shell
 
