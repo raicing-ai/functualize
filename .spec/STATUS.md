@@ -1269,6 +1269,23 @@ it works).
    `contributor/reference/testing-strategy.md`, but that only stops *our tests*
    polluting *our* registry; the user-facing half is this guard.
 
+   **The guard does not cover the worse case, which is already fixed
+   separately.** `tests/_cli/test_self_doctor.py::test_a_recognised_installation_
+   reports_ok` asserted `report.worst is OK` while reading the *shared* registry
+   under `_isolate_home`'s fixed fake home. Every record there was written by a
+   real binary that existed at the time — so no registration guard would have
+   helped. Deleting a worktree is what makes those records stale, and the file
+   is append-only, so **deleting any worktree you had run tests in turned that
+   assertion red in every checkout, permanently.** It happened during this
+   Verify phase: `feat-local-vault-access` was removed and the suite failed from
+   then on, remediable only by hand-editing a file under `/tmp`. Fixed in
+   `6fcea19` by pinning `XDG_CONFIG_HOME` to `tmp_path`, which was the test's
+   unpinned third axis — it already pinned mode and owner and documented why.
+
+   The lasting point for this follow-up: the registry is a **shared mutable
+   fixture**, and a test that asserts a global "worst status" over it is
+   asserting something about the machine's history rather than about the code.
+
 
 37. **The unknown-command explanation does not reach a project's own
     `main.py`.** `explain_missing_job` (`_cli/info.py`) is called from both
