@@ -1226,6 +1226,50 @@ it works).
 
 ## Potential Follow-ups
 
+0. **The install registry records binaries that cannot exist, permanently.**
+   Found by `plugin-taxonomy`'s Verify phase, 2026-09-18; not that feature's to
+   fix.
+
+   `_cli/main.py` resolves the record's `binary_path` from `argv[0]`, and when
+   that has no path separator it *synthesises* one:
+
+   ```python
+   else:
+       binary_path = str(Path(sys.executable).parent / argv0)
+   ```
+
+   Run functualize as `python -c "from functualize._cli.main import main; main()"`
+   and `argv[0]` is `-c`, so it registers `<venv>/bin/-c` — a path that has never
+   existed. There is a second such branch just above: an empty `argv[0]` records
+   `binary_path = ""`.
+
+   The registry is **append-only by design**, and `self doctor` reports a record
+   whose binary is missing as a WARNING with the remedy *"This binary no longer
+   exists. The record is kept because the registry is append-only."* So a single
+   run through an embedded launcher leaves a permanent warning that no command
+   can clear, and `doctor`'s worst status is WARNING from then on. It is not
+   hypothetical: it happened here, and the record had to be deleted by hand.
+
+   **The fix is a guard at the call site** — do not register unless the path is
+   a real file:
+
+   ```python
+   if not binary_path or not Path(binary_path).is_file():
+       return
+   ```
+
+   Measured against both registries on this machine: **13 of 13 legitimate
+   records survive** (`.venv/bin/func`, `.venv/bin/functualize`,
+   `src/functualize/__main__.py` across four checkouts) and only the synthesised
+   one is rejected. Note `Path("").exists()` is `True` — it is `Path(".")` — so
+   the emptiness check is load-bearing and `is_file()` rather than `exists()` is
+   what rejects it.
+
+   A test-side rule for the same trap is now in
+   `contributor/reference/testing-strategy.md`, but that only stops *our tests*
+   polluting *our* registry; the user-facing half is this guard.
+
+
 37. **The unknown-command explanation does not reach a project's own
     `main.py`.** `explain_missing_job` (`_cli/info.py`) is called from both
     reporters — `func`'s unknown-command path and the CLI adapter's
@@ -2245,11 +2289,86 @@ in its name, `adapter_type` and docstring but has neither `run` nor `shutdown`
 been read there — fixing it changes behaviour; `functualize_ai/__init__.py`'s
 lazy `__getattr__` table has no `TYPE_CHECKING` block, which is why
 `ai-pydantic` sits at 47–48 mypy errors. All three are routed to
-`.spec/features/plugin-taxonomy`. Separately, `scaffold add plugin` writes a
+`.spec/features/plugin-taxonomy`, and **all three were closed by its PR-1**
+(2026-09-18): `MCPAdapterPlugin` gained `run` and `shutdown` and the loader now
+warns when any plugin declares `adapter_type` without satisfying the protocol;
+the `[ai]` section is read for the first time, which is a behaviour change with
+a CHANGELOG entry; and the `TYPE_CHECKING` block took `ai-pydantic` from 56
+errors to 11. Separately, `scaffold add plugin` writes a
 plugin where job discovery misreads it as a job (pre-existing, proven by
 reverting the annotation). AC-18 asked for four adapters widened and two were:
 `CliAdapter` reads `app.name` and `TuiAdapter` hands the app to
 `launch_inline_tui`, neither on the port, and both core rather than plugins.
+
+### plugin-taxonomy — PR-1 (2026-09-18)
+
+`feat/plugin-host-protocol`: three entry-point groups were declared by shipped
+distributions and read by **nothing**. `pip install functualize-state-sqlite`
+registered a plugin into `functualize.state_providers`, no call site ever passed
+that group to `entry_points()`, and the install succeeded while the plugin
+loaded never. The only symptom was that nothing changed.
+
+**The decision worth keeping.** *`functualize.<x>_providers` is a mechanism, not
+a naming convention.* Such a group is scanned out of the `entry_point_group`
+field of a live `DomainMetadata` published under `functualize.domains`. Exactly
+two domain SDKs exist — `ai` and `tasks` — so a `_providers` group with no
+domain behind it has no reader **by construction** and cannot be given one
+without inventing the domain. Two successive spec revisions got this backwards:
+revision 1 asked "cheap group or correct group?", revision 2 recommended
+`functualize.substrate_providers` as "`IMPLEMENTATION` for free" — which would
+have been exactly as dead as the group it replaced. Classifying a group and
+loading it are different questions.
+
+All three orphans went to `functualize.plugins`; `vault_key_providers` was
+deleted rather than rehoused. `_primitives/entry_point_groups.py` now names the
+seven groups core reads, and
+`tests/spec/test_every_declared_group_has_a_reader.py` walks every shipped
+manifest and fails **naming the file** when a declared group is neither in that
+set nor a live domain's provider group.
+
+**Making the plugins load exposed eight latent defects**, none reachable while
+the plugins were inert. The two that would have hurt users:
+`SQLiteStatePlugin._db_path` resolved from the cwd, and creating `.functualize/`
+*is* the switch from standalone to project mode — so installing the plugin
+promoted every directory you ran in and littered a database beside every loose
+script. And five commands (`data show`, `data clear`, `run list`, `run show`,
+`history`) built their stores from the filesystem while runs wrote to the
+configured substrate, so `why` reported a project up to date while `data show`
+reported *Fingerprints: 0* about the same project.
+
+**The shape to watch.** Resolving storage from the cwd instead of asking the app
+was found **six times** in this feature, and `store-substrate`/T7 had already
+fixed a seventh (`builtin workflow`) in an earlier cycle. A seventh occurrence
+deserves an ADR, not another one-off fix.
+
+**`TaskDocument` was a middle man**, and deleting it closed three acceptance
+criteria at once: `list()` fell from `1 + N` substrate reads to 1, mutations
+became compare-and-swap with a bounded retry (the old code held a lock and wrote
+with no `expect=`, which is safe only where `lock()` is real — the port
+explicitly permits a no-op), and tasks stopped being JSON strings inside a JSON
+document, so `data show` renders fields.
+
+**Accepted in writing, and not fixed here:**
+
+- **`functualize.plugins` classifies as `PluginKind.ADAPTER`**, so the substrate
+  prints under *"ADAPTERS — add commands or a delivery surface"*, which is false
+  for it. One config line decides both *loads* and *heading*; correctness won
+  and the label was deferred. Maintainer decision, 2026-09-17.
+- **The port cannot express "create if absent."** `write(expect=None)` is
+  unconditional, so the *first* write to a fresh document cannot be
+  compare-and-swapped. Pinned by a test that asserts the limitation rather than
+  a guarantee. Carried to `sdd/substrate-conformance` as its Q2.
+- **`tests/conftest.py` reaches into a plugin by filesystem path**, because a
+  plain `uv sync` does not install workspace plugins. Paths updated, reach not
+  removed.
+
+**Process note — every reachability gate written during Plan was wrong when
+run**, continuing the run recorded against `plugin-host-protocol`. T4's planned
+sabotage scope was the wrong suite and nearly a false negative: `tests/plugins`
+fails **1** with the group name typo'd while 687 pass, because they mock
+`entry_points`. And an AC-5 concurrency test written during T7 **passed with
+compare-and-swap removed** — its two writes were sequential and could never
+collide. Write the sabotage before believing the test.
 
 ### workflow-continuation
 
