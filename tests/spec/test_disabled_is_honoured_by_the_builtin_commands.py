@@ -32,6 +32,7 @@ about the name.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -56,6 +57,30 @@ def _project(tmp_path: Path, config: str) -> Path:
 
 
 def _data_show(cwd: Path) -> str:
+    """Run `func builtin data show` in `cwd`, in its own home.
+
+    **The child gets an isolated HOME, and that is not hygiene — it is
+    required.** `tests/conftest.py::_isolate_home` is autouse and points HOME at
+    a *fixed* path (`/tmp/functualize_test_fakehome_nonexistent`), shared by
+    every worktree on the machine, and a subprocess inherits it through
+    `os.environ`. Meanwhile `func` registers itself in
+    `<config>/functualize/install.json` on every run, and that registry is
+    **append-only by design** — `self doctor` reports a record whose binary no
+    longer exists as a WARNING and never removes it.
+
+    So a child launched as `python -c ...` registers `<venv>/bin/-c`, which
+    never exists, and `test_self_doctor.py::test_a_recognised_installation_
+    reports_ok` fails **for every future run in every checkout**. Measured: it
+    did, and the record had to be deleted by hand.
+    """
+    env = dict(os.environ)
+    home = cwd / "_home"
+    home.mkdir()
+    env["HOME"] = str(home)
+    env["XDG_CONFIG_HOME"] = str(home / ".config")
+    env["XDG_DATA_HOME"] = str(home / ".local" / "share")
+    env["XDG_CACHE_HOME"] = str(home / ".cache")
+
     result = subprocess.run(
         [
             sys.executable,
@@ -66,6 +91,7 @@ def _data_show(cwd: Path) -> str:
             "show",
         ],
         cwd=cwd,
+        env=env,
         capture_output=True,
         text=True,
         timeout=120,
