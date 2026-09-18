@@ -68,19 +68,23 @@ class SQLiteStatePlugin:
         some in the other is exactly the state this feature exists to make
         unreachable.
 
-        A failure to install is logged and left alone. The app then uses the
-        filesystem default, which is a working program with a note in the log
-        rather than a boot that dies over a storage preference.
+        **A failure to install is raised, not logged** (`plugin-taxonomy`/T7,
+        AC-4). This reverses an earlier decision, and the reversal is the point:
+        the swallow read as "a working program with a note in the log rather
+        than a boot that dies over a storage preference", which is only true if
+        the fallback is harmless. It is not. A user who installed a storage
+        plugin and silently got the filesystem has their project's data in a
+        place they did not choose and were not told about — and
+        `install_substrate`'s own refusal message says why that matters: some of
+        a run's documents in one backend and some in the other.
+
+        The log line was also unreachable as a diagnostic. The failure it hid
+        was the ordering bug T7 fixes, and `logger.exception` at boot goes to a
+        stream most users never see; the symptom they *did* see was a database
+        that stayed empty.
         """
-        try:
-            self._substrate = SQLiteSubstrate(self._db_path(app))
-            app.install_substrate(self._substrate)
-        except Exception:
-            logger.exception(
-                "sqlite-state could not install its substrate; this project "
-                "will use the filesystem default"
-            )
-            return
+        self._substrate = SQLiteSubstrate(self._db_path(app))
+        app.install_substrate(self._substrate)
         logger.debug("sqlite-state installed a substrate at %s", self._substrate.path)
 
     def _db_path(self, app: PluginHost) -> Path:

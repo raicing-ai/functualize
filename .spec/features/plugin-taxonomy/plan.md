@@ -476,6 +476,25 @@ each is eligible to be accepted; each is accepted here in writing.
 
 ---
 
+6. **The port cannot express "create if absent" — found during T7.**
+   *Where:* `functualize-tasks-local/_provider.py::LocalTaskProvider._mutate`.
+   *What:* `StoreSubstrate.write(key, payload, expect=None)` is *unconditional*,
+   and `expect=` takes "the revision the caller last read". A document that has
+   never been written has no revision, so the first writer cannot detect a
+   second one. On a backend whose `lock()` is a no-op the two can collide and
+   one task is lost.
+   *Why accepted:* closing it means widening the port, which is out of this
+   feature's scope and is a decision about every substrate rather than about
+   tasks. Bounded in practice — the document is created once, and `lock()` is
+   real on both shipped backends. AC-5 asks about concurrent **`update()`**,
+   which operates on an existing document and *is* compare-and-swapped.
+   *Not hidden:* `test_the_very_first_write_cannot_be_compare_and_swapped`
+   asserts the limitation rather than a false guarantee, and says in its
+   docstring that if the port gains the capability the test should fail and be
+   replaced. Carried to `sdd/substrate-conformance` as Q2.
+   **Needs maintainer review: NO** — it is recorded as the next feature's open
+   question, which is where the decision belongs.
+
 ## 6 · What this sent back to Specify
 
 Per `.claude/rules/spec-workflow.md`, the gate is expected to revise `spec.md`

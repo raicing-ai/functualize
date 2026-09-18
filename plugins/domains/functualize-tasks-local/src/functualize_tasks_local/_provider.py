@@ -1,108 +1,172 @@
 """Local TaskProvider, backed by the framework's own storage.
 
-Stores tasks as JSON under keys prefixed with ``tasks:``, inside one document
-the project's :class:`StoreSubstrate` holds. Each task is a JSON-encoded dict
-of all ``TaskItem`` fields.
+Every task lives in **one** substrate document, `tasks`, as a mapping from task
+id to the task's fields. The document is the unit of storage because that is
+what a substrate offers: *give me this document, put this document back, and
+stop anyone else while I do both*.
 
 **It used to hold a `StateBackend`** from the `functualize-state` plugin — a
 backend-agnostic key-value protocol that `store-substrate`/T6 retired, because
 such a protocol can only offer the intersection of every backend and is worth
 least exactly where having a database is worth most (`contributor/adr/022`).
 
-The four calls this provider makes — get, set, delete, keys — are now served by
-:class:`TaskDocument`, which is that shape over one substrate document. The
-gain is not that the code shrank: it is that tasks follow the project's
-substrate, so a task written under SQLite is not invisible to a reader on the
-filesystem.
+**Then it held `TaskDocument`, which was the same shape one level down**, and
+`plugin-taxonomy`/T7 removed it. It offered `get`/`set`/`delete`/`keys` — the
+retired protocol's own vocabulary — over a single document, with one consumer
+and no seam. Three defects followed from the pretence, and all three are closed
+by deleting it rather than by three fixes:
+
+- **`list()` cost 1 + N substrate reads.** `keys()` read the whole document to
+  enumerate ids, then each `get()` read the whole document again. It is now one
+  read (AC-6).
+- **A read-modify-write could not be made safe.** `set()` held `lock()` and then
+  wrote with no `expect=`, so on a backend whose `lock()` is a no-op — which the
+  port explicitly permits, and which an object store is — two concurrent writers
+  both won and one task was lost. Mutations are now compare-and-swap with a
+  bounded retry (AC-5).
+- **A task was a JSON string inside a JSON document.** `_serialize_task`
+  `json.dumps`ed each task into a *value* the substrate then encoded again, so
+  `func builtin data show` rendered escaped JSON instead of task fields (AC-7).
+  Tasks are now ordinary nested mappings.
 """
 
 from __future__ import annotations
 
-import json
 import time
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from functualize_tasks import TaskItem, TaskLink, TaskNotFoundError, TaskStatus
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from functualize._types.protocols import StoreSubstrate
 
+__all__ = ["LocalTaskProvider"]
 
-#: The document every task lives in. One document, not one per task: the
-#: provider lists by prefix, and a substrate is not required to offer a key
-#: scan — only `read`, `write` and a lock.
+#: The document every task lives in. One document, not one per task: a
+#: substrate is not required to offer a key scan — only `read`, `write` and a
+#: lock — so listing has to be a property of a document rather than of the key
+#: space.
 TASKS_KEY = "tasks"
 
+#: How many times a losing compare-and-swap re-reads and tries again.
+#:
+#: Bounded rather than unbounded: contention on one document is expected to be
+#: low (a person adding a task, an agent updating one), and a caller starved
+#: past this many rounds is a symptom worth surfacing rather than a wait worth
+#: extending. Eight is arbitrary and is the kind of number that should be
+#: changed by measurement, not by argument.
+_WRITE_ATTEMPTS = 8
 
-class TaskDocument:
-    """Four key-value calls over one substrate document.
-
-    Small on purpose. It is not a second storage vocabulary coming back: it has
-    no protocol, no plugin seam and one consumer, and it exists because
-    `LocalTaskProvider` wants a flat key space while the substrate stores whole
-    documents.
-    """
-
-    __slots__ = ("_key", "_substrate")
-
-    def __init__(self, substrate: StoreSubstrate, key: str = TASKS_KEY) -> None:
-        self._substrate = substrate
-        self._key = key
-
-    def _load(self) -> dict[str, str]:
-        stored = self._substrate.read(self._key)
-        if stored is None:
-            return {}
-        entries = stored.data.get("tasks")
-        return entries if isinstance(entries, dict) else {}
-
-    def get(self, key: str, default: str | None = None) -> str | None:
-        return self._load().get(key, default)
-
-    def set(self, key: str, value: str) -> None:
-        with self._substrate.lock(self._key):
-            entries = self._load()
-            entries[key] = value
-            self._substrate.write(self._key, {"tasks": entries})
-
-    def delete(self, key: str) -> None:
-        with self._substrate.lock(self._key):
-            entries = self._load()
-            if entries.pop(key, None) is not None:
-                self._substrate.write(self._key, {"tasks": entries})
-
-    def keys(self, prefix: str = "") -> list[str]:
-        """Keys, optionally narrowed to a prefix.
-
-        The prefix is what made this a key-value store rather than a document:
-        `LocalTaskProvider` lists by scanning `tasks:`. Filtering happens here
-        rather than in the substrate because a substrate is not required to
-        offer a key scan — only `read`, `write` and a lock.
-        """
-        return sorted(k for k in self._load() if k.startswith(prefix))
+_T = TypeVar("_T")
 
 
 class LocalTaskProvider:
-    """TaskProvider storing tasks under a ``tasks:`` prefix.
+    """`TaskProvider` over one substrate document.
 
-    Each task is stored as a JSON blob under the key ``tasks:{task_id}``.
-    Listing operations scan all keys with the ``tasks:`` prefix and
-    deserialize them for filtering.
+    Args:
+        substrate_source: Called to get the storage in effect, **each time it is
+            needed**, rather than being handed a substrate at construction.
+
+            That is the whole of the ordering fix (AC-8). The provider is built
+            during `APP_READY`, and reading `app.substrate` there *resolves and
+            caches* the engine's substrate — after which a plugin installing a
+            database is refused. Which plugin ran first decided a project's
+            storage, and plugin order is the loader's topological sort with an
+            **alphabetical** tiebreak, so it came down to the spelling of a
+            plugin's name.
+
+            Deferring the read removes the coupling instead of ordering it, and
+            matches the engine's own design: it resolves lazily for exactly this
+            reason.
+
+            A `Callable` and not a Protocol on purpose. `.spec/CONSTITUTION.md`
+            forbids implicit callable conventions **for ports**; this is not one
+            — one consumer, no discovery, no registry — and the thing it returns
+            *is* the port. A one-method interface with one implementation is the
+            shape ADR-022 argues against on its own terms.
+        key: The document name. A parameter only so a caller holding two
+            isolated task lists in one substrate can say so.
     """
 
-    PREFIX = "tasks:"
+    __slots__ = ("_key", "_substrate_source")
 
-    def __init__(self, backend: TaskDocument) -> None:
-        self._backend = backend
+    def __init__(
+        self,
+        substrate_source: Callable[[], StoreSubstrate],
+        key: str = TASKS_KEY,
+    ) -> None:
+        self._substrate_source = substrate_source
+        self._key = key
 
-    def _task_key(self, task_id: str) -> str:
-        """Return the full state key for a task ID."""
-        return f"{self.PREFIX}{task_id}"
+    # ── storage ──────────────────────────────────────────────────────────
 
-    def _serialize_task(self, task: TaskItem) -> str:
-        """Serialize a TaskItem to JSON string."""
-        data: dict = {
+    def _read(self) -> tuple[dict[str, Any], int | None]:
+        """The task map and the revision it was read at.
+
+        The two travel together because compare-and-swap cannot work if they can
+        disagree — `Stored` exists to make that impossible, and unpacking it
+        here keeps the rest of this class in plain dictionaries.
+
+        ``None`` for the revision means the document has never been written.
+        """
+        stored = self._substrate_source().read(self._key)
+        if stored is None:
+            return {}, None
+        tasks = stored.data.get("tasks")
+        return (dict(tasks) if isinstance(tasks, dict) else {}), stored.revision
+
+    def _mutate(self, change: Callable[[dict[str, Any]], _T]) -> _T:
+        """Read, apply ``change``, and write it back — or retry.
+
+        Held under :meth:`StoreSubstrate.lock` *and* written with ``expect=``,
+        which is belt and braces on purpose: the lock is real on a filesystem
+        and on SQLite, and the compare-and-swap is what survives a backend whose
+        lock is a no-op. The port offers both because backends differ, and a
+        caller that uses only one is safe only on half of them.
+
+        ``change`` may raise — `TaskNotFoundError` does — and that propagates
+        without a write, which is why the existence check lives inside it rather
+        than in a separate read before it. Checking first and writing after is
+        the race this method exists to remove.
+
+        **One race this cannot close, and it is the port's, not ours.** When the
+        document has never been written there is no revision, and
+        ``write(..., expect=None)`` is *unconditional* — the port offers no way
+        to say "expect this key to be absent". So two processes creating the
+        very first task at the same moment can collide on a backend whose
+        ``lock()`` does nothing. Every later write is safe, because by then
+        there is a revision to compare. Bounded in practice: the document is
+        created once, and ``lock()`` is real on both shipped substrates. Pinned
+        by `test_the_very_first_write_cannot_be_compare_and_swapped`, and
+        recorded as Q2 of `.spec/features/substrate-conformance/research.md` on
+        `sdd/substrate-conformance` — it is precisely the question a substrate
+        whose lock is a no-op has to answer.
+        """
+        substrate = self._substrate_source()
+        for _ in range(_WRITE_ATTEMPTS):
+            with substrate.lock(self._key):
+                tasks, revision = self._read()
+                result = change(tasks)
+                if substrate.write(self._key, {"tasks": tasks}, expect=revision):
+                    return result
+        raise RuntimeError(
+            f"could not write {self._key!r} after {_WRITE_ATTEMPTS} attempts; "
+            f"another writer is winning every round"
+        )
+
+    # ── the task shape ───────────────────────────────────────────────────
+
+    @staticmethod
+    def _to_fields(task: TaskItem) -> dict[str, Any]:
+        """A task as a mapping, not as a string.
+
+        `func builtin data show` renders whatever the substrate holds, so a
+        task encoded as JSON *inside* the document printed as an escaped blob.
+        """
+        fields: dict[str, Any] = {
             "id": task.id,
             "title": task.title,
             "status": task.status.value,
@@ -112,43 +176,42 @@ class LocalTaskProvider:
             "created_at": task.created_at,
         }
         if task.linked_to is not None:
-            data["linked_to"] = {
+            fields["linked_to"] = {
                 "kind": task.linked_to.kind,
                 "target": task.linked_to.target,
             }
-        return json.dumps(data)
+        return fields
 
-    def _deserialize_task(self, raw: str) -> TaskItem:
-        """Deserialize a JSON string to a TaskItem."""
-        data = json.loads(raw)
-        linked_to = None
-        if data.get("linked_to") is not None:
-            linked_to = TaskLink(
-                kind=data["linked_to"]["kind"],
-                target=data["linked_to"]["target"],
-            )
+    @staticmethod
+    def _from_fields(fields: dict[str, Any]) -> TaskItem:
+        link = fields.get("linked_to")
         return TaskItem(
-            id=data["id"],
-            title=data["title"],
-            status=TaskStatus(data["status"]),
-            linked_to=linked_to,
-            notes=data.get("notes"),
-            creator=data.get("creator"),
-            created_at=data.get("created_at"),
+            id=fields["id"],
+            title=fields["title"],
+            status=TaskStatus(fields["status"]),
+            linked_to=(
+                TaskLink(kind=link["kind"], target=link["target"])
+                if isinstance(link, dict)
+                else None
+            ),
+            notes=fields.get("notes"),
+            creator=fields.get("creator"),
+            created_at=fields.get("created_at"),
         )
 
-    def _get_task(self, task_id: str) -> TaskItem:
-        """Retrieve a task by ID, raising TaskNotFoundError if it doesn't exist."""
-        raw = self._backend.get(self._task_key(task_id))
-        if raw is None:
+    @staticmethod
+    def _require(tasks: dict[str, Any], task_id: str) -> dict[str, Any]:
+        fields = tasks.get(task_id)
+        if not isinstance(fields, dict):
             raise TaskNotFoundError(f"Task '{task_id}' not found")
-        return self._deserialize_task(raw)
+        return fields
+
+    # ── TaskProvider ─────────────────────────────────────────────────────
 
     def add(self, title: str, linked_to: TaskLink | None = None) -> str:
         """Create a new task and return its generated unique ID."""
-        task_id = uuid.uuid4().hex[:12]
         task = TaskItem(
-            id=task_id,
+            id=uuid.uuid4().hex[:12],
             title=title,
             status=TaskStatus.PENDING,
             linked_to=linked_to,
@@ -156,26 +219,35 @@ class LocalTaskProvider:
             creator=None,
             created_at=time.time(),
         )
-        self._backend.set(self._task_key(task_id), self._serialize_task(task))
-        return task_id
+        fields = self._to_fields(task)
+
+        def _add(tasks: dict[str, Any]) -> str:
+            tasks[task.id] = fields
+            return task.id
+
+        return self._mutate(_add)
 
     def list(
         self, status: TaskStatus | None = None, filter: str | None = None
     ) -> list[TaskItem]:
-        """List tasks, optionally filtered by status or title substring."""
-        keys = self._backend.keys(self.PREFIX)
-        tasks: list[TaskItem] = []
-        for key in keys:
-            raw = self._backend.get(key)
-            if raw is None:
+        """List tasks, optionally filtered by status or title substring.
+
+        **One substrate read, whatever N is** (AC-6). Filtering happens here
+        rather than in the substrate because a substrate holds documents and has
+        no opinion about what is inside them.
+        """
+        tasks, _ = self._read()
+        found: list[TaskItem] = []
+        for fields in tasks.values():
+            if not isinstance(fields, dict):
                 continue
-            task = self._deserialize_task(raw)
+            task = self._from_fields(fields)
             if status is not None and task.status != status:
                 continue
             if filter is not None and filter not in task.title:
                 continue
-            tasks.append(task)
-        return tasks
+            found.append(task)
+        return found
 
     def update(
         self, task_id: str, status: TaskStatus | None = None, notes: str | None = None
@@ -185,18 +257,16 @@ class LocalTaskProvider:
         Raises:
             TaskNotFoundError: If the task_id does not exist.
         """
-        task = self._get_task(task_id)
-        # Build updated task (TaskItem is frozen, so we reconstruct)
-        updated = TaskItem(
-            id=task.id,
-            title=task.title,
-            status=status if status is not None else task.status,
-            linked_to=task.linked_to,
-            notes=notes if notes is not None else task.notes,
-            creator=task.creator,
-            created_at=task.created_at,
-        )
-        self._backend.set(self._task_key(task_id), self._serialize_task(updated))
+
+        def _update(tasks: dict[str, Any]) -> None:
+            fields = dict(self._require(tasks, task_id))
+            if status is not None:
+                fields["status"] = status.value
+            if notes is not None:
+                fields["notes"] = notes
+            tasks[task_id] = fields
+
+        self._mutate(_update)
 
     def delete(self, task_id: str) -> None:
         """Delete a task by its ID.
@@ -204,9 +274,12 @@ class LocalTaskProvider:
         Raises:
             TaskNotFoundError: If the task_id does not exist.
         """
-        # Verify existence first
-        self._get_task(task_id)
-        self._backend.delete(self._task_key(task_id))
+
+        def _delete(tasks: dict[str, Any]) -> None:
+            self._require(tasks, task_id)
+            del tasks[task_id]
+
+        self._mutate(_delete)
 
     def link(self, task_id: str, linked_to: TaskLink) -> None:
         """Associate a task with a job, workflow step, or job phase.
@@ -214,14 +287,13 @@ class LocalTaskProvider:
         Raises:
             TaskNotFoundError: If the task_id does not exist.
         """
-        task = self._get_task(task_id)
-        updated = TaskItem(
-            id=task.id,
-            title=task.title,
-            status=task.status,
-            linked_to=linked_to,
-            notes=task.notes,
-            creator=task.creator,
-            created_at=task.created_at,
-        )
-        self._backend.set(self._task_key(task_id), self._serialize_task(updated))
+
+        def _link(tasks: dict[str, Any]) -> None:
+            fields = dict(self._require(tasks, task_id))
+            fields["linked_to"] = {
+                "kind": linked_to.kind,
+                "target": linked_to.target,
+            }
+            tasks[task_id] = fields
+
+        self._mutate(_link)

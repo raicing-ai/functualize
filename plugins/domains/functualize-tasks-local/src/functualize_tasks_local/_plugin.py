@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 from functualize_tasks import TaskProvider
 
-from functualize_tasks_local._provider import LocalTaskProvider, TaskDocument
+from functualize_tasks_local._provider import LocalTaskProvider
 
 if TYPE_CHECKING:
     from functualize.plugin import PluginHost
@@ -27,9 +27,10 @@ logger = logging.getLogger(__name__)
 class LocalTasksPlugin:
     """Plugin that registers a local substrate-backed TaskProvider.
 
-    At boot time (APP_READY), takes the app's substrate, wraps it in a
-    `TaskDocument`, and registers a `LocalTaskProvider` over that as the
-    TaskProvider implementation via app.di.provide().
+    At boot time (APP_READY) it registers a `LocalTaskProvider` as the
+    TaskProvider implementation via `app.di.provide()`. The provider reads the
+    app's substrate lazily, on first use, so installing this plugin cannot
+    decide which storage the project ends up with.
 
     Implements the plugin callable protocol expected by functualize's plugin
     discovery system.
@@ -55,24 +56,33 @@ class LocalTasksPlugin:
         app.hooks.on_ready(self._on_app_ready)
 
     def _on_app_ready(self, app: PluginHost) -> None:
-        """Initialize LocalTaskProvider and register with DI registry.
+        """Register a `LocalTaskProvider` over the app's substrate.
 
         Backed by the **app's own substrate** (`store-substrate`/T6), not by a
         `StateBackend` resolved from DI. That protocol is retired, and with it
         the failure it allowed: tasks written while a database plugin was
         installed were invisible to a reader without one, because the two
         answered "where does state live" separately.
+
+        **The substrate is passed as a callable, not read here**
+        (`plugin-taxonomy`/T7, AC-8). Reading `app.substrate` at `APP_READY`
+        *resolves and caches* the engine's substrate, after which a plugin
+        installing a database is refused — and the refusal used to be swallowed.
+        So whether a project got SQLite or the filesystem depended on which
+        plugin's hook ran first, which is the loader's topological sort with an
+        **alphabetical** tiebreak: it came down to the spelling of a plugin's
+        name. Measured, before the fix — the same two plugins, only the name
+        changed::
+
+            name 'tasks-local'    (sorts after  sqlite-state) -> SQLiteSubstrate
+            name 'a-tasks-local'  (sorts before sqlite-state) -> JsonFileSubstrate
+
+        Deferring the read removes the coupling rather than ordering it, and
+        matches the engine, which resolves lazily for exactly this reason.
         """
         try:
-            backend = TaskDocument(app.substrate)
-            self._provider = LocalTaskProvider(backend=backend)
-
-            # Register as TaskProvider
+            self._provider = LocalTaskProvider(lambda: app.substrate)
             app.di.provide(TaskProvider, self._provider)
-
-            logger.debug(
-                "LocalTasksPlugin: Registered TaskProvider (substrate-backed, "
-                "prefix='tasks:')"
-            )
+            logger.debug("LocalTasksPlugin: registered a substrate-backed TaskProvider")
         except Exception as e:
             logger.error("LocalTasksPlugin: Failed to initialize: %s", e)

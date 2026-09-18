@@ -453,7 +453,7 @@ gate would otherwise be able to pass while checking nothing:
 
 ## Wave 3 — the storage seam
 
-### [ ] T7 · Remove the middle man; the provider goes lazy and compare-and-swap
+### [x] T7 · Remove the middle man; the provider goes lazy and compare-and-swap
 
 `plan.md` §1.3. **One deletion closes AC-4, AC-5, AC-6, AC-7 and AC-8.**
 
@@ -491,7 +491,50 @@ gate would otherwise be able to pass while checking nothing:
 **Reachability — run the sabotage first.** Restore the unconditional
 `write()` (drop `expect=`). Expected: the AC-5 test fails. Then restore the
 eager `app.substrate` read in `_plugin.py`. Expected: the AC-8 test fails.
-Two separate sabotages, because they are two separate defects at one call site.
+
+**DONE** (`c4b6416`). Both landed, and the first one caught a **vacuous test of
+my own**:
+
+- **A — drop `expect=`.** First attempt: **0 relevant failures**. The AC-5 test
+  as written did two `add` calls *in sequence*, and sequential writers never
+  collide, so it passed with compare-and-swap removed. Rewritten to force the
+  interleaving — writer B lands between A's read and A's write — after which the
+  sabotage fails `test_an_interleaved_update_does_not_erase_the_other`.
+- **B — restore the eager read.** Fails
+  `test_the_substrate_wins_whichever_hook_runs_first[sorts-before-the-substrate]`,
+  the exact case the bug produced, and the run now carries the refusal in the
+  log: *"the substrate is already in use by this app's engine"* — which is AC-4
+  working.
+
+**Measured:** tasks-local suite **15 passed**; the AC-8 file **5 passed**; the
+rewritten property suite **7 passed** under `--run-slow`; mcp **32**, tasks
+**15**, root `tests/plugins` **688 passed**. mypy for the package **11 → 9**,
+*below* its baseline. Root mypy clean on 357 files.
+
+**AC-4 is met as "reported", not "raised to the user".** The plugin no longer
+catches; boot's hook isolation catches and logs a WARNING naming the hook and
+the reason. That is the layer that owns hook failures, and the message is the
+`install_substrate` refusal in full. Recorded rather than overclaimed.
+
+**AC-7's literal wording does not match the command.** It asked that
+`func builtin data show` "renders task titles"; that command renders counts and
+store descriptions, never task contents, so no edit to it could satisfy the
+sentence. The *substance* — a task is data, not an escaped string — is met and
+asserted by `test_a_task_is_stored_as_fields_not_as_a_string`. On disk::
+
+    {"tasks": {"10440f294f08": {"title": "Deploy the service", "status": "pending", ...}}}
+
+where it used to be a JSON string inside a JSON value.
+
+**A port limitation found here, not closed here.** `write(expect=None)` is
+unconditional and the port cannot express *expect this key to be absent*, so the
+**first** write to a fresh document cannot be compare-and-swapped and two
+processes creating the first task on a no-op-lock backend can collide. AC-5 asks
+about concurrent `update()`, which operates on an existing document and *is*
+safe. Declared as surviving smell 6 in `plan.md`, pinned by a test that asserts
+the limitation rather than a false guarantee, and carried to
+`sdd/substrate-conformance` as its Q2 — where the decision belongs, because it
+is about every substrate rather than about tasks.
 
 ---
 
