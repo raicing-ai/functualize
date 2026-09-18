@@ -611,7 +611,7 @@ being a record.
 
 ---
 
-### [ ] T9 · Plugin-surface honesty and documentation truth
+### [x] T9 · Plugin-surface honesty and documentation truth
 
 `spec.md` §D.5, §D.6, A.5, A.6.
 
@@ -640,9 +640,61 @@ being a record.
 | AC-11b | prose mentions recording the retirement, same paths | 24 files | **≥16 preserved** — must NOT go to zero |
 
 **Reachability:** AC-18 changes behaviour — a project with an `[ai]` section
-starts being honoured. The gate is a test that resolves an AI provider against a
-config fixture with a non-default `[ai]` section and asserts the value arrives.
-`before:` that test fails (defaults are returned). CHANGELOG entry required.
+starts being honoured.
+
+**DONE** (`97f7518`). Three sabotages, all landing:
+
+- **Restore the always-False probe** (`getattr(app, "resolve_model")`):
+  `test_the_ai_section_is_actually_asked_for` fails — the config facade is never
+  consulted, which is exactly what shipped.
+- **Delete `MCPAdapterPlugin.run`**: `test_exactly_the_marked_adapters_fail_conformance`
+  fails. That file's fixture had `MCPAdapterPlugin` marked `# want-error`
+  *because* it never conformed; the mark is now removed and its absence is what
+  bites.
+- **The production check itself** is covered by
+  `tests/plugins/test_a_false_adapter_claim_is_reported.py` — a class with the
+  label and not the methods is warned about by name, a real adapter and a
+  non-adapter are silent, and the shipped MCP plugin no longer trips it.
+
+**Measured gates:**
+
+| Gate | before | after |
+|---|---|---|
+| AC-17 `MCPAdapterPlugin` satisfies `AdapterPlugin` | False | True |
+| AC-17 the claim is checked in production | 0 callers | `_plugins/loader.py::_validate_metadata`, every load path |
+| AC-18 live `hasattr(app, "resolve_model")` (AST) | 1 | **0** |
+| AC-19 `functualize-ai-pydantic` mypy | 56 | **11** |
+| AC-19 `functualize-ai` mypy | 46 | **23** |
+| AC-20 `functualize-state` in PUBLISHING/codemaps | 8 sites | 2, both prose recording its removal |
+| AC-11 live `StateBackend`/`ExecutionStore` refs | 8 sites / 4 files | **1** — see below |
+| AC-11b prose preserved | 24 files | 21, none deleted to satisfy AC-11 |
+
+**Three corrections to the plan's gates.**
+
+1. **`validate_adapter` cannot have a production caller**, and the task assumed
+   it could. It is in the public `app/` package; the `Internal never imports
+   public` contract forbids `_plugins` from importing it. The **protocol** is
+   the shared thing and `_plugins` may import `_types`, so the check is an
+   `isinstance` against `AdapterPlugin` in `_validate_metadata`. The intent —
+   *the claim is checked on a real boot* — is met; the named function is not the
+   mechanism.
+2. **AC-11's residual 1 is not a violation.** It is `EphemeralStateBackend()`,
+   a class `functualize-ai` **defines itself** in `_state_fallback.py`. The name
+   echoes the retired protocol; the object is real and is the honest in-memory
+   store. Renaming it is public-API churn for a word, and the module now states
+   plainly what it is.
+3. **AC-19's baseline was 47 in the spec and 56 when measured.** The spec's
+   number came from `plugin-host-protocol`/T11 and had drifted. Recorded as
+   measured, not as remembered.
+
+**A test was defending the defect.** `tests/plugins/test_ai_state_fallback.py`
+asserted that the ephemeral warning names `functualize-state-sqlite` — the
+instruction that could not help, since that plugin provides a `StoreSubstrate`
+rather than the `StateBackend` the module uses. It now asserts the warning names
+**no package at all**.
+
+**A behaviour change, marked breaking in the commit:** a project with an `[ai]`
+section now has it honoured. It never was.
 
 ---
 

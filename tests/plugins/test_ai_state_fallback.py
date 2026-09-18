@@ -157,14 +157,35 @@ class TestResolveAiStateBackend:
     def test_emits_warning_when_falling_back(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """Requirement 25.2: Boot-time warning about ephemeral data."""
+        """Requirement 25.2: the user is told the data does not persist."""
         with caplog.at_level(logging.WARNING, logger="functualize_ai._state_fallback"):
             resolve_ai_state_backend(state_backend=None)
-        assert any("ephemeral" in record.message.lower() for record in caplog.records)
-        assert any(
-            "functualize-substrate-sqlite" in record.message
-            for record in caplog.records
+        messages = [record.message for record in caplog.records]
+        assert any("memory" in m.lower() for m in messages), messages
+
+    def test_the_warning_does_not_send_the_user_after_a_plugin(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """`plugin-taxonomy`/T9. This test previously asserted the **opposite**.
+
+        The warning used to end *"Install functualize-state-sqlite for
+        persistent storage"*, and this file pinned that sentence — so the false
+        advice had a test defending it. It was false twice over: `functualize-
+        state` was removed by ADR-022 so there is no state domain to be absent,
+        and the sqlite plugin installs a `StoreSubstrate`, not the `StateBackend`
+        this module uses, so following the instruction changed nothing.
+
+        There is no persistent backend for AI budget counters today. Saying so
+        once is the honest message; naming a package the user can install and be
+        no better off is worse than saying nothing.
+        """
+        with caplog.at_level(logging.WARNING, logger="functualize_ai._state_fallback"):
+            resolve_ai_state_backend(state_backend=None)
+        messages = " ".join(record.message for record in caplog.records)
+        assert "install" not in messages.lower(), (
+            f"the warning tells the user to install something: {messages}"
         )
+        assert "sqlite" not in messages.lower(), messages
 
     def test_returns_strict_wrapper_when_backend_provided(self) -> None:
         """Requirement 25.3: Wraps real backend strictly (no silent fallback)."""

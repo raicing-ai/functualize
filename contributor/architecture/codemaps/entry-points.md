@@ -13,9 +13,23 @@
 
 ## Entry-Point Groups (plugin/extension discovery)
 
+Core reads **seven** groups from a fixed call site, named in one place —
+`src/functualize/_primitives/entry_point_groups.py`, whose `READ_GROUPS` is the
+authority for this table. Anything else is read only if an installed domain
+SDK's `DomainMetadata.entry_point_group` names it, which is the *only* way a
+`functualize.<x>_providers` group acquires a reader. A `_providers` group with
+no domain behind it loads nothing —
+`tests/spec/test_every_declared_group_has_a_reader.py` fails the build if one
+is declared.
+
 | Group | Populated by | Purpose |
 |---|---|---|
-| `functualize.plugins` | Plugin packages (empty in core `pyproject.toml`) | Dynamic plugin discovery at boot (`_plugins/loader.py`) |
+| `functualize.plugins` | Plugin packages (empty in core `pyproject.toml`) | Dynamic plugin discovery at boot (`_plugins/loader.py`). Also where substrates and the inline prompt surface register — they are not domain providers |
+| `functualize.domains` | Domain SDKs: `functualize-ai`, `functualize-tasks` | `_plugins/domain_registry.py`; each names its own provider group |
+| `functualize.<x>_providers` | Implementations of a domain: `ai_providers`, `tasks_providers` | Scanned by `domain_registry.scan_domain_providers` from a live `DomainMetadata` |
+| `functualize.jobs` | Distributions shipping jobs | `_app/boot.py` — a job *source*, not an extension |
+| `functualize.skills` | Distributions shipping agent skills | `_cli/skills.py` |
+| `functualize.displays` | TUI display providers | `_cli/tui/display_provider_discovery.py` |
 | `functualize.format_providers` | Core: `toml` → `functualize._config.providers.toml:TomlFormatProvider`. `IniFormatProvider` is in-tree but **not** registered by default (ADR-007) — a plugin or a third-party entry point registers it. | Config file format parsers |
 | `functualize.remote_providers` | Reserved, empty in core; populated by plugins | Remote config source providers |
 

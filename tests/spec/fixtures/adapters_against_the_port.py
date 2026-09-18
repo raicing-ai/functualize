@@ -41,13 +41,19 @@ honest one — the port is the **plugin** boundary, and core code that is handed
 the whole application may name the whole application. It does mean AC-18's
 "four adapters" is really two; that deviation is recorded in `tasks.md`.
 
-`MCPAdapterPlugin` fails for an older and unrelated reason: it has **no `run`
-and no `shutdown`**, two of the protocol's three methods. It is named
-`…AdapterPlugin`, it sets `adapter_type = "mcp"`, and its docstring says
-*"Implements the AdapterPlugin protocol"* — none of which was ever true, and
-nothing checked, because it is loaded as a plain `functualize.plugins` entry
-point and never passed to `validate_adapter`. Recorded for `plugin-taxonomy`,
-whose subject is what a plugin is.
+`MCPAdapterPlugin` **used to fail here** for an older and unrelated reason: it
+had no `run` and no `shutdown`, two of the protocol's three methods, while being
+named `…AdapterPlugin`, setting `adapter_type = "mcp"` and saying *"Implements
+the AdapterPlugin protocol"* in its docstring. None of that was true, and
+nothing checked it, because the plugin is loaded as a plain
+`functualize.plugins` entry point and was never passed to `validate_adapter` —
+which had no production caller at all.
+
+`plugin-taxonomy`/T9 closed it from both ends: the plugin gained `run` (the body
+of `func mcp serve`, moved out of its closure so the CLI command is the member's
+caller) and `shutdown`, and `_plugins/loader.py` now warns when any plugin
+declares `adapter_type` without satisfying the protocol. So its call below is
+**unmarked**, and if it regresses this file fails.
 
 **`HttpAdapter` and `LambdaAdapter` widened cleanly** — the two unmarked calls
 below. Both reach nothing outside the eleven members, measured the same way,
@@ -81,5 +87,6 @@ takes_an_adapter(LambdaAdapter())
 takes_an_adapter(CliAdapter())  # want-error
 takes_an_adapter(TuiAdapter())  # want-error
 
-# Missing `run` and `shutdown`. A different defect — see the docstring.
-takes_an_adapter(MCPAdapterPlugin())  # want-error
+# Conforms since `plugin-taxonomy`/T9. Deliberately unmarked: a `# want-error`
+# here would pass again the moment `run` or `shutdown` was deleted.
+takes_an_adapter(MCPAdapterPlugin())

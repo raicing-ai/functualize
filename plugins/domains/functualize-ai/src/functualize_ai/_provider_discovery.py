@@ -202,28 +202,41 @@ def resolve_ai_provider(
         AINotAvailableError: If no provider can be resolved.
     """
     if config is None:
-        # `hasattr(app, "resolve_model")` is **always False**: `resolve_model`
-        # lives on `app.configuration`, never on the app itself -- verified
-        # against a live app, not read off the source. So the branch below has
-        # never run, the `[ai]` section has never been read here, and every
-        # caller that passes an `app` has silently received `AIConfig()`
-        # defaults.
-        #
-        # Left standing on purpose. Fixing the probe *changes behaviour* --
-        # projects with an `[ai]` section would start being honoured -- and
-        # that is not an annotation sweep's call to make. Fourth dead probe of
-        # this exact shape in this feature, after the two AC-7 deleted
-        # (`functualize-mcp/_task_tools.py`, `functualize-ai-pydantic`), and
-        # recorded for adjudication in `tasks.md` against T11.
-        if app is not None and hasattr(app, "resolve_model"):
-            try:
-                config = cast(
-                    "AIConfig", app.configuration.resolve_model("ai", AIConfig)
-                )
-            except Exception:
-                # Config section may not exist; use defaults
-                config = AIConfig()
-        else:
-            config = AIConfig()
+        config = _ai_config_from(app)
 
     return select_ai_provider(config)
+
+
+def _ai_config_from(app: Any) -> AIConfig:
+    """The project's ``[ai]`` section, or defaults.
+
+    **This used to be unreachable.** The guard read
+    ``hasattr(app, "resolve_model")``, and `resolve_model` lives on
+    ``app.configuration`` — never on the app itself. Verified against a live
+    app rather than read off the source: the only definitions are
+    `_app/configuration_facade.py`, `_app/impl.py` and the port at
+    `_types/host.py`, all reached through `app.configuration`. So the branch was
+    always False, the `[ai]` section had **never** been read here, and every
+    caller passing an `app` silently received `AIConfig()` defaults.
+
+    `plugin-host-protocol` found it and deliberately left it standing — fixing a
+    probe that changes behaviour is not an annotation sweep's call. It was the
+    fourth dead probe of this exact shape in that feature. `plugin-taxonomy`/T9
+    is where it was adjudicated, and the decision is to make it work:
+    **a project with an `[ai]` section now has it honoured.** That is a
+    behaviour change and is called out in the CHANGELOG.
+
+    Probed through `getattr` rather than by naming the type, because `app` here
+    is whatever a caller passed — the AI SDK is used from job code as well as
+    from the host — and a missing facade is "no config", not an error.
+    """
+    if app is None:
+        return AIConfig()
+    resolve = getattr(getattr(app, "configuration", None), "resolve_model", None)
+    if resolve is None:
+        return AIConfig()
+    try:
+        return cast("AIConfig", resolve("ai", AIConfig))
+    except Exception:
+        # The section may simply not exist, which is not a failure.
+        return AIConfig()

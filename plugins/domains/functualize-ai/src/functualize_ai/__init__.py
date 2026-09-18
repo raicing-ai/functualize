@@ -11,6 +11,8 @@ domain metadata discovery fast (~5ms instead of ~360ms).
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 # Only domain_metadata is loaded eagerly (needed for entry point discovery)
 from functualize_ai._metadata import domain_metadata
 
@@ -135,6 +137,64 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "ToolCallRecord": ("functualize_ai._types", "ToolCallRecord"),
     "ToolDef": ("functualize_ai._types", "ToolDef"),
 }
+
+
+if TYPE_CHECKING:
+    # Re-declared for a type checker, which cannot follow `__getattr__`.
+    #
+    # `plugin-taxonomy`/T9. Without this block mypy sees module-level
+    # *variables* where the runtime has classes, so every downstream
+    # annotation against `AI`, `AIConfig` or `AIResult` is a
+    # `Variable ... is not valid as a type` error. Measured as the largest
+    # single contributor to `functualize-ai-pydantic`'s mypy baseline, and
+    # the reason that package could not be brought to zero by annotating
+    # the package itself.
+    #
+    # Under `TYPE_CHECKING` rather than at module level, so the lazy loading
+    # this table exists for is untouched at runtime: the heavy dependencies
+    # these modules pull are still deferred to first access.
+    from functualize_ai._ai import AI
+    from functualize_ai._config import AIConfig
+    from functualize_ai._errors import (
+        AINotAvailableError,
+        BudgetExceededError,
+        ToolNotPermittedError,
+    )
+    from functualize_ai._events import (
+        AI_BUDGET_EXCEEDED,
+        AI_CALL_COMPLETED,
+        AI_CALL_FAILED,
+        AI_CALL_STARTED,
+        AI_TOOL_CALLED,
+    )
+    from functualize_ai._gate_strategy import (
+        AI_INBOUND_PRESET_NAME,
+        AI_INBOUND_PRESET_STRATEGIES,
+        AI_INBOUND_STRATEGY_NAME,
+        AI_PRESET_NAME,
+        AI_PRESET_STRATEGIES,
+        AIInboundGateResolver,
+        register_ai_inbound_gate_strategy,
+    )
+    from functualize_ai._protocols import AIProvider
+    from functualize_ai._provider_discovery import (
+        discover_ai_providers,
+        resolve_ai_provider,
+        select_ai_provider,
+    )
+    from functualize_ai._state_fallback import (
+        EphemeralStateBackend,
+        StrictStateBackendWrapper,
+        resolve_ai_state_backend,
+    )
+    from functualize_ai._tool_scope import ToolScope
+    from functualize_ai._types import (
+        AILimits,
+        AIResult,
+        TokenUsage,
+        ToolCallRecord,
+        ToolDef,
+    )
 
 
 def __getattr__(name: str) -> object:

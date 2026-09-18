@@ -150,7 +150,6 @@ See `contributor/guides/tui-panels.md` for the hard rule every panel widget must
 | `functualize-ai-pydantic` | Implementation | PydanticAI-backed AI plugin |
 | `functualize-inline` | Implementation | Textual inline interactivity (prompts within terminal flow) |
 | `functualize-flow-viz` | Implementation | Inline flow visualization during job execution |
-| `functualize-state` | Domain SDK (protocols) | State persistence / execution tracking protocols |
 | `functualize-substrate-sqlite` | Implementation | SQLite-backed state persistence |
 | `functualize-tasks` | Domain SDK (protocols) | Task management capabilities |
 | `functualize-tasks-local` | Implementation | Local state-backed task storage |

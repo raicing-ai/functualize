@@ -43,19 +43,23 @@ functualize/
 │   ├── _plugins/             ← Internal: plugin loader, domain registry
 │   ├── _primitives/          ← Internal: DI, lazy, locator, resilient
 │   └── _types/               ← Internal: shared type vocabulary
-├── plugins/                  ← Workspace plugins (uv workspace members)
-│   ├── functualize-state/
-│   ├── functualize-substrate-sqlite/
-│   ├── functualize-http/
-│   ├── functualize-lambda/
-│   ├── functualize-inline/
-│   ├── functualize-flow-viz/
-│   ├── functualize-fullscreen-tui/   ← source only, no pyproject.toml: not a workspace member
-│   ├── functualize-ai/
-│   ├── functualize-ai-pydantic/
-│   ├── functualize-tasks/
-│   ├── functualize-tasks-local/
-│   └── functualize-mcp/
+├── plugins/                  ← Workspace plugins, grouped by what they serve
+│   ├── adapters/             ← ways to reach jobs: commands, delivery, terminal I/O
+│   │   ├── functualize-http/
+│   │   ├── functualize-lambda/
+│   │   ├── functualize-mcp/
+│   │   ├── functualize-flow-viz/
+│   │   └── functualize-inline/
+│   ├── substrates/           ← where a project's documents live
+│   │   └── functualize-substrate-sqlite/
+│   ├── credentials/          ← where secrets are fetched from
+│   │   ├── functualize-aws/
+│   │   └── functualize-bitwarden/
+│   └── domains/              ← a capability protocol, and its implementations beside it
+│       ├── functualize-ai/
+│       ├── functualize-ai-pydantic/
+│       ├── functualize-tasks/
+│       └── functualize-tasks-local/
 ├── tests/                    ← Test suite
 ├── examples/                 ← Working examples (quickstart, standalone, project, plugins)
 ├── docs/                     ← MkDocs documentation source
@@ -455,9 +459,16 @@ are *floors*, not exact versions, and deliberately do not track the release.
 Raise one only when that plugin starts requiring core API that older versions do
 not have — otherwise it forces an upgrade nobody needs.
 
-`plugins/functualize-fullscreen-tui/` has no `pyproject.toml`. It is not a
-package, is not in `[tool.uv.sources]`, and is not published; it does not count
-toward the thirteen.
+**Twelve** workspace plugins, all at exactly two levels below `plugins/` —
+the depth `members = ["plugins/*/*"]` and `.claude/hooks/spec_gate.py` are
+taught. An implementation is a *sibling* of the domain it implements rather than
+a child, so the tree shows the relationship without adding a third level that
+both of those would need teaching about.
+
+This paragraph used to describe `plugins/functualize-fullscreen-tui/` and say it
+"does not count toward the thirteen". **That directory does not exist**, at
+either depth, and there are twelve plugins, not thirteen. Measured:
+`ls -d plugins/*/functualize-*/ | wc -l`.
 
 ## Commit Message Convention
 

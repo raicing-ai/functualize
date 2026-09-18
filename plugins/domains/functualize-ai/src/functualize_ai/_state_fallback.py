@@ -1,13 +1,31 @@
-"""AI state fallback logic for graceful degradation.
+"""Where the AI SDK keeps budget counters and checkpoints: in memory, always.
 
-When the State domain (functualize-state) is not installed as a runtime plugin
-providing a real StateBackend, the AI SDK falls back to an ephemeral in-memory
-store for budget tracking and checkpoint data. A boot-time warning is emitted
-to inform the user that data will not persist across sessions.
+**There is no persistent alternative, and this module used to say there was.**
+It described itself as a *fallback* for when "the State domain
+(functualize-state) is not installed", and told the user to *"install
+functualize-state-sqlite for persistent storage"*. Both halves are false:
 
-When the State domain IS installed but fails at runtime (e.g., SQLite error),
-the AI SDK does NOT silently fall back — it propagates the error so the user
-is aware of the issue.
+- `functualize-state` was **removed** by
+  `contributor/adr/022-storage-is-a-substrate-not-a-key-value-domain.md`, so it
+  cannot be installed. There is no state domain to be absent.
+- The sqlite plugin — now `functualize-substrate-sqlite` — installs a
+  `StoreSubstrate`. It does not provide the `StateBackend` this module wants,
+  so installing it changes nothing here. The advice sent a user to fetch a
+  package that could not satisfy the need it named.
+
+`plugin-taxonomy`/T9 makes the documentation match the code rather than the
+other way round, which is the choice `spec.md` D.1-4 offers: *"its
+budget/checkpoint state either uses the app's substrate or is honestly
+documented as ephemeral."* Moving it onto the substrate is a real feature — the
+counters would need a document, a key and a discard rule — and is not something
+to smuggle in under a doc fix.
+
+So: **AI budget tracking and checkpoints live for the length of the process.**
+That is a limitation, stated once, where a reader will find it.
+
+`StrictStateBackendWrapper` survives because the distinction it draws still
+matters: a store that is *present and failing* must raise rather than silently
+degrade, so a caller cannot mistake a broken backend for an absent one.
 """
 
 from __future__ import annotations
@@ -23,11 +41,14 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
+#: Said once, and without an instruction the user cannot act on. The previous
+#: text ended "Install functualize-state-sqlite for persistent storage", which
+#: named a plugin that provides a `StoreSubstrate` rather than the `StateBackend`
+#: this module uses — so following it changed nothing.
 _EPHEMERAL_WARNING = (
-    "[functualize-ai] State domain is not installed. "
-    "AI budget tracking and checkpoint data will be ephemeral (in-memory only) "
-    "and will not persist across sessions. "
-    "Install functualize-substrate-sqlite for persistent storage."
+    "[functualize-ai] AI budget tracking and checkpoint data are kept in "
+    "memory and do not survive the process. There is no persistent backend "
+    "for them today."
 )
 
 

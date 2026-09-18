@@ -114,7 +114,7 @@ functualize[all] = [cli] + 13 workspace plugins (see modules.md)
 ## Build & CI Wiring
 
 - **Build backend**: `hatchling.build`; wheel packages `src/functualize`.
-- **Workspace**: `[tool.uv.workspace] members = ["plugins/*/*"]` — all 13 plugins auto-included, single `uv.lock`.
+- **Workspace**: `[tool.uv.workspace] members = ["plugins/*/*"]` — all 12 plugins auto-included, single `uv.lock`. The glob is **two** levels since `plugin-taxonomy` grouped the plugin directories by role; a plugin at any other depth is silently not a workspace member.
 - **CI** (`.github/workflows/ci.yml`, triggers on `push`/`pull_request`): `lint` → `lint-imports` → `typecheck` (mypy) → `test-fast` → `test-full` (matrix, Python 3.11/3.12/3.13).
 - **Security** (`security.yml`): gitleaks secret scan, on push/PR to `main` plus a weekly Monday 06:00 UTC cron.
 - **Release** (`release.yml`, on tag `v*`): `build` → `publish` (PyPI Trusted Publishing/OIDC) → `github-release`.

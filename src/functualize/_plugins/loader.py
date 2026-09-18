@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from functualize._plugins.config import PluginConfigRegistry
 from functualize._primitives.entry_point_groups import PLUGINS
 from functualize._primitives.entry_points import entry_points
+from functualize._types.protocols import AdapterPlugin
 
 if TYPE_CHECKING:
     from functualize._events import EventBus
@@ -146,7 +147,51 @@ def _validate_metadata(plugin: Any, entry_point_name: str) -> list[str]:
                 f"'description' exceeds 256 characters (got {len(description)})"
             )
 
+    _warn_if_the_adapter_claim_is_false(plugin, entry_point_name)
+
     return errors
+
+
+def _warn_if_the_adapter_claim_is_false(plugin: Any, entry_point_name: str) -> None:
+    """A plugin that says it is an adapter should be one.
+
+    `plugin-taxonomy`/T9. `functualize-mcp` declared ``adapter_type = "mcp"``,
+    said *"Implements the AdapterPlugin protocol"* in its docstring, and had
+    **neither `run` nor `shutdown`** — two of the protocol's three methods —
+    while its two siblings had both. Nothing noticed, for a plain reason:
+    `functualize.app.adapters.validate_adapter` exists to catch exactly this and
+    had **no production caller**, only a re-export and five test files.
+
+    Checked here because this is the one function every load path goes through
+    — entry points, explicit plugins and file-based plugins all reach it — and
+    because `_plugins` may import `_types.protocols` directly. It cannot call
+    `validate_adapter`: that lives in the public `app/` package, and the layer
+    contract forbids an internal layer from importing public. The protocol
+    itself is the shared thing, which is the right shared thing.
+
+    **A warning, not a rejection.** Refusing the plugin would have removed
+    `functualize-mcp` from every installation that had it, over a claim that
+    changes nothing at runtime — `adapter_type` is declarative and nothing
+    dispatches on it. The cost of the defect is a reader believing a docstring,
+    so the fix is to say so where somebody will see it.
+    """
+    if not hasattr(plugin, "adapter_type"):
+        return
+    if isinstance(plugin, AdapterPlugin):
+        return
+    missing = [
+        member
+        for member in ("__call__", "run", "shutdown")
+        if not callable(getattr(plugin, member, None))
+    ]
+    logger.warning(
+        "Plugin %r declares adapter_type=%r but does not satisfy AdapterPlugin: "
+        "missing %s. It will still load — adapter_type is declarative — but the "
+        "claim is false and anything written against the protocol will fail.",
+        entry_point_name,
+        getattr(plugin, "adapter_type", None),
+        ", ".join(missing) or "nothing callable",
+    )
 
 
 def _has_config_declaration(plugin: Any) -> bool:

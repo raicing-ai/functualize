@@ -186,6 +186,50 @@ class MCPAdapterPlugin:
         except Exception as e:
             logger.warning("MCPAdapterPlugin: Failed to register CLI commands: %s", e)
 
+    def run(
+        self,
+        *,
+        http: bool = False,
+        port: int | None = None,
+        host: str | None = None,
+    ) -> None:
+        """Serve, in the foreground. `AdapterPlugin.run`.
+
+        `plugin-taxonomy`/T9. This class declared `adapter_type = "mcp"`, said
+        *"Implements the AdapterPlugin protocol"* in its docstring, and had
+        **neither `run` nor `shutdown`** — two of the protocol's three methods.
+        Its two siblings, `HttpAdapter` and `LambdaAdapter`, have both. Nothing
+        caught it because `validate_adapter` had no production caller.
+
+        The body is not new: it is what `func mcp serve` already did, moved out
+        of the closure so the protocol member is the real thing and the CLI
+        command is its caller. A `run` that existed only to satisfy an
+        `isinstance` check would be worse than the missing method.
+        """
+        server = self.server
+        config = self.config
+        if http or (config and config.transport == "http"):
+            effective_port = port or (config.port if config else 8080)
+            effective_host = host or (config.host if config else "127.0.0.1")
+            server.start_http(effective_host, effective_port)
+        else:
+            server.start_stdio()
+
+    def shutdown(self) -> None:
+        """Release the server this adapter built. `AdapterPlugin.shutdown`.
+
+        Both transports are **foreground**: `start_stdio` and `start_http` own
+        the process until it ends, so there is no running thing to signal here
+        and this does not pretend otherwise. What it does is drop the cached
+        server, so a second `run()` builds one against current config rather
+        than reusing an object bound to the last one.
+
+        Background servers are a different mechanism with its own command —
+        `func mcp stop` goes through `ServerManager`, which tracks processes
+        this object never held.
+        """
+        self._server = None
+
     def _register_serve_command(self, app: PluginHost) -> None:
         """Register the 'func mcp serve' command."""
         plugin = self
@@ -196,14 +240,7 @@ class MCPAdapterPlugin:
             host: str | None = None,
         ) -> None:
             """Start an MCP server (foreground)."""
-            server = plugin.server
-            config = plugin.config
-            if http or (config and config.transport == "http"):
-                effective_port = port or (config.port if config else 8080)
-                effective_host = host or (config.host if config else "127.0.0.1")
-                server.start_http(effective_host, effective_port)
-            else:
-                server.start_stdio()
+            plugin.run(http=http, port=port, host=host)
 
         app.extensions.register_plugin_command(
             "serve",
