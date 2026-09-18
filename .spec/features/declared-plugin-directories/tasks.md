@@ -4,6 +4,13 @@
 `63d5b30`. A gate whose `now:` does not reproduce is a signal to re-measure
 before editing, not to proceed.
 
+⚠️ **Known pre-existing failure, not caused by this feature.**
+`tests/perf/test_startup_budget.py::TestWarmCommandBudget::test_a_warm_func_job_stays_within_budget`
+fails at **2270ms against an 1800ms budget**. Proved pre-existing during T1 by
+reverting both changed files to HEAD and re-running: **2315ms**, marginally worse
+without the change. It spawns real `func` subprocesses and this host is slow at
+that. Do not read it as a regression from any task here.
+
 Wave ordering is binding. Reachability precedes `[x]` — name the production path
 and break it once (`contributor/guides/wiring-discipline.md`).
 
@@ -17,7 +24,7 @@ silently misses `examples/plugins/file_based_plugin/.functualize.toml`. Measured
 
 ---
 
-## T0 · Commit the reproduction fixture as a test — [ ]
+## T0 · Commit the reproduction fixture as a test — [x]
 
 `[F]` `tests/plugins/test_declared_plugin_directories.py`
 
@@ -38,7 +45,13 @@ convention-at-exact-cwd (AC-2), convention-from-subdirectory (AC-3).
 - **Gate** the new file's declared case fails — `now: FAIL (marker absent)` ·
   `after T5: PASS`
 - **Gate** `uv run pytest tests/plugins/test_declared_plugin_directories.py`
-  — `now: 2 failed, 1 passed` (AC-2 already passes; AC-1 and AC-3 do not)
+  — measured `1 passed, 3 skipped, 2 xfailed` (the 3 skips are the `app`-surface
+  variants, restricted by `@surfaces("func")`). AC-2 passes; AC-1 and AC-3 do not.
+- **Gate — the xfails fail for the *right* reason**, which a strict xfail alone
+  does not prove. Under `--runxfail` both report
+  `exit_code=0, stdout='ran\n', stderr='', marker absent`: the job runs and
+  exits clean, the plugin is simply never loaded, and **stderr is empty** —
+  AC-6's premise measured in passing.
 - **Reachability** — n/a, this task adds only tests. It is the reachability
   instrument for T5.
 
@@ -48,7 +61,7 @@ flips to a failure the moment T5 lands correctly.
 
 ---
 
-## T1 · Move `resolve_user_config_dir` down to `_primitives/` — [ ]
+## T1 · Move `resolve_user_config_dir` down to `_primitives/` — [x]
 
 `[M]` `src/functualize/_primitives/locator.py`
 `[M]` `src/functualize/app/utils.py`
@@ -65,11 +78,17 @@ Keep the `$XDG_CONFIG_HOME` handling verbatim — empty string falls back to
 - **Gate** `rg -n "def xdg_config_dir" src/functualize/_primitives/locator.py`
   — `now: 0` · `after: 1`
 - **Gate** `uv run lint-imports` — `now: 7 kept, 0 broken` · `after: unchanged`
-- **Reachability** — `app/utils.py::resolve_user_config_dir` is called from
-  `auto_discover` and `_resolve_effective_directories`. Break `xdg_config_dir`
-  to return `Path("/nonexistent")` and
-  `tests/cli/test_effective_directories.py::test_global_config_provides_baseline`
-  must fail.
+- **Reachability** — **the gate as written was false, and sabotage is what
+  showed it.** `test_global_config_provides_baseline` passes `global_config=`
+  explicitly, so it never calls `resolve_user_config_dir`; under a sabotaged
+  `xdg_config_dir` returning `Path("/nonexistent")` it **still passed**.
+
+  The real falsifier reads an actual `$XDG_CONFIG_HOME/functualize/config.toml`:
+  `tests/cli/test_auto_discover_properties.py::TestConfigDirsInOutput::test_xdg_global_config_jobs_directories_appear_in_output`
+  — `--run-slow`-gated, so it needs that flag or it reports as *skipped* rather
+  than as a pass. It **fails** under the same sabotage and passes on restore.
+  Production call path: `_cli/main.py → auto_discover → resolve_user_config_dir
+  → xdg_config_dir`.
 
 ---
 
