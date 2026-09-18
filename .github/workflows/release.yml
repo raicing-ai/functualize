@@ -116,9 +116,17 @@ jobs:
           name: dist
           path: dist/
 
-      # NOTE: every package name in dist/ (functualize + functualize-* plugins)
-      # must have a PyPI "trusted publisher" configured for this repository and
-      # workflow, plus the `pypi` GitHub environment. See plugins/PUBLISHING.md.
+      # These integrations are not part of the 0.3.0 PyPI release yet. Keep
+      # their wheels available to the standalone-binary bake, but do not hand
+      # them to the publisher until their projects are intentionally launched.
+      - name: Remove deferred packages from the PyPI upload
+        run: |
+          rm -f dist/functualize_aws-* dist/functualize_bitwarden-*
+
+      # NOTE: every package name remaining in dist/ (functualize + the plugins
+      # in the current release scope) must have a PyPI "trusted publisher"
+      # configured for this repository and workflow, plus the `pypi` GitHub
+      # environment. See plugins/PUBLISHING.md.
       #
       # skip-existing tolerates artifacts already on the index instead of failing
       # the job. It is needed because the twelve projects cannot be bootstrapped
