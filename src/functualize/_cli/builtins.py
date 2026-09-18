@@ -652,6 +652,40 @@ def _report_parallel(job_names: tuple[str, ...], results: list[Any]) -> None:
     raise SystemExit(exit_code_for_status(failed[0].status))
 
 
+def _project_substrate(ctx: Any | None) -> Any:
+    """The storage this project is actually using, not the filesystem default.
+
+    `plugin-taxonomy`/T5. Every store under `func builtin data`, `run` and
+    `history` was built with ``Store.for_project(Path.cwd())``, which routes
+    through ``substrate_for_project`` and **always** answers
+    `JsonFileSubstrate`. A plugin does not choose storage that way — it calls
+    ``app.install_substrate`` at ``APP_READY`` — so with a substrate plugin
+    installed these commands read a different backend from the one the run
+    wrote to.
+
+    Measured, in one project, immediately after one successful run::
+
+        func builtin why <job>   ->  SKIP (up to date)   # reads the database
+        func builtin data show   ->  Fingerprints: 0     # reads the files
+
+    The command whose whole job is *tell me where my data is and how much of it
+    there is* reported none, about a project that had some. `why` was right
+    because it takes its app from the Click context; these now do the same.
+
+    ``None`` when there is no app in the context, which is not a failure: `func`
+    builds that context for the builtins that need one, and without it the
+    caller falls back to the cwd walk — the correct answer when no plugin
+    installed anything.
+    """
+    obj = ctx.find_root().obj if ctx is not None else None
+    app = obj.get("app") if isinstance(obj, dict) else None
+    if app is None:
+        return None
+    with contextlib.suppress(Exception):
+        return app.substrate
+    return None
+
+
 def _state_location() -> tuple[Path, str, Path | None]:
     """The resolved state path, its mode, and the directory that decided it.
 
@@ -846,7 +880,8 @@ def register_builtin_commands(cli_group: Any) -> None:
     )
 
     @data_app.command("show")
-    def data_show() -> None:
+    @click.pass_context
+    def data_show(ctx: click.Context) -> None:
         """Show runtime state statistics."""
         from pathlib import Path
 
@@ -860,7 +895,12 @@ def register_builtin_commands(cli_group: Any) -> None:
         )
 
         path, mode, marker = _state_location()
-        store = FreshStore.for_project(Path.cwd())
+        substrate = _project_substrate(ctx)
+        store = (
+            FreshStore(substrate)
+            if substrate is not None
+            else FreshStore.for_project(Path.cwd())
+        )
         click.echo(f"Fingerprints: {len(store.fingerprint_keys())}")
 
         # `show` is the command someone runs to find out what is wrong, so it
@@ -904,8 +944,16 @@ def register_builtin_commands(cli_group: Any) -> None:
         # The other two stores the `data` group covers. Reporting three of five
         # and calling the command `data` would be the same under-description
         # the group was renamed to escape.
-        runs = RunStore.for_project(Path.cwd())
-        shell = ShellHistoryStore.for_project(Path.cwd())
+        runs = (
+            RunStore(substrate)
+            if substrate is not None
+            else RunStore.for_project(Path.cwd())
+        )
+        shell = (
+            ShellHistoryStore(substrate)
+            if substrate is not None
+            else ShellHistoryStore.for_project(Path.cwd())
+        )
         click.echo(f"Runs: {len(runs.run_ids())} — {runs.describe()}")
         click.echo(f"Shell history: {shell.count()} — {shell.describe()}")
 
@@ -941,7 +989,10 @@ def register_builtin_commands(cli_group: Any) -> None:
         is_flag=True,
         help="Every target: freshness, scopes, the run log and shell history.",
     )
-    def data_clear(clear_scopes: bool, clear_runs: bool, clear_all: bool) -> None:
+    @click.pass_context
+    def data_clear(
+        ctx: click.Context, clear_scopes: bool, clear_runs: bool, clear_all: bool
+    ) -> None:
         """Reset derived data — freshness verdicts and the session cache.
 
         Workflow scopes are kept unless --scopes is passed: a scope is a run
@@ -965,7 +1016,12 @@ def register_builtin_commands(cli_group: Any) -> None:
         if clear_all:
             clear_scopes = clear_runs = True
 
-        store = FreshStore.for_project(Path.cwd())
+        substrate = _project_substrate(ctx)
+        store = (
+            FreshStore(substrate)
+            if substrate is not None
+            else FreshStore.for_project(Path.cwd())
+        )
         if store.is_empty() and store.scopes.is_empty():
             raise SystemExit(0)
 
@@ -987,8 +1043,22 @@ def register_builtin_commands(cli_group: Any) -> None:
         # is waiting on, so losing it costs history and nothing in flight.
         if clear_runs:
             for cleared, label in (
-                (RunStore.for_project(Path.cwd()).discard(), "run log"),
-                (ShellHistoryStore.for_project(Path.cwd()).clear(), "shell history"),
+                (
+                    (
+                        RunStore(substrate)
+                        if substrate is not None
+                        else RunStore.for_project(Path.cwd())
+                    ).discard(),
+                    "run log",
+                ),
+                (
+                    (
+                        ShellHistoryStore(substrate)
+                        if substrate is not None
+                        else ShellHistoryStore.for_project(Path.cwd())
+                    ).clear(),
+                    "shell history",
+                ),
             ):
                 if cleared:
                     click.echo(f"Cleared the {label}.")
@@ -1777,7 +1847,7 @@ def register_builtin_commands(cli_group: Any) -> None:
         name="run", help="Read the run log — what executed, and how it ended."
     )
 
-    def _run_store() -> Any:
+    def _run_store(ctx: Any) -> Any:
         """The store the `builtin run` subcommands read.
 
         One place, for the reason `_workflow_store` gives: four opinions about
@@ -1787,6 +1857,9 @@ def register_builtin_commands(cli_group: Any) -> None:
 
         from functualize.app.utils import RunStore
 
+        substrate = _project_substrate(ctx)
+        if substrate is not None:
+            return RunStore(substrate)
         return RunStore.for_project(Path.cwd())
 
     @run_app.command("list")
@@ -1816,7 +1889,9 @@ def register_builtin_commands(cli_group: Any) -> None:
         default="table",
         help="Render the runs as a table or JSON.",
     )
+    @click.pass_context
     def run_list(
+        ctx: click.Context,
         job: str | None,
         surface: str | None,
         state: str | None,
@@ -1833,7 +1908,7 @@ def register_builtin_commands(cli_group: Any) -> None:
         from functualize.app.utils import list_runs
 
         items = list_runs(
-            _run_store(),
+            _run_store(ctx),
             job=job,
             surface=surface,
             state=state,
@@ -1873,13 +1948,16 @@ def register_builtin_commands(cli_group: Any) -> None:
         default="table",
         help="Render the run as text or JSON.",
     )
-    def run_show(run_id: str, events: bool, tree: bool, fmt: str) -> None:
+    @click.pass_context
+    def run_show(
+        ctx: click.Context, run_id: str, events: bool, tree: bool, fmt: str
+    ) -> None:
         """Everything known about one run."""
         import json
 
         from functualize.app.utils import describe_run, run_events, run_tree
 
-        store = _run_store()
+        store = _run_store(ctx)
         payload = run_tree(store, run_id) if tree else describe_run(store, run_id)
         if payload is None:
             click.echo(f"Error: no run '{run_id}'.", err=True)
@@ -1974,7 +2052,10 @@ def register_builtin_commands(cli_group: Any) -> None:
         default=None,
         help="Show at most this many of the most recent records.",
     )
-    def history_command(namespace: str | None, limit: int | None) -> None:
+    @click.pass_context
+    def history_command(
+        ctx: click.Context, namespace: str | None, limit: int | None
+    ) -> None:
         """Show recent runs, newest first.
 
         **Two sources since `durable-run-layer`/T3b**, where one ring used to
@@ -1995,8 +2076,17 @@ def register_builtin_commands(cli_group: Any) -> None:
         # anything, which is why these ask rather than write: every read path
         # through a store is a pure read, and `for_project` only resolves where
         # the documents would be.
-        runs = RunStore.for_project(Path.cwd())
-        shell = ShellHistoryStore.for_project(Path.cwd())
+        substrate = _project_substrate(ctx)
+        runs = (
+            RunStore(substrate)
+            if substrate is not None
+            else RunStore.for_project(Path.cwd())
+        )
+        shell = (
+            ShellHistoryStore(substrate)
+            if substrate is not None
+            else ShellHistoryStore.for_project(Path.cwd())
+        )
         job_records = job_history(runs) if namespace in (None, "job") else []
         shell_records = shell.entries() if namespace in (None, "shell") else []
         if not job_records and not shell_records and not runs.run_ids():

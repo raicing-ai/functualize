@@ -31,13 +31,34 @@ _MAIN = """
 from functualize.app import FunctualizeApp, JobSources
 from functualize.app.adapters import CliAdapter
 
-app = FunctualizeApp("m", job_sources=JobSources(directories=["jobs"]))
+app = FunctualizeApp(
+    "m",
+    job_sources=JobSources(directories=["jobs"]),
+)
 adapter = CliAdapter()
 
 if __name__ == "__main__":
     adapter(app)
     adapter.run()
 """
+
+#: `main.py` for the one test that must have the filesystem substrate.
+#:
+#: `[plugins] disabled` in `.functualize.toml` covers the `func` variant, which
+#: reads it in `_cli/main.py`. It does **not** cover the `app` variant: a
+#: `FunctualizeApp` built in user code takes its `PluginSources` from the
+#: constructor and boot never consults resolved config for it. That asymmetry is
+#: `contributor/architecture/surface-boundary.md` territory and not this file's
+#: subject, so the pin is simply stated on both sides.
+_MAIN_PINNED = _MAIN.replace(
+    'job_sources=JobSources(directories=["jobs"]),',
+    'job_sources=JobSources(directories=["jobs"]),\n'
+    '    plugin_sources=PluginSources(disabled=["sqlite", "sqlite-state"]),',
+).replace(
+    "from functualize.app import FunctualizeApp, JobSources",
+    "from functualize.app import FunctualizeApp, JobSources, PluginSources",
+)
+
 
 _JOBS = """
 from functualize.job import job
@@ -51,11 +72,25 @@ def noop() -> None:
 """
 
 
-def _project(tmp_path: Path, *, declared: bool) -> Path:
-    (tmp_path / ".functualize.toml").write_text(
-        'jobs_directories = ["jobs"]\nroot = true\n'
-    )
-    (tmp_path / "main.py").write_text(_MAIN)
+def _project(tmp_path: Path, *, declared: bool, pin_files: bool = False) -> Path:
+    """A project directory. ``pin_files`` forces the filesystem substrate.
+
+    Only one test below needs the pin, and it needs it for a real reason rather
+    than for convenience: it asserts that ``runs.json`` sits beside the reported
+    freshness path, which is a claim about *files*. `plugin-taxonomy`/T5 made
+    ``functualize-state-sqlite`` load for real, so an environment with that
+    plugin installed stores the run log in a database and there is no
+    ``runs.json`` to find — the assertion would fail while the behaviour it
+    guards is intact.
+
+    Pinned through ``[plugins] disabled``, the product's own mechanism, because
+    these runs are subprocesses that no in-process patch can reach.
+    """
+    config = 'jobs_directories = ["jobs"]\nroot = true\n'
+    if pin_files:
+        config += '\n[plugins]\ndisabled = ["sqlite", "sqlite-state"]\n'
+    (tmp_path / ".functualize.toml").write_text(config)
+    (tmp_path / "main.py").write_text(_MAIN_PINNED if pin_files else _MAIN)
     (tmp_path / "config.base.toml").write_text('[general]\napp_name = "m"\n')
     if declared:
         (tmp_path / ".functualize").mkdir()
@@ -90,7 +125,12 @@ def test_a_declared_project_reports_project_mode(surface: str, tmp_path: Path) -
     # It names the directory that decided it, so "why is it there?" is answered
     # in the same line as "where is it?".
     assert ".functualize/ found at" in out, out
-    assert str(project / ".functualize" / "fresh.json") in out, out
+    # The **directory** that decided it, not the file inside it. `fresh.json`
+    # is one backend's spelling: with a substrate plugin installed the same
+    # document is a row in `state.db`, and asserting the filename would make
+    # this test about JSON rather than about mode reporting, which is its
+    # subject. `plugin-taxonomy`/T5 made that reachable.
+    assert str(project / ".functualize") in out, out
 
 
 @pytest.mark.parametrize("surface", SURFACES)
@@ -131,7 +171,7 @@ def test_the_reported_path_is_the_one_the_engine_writes(tmp_path: Path) -> None:
     walk — `resolve_fresh_path` is a thin wrapper on it. Two walks can disagree;
     one cannot.
     """
-    project = _project(tmp_path, declared=True)
+    project = _project(tmp_path, declared=True, pin_files=True)
 
     assert "RAN noop" in _run(project, "app", "m", "noop").stdout
     reported = [

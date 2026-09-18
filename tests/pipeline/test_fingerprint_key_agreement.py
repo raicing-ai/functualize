@@ -24,7 +24,6 @@ record read entirely — that masking is why the defect survived.
 
 from __future__ import annotations
 
-import json
 import subprocess
 from pathlib import Path
 
@@ -94,11 +93,26 @@ def _run(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _fingerprint_keys(project: Path) -> list[str]:
-    state = project / ".functualize" / "fresh.json"
-    if not state.exists():
-        return []
-    return sorted(json.loads(state.read_text()).get("fingerprints", {}))
+def _fingerprint_count(project: Path) -> int:
+    """How many fingerprint keys this project recorded, whatever holds them.
+
+    Asked through `func builtin data show` rather than by reading
+    `.functualize/fresh.json`. The subject is *how many keys a run wrote* —
+    a fact about the freshness ledger, not about a file. With a substrate
+    plugin installed the same keys are rows in a database and the JSON file
+    does not exist, so a file read reports 0 and the assertion below would be
+    checking nothing. `plugin-taxonomy`/T5 made that reachable.
+
+    Reading it in-process is not an option either: these runs are subprocesses
+    and the plugin is installed in *their* environment, so a substrate resolved
+    here would be the wrong backend. Asking the product is the only answer that
+    does not depend on which one is in use.
+    """
+    out = _run("builtin", "data", "show", cwd=project).stdout
+    for line in out.splitlines():
+        if line.startswith("Fingerprints:"):
+            return int(line.split(":", 1)[1].strip())
+    raise AssertionError(f"no Fingerprints line in `data show`:\n{out}")
 
 
 @pytest.mark.parametrize("shape", sorted(UPSTREAMS), ids=sorted(UPSTREAMS))
@@ -137,8 +151,8 @@ def test_repeated_runs_write_exactly_one_key(tmp_path: Path, shape: str) -> None
         result = _run("fj", "produce", cwd=project)
         assert result.returncode == 0, result.stderr
 
-    keys = _fingerprint_keys(project)
-    assert len(keys) == 1, f"upstream shape {shape!r} wrote {len(keys)} keys: {keys}"
+    count = _fingerprint_count(project)
+    assert count == 1, f"upstream shape {shape!r} wrote {count} fingerprint keys"
 
 
 @pytest.mark.parametrize("shape", sorted(UPSTREAMS), ids=sorted(UPSTREAMS))

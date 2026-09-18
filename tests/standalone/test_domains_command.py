@@ -75,7 +75,7 @@ class TestDomainsListCommand:
             name="state",
             display_name="State / Persistence",
             config_section="state",
-            entry_point_group="functualize.state_providers",
+            entry_point_group="functualize.widget_providers",
             events_prefix="state.",
         )
 

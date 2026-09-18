@@ -499,7 +499,7 @@ maintainer review** — it is the one place PR-1 knowingly ships a user-visible
 inaccuracy.
 
 **Q4 — directory names. ANSWERED** (maintainer, 2026-09-17). Revision 1
-proposed five groups, `adapters/ substrates/ secrets/ domains/ providers/`, and
+proposed five groups, `adapters/ substrates/ credentials/ domains/ providers/`, and
 flagged `providers/` as the weak one. It is **four**: an implementation is
 placed beside the contract it implements, as a **sibling** under `domains/`, and
 `functualize-inline` — which implements no contract — goes to `adapters/`,

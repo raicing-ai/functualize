@@ -1,6 +1,6 @@
 """Plugin boot class for the in-memory substrate.
 
-Discovered through the ``functualize.state_providers`` entry point and called
+Discovered through the ``functualize.plugins`` entry point and called
 with the app at boot. It registers **one** thing — the substrate — and every
 store follows, because there is one place that decides where documents live.
 
@@ -28,7 +28,7 @@ class MemoryStatePlugin:
 
     Entry point configuration in pyproject.toml::
 
-        [project.entry-points."functualize.state_providers"]
+        [project.entry-points."functualize.plugins"]
         memory-ttl = "functualize_state_memory:MemoryStatePlugin"
     """
 

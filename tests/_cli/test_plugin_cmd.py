@@ -46,20 +46,27 @@ def no_external_tools(monkeypatch) -> None:
 
 
 class TestDiscovery:
-    def test_it_finds_an_extension_registered_in_only_one_group(self) -> None:
+    def test_it_finds_an_extension_the_plugin_loader_never_sees(self) -> None:
         """AC15, and the reason discovery is not built from `loaded_plugins`.
 
-        `functualize-inline` registers under `functualize.interactivity_providers`
-        and nothing else. A listing derived from the plugin loader's own view
-        would omit the canonical example the documentation uses.
+        The loader reads **one** group, `functualize.plugins`; extensions
+        register across seven. `functualize-aws` appears only under
+        `functualize.remote_providers`, which `_config` reads and the loader
+        never touches, so a listing derived from the loader's own view would
+        omit it.
+
+        Until `plugin-taxonomy`/T5 this test used `functualize-inline` and
+        `functualize.interactivity_providers` -- a group **nothing** read. That
+        made it look like a statement about discovery when it was really a
+        symptom: installing that plugin did nothing at all. The assertion is
+        the same; the example is now one that is genuinely read by a different
+        layer rather than by no layer.
         """
         entries = discover_extensions()
-        inline = [
-            e for e in entries if e.group == "functualize.interactivity_providers"
-        ]
-        assert inline, "functualize-inline should be installed in this checkout"
-        assert inline[0].registered_name == "inline"
-        assert inline[0].distribution == "functualize-inline"
+        aws = [e for e in entries if e.group == "functualize.remote_providers"]
+        assert aws, "functualize-aws should be installed in this checkout"
+        assert {e.registered_name for e in aws} >= {"aws-sm", "aws-ssm"}
+        assert aws[0].distribution == "functualize-aws"
 
     def test_both_names_are_carried_and_they_differ(self) -> None:
         """The whole reason the entry holds two fields.
@@ -101,7 +108,7 @@ class TestRendering:
                 ExtensionEntry(
                     "inline",
                     "functualize-inline",
-                    "functualize.interactivity_providers",
+                    "functualize.plugins",
                 )
             ]
         )
@@ -132,11 +139,18 @@ class TestRendering:
 
 
 class TestListCommand:
-    def test_it_lists_the_inline_provider(self, cli_run, tmp_path: Path) -> None:
+    def test_it_lists_an_extension_from_a_group_the_loader_ignores(
+        self, cli_run, tmp_path: Path
+    ) -> None:
+        """`remote_providers` is read by `_config`, never by the plugin loader.
+
+        Listing it proves the command scans installed entry points rather than
+        asking the loader what it loaded.
+        """
         result = cli_run(["builtin", "plugin", "list"], cwd=tmp_path)
         assert result.exit_code == 0
-        assert "functualize-inline" in result.stdout
-        assert "interactivity_providers" in result.stdout
+        assert "functualize-aws" in result.stdout
+        assert "remote_providers" in result.stdout
 
     def test_the_json_form_carries_all_three_fields(
         self, cli_run, tmp_path: Path

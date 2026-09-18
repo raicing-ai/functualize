@@ -73,7 +73,7 @@ plugins/
   adapters/    functualize-http, functualize-lambda, functualize-mcp,
                functualize-flow-viz, functualize-inline
   substrates/  functualize-substrate-sqlite
-  secrets/     functualize-aws, functualize-bitwarden
+  credentials/ functualize-aws, functualize-bitwarden
   domains/     functualize-ai, functualize-ai-pydantic,
                functualize-tasks, functualize-tasks-local
   conftest.py  PUBLISHING.md                    (stay at the plugins/ root)
@@ -97,7 +97,7 @@ three members are placed by what they actually are.
   adapters, so its folder and its entry-point group agree by construction.
 
 Folder names express **role**, which is independent of distribution names — so
-`plugins/secrets/functualize-aws/` is a correct and temporary state between PR-1
+`plugins/credentials/functualize-aws/` is a correct and temporary state between PR-1
 and PR-2, not a half-migration.
 
 ### 2.1 · Path consumers that must change with it

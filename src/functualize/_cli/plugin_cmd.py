@@ -1,11 +1,16 @@
 """``func builtin plugin`` — what extends this installation, and changing it.
 
 An *extension* is anything registered under a ``functualize.*`` entry-point
-group. Listing them is not the same question as "which plugins loaded": a
-plugin can register in a group this process never consults, and
-``functualize-inline`` is exactly that case — it appears only under
-``functualize.interactivity_providers``, so a listing built from
-``loaded_plugins`` would omit the document's own canonical example.
+group. Listing them is not the same question as "which plugins loaded": the
+plugin loader reads one group (``functualize.plugins``), while extensions
+register across seven, and ``functualize-aws`` is the plain case — it appears
+only under ``functualize.remote_providers``, which ``_config`` reads and the
+loader never sees, so a listing built from ``loaded_plugins`` would omit it.
+
+Until `plugin-taxonomy`/T5 this paragraph named ``functualize-inline`` and a
+group **nothing** consulted. That was a defect rather than an illustration:
+installing the plugin did nothing at all. It now registers under
+``functualize.plugins``.
 
 **Two names per entry, because they differ and both are needed.** The
 registered name is what the framework calls it (``inline``); the distribution is
@@ -83,7 +88,7 @@ class ExtensionEntry:
 
     @property
     def short_group(self) -> str:
-        """``interactivity_providers`` — the prefix is on every row."""
+        """``remote_providers`` — the prefix is on every row."""
         return (
             self.group[len(_PREFIX) :] if self.group.startswith(_PREFIX) else self.group
         )

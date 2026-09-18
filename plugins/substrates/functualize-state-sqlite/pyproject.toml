@@ -20,7 +20,7 @@ dependencies = [
     "functualize>=0.1.0,<1.0.0",
 ]
 
-[project.entry-points."functualize.state_providers"]
+[project.entry-points."functualize.plugins"]
 sqlite = "functualize_state_sqlite:SQLiteStatePlugin"
 
 [project.optional-dependencies]

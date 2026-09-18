@@ -84,16 +84,36 @@ class SQLiteStatePlugin:
         logger.debug("sqlite-state installed a substrate at %s", self._substrate.path)
 
     def _db_path(self, app: PluginHost) -> Path:
-        """``plugin.sqlite-state.db_path``, or beside the project's other state.
+        """``plugin.sqlite-state.db_path``, or wherever this project's state goes.
 
         Resolved from :attr:`fresh_root` rather than the cwd, so a later
-        ``chdir`` cannot move a run's database out from under it — the same
-        rule the filesystem substrate follows.
+        ``chdir`` cannot move a run's database out from under it — and routed
+        through ``resolve_fresh_location``, which is **the same call the
+        filesystem substrate makes** (``_primitives/substrate.py``:
+        ``JsonFileSubstrate.for_project``). The two backends therefore put a
+        project's documents in the same directory, and disagreeing about *where*
+        a project's state lives is not a thing a storage plugin can do.
+
+        **This used to be ``fresh_root / ".functualize"``, and that was a bug**
+        — unreachable until `plugin-taxonomy`/T5 made this plugin load at all.
+        Creating ``.functualize/`` is the documented switch from *standalone*
+        mode to *project* mode, so merely installing this plugin silently
+        promoted every directory a user ran in, and littered a database beside
+        every loose script. ``func`` is meant to run over loose scripts
+        anywhere; standalone mode keeps their state in the XDG cache keyed by
+        project id, which is exactly what ``resolve_fresh_location`` returns
+        when there is no project.
         """
         configured = self._configured_path(app)
         if configured:
             return Path(configured)
-        return Path(app.fresh_root) / ".functualize" / DEFAULT_DB_NAME
+
+        # `functualize.app.utils` is public API — a plugin is entitled to it,
+        # and this is the one question a substrate plugin must not answer for
+        # itself.
+        from functualize.app.utils import resolve_fresh_location
+
+        return resolve_fresh_location(Path(app.fresh_root))[0].parent / DEFAULT_DB_NAME
 
     @staticmethod
     def _configured_path(app: PluginHost) -> str | None:

@@ -93,7 +93,7 @@ above, parametrized, with the two-level cases named for the directory groups
 
 **DONE** (`1251ef7`). Measured: **6 failed, 13 passed** — the planned number was
 an undercount written before the case list was finalised. The six name all five
-grouped-layout paths (`adapters/`, `substrates/`, `secrets/`, `domains/`) plus
+grouped-layout paths (`adapters/`, `substrates/`, `credentials/`, `domains/`) plus
 `test_the_predicate_indexes_no_fixed_position`. Restored with
 `git checkout --`; 19 passed. The test is not vacuous.
 
@@ -119,7 +119,7 @@ plugins/
   adapters/    functualize-http, functualize-lambda, functualize-mcp,
                functualize-flow-viz, functualize-inline
   substrates/  functualize-substrate-sqlite
-  secrets/     functualize-aws, functualize-bitwarden
+  credentials/ functualize-aws, functualize-bitwarden
   domains/     functualize-ai, functualize-ai-pydantic,
                functualize-tasks, functualize-tasks-local
   conftest.py  PUBLISHING.md                    (stay at the plugins/ root)
@@ -286,7 +286,7 @@ constants stay where they are and are tied to `READ_GROUPS` **by test**, in T6.
 
 ---
 
-### [ ] T5 · The three orphan groups move to `functualize.plugins`; `vault_key_providers` is deleted
+### [x] T5 · The three orphan groups move to `functualize.plugins`; `vault_key_providers` is deleted
 
 `spec.md` §I (Q2, Q3, Q5 — settled), `contracts.md` §3.3, §3.4.
 
@@ -323,11 +323,78 @@ recording that classifying a group is not the same as loading it.
 
 **Reachability — run the sabotage first.** Revert
 `functualize-state-sqlite/pyproject.toml` to `functualize.state_providers`.
-Expected: the new AC-3 test fails. **This one is likely to be wrong as written**
-— `uv sync` does not reinstall a workspace plugin's entry points without a
-re-sync, so the test must install through a `pytest` fixture that manipulates
-`importlib.metadata`, or the sabotage will pass. Establish the mechanism before
-believing the gate.
+
+**DONE.** The caveat was right: the entry-point change only takes effect after
+`uv sync --all-packages --all-extras` re-installs the distribution's metadata,
+so the sabotage is *edit the pyproject, re-sync, run*. Confirmed working in both
+directions by probe before the test was written — a plain `FunctualizeApp` in an
+empty directory resolved `JsonFileSubstrate` under the old group and
+`SQLiteSubstrate` under the new one.
+
+**Gates met.** AC-1: **0 orphan groups** — a script walking every shipped
+`pyproject.toml` finds every declared `functualize.*` group either in
+`READ_GROUPS` or named by a live `DomainMetadata`. That is the feature's
+headline gate. AC-3: `tests/spec/test_a_substrate_plugin_loads_through_its_entry_point.py`,
+4 tests, boots a real app with no explicit plugins and asserts the substrate is
+the plugin's, that every store holds the *same instance*, and that the database
+lands where the filesystem substrate would have put its files.
+
+**AC-2's gate was mis-written and is corrected here.** It asked for **0 files**
+naming `state_providers`/`interactivity_providers`. Four remain, and all four
+should: `_config/vault_keys.py` and `_primitives/entry_point_groups.py` explain
+*why the group was removed*, `tests/_cli/test_plugin_cmd.py` records what its
+example used to be, and `tests/primitives/test_plugin_kinds.py` keeps the
+classifier cases — `classify_group` is generic over the `<x>_providers` shape
+and still maps them to `IMPLEMENTATION`, which is the point worth pinning:
+**classifying a group is not loading it.** The honest gate is *0 files that
+declare or wire a dead group*, which is met.
+
+---
+
+### Two things this task uncovered that the plan did not predict
+
+**1. The suite's storage backend was about to be decided by the environment.**
+Making the plugin load meant `uv sync --all-packages` (what CI runs) silently
+switched the whole root suite to SQLite, while a plain `uv sync` left it on the
+filesystem. Same suite, different backend, no signal — and it bypassed both
+`FUNCTUALIZE_TEST_SUBSTRATE`, which exists to make exactly that choice
+deliberately, and the `json_substrate` marker that goes with it.
+
+`tests/conftest.py::_hide_default_changing_plugins` now hides the substrate
+plugin from discovery for the root suite, patched at
+`_primitives.entry_points.entry_points` — the single choke point every reader in
+`src/` goes through. `tests/spec/test_a_substrate_plugin_loads_through_its_entry_point.py`
+opts back in with the new `installed_plugins` marker. One file boots the real
+thing on purpose instead of ten thousand doing it by accident.
+
+**2. A real product defect, reachable for the first time (maintainer decision to
+fix it here, 2026-09-17).** `SQLiteStatePlugin._db_path` returned
+`fresh_root / ".functualize" / "state.db"`, so merely having the plugin installed
+created a `.functualize/` directory **in whatever directory the app ran in** —
+reproduced in an empty temp dir. Creating `.functualize/` is the documented
+switch from *standalone* to *project* mode, so the plugin silently promoted
+every directory a user ran in, and littered a database beside every loose
+script. The repo states the opposite intent in `tests/cli/test_state_mode_report.py`'s
+own docstring.
+
+The plugin's comment claimed it followed *"the same rule the filesystem
+substrate follows"*. It did not: `JsonFileSubstrate.for_project` goes through
+`resolve_fresh_location`, which returns the XDG cache in standalone mode. The
+fix routes `_db_path` through that same call — `functualize.app.utils.resolve_fresh_location`
+is already public API, so no new surface was needed. Verified in both modes: a
+loose directory is left **empty** (db at `~/.cache/functualize/<id>/state.db`),
+a declared project gets `<project>/.functualize/state.db`.
+
+**60 tests failed when the plugin first loaded; 57 were this bug.** The other 3
+are `tests/cli/test_state_mode_report.py`, whose subject genuinely is a JSON
+file's location, and they now pin the filesystem through the product's own
+`[plugins] disabled` mechanism — subprocess runs no in-process patch can reach.
+That pin exposed a third finding, recorded not fixed: `disabled` matches the
+**entry-point** name (`sqlite`, `_plugins/loader.py:335`), not the plugin's
+`name` attribute (`sqlite-state`, `:504`), and a `FunctualizeApp` built in user
+code does not read `[plugins] disabled` from config at all — only `_cli/main.py`
+does. That asymmetry is `contributor/architecture/surface-boundary.md`
+territory and is left alone here.
 
 ---
 

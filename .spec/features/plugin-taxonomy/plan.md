@@ -351,7 +351,7 @@ Layer key: `[F]` foundation (`_types/`, `_primitives/`) · `[E]` events ·
                         ════════════════════════════
 
    plugins/<group>/<pkg>/src/**      EVERY plugin at exactly two levels
-     adapters/ substrates/ secrets/ domains/    (four groups -- Q4 settled)
+     adapters/ substrates/ credentials/ domains/    (four groups -- Q4 settled)
      pyproject.toml            members = ["plugins/*/*"]
      spec_gate.py              GATED_GLOB_PARTS + a predicate that does not
                                index a fixed position  ← FIXED FIRST, wave 0

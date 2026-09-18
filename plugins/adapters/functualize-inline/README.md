@@ -33,7 +33,7 @@ print(f"User answered: {response.value} (source: {response.source})")
 - **Automatic CLI fallback** — Detects non-TTY environments and falls back to plain `input()` prompts so jobs run unattended in CI
 - **Structured output rendering** — Implements `OutputRenderer` protocol with `render_log`, `render_phase`, and `render_progress` for formatted terminal output with icons and progress bars
 - **Timeout support** — Prompts can auto-dismiss after a configurable timeout, returning the default value
-- **Entry-point auto-discovery** — Install the package and it registers itself as an interactivity provider via the `functualize.interactivity_providers` entry point
+- **Entry-point auto-discovery** — Install the package and it registers itself via the `functualize.plugins` entry point
 
 ## API Reference
 

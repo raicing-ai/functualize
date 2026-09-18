@@ -12,6 +12,7 @@ This module provides:
 from __future__ import annotations
 
 import contextlib
+import importlib
 import logging
 import os
 import sys
@@ -305,6 +306,81 @@ def _reset_entry_point_cache() -> Iterator[None]:
     clear_entry_point_cache()
     yield
     clear_entry_point_cache()
+
+
+#: Distributions whose plugins would change core's *defaults* if discovered.
+#:
+#: `plugin-taxonomy`/T5. Until that task, `functualize-state-sqlite` declared
+#: itself in a group nothing read, so having it installed changed nothing. Now
+#: it registers under `functualize.plugins` and **works** — which means the
+#: storage backend this suite runs against would be decided by whatever happens
+#: to be installed in the developer's environment. `uv sync` gives the
+#: filesystem; `uv sync --all-packages` (what CI runs) gives SQLite. Same suite,
+#: different backend, no signal.
+#:
+#: That is precisely the choice `FUNCTUALIZE_TEST_SUBSTRATE` exists to make
+#: **deliberately**, and an ambient install bypasses both it and the
+#: `json_substrate` marker that goes with it. So the root suite hides these
+#: distributions from plugin discovery and keeps the filesystem default.
+#:
+#: This does not weaken the coverage it looks like it weakens. The question
+#: "does an installed substrate plugin take effect" is exactly what
+#: `tests/spec/test_a_substrate_plugin_loads_through_its_entry_point.py`
+#: asserts, and that file opts back in with `@pytest.mark.installed_plugins` —
+#: one place that boots the real thing on purpose, instead of ten thousand that
+#: do it by accident.
+_DEFAULT_CHANGING_DISTRIBUTIONS = frozenset(
+    {
+        # Installs a `StoreSubstrate` at APP_READY, so it decides where every
+        # document in the run lives.
+        "functualize-state-sqlite",
+        # Registers a `PromptCollector`, so it decides whether there is any
+        # surface able to answer a question. A large part of this suite asserts
+        # the *absence* of one -- "fails rather than waiting for an answer",
+        # "raises rather than defaulting", "the job body never runs" -- and all
+        # of it passes trivially, in the wrong direction, when an inline prompt
+        # surface is ambient.
+        "functualize-inline",
+    }
+)
+
+
+@pytest.fixture(autouse=True)
+def _hide_default_changing_plugins(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[None]:
+    """Keep the ambient environment from choosing this suite's storage.
+
+    Patched at `_primitives.entry_points.entry_points`, which is the single
+    choke point every discovery site in `src/` goes through — filtering there
+    covers the plugin loader without touching `importlib.metadata` globally,
+    so `plugin_cmd.discover_extensions` (which reads `distributions()` for its
+    listing) still sees the truth.
+    """
+    if request.node.get_closest_marker("installed_plugins"):
+        yield
+        return
+
+    from functualize._primitives import entry_points as ep_module
+
+    real = ep_module.entry_points
+
+    def _filtered(*, group: str) -> tuple[object, ...]:
+        found = real(group=group)
+        return tuple(
+            ep
+            for ep in found
+            if getattr(getattr(ep, "dist", None), "name", None)
+            not in _DEFAULT_CHANGING_DISTRIBUTIONS
+        )
+
+    monkeypatch.setattr(ep_module, "entry_points", _filtered)
+    # The loader imports the name, so the module-level binding is patched too.
+    for module_path in ("functualize._plugins.loader",):
+        module = importlib.import_module(module_path)
+        if hasattr(module, "entry_points"):
+            monkeypatch.setattr(module, "entry_points", _filtered)
+    yield
 
 
 #: The substrate every store resolves under, when asked to use another one.

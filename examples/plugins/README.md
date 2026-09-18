@@ -27,7 +27,7 @@ class MyBackend:
 
 ```toml
 # Register via pyproject.toml entry point
-[project.entry-points."functualize.state_providers"]
+[project.entry-points."functualize.plugins"]
 my-backend = "my_plugin:MyPlugin"
 ```
 

@@ -146,7 +146,7 @@ class TestLiveMetadataWinsOverTheManifest:
         """AC-B5 — installed metadata is a fact; the manifest is a record."""
         stale = _curated(group="functualize.plugins")
         installed = [
-            ExtensionEntry("mcp", "functualize-mcp", "functualize.state_providers")
+            ExtensionEntry("mcp", "functualize-mcp", "functualize.format_providers")
         ]
         (row,) = available_rows([stale], installed)
         assert row.kind == "implementation", "manifest overrode live metadata"

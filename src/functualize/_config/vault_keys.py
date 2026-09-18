@@ -2,8 +2,15 @@
 
 The key source is a **seam**, not a fixed decision: an OS keychain, a cloud
 KMS, a password manager and a hosted control plane are all the same shape.
-Implementations satisfy :class:`~functualize.plugin.VaultKeyProvider` and
-register through the ``functualize.vault_key_providers`` entry-point group.
+Implementations satisfy :class:`~functualize.plugin.VaultKeyProvider`.
+
+**There is no entry-point group for this.** One was declared
+(``functualize.vault_key_providers``) and nothing ever read it — core imports
+the two providers below directly — so it advertised an extension point that did
+not exist. `plugin-taxonomy`/T5 removed the declaration rather than inventing a
+reader, because a ``<x>_providers`` group is read by the domain registry out of
+a live ``DomainMetadata`` and there is no ``vault_key`` domain. A third-party
+key source is wired by the application that wants it.
 
 Two ship here.
 

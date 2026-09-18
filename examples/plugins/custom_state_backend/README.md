@@ -50,7 +50,7 @@ custom_state_backend/
 ## Entry Point Registration
 
 ```toml
-[project.entry-points."functualize.state_providers"]
+[project.entry-points."functualize.plugins"]
 memory = "functualize_state_memory:MemoryStatePlugin"
 ```
 
