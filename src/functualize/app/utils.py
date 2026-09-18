@@ -51,7 +51,7 @@ from functualize._primitives.job_schema import (
     input_schema,
     job_input_schema,
 )
-from functualize._primitives.locator import ResourceLocator
+from functualize._primitives.locator import ResourceLocator, xdg_config_dir
 from functualize._primitives.parameter_types import (
     CLI_MARKER_TYPE_NAMES,
     CLI_VALUE_TYPE_NAMES,
@@ -1038,11 +1038,13 @@ def resolve_user_config_dir() -> Path:
 
     This is the single source of truth for the user-level config
     directory; callers should not re-derive this path independently.
+
+    The implementation lives at ``_primitives.locator.xdg_config_dir``: this is
+    a **public** module, and an internal layer may not import one, so
+    ``_config/project_dirs.py`` could not otherwise reach it. This wrapper keeps
+    the name, the signature and the ``__all__`` entry exactly as they were.
     """
-    xdg = os.environ.get("XDG_CONFIG_HOME", "")
-    if xdg:
-        return Path(xdg) / "functualize"
-    return Path.home() / ".config" / "functualize"
+    return xdg_config_dir()
 
 
 def resolve_user_data_dir() -> Path:

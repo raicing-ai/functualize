@@ -481,6 +481,31 @@ class ResourceLocator:
 # =============================================================================
 
 
+def xdg_config_dir(app_name: str = "functualize") -> Path:
+    """Return the XDG *config* directory for ``app_name``.
+
+    ``$XDG_CONFIG_HOME/<app_name>`` when that variable is set to a non-empty
+    string, else ``~/.config/<app_name>``. The empty-string check is load
+    bearing: an exported-but-empty ``XDG_CONFIG_HOME`` must fall back, which
+    ``os.environ.get(...) is None`` would not catch.
+
+    Public, unlike its two siblings below, because it is read from two layers —
+    ``_config/project_dirs.py`` for the *Global* precedence rung, and
+    ``app/utils.py::resolve_user_config_dir`` which wraps it for the public
+    surface. It also returns the path already suffixed with ``app_name``, where
+    the siblings return the bare base and leave suffixing to their caller.
+
+    **Deliberately has no Windows branch**, where ``_xdg_cache_dir`` and
+    ``_xdg_data_dir`` do. That asymmetry predates this function and is preserved
+    rather than tidied: adding one would move every Windows user's config file
+    out from under them. Left as a known difference, not an oversight.
+    """
+    xdg = os.environ.get("XDG_CONFIG_HOME", "")
+    if xdg:
+        return Path(xdg) / app_name
+    return Path.home() / ".config" / app_name
+
+
 def _xdg_cache_dir() -> Path:
     """Return XDG-compliant cache directory.
 
