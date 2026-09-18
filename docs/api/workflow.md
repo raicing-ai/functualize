@@ -21,7 +21,10 @@ from functualize.workflow import (
     AgentStep,
     Edge,
     ConditionalEdge,
+    OnFailure,
     END,
+    Notify,
+    Notification,
 )
 ```
 
@@ -158,6 +161,31 @@ conditional = ConditionalEdge(
 
 ---
 
+## `OnFailure`
+
+Where control goes when a step raises. Without one, a raising step stops the walk and the scope is marked `failed` — the behaviour every workflow has by default, and `OnFailure` does not change it. It adds a *declared* alternative, and only for the node it names.
+
+```python
+from functualize.workflow import OnFailure, END
+
+OnFailure(
+    source="deploy",
+    target="rollback",
+    when=lambda exc: isinstance(exc, DeploymentError),
+)
+```
+
+| Attribute | Type | Description |
+|---|---|---|
+| `source` | `str` | The node whose failure this routes. |
+| `target` | `str \| END` | Where to continue, or `END` to finish the walk without marking it failed — a cleanup path that succeeds is a success. |
+| `when` | `Callable[[BaseException], bool] \| None` | Called with the exception the step raised; routing requires a true answer. `None` routes every failure — the honest spelling of a catch-all. |
+
+!!! note "The chosen route is recorded and read back on replay"
+    Never re-evaluated on resume, for the same reason `ConditionalEdge`'s choice isn't: calling `when` again and discarding the answer would still run whatever side effects it has, and a failure predicate is exactly the kind that pages somebody.
+
+---
+
 ## `END`
 
 A sentinel value marking the end of a workflow. Used in workflow graph definitions to indicate the termination point.
@@ -175,11 +203,39 @@ def simple_workflow(config, rc):
 
 ---
 
+## `Notification`
+
+What a registered notifier is handed when a `Notify` declaration fires — a target, and what happened. Five fields and no envelope: there is no message id, correlation key, priority, or retry count, because `Notify` declares a target and an effect, not a broker.
+
+```python
+from functualize.workflow import Notification
+
+@dataclass(frozen=True)
+class Notification:
+    to: str
+    scope_id: str
+    workflow: str | None
+    status: str
+    node: str | None = None
+```
+
+| Attribute | Type | Description |
+|---|---|---|
+| `to` | `str` | The `Notify` declaration's `to`, verbatim — never parsed by the engine. |
+| `scope_id` | `str` | The workflow walk this notification is about. |
+| `workflow` | `str \| None` | The job name, when the scope records one. |
+| `status` | `str` | The scope status that fired the notification. |
+| `node` | `str \| None` | Where the walk stopped, when it stopped somewhere — the failed node, or the gate it is blocked at. `None` for a walk that finished. |
+
+A plugin implementing a notifier receives one `Notification` per fired `Notify(on=..., to=..., provider=...)` declaration on `@workflow(..., notify=[...])`. Delivery is at-most-once: the record that a notification fired is committed before the provider is called, so a crash can lose a notification but never send it twice.
+
+---
+
 ## Internal Location
 
 Workflow types live in `functualize._types.workflow`:
 
-- `_types/workflow.py` — Step, Gate, AgentStep, Edge, ConditionalEdge, END, WorkflowShape, WorkflowDeclaration
+- `_types/workflow.py` — Step, Gate, AgentStep, Edge, ConditionalEdge, OnFailure, Loop, Notify, Notification, END, WorkflowShape, WorkflowDeclaration
 - `workflow/_decorator.py` — `@workflow` decorator and execution engine
 - `workflow/_validation.py` — Graph validation and cycle detection
 

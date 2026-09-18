@@ -24,7 +24,7 @@ The two-file table below is kept for the pair the discard rule was first drawn b
 | Holds | fingerprints, session precondition cache | workflow scope records: steps, branch choices, gate payloads, position, epilogue |
 | Is | **derived** — recomputable from the source tree | a **record** — recomputable from nothing |
 | Unreadable or wrong version | degrades to empty; worst case is one extra run | **refuses**, leaving the file in place |
-| Module | `_primitives/state_format.py` | `_primitives/scope_format.py` |
+| Module | `_primitives/fresh_format.py` | `_primitives/scope_format.py` |
 | Cleared by | `func builtin data clear` | `func builtin data clear --scopes` |
 
 Scopes lived in `fresh.json` until 2026-09-09. They should not have: a `STATE_VERSION`
@@ -45,12 +45,12 @@ metadata"). None of the three invalidates another:
 
 - **Location:** `.functualize/fresh.json` and `.functualize/scopes.json` (same XDG
   fallback rules as `cache.json`, resolved via `locator.py`)
-- **Modules:** `_primitives/state_format.py`, `_primitives/scope_format.py`
+- **Modules:** `_primitives/fresh_format.py`, `_primitives/scope_format.py`
 - **Versions:** `STATE_VERSION` and `SCOPES_VERSION`, **independent of each other** —
   bumping one says nothing about the other, which is the point of the split
 - **Concurrency:** advisory file lock on write; last-writer-wins per key (two concurrent
   runs touching *different* jobs or scopes don't clobber each other's records)
-- **Atomic write:** one implementation, `state_format.atomic_write_json`, shared by both.
+- **Atomic write:** one implementation, `fresh_format.atomic_write_json`, shared by both.
   A second copy is how one of them loses its `fsync`.
 - **Format:** versioned JSON to start. Migrate to sqlite only if history/pruning
   pressure demands it — measured, not assumed. Both files keep every section as a flat
