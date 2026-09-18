@@ -18,6 +18,24 @@
 
 version = 1
 
+# ── Retired: distributions this project published and then renamed ───────────
+#
+# `plugin available --remote` enumerates every `functualize-*` project on the
+# PyPI Simple index, and anything outside the curated catalog above renders as
+# `kind = "unknown"` under the heading *"UNCURATED — found on PyPI, not vetted
+# by this project"*. That heading is false for a name this project published
+# itself: all of these were vetted, then renamed, and the old release is still
+# on the index at its final version.
+#
+# Renames land one per pull request, so this list is appended to rather than
+# written once (`.spec/features/plugin-taxonomy/contracts.md` §1.1, §7.2 Q1).
+# A name here is subtracted from the remote listing only — an *installed* old
+# distribution still appears, because a thing on your machine is a fact and
+# hiding it would be the worse lie.
+retired = [
+    "functualize-state-sqlite",  # -> functualize-substrate-sqlite (PR-1)
+]
+
 # ── Adapters: add commands or a delivery surface ─────────────────────────────
 #
 # `sqlite` and `inline` sit here because `functualize.plugins` is the only group

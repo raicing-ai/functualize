@@ -53,6 +53,7 @@ __all__ = [
     "discover_extensions",
     "extensions_from",
     "load_catalog",
+    "load_retired",
     "plugin_app",
     "recommended_distributions",
 ]
@@ -222,6 +223,27 @@ def load_catalog() -> tuple[CatalogEntry, ...]:
     return tuple(entries)
 
 
+def load_retired() -> frozenset[str]:
+    """Distributions this project published under a name it no longer uses.
+
+    Read from the same manifest as the catalog and degraded the same way — a
+    malformed file yields an empty set, so a packaging accident costs the
+    suppression rather than the command.
+    """
+    import tomllib
+
+    path = Path(__file__).parent / "data" / CATALOG_FILENAME
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError):
+        return frozenset()
+
+    rows = data.get("retired", [])
+    if not isinstance(rows, list):
+        return frozenset()
+    return frozenset(str(row) for row in rows)
+
+
 def recommended_distributions() -> tuple[str, ...]:
     """What ``install --recommended`` installs, in manifest order.
 
@@ -262,6 +284,7 @@ def available_rows(
     catalog: Iterable[CatalogEntry],
     installed: Iterable[ExtensionEntry],
     remote: Iterable[str] = (),
+    retired: Iterable[str] = (),
 ) -> list[AvailableRow]:
     """Merge the three sources into one listing.
 
@@ -271,7 +294,14 @@ def available_rows(
     its live group, and one the manifest has never heard of still appears --
     which is what makes a third-party plugin visible here at all.
 
-    Takes its three inputs as arguments for the reason ``extensions_from``
+    **A retired name is dropped from the remote half only.** Those are
+    distributions this project published and then renamed; they stay on PyPI
+    forever, and rendering them as *"not vetted by this project"* is false
+    about our own releases. An *installed* one still appears, from the loop
+    above — what is on the machine is a fact, and hiding that would be the
+    worse lie.
+
+    Takes its four inputs as arguments for the reason ``extensions_from``
     does: a merge rule exercised only against whatever happens to be installed
     is untestable in precisely the cases that matter.
     """
@@ -318,7 +348,7 @@ def available_rows(
             )
         )
 
-    for distribution in sorted(set(remote) - seen):
+    for distribution in sorted(set(remote) - seen - set(retired)):
         rows.append(
             AvailableRow(
                 name=distribution.removeprefix("functualize-"),
@@ -473,7 +503,9 @@ def available(output_format: str, remote: bool) -> None:
                 err=True,
             )
 
-    rows = available_rows(load_catalog(), discover_extensions(), remote_names)
+    rows = available_rows(
+        load_catalog(), discover_extensions(), remote_names, load_retired()
+    )
 
     if output_format == "json":
         click.echo(json.dumps([r.to_json() for r in rows], indent=2))

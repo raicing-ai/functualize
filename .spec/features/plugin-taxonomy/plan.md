@@ -416,8 +416,10 @@ Seven contracts, none broken. Verified in Execute by `uv run lint-imports`.
 
 ## 5 · Surviving smells
 
-Five. Each is absent from `.spec/CONSTITUTION.md` → *Forbidden Patterns*, so
-each is eligible to be accepted; each is accepted here in writing.
+**Six.** Five were declared at Plan; the sixth was found while executing T7 and
+is recorded below the divider, in the order they were learned. Each is absent
+from `.spec/CONSTITUTION.md` → *Forbidden Patterns*, so each is eligible to be
+accepted; each is accepted here in writing.
 
 1. **Shotgun surgery — the one-level-deep path assumption, `plugins/*` → `plugins/*/*`.**
    *Where:* `pyproject.toml:133`, `.claude/hooks/spec_gate.py:25,87`,
