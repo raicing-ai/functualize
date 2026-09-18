@@ -7,6 +7,139 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — installing a plugin does something
+
+**Breaking, pre-release.** Three entry-point groups were declared by shipped
+distributions and read by nothing. Installing `functualize-state-sqlite` or
+`functualize-inline` from PyPI registered a plugin into a group no call site
+ever passed to `entry_points(group=…)`, so the install succeeded, the plugin
+loaded never, and the only symptom was that nothing changed.
+
+The cause was that `functualize.<x>_providers` is a *mechanism*, not a naming
+convention: such a group is scanned out of the `entry_point_group` field of a
+live `DomainMetadata` published under `functualize.domains`. Exactly two domain
+SDKs exist — `ai` and `tasks` — so a `_providers` group with no domain behind it
+has no reader by construction. ADR-022 removed the `state` domain; there was
+never an `interactivity` or a `vault_key` one.
+
+| was | is |
+|---|---|
+| `functualize.state_providers` | `functualize.plugins` |
+| `functualize.interactivity_providers` | `functualize.plugins` |
+| `functualize.vault_key_providers` | removed — nothing ever read it, and core imports its two key providers directly |
+
+**If you ship a plugin registering in one of the first two, move it** — it is
+not loading today either. `functualize.plugins` is the general extension point
+and needs no other change.
+
+A test now walks every shipped `pyproject.toml` and fails, naming the file, if a
+declared group is neither one core reads nor the provider group of an installed
+domain SDK. The rule it enforces is the one that replaces the guesswork: every
+`functualize.*` group a manifest declares is readable, or it is dead on arrival.
+
+### Changed — `functualize-state-sqlite` is `functualize-substrate-sqlite`
+
+**Breaking, pre-release.** The word *state* named a domain ADR-022 retired. The
+distribution stores a *substrate* — the storage every store sits on — and now
+says so, in all six places the old name reached.
+
+| was | is |
+|---|---|
+| `pip install functualize-state-sqlite` | `pip install functualize-substrate-sqlite` |
+| `import functualize_state_sqlite` | `import functualize_substrate_sqlite` |
+| `SQLiteStatePlugin` | `SQLiteSubstratePlugin` |
+| `[plugin.sqlite-state]` in `.functualize.toml` | `[plugin.substrate-sqlite]` |
+| `disabled = ["sqlite"]` under `[plugins]` | `disabled = ["substrate-sqlite"]` |
+
+No shim distribution and no `DeprecationWarning`; the old PyPI name is abandoned
+at 0.2.3. **A `[plugin.sqlite-state]` block stops being read** — rename the
+section or the plugin runs on its defaults.
+
+`SQLiteSubstrate` keeps its name. The package's README documented five classes
+where it exports two, and its `persistent_counter` example imported a
+`SQLiteStateBackend` defined nowhere in the repository — both were unnoticed
+because `testpaths = ["tests"]` never collected that directory. Both are
+rewritten, and the example now demonstrates the compare-and-swap write.
+
+### Fixed — a substrate plugin no longer litters, and the CLI reads what the run wrote
+
+Three defects that only became reachable once the plugins above actually loaded.
+
+- **`.functualize/` was created wherever you stood.** `SQLiteStatePlugin`
+  resolved its database path from the current directory, and creating that
+  directory is the documented switch from standalone to project mode — so
+  installing the plugin silently promoted every directory you ran in and left a
+  database beside every loose script. Its own comment claimed it followed "the
+  same rule the filesystem substrate follows"; it did not. It now routes through
+  the same `resolve_fresh_location` call the filesystem substrate makes: a loose
+  directory is left **empty**, a declared project gets `.functualize/state.db`.
+
+- **Five commands read the wrong backend.** `data show`, `data clear`,
+  `run list`, `run show` and `history` built their stores from the filesystem
+  while the run wrote to the configured substrate, so `why` could report a
+  project up to date while `data show` reported *Fingerprints: 0* about the same
+  project. They now resolve storage from the app, as `builtin workflow` already
+  did.
+
+- **`[plugins] disabled` was obeyed by jobs and ignored by everything else.**
+  Three job handlers read the key; the CLI that builds every builtin command did
+  not, so a plugin you had disabled still loaded for `func builtin …`.
+
+### Fixed — concurrent task updates no longer lose a task
+
+`LocalTaskProvider` held a lock and then wrote with no compare-and-swap, which
+is safe only on a backend whose `lock()` is real. The substrate port explicitly
+permits a no-op lock — an object store is one — and there two writers both won,
+silently dropping one task. Every mutation is now a compare-and-swap with a
+bounded retry, under the lock as well: the lock is real on both shipped
+substrates, and the CAS is what survives the ones where it is not.
+
+Two defects went with it, all three caused by one wrapper that pretended a
+document was a key-value store:
+
+- **Listing N tasks cost `1 + N` substrate reads** — one to enumerate the ids
+  and one per task, each re-reading the whole document. It is one read.
+- **`func builtin data show` rendered escaped JSON**, because each task was
+  `json.dumps`ed into a value the substrate then encoded again. Tasks are
+  ordinary nested mappings now, and print as fields.
+
+**Breaking, pre-release — the `tasks` document changes shape, with no
+migration.** Tasks written by 0.3.x are keyed `tasks:<id>` and hold a JSON
+string; they are now keyed `<id>` and hold a mapping. Old entries are **skipped,
+not deleted** — they survive in `.functualize/` untouched and are carried
+through every later write, but nothing reads them, so an upgraded project shows
+an empty task list. Re-create the tasks, or lift them out of the document by
+hand; `json.loads` on each old value gives the fields back verbatim.
+
+### Fixed — a plugin that claims a protocol has to satisfy it
+
+`MCPAdapterPlugin` declared `adapter_type = "mcp"` and said *"Implements the
+AdapterPlugin protocol"* in its docstring while missing two of that protocol's
+three members. Nothing checked, because the one function that would have —
+`validate_adapter` — was called from tests only.
+
+It now has `run` and `shutdown`: `run` is the body of `func mcp serve`, so the
+command is its caller rather than a closure, and `shutdown` releases the server.
+The loader warns — it does not refuse — when any plugin declares `adapter_type`
+without satisfying the protocol, naming the entry point and the missing members.
+
+### Changed — the AI SDK reads its own `[ai]` section
+
+**Behaviour change.** `resolve_ai_provider(app=…)` guarded on
+`hasattr(app, "resolve_model")`, which is always `False` — `resolve_model` lives
+on `app.configuration`, never on the app — so the guard had never once passed
+and every caller received `AIConfig()` defaults. An `[ai]` block in your config
+was read and discarded.
+
+It is now read. **If you have an `[ai]` section, it takes effect for the first
+time** — check it says what you want before upgrading.
+
+Separately, `functualize_ai` resolved its exports through a `__getattr__` table
+with no `TYPE_CHECKING` block, so a type checker saw variables where you import
+types. `from functualize_ai import AI, AIConfig` now yields types, with the lazy
+import intact: mypy errors in `functualize-ai-pydantic` fall **56 → 11** and in
+`functualize-ai` **46 → 23**.
+
 ### Changed — a cycle in a workflow graph is refused instead of run once
 
 **Breaking.** A `@workflow` whose edges form a cycle now raises
