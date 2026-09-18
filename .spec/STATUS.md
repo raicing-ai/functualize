@@ -2362,6 +2362,17 @@ document, so `data show` renders fields.
   plain `uv sync` does not install workspace plugins. Paths updated, reach not
   removed.
 
+**One acceptance criterion was mis-specified, and the E2E pass is what caught
+it.** AC-7 read *"`func builtin data show` on a project with tasks renders task
+titles, not escaped JSON"*. It cannot: `data show` reports five fixed stores —
+freshness, scopes, scope state, runs, shell history — and never reads the
+`tasks` document, before the feature or after. No command renders tasks;
+`functualize-tasks` ships no CLI surface. The **defect** AC-7 was written
+against is real and fixed — a task is now a nested mapping rather than a
+`json.dumps` string inside a JSON value, proven by reading the SQLite document
+directly — but the criterion named a door that does not exist. A gate should
+name the storage shape, or name a command that would have to be written first.
+
 **Process note — every reachability gate written during Plan was wrong when
 run**, continuing the run recorded against `plugin-host-protocol`. T4's planned
 sabotage scope was the wrong suite and nearly a false negative: `tests/plugins`
