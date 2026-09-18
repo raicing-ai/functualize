@@ -3,7 +3,7 @@ name = "functualize"
 version = "0.3.0"
 description = "A reusable Python CLI framework with auto-discovery, structured run context, layered configuration, and TUI integration"
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 authors = [
     { name = "Mohammad Hakim Adiprasetya", email = "viltohmyst@gmail.com" }
 ]

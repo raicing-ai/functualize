@@ -8,7 +8,7 @@ description: >
   repo, published via the skills CLI, or packaged as a Claude Code plugin
   marketplace. Use when writing a SKILL.md, when a skill needs scripts that do
   real work, or when asked how to share or publish a skill.
-license: MIT
+license: Apache-2.0
 metadata:
   version: "0.3.0"
   project: functualize

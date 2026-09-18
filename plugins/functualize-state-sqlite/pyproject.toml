@@ -3,7 +3,7 @@ name = "functualize-state-sqlite"
 version = "0.3.0"
 description = "SQLite-backed state persistence and execution tracking plugin for functualize"
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 authors = [
     { name = "Mohammad Hakim Adiprasetya", email = "viltohmyst@gmail.com" }
 ]

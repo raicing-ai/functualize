@@ -3,7 +3,7 @@ name = "functualize-ai"
 version = "0.3.0"
 description = "AI Domain SDK for functualize — LLM interaction capabilities"
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 authors = [
     { name = "Mohammad Hakim Adiprasetya", email = "viltohmyst@gmail.com" }
 ]

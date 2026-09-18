@@ -9,7 +9,7 @@ description: >
   script, when adding a significant feature to one, when configuring or
   restructuring an existing functualize app, when asked to make one "production
   ready" or well tested, or when packaging a functualize CLI for distribution.
-license: MIT
+license: Apache-2.0
 metadata:
   version: "0.3.0"
   project: functualize

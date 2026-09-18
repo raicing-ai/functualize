@@ -3,7 +3,7 @@ name = "functualize-mcp"
 version = "0.3.0"
 description = "MCP delivery adapter plugin for functualize — exposes jobs as MCP tools via FastMCP"
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 authors = [
     { name = "Mohammad Hakim Adiprasetya", email = "viltohmyst@gmail.com" }
 ]
