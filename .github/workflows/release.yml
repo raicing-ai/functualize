@@ -105,6 +105,9 @@ jobs:
 
   publish:
     needs: build
+    # Keep this job eligible for workflow_dispatch after the tag-only
+    # verify-ci job is skipped; publish still requires a successful build.
+    if: always() && needs.build.result == 'success'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
