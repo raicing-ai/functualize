@@ -190,7 +190,7 @@ requires-dist = [
     { name = "functualize-inline", marker = "extra == 'all'", editable = "../../../plugins/functualize-inline" },
     { name = "functualize-lambda", marker = "extra == 'all'", editable = "../../../plugins/functualize-lambda" },
     { name = "functualize-mcp", marker = "extra == 'all'", editable = "../../../plugins/functualize-mcp" },
-    { name = "functualize-state-sqlite", marker = "extra == 'all'", editable = "../../../plugins/functualize-state-sqlite" },
+    { name = "functualize-substrate-sqlite", marker = "extra == 'all'", editable = "../../../plugins/functualize-substrate-sqlite" },
     { name = "functualize-tasks", marker = "extra == 'all'", editable = "../../../plugins/functualize-tasks" },
     { name = "functualize-tasks-local", marker = "extra == 'all'", editable = "../../../plugins/functualize-tasks-local" },
     { name = "jinja2", specifier = ">=3.1.0" },

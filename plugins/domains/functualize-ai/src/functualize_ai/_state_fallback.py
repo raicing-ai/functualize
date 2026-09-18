@@ -27,7 +27,7 @@ _EPHEMERAL_WARNING = (
     "[functualize-ai] State domain is not installed. "
     "AI budget tracking and checkpoint data will be ephemeral (in-memory only) "
     "and will not persist across sessions. "
-    "Install functualize-state-sqlite for persistent storage."
+    "Install functualize-substrate-sqlite for persistent storage."
 )
 
 

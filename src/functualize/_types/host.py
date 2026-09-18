@@ -311,7 +311,7 @@ class PluginHost(Protocol):
     def install_substrate(self, substrate: StoreSubstrate) -> None:
         """Install a backend. Boot only — refused once the engine resolved one.
 
-        One client, ``functualize-state-sqlite``, which is below the two-client
+        One client, ``functualize-substrate-sqlite``, which is below the two-client
         threshold the other members meet. Included anyway: without it that
         plugin cannot adopt this port at all, and a port a shipped plugin
         cannot adopt is not a port.

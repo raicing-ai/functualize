@@ -10,7 +10,7 @@ app = FunctualizeApp(
     "{{ project_name }}",
     job_sources=JobSources(directories=["{{ package_name }}.jobs"]),
     # Installed plugins (functualize-inline, functualize-flow-viz,
-    # functualize-state-sqlite, ...) are discovered through this entry-point
+    # functualize-substrate-sqlite, ...) are discovered through this entry-point
     # group — installing the package is all it takes. `explicit_plugins=` is
     # for handing in a plugin *object* you constructed yourself, e.g.
     # `explicit_plugins=[MyPlugin(mode="strict")]`.

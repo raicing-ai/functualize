@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from functualize_state_sqlite.substrate import SQLiteSubstrate
+from functualize_substrate_sqlite.substrate import SQLiteSubstrate
 
 from functualize._primitives.fresh_store import FreshStore
 from functualize._primitives.run_store import RunStore
@@ -356,9 +356,9 @@ class TestItNeedsNoSharedDisk:
 
 
 class TestThePluginRegistersThroughTheHooksFacade:
-    """`SQLiteStatePlugin` had **zero test references anywhere** — T6.
+    """`SQLiteSubstratePlugin` had **zero test references anywhere** — T6.
 
-    `rg -l SQLiteStatePlugin` over the whole tree returned its own package, its
+    `rg -l SQLiteSubstratePlugin` over the whole tree returned its own package, its
     README, a scaffold template's `pyproject.toml.j2`, and the stale graphify
     dump. No test. The substrate above is thoroughly covered; the plugin that
     installs it was not covered at all, which is why T6's reachability gate —
@@ -372,7 +372,7 @@ class TestThePluginRegistersThroughTheHooksFacade:
     """
 
     def test_it_asks_for_on_ready_and_hands_over_its_handler(self) -> None:
-        from functualize_state_sqlite import SQLiteStatePlugin
+        from functualize_substrate_sqlite import SQLiteSubstratePlugin
 
         handed: list[object] = []
 
@@ -384,14 +384,14 @@ class TestThePluginRegistersThroughTheHooksFacade:
         class _App:
             hooks = _Hooks()
 
-        plugin = SQLiteStatePlugin()
+        plugin = SQLiteSubstratePlugin()
         plugin(_App())
 
         assert handed == [plugin._on_app_ready]
 
     def test_registering_installs_nothing_yet(self) -> None:
         """Installing during `__call__` would be too early, and is refused."""
-        from functualize_state_sqlite import SQLiteStatePlugin
+        from functualize_substrate_sqlite import SQLiteSubstratePlugin
 
         class _App:
             class hooks:  # noqa: N801
@@ -402,7 +402,7 @@ class TestThePluginRegistersThroughTheHooksFacade:
             def install_substrate(self, substrate: object) -> None:
                 raise AssertionError("installing before APP_READY is too early")
 
-        plugin = SQLiteStatePlugin()
+        plugin = SQLiteSubstratePlugin()
         plugin(_App())
 
         assert plugin.substrate is None

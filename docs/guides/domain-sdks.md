@@ -19,7 +19,7 @@ graph TD
     end
 
     subgraph "Storage (not a domain)"
-        sqlite["functualize-state-sqlite"]
+        sqlite["functualize-substrate-sqlite"]
     end
 
     pydantic --> ai
@@ -32,7 +32,7 @@ graph TD
     There was a `functualize-state` SDK, and it was retired. A
     backend-agnostic key-value protocol can only offer the **intersection of
     every backend**, which is worth least exactly where having a real database
-    is worth most. `functualize-state-sqlite` now supplies a
+    is worth most. `functualize-substrate-sqlite` now supplies a
     **`StoreSubstrate`** — *give me this document, put this document back, stop
     anyone else while I do both* — and every store follows it. See
     `contributor/adr/022-storage-is-a-substrate-not-a-key-value-domain.md` and

@@ -74,8 +74,8 @@ class LocalTasksPlugin:
         name. Measured, before the fix — the same two plugins, only the name
         changed::
 
-            name 'tasks-local'    (sorts after  sqlite-state) -> SQLiteSubstrate
-            name 'a-tasks-local'  (sorts before sqlite-state) -> JsonFileSubstrate
+            name 'tasks-local'    (sorts after  substrate-sqlite) -> SQLiteSubstrate
+            name 'a-tasks-local'  (sorts before substrate-sqlite) -> JsonFileSubstrate
 
         Deferring the read removes the coupling rather than ordering it, and
         matches the engine, which resolves lazily for exactly this reason.

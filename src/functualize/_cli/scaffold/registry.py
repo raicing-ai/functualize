@@ -32,7 +32,7 @@ TEMPLATES: dict[str, TemplateManifest] = {
         dependencies=[
             "functualize-inline",
             "functualize-flow-viz",
-            "functualize-state-sqlite",
+            "functualize-substrate-sqlite",
         ],
     ),
     "plugin-project": TemplateManifest(

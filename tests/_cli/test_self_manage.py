@@ -465,7 +465,7 @@ class TestReconciliation:
         """AC14b — the belt to the capture's braces.
 
         The recorded name is deliberately one that is *not* installed here:
-        `functualize-state-sqlite` is a real first-party plugin present in this
+        `functualize-substrate-sqlite` is a real first-party plugin present in this
         checkout, so recording it would be filtered out as already-present and
         the test would pass without restoring anything.
         """

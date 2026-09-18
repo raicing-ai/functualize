@@ -7,7 +7,7 @@ store follows, because there is one place that decides where documents live.
 This used to register a `StateBackend` into the DI registry, which is a seam
 that no longer exists: `contributor/adr/022` records why a backend-agnostic
 key-value domain was retired. The shape here mirrors
-`functualize-state-sqlite`'s plugin exactly, which is the point — a substrate
+`functualize-substrate-sqlite`'s plugin exactly, which is the point — a substrate
 in a dict and a substrate in a database are installed the same way.
 """
 

@@ -6,7 +6,7 @@ This is the gate the feature exists to install. Three shipped manifests declared
 `functualize.*` groups with **no reader anywhere in `src/`**, and the only
 symptom was silence:
 
-- `functualize.state_providers` — `functualize-state-sqlite`, and the substrate
+- `functualize.state_providers` — `functualize-substrate-sqlite`, and the substrate
   tutorial in `docs/examples/plugins/custom-state-backend.md`. Installing the
   plugin chose no storage and reported nothing.
 - `functualize.interactivity_providers` — `functualize-inline`. Installing it
@@ -124,7 +124,20 @@ def test_the_manifest_scan_finds_the_shipped_plugins() -> None:
         f"expected core plus twelve workspace plugins, found {len(manifests)}: "
         f"{[str(m.relative_to(_ROOT)) for m in manifests]}"
     )
-    assert any("state-sqlite" in str(m) for m in manifests)
+
+    # Named by *group*, not by plugin: the glob's job is to reach one level
+    # deeper than it used to, and a specific plugin's name is the wrong thing to
+    # depend on — this assertion previously said "state-sqlite" and broke when
+    # `plugin-taxonomy`/T8 renamed that distribution, which is a test coupling
+    # to a name rather than to the property under test.
+    groups = {
+        m.relative_to(_ROOT).parts[1]
+        for m in manifests
+        if m.relative_to(_ROOT).parts[0] == "plugins"
+    }
+    assert groups >= {"adapters", "substrates", "credentials", "domains"}, (
+        f"the glob did not reach every plugin group; found {sorted(groups)}"
+    )
     assert any("examples" in str(m) for m in manifests)
 
 

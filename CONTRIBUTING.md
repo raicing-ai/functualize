@@ -45,7 +45,7 @@ functualize/
 │   └── _types/               ← Internal: shared type vocabulary
 ├── plugins/                  ← Workspace plugins (uv workspace members)
 │   ├── functualize-state/
-│   ├── functualize-state-sqlite/
+│   ├── functualize-substrate-sqlite/
 │   ├── functualize-http/
 │   ├── functualize-lambda/
 │   ├── functualize-inline/

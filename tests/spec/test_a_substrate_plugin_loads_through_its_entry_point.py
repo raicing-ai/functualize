@@ -4,14 +4,14 @@
 exists to close, and it is deliberately written to fail on the *wiring* rather
 than on the plugin.
 
-What was wrong. `functualize-state-sqlite` declared itself under
+What was wrong. `functualize-substrate-sqlite` declared itself under
 ``functualize.state_providers``, and **nothing in core read that group**. A
 ``functualize.<x>_providers`` group is scanned by
 ``_plugins/domain_registry.scan_domain_providers`` out of the
 ``entry_point_group`` field of a live ``DomainMetadata`` published under
 ``functualize.domains`` — and ADR-022 removed the ``state`` domain. So
-``pip install functualize-state-sqlite`` installed a package that could never
-load: ``SQLiteStatePlugin.__call__`` was never invoked, no substrate was
+``pip install functualize-substrate-sqlite`` installed a package that could never
+load: ``SQLiteSubstratePlugin.__call__`` was never invoked, no substrate was
 installed, and the project silently used the filesystem default. No error, no
 warning, no log line.
 
@@ -29,7 +29,7 @@ So this boots a real `FunctualizeApp` with:
 
 and asks what storage the app ended up with. The only way `SQLiteSubstrate`
 arrives is: entry-point discovery finds the distribution in a group core reads
-→ the loader calls ``SQLiteStatePlugin(app)`` → it registers an ``APP_READY``
+→ the loader calls ``SQLiteSubstratePlugin(app)`` → it registers an ``APP_READY``
 hook → the hook calls ``app.install_substrate``. Four links; breaking any one
 of them turns the answer back into `JsonFileSubstrate`.
 
@@ -52,7 +52,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 sqlite_substrate = pytest.importorskip(
-    "functualize_state_sqlite.substrate",
+    "functualize_substrate_sqlite.substrate",
     reason="workspace plugins not installed; run `uv sync --all-packages --all-extras`",
 )
 SQLiteSubstrate = sqlite_substrate.SQLiteSubstrate

@@ -193,7 +193,7 @@ Marked `@pytest.mark.slow` — skipped by default, runs with `--run-slow`.
 
 ## Plugin tests
 
-Plugin-specific tests live in each plugin's own `tests/` directory (e.g. `plugins/functualize-state-sqlite/tests/`).
+Plugin-specific tests live in each plugin's own `tests/` directory (e.g. `plugins/functualize-substrate-sqlite/tests/`).
 Run them directly with `pytest plugins/<name>/tests/`; they are not collected
 by the root `pytest` invocation.
 

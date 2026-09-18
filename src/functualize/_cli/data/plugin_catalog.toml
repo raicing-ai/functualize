@@ -30,10 +30,10 @@ version = 1
 # `description` carries the truth and `plugin available` prints it alongside.
 
 [[plugin]]
-name = "sqlite"
-distribution = "functualize-state-sqlite"
+name = "substrate-sqlite"
+distribution = "functualize-substrate-sqlite"
 group = "functualize.plugins"
-description = "SQLite-backed state persistence"
+description = "Keeps this project's documents in SQLite"
 recommended = true
 
 [[plugin]]

@@ -310,7 +310,7 @@ def _reset_entry_point_cache() -> Iterator[None]:
 
 #: Distributions whose plugins would change core's *defaults* if discovered.
 #:
-#: `plugin-taxonomy`/T5. Until that task, `functualize-state-sqlite` declared
+#: `plugin-taxonomy`/T5. Until that task, `functualize-substrate-sqlite` declared
 #: itself in a group nothing read, so having it installed changed nothing. Now
 #: it registers under `functualize.plugins` and **works** — which means the
 #: storage backend this suite runs against would be decided by whatever happens
@@ -333,7 +333,7 @@ _DEFAULT_CHANGING_DISTRIBUTIONS = frozenset(
     {
         # Installs a `StoreSubstrate` at APP_READY, so it decides where every
         # document in the run lives.
-        "functualize-state-sqlite",
+        "functualize-substrate-sqlite",
         # Registers a `PromptCollector`, so it decides whether there is any
         # surface able to answer a question. A large part of this suite asserts
         # the *absence* of one -- "fails rather than waiting for an answer",
@@ -430,11 +430,11 @@ def _alternate_substrate(
             Path(__file__).resolve().parent.parent
             / "plugins"
             / "substrates"
-            / "functualize-state-sqlite"
+            / "functualize-substrate-sqlite"
             / "src"
         ),
     )
-    from functualize_state_sqlite.substrate import SQLiteSubstrate
+    from functualize_substrate_sqlite.substrate import SQLiteSubstrate
 
     from functualize._primitives import substrate as substrate_module
 

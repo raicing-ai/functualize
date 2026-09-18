@@ -97,7 +97,7 @@ app = FunctualizeApp("w", job_sources=JobSources(directories=["jobs"]))
 # does not also depend on entry-point discovery. `install_substrate` is the
 # door; `APP_READY` is when a real plugin knocks on it.
 sys.path.insert(0, {plugin_src!r})
-from functualize_state_sqlite.substrate import SQLiteSubstrate
+from functualize_substrate_sqlite.substrate import SQLiteSubstrate
 
 app.install_substrate(SQLiteSubstrate({db!r}))
 
@@ -147,7 +147,7 @@ def two_workers(tmp_path: Path) -> tuple[Path, Path, Path]:
     db = tmp_path / "shared" / "state.db"
     db.parent.mkdir()
     plugin_src = (
-        PROJECT_ROOT / "plugins" / "substrates" / "functualize-state-sqlite" / "src"
+        PROJECT_ROOT / "plugins" / "substrates" / "functualize-substrate-sqlite" / "src"
     )
     first = _worker(tmp_path / "worker-a", db, plugin_src)
     second = _worker(tmp_path / "worker-b", db, plugin_src)
@@ -235,11 +235,11 @@ class TestAGateCrossesTheProcessBoundary:
                 PROJECT_ROOT
                 / "plugins"
                 / "substrates"
-                / "functualize-state-sqlite"
+                / "functualize-substrate-sqlite"
                 / "src"
             ),
         )
-        from functualize_state_sqlite.substrate import SQLiteSubstrate
+        from functualize_substrate_sqlite.substrate import SQLiteSubstrate
 
         substrate = SQLiteSubstrate(db)
         scopes = substrate.read("scopes")
@@ -287,10 +287,14 @@ def test_the_gate_payload_survives_the_crossing(
     sys.path.insert(
         0,
         str(
-            PROJECT_ROOT / "plugins" / "substrates" / "functualize-state-sqlite" / "src"
+            PROJECT_ROOT
+            / "plugins"
+            / "substrates"
+            / "functualize-substrate-sqlite"
+            / "src"
         ),
     )
-    from functualize_state_sqlite.substrate import SQLiteSubstrate
+    from functualize_substrate_sqlite.substrate import SQLiteSubstrate
 
     stored = SQLiteSubstrate(db).read("scopes")
     assert stored is not None

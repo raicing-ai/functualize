@@ -91,7 +91,7 @@ cli = [
 ]
 all = [
     "functualize[cli]",
-    "functualize-state-sqlite",
+    "functualize-substrate-sqlite",
     "functualize-http",
     "functualize-lambda",
     "functualize-inline",
@@ -129,7 +129,7 @@ build-backend = "hatchling.build"
 members = ["plugins/*/*"]
 
 [tool.uv.sources]
-functualize-state-sqlite = { workspace = true }
+functualize-substrate-sqlite = { workspace = true }
 functualize-http = { workspace = true }
 functualize-inline = { workspace = true }
 functualize-flow-viz = { workspace = true }

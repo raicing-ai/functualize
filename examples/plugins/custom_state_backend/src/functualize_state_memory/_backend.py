@@ -13,7 +13,7 @@ ported when the protocol was retired.
 
 Everything here lives in a dict, so it is gone when the process is. That is the
 point of the example — the *shape* is what transfers, and it is the same shape
-`functualize-state-sqlite` fills with a database.
+`functualize-substrate-sqlite` fills with a database.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
-# `_types.protocols`, which is where `functualize-state-sqlite` imports it from
+# `_types.protocols`, which is where `functualize-substrate-sqlite` imports it from
 # too. `Stored` has no public re-export yet — a real gap in the substrate port,
 # recorded rather than worked around here, because an example that reached for
 # it differently from the shipped plugin would teach the wrong thing.

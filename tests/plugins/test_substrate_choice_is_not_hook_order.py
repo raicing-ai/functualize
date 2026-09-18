@@ -15,8 +15,8 @@ topological sort with a stable **alphabetical** tiebreak. The deciding fact was
 therefore the *spelling of a plugin's name*. Two runs of the same two plugins,
 differing in nothing else::
 
-    name 'tasks-local'    (sorts after  sqlite-state) -> SQLiteSubstrate
-    name 'a-tasks-local'  (sorts before sqlite-state) -> JsonFileSubstrate
+    name 'tasks-local'    (sorts after  substrate-sqlite) -> SQLiteSubstrate
+    name 'a-tasks-local'  (sorts before substrate-sqlite) -> JsonFileSubstrate
 
 That is a load-bearing accident, and `plugin-taxonomy` was about to rename the
 plugin on the lucky side of it.
@@ -47,12 +47,12 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 sqlite_module = pytest.importorskip(
-    "functualize_state_sqlite",
+    "functualize_substrate_sqlite",
     reason="workspace plugins not installed; run `uv sync --all-packages --all-extras`",
 )
 tasks_local_module = pytest.importorskip("functualize_tasks_local._plugin")
 
-SQLiteStatePlugin = sqlite_module.SQLiteStatePlugin
+SQLiteSubstratePlugin = sqlite_module.SQLiteSubstratePlugin
 SQLiteSubstrate = sqlite_module.SQLiteSubstrate
 LocalTasksPlugin = tasks_local_module.LocalTasksPlugin
 
@@ -92,7 +92,7 @@ def test_the_substrate_wins_whichever_hook_runs_first(
     tasks = LocalTasksPlugin()
     tasks.name = tasks_plugin_name
 
-    app = _boot(SQLiteStatePlugin(), tasks)
+    app = _boot(SQLiteSubstratePlugin(), tasks)
 
     assert isinstance(app.substrate, SQLiteSubstrate), (
         f"with the tasks plugin named {tasks_plugin_name!r} the project fell "
@@ -106,7 +106,7 @@ def test_the_order_the_plugins_are_handed_over_does_not_matter_either(
     """Belt and braces: the loader re-sorts, so the constructor's order is not
     the same lever as the name — and neither should matter."""
     tasks = LocalTasksPlugin()
-    app = _boot(tasks, SQLiteStatePlugin())
+    app = _boot(tasks, SQLiteSubstratePlugin())
 
     assert isinstance(app.substrate, SQLiteSubstrate)
 
@@ -118,7 +118,7 @@ def test_nothing_resolved_the_substrate_during_boot(project: Path) -> None:
     cached one by the time boot finishes and `substrate_override` is moot. The
     override being *present and honoured* is what says the read was deferred.
     """
-    app = _boot(SQLiteStatePlugin(), LocalTasksPlugin())
+    app = _boot(SQLiteSubstratePlugin(), LocalTasksPlugin())
 
     assert app.substrate_override is not None
     assert app.substrate is app.substrate_override

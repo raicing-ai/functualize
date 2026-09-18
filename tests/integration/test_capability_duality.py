@@ -419,7 +419,7 @@ class TestStateIsDurable:
                 app = FunctualizeApp(
                     name="probe",
                     plugin_sources=PluginSources(
-                        disabled=["sqlite", "sqlite-state"]
+                        disabled=["substrate-sqlite"]
                     ),
                 )
 

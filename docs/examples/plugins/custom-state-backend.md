@@ -6,7 +6,7 @@ store follows, because there is one place that decides and one object handed to
 all of them.
 
 This example's implementation is a dict. The shape is what transfers: it is the
-same shape `functualize-state-sqlite` fills with a database.
+same shape `functualize-substrate-sqlite` fills with a database.
 
 ## Source
 

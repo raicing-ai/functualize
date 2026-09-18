@@ -540,7 +540,7 @@ is about every substrate rather than about tasks.
 
 ## Wave 4 — the rename, then truth
 
-### [ ] T8 · `functualize-state-sqlite` → `functualize-substrate-sqlite`
+### [x] T8 · `functualize-state-sqlite` → `functualize-substrate-sqlite`
 
 `contracts.md` §1.1, §4.1. **After T7**, because `SQLiteStatePlugin.name` is the
 sort key `plan.md` §1.2 proved load-bearing; once T7 lands, the name cannot
@@ -571,8 +571,43 @@ matter.
 
 **Reachability — run the sabotage first.** Leave `tests/conftest.py:356`
 pointing at the old directory. Expected: every test using that fixture errors at
-collection. Count it before believing it — if collection still succeeds, the
-fixture is not on the path it appears to be.
+collection.
+
+**DONE** (`d0af29b`). **The planned sabotage passes, and the caveat was right.**
+Pointing the `sys.path` insert at the old directory changes nothing: the
+distribution is *installed* in a synced workspace, so the import resolves
+regardless. That line is a fallback for an environment where the plugin is not
+installed — a plain `uv sync` — and it cannot be exercised in the environment CI
+and this session use. Recorded rather than dressed up.
+
+Two sabotages that do bite, on the things the rename actually had to get right:
+
+- **The import name** in the same fixture: `from functualize_state_sqlite…` →
+  **205 errors** under `FUNCTUALIZE_TEST_SUBSTRATE=sqlite`.
+- **The entry-point target** in the plugin's manifest, after a re-sync:
+  **4 failed** in `test_a_substrate_plugin_loads_through_its_entry_point.py`.
+
+**Gates met:** `functualize-state-sqlite` **0 files** outside CHANGELOG, `.spec/`
+and the ADRs; `functualize_state_sqlite` **0**; `SQLiteStatePlugin` **0**;
+`SQLiteStateBackend` **0** except the docstring recording its removal.
+`python -c "import functualize_substrate_sqlite"` → `['SQLiteSubstratePlugin',
+'SQLiteSubstrate']`. `uv build --all-packages` 26 artifacts, exit 0.
+
+**Two things in this package were false, not merely misnamed**, and are fixed
+rather than renamed:
+
+- The README's API reference listed **five** classes. The package exports
+  **two**, and none of the five is either of them. Rewritten against what
+  exists, with the schema and why it is a document store.
+- `examples/persistent_counter/` imported `SQLiteStateBackend`, defined nowhere
+  in the repository. `testpaths = ["tests"]` keeps the root run out of that
+  directory and CI runs one plugin's examples out of twelve, so the example a
+  reader is pointed at could not have run. Rewritten against `SQLiteSubstrate`;
+  3 tests, green (AC-16).
+
+ADR-022 keeps the old name and gains a pointer to the new one. The CHANGELOG and
+the other two ADRs keep it outright — a dated decision that renames itself stops
+being a record.
 
 ---
 

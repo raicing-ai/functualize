@@ -21,7 +21,7 @@ class TestItRegistersThroughTheHooksFacade:
     T6's reachability gate said breaking `make_on_ready_decorator`'s
     registration would fail "all four plugin suites". Measured, it failed one:
     `functualize-mcp`, whose commands stop appearing. This suite and
-    `functualize-state-sqlite`'s passed, because neither had a test that ever
+    `functualize-substrate-sqlite`'s passed, because neither had a test that ever
     called the plugin — `LocalTasksPlugin` was reached only through
     `_on_app_ready` in other people's fixtures, never through the registration
     that puts `_on_app_ready` on the hook.

@@ -127,7 +127,7 @@ Plugin-specific tests live in each plugin's own `tests/` directory:
 
 ```
 plugins/adapters/functualize-inline/tests/
-plugins/substrates/functualize-state-sqlite/tests/
+plugins/substrates/functualize-substrate-sqlite/tests/
 plugins/adapters/functualize-flow-viz/tests/
 tests/ui/  # functualize.ui (TextualApp, fullscreen)
 ```

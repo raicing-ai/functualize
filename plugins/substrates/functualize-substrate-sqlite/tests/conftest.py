@@ -1,4 +1,4 @@
-"""Shared fixtures for functualize-state-sqlite plugin tests."""
+"""Shared fixtures for functualize-substrate-sqlite plugin tests."""
 
 from __future__ import annotations
 

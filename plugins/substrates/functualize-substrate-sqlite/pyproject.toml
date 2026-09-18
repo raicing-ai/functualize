@@ -1,5 +1,5 @@
 [project]
-name = "functualize-state-sqlite"
+name = "functualize-substrate-sqlite"
 version = "0.3.0"
 description = "SQLite-backed state persistence and execution tracking plugin for functualize"
 readme = "README.md"
@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [project.entry-points."functualize.plugins"]
-sqlite = "functualize_state_sqlite:SQLiteStatePlugin"
+substrate-sqlite = "functualize_substrate_sqlite:SQLiteSubstratePlugin"
 
 [project.optional-dependencies]
 dev = [
@@ -38,4 +38,4 @@ build-backend = "hatchling.build"
 functualize = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/functualize_state_sqlite"]
+packages = ["src/functualize_substrate_sqlite"]

@@ -8,7 +8,7 @@ dependencies = [
     "functualize[cli]>=0.1.0",
     "functualize-inline>=0.1.0",
     "functualize-flow-viz>=0.1.0",
-    "functualize-state-sqlite>=0.1.0",
+    "functualize-substrate-sqlite>=0.1.0",
 ]
 
 [project.scripts]
@@ -17,7 +17,7 @@ dependencies = [
 [project.entry-points."functualize.plugins"]
 inline = "functualize_inline.plugin:InlinePlugin"
 flow-viz = "functualize_flow_viz.plugin:FlowVizPlugin"
-execution-state = "functualize_state_sqlite:SQLiteStatePlugin"
+execution-state = "functualize_substrate_sqlite:SQLiteSubstratePlugin"
 
 [build-system]
 requires = ["hatchling"]

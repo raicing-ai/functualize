@@ -21,7 +21,7 @@ members = [
     "functualize-inline",
     "functualize-lambda",
     "functualize-mcp",
-    "functualize-state-sqlite",
+    "functualize-substrate-sqlite",
     "functualize-tasks",
     "functualize-tasks-local",
 ]
@@ -1240,7 +1240,7 @@ all = [
     { name = "functualize-inline" },
     { name = "functualize-lambda" },
     { name = "functualize-mcp" },
-    { name = "functualize-state-sqlite" },
+    { name = "functualize-substrate-sqlite" },
     { name = "functualize-tasks" },
     { name = "functualize-tasks-local" },
     { name = "rich" },
@@ -1291,7 +1291,7 @@ requires-dist = [
     { name = "functualize-inline", marker = "extra == 'all'", editable = "plugins/adapters/functualize-inline" },
     { name = "functualize-lambda", marker = "extra == 'all'", editable = "plugins/adapters/functualize-lambda" },
     { name = "functualize-mcp", marker = "extra == 'all'", editable = "plugins/adapters/functualize-mcp" },
-    { name = "functualize-state-sqlite", marker = "extra == 'all'", editable = "plugins/substrates/functualize-state-sqlite" },
+    { name = "functualize-substrate-sqlite", marker = "extra == 'all'", editable = "plugins/substrates/functualize-substrate-sqlite" },
     { name = "functualize-tasks", marker = "extra == 'all'", editable = "plugins/domains/functualize-tasks" },
     { name = "functualize-tasks-local", marker = "extra == 'all'", editable = "plugins/domains/functualize-tasks-local" },
     { name = "jinja2", specifier = ">=3.1.0" },
@@ -1543,9 +1543,9 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
-name = "functualize-state-sqlite"
+name = "functualize-substrate-sqlite"
 version = "0.3.0"
-source = { editable = "plugins/substrates/functualize-state-sqlite" }
+source = { editable = "plugins/substrates/functualize-substrate-sqlite" }
 dependencies = [
     { name = "functualize" },
 ]

@@ -6,7 +6,7 @@ boot. Every store follows, because there is one place that decides and one
 object handed to all of them.
 
 The implementation here is a dict, so it is gone when the process is. The
-**shape** is what transfers: it is the same shape `functualize-state-sqlite`
+**shape** is what transfers: it is the same shape `functualize-substrate-sqlite`
 fills with a database.
 
 ## What This Demonstrates

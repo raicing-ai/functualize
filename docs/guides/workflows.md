@@ -358,7 +358,7 @@ workflow scope"** — because the process being asked never had the record.
 Install a substrate plugin. The store that ships is SQLite:
 
 ```bash
-pip install functualize-state-sqlite
+pip install functualize-substrate-sqlite
 ```
 
 With it installed, every runtime document — scope records, job state, the
@@ -367,7 +367,7 @@ Point it wherever your processes can all reach:
 
 ```toml
 # .functualize.toml
-[plugin.sqlite-state]
+[plugin.substrate-sqlite]
 db_path = "/mnt/shared/functualize/state.db"
 ```
 

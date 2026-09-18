@@ -53,7 +53,7 @@ if __name__ == "__main__":
 _MAIN_PINNED = _MAIN.replace(
     'job_sources=JobSources(directories=["jobs"]),',
     'job_sources=JobSources(directories=["jobs"]),\n'
-    '    plugin_sources=PluginSources(disabled=["sqlite", "sqlite-state"]),',
+    '    plugin_sources=PluginSources(disabled=["substrate-sqlite"]),',
 ).replace(
     "from functualize.app import FunctualizeApp, JobSources",
     "from functualize.app import FunctualizeApp, JobSources, PluginSources",
@@ -78,7 +78,7 @@ def _project(tmp_path: Path, *, declared: bool, pin_files: bool = False) -> Path
     Only one test below needs the pin, and it needs it for a real reason rather
     than for convenience: it asserts that ``runs.json`` sits beside the reported
     freshness path, which is a claim about *files*. `plugin-taxonomy`/T5 made
-    ``functualize-state-sqlite`` load for real, so an environment with that
+    ``functualize-substrate-sqlite`` load for real, so an environment with that
     plugin installed stores the run log in a database and there is no
     ``runs.json`` to find — the assertion would fail while the behaviour it
     guards is intact.
@@ -88,7 +88,7 @@ def _project(tmp_path: Path, *, declared: bool, pin_files: bool = False) -> Path
     """
     config = 'jobs_directories = ["jobs"]\nroot = true\n'
     if pin_files:
-        config += '\n[plugins]\ndisabled = ["sqlite", "sqlite-state"]\n'
+        config += '\n[plugins]\ndisabled = ["substrate-sqlite"]\n'
     (tmp_path / ".functualize.toml").write_text(config)
     (tmp_path / "main.py").write_text(_MAIN_PINNED if pin_files else _MAIN)
     (tmp_path / "config.base.toml").write_text('[general]\napp_name = "m"\n')

@@ -162,7 +162,8 @@ class TestResolveAiStateBackend:
             resolve_ai_state_backend(state_backend=None)
         assert any("ephemeral" in record.message.lower() for record in caplog.records)
         assert any(
-            "functualize-state-sqlite" in record.message for record in caplog.records
+            "functualize-substrate-sqlite" in record.message
+            for record in caplog.records
         )
 
     def test_returns_strict_wrapper_when_backend_provided(self) -> None:

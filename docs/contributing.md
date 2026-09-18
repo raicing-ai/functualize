@@ -78,7 +78,7 @@ functualize/                          ← Root workspace
 │   ├── functualize-ai/               ← Domain SDK: AI capability
 │   ├── functualize-tasks/            ← Domain SDK: Tasks capability
 │   ├── functualize-ai-pydantic/      ← Implementation: PydanticAI + LiteLLM
-│   ├── functualize-state-sqlite/     ← Storage: a SQLite StoreSubstrate
+│   ├── functualize-substrate-sqlite/     ← Storage: a SQLite StoreSubstrate
 │   ├── functualize-tasks-local/      ← Implementation: tasks on the project substrate
 │   ├── functualize-mcp/              ← Delivery: MCP adapter (FastMCP)
 │   ├── functualize-http/             ← Delivery: HTTP adapter

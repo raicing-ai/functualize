@@ -240,6 +240,6 @@ Located in `plugins/`, these are maintained as part of the core monorepo:
 | `functualize-lambda` | AWS Lambda | AWS Lambda deployment and invocation adapter |
 | `functualize-mcp` | Model Context Protocol | Claude MCP server integration for model-assisted execution |
 | `functualize-state` | State management | In-memory key-value state backend |
-| `functualize-state-sqlite` | SQLite state | Persistent state backend using SQLite |
+| `functualize-substrate-sqlite` | SQLite state | Persistent state backend using SQLite |
 | `functualize-tasks` | Task scheduling | Task queue abstraction for async job scheduling |
 | `functualize-tasks-local` | Local task queue | Local in-memory task queue implementation |

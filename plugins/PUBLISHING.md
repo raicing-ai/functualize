@@ -111,7 +111,7 @@ Level 0 — No plugin dependencies
 
 Level 1 — Depends on Level 0 plugins
 ├── functualize-ai              → functualize-state
-├── functualize-state-sqlite    → functualize-state, core
+├── functualize-substrate-sqlite    → functualize-state, core
 └── functualize-tasks-local     → functualize-tasks, functualize-state
 
 Level 2 — Depends on Level 1 plugins
@@ -199,7 +199,7 @@ Tier 1 bar*, not *currently downloadable*.
 | functualize-flow-viz | 1 — Ready | 0 | Workflow execution visualization |
 | functualize-mcp | 1 — Ready | 0 | MCP (Model Context Protocol) integration |
 | functualize-ai | 1 — Ready | 1 | AI/LLM capability |
-| functualize-state-sqlite | 1 — Ready | 1 | SQLite state backend |
+| functualize-substrate-sqlite | 1 — Ready | 1 | SQLite state backend |
 | functualize-tasks-local | 1 — Ready | 1 | Local state-backed task queue |
 | functualize-ai-pydantic | 1 — Ready | 2 | PydanticAI provider bridge |
 | functualize-fullscreen-tui | 3 — Experimental | — | **Not a package.** No `pyproject.toml`, so it is not a uv workspace member and is never built or published. Source and tests only |
@@ -224,7 +224,7 @@ These are the eleven distributions built by `uv build --all-packages`, alongside
 | Plugin Directory | PyPI Package Name | Python Import |
 |-----------------|-------------------|---------------|
 | functualize-state | functualize-state | `functualize_state` |
-| functualize-state-sqlite | functualize-state-sqlite | `functualize_state_sqlite` |
+| functualize-substrate-sqlite | functualize-substrate-sqlite | `functualize_substrate_sqlite` |
 | functualize-http | functualize-http | `functualize_http` |
 | functualize-lambda | functualize-lambda | `functualize_lambda` |
 | functualize-inline | functualize-inline | `functualize_inline` |

@@ -30,13 +30,13 @@ from functualize.app.adapters import CliAdapter
 
 # `disabled` pins the filesystem substrate: this test reads
 # `.functualize/fresh.json` directly, and `plugin-taxonomy`/T5 made
-# `functualize-state-sqlite` load for real -- with it installed the fingerprints
+# `functualize-substrate-sqlite` load for real -- with it installed the fingerprints
 # are rows in a database and the file is absent. A subprocess, so no in-process
 # fixture can do it.
 app = FunctualizeApp(
     "s",
     job_sources=JobSources(directories=["jobs"]),
-    plugin_sources=PluginSources(disabled=["sqlite", "sqlite-state"]),
+    plugin_sources=PluginSources(disabled=["substrate-sqlite"]),
 )
 adapter = CliAdapter()
 

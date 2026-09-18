@@ -25,12 +25,12 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-from functualize_state_sqlite.substrate import SQLiteSubstrate
+from functualize_substrate_sqlite.substrate import SQLiteSubstrate
 
 if TYPE_CHECKING:
     from functualize.plugin import PluginHost
 
-__all__ = ["SQLiteStatePlugin"]
+__all__ = ["SQLiteSubstratePlugin"]
 
 logger = logging.getLogger(__name__)
 
@@ -40,12 +40,12 @@ logger = logging.getLogger(__name__)
 DEFAULT_DB_NAME = "state.db"
 
 
-class SQLiteStatePlugin:
+class SQLiteSubstratePlugin:
     """Installs a :class:`SQLiteSubstrate` as the app's substrate at boot."""
 
-    name: str = "sqlite-state"
+    name: str = "substrate-sqlite"
     version: str = "0.2.0"
-    description: str = "Keeps this project's runtime state in SQLite"
+    description: str = "Keeps this project's documents in SQLite"
 
     def __init__(self) -> None:
         self._substrate: SQLiteSubstrate | None = None
@@ -85,10 +85,12 @@ class SQLiteStatePlugin:
         """
         self._substrate = SQLiteSubstrate(self._db_path(app))
         app.install_substrate(self._substrate)
-        logger.debug("sqlite-state installed a substrate at %s", self._substrate.path)
+        logger.debug(
+            "substrate-sqlite installed a substrate at %s", self._substrate.path
+        )
 
     def _db_path(self, app: PluginHost) -> Path:
-        """``plugin.sqlite-state.db_path``, or wherever this project's state goes.
+        """``plugin.substrate-sqlite.db_path``, or wherever this project's state goes.
 
         Resolved from :attr:`fresh_root` rather than the cwd, so a later
         ``chdir`` cannot move a run's database out from under it — and routed
@@ -136,7 +138,9 @@ class SQLiteStatePlugin:
             # is where that check now happens.
             resolved = cast(
                 "_SqliteConfig",
-                app.configuration.resolve_model("plugin.sqlite-state", _SqliteConfig),
+                app.configuration.resolve_model(
+                    "plugin.substrate-sqlite", _SqliteConfig
+                ),
             )
             return resolved.db_path
         except Exception:

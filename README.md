@@ -858,7 +858,7 @@ pip install functualize-bitwarden   # not in [all] -- see the note below
 | `functualize-inline` | Textual-based inline terminal widgets for prompts, selections, and progress |
 | `functualize-lambda` | AWS Lambda delivery adapter for serverless job execution |
 | `functualize-mcp` | Model Context Protocol adapter exposing jobs as tools to AI agents |
-| `functualize-state-sqlite` | Installs a SQLite `StoreSubstrate` in WAL mode, so every store keeps its documents in one database |
+| `functualize-substrate-sqlite` | Installs a SQLite `StoreSubstrate` in WAL mode, so every store keeps its documents in one database |
 | `functualize-tasks` | Task management domain SDK with status tracking and event emission |
 | `functualize-tasks-local` | Local task storage for the tasks domain, on the project's own substrate |
 

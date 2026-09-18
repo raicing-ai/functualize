@@ -10,7 +10,7 @@ different layers, and two supplied by a caller. Meanwhile thirteen shipped
 three declared groups had no reader at all and the only symptom was that
 installing a plugin did nothing:
 
-- ``functualize.state_providers`` — ``functualize-state-sqlite`` and the
+- ``functualize.state_providers`` — ``functualize-substrate-sqlite`` and the
   documented substrate tutorial;
 - ``functualize.interactivity_providers`` — ``functualize-inline``;
 - ``functualize.vault_key_providers`` — declared by core's own
