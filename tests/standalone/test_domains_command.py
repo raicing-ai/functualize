@@ -65,8 +65,17 @@ class TestDomainsListCommand:
 
         assert result.exit_code == 0
         assert "No domains discovered" in result.output
-        assert "pip install functualize-state" in result.output
+        # The **two** domain SDKs that exist, and nothing else. This listed
+        # `functualize-state-sqlite` until `plugin-taxonomy`/T10 — a substrate,
+        # not a domain SDK, whose old name shared a prefix with the
+        # `functualize-state` domain ADR-022 removed. Installing it would have
+        # discovered no domain, which is the message the user was already
+        # looking at.
         assert "pip install functualize-ai" in result.output
+        assert "pip install functualize-tasks" in result.output
+        assert "substrate" not in result.output, (
+            f"a substrate is advertised as a domain SDK: {result.output}"
+        )
 
     def test_domains_listed_with_display_names(self) -> None:
         """Discovered domains are listed with display names."""

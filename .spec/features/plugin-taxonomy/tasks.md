@@ -700,12 +700,51 @@ section now has it honoured. It never was.
 
 ## Wave 5 — close
 
-### [ ] T10 · Regenerate locks, run every gate, update `.spec/STATE.md`
+### [x] T10 · Regenerate locks, run every gate, update `.spec/STATE.md`
 
 `uv.lock` and the two `examples/project/*/uv.lock` regenerated **once**, at the
 end. Then: root suite, `examples/`, all twelve plugin suites, `lint-imports`,
 `mypy`, `ruff`, and AC-22 — the four pre-existing `sqlite` failures
 (`.spec/STATE.md` wave 10) unchanged or fixed, **never newly masked**.
+
+**DONE.** Locks regenerated; `git grep -c 'plugins/functualize-'` over all three
+is **0**, and the root lock carries 26 references to the grouped layout.
+
+| Gate | Result |
+|---|---|
+| `uv run ruff check src/ tests/ plugins/` | clean |
+| `uv run ruff format --check` | 1,354 files already formatted |
+| `uv run mypy src/` | clean, 357 files |
+| `uv run lint-imports` | 7 kept / 0 broken |
+| `uv build --all-packages` | exit 0, 26 artifacts |
+| root suite | **10,744 passed / 0 failed**, 1,602 skipped |
+| `examples/` | **212 passed** |
+| twelve plugin suites | **447 passed**, 1 skipped |
+
+**AC-22 is satisfied in the strongest form: the four failures are gone, and not
+by masking.** `functualize-substrate-sqlite` runs **25 passed / 0 failed**. They
+were subprocess tests that SIGKILL a child, which therefore could not inherit
+the in-process `monkeypatch` the suite used to swap the substrate; they pass now
+because the distribution is genuinely installed by
+`uv sync --all-packages --all-extras`. Nothing was skipped, xfailed or deleted
+to achieve it.
+
+**The full run found two more instances of the defect this feature is about**,
+both invisible until the plugins actually loaded:
+
+1. **`func builtin domains list` advertised a substrate as a domain SDK.** It
+   printed `pip install functualize-state-sqlite` — whose old name shared a
+   prefix with the `functualize-state` domain ADR-022 removed — so a user
+   following it installed a substrate and still had no domains. Fixed in
+   `_cli/builtins.py` and `_cli/scaffold/cli.py`; the test now asserts the two
+   domain SDKs that exist and that the word "substrate" does **not** appear.
+2. **`examples/quickstart/step7_workflow/test_step7.py` resolved its own store.**
+   `ScopeStore.for_project(Path.cwd())` reads the filesystem default and ignores
+   the app's storage, so with the plugin installed it read an empty
+   `scopes.json` while the run wrote to a database. It asks the app now — the
+   sixth site of this exact shape found in this feature, after `data show`,
+   `data clear`, `run list`, `run show` and `history`, and the second time it has
+   been fixed in the repository (`store-substrate`/T7 did `builtin workflow`).
 
 ---
 
