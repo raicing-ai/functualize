@@ -322,12 +322,18 @@ forbidden_modules = [
 [[tool.importlinter.contracts]]
 name = "Internal never imports public"
 type = "forbidden"
+# Every internal layer, and every public folder. Both lists were short of the
+# real thing: `_gate` was absent from the sources and `functualize.ui` from the
+# forbidden set, so an internal layer could import the display surface and
+# `lint-imports` would still report 7/7 kept while `layer-rules.md` told
+# contributors otherwise. Nothing violated either gap when it was closed.
 source_modules = [
     "functualize._types",
     "functualize._primitives",
     "functualize._events",
     "functualize._discovery",
     "functualize._config",
+    "functualize._gate",
     "functualize._engine",
     "functualize._plugins",
     "functualize._app",
@@ -338,6 +344,7 @@ forbidden_modules = [
     "functualize.plugin",
     "functualize.types",
     "functualize.testing",
+    "functualize.ui",
     "functualize.workflow",
 ]
 allow_indirect_imports = true

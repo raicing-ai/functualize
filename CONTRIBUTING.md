@@ -2,6 +2,9 @@
 
 Thanks for your interest in contributing! This document explains how to get started.
 
+This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md). By taking part
+you agree to uphold it.
+
 ## Development Setup
 
 ```bash
@@ -600,6 +603,8 @@ what shipped.
 | `.pre-commit-config.yaml` | Local hooks: ruff, gitleaks, standard checks |
 | `CHANGELOG.md` | Keep a Changelog format |
 | `LICENSE` | Apache-2.0 |
+| `NOTICE` | Copyright attribution, required by Apache-2.0 §4(d) |
+| `CODE_OF_CONDUCT.md` | Contributor Covenant 2.1 |
 
 ## Documentation
 

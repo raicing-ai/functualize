@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.0] - 2026-09-18
 
+### Added — a code of conduct, and one more layer contract enforced
+
+`CODE_OF_CONDUCT.md` adopts the Contributor Covenant 2.1, referenced from both
+contributing guides.
+
+The `Internal never imports public` import-linter contract was narrower than the
+rule `contributor/reference/layer-rules.md` documents: `_gate` was missing from
+its source modules and `functualize.ui` from its forbidden set, so an internal
+layer could import the display surface while `lint-imports` still reported 7/7
+kept. Both are closed. Nothing in the tree violated either gap, so no code moved
+— but the check now fails if something does.
+
 ### Changed — functualize is Apache-2.0
 
 The project moves from MIT to the Apache License 2.0, effective with this

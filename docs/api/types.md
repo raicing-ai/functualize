@@ -144,3 +144,43 @@ Returns `None` for every status that owes nothing, so a caller can write `if (li
 
 !!! note "Why this exists"
     Nine call sites used to translate a `RunStatus` into something a caller could act on, each with its own copy of the rules, and two of them disagreed about whether a paused (`BLOCKED`) run counts as a failure. `functualize.types` is now the single authority: a delivery surface asks, it does not decide. See `report_line`'s sibling `is_failure(status, *, family=...)` for the family-scoped failure question (not part of this page's public surface).
+
+## Global flag vocabulary
+
+`GLOBAL_BOOL_FLAGS`, `GLOBAL_OPTIONS_OPTIONAL_VALUE`, `GLOBAL_OPTIONS_WITH_VALUE` and `OPTIONAL_VALUE_VALID_SET` are the four tables that say how functualize's *global* options consume the tokens after them. They are public because the CLI is forbidden from reaching `_types/` directly — `_cli/` may import public folders only — so the re-export is the sanctioned route, not an accident.
+
+Global options fall into three kinds, and the difference is entirely about the **next token**:
+
+| Table | Meaning | Members |
+|---|---|---|
+| `GLOBAL_OPTIONS_ALWAYS_VALUE` | Always consumes the next token | `--log-level`, `--dotenv-file`, `--config-directory`, `--discovery-depth`, the seven `--require-*` filters, `--exclude`, `--perf-filter`, `--import-libs` |
+| `GLOBAL_OPTIONS_OPTIONAL_VALUE` | *May* consume the next token, by lookahead | `--perf-report`, `--emit-format` |
+| `GLOBAL_BOOL_FLAGS` | Never consumes a token | `--no-dotenv`, `--prompt-gates`, `--no-prompt-gates`, `--force`, `--help`, `-h` |
+
+`GLOBAL_OPTIONS_WITH_VALUE` is the union of the first two — every flag that *could* be followed by a value — and exists for `--option=value` detection, where the distinction between "always" and "maybe" does not apply.
+
+### `OPTIONAL_VALUE_VALID_SET`
+
+The lookahead needs to know what a legal value looks like, because that is the only thing separating a value from the next argument. This maps each optional-value flag to `(valid_values, default)`:
+
+```python
+from functualize.types import OPTIONAL_VALUE_VALID_SET
+
+OPTIONAL_VALUE_VALID_SET["--perf-report"]
+# (frozenset({'text', 'json'}), 'text')
+
+OPTIONAL_VALUE_VALID_SET["--emit-format"]
+# (frozenset({'auto', 'json', 'ndjson', 'raw', 'none'}), 'auto')
+```
+
+So `func --perf-report deploy` runs the `deploy` job with a text report, while `func --perf-report json deploy` consumes `json` as the report format. `deploy` is not in the valid set, so it is left alone as the job name.
+
+Note that `auto` is both `--emit-format`'s default *and* a typeable value. A bare `--emit-format` falls back to it through the lookahead, and that fallback is validated like any other, so it has to be legal — which also lets a caller name the default explicitly.
+
+!!! warning "`--emit-format` governs `out.emit()` and nothing else"
+    A job's *return value* is never rendered at any format, and `print()` ignores the flag entirely. It was called `--output` until 2026-09-10 and renamed precisely because that name promises to control "the command's output" and does not. There is deliberately no alias: pre-alpha, the constitution says delete rather than shim.
+
+!!! note "`--version` is absent from `GLOBAL_BOOL_FLAGS`"
+    It is handled by a pre-boot fast path in `_cli/main.py` and is position-aware — recognised only before the first positional argument. `--help` and `-h` *are* listed, because Click needs to see them to render per-command help.
+
+Alias matching for *job and group* flags — as opposed to these global ones — is `flag_aliases`, `negative_aliases`, `match_group_flag` and `negative_flag_for`, exported from the same module.
