@@ -763,7 +763,9 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     perf_timeline.mark("boot.domains.start")
     from functualize._plugins.domain_registry import boot_domain_registry
 
-    app._domain_registry = boot_domain_registry(app)
+    app._domain_registry = boot_domain_registry(
+        app, config=app._project_directories.merged
+    )
     perf_timeline.mark("boot.domains.end")
 
     # 5. Discover dedicated config entry points
