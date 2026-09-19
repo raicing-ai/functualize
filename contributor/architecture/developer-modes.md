@@ -167,7 +167,7 @@ Mode F:  caller → engine.execute() directly
 |---|---|---|---|
 | Entry-point plugin | `PluginSources.entry_point_group` | `boot_standard` "load plugins early" | ❌ No |
 | Explicit plugin | `PluginSources.explicit_plugins` | `bootstrap` | ❌ No |
-| File-based plugin | `[tool.functualize] plugins_directories` or `.functualize/plugins/` (convention) | `load_all` Phase 1b (`_discover_from_files`) | ❌ No |
+| File-based plugin | `[tool.functualize] plugins_directories` **and** `.functualize/plugins/` at the project root (both, declared first) | resolved by `_app/boot.py` step 3.5, scanned by `FilePluginSource.discover` in `load_all` Phase 1b | ❌ No |
 | Domain SDK | `functualize.domains` entry points (+ each domain's `entry_point_group`) | `boot_standard` step 4b (`boot_domain_registry`) | ❌ No |
 
 App hooks/middleware (`@app.on_*`, `@app.run_middleware`, incl. job-scoped forms) register at decoration time in the app module, before jobs. `rc.invoke("sibling")` resolves lazy entries by name; `rc.invoke(<callable>)` resolves unmaterialized proxies via a module/qualname metadata fallback (`invoke.py::_resolve_job_name`).

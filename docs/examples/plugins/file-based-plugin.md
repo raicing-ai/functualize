@@ -18,7 +18,7 @@ func greet
 
 ## How it works
 
-1. At boot, the loader resolves plugin directories: `[tool.functualize].plugins_directories` if configured, else the convention directory `.functualize/plugins/` in the CWD.
+1. At boot, the composition root resolves plugin directories once, before plugins load: every `[tool.functualize] plugins_directories` declared up the config walk (with `root = true` and the XDG global layer honoured, same as `jobs_directories`), **plus** the convention directory `.functualize/plugins/` at the project root — the directory `func builtin info` reports as `Mode: project`, found by walking up rather than by matching the CWD exactly. Declared directories are scanned first.
 2. Each top-level non-underscore `.py` file is imported; the loader looks for a module-level `plugin` object with `name`, `version`, and `description` string attributes that is callable.
 3. The loader invokes `plugin(app)` — the registration hook for subscribing to events, registering commands, or adding providers.
 

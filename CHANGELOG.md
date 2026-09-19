@@ -7,6 +7,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `plugins_directories` was never read, and now is
+
+**Breaking, pre-release.** `[tool.functualize] plugins_directories` has been
+documented since `0.2.3` and has never worked. Not "worked partially" — the code
+that reads it was unreachable on every path:
+
+```python
+if hasattr(app, "_resolution_chain"):      # False, always, here
+    resolved = app._resolution_chain.resolve("plugins_directories", ...)
+```
+
+`load_all` has exactly one production call site — boot **step 4** — and the
+resolution chain is built at **step 6**. Loading plugins first is deliberate
+(ADR-007: a plugin must be able to register a config *format provider* before
+the chain reads any file), so the attribute cannot exist yet, so the branch
+never ran. Discovery fell through to an exact match on
+`Path.cwd() / ".functualize" / "plugins"`, and nothing said so — at
+`--log-level debug`, the most verbose setting available, the string
+`plugins_directories` never appeared once.
+
+Three things change:
+
+- **A declared directory is read.** Resolution moved to the composition root,
+  which reads the project once before plugins load. Declared directories now
+  come with the same precedence chain as `jobs_directories` —
+  `CLI + ENV + File + Convention + Global` — so a value declared in an ancestor
+  is inherited, `root = true` stops that inheritance, and an org-wide directory
+  in `~/.config/functualize/config.toml` applies to projects that declare none.
+- **The convention directory is found by walking up to the project root** —
+  the same directory `func builtin info` reports as `Mode: project` and writes
+  `fresh.json` into — rather than requiring your shell to be sitting in it. If
+  you worked around this by running `func` from a parent directory with
+  `--discovery-depth` raised, you no longer need to.
+- **Declared and convention compose.** Previously a declared value returned
+  early and would have suppressed your own `.functualize/plugins/`. Both are
+  scanned now, declared first; the existing first-wins duplicate-name rule
+  settles collisions.
+
+A declared directory that is missing, or that contains no loadable plugin, now
+warns on a normal run and names the path. An absent convention directory stays
+silent — it is the ordinary case.
+
+`PluginSources(ambient_directory=False)` is unchanged and still refuses only the
+convention directory, which is what its documentation always claimed.
+
+### Fixed — `[<domain>] provider` was never read either
+
+**Breaking, pre-release.** The identical guard sat in the domain registry, which
+runs at boot step 4b — also before the chain. So `provider = "..."` under a
+domain's config section had never been read, and every project that set it
+silently got the auto-selected default. It is now read from the same
+project-config pass.
+
+One limit worth stating: this reads the File, Convention and Global layers, not
+CLI flags or environment variables. Those live on the resolution chain, which
+cannot exist this early. The value resolved to nothing at all before, so no
+project loses anything.
+
+### Changed — hook registration moved to `app.hooks` (0.3.0, undocumented until now)
+
+**Breaking.** This landed in `0.3.0` and was not written down. Six groups of
+`FunctualizeApp` methods moved onto facades, taking the public surface from 71
+members to 37. For plugin authors the one that bites is hook registration:
+
+```python
+# 0.2.x
+app.before_job(fn)
+
+# 0.3.0+
+app.hooks.before_job(fn)
+```
+
+A plugin written against `0.2.x` is **skipped at boot with a warning** rather
+than failing the app, so the symptom is a plugin that quietly does nothing:
+
+```
+Plugin 'my-plugin' (entry point 'my-plugin') raised an error during
+registration: 'FunctualizeApp' object has no attribute 'before_job'
+```
+
+The rename is intentional and there is no deprecation shim — this project is
+pre-1.0 and does not carry compatibility shims. Update the call.
+
 ### Changed — installing a plugin does something
 
 **Breaking, pre-release.** Three entry-point groups were declared by shipped

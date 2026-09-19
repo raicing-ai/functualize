@@ -35,21 +35,25 @@ def test_plugin_subscribes_to_lifecycle_events():
     assert "job.execute.failure" in subscribed
 
 
-def test_loader_discovers_plugin_from_directory():
-    """The real PluginLoader finds the plugin via the convention directory."""
-    from functualize._plugins.loader import PluginLoader
+def test_a_booted_app_loads_the_plugin_from_the_convention_directory(monkeypatch):
+    """A real boot in this example directory finds and registers the plugin.
 
-    loader = PluginLoader()
-    app = MagicMock()
-    app._resolution_chain.resolve.side_effect = Exception("no config")
+    This used to be three workarounds stacked on one bug: it reached into
+    `functualize._plugins.loader` (an *example* importing an internal package),
+    `chdir`-ed so the exact-CWD fallback would fire, and mocked
+    `app._resolution_chain.resolve` to raise so the config branch would be
+    stepped over. That branch could never have run anyway — the attribute does
+    not exist when plugins load. The test passed and proved almost nothing.
 
-    import os
+    Now it boots the app the way a user does and asks what got loaded — and it
+    boots from `jobs/`, one level *below* the example root, which the old
+    exact-CWD fallback could not have handled at all. The convention directory
+    is found by walking up to the project root, so where you stand no longer
+    decides whether your plugins exist.
+    """
+    from functualize.app import FunctualizeApp
 
-    cwd = os.getcwd()
-    os.chdir(_EXAMPLE_ROOT)
-    try:
-        plugins = loader._discover_from_files(app)
-    finally:
-        os.chdir(cwd)
+    monkeypatch.chdir(_EXAMPLE_ROOT / "jobs")
+    app = FunctualizeApp(name="file-based-plugin-example")
 
-    assert [p.name for p in plugins] == ["run-notifier"]
+    assert "run-notifier" in app.plugin_loader.loaded_plugins
