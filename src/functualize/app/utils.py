@@ -12,7 +12,6 @@ import inspect
 import json
 import os
 import sys
-import tomllib
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -22,6 +21,14 @@ from typing import Any
 from pydantic import TypeAdapter, ValidationError
 
 from functualize._config.merge import merge_config_layers
+from functualize._config.project_dirs import (
+    PROJECT_CONFIG_CANDIDATES,
+    collect_convention_directories,
+    read_toml_file,
+    resolve_effective_directories,
+    resolve_effective_directories_from_layers,
+    resolve_project_config,
+)
 
 # `workflow-graph-semantics`/T6. Core ships a notifier and registers none; this
 # is how somebody reaches it to register it. Without the re-export the claim in
@@ -370,87 +377,6 @@ class DiscoveryResult:
 # =============================================================================
 
 
-def _extract_functualize_section(path: Path) -> dict[str, Any] | None:
-    """Extract [tool.functualize] section from a pyproject.toml file.
-
-    Args:
-        path: Path to the pyproject.toml file.
-
-    Returns:
-        The dict under [tool.functualize] if present, or None.
-    """
-    try:
-        content = path.read_bytes()
-        data = tomllib.loads(content.decode("utf-8"))
-    except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError):
-        return None
-
-    tool = data.get("tool", {})
-    if isinstance(tool, dict):
-        section = tool.get("functualize")
-        if isinstance(section, dict):
-            return section
-    return None
-
-
-# Candidate list for project config resolution.
-# Order within the list defines priority per directory (first match wins):
-# 1. pyproject.toml [tool.functualize] section (highest priority — standard location)
-# 2. Plain .functualize.toml at directory root
-# 3. .functualize/.functualize.toml (convention directory)
-_CANDIDATES: list[str | tuple[str, Any]] = [
-    ("pyproject.toml", _extract_functualize_section),
-    ".functualize.toml",
-    ".functualize/.functualize.toml",
-]
-
-
-def _convention_subdir_name(key: str) -> str:
-    """Map a config key to its convention subdirectory name."""
-    mapping = {
-        "jobs_directories": "jobs",
-        "import_libs": "lib",
-        "plugins_directories": "plugins",
-    }
-    return mapping.get(key, key)
-
-
-def _flatten_dedup_resolve(
-    layers: list[list[str]],
-    anchor: Path,
-    *,
-    is_path: bool = True,
-) -> list[str]:
-    """Flatten layers, deduplicate by first occurrence, resolve relative paths.
-
-    Args:
-        layers: List of lists, in priority order (first = highest).
-        anchor: Directory to resolve relative paths against.
-        is_path: If True, resolve relative strings as filesystem paths.
-
-    Returns:
-        Deduplicated list of strings.
-    """
-    seen: set[str] = set()
-    result: list[str] = []
-
-    for layer in layers:
-        for item in layer:
-            if is_path:
-                path = Path(os.path.expanduser(item))
-                if not path.is_absolute():
-                    path = anchor / path
-                resolved = str(path.resolve())
-            else:
-                resolved = item
-
-            if resolved not in seen:
-                seen.add(resolved)
-                result.append(resolved)
-
-    return result
-
-
 def enumerate_job_names(jobs_directories: list[str]) -> set[str]:
     """Enumerate likely job names from jobs_directories WITHOUT importing.
 
@@ -533,43 +459,6 @@ def enumerate_group_names(jobs_directories: list[str]) -> set[str]:
     return group_names
 
 
-def resolve_project_config(cwd: Path) -> tuple[Path, dict[str, Any]]:
-    """Walk upward from cwd, collect and merge project configs.
-
-    Uses ResourceLocator with upward search + platform user config directory.
-    Collects one config per directory using the candidate list, then merges
-    them nearest-first with root-stop semantics.
-
-    Args:
-        cwd: The current working directory to start searching from.
-
-    Returns:
-        Tuple of (anchor, merged_config) where:
-        - anchor: directory containing the nearest (highest-priority) config,
-          or cwd if no config found.
-        - merged_config: deep-merged config dict from all layers.
-    """
-    locator = (
-        ResourceLocator().search_upward(start=cwd).search_platform_user("functualize")
-    )
-
-    results = locator.resolve_all_candidates(_CANDIDATES)
-
-    if not results:
-        return (cwd, {})
-
-    # Extract layers in priority order (nearest first)
-    layers = [config for (_directory, config) in results]
-
-    # The anchor is the nearest config's directory
-    anchor = results[0][0]
-
-    # Merge with root-stop semantics
-    merged = merge_config_layers(layers)
-
-    return (anchor, merged)
-
-
 def _first_existing_candidate_file(
     directory: Path, candidates: list[str | tuple[str, Any]]
 ) -> Path | None:
@@ -603,259 +492,15 @@ def list_project_config_files(cwd: Path) -> list[tuple[Path, Path]]:
         ResourceLocator().search_upward(start=cwd).search_platform_user("functualize")
     )
 
-    results = locator.resolve_all_candidates(_CANDIDATES)
+    results = locator.resolve_all_candidates(PROJECT_CONFIG_CANDIDATES)
 
     files: list[tuple[Path, Path]] = []
     for directory, _config in results:
-        file_path = _first_existing_candidate_file(directory, _CANDIDATES)
+        file_path = _first_existing_candidate_file(directory, PROJECT_CONFIG_CANDIDATES)
         if file_path is not None:
             files.append((directory, file_path))
 
     return files
-
-
-def resolve_effective_directories(
-    anchor: Path,
-    merged_config: dict[str, Any],
-    *,
-    cli_overrides: dict[str, Any] | None = None,
-    env_overrides: dict[str, Any] | None = None,
-    global_config: dict[str, Any] | None = None,
-) -> dict[str, list[str]]:
-    """Resolve effective directory lists with full precedence chain.
-
-    Public wrapper providing backward-compatible interface. Internally uses
-    ResourceLocator-based resolution with convention directory detection.
-
-    Implements the resolution order for list-type keys:
-        CLI + ENV + File + Convention + Global + Defaults
-
-    Each layer prepends (higher priority = earlier in the list).
-    Deduplicated by first occurrence. All relative paths resolved against anchor.
-
-    Args:
-        anchor: The anchor directory for resolving relative paths.
-        merged_config: The merged file-layer config dict.
-        cli_overrides: CLI flag overrides (flat dict).
-        env_overrides: Environment variable overrides.
-        global_config: Global config dict (~/.config/functualize/config.toml).
-
-    Returns:
-        Dict with keys: "jobs_directories", "import_libs", "plugins_directories",
-        "extra_directories", "exclude_patterns". Each value is a deduplicated
-        list of absolute path strings (for directories) or patterns.
-    """
-    # Build a combined CLI overrides dict from cli + env (env prepends after cli)
-    combined_cli: dict[str, Any] = {}
-
-    env = env_overrides or {}
-    cli = cli_overrides or {}
-
-    # Merge env and cli into a single overrides dict (cli first, then env appended)
-    list_keys = [
-        "jobs_directories",
-        "import_libs",
-        "plugins_directories",
-        "extra_directories",
-        "exclude_patterns",
-    ]
-    for key in list_keys:
-        combined: list[str] = []
-        cli_val = cli.get(key)
-        if cli_val and isinstance(cli_val, list):
-            combined.extend([str(v) for v in cli_val])
-        env_val = env.get(key)
-        if env_val and isinstance(env_val, list):
-            combined.extend([str(v) for v in env_val])
-        if combined:
-            combined_cli[key] = combined
-
-    # Detect convention directories at the anchor
-    convention_dirs = _collect_convention_directories([anchor])
-
-    return _resolve_effective_directories(
-        anchor,
-        merged_config,
-        convention_dirs=convention_dirs,
-        cli_overrides=combined_cli,
-        global_config=global_config,
-    )
-
-
-def _resolve_effective_directories(
-    anchor: Path,
-    merged_config: dict[str, Any],
-    *,
-    config_layers: list[tuple[Path, dict[str, Any]]] | None = None,
-    convention_dirs: dict[str, list[str]] | None = None,
-    cli_overrides: dict[str, Any] | None = None,
-    global_config: dict[str, Any] | None = None,
-) -> dict[str, list[str]]:
-    """Resolve effective directory lists with full precedence chain.
-
-    Implements the resolution order for list-type keys:
-        CLI + File layers (all, nearest-first) + Convention + Global
-
-    For list-type keys (jobs_directories, import_libs, etc.), values from
-    ALL config layers are collected and concatenated (nearest-first) rather
-    than being replaced wholesale by deep merge. This enables multi-level
-    config scenarios where each ancestor contributes directories.
-
-    For scalar keys, the merged_config (which uses nearest-wins) is used.
-
-    Each layer prepends (higher priority = earlier in the list).
-    Deduplicated by first occurrence. All relative paths resolved against anchor.
-
-    Args:
-        anchor: The anchor directory for resolving relative paths.
-        merged_config: The merged file-layer config dict (for scalar keys).
-        config_layers: Raw config layers with their directories, nearest-first.
-            Used for list-type keys to collect from all layers.
-        convention_dirs: Pre-collected convention directories per key.
-        cli_overrides: CLI flag overrides (flat dict).
-        global_config: Global config dict (~/.config/functualize/config.toml).
-
-    Returns:
-        Dict with keys: "jobs_directories", "import_libs", "plugins_directories",
-        "extra_directories", "exclude_patterns". Each value is a deduplicated
-        list of absolute path strings (for directories) or patterns.
-    """
-    cli = cli_overrides or {}
-    global_ = global_config or {}
-    conv = convention_dirs or {}
-    raw_layers = config_layers or []
-
-    result: dict[str, list[str]] = {}
-
-    # List-type keys to resolve
-    list_keys = [
-        "jobs_directories",
-        "import_libs",
-        "plugins_directories",
-        "extra_directories",
-        "exclude_patterns",
-    ]
-
-    for key in list_keys:
-        layers: list[list[str]] = []
-
-        # 1. CLI overrides (highest priority)
-        cli_val = cli.get(key)
-        if cli_val and isinstance(cli_val, list):
-            layers.append([str(v) for v in cli_val])
-
-        # 2. File layers — collect from each raw layer individually
-        #    (nearest-first, so all contribute their directories)
-        if raw_layers:
-            for layer_dir, layer_config in raw_layers:
-                file_val = layer_config.get(key)
-                if file_val and isinstance(file_val, list):
-                    # Resolve relative paths against the layer's own directory
-                    layer_items: list[str] = []
-                    for v in file_val:
-                        item = str(v)
-                        p = Path(os.path.expanduser(item))
-                        if not p.is_absolute():
-                            p = layer_dir / p
-                        layer_items.append(str(p.resolve()))
-                    layers.append(layer_items)
-                else:
-                    # Check under [discovery] sub-section
-                    discovery = layer_config.get("discovery", {})
-                    if isinstance(discovery, dict):
-                        disc_val = discovery.get(key)
-                        if disc_val and isinstance(disc_val, list):
-                            layer_items = []
-                            for v in disc_val:
-                                item = str(v)
-                                p = Path(os.path.expanduser(item))
-                                if not p.is_absolute():
-                                    p = layer_dir / p
-                                layer_items.append(str(p.resolve()))
-                            layers.append(layer_items)
-        else:
-            # Fallback to merged_config if no raw layers provided
-            file_val = merged_config.get(key)
-            if file_val and isinstance(file_val, list):
-                layers.append([str(v) for v in file_val])
-            else:
-                # Check under [discovery] sub-section for some keys
-                discovery = merged_config.get("discovery", {})
-                if isinstance(discovery, dict):
-                    disc_val = discovery.get(key)
-                    if disc_val and isinstance(disc_val, list):
-                        layers.append([str(v) for v in disc_val])
-
-        # 3. Convention directories (pre-collected from upward walk)
-        if key in conv and conv[key]:
-            layers.append(conv[key])
-
-        # 4. Global config
-        global_val = global_.get(key)
-        if global_val and isinstance(global_val, list):
-            layers.append([str(v) for v in global_val])
-        else:
-            # Check under [discovery] sub-section
-            global_discovery = global_.get("discovery", {})
-            if isinstance(global_discovery, dict):
-                glob_disc_val = global_discovery.get(key)
-                if glob_disc_val and isinstance(glob_disc_val, list):
-                    layers.append([str(v) for v in glob_disc_val])
-
-        # Flatten and deduplicate
-        # When raw_layers are used, paths are already resolved against
-        # their respective layer directories, so use is_path=False to avoid
-        # double-resolution.
-        if raw_layers:
-            effective = _flatten_dedup_resolve(layers, anchor, is_path=False)
-        else:
-            effective = _flatten_dedup_resolve(
-                layers, anchor, is_path=(key != "exclude_patterns")
-            )
-        result[key] = effective
-
-    return result
-
-
-def _collect_convention_directories(
-    directories: list[Path],
-) -> dict[str, list[str]]:
-    """Detect convention directories at each level of the upward walk.
-
-    For each directory in the walk, checks for:
-    - .functualize/jobs/ → maps to "jobs_directories"
-    - .functualize/lib/ → maps to "import_libs"
-    - .functualize/plugins/ → maps to "plugins_directories"
-
-    Args:
-        directories: List of directories from the upward walk (nearest first).
-
-    Returns:
-        Dict mapping config keys to lists of resolved convention directory paths.
-    """
-    conv: dict[str, list[str]] = {
-        "jobs_directories": [],
-        "import_libs": [],
-        "plugins_directories": [],
-    }
-
-    seen: set[str] = set()
-    key_to_subdir = {
-        "jobs_directories": "jobs",
-        "import_libs": "lib",
-        "plugins_directories": "plugins",
-    }
-
-    for directory in directories:
-        for key, subdir in key_to_subdir.items():
-            convention_path = directory / ".functualize" / subdir
-            if convention_path.is_dir():
-                resolved = str(convention_path.resolve())
-                if resolved not in seen:
-                    seen.add(resolved)
-                    conv[key].append(resolved)
-
-    return conv
 
 
 # =============================================================================
@@ -1025,11 +670,6 @@ def import_job(
     return functions
 
 
-def _warn(msg: str) -> None:
-    """Emit a warning to stderr."""
-    print(f"Warning: {msg}", file=sys.stderr)
-
-
 def resolve_user_config_dir() -> Path:
     """Resolve the XDG config directory for functualize.
 
@@ -1062,28 +702,6 @@ def resolve_user_data_dir() -> Path:
     if xdg:
         return Path(xdg) / "functualize"
     return Path.home() / ".local" / "share" / "functualize"
-
-
-def _read_toml_file(path: Path) -> dict[str, Any] | None:
-    """Read and parse a TOML file safely.
-
-    Returns the parsed dict, or None if the file doesn't exist.
-    Warns to stderr and returns empty dict on read/parse errors.
-    """
-    if not path.exists():
-        return None
-
-    try:
-        content = path.read_bytes()
-    except (PermissionError, OSError) as exc:
-        _warn(f"{path}: {exc}")
-        return {}
-
-    try:
-        return tomllib.loads(content.decode("utf-8"))
-    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
-        _warn(f"{path}: {exc}")
-        return {}
 
 
 def _should_skip_directory(name: str) -> bool:
@@ -1296,7 +914,7 @@ def auto_discover(
             .search_platform_user("functualize")
         )
 
-        results = locator.resolve_all_candidates(_CANDIDATES)
+        results = locator.resolve_all_candidates(PROJECT_CONFIG_CANDIDATES)
 
         if results:
             # Extract layers in priority order (nearest first)
@@ -1315,15 +933,15 @@ def auto_discover(
         if cwd not in [d.resolve() for d in walk_directories]:
             walk_directories.insert(0, cwd)
 
-        convention_dirs = _collect_convention_directories(walk_directories)
+        convention_dirs = collect_convention_directories(walk_directories)
 
         # Read XDG global config as lowest-priority layer
         xdg_config_path = resolve_user_config_dir() / "config.toml"
-        global_config = _read_toml_file(xdg_config_path) or {}
+        global_config = read_toml_file(xdg_config_path) or {}
 
         # Resolve effective directories using full precedence chain
         cli_overrides = _overrides_to_cli_dict(typed_overrides)
-        effective = _resolve_effective_directories(
+        effective = resolve_effective_directories_from_layers(
             anchor,
             merged_config,
             config_layers=results,
@@ -1352,7 +970,7 @@ def auto_discover(
             ResourceLocator().search_explicit(cwd).search_platform_user("functualize")
         )
 
-        results = locator.resolve_all_candidates(_CANDIDATES)
+        results = locator.resolve_all_candidates(PROJECT_CONFIG_CANDIDATES)
 
         if results:
             layers = [config for (_directory, config) in results]
@@ -1363,15 +981,15 @@ def auto_discover(
             merged_config = {}
 
         # Convention directories: only check CWD itself
-        convention_dirs = _collect_convention_directories([cwd])
+        convention_dirs = collect_convention_directories([cwd])
 
         # XDG global config as lowest-priority layer
         xdg_config_path = resolve_user_config_dir() / "config.toml"
-        global_config = _read_toml_file(xdg_config_path) or {}
+        global_config = read_toml_file(xdg_config_path) or {}
 
         # Resolve effective directories
         cli_overrides = _overrides_to_cli_dict(typed_overrides)
-        effective = _resolve_effective_directories(
+        effective = resolve_effective_directories_from_layers(
             anchor,
             merged_config,
             config_layers=results,
